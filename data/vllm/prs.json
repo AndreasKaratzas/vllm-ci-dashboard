@@ -1,6 +1,38 @@
 {
-  "collected_at": "2026-05-06T01:07:19Z",
+  "collected_at": "2026-05-06T01:57:16Z",
   "prs": [
+    {
+      "number": 41575,
+      "title": "[ROCm][CI] Use vLLM generation defaults for DeepSeek prefetch-offload eval",
+      "author": "AndreasKaratzas",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-05-03T21:52:28Z",
+      "updated_at": "2026-05-06T01:08:13Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41575",
+      "labels": [
+        "rocm",
+        "ready",
+        "ci/build",
+        "deepseek"
+      ],
+      "draft": false,
+      "body_head": "This PR fixes `mi300_1: DeepSeek V2-Lite Prefetch Offload Accuracy (H100-MI300)`. Changes:\r\n- Run the scheduled DeepSeek V2-Lite prefetch-offload eval with `--generation-config vllm`.\r\n- This keeps the GSM8K harness deterministic instead of inheriting the model's HF generation defaults.\r\n- The fix preserves the prefetch-offload coverage and only changes serving defaults for this eval script.\r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        41579
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready",
+        "ci/build",
+        "deepseek"
+      ]
+    },
     {
       "number": 41572,
       "title": "[ROCm][CI] Skip ROCm batch invalid-input test pending torch fix",
@@ -25,38 +57,6 @@
         "ROCm"
       ],
       "other_tags": []
-    },
-    {
-      "number": 41575,
-      "title": "[ROCm][CI] Use vLLM generation defaults for DeepSeek prefetch-offload eval",
-      "author": "AndreasKaratzas",
-      "state": "open",
-      "merged": false,
-      "created_at": "2026-05-03T21:52:28Z",
-      "updated_at": "2026-05-06T00:38:36Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41575",
-      "labels": [
-        "rocm",
-        "ready",
-        "ci/build",
-        "deepseek"
-      ],
-      "draft": false,
-      "body_head": "This PR fixes `mi300_1: DeepSeek V2-Lite Prefetch Offload Accuracy (H100-MI300)`. Changes:\r\n- Run the scheduled DeepSeek V2-Lite prefetch-offload eval with `--generation-config vllm`.\r\n- This keeps the GSM8K harness deterministic instead of inheriting the model's HF generation defaults.\r\n- The fix preserves the prefetch-offload coverage and only changes serving defaults for this eval script.\r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        41579
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "ready",
-        "ci/build",
-        "deepseek"
-      ]
     },
     {
       "number": 41532,
