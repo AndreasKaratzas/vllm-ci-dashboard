@@ -1,6 +1,63 @@
 {
-  "collected_at": "2026-05-05T21:10:24Z",
+  "collected_at": "2026-05-06T01:07:19Z",
   "prs": [
+    {
+      "number": 41572,
+      "title": "[ROCm][CI] Skip ROCm batch invalid-input test pending torch fix",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-05-03T21:14:15Z",
+      "updated_at": "2026-05-06T00:47:11Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41572",
+      "labels": [
+        "rocm"
+      ],
+      "draft": false,
+      "body_head": "- Reject empty `bad_words` in `SamplingParams` so stateless generate returns 400 instead of 500.\r\n- Skip `test_completions_invalid_input` only on ROCm while the base image has the old torch/Kineto exit behavior.\r\n- Add a TODO to re-enable after the ROCm base image includes https://github.com/pytorch/pytorch/pull/179579.\r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        41582
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": []
+    },
+    {
+      "number": 41575,
+      "title": "[ROCm][CI] Use vLLM generation defaults for DeepSeek prefetch-offload eval",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-05-03T21:52:28Z",
+      "updated_at": "2026-05-06T00:38:36Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41575",
+      "labels": [
+        "rocm",
+        "ready",
+        "ci/build",
+        "deepseek"
+      ],
+      "draft": false,
+      "body_head": "This PR fixes `mi300_1: DeepSeek V2-Lite Prefetch Offload Accuracy (H100-MI300)`. Changes:\r\n- Run the scheduled DeepSeek V2-Lite prefetch-offload eval with `--generation-config vllm`.\r\n- This keeps the GSM8K harness deterministic instead of inheriting the model's HF generation defaults.\r\n- The fix preserves the prefetch-offload coverage and only changes serving defaults for this eval script.\r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        41579
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready",
+        "ci/build",
+        "deepseek"
+      ]
+    },
     {
       "number": 41532,
       "title": "[ROCm][CI] Gate incompatible HF references on Transformers v5",
@@ -93,31 +150,6 @@
         "v1",
         "deepseek"
       ]
-    },
-    {
-      "number": 41572,
-      "title": "[ROCm][CI] Skip ROCm batch invalid-input test pending torch fix",
-      "author": "AndreasKaratzas",
-      "state": "open",
-      "merged": false,
-      "created_at": "2026-05-03T21:14:15Z",
-      "updated_at": "2026-05-04T05:05:34Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41572",
-      "labels": [
-        "rocm"
-      ],
-      "draft": false,
-      "body_head": "- Reject empty `bad_words` in `SamplingParams` so stateless generate returns 400 instead of 500.\r\n- Skip `test_completions_invalid_input` only on ROCm while the base image has the old torch/Kineto exit behavior.\r\n- Add a TODO to re-enable after the ROCm base image includes https://github.com/pytorch/pytorch/pull/179579.\r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        41582
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": []
     },
     {
       "number": 41335,
@@ -236,36 +268,6 @@
       ],
       "other_tags": [
         "nvidia"
-      ]
-    },
-    {
-      "number": 41575,
-      "title": "[ROCm][CI] Use vLLM generation defaults for DeepSeek prefetch-offload eval",
-      "author": "AndreasKaratzas",
-      "state": "open",
-      "merged": false,
-      "created_at": "2026-05-03T21:52:28Z",
-      "updated_at": "2026-05-03T21:54:03Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41575",
-      "labels": [
-        "rocm",
-        "ci/build",
-        "deepseek"
-      ],
-      "draft": false,
-      "body_head": "This PR fixes `mi300_1: DeepSeek V2-Lite Prefetch Offload Accuracy (H100-MI300)`. Changes:\r\n- Run the scheduled DeepSeek V2-Lite prefetch-offload eval with `--generation-config vllm`.\r\n- This keeps the GSM8K harness deterministic instead of inheriting the model's HF generation defaults.\r\n- The fix preserves the prefetch-offload coverage and only changes serving defaults for this eval script.\r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        41579
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "ci/build",
-        "deepseek"
       ]
     },
     {
