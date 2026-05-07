@@ -124,6 +124,39 @@ class TestWorkflowYAML:
             f"into published data: {offenders}"
         )
 
+    def test_corruption_redeploy_only_runs_after_post_deploy_validation(self):
+        """A pre-deploy failure must never publish an empty ``_site`` tree."""
+        for f in WORKFLOWS.glob("*.yml"):
+            data = yaml.safe_load(f.read_text())
+            for job in (data.get("jobs") or {}).values():
+                steps = job.get("steps") or []
+                if not any(step.get("name", "").startswith("Redeploy if corrupted") for step in steps):
+                    continue
+
+                validation = next(
+                    (
+                        step for step in steps
+                        if step.get("name", "").startswith("Post-deploy validation")
+                    ),
+                    None,
+                )
+                assert validation and validation.get("id") == "post-deploy-validation", (
+                    f"{f.name} has a corruption redeploy but no id on post-deploy validation"
+                )
+
+                redeploy = next(
+                    step for step in steps
+                    if step.get("name", "").startswith("Redeploy if corrupted")
+                )
+                condition = str(redeploy.get("if", ""))
+                assert "steps.post-deploy-validation.outcome == 'failure'" in condition, (
+                    f"{f.name} corruption redeploy must only run when post-deploy "
+                    "validation itself fails"
+                )
+                assert "hashFiles('_site/index.html') != ''" in condition, (
+                    f"{f.name} corruption redeploy must require an assembled site"
+                )
+
 
 # ---------------------------------------------------------------------------
 # 3b. CI Collect workflow completeness

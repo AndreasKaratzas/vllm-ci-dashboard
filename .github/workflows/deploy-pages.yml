@@ -69,6 +69,7 @@ jobs:
           keep_files: true
 
       - name: Post-deploy validation
+        id: post-deploy-validation
         run: |
           git fetch origin gh-pages --depth=1 2>/dev/null || true
           CORRUPT=0
@@ -86,7 +87,7 @@ jobs:
           echo "All data files clean."
 
       - name: Redeploy if corrupted
-        if: failure()
+        if: failure() && steps.post-deploy-validation.outcome == 'failure' && hashFiles('_site/index.html') != ''
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
