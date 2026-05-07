@@ -1,6 +1,25 @@
 {
-  "collected_at": "2026-05-07T23:09:58Z",
+  "collected_at": "2026-05-07T23:36:55Z",
   "issues": [
+    {
+      "number": 40554,
+      "title": "[AMD][CI Failure][Tracker] Static dashboard tracker for current CI failures",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "created_at": "2026-04-21T20:29:34Z",
+      "updated_at": "2026-05-07T23:25:24Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/40554",
+      "labels": [
+        "rocm",
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "Backlog",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "This is the single dashboard-managed umbrella issue for current AMD CI failures tracked by `AndreasKaratzas/vllm-ci-dashboard`.\n\n## Rules\n- The dashboard automation updates only one managed comment on this issue.\n- The dashboard automation must not create or modify any other `vllm-project/vllm` issues.\n- Engineers should open separate manual issues when they pick up a specific failure to work on.\n- Those manual issues can move through [project #39](https://github.com/orgs/vllm-project/projects/39) and be referenced by the dashboard, but they are not edited by the dashboard automation.\n\n## Engineer workflow\n- Check the managed comment on this issue for the latest failing groups.\n- Open a separate issue for any failure you pick up.\n- Move that separate issue through the appropriate [project #39](https://github.com/orgs/vllm-project/projects/39) column and assign an owner there.\n\n## Ownership\n- Dashboard owner: `@AndreasKaratzas`\n- Repo: `AndreasKaratzas/vllm-ci-dashboard`\n",
+      "linked_prs": []
+    },
     {
       "number": 41989,
       "title": "[CI Failure]:  mi300_1: Quantized Models Test",
@@ -17,25 +36,6 @@
       "project_url": "https://github.com/orgs/vllm-project/projects/39",
       "repo": "vllm-project/vllm",
       "body_head": "### Name of failing test\n\n`(command rocm-smi || true) && export VLLM_TEST_GROUP_NAME=mi300_1-quantized-models-test && export VLLM_ALLOW_DEPRECATED_BEAM_SEARCH=1 && cd /vllm-workspace/tests && pytest -v -s models/quantization`\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\nExited with status 139 (soft failed)\nLink: https://buildkite.com/vllm/amd-ci/builds/8279/canvas?sid=019e0105-dcaa-41ef-b8a3-c4987192a08a&tab=output\n\n### \ud83d\udcdd History of failing test\n\n- Current streak start: 2026-04-23\n- First failure in 60d window: 2026-04-23\n- Last successful nightly: 2026-04-22\n- Break frequency (60d, pass\u2194fail flips): 1\n- Latest nightly date: 2026-05-07\n- Latest build(s): [amd-ci #8279](https://buildkite.com/vllm/amd-ci/builds/8279)\n- Latest hardware status: `mi300_1`=fail",
-      "linked_prs": []
-    },
-    {
-      "number": 40554,
-      "title": "[AMD][CI Failure][Tracker] Static dashboard tracker for current CI failures",
-      "author": "AndreasKaratzas",
-      "state": "open",
-      "created_at": "2026-04-21T20:29:34Z",
-      "updated_at": "2026-05-07T17:35:30Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/40554",
-      "labels": [
-        "rocm",
-        "ci-failure"
-      ],
-      "assignees": [],
-      "project_status": "Backlog",
-      "project_url": "https://github.com/orgs/vllm-project/projects/39",
-      "repo": "vllm-project/vllm",
-      "body_head": "This is the single dashboard-managed umbrella issue for current AMD CI failures tracked by `AndreasKaratzas/vllm-ci-dashboard`.\n\n## Rules\n- The dashboard automation updates only one managed comment on this issue.\n- The dashboard automation must not create or modify any other `vllm-project/vllm` issues.\n- Engineers should open separate manual issues when they pick up a specific failure to work on.\n- Those manual issues can move through [project #39](https://github.com/orgs/vllm-project/projects/39) and be referenced by the dashboard, but they are not edited by the dashboard automation.\n\n## Engineer workflow\n- Check the managed comment on this issue for the latest failing groups.\n- Open a separate issue for any failure you pick up.\n- Move that separate issue through the appropriate [project #39](https://github.com/orgs/vllm-project/projects/39) column and assign an owner there.\n\n## Ownership\n- Dashboard owner: `@AndreasKaratzas`\n- Repo: `AndreasKaratzas/vllm-ci-dashboard`\n",
       "linked_prs": []
     },
     {
