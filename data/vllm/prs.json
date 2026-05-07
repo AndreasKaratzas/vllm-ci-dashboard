@@ -1,6 +1,92 @@
 {
-  "collected_at": "2026-05-07T15:38:10Z",
+  "collected_at": "2026-05-07T16:26:01Z",
   "prs": [
+    {
+      "number": 41313,
+      "title": "[ROCm][CI] Fix NIXL spec-decode acceptance startup and diagnostics",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-04-30T01:59:44Z",
+      "updated_at": "2026-05-07T16:03:55Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41313",
+      "labels": [
+        "rocm",
+        "ci/build",
+        "v1",
+        "kv-connector"
+      ],
+      "draft": false,
+      "body_head": "- Use `ATTENTION_BACKEND=ROCM_ATTN` override in AMD Buildkite for the NIXL speculative-decoding acceptance test.\r\n- Make the NIXL spec-decode integration script fail fast when a server process exits before readiness instead of polling for the full timeout.\r\n- Pin this integration test path to `127.0.0.1` and set `VLLM_NIXL_SIDE_CHANNEL_HOST` explicitly so HTTP, proxy traffic, and NIXL side-channel metadata use the same loopback address family.\r\n- Improve NIXL KV-cache registration diagnostics when a tensor does not match the expected block dimension, including layer name, shape, stride, backend list, KV layout, and topology mode.\r\n\r\n## Scope Notes\r\n\r\n1. HTTP readiness is not enough for NIXL. The failing logs showed `/v1/completions` returning 200, then decode later timing out in `_nixl_handshake()` while waiting for prefill metadata on the side-channel socket. The new readiness check sends the same NIXL `get_meta_msg` request over ZMQ that decode needs, so the test does not start until the side channel is actually answering.\r\n\r\n2. `localhost` can resolve through IPv6 while the proxy path is already intentionally bound to `127.0.0.1` for CI. This test now uses `127.0.0.1` consistently and passes that host into the Python test for proxy and metrics access.\r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        41319
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ci/build",
+        "v1",
+        "kv-connector"
+      ]
+    },
+    {
+      "number": 41573,
+      "title": "[ROCm][CI] Stabilize ROCm shutdown and distributed compile CI",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-05-03T21:39:16Z",
+      "updated_at": "2026-05-07T16:01:46Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41573",
+      "labels": [
+        "rocm",
+        "ci/build"
+      ],
+      "draft": false,
+      "body_head": "This PR addresses the following nightly failures:\r\n- `mi355_1: Entrypoints Integration (API Server openai - Part 2)`\r\n- `mi300_2: Distributed Compile Unit Tests (2xH100-2xMI300)`\r\n\r\nIt:\r\n- Replaces the abort-shutdown polling loop with `proc.wait(timeout=...)`.\r\n- Keeps the existing non-ROCm timeout and allows a small ROCm native teardown buffer.\r\n- Stops running CUDA-only sequence-parallelism tests in the AMD compile job.\r\n- Points the AMD `tp2_ar_rms` command at its real `fusions_e2e` path.\r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        41580,
+        41581
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ci/build"
+      ]
+    },
+    {
+      "number": 41572,
+      "title": "[ROCm][CI] Skip ROCm batch invalid-input test pending torch fix",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-05-03T21:14:15Z",
+      "updated_at": "2026-05-07T15:59:46Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41572",
+      "labels": [
+        "rocm"
+      ],
+      "draft": false,
+      "body_head": "- Reject empty `bad_words` in `SamplingParams` so stateless generate returns 400 instead of 500.\r\n- Skip `test_completions_invalid_input` only on ROCm while the base image has the old torch/Kineto exit behavior.\r\n- Add a TODO to re-enable after the ROCm base image includes https://github.com/pytorch/pytorch/pull/179579.\r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        41582
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": []
+    },
     {
       "number": 41577,
       "title": "[ROCm][CI] Fix ROCm LoRA Transformers fallback with full CUDA graphs",
@@ -93,31 +179,6 @@
       ]
     },
     {
-      "number": 41572,
-      "title": "[ROCm][CI] Skip ROCm batch invalid-input test pending torch fix",
-      "author": "AndreasKaratzas",
-      "state": "open",
-      "merged": false,
-      "created_at": "2026-05-03T21:14:15Z",
-      "updated_at": "2026-05-06T00:47:11Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41572",
-      "labels": [
-        "rocm"
-      ],
-      "draft": false,
-      "body_head": "- Reject empty `bad_words` in `SamplingParams` so stateless generate returns 400 instead of 500.\r\n- Skip `test_completions_invalid_input` only on ROCm while the base image has the old torch/Kineto exit behavior.\r\n- Add a TODO to re-enable after the ROCm base image includes https://github.com/pytorch/pytorch/pull/179579.\r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        41582
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": []
-    },
-    {
       "number": 39136,
       "title": "[ROCm][Quantization][2/N] Refactor quark_moe w4a8 w/ oracle ",
       "author": "BowenBao",
@@ -207,67 +268,6 @@
       "other_tags": [
         "ready",
         "v1"
-      ]
-    },
-    {
-      "number": 41313,
-      "title": "[ROCm][CI] Fix NIXL spec-decode acceptance startup and diagnostics",
-      "author": "AndreasKaratzas",
-      "state": "open",
-      "merged": false,
-      "created_at": "2026-04-30T01:59:44Z",
-      "updated_at": "2026-05-04T03:36:12Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41313",
-      "labels": [
-        "rocm",
-        "ci/build",
-        "v1",
-        "kv-connector"
-      ],
-      "draft": false,
-      "body_head": "- Use `ATTENTION_BACKEND=ROCM_ATTN` override in AMD Buildkite for the NIXL speculative-decoding acceptance test.\r\n- Make the NIXL spec-decode integration script fail fast when a server process exits before readiness instead of polling for the full timeout.\r\n- Pin this integration test path to `127.0.0.1` and set `VLLM_NIXL_SIDE_CHANNEL_HOST` explicitly so HTTP, proxy traffic, and NIXL side-channel metadata use the same loopback address family.\r\n- Improve NIXL KV-cache registration diagnostics when a tensor does not match the expected block dimension, including layer name, shape, stride, backend list, KV layout, and topology mode.\r\n\r\n## Scope Notes\r\n\r\n1. HTTP readiness is not enough for NIXL. The failing logs showed `/v1/completions` returning 200, then decode later timing out in `_nixl_handshake()` while waiting for prefill metadata on the side-channel socket. The new readiness check sends the same NIXL `get_meta_msg` request over ZMQ that decode needs, so the test does not start until the side channel is actually answering.\r\n\r\n2. `localhost` can resolve through IPv6 while the proxy path is already intentionally bound to `127.0.0.1` for CI. This test now uses `127.0.0.1` consistently and passes that host into the Python test for proxy and metrics access.\r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        41319
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "ci/build",
-        "v1",
-        "kv-connector"
-      ]
-    },
-    {
-      "number": 41573,
-      "title": "[ROCm][CI] Stabilize ROCm shutdown and distributed compile CI",
-      "author": "AndreasKaratzas",
-      "state": "open",
-      "merged": false,
-      "created_at": "2026-05-03T21:39:16Z",
-      "updated_at": "2026-05-04T02:39:48Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41573",
-      "labels": [
-        "rocm",
-        "ci/build"
-      ],
-      "draft": false,
-      "body_head": "This PR addresses the following nightly failures:\r\n- `mi355_1: Entrypoints Integration (API Server openai - Part 2)`\r\n- `mi300_2: Distributed Compile Unit Tests (2xH100-2xMI300)`\r\n\r\nIt:\r\n- Replaces the abort-shutdown polling loop with `proc.wait(timeout=...)`.\r\n- Keeps the existing non-ROCm timeout and allows a small ROCm native teardown buffer.\r\n- Stops running CUDA-only sequence-parallelism tests in the AMD compile job.\r\n- Points the AMD `tp2_ar_rms` command at its real `fusions_e2e` path.\r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        41580,
-        41581
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "ci/build"
       ]
     },
     {
