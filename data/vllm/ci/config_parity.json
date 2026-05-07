@@ -5,7 +5,7 @@
     "matched": 114,
     "amd_only": 7,
     "nvidia_only": 43,
-    "mirrors": 16,
+    "mirrors": 8,
     "match_rate_pct": 94.2,
     "avg_command_similarity_pct": 94.7
   },
@@ -121,7 +121,6 @@
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/distributed.yaml",
       "amd_commands": [
-        "export TORCH_NCCL_BLOCKING_WAIT=1",
         "pytest -v -s tests/distributed/test_context_parallel.py",
         "VLLM_LOGGING_LEVEL=DEBUG python3 examples/features/data_parallel/data_parallel_offline.py --model=Qwen/Qwen1.5-MoE-A2.7B -tp=1 -dp=2 --max-model-len=2048 --all2all-backend=allgather_reducescatter --disable-nccl-for-dp-synchronization"
       ],
@@ -597,7 +596,6 @@
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/distributed.yaml",
       "amd_commands": [
-        "export TORCH_NCCL_BLOCKING_WAIT=1",
         "torchrun --nproc-per-node=4 distributed/test_torchrun_example.py",
         "PP_SIZE=2 torchrun --nproc-per-node=4 distributed/test_torchrun_example.py",
         "TP_SIZE=4 torchrun --nproc-per-node=4 distributed/test_torchrun_example_moe.py",
@@ -1857,44 +1855,12 @@
   ],
   "mirrors": [
     {
-      "nvidia_label": "V1 e2e (2 GPUs)",
-      "identity_key": "v1 e2e (2 gpus)",
-      "commands_overridden": false,
-      "command_similarity": 1.0,
-      "color": "green",
-      "source_file": ".buildkite/test_areas/engine.yaml"
-    },
-    {
-      "nvidia_label": "V1 e2e (4 GPUs)",
-      "identity_key": "v1 e2e (4 gpus)",
-      "commands_overridden": false,
-      "command_similarity": 1.0,
-      "color": "green",
-      "source_file": ".buildkite/test_areas/engine.yaml"
-    },
-    {
-      "nvidia_label": "Entrypoints Integration (API Server openai - Part 1)",
-      "identity_key": "entrypoints integration (api server openai - part 1)",
+      "nvidia_label": "Entrypoints Integration (LLM)",
+      "identity_key": "entrypoints integration (llm)",
       "commands_overridden": false,
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/entrypoints.yaml"
-    },
-    {
-      "nvidia_label": "Entrypoints Integration (API Server openai - Part 2)",
-      "identity_key": "entrypoints integration (api server openai - part 2)",
-      "commands_overridden": false,
-      "command_similarity": 1.0,
-      "color": "green",
-      "source_file": ".buildkite/test_areas/entrypoints.yaml"
-    },
-    {
-      "nvidia_label": "V1 Spec Decode",
-      "identity_key": "v1 spec decode",
-      "commands_overridden": false,
-      "command_similarity": 1.0,
-      "color": "green",
-      "source_file": ".buildkite/test_areas/misc.yaml"
     },
     {
       "nvidia_label": "V1 Sample + Logits",
@@ -1905,35 +1871,11 @@
       "source_file": ".buildkite/test_areas/misc.yaml"
     },
     {
-      "nvidia_label": "V1 Core + KV + Metrics",
-      "identity_key": "v1 core + kv + metrics",
-      "commands_overridden": false,
-      "command_similarity": 1.0,
-      "color": "green",
-      "source_file": ".buildkite/test_areas/misc.yaml"
-    },
-    {
-      "nvidia_label": "Basic Models Tests (Other)",
-      "identity_key": "basic models tests (other)",
-      "commands_overridden": false,
-      "command_similarity": 1.0,
-      "color": "green",
-      "source_file": ".buildkite/test_areas/models_basic.yaml"
-    },
-    {
-      "nvidia_label": "Language Models Test (Extended Generation)",
-      "identity_key": "language models test (extended generation)",
+      "nvidia_label": "Language Models Tests (Hybrid) %N",
+      "identity_key": "language models tests (hybrid)",
       "commands_overridden": true,
-      "command_similarity": 0.9002,
-      "color": "green",
-      "source_file": ".buildkite/test_areas/models_language.yaml"
-    },
-    {
-      "nvidia_label": "Language Models Test (Extended Pooling)",
-      "identity_key": "language models test (extended pooling)",
-      "commands_overridden": false,
-      "command_similarity": 1.0,
-      "color": "green",
+      "command_similarity": 0.5569,
+      "color": "orange",
       "source_file": ".buildkite/test_areas/models_language.yaml"
     },
     {
@@ -1955,14 +1897,6 @@
     {
       "nvidia_label": "Multi-Modal Models (Standard) 3: llava + qwen2_vl",
       "identity_key": "multi-modal models (standard) 3: llava + qwen2_vl",
-      "commands_overridden": false,
-      "command_similarity": 1.0,
-      "color": "green",
-      "source_file": ".buildkite/test_areas/models_multimodal.yaml"
-    },
-    {
-      "nvidia_label": "Multi-Modal Models (Standard) 4: other + whisper",
-      "identity_key": "multi-modal models (standard) 4: other + whisper",
       "commands_overridden": false,
       "command_similarity": 1.0,
       "color": "green",

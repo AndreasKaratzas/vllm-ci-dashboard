@@ -1,52 +1,75 @@
 {
-  "generated_at": "2026-05-06T04:54:22Z",
+  "generated_at": "2026-05-07T09:39:20Z",
   "window_builds": 10,
-  "total_flaky": 4,
+  "total_flaky": 7,
   "tests": [
-    {
-      "test_id": "mi300_4: DeepSeek V2-Lite Accuracy (4xH100-4xMI300)::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.5,
-      "appearances": 15,
-      "last_seen": "2026-05-06",
-      "first_failure": null,
-      "failure_streak": 0,
-      "history": [
-        "P",
-        "P",
-        "P",
-        "F",
-        "P",
-        "F",
-        "F",
-        "F",
-        "F",
-        "P"
-      ],
-      "module": "mi300_4: DeepSeek V2-Lite Accuracy (4xH100-4xMI300)",
-      "mean_duration": 0.0
-    },
     {
       "test_id": "mi300_1: DeepSeek V2-Lite Prefetch Offload Accuracy (H100-MI300)::__job_level__",
       "label": "flaky",
-      "pass_rate": 0.6,
-      "appearances": 15,
-      "last_seen": "2026-05-06",
+      "pass_rate": 0.4,
+      "appearances": 17,
+      "last_seen": "2026-05-07",
       "first_failure": "2026-05-02",
-      "failure_streak": 4,
+      "failure_streak": 6,
       "history": [
         "P",
         "P",
         "P",
         "P",
-        "P",
-        "P",
+        "F",
+        "F",
         "F",
         "F",
         "F",
         "F"
       ],
       "module": "mi300_1: DeepSeek V2-Lite Prefetch Offload Accuracy (H100-MI300)",
+      "mean_duration": 0.0
+    },
+    {
+      "test_id": "mi300_4: DeepSeek V2-Lite Accuracy (4xH100-4xMI300)::__job_level__",
+      "label": "flaky",
+      "pass_rate": 0.4,
+      "appearances": 17,
+      "last_seen": "2026-05-07",
+      "first_failure": "2026-05-07",
+      "failure_streak": 1,
+      "history": [
+        "P",
+        "F",
+        "P",
+        "F",
+        "F",
+        "F",
+        "F",
+        "P",
+        "P",
+        "F"
+      ],
+      "module": "mi300_4: DeepSeek V2-Lite Accuracy (4xH100-4xMI300)",
+      "mean_duration": 0.0
+    },
+    {
+      "test_id": "mi300_4: Qwen3-30B-A3B-FP8-block Accuracy (4xH100-4xMI300)::__job_level__",
+      "label": "flaky",
+      "pass_rate": 0.6,
+      "appearances": 17,
+      "last_seen": "2026-05-07",
+      "first_failure": "2026-05-07",
+      "failure_streak": 1,
+      "history": [
+        "P",
+        "P",
+        "F",
+        "P",
+        "P",
+        "F",
+        "F",
+        "P",
+        "P",
+        "F"
+      ],
+      "module": "mi300_4: Qwen3-30B-A3B-FP8-block Accuracy (4xH100-4xMI300)",
       "mean_duration": 0.0
     },
     {
@@ -66,26 +89,72 @@
       "mean_duration": 0.0
     },
     {
-      "test_id": "mi300_4: Qwen3-30B-A3B-FP8-block Accuracy (4xH100-4xMI300)::__job_level__",
+      "test_id": "mi250_1: Examples::__job_level__",
       "label": "flaky",
       "pass_rate": 0.7,
-      "appearances": 15,
-      "last_seen": "2026-05-06",
-      "first_failure": null,
-      "failure_streak": 0,
+      "appearances": 32,
+      "last_seen": "2026-05-07",
+      "first_failure": "2026-05-06",
+      "failure_streak": 3,
       "history": [
         "P",
         "P",
         "P",
         "P",
-        "F",
         "P",
         "P",
+        "P",
         "F",
         "F",
-        "P"
+        "F"
       ],
-      "module": "mi300_4: Qwen3-30B-A3B-FP8-block Accuracy (4xH100-4xMI300)",
+      "module": "mi250_1: Examples",
+      "mean_duration": 0.0
+    },
+    {
+      "test_id": "mi300_4: Distributed Torchrun + Examples (4 GPUs)::__job_level__",
+      "label": "flaky",
+      "pass_rate": 0.7,
+      "appearances": 17,
+      "last_seen": "2026-05-07",
+      "first_failure": "2026-05-06",
+      "failure_streak": 3,
+      "history": [
+        "P",
+        "P",
+        "P",
+        "P",
+        "P",
+        "P",
+        "P",
+        "F",
+        "F",
+        "F"
+      ],
+      "module": "mi300_4: Distributed Torchrun + Examples (4 GPUs)",
+      "mean_duration": 0.0
+    },
+    {
+      "test_id": "mi355_1: Examples::__job_level__",
+      "label": "flaky",
+      "pass_rate": 0.7,
+      "appearances": 32,
+      "last_seen": "2026-05-07",
+      "first_failure": "2026-05-06",
+      "failure_streak": 3,
+      "history": [
+        "P",
+        "P",
+        "P",
+        "P",
+        "P",
+        "P",
+        "P",
+        "F",
+        "F",
+        "F"
+      ],
+      "module": "mi355_1: Examples",
       "mean_duration": 0.0
     }
   ]

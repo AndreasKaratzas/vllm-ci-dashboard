@@ -1,6 +1,65 @@
 {
-  "collected_at": "2026-05-06T04:56:05Z",
+  "collected_at": "2026-05-07T09:41:55Z",
   "prs": [
+    {
+      "number": 41577,
+      "title": "[ROCm][CI] Fix ROCm LoRA Transformers fallback with full CUDA graphs",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-05-03T22:59:53Z",
+      "updated_at": "2026-05-06T16:16:57Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41577",
+      "labels": [
+        "rocm",
+        "nvidia"
+      ],
+      "draft": false,
+      "body_head": "Fixes `LoRA %N`\r\n\r\n- Restrict the gfx950 `wvSplitKrc` skinny GEMM path to 2D activations.\r\n- Make the vLLM C RMSNorm provider flatten N-D activations by token row and reshape back.\r\n- Initialize torch-compile support on the actual HF decoder instance for dynamic remote-code classes.\r\n\r\nThe original failure was `Unsupported N value: 512,2048,1` in `wvSplitKrc`. The selector counted flattened tokens from a 3D Transformers activation, but `wvSplitKrc` reads `size(0)` and is only correct for 2D row-major inputs. After fixing that selector bug, full decode graph capture exposed the same N-D activation mismatch in the `vllm_c` RMSNorm provider. Flattening RMSNorm inputs matches its row-wise kernel contract and preserves the public tensor shape.\r\n\r\n- Known-good commit: `0e39202ca911319c7747a2f9d5a0c162fdff4fd9`.\r\n- Failing commit observed in CI: `7845379230c48c9103ab71682ee05977dfbbdfce`.\r\n- The likely trigger is the update to transformers v5\r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        41578
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "nvidia"
+      ]
+    },
+    {
+      "number": 41532,
+      "title": "[ROCm][CI] Gate incompatible HF references on Transformers v5",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-05-03T04:14:56Z",
+      "updated_at": "2026-05-06T15:00:03Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41532",
+      "labels": [
+        "rocm",
+        "ready",
+        "multi-modality"
+      ],
+      "draft": false,
+      "body_head": "This updates generation-test metadata for models whose HF reference path is incompatible with the installed Transformers v5 runtime.\r\n\r\nTest groups fixed:\r\n- `mi355_1: Language Models Tests (Standard)` for MiniCPM4.\r\n- `mi355_1: Language Models Test (Extended Generation)` for HyperCLOVAX.\r\n\r\nMiniCPM4:\r\n- Fails in HF remote code because it imports `is_torch_fx_available`, removed from the installed Transformers v5 runtime.\r\n- Links the upstream compatibility request, which is closed as not planned: https://github.com/huggingface/transformers/issues/44561\r\n\r\nHyperCLOVAX:\r\n- The model's remote code imports `ROPE_INIT_FUNCTIONS` and unconditionally indexes `ROPE_INIT_FUNCTIONS[self.rope_type]`; for the default case, `self.rope_type` is `\"default\"`: https://huggingface.co/naver-hyperclovax/HyperCLOVAX-SEED-Think-14B/blob/main/modeling_hyperclovax.py\r\n- Transformers v5 docs still list `\"default\"` as a valid RoPE type. The incompatibility is narrower: v5 no longer exposes a `\"default\"` entry in `ROPE_INIT_FUNCTIONS`, while v4.57 did. In v5's own Llama code, default RoPE is handled by `compute_default_rope_parameters`; `ROPE_INIT_FUNCTIONS` is consulted only when `rope_type != \"default\"`.\r\n- The v5 migration guide also notes that rotary embedding configuration now lives under `config.rope_parameters`, which matches the new v5 model path.\r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        40645,
+        41584
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready",
+        "multi-modality"
+      ]
+    },
     {
       "number": 41575,
       "title": "[ROCm][CI] Use vLLM generation defaults for DeepSeek prefetch-offload eval",
@@ -57,37 +116,6 @@
         "ROCm"
       ],
       "other_tags": []
-    },
-    {
-      "number": 41532,
-      "title": "[ROCm][CI] Gate incompatible HF references on Transformers v5",
-      "author": "AndreasKaratzas",
-      "state": "open",
-      "merged": false,
-      "created_at": "2026-05-03T04:14:56Z",
-      "updated_at": "2026-05-05T17:12:54Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41532",
-      "labels": [
-        "rocm",
-        "ready",
-        "multi-modality"
-      ],
-      "draft": false,
-      "body_head": "This updates generation-test metadata for models whose HF reference path is incompatible with the installed Transformers v5 runtime.\r\n\r\nTest groups fixed:\r\n- `mi355_1: Language Models Tests (Standard)` for MiniCPM4.\r\n- `mi355_1: Language Models Test (Extended Generation)` for HyperCLOVAX.\r\n\r\nMiniCPM4:\r\n- Fails in HF remote code because it imports `is_torch_fx_available`, removed from the installed Transformers v5 runtime.\r\n- Links the upstream compatibility request, which is closed as not planned: https://github.com/huggingface/transformers/issues/44561\r\n\r\nHyperCLOVAX:\r\n- The model's remote code imports `ROPE_INIT_FUNCTIONS` and unconditionally indexes `ROPE_INIT_FUNCTIONS[self.rope_type]`; for the default case, `self.rope_type` is `\"default\"`: https://huggingface.co/naver-hyperclovax/HyperCLOVAX-SEED-Think-14B/blob/main/modeling_hyperclovax.py\r\n- Transformers v5 docs still list `\"default\"` as a valid RoPE type. The incompatibility is narrower: v5 no longer exposes a `\"default\"` entry in `ROPE_INIT_FUNCTIONS`, while v4.57 did. In v5's own Llama code, default RoPE is handled by `compute_default_rope_parameters`; `ROPE_INIT_FUNCTIONS` is consulted only when `rope_type != \"default\"`.\r\n- The v5 migration guide also notes that rotary embedding configuration now lives under `config.rope_parameters`, which matches the new v5 model path.\r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        40645,
-        41584
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "ready",
-        "multi-modality"
-      ]
     },
     {
       "number": 39136,
@@ -240,34 +268,6 @@
       ],
       "other_tags": [
         "ci/build"
-      ]
-    },
-    {
-      "number": 41577,
-      "title": "[ROCm][CI] Fix ROCm LoRA Transformers fallback with full CUDA graphs",
-      "author": "AndreasKaratzas",
-      "state": "open",
-      "merged": false,
-      "created_at": "2026-05-03T22:59:53Z",
-      "updated_at": "2026-05-03T23:10:07Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41577",
-      "labels": [
-        "rocm",
-        "nvidia"
-      ],
-      "draft": false,
-      "body_head": "Fixes `LoRA %N`\r\n\r\n- Restrict the gfx950 `wvSplitKrc` skinny GEMM path to 2D activations.\r\n- Make the vLLM C RMSNorm provider flatten N-D activations by token row and reshape back.\r\n- Initialize torch-compile support on the actual HF decoder instance for dynamic remote-code classes.\r\n\r\nThe original failure was `Unsupported N value: 512,2048,1` in `wvSplitKrc`. The selector counted flattened tokens from a 3D Transformers activation, but `wvSplitKrc` reads `size(0)` and is only correct for 2D row-major inputs. After fixing that selector bug, full decode graph capture exposed the same N-D activation mismatch in the `vllm_c` RMSNorm provider. Flattening RMSNorm inputs matches its row-wise kernel contract and preserves the public tensor shape.\r\n\r\n- Known-good commit: `0e39202ca911319c7747a2f9d5a0c162fdff4fd9`.\r\n- Failing commit observed in CI: `7845379230c48c9103ab71682ee05977dfbbdfce`.\r\n- The likely trigger is the update to transformers v5\r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        41578
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "nvidia"
       ]
     },
     {
