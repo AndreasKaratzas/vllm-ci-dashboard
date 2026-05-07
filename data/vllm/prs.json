@@ -1,0 +1,807 @@
+{
+  "collected_at": "2026-05-06T04:56:05Z",
+  "prs": [
+    {
+      "number": 41575,
+      "title": "[ROCm][CI] Use vLLM generation defaults for DeepSeek prefetch-offload eval",
+      "author": "AndreasKaratzas",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-05-03T21:52:28Z",
+      "updated_at": "2026-05-06T03:32:55Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41575",
+      "labels": [
+        "rocm",
+        "ready",
+        "ci/build",
+        "deepseek"
+      ],
+      "draft": false,
+      "body_head": "This PR fixes `mi300_1: DeepSeek V2-Lite Prefetch Offload Accuracy (H100-MI300)`. Changes:\r\n- Run the scheduled DeepSeek V2-Lite prefetch-offload eval with `--generation-config vllm`.\r\n- This keeps the GSM8K harness deterministic instead of inheriting the model's HF generation defaults.\r\n- The fix preserves the prefetch-offload coverage and only changes serving defaults for this eval script.\r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        41579
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready",
+        "ci/build",
+        "deepseek"
+      ]
+    },
+    {
+      "number": 41572,
+      "title": "[ROCm][CI] Skip ROCm batch invalid-input test pending torch fix",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-05-03T21:14:15Z",
+      "updated_at": "2026-05-06T00:47:11Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41572",
+      "labels": [
+        "rocm"
+      ],
+      "draft": false,
+      "body_head": "- Reject empty `bad_words` in `SamplingParams` so stateless generate returns 400 instead of 500.\r\n- Skip `test_completions_invalid_input` only on ROCm while the base image has the old torch/Kineto exit behavior.\r\n- Add a TODO to re-enable after the ROCm base image includes https://github.com/pytorch/pytorch/pull/179579.\r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        41582
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": []
+    },
+    {
+      "number": 41532,
+      "title": "[ROCm][CI] Gate incompatible HF references on Transformers v5",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-05-03T04:14:56Z",
+      "updated_at": "2026-05-05T17:12:54Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41532",
+      "labels": [
+        "rocm",
+        "ready",
+        "multi-modality"
+      ],
+      "draft": false,
+      "body_head": "This updates generation-test metadata for models whose HF reference path is incompatible with the installed Transformers v5 runtime.\r\n\r\nTest groups fixed:\r\n- `mi355_1: Language Models Tests (Standard)` for MiniCPM4.\r\n- `mi355_1: Language Models Test (Extended Generation)` for HyperCLOVAX.\r\n\r\nMiniCPM4:\r\n- Fails in HF remote code because it imports `is_torch_fx_available`, removed from the installed Transformers v5 runtime.\r\n- Links the upstream compatibility request, which is closed as not planned: https://github.com/huggingface/transformers/issues/44561\r\n\r\nHyperCLOVAX:\r\n- The model's remote code imports `ROPE_INIT_FUNCTIONS` and unconditionally indexes `ROPE_INIT_FUNCTIONS[self.rope_type]`; for the default case, `self.rope_type` is `\"default\"`: https://huggingface.co/naver-hyperclovax/HyperCLOVAX-SEED-Think-14B/blob/main/modeling_hyperclovax.py\r\n- Transformers v5 docs still list `\"default\"` as a valid RoPE type. The incompatibility is narrower: v5 no longer exposes a `\"default\"` entry in `ROPE_INIT_FUNCTIONS`, while v4.57 did. In v5's own Llama code, default RoPE is handled by `compute_default_rope_parameters`; `ROPE_INIT_FUNCTIONS` is consulted only when `rope_type != \"default\"`.\r\n- The v5 migration guide also notes that rotary embedding configuration now lives under `config.rope_parameters`, which matches the new v5 model path.\r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        40645,
+        41584
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready",
+        "multi-modality"
+      ]
+    },
+    {
+      "number": 39136,
+      "title": "[ROCm][Quantization][2/N] Refactor quark_moe w4a8 w/ oracle ",
+      "author": "BowenBao",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-04-07T01:43:06Z",
+      "updated_at": "2026-05-05T02:50:38Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/39136",
+      "labels": [
+        "rocm",
+        "ready",
+        "gpt-oss"
+      ],
+      "draft": false,
+      "body_head": "1. Remove `QuarkOCP_MX_MoEMethod_OSS` and add aiter w4a8 backend.\r\n2. Add unittest cases for rocm w4a16, w4a8 fused moe.\r\n3. Validated locally with\r\n\r\n```bash\r\npytest -s -v tests/evals/gpt_oss/test_gpqa_correctness.py \\\r\n    --config-list-file=tests/evals/gpt_oss/configs/models-gfx950.txt\r\n\r\npytest -s -v tests/evals/gsm8k/test_gsm8k_correctness.py \\\r\n    --config-list-file=tests/evals/gsm8k/configs/models-qwen35-mi355.txt\r\n\r\n```",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        41324
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready",
+        "gpt-oss"
+      ]
+    },
+    {
+      "number": 41569,
+      "title": "[ROCm][CI] Fix MLA prefill scale for DeepSeek GSM8K",
+      "author": "AndreasKaratzas",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-05-03T20:48:17Z",
+      "updated_at": "2026-05-05T02:40:04Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41569",
+      "labels": [
+        "rocm",
+        "ready",
+        "v1",
+        "deepseek"
+      ],
+      "draft": false,
+      "body_head": "This restores the MLA prefill softmax scale used by DeepSeek-style models. The prefill backend refactor in `f3fef12350` (#32623) started constructing MLA prefill backends with `model_config.get_head_size() ** -0.5`. For DeepSeek-Coder-V2-Lite, that head size is the 576-dim latent KV cache, not the 192-dim query/key attention head. It also missed the DeepSeek YaRN mscale correction applied by the model attention module.\r\n\r\nThe fix derives prefill scale from `qk_nope_head_dim + qk_rope_head_dim`, applies the DeepSeek V2/V3 YaRN mscale correction, and leaves DeepSeek V4 unchanged because its attention path disables YaRN mscale.\r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        41583
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready",
+        "v1",
+        "deepseek"
+      ]
+    },
+    {
+      "number": 41335,
+      "title": "[ROCm][CI] Align spec decode logprob test prefill settings",
+      "author": "AndreasKaratzas",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-04-30T05:05:23Z",
+      "updated_at": "2026-05-04T04:54:20Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41335",
+      "labels": [
+        "rocm",
+        "ready",
+        "v1"
+      ],
+      "draft": false,
+      "body_head": "This PR fixes a ROCm-only failure in `test_spec_decode_logprobs` for the ngram speculative decoding cases. The test compares logprobs from a regular base-model run against logprobs from a speculative decoding run. For that comparison to isolate speculative decoding, both LLM instances need to use the same execution settings. Before this change, the spec-decode LLM forced chunked prefill with `enable_chunked_prefill=True` and `max_num_batched_tokens=32`, while the reference LLM did not.\r\n\r\nOn ROCm, floating-point reductions can vary with batch geometry and scheduling. That means the two runs could produce slightly different logprobs even when speculative decoding itself was behaving correctly. The observed failure was a logprob difference of about `0.235`, which exceeded the test tolerance.\r\n\r\nThis change factors the shared LLM options into `llm_kwargs` and passes them to both the reference and spec-decode LLMs. The only intended difference between the two runs is now the speculative decoding configuration, so the test better serves its original purpose.\r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        41336
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready",
+        "v1"
+      ]
+    },
+    {
+      "number": 41313,
+      "title": "[ROCm][CI] Fix NIXL spec-decode acceptance startup and diagnostics",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-04-30T01:59:44Z",
+      "updated_at": "2026-05-04T03:36:12Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41313",
+      "labels": [
+        "rocm",
+        "ci/build",
+        "v1",
+        "kv-connector"
+      ],
+      "draft": false,
+      "body_head": "- Use `ATTENTION_BACKEND=ROCM_ATTN` override in AMD Buildkite for the NIXL speculative-decoding acceptance test.\r\n- Make the NIXL spec-decode integration script fail fast when a server process exits before readiness instead of polling for the full timeout.\r\n- Pin this integration test path to `127.0.0.1` and set `VLLM_NIXL_SIDE_CHANNEL_HOST` explicitly so HTTP, proxy traffic, and NIXL side-channel metadata use the same loopback address family.\r\n- Improve NIXL KV-cache registration diagnostics when a tensor does not match the expected block dimension, including layer name, shape, stride, backend list, KV layout, and topology mode.\r\n\r\n## Scope Notes\r\n\r\n1. HTTP readiness is not enough for NIXL. The failing logs showed `/v1/completions` returning 200, then decode later timing out in `_nixl_handshake()` while waiting for prefill metadata on the side-channel socket. The new readiness check sends the same NIXL `get_meta_msg` request over ZMQ that decode needs, so the test does not start until the side channel is actually answering.\r\n\r\n2. `localhost` can resolve through IPv6 while the proxy path is already intentionally bound to `127.0.0.1` for CI. This test now uses `127.0.0.1` consistently and passes that host into the Python test for proxy and metrics access.\r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        41319
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ci/build",
+        "v1",
+        "kv-connector"
+      ]
+    },
+    {
+      "number": 41573,
+      "title": "[ROCm][CI] Stabilize ROCm shutdown and distributed compile CI",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-05-03T21:39:16Z",
+      "updated_at": "2026-05-04T02:39:48Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41573",
+      "labels": [
+        "rocm",
+        "ci/build"
+      ],
+      "draft": false,
+      "body_head": "This PR addresses the following nightly failures:\r\n- `mi355_1: Entrypoints Integration (API Server openai - Part 2)`\r\n- `mi300_2: Distributed Compile Unit Tests (2xH100-2xMI300)`\r\n\r\nIt:\r\n- Replaces the abort-shutdown polling loop with `proc.wait(timeout=...)`.\r\n- Keeps the existing non-ROCm timeout and allows a small ROCm native teardown buffer.\r\n- Stops running CUDA-only sequence-parallelism tests in the AMD compile job.\r\n- Points the AMD `tp2_ar_rms` command at its real `fusions_e2e` path.\r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        41580,
+        41581
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ci/build"
+      ]
+    },
+    {
+      "number": 41577,
+      "title": "[ROCm][CI] Fix ROCm LoRA Transformers fallback with full CUDA graphs",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-05-03T22:59:53Z",
+      "updated_at": "2026-05-03T23:10:07Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41577",
+      "labels": [
+        "rocm",
+        "nvidia"
+      ],
+      "draft": false,
+      "body_head": "Fixes `LoRA %N`\r\n\r\n- Restrict the gfx950 `wvSplitKrc` skinny GEMM path to 2D activations.\r\n- Make the vLLM C RMSNorm provider flatten N-D activations by token row and reshape back.\r\n- Initialize torch-compile support on the actual HF decoder instance for dynamic remote-code classes.\r\n\r\nThe original failure was `Unsupported N value: 512,2048,1` in `wvSplitKrc`. The selector counted flattened tokens from a 3D Transformers activation, but `wvSplitKrc` reads `size(0)` and is only correct for 2D row-major inputs. After fixing that selector bug, full decode graph capture exposed the same N-D activation mismatch in the `vllm_c` RMSNorm provider. Flattening RMSNorm inputs matches its row-wise kernel contract and preserves the public tensor shape.\r\n\r\n- Known-good commit: `0e39202ca911319c7747a2f9d5a0c162fdff4fd9`.\r\n- Failing commit observed in CI: `7845379230c48c9103ab71682ee05977dfbbdfce`.\r\n- The likely trigger is the update to transformers v5\r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        41578
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "nvidia"
+      ]
+    },
+    {
+      "number": 41210,
+      "title": "[ROCm][CI] Upgraded UCX and RIXL",
+      "author": "AndreasKaratzas",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-04-29T08:12:56Z",
+      "updated_at": "2026-05-02T00:13:54Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41210",
+      "labels": [
+        "rocm",
+        "ready",
+        "ci/build"
+      ],
+      "draft": false,
+      "body_head": "Upgrading UCX and RIXL to resolve:\r\n- https://buildkite.com/vllm/ci/builds/63359/canvas?sid=019dd57c-8a40-4ef9-b2f8-adea236be746&tab=output\r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        41323
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready",
+        "ci/build"
+      ]
+    },
+    {
+      "number": 41341,
+      "title": "[ROCm][CI] Add ROCm score absolute tolerance floor",
+      "author": "AndreasKaratzas",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-04-30T06:32:43Z",
+      "updated_at": "2026-05-02T00:12:48Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41341",
+      "labels": [
+        "rocm",
+        "ready"
+      ],
+      "draft": false,
+      "body_head": "This PR keeps the existing per-backend relative tolerances for the online vision cross-encoder score tests, but adds a small backend-specific absolute tolerance floor for `ROCM_AITER_FA` and `FLEX_ATTENTION`.\r\n\r\nThe affected failures are low-probability text-vs-text scores on ROCm 7.2/gfx950. Those scores drift by only about 0.005 to 0.006 in absolute terms, but that is enough to exceed the current relative tolerance because the expected value is near 0.1. Larger image and multimodal scores remain within the original relative tolerances, so this keeps the check tight while allowing the observed low-score numeric drift.\r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        41342
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready"
+      ]
+    },
+    {
+      "number": 41294,
+      "title": "[ROCm][CI] Fix and stabilize EAGLE3 acceptance tests",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-04-29T22:04:11Z",
+      "updated_at": "2026-04-30T19:06:57Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41294",
+      "labels": [
+        "rocm",
+        "speculative-decoding",
+        "v1"
+      ],
+      "draft": false,
+      "body_head": "This updates the EAGLE3 acceptance length regression test to use ROCm backend auto-selection instead of hard-selecting attention backends. It adds ROCm-specific expected per-position acceptance values for gpt-oss without widening the default tolerance. The Qwen3-VL FP8 MoE case is limited to ROCm TP4 and enables expert parallelism to avoid the unsupported block-FP8 TP shard shape. The per-position check now treats lower-than-baseline acceptance as the regression signal, so improvements do not fail the test. \r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        41321
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "speculative-decoding",
+        "v1"
+      ]
+    },
+    {
+      "number": 41290,
+      "title": "[Bugfix][CI][Hardware][AMD] Fix various e4m3fn -> e4m3fnuz normalization issues",
+      "author": "mawong-amd",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-04-29T21:04:34Z",
+      "updated_at": "2026-04-30T16:27:59Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41290",
+      "labels": [
+        "bug",
+        "rocm",
+        "nvidia"
+      ],
+      "draft": false,
+      "body_head": "## Purpose\r\nThis PR fixes various issues in e4m3fnuz handling encountered by various quantization code paths (ModelOpt, online). In particular, on `e4m3fnuz` platforms, `normalize_e4m3fn_to_e4m3fnuz` should be called exactly once on a given FP8 linear layer after weights are loaded.\r\nHowever,\r\n- Some PyTorch linear kernel-based code paths used during ModelOpt quantization were not calling this function.\r\n- Some code paths used in online quantization methods were trying to call this function twice, once in the linear layer and once more in the linear layer's kernel implementation.\r\n\r\nThe end result is that the Quantization test group should now be passing on ROCm.\r\n\r\nThis PR also removes a Quark mxfp4 model that was causing failures in the Kernels MoE test group because it is incompatible with HF Transformers v5.\r\n## Test Plan\r\n`VLLM_TEST_FORCE_LOAD_FORMAT=auto pytest -v -s quantization/ --ignore quantization/test_blackwell_moe.py`\r\n`pytest -v -s kernels/moe --ignore=kernels/moe/test_modular_oai_triton_moe.py`\r\nThese tests should be run as part of the Quantization and Kernels MoE test groups in vLLM AMD CI.\r\n\r\n## Test Result\r\nThe above test groups pass, and there are no regressions.\r\n\r\ncc @kenroche and @AndreasKaratzas\r\n\r\n---\r\n<details>\r\n<summary> Essential Elements of an Effective PR Description Checklist </summary>\r\n\r\n- [ ] The purpose of the PR, such as \"Fix some issue (link existing issues this PR will resolve)\".\r\n- [ ] The test plan, such as providing test command.\r\n- [ ] The test results, such as pasting the results comparison before and after, or e2e results\r\n- [ ] (Optional) The necessary documentation update, such as updating `supported_models.md` and `examples` for a new model.\r\n</details>",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        40728,
+        41295
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "bug",
+        "nvidia"
+      ]
+    },
+    {
+      "number": 41330,
+      "title": "[ROCm][CI] Fix GPT-OSS Quark MXFP4+FP8 MoE startup",
+      "author": "AndreasKaratzas",
+      "state": "closed",
+      "merged": false,
+      "created_at": "2026-04-30T03:33:50Z",
+      "updated_at": "2026-04-30T06:25:34Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41330",
+      "labels": [
+        "rocm",
+        "gpt-oss"
+      ],
+      "draft": false,
+      "body_head": "Fix GPT-OSS Quark MXFP4+FP8 MoE startup on ROCm/gfx950 by applying the padding required by the Triton/CDNA4 MXFP4 scale layout, and align the GPT-OSS Quark monolithic MoE method with the current `MoERunner` call signature. The GPQA ROCm config for `amd/gpt-oss-20b-MoE-Quant-W-MXFP4-A-FP8-KV-FP8` failed during model startup while processing MoE weights:\r\n\r\n```text\r\nRuntimeError: shape '[-1, 90, 2, 16, 11, 2, 4, 1]' is invalid for input of size 8294400\r\n```\r\n\r\nThe failing path is `QuarkOCP_MX_MoEMethod_OSS`, used for GPT-OSS Quark weights with MXFP4 weights and static FP8 activations. This subclass still swizzles MXFP4 weights and scales through Triton kernels in `process_weights_after_loading()`.\r\n\r\nHowever, the base `QuarkOCP_MX_MoEMethod` treats `w_mxfp4_a_fp8` as an emulation path for sizing purposes, so it does not apply the MXFP4 backend padding. On ROCm/CDNA4, Triton scale swizzling requires aligned dimensions. For the 20B TP=2 case, the unpadded dimensions produce scale shapes based on `hidden_size=2880` and `intermediate_size_per_partition=1440`; `hidden_size / 32 = 90`, which is not compatible with the CDNA4 scale swizzle layout.\r\n\r\n## Testing\r\n\r\nRan the focused padded MoE test file:\r\n\r\n```text\r\npytest -s -v evals/gpt_oss/test_gpqa_correctness.py --config-list-file=configs/models-gfx950.txt\r\n```\r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        41324
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "gpt-oss"
+      ]
+    },
+    {
+      "number": 37717,
+      "title": "[ROCm][CI] Add large_gpu_mark to test_max_tokens_none for ROCm",
+      "author": "AndreasKaratzas",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-03-20T21:53:46Z",
+      "updated_at": "2026-03-22T04:29:03Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/37717",
+      "labels": [
+        "rocm",
+        "ready"
+      ],
+      "draft": false,
+      "body_head": "Follow-up for:\r\n- #34839 \r\n\r\nMarks `max_tokens` test with `distilbert/distilgpt2` as a large GPU test. Addresses failure in `mi250_1: Regression`\r\n\r\nMotivation: https://buildkite.com/vllm/amd-ci/builds/6721/steps/canvas?sid=019d09d4-708e-44b0-a0d0-ccf0e3c00a94&tab=output\r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        37736
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready"
+      ]
+    },
+    {
+      "number": 37610,
+      "title": "[ROCm][CI] Mark gemma3 as large GPU test to avoid OOM on MI250",
+      "author": "AndreasKaratzas",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-03-19T22:50:38Z",
+      "updated_at": "2026-03-21T05:24:06Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/37610",
+      "labels": [
+        "rocm",
+        "ready",
+        "ci/build",
+        "multi-modality"
+      ],
+      "draft": false,
+      "body_head": "Follow-up for:\r\n- #34839 \r\n\r\nFixes OOM in `mi250_1: Multi-Modal Models (Standard) 2: qwen3 + gemma`\r\n\r\nMotivation: https://buildkite.com/vllm/amd-ci/builds/6701/steps/canvas?sid=019d07a7-1a19-4174-b4a1-c9bbfff0c164&tab=output\r\n\r\n@kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        37736
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready",
+        "ci/build",
+        "multi-modality"
+      ]
+    },
+    {
+      "number": 35224,
+      "title": "[ROCm][CI] Accept Different But Valid Output for `test_olmoe_tp`",
+      "author": "micah-wil",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-02-24T19:50:59Z",
+      "updated_at": "2026-03-07T21:50:52Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/35224",
+      "labels": [
+        "rocm",
+        "ready"
+      ],
+      "draft": false,
+      "body_head": "<!-- markdownlint-disable -->\nWe're seeing some failures in `LoRA TP Test (Distributed)` on AMD MI355 CI pipeline https://buildkite.com/vllm/amd-ci/builds/5300/steps/canvas?sid=019c8e72-d91a-42ee-8022-a42c57625216&tab=output#019c8e72-da1d-4fc3-95e4-3f73d89abcad/L1235. There are two issues. The first is that sometimes the output includes comments at the end explaining the SQL query output, but once I conditioned the prompt template to tell it to not do that, this issue was resolved. The second issue is that it outputs a different output than the expected one, but it is still valid. I've just included it as a valid response in the test. With this change, I am seeing the following when running `pytest -v -s -x lora/test_olmoe_tp.py`:\n\n```\n======================= 6 passed, 17 warnings in 74.97s (0:01:14) ===================\n```",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        35133
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready"
+      ]
+    },
+    {
+      "number": 28156,
+      "title": "[CI/Build] Skip encoder-decoder models on AMD",
+      "author": "zhewenl",
+      "state": "closed",
+      "merged": false,
+      "created_at": "2025-11-05T19:58:28Z",
+      "updated_at": "2025-12-10T17:22:54Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/28156",
+      "labels": [
+        "rocm",
+        "ready",
+        "ci/build"
+      ],
+      "draft": true,
+      "body_head": "<!-- markdownlint-disable -->\n\n## Purpose\nSee more details in https://github.com/vllm-project/vllm/issues/27442. Encoder-decoder models (Whisper, T5, BART, vision-language models) fail on AMD ROCm with NotImplementedError because all ROCm-specific attention backends only support decoder-only models.\n\nTherefore, all the tests using these models will fail on AMD CI([example](https://buildkite.com/vllm/ci/builds/35670#019a04ed-a2f7-4e7e-85ad-4e2118f76898)), mainly in Entrypoints Integration Test (API Server) and Entrypoints Integration Test (Pooling):\n```python\nNotImplementedError: Encoder self-attention and encoder/decoder cross-attention\nare not implemented for TritonAttentionImpl\n```\n\nIn this PR:\n- Tests that contain **BOTH** encoder and decoder models use `@pytest.mark.encoder_decoder` on specific tests/variants; also fixed some tests not using parametrized fixtures.\n- Tests that contain **ONLY** encoder models are skipped entirely at the CI level in `test-amd.yaml`.\n- Ad-hoc patches tests can not skip/add decorator to skip easily by patching the simple logic to skip on ROCm platform.\n\n## Test Plan\n\nCI: https://buildkite.com/vllm/amd-ci/builds/1020",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        27680
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready",
+        "ci/build"
+      ]
+    },
+    {
+      "number": 28193,
+      "title": "[CI] Fix Bad_words test for tokenizer encode/decode asymmetry",
+      "author": "Jasen2201",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2025-11-06T07:54:05Z",
+      "updated_at": "2025-12-02T08:02:12Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/28193",
+      "labels": [
+        "ready",
+        "v1"
+      ],
+      "draft": false,
+      "body_head": "## Purpose\n\nFix flaky `test_bad_words` test caused by tokenizer encode/decode asymmetry.\n\nThe test was failing on AMD CI (see [#27945](https://github.com/vllm-project/vllm/issues/27945)) because modern tokenizers (e.g., LLaMA's SentencePiece) use positional markers (like `\u2581` prefix) that distinguish tokens in different contexts. When these tokens are decoded, the positional information is lost, causing `encode(decode(tokens))` to produce different token sequences.\n\n**Example of the issue:**\n```python\nfrom transformers import AutoTokenizer\nMODEL = \"hmellor/tiny-random-LlamaForCausalLM\"\ntokenizer = AutoTokenizer.from_pretrained(MODEL)\ntokens = [10122, 2892, 1355]  # \"\u2581presence\", \"lambda\", \"imes\" in vocab\ntext = tokenizer.decode(tokens)  # \"presencelambdaimes\"\nre_encoded = tokenizer.encode(text)  # [2225, 264, 2242, 2269, 1355] \u2260 original\n```\n\n**Root cause from #27945:**\nThe test assertion `assert bad_words_2 not in new_text` was failing because:\n- `bad_words_2 = \"presencelambdaimes\"` (decoded from tokens)\n- The string appeared in generated text, but used different tokens due to context\n- This is not a real filter failure, just tokenizer asymmetry\n\n**Solution:**\nModified the test to validate bad_words filtering at both text and token levels. The test now only fails if the bad word appears in **BOTH** the generated text **AND** the token sequence, avoiding false failures from asymmetry.\n\nFixes #27945\n\n## Test Plan\n\nRun the bad_words test:\n```bash\npytest tests/v1/sample/test_sampling_params_e2e.py::test_bad_words -v\n```\n\nThe test now:\n1. Generates baseline text with `temperature=0`\n2. Applies `bad_words` filter with one word, verifies it's filtered\n3. Applies `bad_words` filter with two words, verifies both are filtered\n4. Uses `contains_bad_word()` helper to check both text-level and token-level presence\n\n## Test Result\n\n\u2705 Test passes consistently on both x86 and AMD platforms\n\n**Before:** \n- Test failed on AMD CI with `AssertionError: assert 'presencelambdaimes' not in",
+      "is_ci_pr": true,
+      "is_rocm_pr": false,
+      "ci_issue_numbers": [
+        27680
+      ],
+      "custom_tags": [
+        "CI"
+      ],
+      "other_tags": [
+        "ready",
+        "v1"
+      ]
+    },
+    {
+      "number": 28346,
+      "title": "fix cross attention",
+      "author": "fsx950223",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2025-11-08T11:47:55Z",
+      "updated_at": "2025-11-21T12:55:44Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/28346",
+      "labels": [
+        "ready",
+        "v1"
+      ],
+      "draft": false,
+      "body_head": "<!-- markdownlint-disable -->\n\n## Purpose\nFix https://github.com/vllm-project/vllm/issues/27442\n## Test Plan\npytest entrypoints/openai/test_transcription_validation.py::test_basic_audio[openai/whisper-large-v3-turbo] --maxfail=1\n## Test Result\n```\n=============================================================================== test session starts ===============================================================================\nplatform linux -- Python 3.12.11, pytest-8.4.1, pluggy-1.6.0\nrootdir: /mnt/raid0/sixifang/vllm\nconfigfile: pyproject.toml\nplugins: asyncio-1.1.0, anyio-4.10.0\nasyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function\ncollected 1 item                                                                                                                                                                  \n\nentrypoints/openai/test_transcription_validation.py .                                                                                                                       [100%]\n\n================================================================================ warnings summary =================================================================================\n<frozen importlib._bootstrap>:488\n  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute\n\n<frozen importlib._bootstrap>:488\n  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute\n\n../../../../../usr/lib/python3/dist-packages/pyparsing.py:108\n  /usr/lib/python3/dist-packages/pyparsing.py:108: DeprecationWarning: module 'sre_constants' is deprecated\n    import sre_constants\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n==================================================================== 1 passed, 3 warnings in 98.74s (0:01:38) =====================================================================\nsys:1: DeprecationWarnin",
+      "is_ci_pr": true,
+      "is_rocm_pr": false,
+      "ci_issue_numbers": [
+        27680
+      ],
+      "custom_tags": [
+        "CI"
+      ],
+      "other_tags": [
+        "ready",
+        "v1"
+      ]
+    },
+    {
+      "number": 28225,
+      "title": "[BugFix] [FEAT] Enable fastsafetensors for ROCm platform",
+      "author": "tjtanaa",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2025-11-06T15:13:23Z",
+      "updated_at": "2025-11-20T16:34:11Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/28225",
+      "labels": [
+        "rocm",
+        "ready",
+        "ci/build"
+      ],
+      "draft": false,
+      "body_head": "<!-- markdownlint-disable -->\n\n## Purpose\n\nThis introduced the installation of ROCm enabled fastsafetensors as a fix for issue https://github.com/vllm-project/vllm/issues/27624. We are working towards merging this into upstream of fastsafetensors. In the meantime, we install from a fork.\n\nCC @gshtras as this involves modifying the `Dockerfile.rocm` .\nCC @wuhuikx @sunway513\n\n## Test Plan\n\nPassing `pytest -svvvv tests/model_executor/model_loader/fastsafetensors_loader/`\n\n## Test Result\n\nAll tests passed.\n\n---\n<details>\n<summary> Essential Elements of an Effective PR Description Checklist </summary>\n\n- [ ] The purpose of the PR, such as \"Fix some issue (link existing issues this PR will resolve)\".\n- [ ] The test plan, such as providing test command.\n- [ ] The test results, such as pasting the results comparison before and after, or e2e results\n- [ ] (Optional) The necessary documentation update, such as updating `supported_models.md` and `examples` for a new model.\n- [ ] (Optional) Release notes update. If your change is user facing, please update the release notes draft in the [Google Doc](https://docs.google.com/document/d/1YyVqrgX4gHTtrstbq8oWUImOyPCKSGnJ7xtTpmXzlRs/edit?tab=t.0).\n</details>\n\n",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        27680
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready",
+        "ci/build"
+      ]
+    },
+    {
+      "number": 28432,
+      "title": "[Bugfix][CI/Test][Spec Decode] Fix illegal memory access in offline_inference/spec_decode.py (Issue  27619)",
+      "author": "rasmith",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2025-11-11T00:06:30Z",
+      "updated_at": "2025-11-14T06:34:02Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/28432",
+      "labels": [
+        "ready",
+        "v1"
+      ],
+      "draft": false,
+      "body_head": "This PR fixes an illegal memory access that occurs when running\n\n`python3 offline_inference/spec_decode.py --test --method eagle --num_spec_tokens 3 --dataset-name hf --dataset-path philschmid/mt-bench --num-prompts 80 --temp 0 --top-p 1.0 --top-k -1 --tp 1 --enable-chunked-prefill --max-model-len 2048\n`\n\nThe number of tokens, `num_tokens`, is used to launch the grid in `triton_reshape_and_cache_flash` which may be slightly larger than the `slot_mapping `size, so taking the min between the two when launching the grid resolves the issue. \n\nI ran the above script again with the fix and additionally tested with `test_eagle.py` and also ran` vllm serve` with `yuhuili/EAGLE3-LLaMA3.1-Instruct-8B` and successfully posted a prompt to it with no errors.\n\nFixes https://github.com/vllm-project/vllm/issues/27619",
+      "is_ci_pr": true,
+      "is_rocm_pr": false,
+      "ci_issue_numbers": [
+        27680
+      ],
+      "custom_tags": [
+        "CI"
+      ],
+      "other_tags": [
+        "ready",
+        "v1"
+      ]
+    },
+    {
+      "number": 28142,
+      "title": "[CI/Build] Install uv for AMD MI300: Language Models Tests (Hybrid) %N",
+      "author": "amdfaa",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2025-11-05T17:07:48Z",
+      "updated_at": "2025-11-13T18:18:04Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/28142",
+      "labels": [
+        "rocm",
+        "ready",
+        "ci/build"
+      ],
+      "draft": false,
+      "body_head": "<!-- markdownlint-disable -->\n\n## Purpose\nThis PR is for fixing the AMD MI300: Language Models Tests (Hybrid) %N failing with uv: command not found\nSee failing build:\nhttps://buildkite.com/vllm/ci/builds/37631/steps/canvas?sid=019a5264-347a-407b-8a34-6d54a2f8e82f\n\n## Test Plan\n\n## Test Result\n\n---\n<details>\n<summary> Essential Elements of an Effective PR Description Checklist </summary>\n\n- [ ] The purpose of the PR, such as \"Fix some issue (link existing issues this PR will resolve)\".\n- [ ] The test plan, such as providing test command.\n- [ ] The test results, such as pasting the results comparison before and after, or e2e results\n- [ ] (Optional) The necessary documentation update, such as updating `supported_models.md` and `examples` for a new model.\n- [ ] (Optional) Release notes update. If your change is user facing, please update the release notes draft in the [Google Doc](https://docs.google.com/document/d/1YyVqrgX4gHTtrstbq8oWUImOyPCKSGnJ7xtTpmXzlRs/edit?tab=t.0).\n</details>\n\n",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        27680
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready",
+        "ci/build"
+      ]
+    },
+    {
+      "number": 27770,
+      "title": "[KV offload] Enable CPU KV offload on CUDA alike Platforms",
+      "author": "zhewenl",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2025-10-29T21:14:15Z",
+      "updated_at": "2025-10-30T14:10:30Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/27770",
+      "labels": [
+        "rocm",
+        "ready",
+        "v1"
+      ],
+      "draft": false,
+      "body_head": "## Purpose\nSee discussion in https://github.com/vllm-project/vllm/pull/27690, we skipped CPU KV offloading test because CPU offloading is currently only supported on CUDA GPUs in vllm/v1/kv_offload/cpu.py:\n```\nif not current_platform.is_cuda():\n    raise Exception(\n        \"CPU Offloading is currently only supported on CUDA GPUs\"\n    ) \n```\n\nThe reason behind this we haven't tested and verified on other platforms(eg. ROCM), this PR enables CPU KV offloading on CUDA-alike platforms since we have verified it's workin on AMD. \n\n## Test Plan\nhttps://gist.github.com/zhewenl/9fe5c497d7f5ff5e0d4d907db3850533\n```\n pytest -v -s v1/kv_offload/test_cpu_offloading.py\n...\n================================================================== warnings summary ==================================================================\n<frozen importlib._bootstrap>:488\n  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute\n\n<frozen importlib._bootstrap>:488\n  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n===================================================== 2 passed, 2 warnings in 140.35s (0:02:20) ======================================================\n```\n",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        27680
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready",
+        "v1"
+      ]
+    },
+    {
+      "number": 27690,
+      "title": "[CI/Build] Skip cpu offloading test on AMD",
+      "author": "zhewenl",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2025-10-28T21:33:59Z",
+      "updated_at": "2025-10-29T12:55:52Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/27690",
+      "labels": [
+        "rocm",
+        "ready",
+        "ci/build",
+        "v1"
+      ],
+      "draft": false,
+      "body_head": "<!-- markdownlint-disable -->\n\n## Purpose\nDetails in https://github.com/vllm-project/vllm/issues/27687.\n\n`test_cpu_offloading` is failing on AMD CI with the exception:\n```\n2025-10-27 21:28:16 PDT | (EngineCore_DP0 pid=2847) ERROR 10-28 04:28:16 [core.py:779]     for src_cls, dst_cls, handler in self.spec.get_handlers(kv_caches):\n-- | --\n\u00a0 | 2025-10-27 21:28:16 PDT | (EngineCore_DP0 pid=2847) ERROR 10-28 04:28:16 [core.py:779]                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\u00a0 | 2025-10-27 21:28:16 PDT | (EngineCore_DP0 pid=2847) ERROR 10-28 04:28:16 [core.py:779]   File \"/usr/local/lib/python3.12/dist-packages/vllm/v1/kv_offload/cpu.py\", line 55, in get_handlers\n\u00a0 | 2025-10-27 21:28:16 PDT | (EngineCore_DP0 pid=2847) ERROR 10-28 04:28:16 [core.py:779]     raise Exception(\n\u00a0 | 2025-10-27 21:28:16 PDT | (EngineCore_DP0 pid=2847) ERROR 10-28 04:28:16 [core.py:779] Exception: CPU Offloading is currently only supported on CUDA GPUs\n\u00a0 | 2025-10-27 21:28:16 PDT | (EngineCore_DP0 pid=2847) Traceback (most recent call last):\n\u00a0 | 2025-10-27 21:28:16 PDT | (EngineCore_DP0 pid=2847)   File \"/usr/lib/python3.12/multiprocessing/process.py\", line 314, in _bootstrap\n\u00a0 | 2025-10-27 21:28:16 PDT | (EngineCore_DP0 pid=2847)     self.run()\n```\n\nThis is because CPU offloading is currently only supported on CUDA GPUs in `vllm/v1/kv_offload/cpu.py`:\n```python\nif not current_platform.is_cuda():\n    raise Exception(\n        \"CPU Offloading is currently only supported on CUDA GPUs\"\n    )\n```\n\n## Test Plan\n```\npytest -v -s v1/kv_offload/test_cpu_offloading.py\n================================================================ test session starts =================================================================\nplatform linux -- Python 3.12.11, pytest-8.4.2, pluggy-1.6.0 -- /home/zhewenli/uv_env/vllm-fork/bin/python3\ncachedir: .pytest_cache\nrootdir: /data/users/zhewenli/gitrepos/vllm-fork\nconfigfile: pyproject.toml\nplugins: asyncio-1.2.0, anyio-4.11.0\nasyncio: mode=Mode.STRI",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        27680
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready",
+        "ci/build",
+        "v1"
+      ]
+    },
+    {
+      "number": 27712,
+      "title": "[CI/Build][Bugfix]Fix Quantized Models Test on AMD",
+      "author": "zhewenl",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2025-10-29T03:30:36Z",
+      "updated_at": "2025-10-29T06:27:31Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/27712",
+      "labels": [
+        "rocm",
+        "ready",
+        "ci/build"
+      ],
+      "draft": false,
+      "body_head": "## Purpose\nThis PR fixes Quantized Models Test on AMD, including:\n- Skip `test_bitsandbytes`, since it's not supported on AMD: https://github.com/vllm-project/vllm/blob/main/vllm/platforms/rocm.py#L192 - ` ValidationError: bitsandbytes quantization is currently not supported in rocm`\n- Fix AWQ tests: AWQ IS supported on ROCm via Triton, but environment variable propagation is broken [here](https://github.com/vllm-project/vllm/blob/main/vllm/platforms/rocm.py#L416) - we need to set env var with `os.environ` otherwise it will be overwritten by [this](https://github.com/vllm-project/vllm/blob/main/vllm/envs.py#L810) logic. \n\n\n## Test Plan\n```\npytest -v -s  models/quantization.\n...\n, rank=4, decoded_token='The'), 319: Logprob(logprob=-2.709829092025757, rank=5, decoded_token='A')}\n  gguf: '- Artificial intelligence is a branch of computer science that deals with the simulation of human intelligence processes by machines.\\n- Human intelligence, on the other'   {3012: Logprob(logprob=-2.2488694190979004, rank=1, decoded_token='Art'), 12968: Logprob(logprob=-2.4598069190979004, rank=2, decoded_token='Human'), 1724: Logprob(logprob=-2.4754319190979004, rank=3, decoded_token='What'), 450: Logprob(logprob=-2.6004319190979004, rank=4, decoded_token='The'), 319: Logprob(logprob=-2.7879319190979004, rank=5, decoded_token='A')}\n    check_logprobs_close(\n\ntests/models/quantization/test_gguf.py::test_models[1-5-32-half-model4]\n  /data/users/zhewenli/gitrepos/vllm-fork/tests/models/quantization/test_gguf.py:135: UserWarning: Test4:\n  Matched tokens:       [29899, 450, 19964, 12561, 29879, 310, 263, 3186, 988, 372, 508, 367, 3889, 322, 9796, 29889, 13, 29899, 739, 12561, 29879, 310, 263, 3186, 988, 372, 508, 367]\n  original:     '- The robot dreams of a world where it can be free and happy.\\n- It dreams of a world where it can be loved and cherished'     {18012: Logprob(logprob=-1.4169052839279175, rank=1, decoded_token='loved'), 3889: Logprob(logprob=-1.4481552839279175, rank=2, dec",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        27680
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready",
+        "ci/build"
+      ]
+    },
+    {
+      "number": 27612,
+      "title": "[CI/Build] Fix amd model executor test",
+      "author": "zhewenl",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2025-10-27T22:34:16Z",
+      "updated_at": "2025-10-28T08:58:12Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/27612",
+      "labels": [
+        "rocm",
+        "ready",
+        "ci/build",
+        "ci-failure"
+      ],
+      "draft": false,
+      "body_head": "## Purpose\nFix Model Executor Test running on AMD CI:([example](https://buildkite.com/vllm/ci/builds/36286#019a1ead-5049-40ac-b0df-ccfaab9f34af))\nWe need to skip [fastsafetensors](https://github.com/foundation-model-stack/fastsafetensors) tests, since it's only supporting CUDA platform.\n\n## Test Plan\nCI: https://buildkite.com/vllm/amd-ci/builds/635\n<img width=\"1535\" height=\"459\" alt=\"Screenshot 2025-10-27 at 5 20 07\u202fPM\" src=\"https://github.com/user-attachments/assets/b67702d8-54c2-467a-9e40-b013d2834213\" />\n\n```\npytest -v -s model_executor\n...\n================================================================== warnings summary ==================================================================\n<frozen importlib._bootstrap>:488\n  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute\n\n<frozen importlib._bootstrap>:488\n  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute\n\nmodel_executor/model_loader/tensorizer_loader/test_tensorizer.py:281\n  /data/users/zhewenli/gitrepos/vllm-fork/tests/model_executor/model_loader/tensorizer_loader/test_tensorizer.py:281: PytestUnknownMarkWarning: Unknown pytest.mark.flaky - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html\n    @pytest.mark.flaky(reruns=3)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n/home/zhewenli/uv_env/vllm-fork/lib64/python3.12/site-packages/urllib3/response.py:429: KeyboardInterrupt\n(to show a full traceback on KeyboardInterrupt use --full-trace)\n=============================================== 13 passed, 2 skipped, 3 warnings in 1592.21s (0:26:32) ===============================================\n```\n\n",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        27680
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready",
+        "ci/build",
+        "ci-failure"
+      ]
+    }
+  ]
+}

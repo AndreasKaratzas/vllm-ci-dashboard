@@ -1,0 +1,1610 @@
+{
+  "generated_at": "2026-05-06T04:55:44Z",
+  "days": 30,
+  "total_changes": 43,
+  "changes": [
+    {
+      "date": "2026-03-10",
+      "sha": "8d983d7cd661",
+      "message": "[Model Runner V2] Add initial CI tests (#36041)",
+      "author": "Nick Hill",
+      "added": [
+        "Model Runner V2 Core Tests",
+        "Model Runner V2 Distributed (2 GPUs)",
+        "Model Runner V2 Examples",
+        "Model Runner V2 Pipeline Parallelism (4 GPUs)",
+        "Model Runner V2 Spec Decode"
+      ],
+      "removed": [],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "Model Runner V2 Core Tests",
+        "Model Runner V2 Distributed (2 GPUs)",
+        "Model Runner V2 Examples",
+        "Model Runner V2 Pipeline Parallelism (4 GPUs)",
+        "Model Runner V2 Spec Decode"
+      ],
+      "upstream_removed": [],
+      "pr": {
+        "number": 36041,
+        "title": "[Model Runner V2] Add initial CI tests",
+        "url": "https://github.com/vllm-project/vllm/pull/36041",
+        "author": "njhill"
+      }
+    },
+    {
+      "date": "2026-03-12",
+      "sha": "a79c1c2c806c",
+      "message": "[AMD][Build] Add DeepEP to ROCm Dockerfile (#36086)",
+      "author": "Ryan Rock",
+      "added": [
+        "Kernels FP8 MoE Test"
+      ],
+      "removed": [],
+      "amd_added": [
+        "Kernels FP8 MoE Test"
+      ],
+      "amd_removed": [],
+      "upstream_added": [],
+      "upstream_removed": [],
+      "pr": {
+        "number": 36086,
+        "title": "[AMD][Build] Add DeepEP to ROCm Dockerfile",
+        "url": "https://github.com/vllm-project/vllm/pull/36086",
+        "author": "rjrock"
+      }
+    },
+    {
+      "date": "2026-03-13",
+      "sha": "f1816fb1920c",
+      "message": "[CI] Split V1 e2e + engine (1 GPU) into separate jobs (#36945)",
+      "author": "Kevin H. Luu",
+      "added": [
+        "Engine (1 GPU)",
+        "Spec Decode Draft Model",
+        "Spec Decode Eagle",
+        "Spec Decode Ngram + Suffix",
+        "Spec Decode Speculators + MTP",
+        "e2e Core (1 GPU)",
+        "e2e Scheduling (1 GPU)"
+      ],
+      "removed": [
+        "V1 e2e + engine (1 GPU)"
+      ],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "Engine (1 GPU)",
+        "Spec Decode Draft Model",
+        "Spec Decode Eagle",
+        "Spec Decode Ngram + Suffix",
+        "Spec Decode Speculators + MTP",
+        "e2e Core (1 GPU)",
+        "e2e Scheduling (1 GPU)"
+      ],
+      "upstream_removed": [
+        "V1 e2e + engine (1 GPU)"
+      ],
+      "pr": {
+        "number": 36945,
+        "title": "[CI] Split V1 e2e + engine (1 GPU) into parallel jobs",
+        "url": "https://github.com/vllm-project/vllm/pull/36945",
+        "author": "khluu"
+      }
+    },
+    {
+      "date": "2026-03-14",
+      "sha": "74fe80ee9594",
+      "message": "[CI] Split Distributed Tests (4 GPUs) into 3 parallel jobs (#37015)",
+      "author": "Kevin H. Luu",
+      "added": [
+        "Distributed Compile + Comm (4 GPUs)",
+        "Distributed DP Tests (4 GPUs)",
+        "Distributed Torchrun + Examples (4 GPUs)"
+      ],
+      "removed": [
+        "Distributed Tests (4 GPUs)"
+      ],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "Distributed Compile + Comm (4 GPUs)",
+        "Distributed DP Tests (4 GPUs)",
+        "Distributed Torchrun + Examples (4 GPUs)"
+      ],
+      "upstream_removed": [
+        "Distributed Tests (4 GPUs)"
+      ],
+      "pr": {
+        "number": 37015,
+        "title": "[CI] Split Distributed Tests (4 GPUs) into 3 parallel jobs",
+        "url": "https://github.com/vllm-project/vllm/pull/37015",
+        "author": "khluu"
+      }
+    },
+    {
+      "date": "2026-03-14",
+      "sha": "600a039f572a",
+      "message": "[CI] Shard Multi-Modal Models (Standard) into 4 parallel jobs (#37014)",
+      "author": "Kevin H. Luu",
+      "added": [
+        "Multi-Modal Models (Standard) 1: qwen2",
+        "Multi-Modal Models (Standard) 2: qwen3 + gemma",
+        "Multi-Modal Models (Standard) 3: llava + qwen2_vl",
+        "Multi-Modal Models (Standard) 4: other + whisper"
+      ],
+      "removed": [
+        "Multi-Modal Models (Standard)"
+      ],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "Multi-Modal Models (Standard) 1: qwen2",
+        "Multi-Modal Models (Standard) 2: qwen3 + gemma",
+        "Multi-Modal Models (Standard) 3: llava + qwen2_vl",
+        "Multi-Modal Models (Standard) 4: other + whisper"
+      ],
+      "upstream_removed": [
+        "Multi-Modal Models (Standard)"
+      ],
+      "pr": {
+        "number": 37014,
+        "title": "[CI] Shard Multi-Modal Models (Standard) into 4 parallel jobs",
+        "url": "https://github.com/vllm-project/vllm/pull/37014",
+        "author": "khluu"
+      }
+    },
+    {
+      "date": "2026-03-17",
+      "sha": "c5030c439db3",
+      "message": "[CI] Split Distributed Tests (4 GPUs) and Kernel MoE tests (#37100)",
+      "author": "Avinash Singh",
+      "added": [
+        "Distributed Compile + RPC Tests (2 GPUs)",
+        "Distributed DP Tests (2 GPUs)",
+        "Distributed Torchrun + Shutdown Tests (2 GPUs)"
+      ],
+      "removed": [
+        "Distributed (2 GPUs)"
+      ],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "Distributed Compile + RPC Tests (2 GPUs)",
+        "Distributed DP Tests (2 GPUs)",
+        "Distributed Torchrun + Shutdown Tests (2 GPUs)"
+      ],
+      "upstream_removed": [
+        "Distributed (2 GPUs)"
+      ],
+      "pr": {
+        "number": 37100,
+        "title": "[CI] Split Distributed Tests (4 GPUs) and Kernel MoE tests",
+        "url": "https://github.com/vllm-project/vllm/pull/37100",
+        "author": "avinashsingh77"
+      }
+    },
+    {
+      "date": "2026-03-19",
+      "sha": "040a505ff536",
+      "message": "[ROCm][CI] Cleaning and restructuring amd-ci legacy pipeline (#34839)",
+      "author": "Andreas Karatzas",
+      "added": [
+        "Acceptance Length Test (Large Models)",
+        "Async Engine, Inputs, Utils, Worker",
+        "Async Engine, Inputs, Utils, Worker, Config (CPU)",
+        "Basic Correctness",
+        "Batch Invariance (H100-MI325)",
+        "Cudagraph",
+        "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
+        "DeepSeek V2-Lite Prefetch Offload Accuracy (H100-MI325)",
+        "Distributed Comm Ops",
+        "Distributed Compile + Comm (4 GPUs)",
+        "Distributed Compile + RPC Tests (2 GPUs)",
+        "Distributed Compile Unit Tests (2xH100-2xMI325)",
+        "Distributed Compile Unit Tests (2xH100-2xMI355)",
+        "Distributed DP Tests (2 GPUs)",
+        "Distributed DP Tests (4 GPUs)",
+        "Distributed NixlConnector PD accuracy (4 GPUs)",
+        "Distributed Tests (2 GPUs)(H100-MI250)",
+        "Distributed Tests (2 GPUs)(H100-MI325)",
+        "Distributed Tests (2 GPUs)(H100-MI355)",
+        "Distributed Tests (4 GPUs)(A100-MI325)",
+        "Distributed Tests (8 GPUs)(H100-MI325)",
+        "Distributed Torchrun + Examples (4 GPUs)",
+        "Distributed Torchrun + Shutdown Tests (2 GPUs)",
+        "EPLB Algorithm",
+        "EPLB Execution",
+        "Elastic EP Scaling Test",
+        "Engine",
+        "Engine (1 GPU)",
+        "Entrypoints Integration (API Server 1)",
+        "Entrypoints Integration (API Server 2)",
+        "Entrypoints Integration (LLM)",
+        "Entrypoints Integration (Pooling)",
+        "Entrypoints Integration (Responses API)",
+        "Entrypoints V1",
+        "Examples",
+        "Fusion E2E Config Sweep (H100-MI325)",
+        "Fusion E2E Quick (H100-MI325)",
+        "Fusion and Compile Unit Tests (2xB200)",
+        "GPQA Eval (GPT-OSS) (B200-MI355)",
+        "GPQA Eval (GPT-OSS) (H100-MI325)",
+        "Kernels (B200-MI355)",
+        "LM Eval Large Models (4 GPUs)(A100-MI325)",
+        "LM Eval Large Models (4 GPUs)(FP8)",
+        "LM Eval Large Models (H200-MI325)",
+        "LM Eval Small Models (B200-MI325)",
+        "LM Eval Small Models (B200-MI355)",
+        "LoRA",
+        "LoRA TP (Distributed)",
+        "Metrics, Tracing (2 GPUs)",
+        "Model Executor",
+        "Multi-Modal Models (Extended Generation 1)",
+        "Multi-Modal Models (Extended Generation 2)",
+        "Multi-Modal Models (Extended Generation 3)",
+        "Multi-Modal Models (Extended Pooling)",
+        "Multi-Modal Models (Standard) 1: qwen2",
+        "Multi-Modal Models (Standard) 2: qwen3 + gemma",
+        "Multi-Modal Models (Standard) 3: llava + qwen2_vl",
+        "Multi-Modal Models (Standard) 4: other + whisper",
+        "Multi-Modal Processor",
+        "Multi-Modal Processor (CPU)",
+        "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
+        "Pipeline + Context Parallelism (4 GPUs)",
+        "PyTorch Fullgraph",
+        "Python-only Installation",
+        "Quantization",
+        "Quantized MoE Test (B200-MI325)",
+        "Qwen3-30B-A3B-FP8-block Accuracy",
+        "ROCm AITER Ops Test",
+        "Ray Dependency Compatibility Check",
+        "Regression",
+        "Spec Decode Draft Model",
+        "Spec Decode Eagle",
+        "Spec Decode Ngram + Suffix",
+        "Spec Decode Speculators + MTP",
+        "Transformers Nightly Models",
+        "V1 Core + KV + Metrics",
+        "V1 Sample + Logits",
+        "V1 Spec Decode",
+        "V1 Speculative Decoding (slow)",
+        "V1 attention (B200-MI355)",
+        "V1 attention (H100-MI250)",
+        "V1 attention (H100-MI325)",
+        "V1 e2e (2 GPUs)",
+        "V1 e2e (4 GPUs)",
+        "V1 others (CPU)",
+        "Weight Loading Multiple GPU",
+        "Weight Loading Multiple GPU - Large Models",
+        "e2e Core (1 GPU)",
+        "e2e Scheduling (1 GPU)"
+      ],
+      "removed": [
+        "2 Node Tests (4 GPUs in total)",
+        "Async Engine, Inputs, Utils, Worker Test",
+        "Async Engine, Inputs, Utils, Worker, Config Test (CPU)",
+        "Basic Correctness Test",
+        "Batch Invariance Tests (H100)",
+        "Blackwell Fusion and Compile Tests",
+        "Blackwell GPT-OSS Eval",
+        "Blackwell LM Eval Small Models",
+        "Blackwell Quantized MoE Test",
+        "Blackwell Test (MI355)",
+        "Cudagraph test",
+        "DP EP NixlConnector PD accuracy tests (Distributed)",
+        "Distributed Comm Ops Test",
+        "Distributed Tests (2 GPUs)",
+        "Distributed Tests (4 GPUs)",
+        "Distributed Tests (8 GPUs)",
+        "Distributed Tests (A100)",
+        "Distributed Tests (B200)",
+        "Distributed Tests (H200)",
+        "EPLB Algorithm Test",
+        "EPLB Execution Test",
+        "Engine Test",
+        "Entrypoints Integration Test (API Server 1)",
+        "Entrypoints Integration Test (API Server 2)",
+        "Entrypoints Integration Test (LLM)",
+        "Entrypoints Integration Test (Pooling)",
+        "Entrypoints Integration Test (Responses API)",
+        "Examples Test",
+        "Fusion E2E Config Sweep (MI325)",
+        "Fusion E2E Quick (MI325)",
+        "Fusion and Compile Unit Tests (B200)",
+        "Kernels DeepGEMM Test (H100)",
+        "LM Eval Large Models",
+        "LM Eval Large Models (4 Card)",
+        "LM Eval Large Models (H100)",
+        "LM Eval Small Models (1 Card)",
+        "LoRA TP Test (Distributed)",
+        "LoRA Test",
+        "Metrics, Tracing Test",
+        "Model Executor Test",
+        "Multi-Modal Models Test (Extended 1)",
+        "Multi-Modal Models Test (Extended 2)",
+        "Multi-Modal Models Test (Extended 3)",
+        "Multi-Modal Models Test (Extended Generation 1)",
+        "Multi-Modal Models Test (Extended Generation 2)",
+        "Multi-Modal Models Test (Extended Generation 3)",
+        "Multi-Modal Models Test (Extended Pooling)",
+        "Multi-Modal Models Test (Standard)",
+        "Multi-Modal Processor Test",
+        "Multi-Modal Processor Test (CPU)",
+        "NixlConnector PD accuracy tests (Distributed)",
+        "Pipeline + Context Parallelism Test",
+        "PyTorch Fullgraph Test",
+        "Python-only Installation Test",
+        "Quantization Test",
+        "Qwen3-30B-A3B-FP8-block Accuracy (H100)",
+        "ROCm GPT-OSS Eval",
+        "Regression Test",
+        "Transformers Nightly Models Test",
+        "V1 Test attention (B200)",
+        "V1 Test attention (H100)",
+        "V1 Test e2e (2 GPUs)",
+        "V1 Test e2e (4 GPUs)",
+        "V1 Test e2e + engine",
+        "V1 Test entrypoints",
+        "V1 Test others",
+        "V1 Test others (CPU)",
+        "Weight Loading Multiple GPU Test",
+        "Weight Loading Multiple GPU Test - Large Models"
+      ],
+      "amd_added": [
+        "Acceptance Length Test (Large Models)",
+        "Async Engine, Inputs, Utils, Worker",
+        "Async Engine, Inputs, Utils, Worker, Config (CPU)",
+        "Basic Correctness",
+        "Batch Invariance (H100-MI325)",
+        "Cudagraph",
+        "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
+        "DeepSeek V2-Lite Prefetch Offload Accuracy (H100-MI325)",
+        "Distributed Comm Ops",
+        "Distributed Compile + Comm (4 GPUs)",
+        "Distributed Compile + RPC Tests (2 GPUs)",
+        "Distributed Compile Unit Tests (2xH100-2xMI325)",
+        "Distributed Compile Unit Tests (2xH100-2xMI355)",
+        "Distributed DP Tests (2 GPUs)",
+        "Distributed DP Tests (4 GPUs)",
+        "Distributed NixlConnector PD accuracy (4 GPUs)",
+        "Distributed Tests (2 GPUs)(H100-MI250)",
+        "Distributed Tests (2 GPUs)(H100-MI325)",
+        "Distributed Tests (2 GPUs)(H100-MI355)",
+        "Distributed Tests (4 GPUs)(A100-MI325)",
+        "Distributed Tests (8 GPUs)(H100-MI325)",
+        "Distributed Torchrun + Examples (4 GPUs)",
+        "Distributed Torchrun + Shutdown Tests (2 GPUs)",
+        "EPLB Algorithm",
+        "EPLB Execution",
+        "Elastic EP Scaling Test",
+        "Engine",
+        "Engine (1 GPU)",
+        "Entrypoints Integration (API Server 1)",
+        "Entrypoints Integration (API Server 2)",
+        "Entrypoints Integration (LLM)",
+        "Entrypoints Integration (Pooling)",
+        "Entrypoints Integration (Responses API)",
+        "Entrypoints V1",
+        "Examples",
+        "Fusion E2E Config Sweep (H100-MI325)",
+        "Fusion E2E Quick (H100-MI325)",
+        "GPQA Eval (GPT-OSS) (B200-MI355)",
+        "GPQA Eval (GPT-OSS) (H100-MI325)",
+        "Kernels (B200-MI355)",
+        "LM Eval Large Models (4 GPUs)(A100-MI325)",
+        "LM Eval Large Models (4 GPUs)(FP8)",
+        "LM Eval Large Models (H200-MI325)",
+        "LM Eval Small Models (B200-MI325)",
+        "LM Eval Small Models (B200-MI355)",
+        "LoRA",
+        "LoRA TP (Distributed)",
+        "Metrics, Tracing (2 GPUs)",
+        "Model Executor",
+        "Multi-Modal Models (Extended Generation 1)",
+        "Multi-Modal Models (Extended Generation 2)",
+        "Multi-Modal Models (Extended Generation 3)",
+        "Multi-Modal Models (Extended Pooling)",
+        "Multi-Modal Models (Standard) 1: qwen2",
+        "Multi-Modal Models (Standard) 2: qwen3 + gemma",
+        "Multi-Modal Models (Standard) 3: llava + qwen2_vl",
+        "Multi-Modal Models (Standard) 4: other + whisper",
+        "Multi-Modal Processor",
+        "Multi-Modal Processor (CPU)",
+        "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
+        "Pipeline + Context Parallelism (4 GPUs)",
+        "PyTorch Fullgraph",
+        "Python-only Installation",
+        "Quantization",
+        "Quantized MoE Test (B200-MI325)",
+        "Qwen3-30B-A3B-FP8-block Accuracy",
+        "ROCm AITER Ops Test",
+        "Ray Dependency Compatibility Check",
+        "Regression",
+        "Spec Decode Draft Model",
+        "Spec Decode Eagle",
+        "Spec Decode Ngram + Suffix",
+        "Spec Decode Speculators + MTP",
+        "Transformers Nightly Models",
+        "V1 Core + KV + Metrics",
+        "V1 Sample + Logits",
+        "V1 Spec Decode",
+        "V1 Speculative Decoding (slow)",
+        "V1 attention (B200-MI355)",
+        "V1 attention (H100-MI250)",
+        "V1 attention (H100-MI325)",
+        "V1 e2e (2 GPUs)",
+        "V1 e2e (4 GPUs)",
+        "V1 others (CPU)",
+        "Weight Loading Multiple GPU",
+        "Weight Loading Multiple GPU - Large Models",
+        "e2e Core (1 GPU)",
+        "e2e Scheduling (1 GPU)"
+      ],
+      "amd_removed": [
+        "2 Node Tests (4 GPUs in total)",
+        "Async Engine, Inputs, Utils, Worker Test",
+        "Async Engine, Inputs, Utils, Worker, Config Test (CPU)",
+        "Basic Correctness Test",
+        "Batch Invariance Tests (H100)",
+        "Blackwell Fusion and Compile Tests",
+        "Blackwell GPT-OSS Eval",
+        "Blackwell LM Eval Small Models",
+        "Blackwell Quantized MoE Test",
+        "Blackwell Test (MI355)",
+        "Cudagraph test",
+        "DP EP NixlConnector PD accuracy tests (Distributed)",
+        "Distributed Comm Ops Test",
+        "Distributed Tests (2 GPUs)",
+        "Distributed Tests (4 GPUs)",
+        "Distributed Tests (8 GPUs)",
+        "Distributed Tests (A100)",
+        "Distributed Tests (B200)",
+        "Distributed Tests (H200)",
+        "EPLB Algorithm Test",
+        "EPLB Execution Test",
+        "Engine Test",
+        "Entrypoints Integration Test (API Server 1)",
+        "Entrypoints Integration Test (API Server 2)",
+        "Entrypoints Integration Test (LLM)",
+        "Entrypoints Integration Test (Pooling)",
+        "Entrypoints Integration Test (Responses API)",
+        "Examples Test",
+        "Fusion E2E Config Sweep (MI325)",
+        "Fusion E2E Quick (MI325)",
+        "Kernels DeepGEMM Test (H100)",
+        "LM Eval Large Models",
+        "LM Eval Large Models (4 Card)",
+        "LM Eval Large Models (H100)",
+        "LM Eval Small Models (1 Card)",
+        "LoRA TP Test (Distributed)",
+        "LoRA Test",
+        "Metrics, Tracing Test",
+        "Model Executor Test",
+        "Multi-Modal Models Test (Extended 1)",
+        "Multi-Modal Models Test (Extended 2)",
+        "Multi-Modal Models Test (Extended 3)",
+        "Multi-Modal Models Test (Extended Generation 1)",
+        "Multi-Modal Models Test (Extended Generation 2)",
+        "Multi-Modal Models Test (Extended Generation 3)",
+        "Multi-Modal Models Test (Extended Pooling)",
+        "Multi-Modal Models Test (Standard)",
+        "Multi-Modal Processor Test",
+        "Multi-Modal Processor Test (CPU)",
+        "NixlConnector PD accuracy tests (Distributed)",
+        "Pipeline + Context Parallelism Test",
+        "PyTorch Fullgraph Test",
+        "Python-only Installation Test",
+        "Quantization Test",
+        "Qwen3-30B-A3B-FP8-block Accuracy (H100)",
+        "ROCm GPT-OSS Eval",
+        "Regression Test",
+        "Transformers Nightly Models Test",
+        "V1 Test attention (B200)",
+        "V1 Test attention (H100)",
+        "V1 Test e2e (2 GPUs)",
+        "V1 Test e2e (4 GPUs)",
+        "V1 Test e2e + engine",
+        "V1 Test entrypoints",
+        "V1 Test others",
+        "V1 Test others (CPU)",
+        "Weight Loading Multiple GPU Test",
+        "Weight Loading Multiple GPU Test - Large Models"
+      ],
+      "upstream_added": [
+        "Fusion and Compile Unit Tests (2xB200)"
+      ],
+      "upstream_removed": [
+        "Fusion and Compile Unit Tests (B200)"
+      ],
+      "pr": {
+        "number": 34839,
+        "title": "[ROCm][CI] Cleaning and restructuring amd-ci legacy pipeline",
+        "url": "https://github.com/vllm-project/vllm/pull/34839",
+        "author": "AndreasKaratzas"
+      }
+    },
+    {
+      "date": "2026-03-19",
+      "sha": "c7bc12c20f6c",
+      "message": "[CI/Build] Split out MM pooling tests (#37542)",
+      "author": "Cyrus Leung",
+      "added": [
+        "Multi-Modal Models (Extended Generation 1)",
+        "Multi-Modal Models (Extended Generation 2)",
+        "Multi-Modal Models (Extended Generation 3)",
+        "Multi-Modal Models (Extended Pooling)",
+        "Multi-Modal Models Test (Extended 1)",
+        "Multi-Modal Models Test (Extended 2)",
+        "Multi-Modal Models Test (Extended 3)",
+        "Multi-Modal Models Test (Extended Generation 1)",
+        "Multi-Modal Models Test (Extended Generation 2)",
+        "Multi-Modal Models Test (Extended Generation 3)",
+        "Multi-Modal Models Test (Extended Pooling)",
+        "Multi-Modal Processor (CPU)"
+      ],
+      "removed": [
+        "Multi-Modal Models (Extended) 1",
+        "Multi-Modal Models (Extended) 2",
+        "Multi-Modal Models (Extended) 3",
+        "Multi-Modal Models Test (Extended) 1",
+        "Multi-Modal Models Test (Extended) 2",
+        "Multi-Modal Models Test (Extended) 3",
+        "Multi-Modal Processor Test (CPU)"
+      ],
+      "amd_added": [
+        "Multi-Modal Models Test (Extended 1)",
+        "Multi-Modal Models Test (Extended 2)",
+        "Multi-Modal Models Test (Extended 3)",
+        "Multi-Modal Models Test (Extended Generation 1)",
+        "Multi-Modal Models Test (Extended Generation 2)",
+        "Multi-Modal Models Test (Extended Generation 3)",
+        "Multi-Modal Models Test (Extended Pooling)"
+      ],
+      "amd_removed": [
+        "Multi-Modal Models Test (Extended) 1",
+        "Multi-Modal Models Test (Extended) 2",
+        "Multi-Modal Models Test (Extended) 3"
+      ],
+      "upstream_added": [
+        "Multi-Modal Models (Extended Generation 1)",
+        "Multi-Modal Models (Extended Generation 2)",
+        "Multi-Modal Models (Extended Generation 3)",
+        "Multi-Modal Models (Extended Pooling)",
+        "Multi-Modal Processor (CPU)"
+      ],
+      "upstream_removed": [
+        "Multi-Modal Models (Extended) 1",
+        "Multi-Modal Models (Extended) 2",
+        "Multi-Modal Models (Extended) 3",
+        "Multi-Modal Processor Test (CPU)"
+      ],
+      "pr": {
+        "number": 37542,
+        "title": "[CI/Build] Split out MM pooling tests",
+        "url": "https://github.com/vllm-project/vllm/pull/37542",
+        "author": "DarkLight1337"
+      }
+    },
+    {
+      "date": "2026-03-20",
+      "sha": "b4c1aef21c1a",
+      "message": "[Refactor] Relocate tests from tests/v1/entrypoints/ to tests/entrypoints/ (#37500)",
+      "author": "Flora Feng",
+      "added": [],
+      "removed": [
+        "Entrypoints V1"
+      ],
+      "amd_added": [],
+      "amd_removed": [
+        "Entrypoints V1"
+      ],
+      "upstream_added": [],
+      "upstream_removed": [
+        "Entrypoints V1"
+      ],
+      "pr": {
+        "number": 37500,
+        "title": "[Refactor] Relocate tests from tests/v1/entrypoints/ to tests/entrypoints/",
+        "url": "https://github.com/vllm-project/vllm/pull/37500",
+        "author": "sfeng33"
+      }
+    },
+    {
+      "date": "2026-03-20",
+      "sha": "e1d85e5c2454",
+      "message": "[Attention] Support distinguishing between short extends and decodes (#37303)",
+      "author": "Lucas Wilkinson",
+      "added": [
+        "V1 e2e (4xH100)"
+      ],
+      "removed": [],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "V1 e2e (4xH100)"
+      ],
+      "upstream_removed": [],
+      "pr": {
+        "number": 37303,
+        "title": "[Attention] Support distinguishing between short extends and decodes",
+        "url": "https://github.com/vllm-project/vllm/pull/37303",
+        "author": "LucasWilkinson"
+      }
+    },
+    {
+      "date": "2026-03-20",
+      "sha": "4f16ebbbd35e",
+      "message": "[Bugfix] Disable monolithic TRTLLM MoE for Renormalize routing (#37591) (#37605)",
+      "author": "Vadim Gimpelson",
+      "added": [
+        "LM Eval Qwen3.5 Models (B200)"
+      ],
+      "removed": [],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "LM Eval Qwen3.5 Models (B200)"
+      ],
+      "upstream_removed": [],
+      "pr": {
+        "number": 37605,
+        "title": "[Bugfix] Disable monolithic TRTLLM MoE for Renormalize routing (#37591)",
+        "url": "https://github.com/vllm-project/vllm/pull/37605",
+        "author": "vadiklyutiy"
+      }
+    },
+    {
+      "date": "2026-03-23",
+      "sha": "1cbbcfe8a334",
+      "message": "[CI][PD] Add Hybrid SSM integration tests to CI (#37657)",
+      "author": "Nicol\u00f2 Lucchesi",
+      "added": [
+        "Hyrbid SSM NixlConnector PD accuracy tests (4 GPUs)"
+      ],
+      "removed": [],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "Hyrbid SSM NixlConnector PD accuracy tests (4 GPUs)"
+      ],
+      "upstream_removed": [],
+      "pr": {
+        "number": 37657,
+        "title": "[CI][PD] Add Hybrid SSM integration tests to CI",
+        "url": "https://github.com/vllm-project/vllm/pull/37657",
+        "author": "NickLucche"
+      }
+    },
+    {
+      "date": "2026-03-23",
+      "sha": "91fd695b758c",
+      "message": "[CI] split Entrypoints Integration (API Server 1) into 3 jobs (#37882)",
+      "author": "Kunshang Ji",
+      "added": [
+        "Entrypoints Integration (API Server openai - Part 1)",
+        "Entrypoints Integration (API Server openai - Part 2)",
+        "Entrypoints Integration (API Server openai - Part 3)"
+      ],
+      "removed": [
+        "Entrypoints Integration (API Server 1)"
+      ],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "Entrypoints Integration (API Server openai - Part 1)",
+        "Entrypoints Integration (API Server openai - Part 2)",
+        "Entrypoints Integration (API Server openai - Part 3)"
+      ],
+      "upstream_removed": [
+        "Entrypoints Integration (API Server 1)"
+      ],
+      "pr": {
+        "number": 37882,
+        "title": "[CI] split Entrypoints Integration (API Server 1) into 3 jobs",
+        "url": "https://github.com/vllm-project/vllm/pull/37882",
+        "author": "jikunshang"
+      }
+    },
+    {
+      "date": "2026-03-23",
+      "sha": "2488a82f89b1",
+      "message": "[CI] Split V1 Others into 3 separate jobs (#37016)",
+      "author": "Kevin H. Luu",
+      "added": [
+        "V1 Core + KV + Metrics",
+        "V1 Sample + Logits",
+        "V1 Spec Decode"
+      ],
+      "removed": [
+        "V1 Others"
+      ],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "V1 Core + KV + Metrics",
+        "V1 Sample + Logits",
+        "V1 Spec Decode"
+      ],
+      "upstream_removed": [
+        "V1 Others"
+      ],
+      "pr": {
+        "number": 37016,
+        "title": "[CI] Split V1 Others into 3 separate jobs",
+        "url": "https://github.com/vllm-project/vllm/pull/37016",
+        "author": "khluu"
+      }
+    },
+    {
+      "date": "2026-03-24",
+      "sha": "8bbb7c7f200e",
+      "message": "[ROCm][CI][PD] Add Hybrid SSM integration tests to CI (#37924)",
+      "author": "Andreas Karatzas",
+      "added": [
+        "Hyrbid SSM NixlConnector PD accuracy tests (4 GPUs)"
+      ],
+      "removed": [],
+      "amd_added": [
+        "Hyrbid SSM NixlConnector PD accuracy tests (4 GPUs)"
+      ],
+      "amd_removed": [],
+      "upstream_added": [],
+      "upstream_removed": [],
+      "pr": {
+        "number": 37924,
+        "title": "[ROCm][CI][PD] Add Hybrid SSM integration tests to CI",
+        "url": "https://github.com/vllm-project/vllm/pull/37924",
+        "author": "AndreasKaratzas"
+      }
+    },
+    {
+      "date": "2026-03-24",
+      "sha": "de99d91ecee8",
+      "message": "[ROCm][CI] Split Entrypoints Integration (API Server 1) into 3 jobs (#37906)",
+      "author": "Andreas Karatzas",
+      "added": [
+        "Entrypoints Integration (API Server openai - Part 1)",
+        "Entrypoints Integration (API Server openai - Part 2)",
+        "Entrypoints Integration (API Server openai - Part 3)"
+      ],
+      "removed": [
+        "Entrypoints Integration (API Server 1)"
+      ],
+      "amd_added": [
+        "Entrypoints Integration (API Server openai - Part 1)",
+        "Entrypoints Integration (API Server openai - Part 2)",
+        "Entrypoints Integration (API Server openai - Part 3)"
+      ],
+      "amd_removed": [
+        "Entrypoints Integration (API Server 1)"
+      ],
+      "upstream_added": [],
+      "upstream_removed": [],
+      "pr": {
+        "number": 37906,
+        "title": "[ROCm][CI] Split Entrypoints Integration (API Server 1) into 3 jobs",
+        "url": "https://github.com/vllm-project/vllm/pull/37906",
+        "author": "AndreasKaratzas"
+      }
+    },
+    {
+      "date": "2026-03-25",
+      "sha": "6e37c46b35e2",
+      "message": "[compile] Add some more startup tests for top models (#38046)",
+      "author": "Richard Zou",
+      "added": [
+        "PyTorch Compilation Unit Tests (H100)"
+      ],
+      "removed": [],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "PyTorch Compilation Unit Tests (H100)"
+      ],
+      "upstream_removed": [],
+      "pr": {
+        "number": 38046,
+        "title": "[compile] Add some more startup tests for top models",
+        "url": "https://github.com/vllm-project/vllm/pull/38046",
+        "author": "zou3519"
+      }
+    },
+    {
+      "date": "2026-03-26",
+      "sha": "9c3ae04bfe65",
+      "message": "[ROCm][CI] Add LM Eval Qwen3.5 Models test for MI355 (#38155)",
+      "author": "Andreas Karatzas",
+      "added": [
+        "LM Eval Qwen3-5 Models (B200-MI355)"
+      ],
+      "removed": [],
+      "amd_added": [
+        "LM Eval Qwen3-5 Models (B200-MI355)"
+      ],
+      "amd_removed": [],
+      "upstream_added": [],
+      "upstream_removed": [],
+      "pr": {
+        "number": 38155,
+        "title": "[ROCm][CI] Add LM Eval Qwen3.5 Models test for MI355",
+        "url": "https://github.com/vllm-project/vllm/pull/38155",
+        "author": "AndreasKaratzas"
+      }
+    },
+    {
+      "date": "2026-03-26",
+      "sha": "e054f152faa4",
+      "message": "[CI] Add batch invariant test for b200 (#38014)",
+      "author": "Wentao Ye",
+      "added": [
+        "Batch Invariance (B200)"
+      ],
+      "removed": [],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "Batch Invariance (B200)"
+      ],
+      "upstream_removed": [],
+      "pr": {
+        "number": 38014,
+        "title": "[CI] Add batch invariant test for b200",
+        "url": "https://github.com/vllm-project/vllm/pull/38014",
+        "author": "yewentao256"
+      }
+    },
+    {
+      "date": "2026-03-30",
+      "sha": "4f2ed5fddb52",
+      "message": "[ROCm][CI] Enable hybrid chunked prefill test (#38317)",
+      "author": "Andreas Karatzas",
+      "added": [
+        "V1 e2e (4xH100-4xMI325)"
+      ],
+      "removed": [],
+      "amd_added": [
+        "V1 e2e (4xH100-4xMI325)"
+      ],
+      "amd_removed": [],
+      "upstream_added": [],
+      "upstream_removed": [],
+      "pr": {
+        "number": 38317,
+        "title": "[ROCm][CI] Enable hybrid chunked prefill test",
+        "url": "https://github.com/vllm-project/vllm/pull/38317",
+        "author": "AndreasKaratzas"
+      }
+    },
+    {
+      "date": "2026-03-31",
+      "sha": "42318c840b27",
+      "message": "[ci] Remove benchmarks job (#38611)",
+      "author": "Kevin H. Luu",
+      "added": [],
+      "removed": [
+        "Benchmarks"
+      ],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [],
+      "upstream_removed": [
+        "Benchmarks"
+      ],
+      "pr": {
+        "number": 38611,
+        "title": "[ci] Remove benchmarks job",
+        "url": "https://github.com/vllm-project/vllm/pull/38611",
+        "author": "khluu"
+      }
+    },
+    {
+      "date": "2026-04-01",
+      "sha": "de5e6c44c6fb",
+      "message": "[Feat][Executor] Introduce RayExecutorV2 (#36836)",
+      "author": "Jeffrey Wang",
+      "added": [
+        "MessageQueue TCP Multi-Node (2 GPUs)",
+        "RayExecutorV2 (4 GPUs)"
+      ],
+      "removed": [],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "MessageQueue TCP Multi-Node (2 GPUs)",
+        "RayExecutorV2 (4 GPUs)"
+      ],
+      "upstream_removed": [],
+      "pr": {
+        "number": 36836,
+        "title": "[Feat][Executor] Introduce RayExecutorV2",
+        "url": "https://github.com/vllm-project/vllm/pull/36836",
+        "author": "jeffreywang-anyscale"
+      }
+    },
+    {
+      "date": "2026-04-01",
+      "sha": "40bb17502736",
+      "message": "[vLLM IR] 1/N Implement IR skeleton and rms_norm op (#33825)",
+      "author": "Luka Govedi\u010d",
+      "added": [
+        "vLLM IR Tests"
+      ],
+      "removed": [],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "vLLM IR Tests"
+      ],
+      "upstream_removed": [],
+      "pr": {
+        "number": 33825,
+        "title": "[vLLM IR] 1/N Implement IR skeleton and rms_norm op",
+        "url": "https://github.com/vllm-project/vllm/pull/33825",
+        "author": "ProExpertProg"
+      }
+    },
+    {
+      "date": "2026-04-03",
+      "sha": "ab79863e6c4f",
+      "message": "Remove MQ multi-node tests (#38934)",
+      "author": "Jeffrey Wang",
+      "added": [],
+      "removed": [
+        "MessageQueue TCP Multi-Node (2 GPUs)"
+      ],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [],
+      "upstream_removed": [
+        "MessageQueue TCP Multi-Node (2 GPUs)"
+      ],
+      "pr": {
+        "number": 38934,
+        "title": "Remove MQ multi-node tests",
+        "url": "https://github.com/vllm-project/vllm/pull/38934",
+        "author": "jeffreywang-anyscale"
+      }
+    },
+    {
+      "date": "2026-04-06",
+      "sha": "780ba3745836",
+      "message": "[ROCm][Quantization] Add asymmetric INT8 quantization support to TritonInt8ScaledMMLinearKernel (#38",
+      "author": "Andreas Karatzas",
+      "added": [
+        "LM Eval Small Models (MI325)"
+      ],
+      "removed": [],
+      "amd_added": [
+        "LM Eval Small Models (MI325)"
+      ],
+      "amd_removed": [],
+      "upstream_added": [],
+      "upstream_removed": [],
+      "pr": {
+        "number": 38501,
+        "title": "[ROCm][Quantization] Add asymmetric INT8 quantization support to TritonInt8ScaledMMLinearKernel",
+        "url": "https://github.com/vllm-project/vllm/pull/38501",
+        "author": "AndreasKaratzas"
+      }
+    },
+    {
+      "date": "2026-04-06",
+      "sha": "f01482408c9e",
+      "message": "[MoE Refactor][Test] FusedMoE layer test (#24675)",
+      "author": "bnellnm",
+      "added": [
+        "Kernels FusedMoE Layer Test (2 B200s)",
+        "Kernels FusedMoE Layer Test (2 H100s)"
+      ],
+      "removed": [],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "Kernels FusedMoE Layer Test (2 B200s)",
+        "Kernels FusedMoE Layer Test (2 H100s)"
+      ],
+      "upstream_removed": [],
+      "pr": {
+        "number": 24675,
+        "title": "[MoE Refactor][Test] FusedMoE layer test",
+        "url": "https://github.com/vllm-project/vllm/pull/24675",
+        "author": "bnellnm"
+      }
+    },
+    {
+      "date": "2026-04-09",
+      "sha": "adaabb8a55b3",
+      "message": "Add nightly b200 test for spec decode eagle correctness (#38577)",
+      "author": "Rishi Puri",
+      "added": [
+        "Spec Decode Draft Model Nightly B200",
+        "Spec Decode Eagle Nightly B200",
+        "Spec Decode Speculators + MTP Nightly B200"
+      ],
+      "removed": [],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "Spec Decode Draft Model Nightly B200",
+        "Spec Decode Eagle Nightly B200",
+        "Spec Decode Speculators + MTP Nightly B200"
+      ],
+      "upstream_removed": [],
+      "pr": {
+        "number": 38577,
+        "title": "Add nightly b200 test for spec decode eagle correctness",
+        "url": "https://github.com/vllm-project/vllm/pull/38577",
+        "author": "puririshi98"
+      }
+    },
+    {
+      "date": "2026-04-10",
+      "sha": "c9dddc144b01",
+      "message": "[CI] Add Nixl+OffloadingConnector e2e integration tests (#39200)",
+      "author": "Nicol\u00f2 Lucchesi",
+      "added": [
+        "MultiConnector (Nixl+Offloading) PD accuracy (2 GPUs)"
+      ],
+      "removed": [],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "MultiConnector (Nixl+Offloading) PD accuracy (2 GPUs)"
+      ],
+      "upstream_removed": [],
+      "pr": {
+        "number": 39200,
+        "title": "[CI] Add Nixl+OffloadingConnector e2e integration tests",
+        "url": "https://github.com/vllm-project/vllm/pull/39200",
+        "author": "NickLucche"
+      }
+    },
+    {
+      "date": "2026-04-10",
+      "sha": "ecd1ea13634e",
+      "message": "[Kernel] Porting the TRTLLM minimax_allreduce_rms kernels (#37045)",
+      "author": "Jee Jee Li",
+      "added": [
+        "Kernels MiniMax Reduce RMS Test (2 GPUs)"
+      ],
+      "removed": [],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "Kernels MiniMax Reduce RMS Test (2 GPUs)"
+      ],
+      "upstream_removed": [],
+      "pr": {
+        "number": 37045,
+        "title": "[Kernel] Porting the TRTLLM minimax_allreduce_rms kernels",
+        "url": "https://github.com/vllm-project/vllm/pull/37045",
+        "author": "jeejeelee"
+      }
+    },
+    {
+      "date": "2026-04-10",
+      "sha": "e281cb721ca2",
+      "message": "[CI] Add MultiConnector (Nixl+Offloading) e2e edge case tests (#39343)",
+      "author": "zhanqiuhu",
+      "added": [
+        "MultiConnector (Nixl+Offloading) PD edge cases (2 GPUs)"
+      ],
+      "removed": [],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "MultiConnector (Nixl+Offloading) PD edge cases (2 GPUs)"
+      ],
+      "upstream_removed": [],
+      "pr": {
+        "number": 39343,
+        "title": "[CI] Add MultiConnector (Nixl+Offloading) e2e edge case tests",
+        "url": "https://github.com/vllm-project/vllm/pull/39343",
+        "author": "ZhanqiuHu"
+      }
+    },
+    {
+      "date": "2026-04-11",
+      "sha": "af661a182d20",
+      "message": "Revert \"Add nightly b200 test for spec decode eagle correctness (#38577)\" (#39512)",
+      "author": "Benjamin Chislett",
+      "added": [],
+      "removed": [
+        "Spec Decode Draft Model Nightly B200",
+        "Spec Decode Eagle Nightly B200",
+        "Spec Decode Speculators + MTP Nightly B200"
+      ],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [],
+      "upstream_removed": [
+        "Spec Decode Draft Model Nightly B200",
+        "Spec Decode Eagle Nightly B200",
+        "Spec Decode Speculators + MTP Nightly B200"
+      ],
+      "pr": {
+        "number": 39512,
+        "title": "Revert \"Add nightly b200 test for spec decode eagle correctness (#38577)\"",
+        "url": "https://github.com/vllm-project/vllm/pull/39512",
+        "author": "benchislett"
+      }
+    },
+    {
+      "date": "2026-04-13",
+      "sha": "4e4ad41d11f3",
+      "message": "[ROCm][CI] Removed stale tests and extended acceptance test (#39651)",
+      "author": "Andreas Karatzas",
+      "added": [],
+      "removed": [
+        "V1 Speculative Decoding (slow)"
+      ],
+      "amd_added": [],
+      "amd_removed": [
+        "V1 Speculative Decoding (slow)"
+      ],
+      "upstream_added": [],
+      "upstream_removed": [],
+      "pr": {
+        "number": 39651,
+        "title": "[ROCm][CI] Removed stale tests and extended acceptance test",
+        "url": "https://github.com/vllm-project/vllm/pull/39651",
+        "author": "AndreasKaratzas"
+      }
+    },
+    {
+      "date": "2026-04-15",
+      "sha": "f4b42df04847",
+      "message": "[Attention Backend] TurboQuant: 2-bit KV cache compression with 4x capacity (#38479)",
+      "author": "Vibhav Agarwal",
+      "added": [
+        "LM Eval TurboQuant KV Cache"
+      ],
+      "removed": [],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "LM Eval TurboQuant KV Cache"
+      ],
+      "upstream_removed": [],
+      "pr": {
+        "number": 38479,
+        "title": "[Attention Backend] TurboQuant: 2-bit KV cache compression with 4x capacity",
+        "url": "https://github.com/vllm-project/vllm/pull/38479",
+        "author": "vibhavagarwal5"
+      }
+    },
+    {
+      "date": "2026-04-15",
+      "sha": "0b790a25013e",
+      "message": "[Speculative Decoding] Add DFlash speculators config parsing (#38300)",
+      "author": "zhanqiuhu",
+      "added": [
+        "DFlash Speculators Correctness"
+      ],
+      "removed": [],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "DFlash Speculators Correctness"
+      ],
+      "upstream_removed": [],
+      "pr": {
+        "number": 38300,
+        "title": "[Speculative Decoding] Add DFlash speculators config parsing",
+        "url": "https://github.com/vllm-project/vllm/pull/38300",
+        "author": "ZhanqiuHu"
+      }
+    },
+    {
+      "date": "2026-04-15",
+      "sha": "03f8d3a548ce",
+      "message": "Update to transformers v5 (#30566)",
+      "author": "Harry Mellor",
+      "added": [
+        "Transformers Backward Compatibility Models Test"
+      ],
+      "removed": [],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "Transformers Backward Compatibility Models Test"
+      ],
+      "upstream_removed": [],
+      "pr": {
+        "number": 30566,
+        "title": "Update to transformers v5",
+        "url": "https://github.com/vllm-project/vllm/pull/30566",
+        "author": "hmellor"
+      }
+    },
+    {
+      "date": "2026-04-20",
+      "sha": "a943839e9a7c",
+      "message": "[ROCm][CI] Introducing new MI300 nodes (#39531)",
+      "author": "Andreas Karatzas",
+      "added": [
+        "Batch Invariance (H100-MI250)",
+        "DeepSeek V2-Lite Accuracy (4xH100-4xMI300)",
+        "DeepSeek V2-Lite Prefetch Offload Accuracy (H100-MI300)",
+        "Distributed Compile Unit Tests (2xH100-2xMI300)",
+        "Distributed Tests (2xH100-2xMI250)",
+        "Distributed Tests (2xH100-2xMI300)",
+        "Distributed Tests (2xH100-2xMI355)",
+        "Distributed Tests (4xA100-4xMI300)",
+        "Distributed Tests (8xH100-8xMI300)",
+        "Fusion E2E Config Sweep (H100-MI300)",
+        "Fusion E2E Quick (H100-MI300)",
+        "GPQA Eval (GPT-OSS) (2xB200-2xMI355)",
+        "GPQA Eval (GPT-OSS) (2xH100-2xMI300)",
+        "Kernels FP8 MoE Test (2xH100-2xMI300)",
+        "Kernels FP8 MoE Test (2xH100-2xMI355)",
+        "LM Eval Large Models (4xA100-4xMI300)",
+        "LM Eval Large Models (4xH100-4xMI325)",
+        "LM Eval Large Models (4xH100-4xMI355)",
+        "LM Eval Large Models (8xH200-8xMI300)",
+        "LM Eval Small Models (2xB200-2xMI300)",
+        "LM Eval Small Models (2xB200-2xMI355)",
+        "LM Eval Small Models (MI300)",
+        "Qwen3-30B-A3B-FP8-block Accuracy (4xH100-4xMI300)",
+        "ROCm LM Eval Large Models (8 GPUs)",
+        "RayExecutorV2 (4 GPUs)",
+        "V1 attention (H100-MI300)",
+        "V1 e2e (4xH100-4xMI300)"
+      ],
+      "removed": [
+        "Batch Invariance (H100-MI325)",
+        "DeepSeek V2-Lite Accuracy",
+        "DeepSeek V2-Lite Prefetch Offload Accuracy (H100-MI325)",
+        "Distributed Compile Unit Tests (2xH100-2xMI325)",
+        "Distributed Compile Unit Tests (2xH100-2xMI355)",
+        "Distributed Tests (2 GPUs)(H100-MI250)",
+        "Distributed Tests (2 GPUs)(H100-MI325)",
+        "Distributed Tests (2 GPUs)(H100-MI355)",
+        "Distributed Tests (4 GPUs)(A100-MI325)",
+        "Distributed Tests (8 GPUs)(H100-MI325)",
+        "Fusion E2E Config Sweep (H100-MI325)",
+        "Fusion E2E Quick (H100-MI325)",
+        "GPQA Eval (GPT-OSS) (B200-MI355)",
+        "GPQA Eval (GPT-OSS) (H100-MI325)",
+        "Kernels FP8 MoE Test",
+        "LM Eval Large Models (4 GPUs)(A100-MI325)",
+        "LM Eval Large Models (4 GPUs)(FP8)",
+        "LM Eval Large Models (H200-MI325)",
+        "LM Eval Small Models (B200-MI325)",
+        "LM Eval Small Models (B200-MI355)",
+        "LM Eval Small Models (MI325)",
+        "Quantized MoE Test (B200-MI325)",
+        "Qwen3-30B-A3B-FP8-block Accuracy",
+        "ROCm LM Eval Large Models (8 Card)",
+        "V1 attention (H100-MI325)",
+        "V1 e2e (4xH100-4xMI325)"
+      ],
+      "amd_added": [
+        "Batch Invariance (H100-MI250)",
+        "DeepSeek V2-Lite Accuracy (4xH100-4xMI300)",
+        "DeepSeek V2-Lite Prefetch Offload Accuracy (H100-MI300)",
+        "Distributed Compile Unit Tests (2xH100-2xMI300)",
+        "Distributed Tests (2xH100-2xMI250)",
+        "Distributed Tests (2xH100-2xMI300)",
+        "Distributed Tests (2xH100-2xMI355)",
+        "Distributed Tests (4xA100-4xMI300)",
+        "Distributed Tests (8xH100-8xMI300)",
+        "Fusion E2E Config Sweep (H100-MI300)",
+        "Fusion E2E Quick (H100-MI300)",
+        "GPQA Eval (GPT-OSS) (2xB200-2xMI355)",
+        "GPQA Eval (GPT-OSS) (2xH100-2xMI300)",
+        "Kernels FP8 MoE Test (2xH100-2xMI300)",
+        "Kernels FP8 MoE Test (2xH100-2xMI355)",
+        "LM Eval Large Models (4xA100-4xMI300)",
+        "LM Eval Large Models (4xH100-4xMI325)",
+        "LM Eval Large Models (4xH100-4xMI355)",
+        "LM Eval Large Models (8xH200-8xMI300)",
+        "LM Eval Small Models (2xB200-2xMI300)",
+        "LM Eval Small Models (2xB200-2xMI355)",
+        "LM Eval Small Models (MI300)",
+        "Qwen3-30B-A3B-FP8-block Accuracy (4xH100-4xMI300)",
+        "ROCm LM Eval Large Models (8 GPUs)",
+        "RayExecutorV2 (4 GPUs)",
+        "V1 attention (H100-MI300)",
+        "V1 e2e (4xH100-4xMI300)"
+      ],
+      "amd_removed": [
+        "Batch Invariance (H100-MI325)",
+        "DeepSeek V2-Lite Accuracy",
+        "DeepSeek V2-Lite Prefetch Offload Accuracy (H100-MI325)",
+        "Distributed Compile Unit Tests (2xH100-2xMI325)",
+        "Distributed Compile Unit Tests (2xH100-2xMI355)",
+        "Distributed Tests (2 GPUs)(H100-MI250)",
+        "Distributed Tests (2 GPUs)(H100-MI325)",
+        "Distributed Tests (2 GPUs)(H100-MI355)",
+        "Distributed Tests (4 GPUs)(A100-MI325)",
+        "Distributed Tests (8 GPUs)(H100-MI325)",
+        "Fusion E2E Config Sweep (H100-MI325)",
+        "Fusion E2E Quick (H100-MI325)",
+        "GPQA Eval (GPT-OSS) (B200-MI355)",
+        "GPQA Eval (GPT-OSS) (H100-MI325)",
+        "Kernels FP8 MoE Test",
+        "LM Eval Large Models (4 GPUs)(A100-MI325)",
+        "LM Eval Large Models (4 GPUs)(FP8)",
+        "LM Eval Large Models (H200-MI325)",
+        "LM Eval Small Models (B200-MI325)",
+        "LM Eval Small Models (B200-MI355)",
+        "LM Eval Small Models (MI325)",
+        "Quantized MoE Test (B200-MI325)",
+        "Qwen3-30B-A3B-FP8-block Accuracy",
+        "ROCm LM Eval Large Models (8 Card)",
+        "V1 attention (H100-MI325)",
+        "V1 e2e (4xH100-4xMI325)"
+      ],
+      "upstream_added": [],
+      "upstream_removed": [],
+      "pr": {
+        "number": 39531,
+        "title": "[ROCm][CI] Introducing new MI300 nodes",
+        "url": "https://github.com/vllm-project/vllm/pull/39531",
+        "author": "AndreasKaratzas"
+      }
+    },
+    {
+      "date": "2026-04-20",
+      "sha": "def8f5220015",
+      "message": "[CI][EPLB] Add Async EPLB end-to-end integration test to CI (#40168)",
+      "author": "Sage Moore",
+      "added": [
+        "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy"
+      ],
+      "removed": [],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy"
+      ],
+      "upstream_removed": [],
+      "pr": {
+        "number": 40168,
+        "title": "[CI][EPLB] Add Async EPLB end-to-end integration test to CI",
+        "url": "https://github.com/vllm-project/vllm/pull/40168",
+        "author": "SageMoore"
+      }
+    },
+    {
+      "date": "2026-04-21",
+      "sha": "9f39b380d070",
+      "message": "[Bugfix] Fix spec decode test failures on Blackwell (SM100+) (#39546)",
+      "author": "Rishi Puri",
+      "added": [
+        "Spec Decode Draft Model Nightly B200",
+        "Spec Decode Eagle Nightly B200",
+        "Spec Decode Speculators + MTP Nightly B200"
+      ],
+      "removed": [],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "Spec Decode Draft Model Nightly B200",
+        "Spec Decode Eagle Nightly B200",
+        "Spec Decode Speculators + MTP Nightly B200"
+      ],
+      "upstream_removed": [],
+      "pr": {
+        "number": 39546,
+        "title": "[Bugfix] Fix spec decode test failures on Blackwell (SM100+)",
+        "url": "https://github.com/vllm-project/vllm/pull/39546",
+        "author": "puririshi98"
+      }
+    },
+    {
+      "date": "2026-04-23",
+      "sha": "8824f50f1f14",
+      "message": "[CI] Split disaggregated tests into own test-area (#40623)",
+      "author": "Nicol\u00f2 Lucchesi",
+      "added": [
+        "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
+        "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
+        "Distributed FlashInfer NixlConnector PD accuracy (4 GPUs)",
+        "Distributed NixlConnector PD accuracy (4 GPUs)",
+        "Hybrid SSM NixlConnector PD accuracy tests (4 GPUs)",
+        "MultiConnector (Nixl+Offloading) PD accuracy (2 GPUs)",
+        "MultiConnector (Nixl+Offloading) PD edge cases (2 GPUs)",
+        "NixlConnector PD + Spec Decode acceptance (2 GPUs)"
+      ],
+      "removed": [
+        "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
+        "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
+        "Distributed NixlConnector PD accuracy (4 GPUs)",
+        "Hyrbid SSM NixlConnector PD accuracy tests (4 GPUs)",
+        "MultiConnector (Nixl+Offloading) PD accuracy (2 GPUs)",
+        "MultiConnector (Nixl+Offloading) PD edge cases (2 GPUs)",
+        "NixlConnector PD + Spec Decode acceptance (2 GPUs)"
+      ],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
+        "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
+        "Distributed FlashInfer NixlConnector PD accuracy (4 GPUs)",
+        "Distributed NixlConnector PD accuracy (4 GPUs)",
+        "Hybrid SSM NixlConnector PD accuracy tests (4 GPUs)",
+        "MultiConnector (Nixl+Offloading) PD accuracy (2 GPUs)",
+        "MultiConnector (Nixl+Offloading) PD edge cases (2 GPUs)",
+        "NixlConnector PD + Spec Decode acceptance (2 GPUs)"
+      ],
+      "upstream_removed": [
+        "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
+        "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
+        "Distributed NixlConnector PD accuracy (4 GPUs)",
+        "Hyrbid SSM NixlConnector PD accuracy tests (4 GPUs)",
+        "MultiConnector (Nixl+Offloading) PD accuracy (2 GPUs)",
+        "MultiConnector (Nixl+Offloading) PD edge cases (2 GPUs)",
+        "NixlConnector PD + Spec Decode acceptance (2 GPUs)"
+      ],
+      "pr": {
+        "number": 40623,
+        "title": "[CI] Split disaggregated tests into own test-area",
+        "url": "https://github.com/vllm-project/vllm/pull/40623",
+        "author": "NickLucche"
+      }
+    },
+    {
+      "date": "2026-04-29",
+      "sha": "3f1a4bb639a9",
+      "message": "build: embed image provenance metadata in vLLM containers (#40653)",
+      "author": "Alec",
+      "added": [
+        "Docker Build Metadata"
+      ],
+      "removed": [],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "Docker Build Metadata"
+      ],
+      "upstream_removed": [],
+      "pr": {
+        "number": 40653,
+        "title": "build: embed image provenance metadata in vLLM containers",
+        "url": "https://github.com/vllm-project/vllm/pull/40653",
+        "author": "alec-flowers"
+      }
+    },
+    {
+      "date": "2026-04-30",
+      "sha": "54146a9bf951",
+      "message": "[Bugfix] correct h matrix layout in chunk_kda output kernel (#40956)",
+      "author": "Chenxi Qian",
+      "added": [
+        "Kernels KDA Test"
+      ],
+      "removed": [],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "Kernels KDA Test"
+      ],
+      "upstream_removed": [],
+      "pr": {
+        "number": 40956,
+        "title": "[Bugfix] correct h matrix layout in chunk_kda output kernel",
+        "url": "https://github.com/vllm-project/vllm/pull/40956",
+        "author": "ChenxiQ"
+      }
+    },
+    {
+      "date": "2026-04-30",
+      "sha": "92a7c121b62a",
+      "message": "[CI] Add MTP coverage: Qwen3.5 correctness + no-sync spec decode (#40472)",
+      "author": "Stefano Castagnetta",
+      "added": [
+        "Spec Decode MTP hybrid (B200)"
+      ],
+      "removed": [],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "Spec Decode MTP hybrid (B200)"
+      ],
+      "upstream_removed": [],
+      "pr": {
+        "number": 40472,
+        "title": "[CI] Add MTP coverage: Qwen3.5 correctness + no-sync spec decode",
+        "url": "https://github.com/vllm-project/vllm/pull/40472",
+        "author": "stecasta"
+      }
+    },
+    {
+      "date": "2026-05-01",
+      "sha": "3ccc1ff4958d",
+      "message": "[Eval][CI] Add basic mrcr eval to tests/evals/ (#40164)",
+      "author": "Michael Goin",
+      "added": [
+        "MRCR Eval Small Models"
+      ],
+      "removed": [],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "MRCR Eval Small Models"
+      ],
+      "upstream_removed": [],
+      "pr": {
+        "number": 40164,
+        "title": "[Eval][CI] Add basic mrcr eval to tests/evals/",
+        "url": "https://github.com/vllm-project/vllm/pull/40164",
+        "author": "mgoin"
+      }
+    }
+  ],
+  "_no_change_shas": [
+    "02eec7ecbefdb0d32e76e3c95a7426758369e5b2",
+    "04417ecd5f492c2c216faa7200a0589f7241a302",
+    "0ab67c02225c18ed664864f75c3a38c0659f4be1",
+    "0d50fa1db616c83ba3c67f506385fe373f585084",
+    "0f7be0f2f76814f80f9091220a5fbbb53912ad00",
+    "179547d62c73e7174bf42b8ca0a34177ac3a5c9e",
+    "188defbd0bad837f59dd3fafe1dd779b4bd434cb",
+    "1f0d21064137f4fdc816864cf01832c26350be5a",
+    "1f5ec2889c4176593c2fedae3b33b6244c996d29",
+    "2111997f96f33b118ec0c562cc2df5681862cff3",
+    "21e5a9f48e773e36e916bc8d10c4ab4aed3887a7",
+    "2ad10292339c045db0cb3998a76240a459cc83a7",
+    "2ad7c0335f3a3a7e726d0431bb2c26401c9a6b40",
+    "37cd9fc107211931d1d69d3d79c93a8c408778c0",
+    "384dc7f77b61ba98555df11c122fae759d6ef97e",
+    "3b1d9c3156d22181fb99980eb2550772c854a2c2",
+    "43877a620bf629d3625c870ef787e590101e0518",
+    "47a1f11bffdd12cd59d90d79ff9867b7b3ac5b69",
+    "497e234d38017d4adb83e072d1e5949c76b6d616",
+    "4ff9b045fe7a9da9b5a7737407ed4e7ef203ffad",
+    "529c671e8075d265a48b72e0eaaeb5e30d2f1630",
+    "55eed6b7a52463e0eecb5adc45710c61f546b1ec",
+    "56777b5c898dcb92dbe6d64fecfccb670f919a0d",
+    "56de443db1d50dce2624a21765c11a79dffa8740",
+    "580864d81eb03d9fb1383e1782636ff6a9425fa2",
+    "58da4ee047a97b71776488301f66612838b79788",
+    "592ae6805cb87c9a44c29bd9c6eef9d04d91e39b",
+    "5af684c31912232e5c89484c2e8259e0fac6c55b",
+    "5daf62271d207e8cbf8694b881a081a3c57a0fff",
+    "5f1de2b14b1daece3eb2a1768563e7f84bf1aa99",
+    "6050b93bedb66a086281c160814b3cfca8da3111",
+    "679c6a3eccfadb5f80957801f1b6a0c9e8cc9b41",
+    "6eedec6e361af465333ee736dff99828d46107c0",
+    "81939e7733642f583d1731e5c9ef69dcd457b5e5",
+    "8213e8f88023726799ae48e2ebef06ef0c021128",
+    "83c9d525b623566f45d161593e7610cb65aaad60",
+    "8b9ea2f881ea7319c13994ce34c7f1941e07f883",
+    "8bc6b5cdb080e8392075f83cdbc46dde90e49617",
+    "8d8062d0a7014b4cde064024ae5d5a8715a833b3",
+    "8fbe3f303fbf995afe4c409309aa8e889235339e",
+    "9556af87d5d5a38128db0d09eeb7f2fe16f16589",
+    "9570654c6d41ffff922cd15d57added9557eb272",
+    "979ff44ceac0b6e54762221ff9f67c93ff75245c",
+    "99a57bdf74a27bcb7f7e9324a9387f8e098a2fab",
+    "9cfd4ebb5eaac58724652517e316302e8fd597e6",
+    "a8208e6a81befd781b2a9a8b6b29fd61f5333c66",
+    "a8bffaa13337236408e7fe6387e1da764191b05a",
+    "abdbb683861a2586817ae6836bad308c09919d5c",
+    "adf9bb3c577aaaad147b1fe7f61a5c6a0bdfb3de",
+    "b2dd75eb481f6d45f6ac902292559026765a1433",
+    "b5587e1013d0e352bb33c30b456d5221aebecd8c",
+    "b55d830ec782b47f89c8457ba453f521fa092660",
+    "b569620f720d0c07bcb90bcc29dacaf0ce318d85",
+    "b92ef9ec5a041b538f44d9584bef0e34bfbeecd1",
+    "bcfdadb1bc4db9dc8fe82710d4301a1d11114a3c",
+    "bd8c4c0752b7542c687ed06c2284cfb594a61e48",
+    "c32e97602d54f34fb60ff956dae09f9a557ec50a",
+    "cc8f1f47644868869d5a7fb4c55cebbf91fb9943",
+    "ccfb620c62533c0dbfa8d5a0307fab9682b7c29f",
+    "d28d86e8a34bf2617be294c235d6e6ef3321917b",
+    "d6b61e5166ac3eec7f828d0a102c30a76f6aecf3",
+    "da70c87e81a84138ea1f745e116bdaa41ec0180e",
+    "dcf8862fd47624ec48a6e3a06ff2bcc53dc4d4a0",
+    "de1a86b7dea68dffdfbeda77c8407c587ee90542",
+    "e1e318af010b4f92d39324d03231cfd409766bf9",
+    "ecd5443dbcd1de360fff067547c68a1128dcfb1b",
+    "edc3648966e30e8bf5f34edeee50027ddd79dc16",
+    "f6537612521df1156d8ac13f524e427aca908322",
+    "fc645f1acc0f3250210738a026f812db37ae97f6"
+  ]
+}
