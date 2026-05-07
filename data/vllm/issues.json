@@ -1,6 +1,24 @@
 {
-  "collected_at": "2026-05-07T18:18:57Z",
+  "collected_at": "2026-05-07T19:21:52Z",
   "issues": [
+    {
+      "number": 41989,
+      "title": "[CI Failure]:  mi300_1: Quantized Models Test",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "created_at": "2026-05-07T18:19:09Z",
+      "updated_at": "2026-05-07T18:19:28Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/41989",
+      "labels": [
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "In progress",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\n`(command rocm-smi || true) && export VLLM_TEST_GROUP_NAME=mi300_1-quantized-models-test && export VLLM_ALLOW_DEPRECATED_BEAM_SEARCH=1 && cd /vllm-workspace/tests && pytest -v -s models/quantization`\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\nExited with status 139 (soft failed)\nLink: https://buildkite.com/vllm/amd-ci/builds/8279/canvas?sid=019e0105-dcaa-41ef-b8a3-c4987192a08a&tab=output\n\n### \ud83d\udcdd History of failing test\n\n- Current streak start: 2026-04-23\n- First failure in 60d window: 2026-04-23\n- Last successful nightly: 2026-04-22\n- Break frequency (60d, pass\u2194fail flips): 1\n- Latest nightly date: 2026-05-07\n- Latest build(s): [amd-ci #8279](https://buildkite.com/vllm/amd-ci/builds/8279)\n- Latest hardware status: `mi300_1`=fail",
+      "linked_prs": []
+    },
     {
       "number": 40554,
       "title": "[AMD][CI Failure][Tracker] Static dashboard tracker for current CI failures",
