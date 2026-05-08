@@ -9,6 +9,7 @@ Week of 2026-05-01 to 2026-05-08
 ## PRs This Week
 
 ### vllm
+- Opened: [#42104](https://github.com/vllm-project/vllm/pull/42104) [CI] set max transformers version for skywork model (@divakar-amd)
 - Opened: [#41577](https://github.com/vllm-project/vllm/pull/41577) [ROCm][CI] Fix ROCm LoRA Transformers fallback with full CUD (@AndreasKaratzas)
 - Opened: [#41572](https://github.com/vllm-project/vllm/pull/41572) [ROCm][CI] Skip ROCm batch invalid-input test pending torch  (@AndreasKaratzas)
 - Opened: [#41573](https://github.com/vllm-project/vllm/pull/41573) [ROCm][CI] Stabilize ROCm shutdown and distributed compile C (@AndreasKaratzas)
