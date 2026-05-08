@@ -1,6 +1,24 @@
 {
-  "collected_at": "2026-05-08T03:26:06Z",
+  "collected_at": "2026-05-08T04:47:29Z",
   "issues": [
+    {
+      "number": 42020,
+      "title": "[CI Failure]:  mi300_1: Multi-Modal Models (Extended Generation 2)",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "created_at": "2026-05-08T03:55:07Z",
+      "updated_at": "2026-05-08T03:55:22Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/42020",
+      "labels": [
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "In progress",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\n`pytest -v -s models/multimodal/generation/test_common.py -m 'split(group=0) and not core_model'`\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\n```\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[skywork_r1v-test_case57]\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[skywork_r1v-test_case58]\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[skywork_r1v-test_case59]\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[skywork_r1v-test_case53]\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[skywork_r1v-test_case54]\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[skywork_r1v-test_case55]\n```\n\n### \ud83d\udcdd History of failing test\n\n- Latest nightly date: 2026-05-07\n- Latest build(s): [amd-ci #8279](https://buildkite.com/vllm/amd-ci/builds/8279)\n- Latest hardware status: `mi300_1`=fail",
+      "linked_prs": []
+    },
     {
       "number": 40554,
       "title": "[AMD][CI Failure][Tracker] Static dashboard tracker for current CI failures",
