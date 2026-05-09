@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-05-09T15:34:27Z",
+  "generated_at": "2026-05-09T16:05:40Z",
   "amd_date": "2026-05-09",
   "upstream_date": "2026-05-09",
   "parity_pct": 0.0,
-  "total_tests": 605,
+  "total_tests": 614,
   "summary": {
-    "upstream_only": 260,
+    "upstream_only": 269,
     "amd_only": 345
   },
   "by_module": {
@@ -54,6 +54,10 @@
       "upstream_only": 1
     },
     "Arm CPU Test": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "Ascend NPU Test": {
       "parity_pct": 100.0,
       "upstream_only": 1
     },
@@ -293,6 +297,10 @@
       "parity_pct": 100.0,
       "upstream_only": 2
     },
+    "Fusion E2E TP2 (B200)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
     "Fusion E2E TP2 AR-RMS Config Sweep (H100)": {
       "parity_pct": 100.0,
       "upstream_only": 2
@@ -324,6 +332,10 @@
     "Hybrid SSM NixlConnector PD accuracy tests (4 GPUs)": {
       "parity_pct": 100.0,
       "upstream_only": 1
+    },
+    "Intel GPU Test": {
+      "parity_pct": 100.0,
+      "upstream_only": 3
     },
     "Intel HPU Test": {
       "parity_pct": 100.0,
@@ -768,6 +780,14 @@
     "Weight Loading Multiple GPU": {
       "parity_pct": 100.0,
       "upstream_only": 1
+    },
+    "e2e Core (1 GPU)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "e2e Scheduling (1 GPU)": {
+      "parity_pct": 100.0,
+      "upstream_only": 2
     },
     "mi250_1: Async Engine, Inputs, Utils, Worker, Config (CPU)": {
       "parity_pct": 100.0,
@@ -1560,6 +1580,10 @@
     "mi355_4: LM Eval Large Models (4xH100-4xMI355)": {
       "parity_pct": 100.0,
       "amd_only": 1
+    },
+    "v1/e2e/general/test_mamba_prefix_cache.py": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
     },
     "vLLM IR Tests": {
       "parity_pct": 100.0,
@@ -3407,7 +3431,7 @@
       "family_key": "e2e core (1 gpu)",
       "family_name": "e2e core (1 gpu)",
       "amd_job_name": "mi250_1: e2e Core (1 GPU)",
-      "upstream_job_name": null,
+      "upstream_job_name": "e2e Core (1 GPU)",
       "amd": {
         "total": 48,
         "passed": 34,
@@ -3418,7 +3442,16 @@
         "error": 0,
         "duration": 1845.0300000000002
       },
-      "upstream": null,
+      "upstream": {
+        "total": 37,
+        "passed": 36,
+        "failed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 1230.38
+      },
       "hardware": [
         "h100",
         "mi250",
@@ -3426,7 +3459,8 @@
       ],
       "hw_failures": {
         "mi250": 2,
-        "mi300": 2
+        "mi300": 2,
+        "h100": 1
       },
       "hw_canceled": null,
       "failure_tests": [],
@@ -3442,9 +3476,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/8371/steps/canvas?sid=019e0bf7-4b3a-4ed7-889a-4ee2d1a13e9b&tab=output",
           "job_name": "mi300_1: e2e Core (1 GPU)",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0d56-7112-4cc9-92d6-6724e3337c3b&tab=output",
+          "job_name": "e2e Core (1 GPU)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 11,
+        "passed": -2,
+        "failed": 3,
+        "skipped": 10
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -3452,7 +3498,7 @@
       "family_key": "e2e scheduling (1 gpu)",
       "family_name": "e2e scheduling (1 gpu)",
       "amd_job_name": "mi250_1: e2e Scheduling (1 GPU)",
-      "upstream_job_name": null,
+      "upstream_job_name": "e2e Scheduling (1 GPU)",
       "amd": {
         "total": 6,
         "passed": 6,
@@ -3463,7 +3509,16 @@
         "error": 0,
         "duration": 2730.09
       },
-      "upstream": null,
+      "upstream": {
+        "total": 3,
+        "passed": 2,
+        "failed": 0,
+        "skipped": 1,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 897.97
+      },
       "hardware": [
         "h100",
         "mi250",
@@ -3484,9 +3539,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/8371/steps/canvas?sid=019e0bf7-4b3b-486d-b90d-e65c130d04c1&tab=output",
           "job_name": "mi300_1: e2e Scheduling (1 GPU)",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0d56-7178-429e-bf70-a39f242167ed&tab=output",
+          "job_name": "e2e Scheduling (1 GPU)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 3,
+        "passed": 4,
+        "failed": 0,
+        "skipped": -1
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -4684,7 +4751,7 @@
       "family_key": "kernels attention test",
       "family_name": "kernels attention test",
       "amd_job_name": "mi300_1: Kernels Attention Test 1",
-      "upstream_job_name": "Kernels Attention Test 2",
+      "upstream_job_name": "Kernels Attention Test 1",
       "amd": {
         "total": 11514,
         "passed": 4731,
@@ -4730,8 +4797,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0b53-8c12-4662-b36c-f0d471b98670&tab=output",
-          "job_name": "Kernels Attention Test 2",
+          "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0b53-8c12-44b4-8dbc-11ea4320a359&tab=output",
+          "job_name": "Kernels Attention Test 1",
           "side": "upstream"
         }
       ],
@@ -5405,7 +5472,7 @@
       "family_key": "language models tests (extra standard)",
       "family_name": "language models tests (extra standard)",
       "amd_job_name": "mi250_1: Language Models Tests (Extra Standard) 1",
-      "upstream_job_name": "Language Models Tests (Extra Standard) 1",
+      "upstream_job_name": "Language Models Tests (Extra Standard) 2",
       "amd": {
         "total": 19,
         "passed": 11,
@@ -5444,8 +5511,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0b53-8c5b-404e-a1c9-2be613ed661c&tab=output",
-          "job_name": "Language Models Tests (Extra Standard) 1",
+          "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0b53-8c5b-4f46-8c33-5c3f56c683bd&tab=output",
+          "job_name": "Language Models Tests (Extra Standard) 2",
           "side": "upstream"
         }
       ],
@@ -5463,7 +5530,7 @@
       "family_key": "language models tests (hybrid)",
       "family_name": "language models tests (hybrid)",
       "amd_job_name": "mi325_1: Language Models Tests (Hybrid) 2",
-      "upstream_job_name": "Language Models Tests (Hybrid) 2",
+      "upstream_job_name": "Language Models Tests (Hybrid) 1",
       "amd": {
         "total": 47,
         "passed": 43,
@@ -5500,8 +5567,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0b53-8c5d-4f12-a4fa-7d4228d489d6&tab=output",
-          "job_name": "Language Models Tests (Hybrid) 2",
+          "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0b53-8c5c-46b8-8ddb-a554fa3f4a88&tab=output",
+          "job_name": "Language Models Tests (Hybrid) 1",
           "side": "upstream"
         }
       ],
@@ -6095,7 +6162,7 @@
       "family_key": "lora",
       "family_name": "lora",
       "amd_job_name": "mi250_1: LoRA 1",
-      "upstream_job_name": "LoRA 4",
+      "upstream_job_name": "LoRA 3",
       "amd": {
         "total": 6821,
         "passed": 6729,
@@ -6114,7 +6181,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 5232.88
+        "duration": 5232.879999999999
       },
       "hardware": [
         "h100",
@@ -6134,8 +6201,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0b53-8c30-4802-a29e-ba63539d552f&tab=output",
-          "job_name": "LoRA 4",
+          "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0b53-8c2f-4871-be8f-4148babcc664&tab=output",
+          "job_name": "LoRA 3",
           "side": "upstream"
         }
       ],
@@ -8805,7 +8872,7 @@
       "family_key": "v1 e2e (4 gpus)",
       "family_name": "v1 e2e (4 gpus)",
       "amd_job_name": "mi300_4: V1 e2e (4 GPUs)",
-      "upstream_job_name": "V1 e2e (4xH100)",
+      "upstream_job_name": "V1 e2e (4 GPUs)",
       "amd": {
         "total": 6,
         "passed": 6,
@@ -8842,8 +8909,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0b53-8bdf-4c33-a9cb-ce8c2234adf8&tab=output",
-          "job_name": "V1 e2e (4xH100)",
+          "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0b53-8bde-4529-a0a0-dd55248557e6&tab=output",
+          "job_name": "V1 e2e (4 GPUs)",
           "side": "upstream"
         }
       ],
@@ -8861,7 +8928,7 @@
       "family_key": "v1 e2e (4 gpus)",
       "family_name": "v1 e2e (4 gpus)",
       "amd_job_name": "mi300_4: V1 e2e (4xH100-4xMI300)",
-      "upstream_job_name": "V1 e2e (4xH100)",
+      "upstream_job_name": "V1 e2e (4 GPUs)",
       "amd": {
         "total": 4,
         "passed": 2,
@@ -8898,8 +8965,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0b53-8bdf-4c33-a9cb-ce8c2234adf8&tab=output",
-          "job_name": "V1 e2e (4xH100)",
+          "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0b53-8bde-4529-a0a0-dd55248557e6&tab=output",
+          "job_name": "V1 e2e (4 GPUs)",
           "side": "upstream"
         }
       ],
@@ -9512,6 +9579,40 @@
           "hw": "h100",
           "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0b53-8bb9-4d16-9190-a62112dd091d&tab=output",
           "job_name": "Fusion E2E Config Sweep (H100)",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
+      "name": "fusion e2e tp2 (b200)",
+      "family_key": "fusion e2e tp2",
+      "family_name": "fusion e2e tp2",
+      "amd_job_name": null,
+      "upstream_job_name": "Fusion E2E TP2 (B200)",
+      "amd": null,
+      "upstream": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 264.3
+      },
+      "hardware": [
+        "b200"
+      ],
+      "hw_failures": null,
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0d56-709e-41ec-b5c4-90a3778ef8d5&tab=output",
+          "job_name": "Fusion E2E TP2 (B200)",
           "side": "upstream"
         }
       ],
@@ -10811,63 +10912,6 @@
       "backfilled": false
     },
     {
-      "name": "fusion e2e tp2 (b200)",
-      "family_key": "fusion e2e tp2",
-      "family_name": "fusion e2e tp2",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "b200"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "ascend npu test",
-      "family_key": "ascend npu test",
-      "family_name": "ascend npu test",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "cpu"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "intel gpu test",
-      "family_key": "intel gpu test",
-      "family_name": "intel gpu test",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "cpu"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
       "name": "moe refactor integration test (b200 - temporary)",
       "family_key": "moe refactor integration test (b200 - temporary)",
       "family_name": "moe refactor integration test (b200 - temporary)",
@@ -11052,6 +11096,12 @@
       "test_id": "Arm CPU Test::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Ascend NPU Test::__unidentified_failures__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
       "category": "upstream_only"
     },
     {
@@ -11517,6 +11567,12 @@
       "category": "upstream_only"
     },
     {
+      "test_id": "Fusion E2E TP2 (B200)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
       "test_id": "Fusion E2E TP2 AR-RMS Config Sweep (H100)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -11580,6 +11636,24 @@
       "test_id": "Hybrid SSM NixlConnector PD accuracy tests (4 GPUs)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Intel GPU Test::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Intel GPU Test::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Intel GPU Test::__unidentified_failures__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
       "category": "upstream_only"
     },
     {
@@ -12510,6 +12584,24 @@
       "test_id": "Weight Loading Multiple GPU::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "e2e Core (1 GPU)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "e2e Scheduling (1 GPU)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "e2e Scheduling (1 GPU)::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
       "category": "upstream_only"
     },
     {
@@ -14581,6 +14673,12 @@
       "amd_status": "passed",
       "upstream_status": "missing",
       "category": "amd_only"
+    },
+    {
+      "test_id": "v1/e2e/general/test_mamba_prefix_cache.py::test_mamba_prefix_cache",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
     },
     {
       "test_id": "vLLM IR Tests::__passed__",
