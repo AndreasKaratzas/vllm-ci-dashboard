@@ -354,8 +354,9 @@
     function groupRate(b){ const t=b.unique_test_groups||0,p=b.test_groups_passing_or||0; return t>0?+(p/t*100).toFixed(1):null; }
 
     // Align both datasets by "nightly date" — matching backend nightly_date().
-    // Boundary at 12:00 UTC: before noon = same day, after noon = next day.
-    // This groups AMD (06:00 UTC) and upstream (21:00 UTC) into the same column.
+    // Boundary at 12:00 UTC: current upstream (~06:00 UTC) and AMD
+    // (~09:00 UTC) runs stay on the same calendar day; older after-noon
+    // upstream runs still map to the next nightly date.
     function nightlyDate(iso){
       if(!iso) return '';
       const d=new Date(iso);
@@ -787,12 +788,13 @@
       updP.textContent=`Last updated: ${new Date(health.generated_at).toLocaleString()}`;
       box.append(updP);
 
-      // Calculate next nightly times
-      // AMD nightly: ~06:00 UTC daily (1 AM CT) — maps to previous day's code
-      // Upstream nightly: ~21:00 UTC daily (3 PM CT) — maps to same day's code
+      // Calculate next nightly times. These are UTC schedule slots; the browser
+      // localizes the displayed time.
+      // AMD nightly: ~09:00 UTC daily (4 AM Central during daylight time)
+      // Upstream nightly: ~06:00 UTC daily (1 AM Central during daylight time)
       const now=new Date();
-      const todayAmd=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate(),6,0));
-      const todayUp=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate(),21,0));
+      const todayAmd=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate(),9,0));
+      const todayUp=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate(),6,0));
       let nextAmd=todayAmd>now?todayAmd:new Date(todayAmd.getTime()+86400000);
       let nextUp=todayUp>now?todayUp:new Date(todayUp.getTime()+86400000);
       const next=nextUp<nextAmd?nextUp:nextAmd;
