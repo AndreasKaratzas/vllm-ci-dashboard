@@ -1,6 +1,34 @@
 {
-  "collected_at": "2026-05-09T01:57:07Z",
+  "collected_at": "2026-05-09T03:24:46Z",
   "prs": [
+    {
+      "number": 42126,
+      "title": "[CI][AMD] Skip tests where models have problems or fails on both HW types",
+      "author": "rasmith",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-05-09T01:55:03Z",
+      "updated_at": "2026-05-09T02:10:31Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/42126",
+      "labels": [
+        "rocm",
+        "multi-modality"
+      ],
+      "draft": false,
+      "body_head": "<!-- markdownlint-disable -->\r\n## Purpose\r\nTwo of the models in tests/models/multimodal/generation/test_common.py have bugs:\r\n* `rhymes-ai/Aria`:needs to update their model code for the latest version of transformers: [issue](https://huggingface.co/rhymes-ai/Aria/discussions/23)\r\n* `zai-org/glm-4v-9b`:needs to update for compatibility: [issue](https://huggingface.co/zai-org/glm-4v-9b/discussions/46)\r\n* `zai-org/GLM-OCR`: Is failing on both h100 and mi300 and produces gibberish on both hardwares when asking for it to complete a prompt. I've opened an [issue](https://github.com/vllm-project/vllm/issues/42016) for this.\r\n## Test Plan\r\n` pytest -v -s models/language/generation -m '(not core_model) and (not hybrid_model)'`\r\n## Test Result\r\n`== 47 passed, 66 skipped, 179 deselected, 126 warnings in 4564.32s (1:16:04) ==`\r\n\r\n---\r\n<details>\r\n<summary> Essential Elements of an Effective PR Description Checklist </summary>\r\n\r\n- [ X] The purpose of the PR, such as \"Fix some issue (link existing issues this PR will resolve)\".\r\n- [ X] The test plan, such as providing test command.\r\n- [X ] The test results, such as pasting the results comparison before and after, or e2e results\r\n- [ ] (Optional) The necessary documentation update, such as updating `supported_models.md` and `examples` for a new model.\r\n</details>\r\n\r\n**BEFORE SUBMITTING, PLEASE READ <https://docs.vllm.ai/en/latest/contributing>** (anything written below this line will be removed by GitHub Actions)\r\n",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        41854
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "multi-modality"
+      ]
+    },
     {
       "number": 42104,
       "title": "[CI] set max transformers version for skywork model",
