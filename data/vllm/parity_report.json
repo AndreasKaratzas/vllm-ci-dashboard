@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-05-09T18:03:26Z",
+  "generated_at": "2026-05-09T18:35:39Z",
   "amd_date": "2026-05-09",
   "upstream_date": "2026-05-09",
   "parity_pct": 0.0,
-  "total_tests": 628,
+  "total_tests": 634,
   "summary": {
-    "upstream_only": 283,
+    "upstream_only": 289,
     "amd_only": 345
   },
   "by_module": {
@@ -768,6 +768,10 @@
     "Torch Nightly Language Models Tests (Standard)": {
       "parity_pct": 100.0,
       "upstream_only": 2
+    },
+    "Transformers Backward Compatibility Models Test": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
     },
     "V1 Core + KV + Metrics": {
       "parity_pct": 100.0,
@@ -1616,6 +1620,10 @@
     "models/test_initialization.py": {
       "parity_pct": 100.0,
       "upstream_only": 3
+    },
+    "tests/models/test_initialization.py": {
+      "parity_pct": 100.0,
+      "upstream_only": 5
     },
     "v1/e2e/general/test_mamba_prefix_cache.py": {
       "parity_pct": 100.0,
@@ -5172,7 +5180,7 @@
       "family_key": "kernels moe test",
       "family_name": "kernels moe test",
       "amd_job_name": "mi300_1: Kernels MoE Test 2",
-      "upstream_job_name": "Kernels MoE Test 4",
+      "upstream_job_name": "Kernels MoE Test 1",
       "amd": {
         "total": 13773,
         "passed": 7912,
@@ -5219,8 +5227,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0b53-8c1b-4810-8999-a0c5b7972ce9&tab=output",
-          "job_name": "Kernels MoE Test 4",
+          "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0b53-8c1a-480f-97d1-8333d9c2b73d&tab=output",
+          "job_name": "Kernels MoE Test 1",
           "side": "upstream"
         }
       ],
@@ -6246,7 +6254,7 @@
       "family_key": "lora",
       "family_name": "lora",
       "amd_job_name": "mi250_1: LoRA 1",
-      "upstream_job_name": "LoRA 2",
+      "upstream_job_name": "LoRA 1",
       "amd": {
         "total": 6821,
         "passed": 6729,
@@ -6265,7 +6273,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 5232.88
+        "duration": 5232.879999999999
       },
       "hardware": [
         "h100",
@@ -6285,8 +6293,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0b53-8c2f-4052-a755-946991779abe&tab=output",
-          "job_name": "LoRA 2",
+          "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0b53-8c2f-49d0-8b77-bbdc71dc733e&tab=output",
+          "job_name": "LoRA 1",
           "side": "upstream"
         }
       ],
@@ -11070,6 +11078,42 @@
       "backfilled": false
     },
     {
+      "name": "transformers backward compatibility models test",
+      "family_key": "transformers backward compatibility models test",
+      "family_name": "transformers backward compatibility models test",
+      "amd_job_name": null,
+      "upstream_job_name": "Transformers Backward Compatibility Models Test",
+      "amd": null,
+      "upstream": {
+        "total": 19,
+        "passed": 14,
+        "failed": 5,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 40.13
+      },
+      "hardware": [
+        "h100"
+      ],
+      "hw_failures": {
+        "h100": 5
+      },
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0d56-746e-4a64-b994-6d54254a8821&tab=output",
+          "job_name": "Transformers Backward Compatibility Models Test",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
       "name": "v1 attention (h100)",
       "family_key": "v1 attention",
       "family_name": "v1 attention",
@@ -11136,25 +11180,6 @@
       ],
       "status": "upstream_only",
       "backfilled": false
-    },
-    {
-      "name": "transformers backward compatibility models test",
-      "family_key": "transformers backward compatibility models test",
-      "family_name": "transformers backward compatibility models test",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
     }
   ],
   "details": [
@@ -12704,6 +12729,12 @@
       "test_id": "Torch Nightly Language Models Tests (Standard)::__skipped__",
       "amd_status": "missing",
       "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Transformers Backward Compatibility Models Test::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
@@ -14898,6 +14929,36 @@
     },
     {
       "test_id": "models/test_initialization.py::test_can_initialize_large_subset[Qwen3_5MoeMTP]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "tests/models/test_initialization.py::test_can_initialize_large_subset[DFlashDraftModel]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "tests/models/test_initialization.py::test_can_initialize_large_subset[Qwen3_5MTP]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "tests/models/test_initialization.py::test_can_initialize_large_subset[Qwen3_5MoeMTP]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "tests/models/test_initialization.py::test_can_initialize_large_subset[Step3TextForCausalLM]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "tests/models/test_initialization.py::test_can_initialize_large_subset[Step3VLForConditionalGeneration]",
       "amd_status": "missing",
       "upstream_status": "failed",
       "category": "upstream_only"
