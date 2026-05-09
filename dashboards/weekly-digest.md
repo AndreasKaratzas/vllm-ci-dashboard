@@ -25,6 +25,8 @@ Week of 2026-05-02 to 2026-05-09
 ## New Issues This Week
 
 ### vllm
+- [#42184](https://github.com/vllm-project/vllm/issues/42184) [CI Failure]:  mi300_2: Distributed Compile Unit Tests (2xH1 (@AndreasKaratzas)
+- [#42183](https://github.com/vllm-project/vllm/issues/42183) [CI Failure]:  mi300_4: Distributed Torchrun + Examples (4 G (@AndreasKaratzas)
 - [#41854](https://github.com/vllm-project/vllm/issues/41854) [CI Failure]:  mi300_1: Multi-Modal Models (Extended Generat (@AndreasKaratzas)
 - [#42020](https://github.com/vllm-project/vllm/issues/42020) [CI Failure]:  mi300_1: Multi-Modal Models (Extended Generat (@AndreasKaratzas)
 - [#41989](https://github.com/vllm-project/vllm/issues/41989) [CI Failure]:  mi300_1: Quantized Models Test (@AndreasKaratzas)
