@@ -1,23 +1,87 @@
 {
-  "generated_at": "2026-05-09T06:05:56Z",
+  "generated_at": "2026-05-09T06:59:35Z",
   "amd_date": "2026-05-08",
   "upstream_date": "2026-05-09",
   "parity_pct": 0.0,
-  "total_tests": 348,
+  "total_tests": 369,
   "summary": {
-    "upstream_only": 4,
+    "upstream_only": 25,
     "amd_only": 344
   },
   "by_module": {
+    "AMD: Multi-Modal Models (Standard) 3: llava + qwen2_vl (mi300_1)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "AMD: Samplers Test (mi250_1)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "Arm CPU Test": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "Ascend NPU Test": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "Async Engine, Inputs, Utils, Worker, Config (CPU)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
     "Basic Models Test (Other CPU)": {
       "parity_pct": 100.0,
       "upstream_only": 2
+    },
+    "CPU-Compatibility Tests": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
     },
     "CPU-Distributed Tests (DP+TP)": {
       "parity_pct": 100.0,
       "upstream_only": 1
     },
+    "CPU-Distributed Tests (PP+TP)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "CPU-Kernel Tests": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "CPU-Language Generation and Pooling Model Tests": {
+      "parity_pct": 100.0,
+      "upstream_only": 2
+    },
+    "CPU-Multi-Modal Model Tests 1": {
+      "parity_pct": 100.0,
+      "upstream_only": 2
+    },
+    "CPU-Multi-Modal Model Tests 2": {
+      "parity_pct": 100.0,
+      "upstream_only": 2
+    },
+    "CPU-Multi-Modal Model Tests 3": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "CPU-Quantization Model Tests": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "GH200 Test": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "Intel GPU Test": {
+      "parity_pct": 100.0,
+      "upstream_only": 3
+    },
     "Intel HPU Test": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "V1 Others (CPU)": {
       "parity_pct": 100.0,
       "upstream_only": 1
     },
@@ -894,7 +958,7 @@
       "family_key": "async engine, inputs, utils, worker, config (cpu)",
       "family_name": "async engine, inputs, utils, worker, config (cpu)",
       "amd_job_name": "mi250_1: Async Engine, Inputs, Utils, Worker, Config (CPU)",
-      "upstream_job_name": null,
+      "upstream_job_name": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
       "amd": {
         "total": 54,
         "passed": 54,
@@ -905,7 +969,16 @@
         "error": 0,
         "duration": 261.17
       },
-      "upstream": null,
+      "upstream": {
+        "total": 54,
+        "passed": 54,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 323.76
+      },
       "hardware": [
         "h100",
         "mi250"
@@ -919,9 +992,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/8323/steps/canvas?sid=019e062c-0fec-4ade-b523-cbb4cb1a073f&tab=output",
           "job_name": "mi250_1: Async Engine, Inputs, Utils, Worker, Config (CPU)",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0b53-8c35-4453-9376-439634a8138a&tab=output",
+          "job_name": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -5687,7 +5772,7 @@
       "family_key": "v1 others (cpu)",
       "family_name": "v1 others (cpu)",
       "amd_job_name": "mi300_1: V1 others (CPU)",
-      "upstream_job_name": null,
+      "upstream_job_name": "V1 Others (CPU)",
       "amd": {
         "total": 8,
         "passed": 8,
@@ -5698,7 +5783,16 @@
         "error": 0,
         "duration": 2.34
       },
-      "upstream": null,
+      "upstream": {
+        "total": 8,
+        "passed": 8,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 3.04
+      },
       "hardware": [
         "h100",
         "mi300"
@@ -5712,9 +5806,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/8323/steps/canvas?sid=019e062c-1046-4430-8a76-9d53f6468a22&tab=output",
           "job_name": "mi300_1: V1 others (CPU)",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/65324/steps/canvas?jid=019e0b53-8c3b-4361-8b77-17a05bdd6084&tab=output",
+          "job_name": "V1 Others (CPU)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -5897,177 +6003,6 @@
       ],
       "status": "amd_only",
       "backfilled": false
-    },
-    {
-      "name": "arm cpu test",
-      "family_key": "arm cpu test",
-      "family_name": "arm cpu test",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "cpu"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "cpu-compatibility tests",
-      "family_key": "cpu-compatibility tests",
-      "family_name": "cpu-compatibility tests",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "cpu"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "cpu-distributed tests (pp+tp)",
-      "family_key": "cpu-distributed tests (pp+tp)",
-      "family_name": "cpu-distributed tests (pp+tp)",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "cpu"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "cpu-kernel tests",
-      "family_key": "cpu-kernel tests",
-      "family_name": "cpu-kernel tests",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "cpu"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "cpu-language generation and pooling model tests",
-      "family_key": "cpu-language generation and pooling model tests",
-      "family_name": "cpu-language generation and pooling model tests",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "cpu"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "cpu-multi-modal model tests 1",
-      "family_key": "cpu-multi-modal model tests 1",
-      "family_name": "cpu-multi-modal model tests 1",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "cpu"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "cpu-multi-modal model tests 2",
-      "family_key": "cpu-multi-modal model tests 2",
-      "family_name": "cpu-multi-modal model tests 2",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "cpu"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "cpu-multi-modal model tests 3",
-      "family_key": "cpu-multi-modal model tests 3",
-      "family_name": "cpu-multi-modal model tests 3",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "cpu"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "cpu-quantization model tests",
-      "family_key": "cpu-quantization model tests",
-      "family_name": "cpu-quantization model tests",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "cpu"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
     },
     {
       "name": "asynctp correctness tests (2 gpus)",
@@ -6336,82 +6271,6 @@
       "backfilled": true
     },
     {
-      "name": "ascend npu test",
-      "family_key": "ascend npu test",
-      "family_name": "ascend npu test",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "cpu"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "gh200 test",
-      "family_key": "gh200 test",
-      "family_name": "gh200 test",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "intel gpu test",
-      "family_key": "intel gpu test",
-      "family_name": "intel gpu test",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "cpu"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "intel hpu test",
-      "family_key": "intel hpu test",
-      "family_name": "intel hpu test",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "cpu"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
       "name": "amd: entrypoints integration (llm) (mi300_1)",
       "family_key": "amd: entrypoints integration (llm)",
       "family_name": "amd: entrypoints integration (llm)",
@@ -6548,25 +6407,6 @@
       "name": "amd: multi-modal models (standard) 3: llava + qwen2_vl (mi300_1)",
       "family_key": "amd: multi-modal models (standard) 3: llava + qwen2_vl",
       "family_name": "amd: multi-modal models (standard) 3: llava + qwen2_vl",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "unknown"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "amd: samplers test (mi250_1)",
-      "family_key": "amd: samplers test",
-      "family_name": "amd: samplers test",
       "amd_job_name": null,
       "upstream_job_name": null,
       "amd": null,
@@ -7212,6 +7052,36 @@
   ],
   "details": [
     {
+      "test_id": "AMD: Multi-Modal Models (Standard) 3: llava + qwen2_vl (mi300_1)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "AMD: Samplers Test (mi250_1)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Arm CPU Test::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Ascend NPU Test::__unidentified_failures__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Async Engine, Inputs, Utils, Worker, Config (CPU)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
       "test_id": "Basic Models Test (Other CPU)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -7224,13 +7094,109 @@
       "category": "upstream_only"
     },
     {
+      "test_id": "CPU-Compatibility Tests::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
       "test_id": "CPU-Distributed Tests (DP+TP)::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
+      "test_id": "CPU-Distributed Tests (PP+TP)::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "CPU-Kernel Tests::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "CPU-Language Generation and Pooling Model Tests::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "CPU-Language Generation and Pooling Model Tests::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "CPU-Multi-Modal Model Tests 1::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "CPU-Multi-Modal Model Tests 1::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "CPU-Multi-Modal Model Tests 2::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "CPU-Multi-Modal Model Tests 2::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "CPU-Multi-Modal Model Tests 3::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "CPU-Quantization Model Tests::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "GH200 Test::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Intel GPU Test::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Intel GPU Test::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Intel GPU Test::__unidentified_failures__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
       "test_id": "Intel HPU Test::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "V1 Others (CPU)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
