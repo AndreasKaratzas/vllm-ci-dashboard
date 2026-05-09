@@ -1,5 +1,5 @@
 {
-  "collected_at": "2026-05-09T03:24:46Z",
+  "collected_at": "2026-05-09T04:54:39Z",
   "issues": [
     {
       "number": 41854,
@@ -13,7 +13,7 @@
         "ci-failure"
       ],
       "assignees": [],
-      "project_status": "In progress",
+      "project_status": "In review",
       "project_url": "https://github.com/orgs/vllm-project/projects/39",
       "repo": "vllm-project/vllm",
       "body_head": "### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\n```\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[aria-test_case127]\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[glm4v-test_case134]\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[glm4v-test_case135]\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[glm4v-test_case136]\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[aria-test_case98]\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[glm_ocr-test_case102]\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[glm_ocr-test_case103]\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[glm_ocr-test_case104]\n```\n\n### \ud83d\udcdd History of failing test\n\n- Latest nightly date: 2026-05-06\n- Latest build(s): [amd-ci #8223](https://buildkite.com/vllm/amd-ci/builds/8223)\n- Latest hardware status: `mi300_1`=fail",
@@ -24,24 +24,6 @@
           "url": "https://github.com/vllm-project/vllm/pull/42126"
         }
       ]
-    },
-    {
-      "number": 41852,
-      "title": "[CI Failure]:  mi300_4: RayExecutorV2 (4 GPUs)",
-      "author": "AndreasKaratzas",
-      "state": "open",
-      "created_at": "2026-05-06T18:39:45Z",
-      "updated_at": "2026-05-09T02:43:20Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/41852",
-      "labels": [
-        "ci-failure"
-      ],
-      "assignees": [],
-      "project_status": "In progress",
-      "project_url": "https://github.com/orgs/vllm-project/projects/39",
-      "repo": "vllm-project/vllm",
-      "body_head": "### Name of failing test\n\n`pytest -s -v distributed/test_ray_v2_executor.py`\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\nhttps://buildkite.com/vllm/amd-ci/builds/8248/canvas?sid=019dfbdf-4fb7-4a5e-8c8d-97dc71657965&tab=output\n\n### \ud83d\udcdd History of failing test\n\nPassed in very recent nightly run: https://buildkite.com/vllm/amd-ci/builds/8193/canvas?sid=019df193-54ec-4fe8-9012-08e851828415&tab=output",
-      "linked_prs": []
     },
     {
       "number": 40554,
