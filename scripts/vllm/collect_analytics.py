@@ -310,7 +310,7 @@ def load_test_result_builds(output: Path, pipeline_slug: str, days: int, buildki
                     continue
                 if k == "q" and entry.get("q"):
                     continue
-                if k == "soft_failed":
+                if k in ("state", "soft_failed"):
                     continue
                 entry[k] = v
             jobs.append(entry)
