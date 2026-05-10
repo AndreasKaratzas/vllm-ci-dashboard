@@ -1,5 +1,5 @@
 {
-  "collected_at": "2026-05-10T20:32:22Z",
+  "collected_at": "2026-05-10T21:05:16Z",
   "prs": [
     {
       "number": 41294,
@@ -8,7 +8,7 @@
       "state": "open",
       "merged": false,
       "created_at": "2026-04-29T22:04:11Z",
-      "updated_at": "2026-05-10T12:39:01Z",
+      "updated_at": "2026-05-10T20:57:29Z",
       "html_url": "https://github.com/vllm-project/vllm/pull/41294",
       "labels": [
         "rocm",
@@ -29,6 +29,40 @@
       "other_tags": [
         "speculative-decoding",
         "v1"
+      ]
+    },
+    {
+      "number": 41313,
+      "title": "[ROCm][CI] Fix NIXL spec-decode acceptance startup and diagnostics",
+      "author": "AndreasKaratzas",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-04-30T01:59:44Z",
+      "updated_at": "2026-05-10T20:54:32Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41313",
+      "labels": [
+        "rocm",
+        "ready",
+        "ci/build",
+        "v1",
+        "kv-connector"
+      ],
+      "draft": false,
+      "body_head": "- Use `ATTENTION_BACKEND=ROCM_ATTN` override in AMD Buildkite for the NIXL speculative-decoding acceptance test.\r\n- Make the NIXL spec-decode integration script fail fast when a server process exits before readiness instead of polling for the full timeout.\r\n- Pin this integration test path to `127.0.0.1` and set `VLLM_NIXL_SIDE_CHANNEL_HOST` explicitly so HTTP, proxy traffic, and NIXL side-channel metadata use the same loopback address family.\r\n- Improve NIXL KV-cache registration diagnostics when a tensor does not match the expected block dimension, including layer name, shape, stride, backend list, KV layout, and topology mode.\r\n\r\n## Scope Notes\r\n\r\n1. HTTP readiness is not enough for NIXL. The failing logs showed `/v1/completions` returning 200, then decode later timing out in `_nixl_handshake()` while waiting for prefill metadata on the side-channel socket. The new readiness check sends the same NIXL `get_meta_msg` request over ZMQ that decode needs, so the test does not start until the side channel is actually answering.\r\n\r\n2. `localhost` can resolve through IPv6 while the proxy path is already intentionally bound to `127.0.0.1` for CI. This test now uses `127.0.0.1` consistently and passes that host into the Python test for proxy and metrics access.\r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        41319
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready",
+        "ci/build",
+        "v1",
+        "kv-connector"
       ]
     },
     {
@@ -57,40 +91,6 @@
       ],
       "other_tags": [
         "ready"
-      ]
-    },
-    {
-      "number": 41313,
-      "title": "[ROCm][CI] Fix NIXL spec-decode acceptance startup and diagnostics",
-      "author": "AndreasKaratzas",
-      "state": "closed",
-      "merged": true,
-      "created_at": "2026-04-30T01:59:44Z",
-      "updated_at": "2026-05-10T06:50:16Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41313",
-      "labels": [
-        "rocm",
-        "ready",
-        "ci/build",
-        "v1",
-        "kv-connector"
-      ],
-      "draft": false,
-      "body_head": "- Use `ATTENTION_BACKEND=ROCM_ATTN` override in AMD Buildkite for the NIXL speculative-decoding acceptance test.\r\n- Make the NIXL spec-decode integration script fail fast when a server process exits before readiness instead of polling for the full timeout.\r\n- Pin this integration test path to `127.0.0.1` and set `VLLM_NIXL_SIDE_CHANNEL_HOST` explicitly so HTTP, proxy traffic, and NIXL side-channel metadata use the same loopback address family.\r\n- Improve NIXL KV-cache registration diagnostics when a tensor does not match the expected block dimension, including layer name, shape, stride, backend list, KV layout, and topology mode.\r\n\r\n## Scope Notes\r\n\r\n1. HTTP readiness is not enough for NIXL. The failing logs showed `/v1/completions` returning 200, then decode later timing out in `_nixl_handshake()` while waiting for prefill metadata on the side-channel socket. The new readiness check sends the same NIXL `get_meta_msg` request over ZMQ that decode needs, so the test does not start until the side channel is actually answering.\r\n\r\n2. `localhost` can resolve through IPv6 while the proxy path is already intentionally bound to `127.0.0.1` for CI. This test now uses `127.0.0.1` consistently and passes that host into the Python test for proxy and metrics access.\r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        41319
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "ready",
-        "ci/build",
-        "v1",
-        "kv-connector"
       ]
     },
     {
