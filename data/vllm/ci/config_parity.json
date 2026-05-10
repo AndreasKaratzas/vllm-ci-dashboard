@@ -7,9 +7,29 @@
     "nvidia_only": 43,
     "mirrors": 8,
     "match_rate_pct": 94.2,
-    "avg_command_similarity_pct": 94.7
+    "avg_command_similarity_pct": 94.0
   },
   "matches": [
+    {
+      "amd_label": "Multi-Modal Models (Extended Generation 1)",
+      "nvidia_label": "Multi-Modal Models (Extended Generation 1)",
+      "normalized": "multi-modal models (extended generation 1)",
+      "identity_key": "multi-modal models (extended generation 1)",
+      "command_similarity": 0.1406,
+      "color": "red",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/models_multimodal.yaml",
+      "amd_commands": [
+        "uv pip install --system --no-build-isolation 'git+https://github.com/AndreasKaratzas/mamba@rocm-7.0-v2.3.0'",
+        "uv pip install --system --no-build-isolation 'git+https://github.com/Dao-AILab/causal-conv1d@v1.6.0'",
+        "pytest -v -s models/language/generation -m hybrid_model --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT --shard-id=$$BUILDKITE_PARALLEL_JOB"
+      ],
+      "nvidia_commands": [
+        "pip install git+https://github.com/TIGER-AI-Lab/Mantis.git",
+        "pytest -v -s models/multimodal/generation -m 'not core_model' --ignore models/multimodal/generation/test_common.py",
+        "pytest -v -s models/multimodal/test_mapping.py"
+      ]
+    },
     {
       "amd_label": "Kernels (B200-MI355)",
       "nvidia_label": "Kernels (B200)",
@@ -1356,16 +1376,6 @@
       "color": "green",
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/models_language.yaml"
-    },
-    {
-      "amd_label": "Multi-Modal Models (Extended Generation 1)",
-      "nvidia_label": "Multi-Modal Models (Extended Generation 1)",
-      "normalized": "multi-modal models (extended generation 1)",
-      "identity_key": "multi-modal models (extended generation 1)",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/models_multimodal.yaml"
     },
     {
       "amd_label": "Multi-Modal Models (Extended Generation 3)",
