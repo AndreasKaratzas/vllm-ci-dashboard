@@ -3,10 +3,11 @@
 All tracked PRs across projects, grouped by project.
 
 ## vllm (Upstream Watch)
-Repo: `vllm-project/vllm` | Last collected: 2026-05-10T12:37:57Z
+Repo: `vllm-project/vllm` | Last collected: 2026-05-10T13:11:07Z
 
 | # | Title | Author | Status | Created | Updated |
 |---|-------|--------|--------|---------|---------|
+| [#41294](https://github.com/vllm-project/vllm/pull/41294) | [ROCm][CI] Fix and stabilize EAGLE3 acceptance tests | @AndreasKaratzas | open | 2026-04-29 | 2026-05-10 |
 | [#41572](https://github.com/vllm-project/vllm/pull/41572) | [ROCm][CI] Skip ROCm batch invalid-input test pending torch ... | @AndreasKaratzas | open | 2026-05-03 | 2026-05-10 |
 | [#41313](https://github.com/vllm-project/vllm/pull/41313) | [ROCm][CI] Fix NIXL spec-decode acceptance startup and diagn... | @AndreasKaratzas | merged | 2026-04-30 | 2026-05-10 |
 | [#41573](https://github.com/vllm-project/vllm/pull/41573) | [ROCm][CI] Stabilize ROCm shutdown and distributed compile C... | @AndreasKaratzas | merged | 2026-05-03 | 2026-05-10 |
@@ -20,7 +21,6 @@ Repo: `vllm-project/vllm` | Last collected: 2026-05-10T12:37:57Z
 | [#41335](https://github.com/vllm-project/vllm/pull/41335) | [ROCm][CI] Align spec decode logprob test prefill settings | @AndreasKaratzas | merged | 2026-04-30 | 2026-05-04 |
 | [#41210](https://github.com/vllm-project/vllm/pull/41210) | [ROCm][CI] Upgraded UCX and RIXL | @AndreasKaratzas | merged | 2026-04-29 | 2026-05-02 |
 | [#41341](https://github.com/vllm-project/vllm/pull/41341) | [ROCm][CI] Add ROCm score absolute tolerance floor | @AndreasKaratzas | merged | 2026-04-30 | 2026-05-02 |
-| [#41294](https://github.com/vllm-project/vllm/pull/41294) | [ROCm][CI] Fix and stabilize EAGLE3 acceptance tests | @AndreasKaratzas | open | 2026-04-29 | 2026-04-30 |
 | [#41290](https://github.com/vllm-project/vllm/pull/41290) | [Bugfix][CI][Hardware][AMD] Fix various e4m3fn -> e4m3fnuz n... | @mawong-amd | open | 2026-04-29 | 2026-04-30 |
 | [#41330](https://github.com/vllm-project/vllm/pull/41330) | [ROCm][CI] Fix GPT-OSS Quark MXFP4+FP8 MoE startup | @AndreasKaratzas | closed | 2026-04-30 | 2026-04-30 |
 | [#37717](https://github.com/vllm-project/vllm/pull/37717) | [ROCm][CI] Add large_gpu_mark to test_max_tokens_none for RO... | @AndreasKaratzas | merged | 2026-03-20 | 2026-03-22 |
