@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-05-11T15:50:27Z",
+  "generated_at": "2026-05-11T17:09:58Z",
   "amd_date": "2026-05-11",
   "upstream_date": "2026-05-11",
   "parity_pct": 0.0,
-  "total_tests": 623,
+  "total_tests": 625,
   "summary": {
-    "upstream_only": 288,
+    "upstream_only": 290,
     "amd_only": 335
   },
   "by_module": {
@@ -520,6 +520,10 @@
     "Metrics, Tracing (2 GPUs)": {
       "parity_pct": 100.0,
       "upstream_only": 1
+    },
+    "MoE Refactor Integration Test (B200 - TEMPORARY)": {
+      "parity_pct": 100.0,
+      "upstream_only": 2
     },
     "MoE Refactor Integration Test (B200 DP - TEMPORARY)": {
       "parity_pct": 100.0,
@@ -1974,7 +1978,7 @@
       "family_key": "basic models tests (extra initialization)",
       "family_name": "basic models tests (extra initialization)",
       "amd_job_name": "mi250_1: Basic Models Tests (Extra Initialization) 2",
-      "upstream_job_name": "Basic Models Tests (Extra Initialization) 1",
+      "upstream_job_name": "Basic Models Tests (Extra Initialization) 2",
       "amd": {
         "total": 168,
         "passed": 150,
@@ -2013,8 +2017,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4bd6-4210-92c1-156b6302c48c&tab=output",
-          "job_name": "Basic Models Tests (Extra Initialization) 1",
+          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4bd6-4f7b-be71-81a1696188ce&tab=output",
+          "job_name": "Basic Models Tests (Extra Initialization) 2",
           "side": "upstream"
         }
       ],
@@ -5222,7 +5226,7 @@
       "family_key": "kernels quantization test",
       "family_name": "kernels quantization test",
       "amd_job_name": "mi300_1: Kernels Quantization Test 1",
-      "upstream_job_name": "Kernels Quantization Test 2",
+      "upstream_job_name": "Kernels Quantization Test 1",
       "amd": {
         "total": 24432,
         "passed": 13740,
@@ -5268,8 +5272,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4b8f-444b-9707-d6d27e0a3fe9&tab=output",
-          "job_name": "Kernels Quantization Test 2",
+          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4b8f-45dd-a8cd-6ad1d92246ea&tab=output",
+          "job_name": "Kernels Quantization Test 1",
           "side": "upstream"
         }
       ],
@@ -6224,7 +6228,7 @@
       "family_key": "lora",
       "family_name": "lora",
       "amd_job_name": "mi250_1: LoRA 1",
-      "upstream_job_name": "LoRA 1",
+      "upstream_job_name": "LoRA 3",
       "amd": {
         "total": 6820,
         "passed": 6723,
@@ -6263,8 +6267,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4baa-41e0-bdb7-811ec73cdf32&tab=output",
-          "job_name": "LoRA 1",
+          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4bab-487f-9680-ef0805ef9fce&tab=output",
+          "job_name": "LoRA 3",
           "side": "upstream"
         }
       ],
@@ -8957,7 +8961,7 @@
       "family_key": "v1 e2e (4 gpus)",
       "family_name": "v1 e2e (4 gpus)",
       "amd_job_name": "mi300_4: V1 e2e (4 GPUs)",
-      "upstream_job_name": "V1 e2e (4xH100)",
+      "upstream_job_name": "V1 e2e (4 GPUs)",
       "amd": {
         "total": 6,
         "passed": 6,
@@ -8994,8 +8998,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4b1d-4bda-ad6d-42da30f71253&tab=output",
-          "job_name": "V1 e2e (4xH100)",
+          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4b1c-4b5f-82cc-d18cf14a4443&tab=output",
+          "job_name": "V1 e2e (4 GPUs)",
           "side": "upstream"
         }
       ],
@@ -9013,7 +9017,7 @@
       "family_key": "v1 e2e (4 gpus)",
       "family_name": "v1 e2e (4 gpus)",
       "amd_job_name": "mi300_4: V1 e2e (4xH100-4xMI300)",
-      "upstream_job_name": "V1 e2e (4xH100)",
+      "upstream_job_name": "V1 e2e (4 GPUs)",
       "amd": {
         "total": 4,
         "passed": 2,
@@ -9050,8 +9054,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4b1d-4bda-ad6d-42da30f71253&tab=output",
-          "job_name": "V1 e2e (4xH100)",
+          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4b1c-4b5f-82cc-d18cf14a4443&tab=output",
+          "job_name": "V1 e2e (4 GPUs)",
           "side": "upstream"
         }
       ],
@@ -10315,6 +10319,42 @@
       "backfilled": false
     },
     {
+      "name": "moe refactor integration test (b200 - temporary)",
+      "family_key": "moe refactor integration test (b200 - temporary)",
+      "family_name": "moe refactor integration test (b200 - temporary)",
+      "amd_job_name": null,
+      "upstream_job_name": "MoE Refactor Integration Test (B200 - TEMPORARY)",
+      "amd": null,
+      "upstream": {
+        "total": 18,
+        "passed": 17,
+        "failed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 4179.63
+      },
+      "hardware": [
+        "b200"
+      ],
+      "hw_failures": {
+        "b200": 1
+      },
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e177e-fb95-4b21-9acb-3481288424ae&tab=output",
+          "job_name": "MoE Refactor Integration Test (B200 - TEMPORARY)",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
       "name": "moe refactor integration test (b200 dp - temporary)",
       "family_key": "moe refactor integration test (b200 dp - temporary)",
       "family_name": "moe refactor integration test (b200 dp - temporary)",
@@ -10591,7 +10631,7 @@
       "family_key": "sequence parallel correctness tests (2 gpus)",
       "family_name": "sequence parallel correctness tests (2 gpus)",
       "amd_job_name": null,
-      "upstream_job_name": "Sequence Parallel Correctness Tests (2 GPUs)",
+      "upstream_job_name": "Sequence Parallel Correctness Tests (2xH100)",
       "amd": null,
       "upstream": {
         "total": 90,
@@ -10612,8 +10652,8 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4ac8-4576-b51e-13c43f1340b7&tab=output",
-          "job_name": "Sequence Parallel Correctness Tests (2 GPUs)",
+          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4ad4-460e-8e10-4fff29d7d668&tab=output",
+          "job_name": "Sequence Parallel Correctness Tests (2xH100)",
           "side": "upstream"
         }
       ],
@@ -11131,25 +11171,6 @@
       ],
       "status": "upstream_only",
       "backfilled": false
-    },
-    {
-      "name": "moe refactor integration test (b200 - temporary)",
-      "family_key": "moe refactor integration test (b200 - temporary)",
-      "family_name": "moe refactor integration test (b200 - temporary)",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "b200"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
     }
   ],
   "details": [
@@ -12201,6 +12222,18 @@
       "test_id": "Metrics, Tracing (2 GPUs)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "MoE Refactor Integration Test (B200 - TEMPORARY)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "MoE Refactor Integration Test (B200 - TEMPORARY)::__unidentified_failures__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
       "category": "upstream_only"
     },
     {
