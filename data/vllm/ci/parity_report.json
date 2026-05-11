@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-05-11T14:41:47Z",
+  "generated_at": "2026-05-11T15:50:27Z",
   "amd_date": "2026-05-11",
   "upstream_date": "2026-05-11",
   "parity_pct": 0.0,
-  "total_tests": 624,
+  "total_tests": 623,
   "summary": {
-    "upstream_only": 289,
+    "upstream_only": 288,
     "amd_only": 335
   },
   "by_module": {
@@ -143,7 +143,7 @@
     },
     "CPU-Multi-Modal Model Tests 2": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 2
     },
     "CPU-Multi-Modal Model Tests 3": {
       "parity_pct": 100.0,
@@ -520,10 +520,6 @@
     "Metrics, Tracing (2 GPUs)": {
       "parity_pct": 100.0,
       "upstream_only": 1
-    },
-    "MoE Refactor Integration Test (B200 - TEMPORARY)": {
-      "parity_pct": 100.0,
-      "upstream_only": 2
     },
     "MoE Refactor Integration Test (B200 DP - TEMPORARY)": {
       "parity_pct": 100.0,
@@ -5160,7 +5156,7 @@
       "family_key": "kernels moe test",
       "family_name": "kernels moe test",
       "amd_job_name": "mi300_1: Kernels MoE Test 1",
-      "upstream_job_name": "Kernels MoE Test 2",
+      "upstream_job_name": "Kernels MoE Test 1",
       "amd": {
         "total": 13773,
         "passed": 7910,
@@ -5207,8 +5203,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4b8d-4d6d-9d31-27ac150b5d47&tab=output",
-          "job_name": "Kernels MoE Test 2",
+          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4b8c-470b-b637-c6155105e486&tab=output",
+          "job_name": "Kernels MoE Test 1",
           "side": "upstream"
         }
       ],
@@ -6228,7 +6224,7 @@
       "family_key": "lora",
       "family_name": "lora",
       "amd_job_name": "mi250_1: LoRA 1",
-      "upstream_job_name": "LoRA 2",
+      "upstream_job_name": "LoRA 1",
       "amd": {
         "total": 6820,
         "passed": 6723,
@@ -6267,8 +6263,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4baa-478c-a015-c03a23bbe3af&tab=output",
-          "job_name": "LoRA 2",
+          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4baa-41e0-bdb7-811ec73cdf32&tab=output",
+          "job_name": "LoRA 1",
           "side": "upstream"
         }
       ],
@@ -8961,7 +8957,7 @@
       "family_key": "v1 e2e (4 gpus)",
       "family_name": "v1 e2e (4 gpus)",
       "amd_job_name": "mi300_4: V1 e2e (4 GPUs)",
-      "upstream_job_name": "V1 e2e (4 GPUs)",
+      "upstream_job_name": "V1 e2e (4xH100)",
       "amd": {
         "total": 6,
         "passed": 6,
@@ -8998,8 +8994,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4b1c-4b5f-82cc-d18cf14a4443&tab=output",
-          "job_name": "V1 e2e (4 GPUs)",
+          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4b1d-4bda-ad6d-42da30f71253&tab=output",
+          "job_name": "V1 e2e (4xH100)",
           "side": "upstream"
         }
       ],
@@ -9017,7 +9013,7 @@
       "family_key": "v1 e2e (4 gpus)",
       "family_name": "v1 e2e (4 gpus)",
       "amd_job_name": "mi300_4: V1 e2e (4xH100-4xMI300)",
-      "upstream_job_name": "V1 e2e (4 GPUs)",
+      "upstream_job_name": "V1 e2e (4xH100)",
       "amd": {
         "total": 4,
         "passed": 2,
@@ -9054,8 +9050,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4b1c-4b5f-82cc-d18cf14a4443&tab=output",
-          "job_name": "V1 e2e (4 GPUs)",
+          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4b1d-4bda-ad6d-42da30f71253&tab=output",
+          "job_name": "V1 e2e (4xH100)",
           "side": "upstream"
         }
       ],
@@ -10319,42 +10315,6 @@
       "backfilled": false
     },
     {
-      "name": "moe refactor integration test (b200 - temporary)",
-      "family_key": "moe refactor integration test (b200 - temporary)",
-      "family_name": "moe refactor integration test (b200 - temporary)",
-      "amd_job_name": null,
-      "upstream_job_name": "MoE Refactor Integration Test (B200 - TEMPORARY)",
-      "amd": null,
-      "upstream": {
-        "total": 18,
-        "passed": 17,
-        "failed": 1,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0,
-        "error": 0,
-        "duration": 3998.67
-      },
-      "hardware": [
-        "b200"
-      ],
-      "hw_failures": {
-        "b200": 1
-      },
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [
-        {
-          "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4ba2-44ce-9a2f-968b12b795b4&tab=output",
-          "job_name": "MoE Refactor Integration Test (B200 - TEMPORARY)",
-          "side": "upstream"
-        }
-      ],
-      "status": "upstream_only",
-      "backfilled": false
-    },
-    {
       "name": "moe refactor integration test (b200 dp - temporary)",
       "family_key": "moe refactor integration test (b200 dp - temporary)",
       "family_name": "moe refactor integration test (b200 dp - temporary)",
@@ -10631,7 +10591,7 @@
       "family_key": "sequence parallel correctness tests (2 gpus)",
       "family_name": "sequence parallel correctness tests (2 gpus)",
       "amd_job_name": null,
-      "upstream_job_name": "Sequence Parallel Correctness Tests (2xH100)",
+      "upstream_job_name": "Sequence Parallel Correctness Tests (2 GPUs)",
       "amd": null,
       "upstream": {
         "total": 90,
@@ -10652,8 +10612,8 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4ad4-460e-8e10-4fff29d7d668&tab=output",
-          "job_name": "Sequence Parallel Correctness Tests (2xH100)",
+          "url": "https://buildkite.com/vllm/ci/builds/65498/steps/canvas?jid=019e15a0-4ac8-4576-b51e-13c43f1340b7&tab=output",
+          "job_name": "Sequence Parallel Correctness Tests (2 GPUs)",
           "side": "upstream"
         }
       ],
@@ -11171,6 +11131,25 @@
       ],
       "status": "upstream_only",
       "backfilled": false
+    },
+    {
+      "name": "moe refactor integration test (b200 - temporary)",
+      "family_key": "moe refactor integration test (b200 - temporary)",
+      "family_name": "moe refactor integration test (b200 - temporary)",
+      "amd_job_name": null,
+      "upstream_job_name": null,
+      "amd": null,
+      "upstream": null,
+      "hardware": [
+        "b200"
+      ],
+      "hw_failures": null,
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [],
+      "delta": null,
+      "status": "upstream_only",
+      "backfilled": true
     }
   ],
   "details": [
@@ -11421,9 +11400,15 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "CPU-Multi-Modal Model Tests 2::__job_level__",
+      "test_id": "CPU-Multi-Modal Model Tests 2::__passed__",
       "amd_status": "missing",
-      "upstream_status": "failed",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "CPU-Multi-Modal Model Tests 2::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
       "category": "upstream_only"
     },
     {
@@ -12216,18 +12201,6 @@
       "test_id": "Metrics, Tracing (2 GPUs)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "MoE Refactor Integration Test (B200 - TEMPORARY)::__passed__",
-      "amd_status": "missing",
-      "upstream_status": "passed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "MoE Refactor Integration Test (B200 - TEMPORARY)::__unidentified_failures__",
-      "amd_status": "missing",
-      "upstream_status": "failed",
       "category": "upstream_only"
     },
     {
