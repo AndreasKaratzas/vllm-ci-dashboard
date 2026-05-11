@@ -1,5 +1,5 @@
 {
-  "collected_at": "2026-05-11T17:11:51Z",
+  "collected_at": "2026-05-11T17:56:48Z",
   "prs": [
     {
       "number": 41294,
@@ -32,40 +32,6 @@
       ]
     },
     {
-      "number": 41313,
-      "title": "[ROCm][CI] Fix NIXL spec-decode acceptance startup and diagnostics",
-      "author": "AndreasKaratzas",
-      "state": "closed",
-      "merged": true,
-      "created_at": "2026-04-30T01:59:44Z",
-      "updated_at": "2026-05-10T20:54:32Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41313",
-      "labels": [
-        "rocm",
-        "ready",
-        "ci/build",
-        "v1",
-        "kv-connector"
-      ],
-      "draft": false,
-      "body_head": "- Use `ATTENTION_BACKEND=ROCM_ATTN` override in AMD Buildkite for the NIXL speculative-decoding acceptance test.\r\n- Make the NIXL spec-decode integration script fail fast when a server process exits before readiness instead of polling for the full timeout.\r\n- Pin this integration test path to `127.0.0.1` and set `VLLM_NIXL_SIDE_CHANNEL_HOST` explicitly so HTTP, proxy traffic, and NIXL side-channel metadata use the same loopback address family.\r\n- Improve NIXL KV-cache registration diagnostics when a tensor does not match the expected block dimension, including layer name, shape, stride, backend list, KV layout, and topology mode.\r\n\r\n## Scope Notes\r\n\r\n1. HTTP readiness is not enough for NIXL. The failing logs showed `/v1/completions` returning 200, then decode later timing out in `_nixl_handshake()` while waiting for prefill metadata on the side-channel socket. The new readiness check sends the same NIXL `get_meta_msg` request over ZMQ that decode needs, so the test does not start until the side channel is actually answering.\r\n\r\n2. `localhost` can resolve through IPv6 while the proxy path is already intentionally bound to `127.0.0.1` for CI. This test now uses `127.0.0.1` consistently and passes that host into the Python test for proxy and metrics access.\r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        41319
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "ready",
-        "ci/build",
-        "v1",
-        "kv-connector"
-      ]
-    },
-    {
       "number": 41572,
       "title": "[ROCm][CI] Skip ROCm batch invalid-input test pending torch fix",
       "author": "AndreasKaratzas",
@@ -91,37 +57,6 @@
       ],
       "other_tags": [
         "ready"
-      ]
-    },
-    {
-      "number": 41573,
-      "title": "[ROCm][CI] Stabilize ROCm shutdown and distributed compile CI",
-      "author": "AndreasKaratzas",
-      "state": "closed",
-      "merged": true,
-      "created_at": "2026-05-03T21:39:16Z",
-      "updated_at": "2026-05-10T03:47:41Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41573",
-      "labels": [
-        "rocm",
-        "ready",
-        "ci/build"
-      ],
-      "draft": false,
-      "body_head": "This PR addresses the following nightly failures:\r\n- `mi355_1: Entrypoints Integration (API Server openai - Part 2)`\r\n- `mi300_2: Distributed Compile Unit Tests (2xH100-2xMI300)`\r\n\r\nIt:\r\n- Replaces the abort-shutdown polling loop with `proc.wait(timeout=...)`.\r\n- Keeps the existing non-ROCm timeout and allows a small ROCm native teardown buffer.\r\n- Stops running CUDA-only sequence-parallelism tests in the AMD compile job.\r\n- Points the AMD `tp2_ar_rms` command at its real `fusions_e2e` path.\r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        41580,
-        41581
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "ready",
-        "ci/build"
       ]
     },
     {
@@ -238,188 +173,6 @@
       ]
     },
     {
-      "number": 41575,
-      "title": "[ROCm][CI] Use vLLM generation defaults for DeepSeek prefetch-offload eval",
-      "author": "AndreasKaratzas",
-      "state": "closed",
-      "merged": true,
-      "created_at": "2026-05-03T21:52:28Z",
-      "updated_at": "2026-05-06T03:32:55Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41575",
-      "labels": [
-        "rocm",
-        "ready",
-        "ci/build",
-        "deepseek"
-      ],
-      "draft": false,
-      "body_head": "This PR fixes `mi300_1: DeepSeek V2-Lite Prefetch Offload Accuracy (H100-MI300)`. Changes:\r\n- Run the scheduled DeepSeek V2-Lite prefetch-offload eval with `--generation-config vllm`.\r\n- This keeps the GSM8K harness deterministic instead of inheriting the model's HF generation defaults.\r\n- The fix preserves the prefetch-offload coverage and only changes serving defaults for this eval script.\r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        41579
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "ready",
-        "ci/build",
-        "deepseek"
-      ]
-    },
-    {
-      "number": 39136,
-      "title": "[ROCm][Quantization][2/N] Refactor quark_moe w4a8 w/ oracle ",
-      "author": "BowenBao",
-      "state": "closed",
-      "merged": true,
-      "created_at": "2026-04-07T01:43:06Z",
-      "updated_at": "2026-05-05T02:50:38Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/39136",
-      "labels": [
-        "rocm",
-        "ready",
-        "gpt-oss"
-      ],
-      "draft": false,
-      "body_head": "1. Remove `QuarkOCP_MX_MoEMethod_OSS` and add aiter w4a8 backend.\r\n2. Add unittest cases for rocm w4a16, w4a8 fused moe.\r\n3. Validated locally with\r\n\r\n```bash\r\npytest -s -v tests/evals/gpt_oss/test_gpqa_correctness.py \\\r\n    --config-list-file=tests/evals/gpt_oss/configs/models-gfx950.txt\r\n\r\npytest -s -v tests/evals/gsm8k/test_gsm8k_correctness.py \\\r\n    --config-list-file=tests/evals/gsm8k/configs/models-qwen35-mi355.txt\r\n\r\n```",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        41324
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "ready",
-        "gpt-oss"
-      ]
-    },
-    {
-      "number": 41569,
-      "title": "[ROCm][CI] Fix MLA prefill scale for DeepSeek GSM8K",
-      "author": "AndreasKaratzas",
-      "state": "closed",
-      "merged": true,
-      "created_at": "2026-05-03T20:48:17Z",
-      "updated_at": "2026-05-05T02:40:04Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41569",
-      "labels": [
-        "rocm",
-        "ready",
-        "v1",
-        "deepseek"
-      ],
-      "draft": false,
-      "body_head": "This restores the MLA prefill softmax scale used by DeepSeek-style models. The prefill backend refactor in `f3fef12350` (#32623) started constructing MLA prefill backends with `model_config.get_head_size() ** -0.5`. For DeepSeek-Coder-V2-Lite, that head size is the 576-dim latent KV cache, not the 192-dim query/key attention head. It also missed the DeepSeek YaRN mscale correction applied by the model attention module.\r\n\r\nThe fix derives prefill scale from `qk_nope_head_dim + qk_rope_head_dim`, applies the DeepSeek V2/V3 YaRN mscale correction, and leaves DeepSeek V4 unchanged because its attention path disables YaRN mscale.\r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        41583
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "ready",
-        "v1",
-        "deepseek"
-      ]
-    },
-    {
-      "number": 41335,
-      "title": "[ROCm][CI] Align spec decode logprob test prefill settings",
-      "author": "AndreasKaratzas",
-      "state": "closed",
-      "merged": true,
-      "created_at": "2026-04-30T05:05:23Z",
-      "updated_at": "2026-05-04T04:54:20Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41335",
-      "labels": [
-        "rocm",
-        "ready",
-        "v1"
-      ],
-      "draft": false,
-      "body_head": "This PR fixes a ROCm-only failure in `test_spec_decode_logprobs` for the ngram speculative decoding cases. The test compares logprobs from a regular base-model run against logprobs from a speculative decoding run. For that comparison to isolate speculative decoding, both LLM instances need to use the same execution settings. Before this change, the spec-decode LLM forced chunked prefill with `enable_chunked_prefill=True` and `max_num_batched_tokens=32`, while the reference LLM did not.\r\n\r\nOn ROCm, floating-point reductions can vary with batch geometry and scheduling. That means the two runs could produce slightly different logprobs even when speculative decoding itself was behaving correctly. The observed failure was a logprob difference of about `0.235`, which exceeded the test tolerance.\r\n\r\nThis change factors the shared LLM options into `llm_kwargs` and passes them to both the reference and spec-decode LLMs. The only intended difference between the two runs is now the speculative decoding configuration, so the test better serves its original purpose.\r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        41336
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "ready",
-        "v1"
-      ]
-    },
-    {
-      "number": 41210,
-      "title": "[ROCm][CI] Upgraded UCX and RIXL",
-      "author": "AndreasKaratzas",
-      "state": "closed",
-      "merged": true,
-      "created_at": "2026-04-29T08:12:56Z",
-      "updated_at": "2026-05-02T00:13:54Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41210",
-      "labels": [
-        "rocm",
-        "ready",
-        "ci/build"
-      ],
-      "draft": false,
-      "body_head": "Upgrading UCX and RIXL to resolve:\r\n- https://buildkite.com/vllm/ci/builds/63359/canvas?sid=019dd57c-8a40-4ef9-b2f8-adea236be746&tab=output\r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        41323
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "ready",
-        "ci/build"
-      ]
-    },
-    {
-      "number": 41341,
-      "title": "[ROCm][CI] Add ROCm score absolute tolerance floor",
-      "author": "AndreasKaratzas",
-      "state": "closed",
-      "merged": true,
-      "created_at": "2026-04-30T06:32:43Z",
-      "updated_at": "2026-05-02T00:12:48Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41341",
-      "labels": [
-        "rocm",
-        "ready"
-      ],
-      "draft": false,
-      "body_head": "This PR keeps the existing per-backend relative tolerances for the online vision cross-encoder score tests, but adds a small backend-specific absolute tolerance floor for `ROCM_AITER_FA` and `FLEX_ATTENTION`.\r\n\r\nThe affected failures are low-probability text-vs-text scores on ROCm 7.2/gfx950. Those scores drift by only about 0.005 to 0.006 in absolute terms, but that is enough to exceed the current relative tolerance because the expected value is near 0.1. Larger image and multimodal scores remain within the original relative tolerances, so this keeps the check tight while allowing the observed low-score numeric drift.\r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        41342
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "ready"
-      ]
-    },
-    {
       "number": 41290,
       "title": "[Bugfix][CI][Hardware][AMD] Fix various e4m3fn -> e4m3fnuz normalization issues",
       "author": "mawong-amd",
@@ -438,8 +191,7 @@
       "is_ci_pr": true,
       "is_rocm_pr": true,
       "ci_issue_numbers": [
-        40728,
-        41295
+        40728
       ],
       "custom_tags": [
         "CI",
@@ -448,34 +200,6 @@
       "other_tags": [
         "bug",
         "nvidia"
-      ]
-    },
-    {
-      "number": 41330,
-      "title": "[ROCm][CI] Fix GPT-OSS Quark MXFP4+FP8 MoE startup",
-      "author": "AndreasKaratzas",
-      "state": "closed",
-      "merged": false,
-      "created_at": "2026-04-30T03:33:50Z",
-      "updated_at": "2026-04-30T06:25:34Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41330",
-      "labels": [
-        "rocm",
-        "gpt-oss"
-      ],
-      "draft": false,
-      "body_head": "Fix GPT-OSS Quark MXFP4+FP8 MoE startup on ROCm/gfx950 by applying the padding required by the Triton/CDNA4 MXFP4 scale layout, and align the GPT-OSS Quark monolithic MoE method with the current `MoERunner` call signature. The GPQA ROCm config for `amd/gpt-oss-20b-MoE-Quant-W-MXFP4-A-FP8-KV-FP8` failed during model startup while processing MoE weights:\r\n\r\n```text\r\nRuntimeError: shape '[-1, 90, 2, 16, 11, 2, 4, 1]' is invalid for input of size 8294400\r\n```\r\n\r\nThe failing path is `QuarkOCP_MX_MoEMethod_OSS`, used for GPT-OSS Quark weights with MXFP4 weights and static FP8 activations. This subclass still swizzles MXFP4 weights and scales through Triton kernels in `process_weights_after_loading()`.\r\n\r\nHowever, the base `QuarkOCP_MX_MoEMethod` treats `w_mxfp4_a_fp8` as an emulation path for sizing purposes, so it does not apply the MXFP4 backend padding. On ROCm/CDNA4, Triton scale swizzling requires aligned dimensions. For the 20B TP=2 case, the unpadded dimensions produce scale shapes based on `hidden_size=2880` and `intermediate_size_per_partition=1440`; `hidden_size / 32 = 90`, which is not compatible with the CDNA4 scale swizzle layout.\r\n\r\n## Testing\r\n\r\nRan the focused padded MoE test file:\r\n\r\n```text\r\npytest -s -v evals/gpt_oss/test_gpqa_correctness.py --config-list-file=configs/models-gfx950.txt\r\n```\r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        41324
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "gpt-oss"
       ]
     },
     {
