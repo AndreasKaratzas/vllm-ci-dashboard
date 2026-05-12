@@ -1,6 +1,36 @@
 {
-  "collected_at": "2026-05-12T21:13:04Z",
+  "collected_at": "2026-05-12T21:46:53Z",
   "prs": [
+    {
+      "number": 42459,
+      "title": "[CI][AMD][BugFix] Set num_gpus=2 for trainer for distributed RL example",
+      "author": "rasmith",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-05-12T21:12:02Z",
+      "updated_at": "2026-05-12T21:15:06Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/42459",
+      "labels": [
+        "bug",
+        "documentation",
+        "rocm"
+      ],
+      "draft": false,
+      "body_head": "\r\n## Purpose\r\nThe distributed RL example at `examples/rl/rlhf_nccl.py` sets `num_gpus=1`, but` CUDA_VISIBLE_DEVICES=0,1`.  This results in an error when calling `ncclCommInitRank`, with `rank = 1`.  Setting `num_gpus=2 `fixes this issue.\r\n## Test Plan\r\n`VLLM_ALLOW_INSECURE_SERIALIZATION=1 python3 ../examples/rl/rlhf_nccl.py`\r\n## Test Result\r\nNo crash occurs.\r\n\r\n`Processed prompts: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 4/4 [00:00<00:00, 11.86it/s, est. speed input: 77.17 toks/s, output: 189.93 toks/s]`\r\n\r\n---\r\n<details>\r\n<summary> Essential Elements of an Effective PR Description Checklist </summary>\r\n\r\n- [X ] The purpose of the PR, such as \"Fix some issue (link existing issues this PR will resolve)\".\r\n- [ X] The test plan, such as providing test command.\r\n- [ X] The test results, such as pasting the results comparison before and after, or e2e results\r\n- [ ] (Optional) The necessary documentation update, such as updating `supported_models.md` and `examples` for a new model.\r\n</details>\r\n\r\n",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        42183
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "bug",
+        "documentation"
+      ]
+    },
     {
       "number": 41294,
       "title": "[ROCm][CI] Fix and stabilize EAGLE3 acceptance tests",

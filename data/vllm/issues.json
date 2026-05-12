@@ -1,6 +1,30 @@
 {
-  "collected_at": "2026-05-12T21:13:04Z",
+  "collected_at": "2026-05-12T21:46:53Z",
   "issues": [
+    {
+      "number": 42183,
+      "title": "[CI Failure]:  mi300_4: Distributed Torchrun + Examples (4 GPUs)",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "created_at": "2026-05-09T21:00:01Z",
+      "updated_at": "2026-05-12T21:16:56Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/42183",
+      "labels": [
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "In review",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\n`(command rocm-smi || true) && export VLLM_TEST_GROUP_NAME=mi300_4-distributed-torchrun---examples-4-gpus && export VLLM_ALLOW_DEPRECATED_BEAM_SEARCH=1 && cd /vllm-workspace/tests && torchrun --nproc-per-node=4 distributed/test_torchrun_example.py && PP_SIZE=2 torchrun --nproc-per-node=4 distributed/test_torchrun_example.py && TP_SIZE=4 torchrun --nproc-per-node=4 distributed/test_torchrun_example_moe.py && PP_SIZE=2 TP_SIZE=2 torchrun --nproc-per-node=4 distributed/test_torchrun_example_moe.py && DP_SIZE=4 ENABLE_EP=1 torchrun --nproc-per-node=4 distributed/test_torchrun_example_moe.py && TP_SIZE=2 DP_SIZE=2 ENABLE_EP=1 torchrun --nproc-per-node=4 distributed/test_torchrun_example_moe.py && python3 ../examples/features/data_parallel/data_parallel_offline.py --enforce-eager && VLLM_ALLOW_INSECURE_SERIALIZATION=1 python3 ../examples/rl/rlhf_nccl.py && VLLM_ALLOW_INSECURE_SERIALIZATION=1 python3 ../examples/rl/rlhf_ipc.py`\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\n```\nRuntimeError: NCCL error: unhandled cuda error (run with NCCL_DEBUG=INFO for details)\n```\n\nhttps://buildkite.com/vllm/amd-ci/builds/8371/canvas?sid=019e0bf7-4aec-42bb-85d9-00364d4e4194&tab=output\n\n### \ud83d\udcdd History of failing test\n\n- Current streak start: 2026-05-06\n- First failure in 60d window: 2026-05-06\n- Last successful nightly: 2026-05-04\n- Break frequency (60d, pass\u2194fail flips): 1\n- Latest nightly date: 2026-05-09\n- Latest build(s): [amd-ci #8371](https://buildkite.com/vllm/amd-ci/builds/8371)\n- Latest hardware status: `mi300_4`=fail",
+      "linked_prs": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": 42459,
+          "url": "https://github.com/vllm-project/vllm/pull/42459"
+        }
+      ]
+    },
     {
       "number": 40554,
       "title": "[AMD][CI Failure][Tracker] Static dashboard tracker for current CI failures",
@@ -36,24 +60,6 @@
       "project_url": "https://github.com/orgs/vllm-project/projects/39",
       "repo": "vllm-project/vllm",
       "body_head": "### Name of failing test\n\n`(command rocm-smi || true) && export VLLM_TEST_GROUP_NAME=mi300_2-distributed-compile-unit-tests-2xh100-2xmi300 && export VLLM_ALLOW_DEPRECATED_BEAM_SEARCH=1 && cd /vllm-workspace/ && export VLLM_TEST_CLEAN_GPU_MEMORY=1 && VLLM_TEST_CLEAN_GPU_MEMORY=1 pytest -v -s tests/compile/passes/distributed/test_async_tp.py && pytest -v -s tests/compile/passes/distributed/test_sequence_parallelism.py && pytest -v -s tests/compile/passes/distributed/test_tp2_ar_rms.py::test_tp2_ar_rms_fusions`\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\n```\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[True-dtype0-16-16-8-TestMMRSModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[True-dtype0-16-16-8-TestAGMMModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[True-dtype1-16-16-8-TestMMRSModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[True-dtype1-16-16-8-TestAGMMModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[True-dtype1-16-16-8-TestScaledMMRSModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[True-dtype1-16-16-8-TestAGScaledMMModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[True-dtype1-16-16-8-TestCutlassScaledMMRSModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[True-dtype1-16-16-8-TestAGCutlassScaledMMModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[False-dtype0-16-16-8-TestMMRSModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[False-dtype0-16-16-8-TestAGMMModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[False-dtype1-16-16-8-TestMMRSModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[False-dtype1-16-16-8-TestAGMMModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[False-dtype1-16-16-8-TestScaledMMRSModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[False-dtype1-16-16-8-TestAGScaledMMModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[False-dtype1-16-16-8-TestCutlassScaledMMRSModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[False-dtype1-16-16-8-TestAGCutlassScaledMMModel]\n```\n\n### \ud83d\udcdd History of failing test\n\n- Current streak start: 2026-05-02\n- First failure in 60d window: 2026-05-02\n- Last successful nightly: 2026-05-01\n- Break frequency (60d, pass\u2194fail flips): 1\n- Latest nightly date: 2026-05-09\n- Latest build(s): [amd-ci #8371](https://buildkite.com/vllm/amd-ci/builds/8371)\n- Latest hardware status: `mi300_2`=fail",
-      "linked_prs": []
-    },
-    {
-      "number": 42183,
-      "title": "[CI Failure]:  mi300_4: Distributed Torchrun + Examples (4 GPUs)",
-      "author": "AndreasKaratzas",
-      "state": "open",
-      "created_at": "2026-05-09T21:00:01Z",
-      "updated_at": "2026-05-09T21:00:21Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/42183",
-      "labels": [
-        "ci-failure"
-      ],
-      "assignees": [],
-      "project_status": "In progress",
-      "project_url": "https://github.com/orgs/vllm-project/projects/39",
-      "repo": "vllm-project/vllm",
-      "body_head": "### Name of failing test\n\n`(command rocm-smi || true) && export VLLM_TEST_GROUP_NAME=mi300_4-distributed-torchrun---examples-4-gpus && export VLLM_ALLOW_DEPRECATED_BEAM_SEARCH=1 && cd /vllm-workspace/tests && torchrun --nproc-per-node=4 distributed/test_torchrun_example.py && PP_SIZE=2 torchrun --nproc-per-node=4 distributed/test_torchrun_example.py && TP_SIZE=4 torchrun --nproc-per-node=4 distributed/test_torchrun_example_moe.py && PP_SIZE=2 TP_SIZE=2 torchrun --nproc-per-node=4 distributed/test_torchrun_example_moe.py && DP_SIZE=4 ENABLE_EP=1 torchrun --nproc-per-node=4 distributed/test_torchrun_example_moe.py && TP_SIZE=2 DP_SIZE=2 ENABLE_EP=1 torchrun --nproc-per-node=4 distributed/test_torchrun_example_moe.py && python3 ../examples/features/data_parallel/data_parallel_offline.py --enforce-eager && VLLM_ALLOW_INSECURE_SERIALIZATION=1 python3 ../examples/rl/rlhf_nccl.py && VLLM_ALLOW_INSECURE_SERIALIZATION=1 python3 ../examples/rl/rlhf_ipc.py`\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\n```\nRuntimeError: NCCL error: unhandled cuda error (run with NCCL_DEBUG=INFO for details)\n```\n\nhttps://buildkite.com/vllm/amd-ci/builds/8371/canvas?sid=019e0bf7-4aec-42bb-85d9-00364d4e4194&tab=output\n\n### \ud83d\udcdd History of failing test\n\n- Current streak start: 2026-05-06\n- First failure in 60d window: 2026-05-06\n- Last successful nightly: 2026-05-04\n- Break frequency (60d, pass\u2194fail flips): 1\n- Latest nightly date: 2026-05-09\n- Latest build(s): [amd-ci #8371](https://buildkite.com/vllm/amd-ci/builds/8371)\n- Latest hardware status: `mi300_4`=fail",
       "linked_prs": []
     },
     {
