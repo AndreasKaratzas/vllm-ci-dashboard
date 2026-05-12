@@ -1,12 +1,12 @@
 {
   "summary": {
-    "total_amd_steps": 121,
-    "total_nvidia_steps": 154,
-    "matched": 114,
+    "total_amd_steps": 122,
+    "total_nvidia_steps": 156,
+    "matched": 115,
     "amd_only": 7,
-    "nvidia_only": 43,
+    "nvidia_only": 44,
     "mirrors": 8,
-    "match_rate_pct": 94.2,
+    "match_rate_pct": 94.3,
     "avg_command_similarity_pct": 94.0
   },
   "matches": [
@@ -535,6 +535,24 @@
       ]
     },
     {
+      "amd_label": "Entrypoints Unit Tests",
+      "nvidia_label": "Entrypoints Unit Tests",
+      "normalized": "entrypoints unit tests",
+      "identity_key": "entrypoints unit tests",
+      "command_similarity": 0.9469,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/entrypoints.yaml",
+      "amd_commands": [
+        "pytest -v -s entrypoints/openai/tool_parsers",
+        "pytest -v -s entrypoints/ --ignore=entrypoints/llm --ignore=entrypoints/rpc --ignore=entrypoints/sleep --ignore=entrypoints/serve/instrumentator --ignore=entrypoints/openai --ignore=entrypoints/offline_mode --ignore=entrypoints/test_chat_utils.py  --ignore=entrypoints/pooling"
+      ],
+      "nvidia_commands": [
+        "pytest -v -s entrypoints/openai/tool_parsers",
+        "pytest -v -s entrypoints/ --ignore=entrypoints/llm --ignore=entrypoints/rpc --ignore=entrypoints/sleep --ignore=entrypoints/serve/instrumentator --ignore=entrypoints/openai --ignore=entrypoints/offline_mode --ignore=entrypoints/test_chat_utils.py  --ignore=entrypoints/pooling --ignore=entrypoints/speech_to_text"
+      ]
+    },
+    {
       "amd_label": "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
       "nvidia_label": "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
       "normalized": "crosslayer kv layout distributed nixlconnector pd accuracy tests (4 gpus)",
@@ -755,6 +773,24 @@
         "pytest -v -s models/multimodal -m core_model --ignore models/multimodal/generation/test_common.py --ignore models/multimodal/generation/test_ultravox.py --ignore models/multimodal/generation/test_qwen2_5_vl.py --ignore models/multimodal/generation/test_qwen2_vl.py --ignore models/multimodal/generation/test_whisper.py  --ignore models/multimodal/generation/test_memory_leak.py --ignore models/multimodal/processing",
         "pytest models/multimodal/generation/test_memory_leak.py -m core_model",
         "cd .. && VLLM_WORKER_MULTIPROC_METHOD=spawn pytest -v -s tests/models/multimodal/generation/test_whisper.py -m core_model"
+      ]
+    },
+    {
+      "amd_label": "Entrypoints Integration (API Server openai - Part 3)",
+      "nvidia_label": "Entrypoints Integration (API Server openai - Part 3)",
+      "normalized": "entrypoints integration (api server openai - part 3)",
+      "identity_key": "entrypoints integration (api server openai - part 3)",
+      "command_similarity": 0.9983,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/entrypoints.yaml",
+      "amd_commands": [
+        "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
+        "pytest -v -s entrypoints/openai --ignore=entrypoints/openai/chat_completion --ignore=entrypoints/openai/completion --ignore=entrypoints/openai/correctness/ --ignore=entrypoints/openai/tool_parsers/ --ignore=entrypoints/openai/responses --ignore=entrypoints/openai/test_multi_api_servers.py"
+      ],
+      "nvidia_commands": [
+        "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
+        "pytest -v -s entrypoints/openai --ignore=entrypoints/openai/chat_completion --ignore=entrypoints/openai/completion  --ignore=entrypoints/openai/correctness/ --ignore=entrypoints/openai/tool_parsers/ --ignore=entrypoints/openai/responses --ignore=entrypoints/openai/test_multi_api_servers.py"
       ]
     },
     {
@@ -1228,10 +1264,10 @@
       "nvidia_source": ".buildkite/test_areas/entrypoints.yaml"
     },
     {
-      "amd_label": "Entrypoints Integration (API Server openai - Part 3)",
-      "nvidia_label": "Entrypoints Integration (API Server openai - Part 3)",
-      "normalized": "entrypoints integration (api server openai - part 3)",
-      "identity_key": "entrypoints integration (api server openai - part 3)",
+      "amd_label": "Entrypoints Integration (Speech to Text)",
+      "nvidia_label": "Entrypoints Integration (Speech to Text)",
+      "normalized": "entrypoints integration (speech to text)",
+      "identity_key": "entrypoints integration (speech to text)",
       "command_similarity": 1.0,
       "color": "green",
       "amd_source": "test-amd.yaml",
@@ -1262,16 +1298,6 @@
       "nvidia_label": "Entrypoints Integration (Responses API)",
       "normalized": "entrypoints integration (responses api)",
       "identity_key": "entrypoints integration (responses api)",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/entrypoints.yaml"
-    },
-    {
-      "amd_label": "Entrypoints Unit Tests",
-      "nvidia_label": "Entrypoints Unit Tests",
-      "normalized": "entrypoints unit tests",
-      "identity_key": "entrypoints unit tests",
       "command_similarity": 1.0,
       "color": "green",
       "amd_source": "test-amd.yaml",
@@ -1746,6 +1772,12 @@
       "normalized": "kernels fusedmoe layer test (2 b200s)",
       "identity_key": "kernels fusedmoe layer test (2 gpus)",
       "source": ".buildkite/test_areas/kernels.yaml"
+    },
+    {
+      "label": "LM Eval Large Models (B200, EP)",
+      "normalized": "lm eval large models (b200, ep)",
+      "identity_key": "lm eval large models (b200, ep) (2 gpus)",
+      "source": ".buildkite/test_areas/lm_eval.yaml"
     },
     {
       "label": "MoE Refactor Integration Test (H100 - TEMPORARY)",
