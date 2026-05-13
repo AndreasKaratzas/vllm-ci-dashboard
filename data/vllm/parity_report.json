@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-05-13T07:44:41Z",
+  "generated_at": "2026-05-13T08:46:27Z",
   "amd_date": "2026-05-12",
   "upstream_date": "2026-05-13",
   "parity_pct": 0.0,
-  "total_tests": 619,
+  "total_tests": 622,
   "summary": {
-    "upstream_only": 278,
+    "upstream_only": 281,
     "amd_only": 341
   },
   "by_module": {
@@ -764,6 +764,10 @@
     "Torch Nightly Language Models Tests (Standard)": {
       "parity_pct": 100.0,
       "upstream_only": 2
+    },
+    "Transformers Backward Compatibility Models Test": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
     },
     "V1 Core + KV + Metrics": {
       "parity_pct": 100.0,
@@ -1612,6 +1616,10 @@
     "mi355_4: LM Eval Large Models (4xH100-4xMI355)": {
       "parity_pct": 100.0,
       "amd_only": 1
+    },
+    "tests/models/test_initialization.py": {
+      "parity_pct": 100.0,
+      "upstream_only": 2
     },
     "v1/kv_connector/nixl_integration/test_accuracy.py": {
       "parity_pct": 100.0,
@@ -5216,7 +5224,7 @@
       "family_key": "kernels moe test",
       "family_name": "kernels moe test",
       "amd_job_name": "mi300_1: Kernels MoE Test 1",
-      "upstream_job_name": "Kernels MoE Test 4",
+      "upstream_job_name": "Kernels MoE Test 2",
       "amd": {
         "total": 13773,
         "passed": 7912,
@@ -5263,8 +5271,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65989/steps/canvas?jid=019e1fec-e82b-48f6-b8ee-c057bff4f65c&tab=output",
-          "job_name": "Kernels MoE Test 4",
+          "url": "https://buildkite.com/vllm/ci/builds/65989/steps/canvas?jid=019e1fec-e82b-408d-98f1-7fbb06c771cc&tab=output",
+          "job_name": "Kernels MoE Test 2",
           "side": "upstream"
         }
       ],
@@ -5282,7 +5290,7 @@
       "family_key": "kernels quantization test",
       "family_name": "kernels quantization test",
       "amd_job_name": "mi300_1: Kernels Quantization Test 1",
-      "upstream_job_name": "Kernels Quantization Test 2",
+      "upstream_job_name": "Kernels Quantization Test 1",
       "amd": {
         "total": 24432,
         "passed": 13818,
@@ -5328,8 +5336,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65989/steps/canvas?jid=019e1fec-e82d-4c78-b953-ab5016f411d3&tab=output",
-          "job_name": "Kernels Quantization Test 2",
+          "url": "https://buildkite.com/vllm/ci/builds/65989/steps/canvas?jid=019e1fec-e82c-45c0-a876-719e3b4ed01c&tab=output",
+          "job_name": "Kernels Quantization Test 1",
           "side": "upstream"
         }
       ],
@@ -6302,7 +6310,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4718.130000000001
+        "duration": 4718.13
       },
       "hardware": [
         "h100",
@@ -10622,7 +10630,7 @@
       "family_key": "sequence parallel correctness tests (2 gpus)",
       "family_name": "sequence parallel correctness tests (2 gpus)",
       "amd_job_name": null,
-      "upstream_job_name": "Sequence Parallel Correctness Tests (2 GPUs)",
+      "upstream_job_name": "Sequence Parallel Correctness Tests (2xH100)",
       "amd": null,
       "upstream": {
         "total": 90,
@@ -10643,8 +10651,8 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65989/steps/canvas?jid=019e1fec-e7b7-47e2-9479-bed91db0a1d6&tab=output",
-          "job_name": "Sequence Parallel Correctness Tests (2 GPUs)",
+          "url": "https://buildkite.com/vllm/ci/builds/65989/steps/canvas?jid=019e1fec-e7ba-41fc-8e2a-aa09147f3dce&tab=output",
+          "job_name": "Sequence Parallel Correctness Tests (2xH100)",
           "side": "upstream"
         }
       ],
@@ -11094,6 +11102,42 @@
       "backfilled": false
     },
     {
+      "name": "transformers backward compatibility models test",
+      "family_key": "transformers backward compatibility models test",
+      "family_name": "transformers backward compatibility models test",
+      "amd_job_name": null,
+      "upstream_job_name": "Transformers Backward Compatibility Models Test",
+      "amd": null,
+      "upstream": {
+        "total": 16,
+        "passed": 14,
+        "failed": 2,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 39.38
+      },
+      "hardware": [
+        "h100"
+      ],
+      "hw_failures": {
+        "h100": 2
+      },
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/65989/steps/canvas?jid=019e1fec-e866-4a71-bed3-ec3d7584e5dc&tab=output",
+          "job_name": "Transformers Backward Compatibility Models Test",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
       "name": "v1 attention (h100)",
       "family_key": "v1 attention",
       "family_name": "v1 attention",
@@ -11171,25 +11215,6 @@
       "upstream": null,
       "hardware": [
         "unknown"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "transformers backward compatibility models test",
-      "family_key": "transformers backward compatibility models test",
-      "family_name": "transformers backward compatibility models test",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "h100"
       ],
       "hw_failures": null,
       "hw_canceled": null,
@@ -12747,6 +12772,12 @@
       "test_id": "Torch Nightly Language Models Tests (Standard)::__skipped__",
       "amd_status": "missing",
       "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Transformers Backward Compatibility Models Test::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
@@ -14896,6 +14927,18 @@
       "amd_status": "passed",
       "upstream_status": "missing",
       "category": "amd_only"
+    },
+    {
+      "test_id": "tests/models/test_initialization.py::test_can_initialize_large_subset[Step3TextForCausalLM]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "tests/models/test_initialization.py::test_can_initialize_large_subset[Step3VLForConditionalGeneration]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
     },
     {
       "test_id": "v1/kv_connector/nixl_integration/test_accuracy.py::test_accuracy",
