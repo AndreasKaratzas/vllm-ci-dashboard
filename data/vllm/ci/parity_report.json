@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-05-13T13:05:30Z",
+  "generated_at": "2026-05-13T13:57:15Z",
   "amd_date": "2026-05-13",
   "upstream_date": "2026-05-13",
   "parity_pct": 0.0,
-  "total_tests": 617,
+  "total_tests": 623,
   "summary": {
-    "upstream_only": 277,
+    "upstream_only": 283,
     "amd_only": 340
   },
   "by_module": {
@@ -295,15 +295,15 @@
     },
     "Fusion E2E Config Sweep (B200)": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 2
     },
     "Fusion E2E Config Sweep (H100)": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 2
     },
     "Fusion E2E Quick (H100)": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 2
     },
     "Fusion E2E TP2 (B200)": {
       "parity_pct": 100.0,
@@ -311,15 +311,15 @@
     },
     "Fusion E2E TP2 AR-RMS Config Sweep (H100)": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 2
     },
     "Fusion E2E TP2 AsyncTP Config Sweep (H100)": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 2
     },
     "Fusion E2E TP2 Quick (H100)": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 2
     },
     "Fusion and Compile Unit Tests (2xB200)": {
       "parity_pct": 100.0,
@@ -2726,14 +2726,14 @@
         "duration": 528.96
       },
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 90,
+        "passed": 90,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 1370.95
       },
       "hardware": [
         "h100",
@@ -2759,8 +2759,8 @@
         }
       ],
       "delta": {
-        "total": 24,
-        "passed": 12,
+        "total": -65,
+        "passed": -77,
         "failed": 12,
         "skipped": 0
       },
@@ -4561,7 +4561,7 @@
       "family_key": "fusion e2e config sweep (1 gpus)",
       "family_name": "fusion e2e config sweep (1 gpus)",
       "amd_job_name": "mi300_1: Fusion E2E Config Sweep (H100-MI300)",
-      "upstream_job_name": "Fusion E2E Config Sweep (H100)",
+      "upstream_job_name": "Fusion E2E Config Sweep (B200)",
       "amd": {
         "total": 60,
         "passed": 24,
@@ -4573,17 +4573,17 @@
         "duration": 651.94
       },
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 58,
+        "passed": 16,
         "failed": 0,
-        "skipped": 0,
+        "skipped": 42,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 603.49
       },
       "hardware": [
-        "h100",
+        "b200",
         "mi300"
       ],
       "hw_failures": null,
@@ -4597,17 +4597,17 @@
           "side": "amd"
         },
         {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65989/steps/canvas?jid=019e1fec-e7b4-4d55-8e5d-2c5bb6b35265&tab=output",
-          "job_name": "Fusion E2E Config Sweep (H100)",
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/65989/steps/canvas?jid=019e1fec-e7b3-4ebf-ba28-0bb598d09b8d&tab=output",
+          "job_name": "Fusion E2E Config Sweep (B200)",
           "side": "upstream"
         }
       ],
       "delta": {
-        "total": 59,
-        "passed": 23,
+        "total": 2,
+        "passed": 8,
         "failed": 0,
-        "skipped": 36
+        "skipped": -6
       },
       "status": "both",
       "backfilled": false
@@ -4629,14 +4629,14 @@
         "duration": 129.2
       },
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 30,
+        "passed": 3,
         "failed": 0,
-        "skipped": 0,
+        "skipped": 27,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 190.34
       },
       "hardware": [
         "h100",
@@ -4660,10 +4660,10 @@
         }
       ],
       "delta": {
-        "total": 11,
-        "passed": 2,
+        "total": -18,
+        "passed": 0,
         "failed": 0,
-        "skipped": 9
+        "skipped": -18
       },
       "status": "both",
       "backfilled": false
@@ -4877,7 +4877,7 @@
       "family_key": "kernels attention test",
       "family_name": "kernels attention test",
       "amd_job_name": "mi300_1: Kernels Attention Test 1",
-      "upstream_job_name": "Kernels Attention Test 1",
+      "upstream_job_name": "Kernels Attention Test 2",
       "amd": {
         "total": 11522,
         "passed": 4739,
@@ -4923,8 +4923,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65989/steps/canvas?jid=019e1fec-e823-41fd-9724-e25526adaa1a&tab=output",
-          "job_name": "Kernels Attention Test 1",
+          "url": "https://buildkite.com/vllm/ci/builds/65989/steps/canvas?jid=019e1fec-e823-4567-8464-644ccc087628&tab=output",
+          "job_name": "Kernels Attention Test 2",
           "side": "upstream"
         }
       ],
@@ -5302,7 +5302,7 @@
       "family_key": "kernels quantization test",
       "family_name": "kernels quantization test",
       "amd_job_name": "mi300_1: Kernels Quantization Test 1",
-      "upstream_job_name": "Kernels Quantization Test 1",
+      "upstream_job_name": "Kernels Quantization Test 2",
       "amd": {
         "total": 24432,
         "passed": 13818,
@@ -5348,8 +5348,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65989/steps/canvas?jid=019e1fec-e82c-45c0-a876-719e3b4ed01c&tab=output",
-          "job_name": "Kernels Quantization Test 1",
+          "url": "https://buildkite.com/vllm/ci/builds/65989/steps/canvas?jid=019e1fec-e82d-4c78-b953-ab5016f411d3&tab=output",
+          "job_name": "Kernels Quantization Test 2",
           "side": "upstream"
         }
       ],
@@ -6301,7 +6301,7 @@
       "family_key": "lora",
       "family_name": "lora",
       "amd_job_name": "mi250_1: LoRA 3",
-      "upstream_job_name": "LoRA 2",
+      "upstream_job_name": "LoRA 1",
       "amd": {
         "total": 6820,
         "passed": 6723,
@@ -6340,8 +6340,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65989/steps/canvas?jid=019e1fec-e841-4c88-8fd1-388056e7e955&tab=output",
-          "job_name": "LoRA 2",
+          "url": "https://buildkite.com/vllm/ci/builds/65989/steps/canvas?jid=019e1fec-e841-42ef-874b-eeab09599eb3&tab=output",
+          "job_name": "LoRA 1",
           "side": "upstream"
         }
       ],
@@ -9010,7 +9010,7 @@
       "family_key": "v1 e2e (4 gpus)",
       "family_name": "v1 e2e (4 gpus)",
       "amd_job_name": "mi300_4: V1 e2e (4 GPUs)",
-      "upstream_job_name": "V1 e2e (4 GPUs)",
+      "upstream_job_name": "V1 e2e (4xH100)",
       "amd": {
         "total": 6,
         "passed": 6,
@@ -9047,8 +9047,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65989/steps/canvas?jid=019e1fec-e7e6-4e15-8591-c8c8ee8a488f&tab=output",
-          "job_name": "V1 e2e (4 GPUs)",
+          "url": "https://buildkite.com/vllm/ci/builds/65989/steps/canvas?jid=019e1fec-e7e7-4759-9c25-7d7fb79ca56b&tab=output",
+          "job_name": "V1 e2e (4xH100)",
           "side": "upstream"
         }
       ],
@@ -9066,7 +9066,7 @@
       "family_key": "v1 e2e (4 gpus)",
       "family_name": "v1 e2e (4 gpus)",
       "amd_job_name": "mi300_4: V1 e2e (4xH100-4xMI300)",
-      "upstream_job_name": "V1 e2e (4 GPUs)",
+      "upstream_job_name": "V1 e2e (4xH100)",
       "amd": {
         "total": 4,
         "passed": 2,
@@ -9103,8 +9103,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/65989/steps/canvas?jid=019e1fec-e7e6-4e15-8591-c8c8ee8a488f&tab=output",
-          "job_name": "V1 e2e (4 GPUs)",
+          "url": "https://buildkite.com/vllm/ci/builds/65989/steps/canvas?jid=019e1fec-e7e7-4759-9c25-7d7fb79ca56b&tab=output",
+          "job_name": "V1 e2e (4xH100)",
           "side": "upstream"
         }
       ],
@@ -9457,14 +9457,14 @@
       "upstream_job_name": "AsyncTP Correctness Tests (2xH100)",
       "amd": null,
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 5,
+        "passed": 5,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 806.61
       },
       "hardware": [
         "h100"
@@ -9491,14 +9491,14 @@
       "upstream_job_name": "AsyncTP Correctness Tests (B200)",
       "amd": null,
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 5,
+        "passed": 5,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 778.55
       },
       "hardware": [
         "b200"
@@ -9654,33 +9654,33 @@
       "backfilled": false
     },
     {
-      "name": "fusion e2e config sweep (b200)",
+      "name": "fusion e2e config sweep (h100)",
       "family_key": "fusion e2e config sweep (1 gpus)",
       "family_name": "fusion e2e config sweep (1 gpus)",
       "amd_job_name": null,
-      "upstream_job_name": "Fusion E2E Config Sweep (B200)",
+      "upstream_job_name": "Fusion E2E Config Sweep (H100)",
       "amd": null,
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 60,
+        "passed": 8,
         "failed": 0,
-        "skipped": 0,
+        "skipped": 52,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 255.24
       },
       "hardware": [
-        "b200"
+        "h100"
       ],
       "hw_failures": null,
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
         {
-          "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/65989/steps/canvas?jid=019e1fec-e7b3-4ebf-ba28-0bb598d09b8d&tab=output",
-          "job_name": "Fusion E2E Config Sweep (B200)",
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/65989/steps/canvas?jid=019e1fec-e7b4-4d55-8e5d-2c5bb6b35265&tab=output",
+          "job_name": "Fusion E2E Config Sweep (H100)",
           "side": "upstream"
         }
       ],
@@ -9695,14 +9695,14 @@
       "upstream_job_name": "Fusion E2E TP2 (B200)",
       "amd": null,
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 5,
+        "passed": 5,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 330.77
       },
       "hardware": [
         "b200"
@@ -9729,14 +9729,14 @@
       "upstream_job_name": "Fusion E2E TP2 AR-RMS Config Sweep (H100)",
       "amd": null,
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 52,
+        "passed": 12,
         "failed": 0,
-        "skipped": 0,
+        "skipped": 40,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 562.77
       },
       "hardware": [
         "h100"
@@ -9763,14 +9763,14 @@
       "upstream_job_name": "Fusion E2E TP2 AsyncTP Config Sweep (H100)",
       "amd": null,
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 44,
+        "passed": 24,
         "failed": 0,
-        "skipped": 0,
+        "skipped": 20,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 1153.43
       },
       "hardware": [
         "h100"
@@ -9797,14 +9797,14 @@
       "upstream_job_name": "Fusion E2E TP2 Quick (H100)",
       "amd": null,
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 13,
+        "passed": 8,
         "failed": 0,
-        "skipped": 0,
+        "skipped": 5,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 531.72
       },
       "hardware": [
         "h100"
@@ -11374,13 +11374,13 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "AsyncTP Correctness Tests (2xH100)::__job_level__",
+      "test_id": "AsyncTP Correctness Tests (2xH100)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "AsyncTP Correctness Tests (B200)::__job_level__",
+      "test_id": "AsyncTP Correctness Tests (B200)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
@@ -11584,7 +11584,7 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "Distributed Compile Unit Tests (2xH100)::__job_level__",
+      "test_id": "Distributed Compile Unit Tests (2xH100)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
@@ -11800,45 +11800,81 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "Fusion E2E Config Sweep (B200)::__job_level__",
+      "test_id": "Fusion E2E Config Sweep (B200)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Fusion E2E Config Sweep (H100)::__job_level__",
+      "test_id": "Fusion E2E Config Sweep (B200)::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Fusion E2E Config Sweep (H100)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Fusion E2E Quick (H100)::__job_level__",
+      "test_id": "Fusion E2E Config Sweep (H100)::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Fusion E2E Quick (H100)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Fusion E2E TP2 (B200)::__job_level__",
+      "test_id": "Fusion E2E Quick (H100)::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Fusion E2E TP2 (B200)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Fusion E2E TP2 AR-RMS Config Sweep (H100)::__job_level__",
+      "test_id": "Fusion E2E TP2 AR-RMS Config Sweep (H100)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Fusion E2E TP2 AsyncTP Config Sweep (H100)::__job_level__",
+      "test_id": "Fusion E2E TP2 AR-RMS Config Sweep (H100)::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Fusion E2E TP2 AsyncTP Config Sweep (H100)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Fusion E2E TP2 Quick (H100)::__job_level__",
+      "test_id": "Fusion E2E TP2 AsyncTP Config Sweep (H100)::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Fusion E2E TP2 Quick (H100)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Fusion E2E TP2 Quick (H100)::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
       "category": "upstream_only"
     },
     {
