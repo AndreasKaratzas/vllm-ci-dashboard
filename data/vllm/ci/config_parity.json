@@ -7,7 +7,7 @@
     "nvidia_only": 44,
     "mirrors": 8,
     "match_rate_pct": 94.3,
-    "avg_command_similarity_pct": 93.9
+    "avg_command_similarity_pct": 94.1
   },
   "matches": [
     {
@@ -107,30 +107,6 @@
       ]
     },
     {
-      "amd_label": "Batch Invariance (H100-MI250)",
-      "nvidia_label": "Batch Invariance (H100)",
-      "normalized": "batch invariance (h100-mi250)",
-      "identity_key": "batch invariance",
-      "command_similarity": 0.4549,
-      "color": "red",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/misc.yaml",
-      "amd_commands": [
-        "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
-        "pip install pytest-timeout pytest-forked",
-        "pytest -v -s v1/determinism/test_batch_invariance.py",
-        "pytest -v -s v1/determinism/test_rms_norm_batch_invariant.py"
-      ],
-      "nvidia_commands": [
-        "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
-        "pip install pytest-timeout pytest-forked",
-        "pytest -v -s v1/determinism/test_batch_invariance.py",
-        "pytest -v -s v1/determinism/test_rms_norm_batch_invariant.py",
-        "VLLM_TEST_MODEL=deepseek-ai/DeepSeek-V2-Lite-Chat pytest -v -s v1/determinism/test_batch_invariance.py::test_v1_generation_is_deterministic_across_batch_sizes_with_needle[TRITON_MLA]",
-        "VLLM_TEST_MODEL=Qwen/Qwen3-30B-A3B-Thinking-2507-FP8 pytest -v -s v1/determinism/test_batch_invariance.py::test_v1_generation_is_deterministic_across_batch_sizes_with_needle[FLASH_ATTN]"
-      ]
-    },
-    {
       "amd_label": "Distributed Tests (2xH100-2xMI250)",
       "nvidia_label": "Distributed Tests (2 GPUs)(H100)",
       "normalized": "distributed tests (2xh100-2xmi250)",
@@ -184,6 +160,28 @@
       "nvidia_commands": [
         "pytest -v -s kernels/moe/test_deepep_deepgemm_moe.py",
         "pytest -v -s kernels/moe/test_deepep_moe.py"
+      ]
+    },
+    {
+      "amd_label": "Batch Invariance (H100-MI250)",
+      "nvidia_label": "Batch Invariance (A100)",
+      "normalized": "batch invariance (h100-mi250)",
+      "identity_key": "batch invariance",
+      "command_similarity": 0.6698,
+      "color": "orange",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/misc.yaml",
+      "amd_commands": [
+        "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
+        "pip install pytest-timeout pytest-forked",
+        "pytest -v -s v1/determinism/test_batch_invariance.py",
+        "pytest -v -s v1/determinism/test_rms_norm_batch_invariant.py"
+      ],
+      "nvidia_commands": [
+        "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
+        "pip install pytest-timeout pytest-forked",
+        "pytest -v -s v1/determinism/test_batch_invariance.py",
+        "VLLM_TEST_MODEL=deepseek-ai/DeepSeek-V2-Lite-Chat pytest -v -s v1/determinism/test_batch_invariance.py::test_v1_generation_is_deterministic_across_batch_sizes_with_needle[TRITON_MLA]"
       ]
     },
     {
