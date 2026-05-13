@@ -1,6 +1,36 @@
 {
-  "collected_at": "2026-05-13T19:23:32Z",
+  "collected_at": "2026-05-13T20:24:27Z",
   "prs": [
+    {
+      "number": 41290,
+      "title": "[Bugfix][CI][Hardware][AMD] Fix various e4m3fn -> e4m3fnuz normalization issues",
+      "author": "mawong-amd",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-04-29T21:04:34Z",
+      "updated_at": "2026-05-13T19:47:26Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41290",
+      "labels": [
+        "bug",
+        "rocm",
+        "nvidia"
+      ],
+      "draft": false,
+      "body_head": "## Purpose\r\nThis PR fixes various issues in e4m3fnuz handling encountered by various quantization code paths (ModelOpt, online). In particular, on `e4m3fnuz` platforms, `normalize_e4m3fn_to_e4m3fnuz` should be called exactly once on a given FP8 linear layer after weights are loaded.\r\nHowever,\r\n- Some PyTorch linear kernel-based code paths used during ModelOpt quantization were not calling this function.\r\n- Some code paths used in online quantization methods were trying to call this function twice, once in the linear layer and once more in the linear layer's kernel implementation.\r\n\r\nThe end result is that the Quantization test group should now be passing on ROCm.\r\n\r\nThis PR also removes a Quark mxfp4 model that was causing failures in the Kernels MoE test group because it is incompatible with HF Transformers v5.\r\n## Test Plan\r\n`VLLM_TEST_FORCE_LOAD_FORMAT=auto pytest -v -s quantization/ --ignore quantization/test_blackwell_moe.py`\r\n`pytest -v -s kernels/moe --ignore=kernels/moe/test_modular_oai_triton_moe.py`\r\nThese tests should be run as part of the Quantization and Kernels MoE test groups in vLLM AMD CI.\r\n\r\n## Test Result\r\nThe above test groups pass, and there are no regressions.\r\n\r\ncc @kenroche and @AndreasKaratzas\r\n\r\n---\r\n<details>\r\n<summary> Essential Elements of an Effective PR Description Checklist </summary>\r\n\r\n- [ ] The purpose of the PR, such as \"Fix some issue (link existing issues this PR will resolve)\".\r\n- [ ] The test plan, such as providing test command.\r\n- [ ] The test results, such as pasting the results comparison before and after, or e2e results\r\n- [ ] (Optional) The necessary documentation update, such as updating `supported_models.md` and `examples` for a new model.\r\n</details>",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        40728
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "bug",
+        "nvidia"
+      ]
+    },
     {
       "number": 41294,
       "title": "[ROCm][CI] Fix and stabilize EAGLE3 acceptance tests",
@@ -202,36 +232,6 @@
       "other_tags": [
         "ready",
         "multi-modality"
-      ]
-    },
-    {
-      "number": 41290,
-      "title": "[Bugfix][CI][Hardware][AMD] Fix various e4m3fn -> e4m3fnuz normalization issues",
-      "author": "mawong-amd",
-      "state": "open",
-      "merged": false,
-      "created_at": "2026-04-29T21:04:34Z",
-      "updated_at": "2026-04-30T16:27:59Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41290",
-      "labels": [
-        "bug",
-        "rocm",
-        "nvidia"
-      ],
-      "draft": false,
-      "body_head": "## Purpose\r\nThis PR fixes various issues in e4m3fnuz handling encountered by various quantization code paths (ModelOpt, online). In particular, on `e4m3fnuz` platforms, `normalize_e4m3fn_to_e4m3fnuz` should be called exactly once on a given FP8 linear layer after weights are loaded.\r\nHowever,\r\n- Some PyTorch linear kernel-based code paths used during ModelOpt quantization were not calling this function.\r\n- Some code paths used in online quantization methods were trying to call this function twice, once in the linear layer and once more in the linear layer's kernel implementation.\r\n\r\nThe end result is that the Quantization test group should now be passing on ROCm.\r\n\r\nThis PR also removes a Quark mxfp4 model that was causing failures in the Kernels MoE test group because it is incompatible with HF Transformers v5.\r\n## Test Plan\r\n`VLLM_TEST_FORCE_LOAD_FORMAT=auto pytest -v -s quantization/ --ignore quantization/test_blackwell_moe.py`\r\n`pytest -v -s kernels/moe --ignore=kernels/moe/test_modular_oai_triton_moe.py`\r\nThese tests should be run as part of the Quantization and Kernels MoE test groups in vLLM AMD CI.\r\n\r\n## Test Result\r\nThe above test groups pass, and there are no regressions.\r\n\r\ncc @kenroche and @AndreasKaratzas\r\n\r\n---\r\n<details>\r\n<summary> Essential Elements of an Effective PR Description Checklist </summary>\r\n\r\n- [ ] The purpose of the PR, such as \"Fix some issue (link existing issues this PR will resolve)\".\r\n- [ ] The test plan, such as providing test command.\r\n- [ ] The test results, such as pasting the results comparison before and after, or e2e results\r\n- [ ] (Optional) The necessary documentation update, such as updating `supported_models.md` and `examples` for a new model.\r\n</details>",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        40728
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "bug",
-        "nvidia"
       ]
     },
     {
