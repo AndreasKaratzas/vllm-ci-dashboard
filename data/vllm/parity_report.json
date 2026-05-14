@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-05-14T15:32:38Z",
+  "generated_at": "2026-05-14T16:26:01Z",
   "amd_date": "2026-05-14",
   "upstream_date": "2026-05-14",
   "parity_pct": 0.0,
-  "total_tests": 636,
+  "total_tests": 640,
   "summary": {
-    "upstream_only": 291,
+    "upstream_only": 295,
     "amd_only": 345
   },
   "by_module": {
@@ -788,6 +788,10 @@
     "Transformers Backward Compatibility Models Test": {
       "parity_pct": 100.0,
       "upstream_only": 1
+    },
+    "Transformers Nightly Models": {
+      "parity_pct": 100.0,
+      "upstream_only": 2
     },
     "V1 Core + KV + Metrics": {
       "parity_pct": 100.0,
@@ -1647,7 +1651,7 @@
     },
     "tests/models/test_initialization.py": {
       "parity_pct": 100.0,
-      "upstream_only": 4
+      "upstream_only": 6
     },
     "vLLM IR Tests": {
       "parity_pct": 100.0,
@@ -5251,7 +5255,7 @@
       "family_key": "kernels moe test",
       "family_name": "kernels moe test",
       "amd_job_name": "mi300_1: Kernels MoE Test 1",
-      "upstream_job_name": "Kernels MoE Test 4",
+      "upstream_job_name": "Kernels MoE Test 1",
       "amd": {
         "total": 13789,
         "passed": 8008,
@@ -5270,7 +5274,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 178.91
+        "duration": 178.90999999999997
       },
       "hardware": [
         "h100",
@@ -5298,8 +5302,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66189/steps/canvas?jid=019e2513-6dc4-4983-952e-6acae21cb0c4&tab=output",
-          "job_name": "Kernels MoE Test 4",
+          "url": "https://buildkite.com/vllm/ci/builds/66189/steps/canvas?jid=019e2513-6dc2-4c82-8441-622130c1673f&tab=output",
+          "job_name": "Kernels MoE Test 1",
           "side": "upstream"
         }
       ],
@@ -5688,7 +5692,7 @@
       "family_key": "language models tests (hybrid)",
       "family_name": "language models tests (hybrid)",
       "amd_job_name": "mi325_1: Language Models Tests (Hybrid) 1",
-      "upstream_job_name": "Language Models Tests (Hybrid) 1",
+      "upstream_job_name": "Language Models Tests (Hybrid) 2",
       "amd": {
         "total": 47,
         "passed": 43,
@@ -5725,8 +5729,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66189/steps/canvas?jid=019e2513-6e1b-482a-bbce-3fdd835b4810&tab=output",
-          "job_name": "Language Models Tests (Hybrid) 1",
+          "url": "https://buildkite.com/vllm/ci/builds/66189/steps/canvas?jid=019e2513-6e1c-455f-a784-37c08d32f8e5&tab=output",
+          "job_name": "Language Models Tests (Hybrid) 2",
           "side": "upstream"
         }
       ],
@@ -6318,7 +6322,7 @@
       "family_key": "lora",
       "family_name": "lora",
       "amd_job_name": "mi250_1: LoRA 4",
-      "upstream_job_name": "LoRA 1",
+      "upstream_job_name": "LoRA 2",
       "amd": {
         "total": 6820,
         "passed": 6723,
@@ -6357,8 +6361,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66189/steps/canvas?jid=019e2513-6de1-4175-b786-27d97e913f86&tab=output",
-          "job_name": "LoRA 1",
+          "url": "https://buildkite.com/vllm/ci/builds/66189/steps/canvas?jid=019e2513-6de1-4650-8426-5ae498c96508&tab=output",
+          "job_name": "LoRA 2",
           "side": "upstream"
         }
       ],
@@ -8683,7 +8687,7 @@
       "family_key": "transformers nightly models",
       "family_name": "transformers nightly models",
       "amd_job_name": "mi300_1: Transformers Nightly Models",
-      "upstream_job_name": null,
+      "upstream_job_name": "Transformers Nightly Models",
       "amd": {
         "total": 367,
         "passed": 40,
@@ -8694,13 +8698,23 @@
         "error": 0,
         "duration": 3824.84
       },
-      "upstream": null,
+      "upstream": {
+        "total": 16,
+        "passed": 12,
+        "failed": 3,
+        "skipped": 1,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 526.6
+      },
       "hardware": [
         "h100",
         "mi300"
       ],
       "hw_failures": {
-        "mi300": 327
+        "mi300": 327,
+        "h100": 3
       },
       "hw_canceled": null,
       "failure_tests": [],
@@ -8710,9 +8724,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/8497/steps/canvas?sid=019e25b6-f97d-4f0a-8534-db421717b729&tab=output",
           "job_name": "mi300_1: Transformers Nightly Models",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/66189/steps/canvas?jid=019e2513-6e0b-4a57-b95c-1fc19e8850ba&tab=output",
+          "job_name": "Transformers Nightly Models",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 351,
+        "passed": 28,
+        "failed": 324,
+        "skipped": -1
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -12937,6 +12963,18 @@
       "category": "upstream_only"
     },
     {
+      "test_id": "Transformers Nightly Models::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Transformers Nightly Models::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
       "test_id": "V1 Core + KV + Metrics::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -15121,6 +15159,12 @@
       "category": "upstream_only"
     },
     {
+      "test_id": "tests/models/test_initialization.py::test_can_initialize_large_subset[Gemma4MTPModel]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
       "test_id": "tests/models/test_initialization.py::test_can_initialize_large_subset[NemotronParseForConditionalGeneration]",
       "amd_status": "missing",
       "upstream_status": "failed",
@@ -15140,6 +15184,12 @@
     },
     {
       "test_id": "tests/models/test_initialization.py::test_can_initialize_large_subset[Step3p5ForCausalLM]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "tests/models/test_initialization.py::test_can_initialize_small_subset[InternVLChatModel]",
       "amd_status": "missing",
       "upstream_status": "failed",
       "category": "upstream_only"
