@@ -1,6 +1,32 @@
 {
-  "collected_at": "2026-05-13T23:41:39Z",
+  "collected_at": "2026-05-14T00:10:11Z",
   "prs": [
+    {
+      "number": 42104,
+      "title": "[CI] set max transformers version for skywork model",
+      "author": "divakar-amd",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-05-08T18:16:02Z",
+      "updated_at": "2026-05-13T23:53:50Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/42104",
+      "labels": [
+        "ready"
+      ],
+      "draft": false,
+      "body_head": "This PR resolves the following error:\r\n```\r\nAttributeError: 'SkyworkChatModel' object has no attribute 'all_tied_weights_keys'.\r\nDid you mean: '_tied_weights_keys'?\r\n```\r\nThe failure occurs because of change in `transformers 5.x` APIs which introduced `all_tied_weights_keys`\r\n\r\nIn transformers 5.x post_init() now sets an instance attribute all_tied_weights_keys (a dict):\r\n\r\nThis PR resolves the following tests as shown in this [AMD CI run](https://buildkite.com/vllm/amd-ci/builds/8323/summary?sid=019e062c-1021-4484-918f-af6e7efe7df4&tab=output) \r\n```\r\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[skywork_r1v-test_case57]\r\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[skywork_r1v-test_case58]\r\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[skywork_r1v-test_case59]\r\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[skywork_r1v-test_case53]\r\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[skywork_r1v-test_case54]\r\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[skywork_r1v-test_case55]\r\n```\r\nRelated AMD CI issue: https://github.com/vllm-project/vllm/issues/42020#issuecomment-4403177094",
+      "is_ci_pr": true,
+      "is_rocm_pr": false,
+      "ci_issue_numbers": [
+        42020
+      ],
+      "custom_tags": [
+        "CI"
+      ],
+      "other_tags": [
+        "ready"
+      ]
+    },
     {
       "number": 41290,
       "title": "[Bugfix][CI][Hardware][AMD] Fix various e4m3fn -> e4m3fnuz normalization issues",
@@ -59,32 +85,6 @@
       "other_tags": [
         "speculative-decoding",
         "v1"
-      ]
-    },
-    {
-      "number": 42104,
-      "title": "[CI] set max transformers version for skywork model",
-      "author": "divakar-amd",
-      "state": "open",
-      "merged": false,
-      "created_at": "2026-05-08T18:16:02Z",
-      "updated_at": "2026-05-13T18:16:42Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/42104",
-      "labels": [
-        "ready"
-      ],
-      "draft": false,
-      "body_head": "This PR resolves the following error:\r\n```\r\nAttributeError: 'SkyworkChatModel' object has no attribute 'all_tied_weights_keys'.\r\nDid you mean: '_tied_weights_keys'?\r\n```\r\nThe failure occurs because of change in `transformers 5.x` APIs which introduced `all_tied_weights_keys`\r\n\r\nIn transformers 5.x post_init() now sets an instance attribute all_tied_weights_keys (a dict):\r\n\r\nThis PR resolves the following tests as shown in this [AMD CI run](https://buildkite.com/vllm/amd-ci/builds/8323/summary?sid=019e062c-1021-4484-918f-af6e7efe7df4&tab=output) \r\n```\r\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[skywork_r1v-test_case57]\r\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[skywork_r1v-test_case58]\r\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[skywork_r1v-test_case59]\r\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[skywork_r1v-test_case53]\r\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[skywork_r1v-test_case54]\r\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[skywork_r1v-test_case55]\r\n```\r\nRelated AMD CI issue: https://github.com/vllm-project/vllm/issues/42020#issuecomment-4403177094",
-      "is_ci_pr": true,
-      "is_rocm_pr": false,
-      "ci_issue_numbers": [
-        42020
-      ],
-      "custom_tags": [
-        "CI"
-      ],
-      "other_tags": [
-        "ready"
       ]
     },
     {

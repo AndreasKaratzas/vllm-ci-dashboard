@@ -3,13 +3,13 @@
 All tracked PRs across projects, grouped by project.
 
 ## vllm (Upstream Watch)
-Repo: `vllm-project/vllm` | Last collected: 2026-05-13T23:41:39Z
+Repo: `vllm-project/vllm` | Last collected: 2026-05-14T00:10:11Z
 
 | # | Title | Author | Status | Created | Updated |
 |---|-------|--------|--------|---------|---------|
+| [#42104](https://github.com/vllm-project/vllm/pull/42104) | [CI] set max transformers version for skywork model | @divakar-amd | merged | 2026-05-08 | 2026-05-13 |
 | [#41290](https://github.com/vllm-project/vllm/pull/41290) | [Bugfix][CI][Hardware][AMD] Fix various e4m3fn -> e4m3fnuz n... | @mawong-amd | open | 2026-04-29 | 2026-05-13 |
 | [#41294](https://github.com/vllm-project/vllm/pull/41294) | [ROCm][CI] Fix and stabilize EAGLE3 acceptance tests | @AndreasKaratzas | open | 2026-04-29 | 2026-05-13 |
-| [#42104](https://github.com/vllm-project/vllm/pull/42104) | [CI] set max transformers version for skywork model | @divakar-amd | open | 2026-05-08 | 2026-05-13 |
 | [#41572](https://github.com/vllm-project/vllm/pull/41572) | [ROCm][CI] Skip ROCm batch invalid-input test pending torch ... | @AndreasKaratzas | merged | 2026-05-03 | 2026-05-13 |
 | [#42126](https://github.com/vllm-project/vllm/pull/42126) | [CI][AMD] Skip tests where models have problems or fails on ... | @rasmith | open | 2026-05-09 | 2026-05-13 |
 | [#42459](https://github.com/vllm-project/vllm/pull/42459) | [CI][AMD][BugFix] Set num_gpus=2 for trainer for distributed... | @rasmith | open | 2026-05-12 | 2026-05-13 |
