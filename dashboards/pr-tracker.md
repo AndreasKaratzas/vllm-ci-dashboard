@@ -3,11 +3,11 @@
 All tracked PRs across projects, grouped by project.
 
 ## vllm (Upstream Watch)
-Repo: `vllm-project/vllm` | Last collected: 2026-05-14T07:43:42Z
+Repo: `vllm-project/vllm` | Last collected: 2026-05-14T08:43:09Z
 
 | # | Title | Author | Status | Created | Updated |
 |---|-------|--------|--------|---------|---------|
-| [#42126](https://github.com/vllm-project/vllm/pull/42126) | [CI][AMD] Skip tests where models have problems or fails on ... | @rasmith | open | 2026-05-09 | 2026-05-14 |
+| [#42126](https://github.com/vllm-project/vllm/pull/42126) | [CI][AMD] Skip tests where models have problems or fails on ... | @rasmith | merged | 2026-05-09 | 2026-05-14 |
 | [#42104](https://github.com/vllm-project/vllm/pull/42104) | [CI] set max transformers version for skywork model | @divakar-amd | merged | 2026-05-08 | 2026-05-13 |
 | [#41290](https://github.com/vllm-project/vllm/pull/41290) | [Bugfix][CI][Hardware][AMD] Fix various e4m3fn -> e4m3fnuz n... | @mawong-amd | open | 2026-04-29 | 2026-05-13 |
 | [#41294](https://github.com/vllm-project/vllm/pull/41294) | [ROCm][CI] Fix and stabilize EAGLE3 acceptance tests | @AndreasKaratzas | open | 2026-04-29 | 2026-05-13 |
