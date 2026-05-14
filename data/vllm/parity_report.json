@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-05-14T13:20:35Z",
+  "generated_at": "2026-05-14T14:36:28Z",
   "amd_date": "2026-05-14",
   "upstream_date": "2026-05-14",
   "parity_pct": 0.0,
-  "total_tests": 635,
+  "total_tests": 636,
   "summary": {
-    "upstream_only": 290,
+    "upstream_only": 291,
     "amd_only": 345
   },
   "by_module": {
@@ -148,6 +148,10 @@
     "CPU-Multi-Modal Model Tests 2": {
       "parity_pct": 100.0,
       "upstream_only": 2
+    },
+    "CPU-Multi-Modal Model Tests 3": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
     },
     "CPU-Quantization Model Tests": {
       "parity_pct": 100.0,
@@ -5247,7 +5251,7 @@
       "family_key": "kernels moe test",
       "family_name": "kernels moe test",
       "amd_job_name": "mi300_1: Kernels MoE Test 1",
-      "upstream_job_name": "Kernels MoE Test 2",
+      "upstream_job_name": "Kernels MoE Test 1",
       "amd": {
         "total": 13789,
         "passed": 8008,
@@ -5294,8 +5298,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66189/steps/canvas?jid=019e2513-6dc3-465c-8f2e-01c95dc3630e&tab=output",
-          "job_name": "Kernels MoE Test 2",
+          "url": "https://buildkite.com/vllm/ci/builds/66189/steps/canvas?jid=019e2513-6dc2-4c82-8441-622130c1673f&tab=output",
+          "job_name": "Kernels MoE Test 1",
           "side": "upstream"
         }
       ],
@@ -11333,25 +11337,6 @@
       ],
       "status": "upstream_only",
       "backfilled": false
-    },
-    {
-      "name": "cpu-multi-modal model tests 3",
-      "family_key": "cpu-multi-modal model tests 3",
-      "family_name": "cpu-multi-modal model tests 3",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "cpu"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
     }
   ],
   "details": [
@@ -11623,6 +11608,12 @@
       "test_id": "CPU-Multi-Modal Model Tests 2::__skipped__",
       "amd_status": "missing",
       "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "CPU-Multi-Modal Model Tests 3::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
