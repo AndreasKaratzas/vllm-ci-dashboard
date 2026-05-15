@@ -5,7 +5,7 @@
     "matched": 115,
     "amd_only": 7,
     "nvidia_only": 45,
-    "mirrors": 8,
+    "mirrors": 16,
     "match_rate_pct": 94.3,
     "avg_command_similarity_pct": 94.1
   },
@@ -775,24 +775,6 @@
       ]
     },
     {
-      "amd_label": "Entrypoints Integration (API Server openai - Part 3)",
-      "nvidia_label": "Entrypoints Integration (API Server openai - Part 3)",
-      "normalized": "entrypoints integration (api server openai - part 3)",
-      "identity_key": "entrypoints integration (api server openai - part 3)",
-      "command_similarity": 0.9983,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/entrypoints.yaml",
-      "amd_commands": [
-        "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
-        "pytest -v -s entrypoints/openai --ignore=entrypoints/openai/chat_completion --ignore=entrypoints/openai/completion --ignore=entrypoints/openai/correctness/ --ignore=entrypoints/openai/tool_parsers/ --ignore=entrypoints/openai/responses --ignore=entrypoints/openai/test_multi_api_servers.py"
-      ],
-      "nvidia_commands": [
-        "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
-        "pytest -v -s entrypoints/openai --ignore=entrypoints/openai/chat_completion --ignore=entrypoints/openai/completion  --ignore=entrypoints/openai/correctness/ --ignore=entrypoints/openai/tool_parsers/ --ignore=entrypoints/openai/responses --ignore=entrypoints/openai/test_multi_api_servers.py"
-      ]
-    },
-    {
       "amd_label": "PyTorch Compilation Unit Tests",
       "nvidia_label": "PyTorch Compilation Unit Tests",
       "normalized": "pytorch compilation unit tests",
@@ -1257,6 +1239,16 @@
       "nvidia_label": "Entrypoints Integration (API Server openai - Part 2)",
       "normalized": "entrypoints integration (api server openai - part 2)",
       "identity_key": "entrypoints integration (api server openai - part 2)",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/entrypoints.yaml"
+    },
+    {
+      "amd_label": "Entrypoints Integration (API Server openai - Part 3)",
+      "nvidia_label": "Entrypoints Integration (API Server openai - Part 3)",
+      "normalized": "entrypoints integration (api server openai - part 3)",
+      "identity_key": "entrypoints integration (api server openai - part 3)",
       "command_similarity": 1.0,
       "color": "green",
       "amd_source": "test-amd.yaml",
@@ -1901,12 +1893,68 @@
   ],
   "mirrors": [
     {
+      "nvidia_label": "Engine (1 GPU)",
+      "identity_key": "engine (1 gpu)",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/engine.yaml"
+    },
+    {
+      "nvidia_label": "e2e Scheduling (1 GPU)",
+      "identity_key": "e2e scheduling (1 gpu)",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/engine.yaml"
+    },
+    {
       "nvidia_label": "Entrypoints Integration (LLM)",
       "identity_key": "entrypoints integration (llm)",
       "commands_overridden": false,
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/entrypoints.yaml"
+    },
+    {
+      "nvidia_label": "Entrypoints Integration (API Server openai - Part 1)",
+      "identity_key": "entrypoints integration (api server openai - part 1)",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/entrypoints.yaml"
+    },
+    {
+      "nvidia_label": "Entrypoints Integration (API Server openai - Part 2)",
+      "identity_key": "entrypoints integration (api server openai - part 2)",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/entrypoints.yaml"
+    },
+    {
+      "nvidia_label": "Entrypoints Integration (API Server openai - Part 3)",
+      "identity_key": "entrypoints integration (api server openai - part 3)",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/entrypoints.yaml"
+    },
+    {
+      "nvidia_label": "Entrypoints Integration (API Server 2)",
+      "identity_key": "entrypoints integration (api server 2)",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/entrypoints.yaml"
+    },
+    {
+      "nvidia_label": "Kernels Quantization Test %N",
+      "identity_key": "kernels quantization test",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/kernels.yaml"
     },
     {
       "nvidia_label": "V1 Sample + Logits",
@@ -1922,6 +1970,14 @@
       "commands_overridden": true,
       "command_similarity": 0.5569,
       "color": "orange",
+      "source_file": ".buildkite/test_areas/models_language.yaml"
+    },
+    {
+      "nvidia_label": "Language Models Test (Extended Pooling)",
+      "identity_key": "language models test (extended pooling)",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
       "source_file": ".buildkite/test_areas/models_language.yaml"
     },
     {
