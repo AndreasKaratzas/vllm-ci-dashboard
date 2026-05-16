@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-16T03:23:25Z",
+  "generated_at": "2026-05-16T04:53:44Z",
   "amd_date": "2026-05-15",
   "upstream_date": "2026-05-15",
   "parity_pct": 0.0,
@@ -1833,8 +1833,8 @@
     },
     {
       "name": "attention benchmarks smoke test (b200-mi355)",
-      "family_key": "attention benchmarks smoke test",
-      "family_name": "attention benchmarks smoke test",
+      "family_key": "attention benchmarks smoke test (2 gpus)",
+      "family_name": "attention benchmarks smoke test (2 gpus)",
       "amd_job_name": "mi355_2: Attention Benchmarks Smoke Test (B200-MI355)",
       "upstream_job_name": "Attention Benchmarks Smoke Test (B200)",
       "amd": {
@@ -2445,7 +2445,7 @@
       "family_key": "deepseek v2-lite accuracy (4 gpus)",
       "family_name": "deepseek v2-lite accuracy (4 gpus)",
       "amd_job_name": "mi300_4: DeepSeek V2-Lite Accuracy (4xH100-4xMI300)",
-      "upstream_job_name": null,
+      "upstream_job_name": "DeepSeek V2-Lite Accuracy",
       "amd": {
         "total": 1,
         "passed": 0,
@@ -2456,8 +2456,18 @@
         "error": 0,
         "duration": 0.0
       },
-      "upstream": null,
+      "upstream": {
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 0.0
+      },
       "hardware": [
+        "h100",
         "mi300"
       ],
       "hw_failures": {
@@ -2471,15 +2481,27 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/8525/steps/canvas?sid=019e2ade-0a8e-4b0f-af9b-f51eff097199&tab=output",
           "job_name": "mi300_4: DeepSeek V2-Lite Accuracy (4xH100-4xMI300)",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/66356/steps/canvas?jid=019e2a39-caa4-4100-a80b-b27a0b3dce7d&tab=output",
+          "job_name": "DeepSeek V2-Lite Accuracy",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 0,
+        "passed": -1,
+        "failed": 1,
+        "skipped": 0
+      },
+      "status": "both",
       "backfilled": false
     },
     {
       "name": "deepseek v2-lite prefetch offload accuracy (h100-mi300)",
-      "family_key": "deepseek v2-lite prefetch offload accuracy",
-      "family_name": "deepseek v2-lite prefetch offload accuracy",
+      "family_key": "deepseek v2-lite prefetch offload accuracy (1 gpus)",
+      "family_name": "deepseek v2-lite prefetch offload accuracy (1 gpus)",
       "amd_job_name": "mi300_1: DeepSeek V2-Lite Prefetch Offload Accuracy (H100-MI300)",
       "upstream_job_name": "DeepSeek V2-Lite Prefetch Offload Accuracy (H100)",
       "amd": {
@@ -2536,8 +2558,8 @@
     },
     {
       "name": "distributed comm ops",
-      "family_key": "distributed comm ops",
-      "family_name": "distributed comm ops",
+      "family_key": "distributed comm ops (2 gpus)",
+      "family_name": "distributed comm ops (2 gpus)",
       "amd_job_name": "mi250_2: Distributed Comm Ops",
       "upstream_job_name": "Distributed Comm Ops",
       "amd": {
@@ -3629,8 +3651,8 @@
     },
     {
       "name": "elastic ep scaling test",
-      "family_key": "elastic ep scaling test",
-      "family_name": "elastic ep scaling test",
+      "family_key": "elastic ep scaling test (4 gpus)",
+      "family_name": "elastic ep scaling test (4 gpus)",
       "amd_job_name": "mi250_4: Elastic EP Scaling Test",
       "upstream_job_name": "Elastic EP Scaling Test",
       "amd": {
@@ -4434,8 +4456,8 @@
     },
     {
       "name": "eplb execution",
-      "family_key": "eplb execution",
-      "family_name": "eplb execution",
+      "family_key": "eplb execution (4 gpus)",
+      "family_name": "eplb execution (4 gpus)",
       "amd_job_name": "mi250_4: EPLB Execution",
       "upstream_job_name": "EPLB Execution",
       "amd": {
@@ -4563,8 +4585,8 @@
     },
     {
       "name": "fusion e2e config sweep (h100-mi300)",
-      "family_key": "fusion e2e config sweep",
-      "family_name": "fusion e2e config sweep",
+      "family_key": "fusion e2e config sweep (1 gpus)",
+      "family_name": "fusion e2e config sweep (1 gpus)",
       "amd_job_name": "mi300_1: Fusion E2E Config Sweep (H100-MI300)",
       "upstream_job_name": "Fusion E2E Config Sweep (B200)",
       "amd": {
@@ -4619,8 +4641,8 @@
     },
     {
       "name": "fusion e2e quick (h100-mi300)",
-      "family_key": "fusion e2e quick",
-      "family_name": "fusion e2e quick",
+      "family_key": "fusion e2e quick (1 gpus)",
+      "family_name": "fusion e2e quick (1 gpus)",
       "amd_job_name": "mi300_1: Fusion E2E Quick (H100-MI300)",
       "upstream_job_name": "Fusion E2E Quick (H100)",
       "amd": {
@@ -4678,7 +4700,7 @@
       "family_key": "gpqa eval (gpt-oss) (2 gpus)",
       "family_name": "gpqa eval (gpt-oss) (2 gpus)",
       "amd_job_name": "mi355_2: GPQA Eval (GPT-OSS) (2xB200-2xMI355)",
-      "upstream_job_name": null,
+      "upstream_job_name": "GPQA Eval (GPT-OSS) (H100)",
       "amd": {
         "total": 4,
         "passed": 4,
@@ -4689,8 +4711,18 @@
         "error": 0,
         "duration": 1000.3
       },
-      "upstream": null,
+      "upstream": {
+        "total": 3,
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 806.99
+      },
       "hardware": [
+        "h100",
         "mi355"
       ],
       "hw_failures": null,
@@ -4702,9 +4734,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/8525/steps/canvas?sid=019e2ade-0ad2-4b5b-be8f-96d4e2d57059&tab=output",
           "job_name": "mi355_2: GPQA Eval (GPT-OSS) (2xB200-2xMI355)",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/66356/steps/canvas?jid=019e2a39-cb27-453b-b510-ba25e79cda76&tab=output",
+          "job_name": "GPQA Eval (GPT-OSS) (H100)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -4712,7 +4756,7 @@
       "family_key": "gpqa eval (gpt-oss) (2 gpus)",
       "family_name": "gpqa eval (gpt-oss) (2 gpus)",
       "amd_job_name": "mi300_2: GPQA Eval (GPT-OSS) (2xH100-2xMI300)",
-      "upstream_job_name": null,
+      "upstream_job_name": "GPQA Eval (GPT-OSS) (H100)",
       "amd": {
         "total": 1,
         "passed": 0,
@@ -4723,8 +4767,18 @@
         "error": 0,
         "duration": 0.0
       },
-      "upstream": null,
+      "upstream": {
+        "total": 3,
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 806.99
+      },
       "hardware": [
+        "h100",
         "mi300"
       ],
       "hw_failures": {
@@ -4738,9 +4792,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/8525/steps/canvas?sid=019e2ade-0a8d-4805-86af-2b9a92bb17c5&tab=output",
           "job_name": "mi300_2: GPQA Eval (GPT-OSS) (2xH100-2xMI300)",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/66356/steps/canvas?jid=019e2a39-cb27-453b-b510-ba25e79cda76&tab=output",
+          "job_name": "GPQA Eval (GPT-OSS) (H100)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": -2,
+        "passed": -3,
+        "failed": 1,
+        "skipped": 0
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -4971,7 +5037,7 @@
       "family_key": "kernels fp8 moe test (2 gpus)",
       "family_name": "kernels fp8 moe test (2 gpus)",
       "amd_job_name": "mi300_2: Kernels FP8 MoE Test (2xH100-2xMI300)",
-      "upstream_job_name": null,
+      "upstream_job_name": "Kernels FP8 MoE Test (2 H100s)",
       "amd": {
         "total": 56,
         "passed": 20,
@@ -4982,8 +5048,18 @@
         "error": 0,
         "duration": 1890.18
       },
-      "upstream": null,
+      "upstream": {
+        "total": 56,
+        "passed": 56,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 984.68
+      },
       "hardware": [
+        "h100",
         "mi300"
       ],
       "hw_failures": {
@@ -4997,9 +5073,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/8525/steps/canvas?sid=019e2ade-0a97-4639-9f42-ba9ee7b5ee13&tab=output",
           "job_name": "mi300_2: Kernels FP8 MoE Test (2xH100-2xMI300)",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/66356/steps/canvas?jid=019e2a39-cb14-4dd2-991c-f41a51423482&tab=output",
+          "job_name": "Kernels FP8 MoE Test (2 H100s)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 0,
+        "passed": -36,
+        "failed": 36,
+        "skipped": 0
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -5007,7 +5095,7 @@
       "family_key": "kernels fp8 moe test (2 gpus)",
       "family_name": "kernels fp8 moe test (2 gpus)",
       "amd_job_name": "mi355_2: Kernels FP8 MoE Test (2xH100-2xMI355)",
-      "upstream_job_name": null,
+      "upstream_job_name": "Kernels FP8 MoE Test (2 H100s)",
       "amd": {
         "total": 56,
         "passed": 46,
@@ -5018,8 +5106,18 @@
         "error": 0,
         "duration": 1330.71
       },
-      "upstream": null,
+      "upstream": {
+        "total": 56,
+        "passed": 56,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 984.68
+      },
       "hardware": [
+        "h100",
         "mi355"
       ],
       "hw_failures": {
@@ -5033,9 +5131,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/8525/steps/canvas?sid=019e2ade-0ade-4d2e-ac5e-c5337ce3294f&tab=output",
           "job_name": "mi355_2: Kernels FP8 MoE Test (2xH100-2xMI355)",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/66356/steps/canvas?jid=019e2a39-cb14-4dd2-991c-f41a51423482&tab=output",
+          "job_name": "Kernels FP8 MoE Test (2 H100s)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 0,
+        "passed": -10,
+        "failed": 10,
+        "skipped": 0
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -5884,7 +5994,7 @@
       "family_key": "lm eval large models (8 gpus)",
       "family_name": "lm eval large models (8 gpus)",
       "amd_job_name": "mi300_8: LM Eval Large Models (8xH200-8xMI300)",
-      "upstream_job_name": null,
+      "upstream_job_name": "LM Eval Large Models (H200)",
       "amd": {
         "total": 6,
         "passed": 1,
@@ -5895,8 +6005,18 @@
         "error": 0,
         "duration": 283.63
       },
-      "upstream": null,
+      "upstream": {
+        "total": 6,
+        "passed": 6,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 1765.39
+      },
       "hardware": [
+        "h200",
         "mi300"
       ],
       "hw_failures": {
@@ -5910,15 +6030,27 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/8525/steps/canvas?sid=019e2ade-0a92-4d05-aa62-02c089531e87&tab=output",
           "job_name": "mi300_8: LM Eval Large Models (8xH200-8xMI300)",
           "side": "amd"
+        },
+        {
+          "hw": "h200",
+          "url": "https://buildkite.com/vllm/ci/builds/66356/steps/canvas?jid=019e2a39-cb29-418c-8cdc-8010c2c01f45&tab=output",
+          "job_name": "LM Eval Large Models (H200)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 0,
+        "passed": -5,
+        "failed": 1,
+        "skipped": 4
+      },
+      "status": "both",
       "backfilled": false
     },
     {
       "name": "lm eval qwen3-5 models (b200-mi355)",
-      "family_key": "lm eval qwen3-5 models",
-      "family_name": "lm eval qwen3-5 models",
+      "family_key": "lm eval qwen3-5 models (2 gpus)",
+      "family_name": "lm eval qwen3-5 models (2 gpus)",
       "amd_job_name": "mi355_2: LM Eval Qwen3-5 Models (B200-MI355)",
       "upstream_job_name": "LM Eval Qwen3.5 Models (B200)",
       "amd": {
@@ -6029,10 +6161,10 @@
     },
     {
       "name": "lm eval small models (2xb200-2xmi300)",
-      "family_key": "lm eval small models (2 gpus)",
-      "family_name": "lm eval small models (2 gpus)",
+      "family_key": "lm eval small models (hardware variants)",
+      "family_name": "lm eval small models (hardware variants)",
       "amd_job_name": "mi300_2: LM Eval Small Models (2xB200-2xMI300)",
-      "upstream_job_name": null,
+      "upstream_job_name": "LM Eval Small Models (B200)",
       "amd": {
         "total": 5,
         "passed": 5,
@@ -6043,8 +6175,18 @@
         "error": 0,
         "duration": 1159.97
       },
-      "upstream": null,
+      "upstream": {
+        "total": 5,
+        "passed": 5,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 826.0
+      },
       "hardware": [
+        "b200",
         "mi300"
       ],
       "hw_failures": null,
@@ -6056,17 +6198,29 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/8525/steps/canvas?sid=019e2ade-0a8e-41a6-9b85-3b82ff86d80d&tab=output",
           "job_name": "mi300_2: LM Eval Small Models (2xB200-2xMI300)",
           "side": "amd"
+        },
+        {
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/66356/steps/canvas?jid=019e2a39-cb31-498d-b567-cf40db028fd8&tab=output",
+          "job_name": "LM Eval Small Models (B200)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0
+      },
+      "status": "both",
       "backfilled": false
     },
     {
       "name": "lm eval small models (2xb200-2xmi355)",
-      "family_key": "lm eval small models (2 gpus)",
-      "family_name": "lm eval small models (2 gpus)",
+      "family_key": "lm eval small models (hardware variants)",
+      "family_name": "lm eval small models (hardware variants)",
       "amd_job_name": "mi355_2: LM Eval Small Models (2xB200-2xMI355)",
-      "upstream_job_name": null,
+      "upstream_job_name": "LM Eval Small Models (B200)",
       "amd": {
         "total": 5,
         "passed": 5,
@@ -6077,8 +6231,18 @@
         "error": 0,
         "duration": 860.79
       },
-      "upstream": null,
+      "upstream": {
+        "total": 5,
+        "passed": 5,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 826.0
+      },
       "hardware": [
+        "b200",
         "mi355"
       ],
       "hw_failures": null,
@@ -6090,17 +6254,29 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/8525/steps/canvas?sid=019e2ade-0ad5-45a3-beef-2c95953dda4f&tab=output",
           "job_name": "mi355_2: LM Eval Small Models (2xB200-2xMI355)",
           "side": "amd"
+        },
+        {
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/66356/steps/canvas?jid=019e2a39-cb31-498d-b567-cf40db028fd8&tab=output",
+          "job_name": "LM Eval Small Models (B200)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0
+      },
+      "status": "both",
       "backfilled": false
     },
     {
       "name": "lm eval small models (mi300)",
-      "family_key": "lm eval small models",
-      "family_name": "lm eval small models",
+      "family_key": "lm eval small models (hardware variants)",
+      "family_name": "lm eval small models (hardware variants)",
       "amd_job_name": "mi300_1: LM Eval Small Models (MI300)",
-      "upstream_job_name": "LM Eval Small Models",
+      "upstream_job_name": "LM Eval Small Models (B200)",
       "amd": {
         "total": 6,
         "passed": 6,
@@ -6112,17 +6288,17 @@
         "duration": 563.14
       },
       "upstream": {
-        "total": 7,
-        "passed": 7,
+        "total": 5,
+        "passed": 5,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1327.56
+        "duration": 826.0
       },
       "hardware": [
-        "h100",
+        "b200",
         "mi300"
       ],
       "hw_failures": null,
@@ -6136,15 +6312,15 @@
           "side": "amd"
         },
         {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66356/steps/canvas?jid=019e2a39-cb30-425b-b829-d602812d43c4&tab=output",
-          "job_name": "LM Eval Small Models",
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/66356/steps/canvas?jid=019e2a39-cb31-498d-b567-cf40db028fd8&tab=output",
+          "job_name": "LM Eval Small Models (B200)",
           "side": "upstream"
         }
       ],
       "delta": {
-        "total": -1,
-        "passed": -1,
+        "total": 1,
+        "passed": 1,
         "failed": 0,
         "skipped": 0
       },
@@ -6211,8 +6387,8 @@
     },
     {
       "name": "lora tp (distributed)",
-      "family_key": "lora tp (distributed)",
-      "family_name": "lora tp (distributed)",
+      "family_key": "lora tp (distributed) (4 gpus)",
+      "family_name": "lora tp (distributed) (4 gpus)",
       "amd_job_name": "mi300_4: LoRA TP (Distributed)",
       "upstream_job_name": "LoRA TP (Distributed)",
       "amd": {
@@ -7835,7 +8011,7 @@
       "family_key": "qwen3-30b-a3b-fp8-block accuracy (4 gpus)",
       "family_name": "qwen3-30b-a3b-fp8-block accuracy (4 gpus)",
       "amd_job_name": "mi300_4: Qwen3-30B-A3B-FP8-block Accuracy (4xH100-4xMI300)",
-      "upstream_job_name": null,
+      "upstream_job_name": "Qwen3-30B-A3B-FP8-block Accuracy",
       "amd": {
         "total": 1,
         "passed": 1,
@@ -7846,8 +8022,18 @@
         "error": 0,
         "duration": 0.0
       },
-      "upstream": null,
+      "upstream": {
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 0.0
+      },
       "hardware": [
+        "h100",
         "mi300"
       ],
       "hw_failures": null,
@@ -7859,15 +8045,27 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/8525/steps/canvas?sid=019e2ade-0a91-4735-9b83-d055dd3f755e&tab=output",
           "job_name": "mi300_4: Qwen3-30B-A3B-FP8-block Accuracy (4xH100-4xMI300)",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/66356/steps/canvas?jid=019e2a39-caa7-48b9-8daa-8e3f3ad561e6&tab=output",
+          "job_name": "Qwen3-30B-A3B-FP8-block Accuracy",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0
+      },
+      "status": "both",
       "backfilled": false
     },
     {
       "name": "qwen3-30b-a3b-fp8-block accuracy (b200-mi355)",
-      "family_key": "qwen3-30b-a3b-fp8-block accuracy",
-      "family_name": "qwen3-30b-a3b-fp8-block accuracy",
+      "family_key": "qwen3-30b-a3b-fp8-block accuracy (2 gpus)",
+      "family_name": "qwen3-30b-a3b-fp8-block accuracy (2 gpus)",
       "amd_job_name": "mi355_2: Qwen3-30B-A3B-FP8-block Accuracy (B200-MI355)",
       "upstream_job_name": "Qwen3-30B-A3B-FP8-block Accuracy (B200)",
       "amd": {
@@ -9166,8 +9364,8 @@
     },
     {
       "name": "weight loading multiple gpu",
-      "family_key": "weight loading multiple gpu",
-      "family_name": "weight loading multiple gpu",
+      "family_key": "weight loading multiple gpu (2 gpus)",
+      "family_name": "weight loading multiple gpu (2 gpus)",
       "amd_job_name": "mi300_2: Weight Loading Multiple GPU",
       "upstream_job_name": "Weight Loading Multiple GPU",
       "amd": {
@@ -9439,40 +9637,6 @@
       "backfilled": false
     },
     {
-      "name": "deepseek v2-lite accuracy",
-      "family_key": "deepseek v2-lite accuracy",
-      "family_name": "deepseek v2-lite accuracy",
-      "amd_job_name": null,
-      "upstream_job_name": "DeepSeek V2-Lite Accuracy",
-      "amd": null,
-      "upstream": {
-        "total": 1,
-        "passed": 1,
-        "failed": 0,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0,
-        "error": 0,
-        "duration": 0.0
-      },
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [
-        {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66356/steps/canvas?jid=019e2a39-caa4-4100-a80b-b27a0b3dce7d&tab=output",
-          "job_name": "DeepSeek V2-Lite Accuracy",
-          "side": "upstream"
-        }
-      ],
-      "status": "upstream_only",
-      "backfilled": false
-    },
-    {
       "name": "distributed flashinfer nixlconnector pd accuracy (4 gpus)",
       "family_key": "distributed flashinfer nixlconnector pd accuracy (4 gpus)",
       "family_name": "distributed flashinfer nixlconnector pd accuracy (4 gpus)",
@@ -9612,8 +9776,8 @@
     },
     {
       "name": "fusion e2e config sweep (h100)",
-      "family_key": "fusion e2e config sweep",
-      "family_name": "fusion e2e config sweep",
+      "family_key": "fusion e2e config sweep (1 gpus)",
+      "family_name": "fusion e2e config sweep (1 gpus)",
       "amd_job_name": null,
       "upstream_job_name": "Fusion E2E Config Sweep (H100)",
       "amd": null,
@@ -9782,8 +9946,8 @@
     },
     {
       "name": "gpqa eval (gpt-oss) (b200)",
-      "family_key": "gpqa eval (gpt-oss)",
-      "family_name": "gpqa eval (gpt-oss)",
+      "family_key": "gpqa eval (gpt-oss) (2 gpus)",
+      "family_name": "gpqa eval (gpt-oss) (2 gpus)",
       "amd_job_name": null,
       "upstream_job_name": "GPQA Eval (GPT-OSS) (B200)",
       "amd": null,
@@ -9808,40 +9972,6 @@
           "hw": "b200",
           "url": "https://buildkite.com/vllm/ci/builds/66356/steps/canvas?jid=019e2a39-cb26-43c5-be9b-1b6d0b04c490&tab=output",
           "job_name": "GPQA Eval (GPT-OSS) (B200)",
-          "side": "upstream"
-        }
-      ],
-      "status": "upstream_only",
-      "backfilled": false
-    },
-    {
-      "name": "gpqa eval (gpt-oss) (h100)",
-      "family_key": "gpqa eval (gpt-oss)",
-      "family_name": "gpqa eval (gpt-oss)",
-      "amd_job_name": null,
-      "upstream_job_name": "GPQA Eval (GPT-OSS) (H100)",
-      "amd": null,
-      "upstream": {
-        "total": 3,
-        "passed": 3,
-        "failed": 0,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0,
-        "error": 0,
-        "duration": 806.99
-      },
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [
-        {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66356/steps/canvas?jid=019e2a39-cb27-453b-b510-ba25e79cda76&tab=output",
-          "job_name": "GPQA Eval (GPT-OSS) (H100)",
           "side": "upstream"
         }
       ],
@@ -9978,40 +10108,6 @@
           "hw": "h100",
           "url": "https://buildkite.com/vllm/ci/builds/66356/steps/canvas?jid=019e2a39-cb13-488d-b7cf-5afaa6659d63&tab=output",
           "job_name": "Kernels FP8 MoE Test (1 H100)",
-          "side": "upstream"
-        }
-      ],
-      "status": "upstream_only",
-      "backfilled": false
-    },
-    {
-      "name": "kernels fp8 moe test (2 h100s)",
-      "family_key": "kernels fp8 moe test",
-      "family_name": "kernels fp8 moe test",
-      "amd_job_name": null,
-      "upstream_job_name": "Kernels FP8 MoE Test (2 H100s)",
-      "amd": null,
-      "upstream": {
-        "total": 56,
-        "passed": 56,
-        "failed": 0,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0,
-        "error": 0,
-        "duration": 984.68
-      },
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [
-        {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66356/steps/canvas?jid=019e2a39-cb14-4dd2-991c-f41a51423482&tab=output",
-          "job_name": "Kernels FP8 MoE Test (2 H100s)",
           "side": "upstream"
         }
       ],
@@ -10182,74 +10278,6 @@
           "hw": "h100",
           "url": "https://buildkite.com/vllm/ci/builds/66356/steps/canvas?jid=019e2a39-cb29-4a79-9e1d-255b2dc0d1e5&tab=output",
           "job_name": "LM Eval Large Models (B200, EP)",
-          "side": "upstream"
-        }
-      ],
-      "status": "upstream_only",
-      "backfilled": false
-    },
-    {
-      "name": "lm eval large models (h200)",
-      "family_key": "lm eval large models",
-      "family_name": "lm eval large models",
-      "amd_job_name": null,
-      "upstream_job_name": "LM Eval Large Models (H200)",
-      "amd": null,
-      "upstream": {
-        "total": 6,
-        "passed": 6,
-        "failed": 0,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0,
-        "error": 0,
-        "duration": 1765.39
-      },
-      "hardware": [
-        "h200"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [
-        {
-          "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/66356/steps/canvas?jid=019e2a39-cb29-418c-8cdc-8010c2c01f45&tab=output",
-          "job_name": "LM Eval Large Models (H200)",
-          "side": "upstream"
-        }
-      ],
-      "status": "upstream_only",
-      "backfilled": false
-    },
-    {
-      "name": "lm eval small models (b200)",
-      "family_key": "lm eval small models",
-      "family_name": "lm eval small models",
-      "amd_job_name": null,
-      "upstream_job_name": "LM Eval Small Models (B200)",
-      "amd": null,
-      "upstream": {
-        "total": 5,
-        "passed": 5,
-        "failed": 0,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0,
-        "error": 0,
-        "duration": 826.0
-      },
-      "hardware": [
-        "b200"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [
-        {
-          "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/66356/steps/canvas?jid=019e2a39-cb31-498d-b567-cf40db028fd8&tab=output",
-          "job_name": "LM Eval Small Models (B200)",
           "side": "upstream"
         }
       ],
@@ -10762,40 +10790,6 @@
           "hw": "h100",
           "url": "https://buildkite.com/vllm/ci/builds/66356/steps/canvas?jid=019e2a39-caa6-4efa-ba6f-07e32b54be80&tab=output",
           "job_name": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy",
-          "side": "upstream"
-        }
-      ],
-      "status": "upstream_only",
-      "backfilled": false
-    },
-    {
-      "name": "qwen3-30b-a3b-fp8-block accuracy",
-      "family_key": "qwen3-30b-a3b-fp8-block accuracy",
-      "family_name": "qwen3-30b-a3b-fp8-block accuracy",
-      "amd_job_name": null,
-      "upstream_job_name": "Qwen3-30B-A3B-FP8-block Accuracy",
-      "amd": null,
-      "upstream": {
-        "total": 1,
-        "passed": 1,
-        "failed": 0,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0,
-        "error": 0,
-        "duration": 0.0
-      },
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [
-        {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66356/steps/canvas?jid=019e2a39-caa7-48b9-8daa-8e3f3ad561e6&tab=output",
-          "job_name": "Qwen3-30B-A3B-FP8-block Accuracy",
           "side": "upstream"
         }
       ],
