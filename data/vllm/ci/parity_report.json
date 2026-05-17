@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-05-17T07:38:51Z",
+  "generated_at": "2026-05-17T08:33:06Z",
   "amd_date": "2026-05-16",
   "upstream_date": "2026-05-17",
   "parity_pct": 0.0,
-  "total_tests": 643,
+  "total_tests": 650,
   "summary": {
-    "upstream_only": 296,
+    "upstream_only": 303,
     "amd_only": 347
   },
   "by_module": {
@@ -485,6 +485,10 @@
       "parity_pct": 100.0,
       "upstream_only": 1
     },
+    "LM Eval Large Models (H200)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
     "LM Eval Qwen3.5 Models (B200)": {
       "parity_pct": 100.0,
       "upstream_only": 1
@@ -781,6 +785,10 @@
       "parity_pct": 100.0,
       "upstream_only": 2
     },
+    "Torch Nightly Basic Models Tests (Extra Initialization) 2": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
     "Torch Nightly Basic Models Tests (Initialization)": {
       "parity_pct": 100.0,
       "upstream_only": 1
@@ -797,9 +805,17 @@
       "parity_pct": 100.0,
       "upstream_only": 2
     },
+    "Torch Nightly Language Models Tests (Hybrid) 2": {
+      "parity_pct": 100.0,
+      "upstream_only": 2
+    },
     "Torch Nightly Language Models Tests (Standard)": {
       "parity_pct": 100.0,
       "upstream_only": 2
+    },
+    "Transformers Backward Compatibility Models Test": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
     },
     "V1 Core + KV + Metrics": {
       "parity_pct": 100.0,
@@ -1649,6 +1665,10 @@
       "parity_pct": 100.0,
       "upstream_only": 1
     },
+    "tests/models/test_initialization.py": {
+      "parity_pct": 100.0,
+      "upstream_only": 2
+    },
     "vLLM IR Tests": {
       "parity_pct": 100.0,
       "upstream_only": 2
@@ -2002,7 +2022,7 @@
       "family_key": "basic models tests (extra initialization)",
       "family_name": "basic models tests (extra initialization)",
       "amd_job_name": "mi250_1: Basic Models Tests (Extra Initialization) 1",
-      "upstream_job_name": "Basic Models Tests (Extra Initialization) 1",
+      "upstream_job_name": "Basic Models Tests (Extra Initialization) 2",
       "amd": {
         "total": 169,
         "passed": 151,
@@ -2041,8 +2061,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-723b-4c20-8856-29e864d060ba&tab=output",
-          "job_name": "Basic Models Tests (Extra Initialization) 1",
+          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-723b-4910-a3ee-45190ad659ab&tab=output",
+          "job_name": "Basic Models Tests (Extra Initialization) 2",
           "side": "upstream"
         }
       ],
@@ -5274,7 +5294,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 184.14000000000001
+        "duration": 184.14
       },
       "hardware": [
         "h100",
@@ -5321,7 +5341,7 @@
       "family_key": "kernels quantization test",
       "family_name": "kernels quantization test",
       "amd_job_name": "mi300_1: Kernels Quantization Test 2",
-      "upstream_job_name": "Kernels Quantization Test 1",
+      "upstream_job_name": "Kernels Quantization Test 2",
       "amd": {
         "total": 24432,
         "passed": 13818,
@@ -5367,8 +5387,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-71da-4355-acd6-7c246c229f21&tab=output",
-          "job_name": "Kernels Quantization Test 1",
+          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-71db-4d60-b298-7bade30c5ca6&tab=output",
+          "job_name": "Kernels Quantization Test 2",
           "side": "upstream"
         }
       ],
@@ -5982,7 +6002,7 @@
       "family_key": "lm eval large models (8 gpus)",
       "family_name": "lm eval large models (8 gpus)",
       "amd_job_name": "mi300_8: LM Eval Large Models (8xH200-8xMI300)",
-      "upstream_job_name": null,
+      "upstream_job_name": "LM Eval Large Models (H200)",
       "amd": {
         "total": 6,
         "passed": 1,
@@ -5993,8 +6013,18 @@
         "error": 0,
         "duration": 886.34
       },
-      "upstream": null,
+      "upstream": {
+        "total": 6,
+        "passed": 6,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 1779.05
+      },
       "hardware": [
+        "h200",
         "mi300"
       ],
       "hw_failures": {
@@ -6008,9 +6038,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b082-4582-9261-f7feb1d80eb6&tab=output",
           "job_name": "mi300_8: LM Eval Large Models (8xH200-8xMI300)",
           "side": "amd"
+        },
+        {
+          "hw": "h200",
+          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-71e8-400f-82de-9903166e7d75&tab=output",
+          "job_name": "LM Eval Large Models (H200)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 0,
+        "passed": -5,
+        "failed": 1,
+        "skipped": 4
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -6298,7 +6340,7 @@
       "family_key": "lora",
       "family_name": "lora",
       "amd_job_name": "mi250_1: LoRA 1",
-      "upstream_job_name": "LoRA 4",
+      "upstream_job_name": "LoRA 2",
       "amd": {
         "total": 6822,
         "passed": 6723,
@@ -6337,8 +6379,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-71ff-4158-84ea-32bdb7539c09&tab=output",
-          "job_name": "LoRA 4",
+          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-71fe-49f7-b09e-f74d6a712ff0&tab=output",
+          "job_name": "LoRA 2",
           "side": "upstream"
         }
       ],
@@ -10922,6 +10964,40 @@
       "backfilled": false
     },
     {
+      "name": "torch nightly basic models tests (extra initialization) 2",
+      "family_key": "torch nightly basic models tests (extra initialization) 2",
+      "family_name": "torch nightly basic models tests (extra initialization) 2",
+      "amd_job_name": null,
+      "upstream_job_name": "Torch Nightly Basic Models Tests (Extra Initialization) 2",
+      "amd": null,
+      "upstream": {
+        "total": 168,
+        "passed": 168,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 3362.51
+      },
+      "hardware": [
+        "h100"
+      ],
+      "hw_failures": null,
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-72cc-4f00-9009-7cb1f4eac669&tab=output",
+          "job_name": "Torch Nightly Basic Models Tests (Extra Initialization) 2",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
       "name": "torch nightly basic models tests (initialization)",
       "family_key": "torch nightly basic models tests (initialization)",
       "family_name": "torch nightly basic models tests (initialization)",
@@ -11058,6 +11134,40 @@
       "backfilled": false
     },
     {
+      "name": "torch nightly language models tests (hybrid) 2",
+      "family_key": "torch nightly language models tests (hybrid) 2",
+      "family_name": "torch nightly language models tests (hybrid) 2",
+      "amd_job_name": null,
+      "upstream_job_name": "Torch Nightly Language Models Tests (Hybrid) 2",
+      "amd": null,
+      "upstream": {
+        "total": 27,
+        "passed": 25,
+        "failed": 0,
+        "skipped": 2,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 2437.3
+      },
+      "hardware": [
+        "h100"
+      ],
+      "hw_failures": null,
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-72d1-42fa-aac8-4dbe119ea5b2&tab=output",
+          "job_name": "Torch Nightly Language Models Tests (Hybrid) 2",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
       "name": "torch nightly language models tests (standard)",
       "family_key": "torch nightly language models tests (standard)",
       "family_name": "torch nightly language models tests (standard)",
@@ -11085,6 +11195,42 @@
           "hw": "h100",
           "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-72d2-4e1a-8036-fb135d736f2e&tab=output",
           "job_name": "Torch Nightly Language Models Tests (Standard)",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
+      "name": "transformers backward compatibility models test",
+      "family_key": "transformers backward compatibility models test",
+      "family_name": "transformers backward compatibility models test",
+      "amd_job_name": null,
+      "upstream_job_name": "Transformers Backward Compatibility Models Test",
+      "amd": null,
+      "upstream": {
+        "total": 16,
+        "passed": 14,
+        "failed": 2,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 40.64
+      },
+      "hardware": [
+        "h100"
+      ],
+      "hw_failures": {
+        "h100": 2
+      },
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-723f-4eb3-ae61-b75893eaf138&tab=output",
+          "job_name": "Transformers Backward Compatibility Models Test",
           "side": "upstream"
         }
       ],
@@ -11160,66 +11306,9 @@
       "backfilled": false
     },
     {
-      "name": "transformers backward compatibility models test",
-      "family_key": "transformers backward compatibility models test",
-      "family_name": "transformers backward compatibility models test",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
       "name": "torch nightly basic models tests (extra initialization) 1",
       "family_key": "torch nightly basic models tests (extra initialization) 1",
       "family_name": "torch nightly basic models tests (extra initialization) 1",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "torch nightly basic models tests (extra initialization) 2",
-      "family_key": "torch nightly basic models tests (extra initialization) 2",
-      "family_name": "torch nightly basic models tests (extra initialization) 2",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "torch nightly language models tests (hybrid) 2",
-      "family_key": "torch nightly language models tests (hybrid) 2",
-      "family_name": "torch nightly language models tests (hybrid) 2",
       "amd_job_name": null,
       "upstream_job_name": null,
       "amd": null,
@@ -12210,6 +12299,12 @@
       "category": "upstream_only"
     },
     {
+      "test_id": "LM Eval Large Models (H200)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
       "test_id": "LM Eval Qwen3.5 Models (B200)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -12852,6 +12947,12 @@
       "category": "upstream_only"
     },
     {
+      "test_id": "Torch Nightly Basic Models Tests (Extra Initialization) 2::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
       "test_id": "Torch Nightly Basic Models Tests (Initialization)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -12882,6 +12983,18 @@
       "category": "upstream_only"
     },
     {
+      "test_id": "Torch Nightly Language Models Tests (Hybrid) 2::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Torch Nightly Language Models Tests (Hybrid) 2::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
       "test_id": "Torch Nightly Language Models Tests (Standard)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -12891,6 +13004,12 @@
       "test_id": "Torch Nightly Language Models Tests (Standard)::__skipped__",
       "amd_status": "missing",
       "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Transformers Backward Compatibility Models Test::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
@@ -15079,6 +15198,18 @@
     },
     {
       "test_id": "quantization/test_torchao.py::test_reload_weights",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "tests/models/test_initialization.py::test_can_initialize_large_subset[Step3TextForCausalLM]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "tests/models/test_initialization.py::test_can_initialize_large_subset[Step3VLForConditionalGeneration]",
       "amd_status": "missing",
       "upstream_status": "failed",
       "category": "upstream_only"
