@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-05-17T09:21:56Z",
-  "amd_date": "2026-05-16",
+  "generated_at": "2026-05-17T12:37:22Z",
+  "amd_date": "2026-05-17",
   "upstream_date": "2026-05-17",
   "parity_pct": 0.0,
-  "total_tests": 660,
+  "total_tests": 659,
   "summary": {
-    "upstream_only": 313,
-    "amd_only": 347
+    "upstream_only": 318,
+    "amd_only": 341
   },
   "by_module": {
     "2 Node Test (4 GPUs)": {
@@ -821,6 +821,10 @@
       "parity_pct": 100.0,
       "upstream_only": 1
     },
+    "Transformers Nightly Models": {
+      "parity_pct": 100.0,
+      "upstream_only": 3
+    },
     "V1 Core + KV + Metrics": {
       "parity_pct": 100.0,
       "upstream_only": 1
@@ -1123,7 +1127,7 @@
     },
     "mi300_1: Entrypoints Integration (Responses API)": {
       "parity_pct": 100.0,
-      "amd_only": 3
+      "amd_only": 2
     },
     "mi300_1: Entrypoints Integration (Speech to Text)": {
       "parity_pct": 100.0,
@@ -1151,7 +1155,7 @@
     },
     "mi300_1: Kernels Attention Test 2": {
       "parity_pct": 100.0,
-      "amd_only": 3
+      "amd_only": 2
     },
     "mi300_1: Kernels Core Operation Test": {
       "parity_pct": 100.0,
@@ -1203,7 +1207,7 @@
     },
     "mi300_1: Multi-Modal Models (Extended Generation 2)": {
       "parity_pct": 100.0,
-      "amd_only": 3
+      "amd_only": 1
     },
     "mi300_1: Multi-Modal Models (Extended Generation 3)": {
       "parity_pct": 100.0,
@@ -1223,11 +1227,11 @@
     },
     "mi300_1: Multi-Modal Processor": {
       "parity_pct": 100.0,
-      "amd_only": 1
+      "amd_only": 2
     },
     "mi300_1: Multi-Modal Processor (CPU)": {
       "parity_pct": 100.0,
-      "amd_only": 2
+      "amd_only": 1
     },
     "mi300_1: OpenAI API correctness": {
       "parity_pct": 100.0,
@@ -1251,7 +1255,7 @@
     },
     "mi300_1: Quantization": {
       "parity_pct": 100.0,
-      "amd_only": 3
+      "amd_only": 1
     },
     "mi300_1: Quantized Models Test": {
       "parity_pct": 100.0,
@@ -1675,7 +1679,7 @@
     },
     "tests/models/test_initialization.py": {
       "parity_pct": 100.0,
-      "upstream_only": 2
+      "upstream_only": 4
     },
     "vLLM IR Tests": {
       "parity_pct": 100.0,
@@ -1721,7 +1725,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b09a-4f42-a708-ec1ff56feeed&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e34-4524-a6c6-3388e591630a&tab=output",
           "job_name": "mi300_1: Acceptance Length Test (Large Models)",
           "side": "amd"
         },
@@ -1755,7 +1759,7 @@
         "xfailed": 1,
         "xpassed": 0,
         "error": 0,
-        "duration": 90.41
+        "duration": 88.41
       },
       "upstream": {
         "total": 173,
@@ -1779,7 +1783,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b068-45c4-a236-9323f358ceac&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dfb-43ad-9dce-5dcab9b08d7c&tab=output",
           "job_name": "mi300_1: Async Engine, Inputs, Utils, Worker",
           "side": "amd"
         },
@@ -1813,7 +1817,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 268.61
+        "duration": 265.66
       },
       "upstream": {
         "total": 54,
@@ -1835,7 +1839,7 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b05e-4e1f-96af-2ea13ed1d476&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1df1-4445-bd30-7ee071a1f702&tab=output",
           "job_name": "mi250_1: Async Engine, Inputs, Utils, Worker, Config (CPU)",
           "side": "amd"
         },
@@ -1891,7 +1895,7 @@
       "job_links": [
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0bb-4452-a306-07b935e61629&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e5e-4305-80c6-644ad9707959&tab=output",
           "job_name": "mi355_2: Attention Benchmarks Smoke Test (B200-MI355)",
           "side": "amd"
         },
@@ -1919,13 +1923,13 @@
       "upstream_job_name": "Basic Correctness",
       "amd": {
         "total": 8,
-        "passed": 2,
-        "failed": 6,
+        "passed": 1,
+        "failed": 7,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 354.94
+        "duration": 339.37
       },
       "upstream": {
         "total": 4,
@@ -1942,14 +1946,14 @@
         "mi300"
       ],
       "hw_failures": {
-        "mi300": 6
+        "mi300": 7
       },
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b05f-4ca8-b6d2-588277715484&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1df2-4698-85b6-ea7081783f78&tab=output",
           "job_name": "mi300_1: Basic Correctness",
           "side": "amd"
         },
@@ -1962,8 +1966,8 @@
       ],
       "delta": {
         "total": 4,
-        "passed": -2,
-        "failed": 6,
+        "passed": -3,
+        "failed": 7,
         "skipped": 0
       },
       "status": "both",
@@ -1983,7 +1987,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 8.94
+        "duration": 8.8
       },
       "upstream": {
         "total": 24,
@@ -2005,7 +2009,7 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b046-478f-aec2-dacc7e30a3c3&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1ddb-46ec-bcd6-6020c667343f&tab=output",
           "job_name": "mi250_1: Basic Models Test (Other CPU)",
           "side": "amd"
         },
@@ -2029,7 +2033,7 @@
       "name": "basic models tests (extra initialization)",
       "family_key": "basic models tests (extra initialization)",
       "family_name": "basic models tests (extra initialization)",
-      "amd_job_name": "mi250_1: Basic Models Tests (Extra Initialization) 1",
+      "amd_job_name": "mi250_1: Basic Models Tests (Extra Initialization) 2",
       "upstream_job_name": "Basic Models Tests (Extra Initialization) 2",
       "amd": {
         "total": 169,
@@ -2039,7 +2043,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 1,
-        "duration": 8877.47
+        "duration": 8907.96
       },
       "upstream": {
         "total": 356,
@@ -2063,8 +2067,8 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b048-47a0-9eda-ec5bbc13bbb8&tab=output",
-          "job_name": "mi250_1: Basic Models Tests (Extra Initialization) 1",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1ddc-4e0e-9a50-83198edf82d2&tab=output",
+          "job_name": "mi250_1: Basic Models Tests (Extra Initialization) 2",
           "side": "amd"
         },
         {
@@ -2097,7 +2101,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1180.61
+        "duration": 1206.09
       },
       "upstream": {
         "total": 12,
@@ -2121,7 +2125,7 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b049-4fc5-bf42-0bd63ec6261c&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1ddd-4c6d-b660-43c9a059a210&tab=output",
           "job_name": "mi250_1: Basic Models Tests (Initialization)",
           "side": "amd"
         },
@@ -2155,7 +2159,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 769.98
+        "duration": 785.78
       },
       "upstream": {
         "total": 386,
@@ -2177,7 +2181,7 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b049-45c6-a34f-7c4b6f2b1570&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dde-4963-b03c-06ad8ab1ff45&tab=output",
           "job_name": "mi250_1: Basic Models Tests (Other)",
           "side": "amd"
         },
@@ -2233,7 +2237,7 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b051-4c9c-a3d5-56dfa4cc060d&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1de5-4235-b043-c82168e069c5&tab=output",
           "job_name": "mi250_1: Batch Invariance (H100-MI250)",
           "side": "amd"
         },
@@ -2280,13 +2284,13 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b036-45de-a2e1-33fe9b955cf3&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dc9-40de-98cd-53884e11841e&tab=output",
           "job_name": "mi250_1: Benchmarks",
           "side": "amd"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b060-48b5-9a42-b5dec9295d5d&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1df4-408e-a488-eb0815da3b18&tab=output",
           "job_name": "mi300_1: Benchmarks",
           "side": "amd"
         }
@@ -2308,7 +2312,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 584.25
+        "duration": 549.34
       },
       "upstream": {
         "total": 106,
@@ -2330,7 +2334,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b062-4796-9b78-746c6f997e5f&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1df5-44f3-93b7-1a100c73e13f&tab=output",
           "job_name": "mi300_1: Benchmarks CLI Test",
           "side": "amd"
         },
@@ -2364,7 +2368,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 123.12
+        "duration": 121.77
       },
       "upstream": {
         "total": 1,
@@ -2386,7 +2390,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0a8-4a64-b69f-64e192ba7a6a&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e46-45da-8e19-e607506369e8&tab=output",
           "job_name": "mi300_4: CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
           "side": "amd"
         },
@@ -2420,7 +2424,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 516.09
+        "duration": 490.07
       },
       "upstream": {
         "total": 12,
@@ -2442,7 +2446,7 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b052-4726-8fdf-b1a8671503be&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1de6-456c-94f6-059d7230febd&tab=output",
           "job_name": "mi250_1: Cudagraph",
           "side": "amd"
         },
@@ -2498,7 +2502,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b07e-4bc5-b764-15661f08c7a8&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e13-46c4-a4de-5bf9325227e6&tab=output",
           "job_name": "mi300_4: DeepSeek V2-Lite Accuracy (4xH100-4xMI300)",
           "side": "amd"
         },
@@ -2526,8 +2530,8 @@
       "upstream_job_name": "DeepSeek V2-Lite Prefetch Offload Accuracy (H100)",
       "amd": {
         "total": 1,
-        "passed": 1,
-        "failed": 0,
+        "passed": 0,
+        "failed": 1,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
@@ -2548,13 +2552,15 @@
         "h100",
         "mi300"
       ],
-      "hw_failures": null,
+      "hw_failures": {
+        "mi300": 1
+      },
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b07a-411a-966f-1d4ba7fafea7&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e0d-4f60-97fc-3f479335a25c&tab=output",
           "job_name": "mi300_1: DeepSeek V2-Lite Prefetch Offload Accuracy (H100-MI300)",
           "side": "amd"
         },
@@ -2567,8 +2573,8 @@
       ],
       "delta": {
         "total": 0,
-        "passed": 0,
-        "failed": 0,
+        "passed": -1,
+        "failed": 1,
         "skipped": 0
       },
       "status": "both",
@@ -2588,7 +2594,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 140.49
+        "duration": 156.89
       },
       "upstream": {
         "total": 7,
@@ -2612,7 +2618,7 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b03a-4256-8a4d-150a960a797f&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dce-48d2-862f-5ba8fb0b3b51&tab=output",
           "job_name": "mi250_2: Distributed Comm Ops",
           "side": "amd"
         },
@@ -2646,7 +2652,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1520.7
+        "duration": 2180.36
       },
       "upstream": {
         "total": 1,
@@ -2670,7 +2676,7 @@
       "job_links": [
         {
           "hw": "mi325",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0b2-49a3-b304-fb462d8654ed&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e54-40e1-bcc2-41d956216849&tab=output",
           "job_name": "mi325_4: Distributed Compile + Comm (4 GPUs)",
           "side": "amd"
         },
@@ -2704,7 +2710,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2375.8500000000004
+        "duration": 2483.58
       },
       "upstream": {
         "total": 2,
@@ -2730,13 +2736,13 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b039-4292-9b47-2d2a74b46280&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dcd-4eb2-8663-a1df1b5b73e4&tab=output",
           "job_name": "mi250_2: Distributed Compile + RPC Tests (2 GPUs)",
           "side": "amd"
         },
         {
           "hw": "mi325",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0b1-4675-9bdc-dc755ea19453&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e52-4a38-a09d-571d4c7c07c3&tab=output",
           "job_name": "mi325_2: Distributed Compile + RPC Tests (2 GPUs)",
           "side": "amd"
         },
@@ -2770,7 +2776,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 612.45
+        "duration": 555.44
       },
       "upstream": {
         "total": 90,
@@ -2794,7 +2800,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b066-4e56-ad6e-3455dd307321&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1df9-4eb3-af9d-189a62b7b025&tab=output",
           "job_name": "mi300_2: Distributed Compile Unit Tests (2xH100-2xMI300)",
           "side": "amd"
         },
@@ -2828,7 +2834,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 115.56
+        "duration": 110.18
       },
       "upstream": {
         "total": 2,
@@ -2851,13 +2857,13 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b05a-437d-a89d-c3a3870f3d2e&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1ded-43b6-802b-7e69528fe839&tab=output",
           "job_name": "mi250_2: Distributed DP Tests (2 GPUs)",
           "side": "amd"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0a5-437e-8bd3-4f3f99a0ad2f&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e42-4524-b336-5af7c5ea24ad&tab=output",
           "job_name": "mi300_2: Distributed DP Tests (2 GPUs)",
           "side": "amd"
         },
@@ -2891,7 +2897,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 13.38
+        "duration": 12.97
       },
       "upstream": {
         "total": 5,
@@ -2913,7 +2919,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0a9-41e6-b279-e2aa620b9a99&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e48-48cd-9c7a-bc1cd58d5dd7&tab=output",
           "job_name": "mi300_4: Distributed DP Tests (4 GPUs)",
           "side": "amd"
         },
@@ -2947,7 +2953,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 322.34000000000003
+        "duration": 329.19000000000005
       },
       "upstream": {
         "total": 2,
@@ -2970,13 +2976,13 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b035-4cb3-b23f-97defbcdfa16&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dc8-4655-9adc-d9c5a235f62e&tab=output",
           "job_name": "mi250_2: Distributed Model Tests (2 GPUs)",
           "side": "amd"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b060-43dd-92bf-4e14d7a7d20f&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1df3-47a6-b9ad-ad7823a1ccb3&tab=output",
           "job_name": "mi300_2: Distributed Model Tests (2 GPUs)",
           "side": "amd"
         },
@@ -3004,13 +3010,13 @@
       "upstream_job_name": "Distributed NixlConnector PD accuracy (4 GPUs)",
       "amd": {
         "total": 3,
-        "passed": 2,
-        "failed": 1,
+        "passed": 3,
+        "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 210.32
+        "duration": 310.79999999999995
       },
       "upstream": {
         "total": 1,
@@ -3028,27 +3034,25 @@
         "mi300",
         "mi355"
       ],
-      "hw_failures": {
-        "mi300": 1
-      },
+      "hw_failures": null,
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b05d-430c-b178-109d023a9b8c&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1df0-42f4-bac0-dab810a95b2e&tab=output",
           "job_name": "mi250_4: Distributed NixlConnector PD accuracy (4 GPUs)",
           "side": "amd"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0aa-43ad-be57-82833128573b&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e49-4bcb-bbcd-6e0c245cbaae&tab=output",
           "job_name": "mi300_4: Distributed NixlConnector PD accuracy (4 GPUs)",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0db-4d26-9d04-66578036a70c&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e8a-4446-b485-4205f510950c&tab=output",
           "job_name": "mi355_4: Distributed NixlConnector PD accuracy (4 GPUs)",
           "side": "amd"
         },
@@ -3061,8 +3065,8 @@
       ],
       "delta": {
         "total": 2,
-        "passed": 1,
-        "failed": 1,
+        "passed": 2,
+        "failed": 0,
         "skipped": 0
       },
       "status": "both",
@@ -3082,7 +3086,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 41.15
+        "duration": 39.69
       },
       "upstream": {
         "total": 28,
@@ -3104,7 +3108,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b06a-4652-8455-ad46bd2810d3&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dfd-41f2-a582-bdaab377471b&tab=output",
           "job_name": "mi300_2: Distributed Tests (2xH100-2xMI250)",
           "side": "amd"
         },
@@ -3162,7 +3166,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0a5-480a-a1d3-6c41ecbc7f5a&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e43-405d-897d-71cab3877ce2&tab=output",
           "job_name": "mi300_2: Distributed Tests (2xH100-2xMI300)",
           "side": "amd"
         },
@@ -3220,7 +3224,7 @@
       "job_links": [
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0bc-4c39-a778-e760061bc048&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e5f-44d4-bfa5-7764a266d892&tab=output",
           "job_name": "mi355_2: Distributed Tests (2xH100-2xMI355)",
           "side": "amd"
         },
@@ -3254,7 +3258,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 143.95
+        "duration": 252.97
       },
       "upstream": {
         "total": 1,
@@ -3276,7 +3280,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b06b-4ecb-ad9c-f054268f8b68&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dfe-411a-adb2-eb948e7c4497&tab=output",
           "job_name": "mi300_4: Distributed Tests (4xA100-4xMI300)",
           "side": "amd"
         },
@@ -3304,8 +3308,8 @@
       "upstream_job_name": "Distributed Tests (8 GPUs)(H100)",
       "amd": {
         "total": 1,
-        "passed": 0,
-        "failed": 1,
+        "passed": 1,
+        "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
@@ -3326,15 +3330,13 @@
         "h100",
         "mi300"
       ],
-      "hw_failures": {
-        "mi300": 1
-      },
+      "hw_failures": null,
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b06f-422e-83ff-b60a82881eb4&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e02-47e3-90c6-85cc2e0286b4&tab=output",
           "job_name": "mi300_8: Distributed Tests (8xH100-8xMI300)",
           "side": "amd"
         },
@@ -3347,8 +3349,8 @@
       ],
       "delta": {
         "total": 0,
-        "passed": -1,
-        "failed": 1,
+        "passed": 0,
+        "failed": 0,
         "skipped": 0
       },
       "status": "both",
@@ -3392,7 +3394,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b06c-4505-bae0-f728c7ca78dd&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dff-4b6a-8cd6-c53a5daa3eac&tab=output",
           "job_name": "mi300_4: Distributed Torchrun + Examples (4 GPUs)",
           "side": "amd"
         },
@@ -3426,7 +3428,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 44.31
+        "duration": 43.370000000000005
       },
       "upstream": {
         "total": 1,
@@ -3449,13 +3451,13 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b03b-491c-a845-61fc05aa11f6&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dcf-4912-9169-b8bea934231f&tab=output",
           "job_name": "mi250_2: Distributed Torchrun + Shutdown Tests (2 GPUs)",
           "side": "amd"
         },
         {
           "hw": "mi325",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0b1-4f9b-81bd-9c92f8affa9c&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e52-47a2-b054-750c4c5030c2&tab=output",
           "job_name": "mi325_2: Distributed Torchrun + Shutdown Tests (2 GPUs)",
           "side": "amd"
         },
@@ -3489,7 +3491,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 214.62
+        "duration": 211.65
       },
       "upstream": {
         "total": 1,
@@ -3512,13 +3514,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0ab-43a4-b841-e1b6c9e5dd77&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e4a-4f16-b12e-0349db18cbc0&tab=output",
           "job_name": "mi300_4: DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0dc-42cf-ad83-9a612a8167cc&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e8b-42cc-afa5-883b90d1c4f9&tab=output",
           "job_name": "mi355_4: DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
           "side": "amd"
         },
@@ -3552,7 +3554,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1887.4699999999998
+        "duration": 1802.3899999999999
       },
       "upstream": {
         "total": 37,
@@ -3578,13 +3580,13 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b053-4cd5-80b3-e19d6c238378&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1de7-476a-a7a1-f18a4bb3f6dd&tab=output",
           "job_name": "mi250_1: e2e Core (1 GPU)",
           "side": "amd"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b09b-4c1f-b9f6-8c7fa2e26928&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e35-4138-860b-4711d06f3c32&tab=output",
           "job_name": "mi300_1: e2e Core (1 GPU)",
           "side": "amd"
         },
@@ -3618,7 +3620,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2789.61
+        "duration": 2822.91
       },
       "upstream": {
         "total": 3,
@@ -3641,13 +3643,13 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b054-48fc-ae05-f997591fdb75&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1de8-4683-932d-169e42d980ef&tab=output",
           "job_name": "mi250_1: e2e Scheduling (1 GPU)",
           "side": "amd"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b09c-4f4d-8543-609ad49dd0eb&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e37-43b7-bb85-4c7321936243&tab=output",
           "job_name": "mi300_1: e2e Scheduling (1 GPU)",
           "side": "amd"
         },
@@ -3707,13 +3709,13 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b03c-4ee6-942f-8e4043a88588&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dd0-4449-b1ea-36ec567dcd08&tab=output",
           "job_name": "mi250_4: Elastic EP Scaling Test",
           "side": "amd"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b06d-4b02-a01b-98508d3b8b84&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e00-4b30-a3cc-7dc8b1194777&tab=output",
           "job_name": "mi300_4: Elastic EP Scaling Test",
           "side": "amd"
         },
@@ -3747,7 +3749,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 748.0899999999999
+        "duration": 740.06
       },
       "upstream": {
         "total": 255,
@@ -3770,13 +3772,13 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b03f-429b-84f3-81262cdb4c88&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dd3-4999-9082-42c2e3ba60f1&tab=output",
           "job_name": "mi250_1: Engine",
           "side": "amd"
         },
         {
           "hw": "mi325",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0b3-4094-8889-86ce017e06cb&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e55-41ce-85b5-15a289b9a41b&tab=output",
           "job_name": "mi325_1: Engine",
           "side": "amd"
         },
@@ -3810,7 +3812,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1116.95
+        "duration": 1160.33
       },
       "upstream": {
         "total": 110,
@@ -3833,13 +3835,13 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b055-499f-84c9-0514fb1fd936&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1de9-4aa7-adae-dd8a116727b2&tab=output",
           "job_name": "mi250_1: Engine (1 GPU)",
           "side": "amd"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b09c-4a47-a244-bfc35b300b74&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e38-4ef2-88b8-3f2924299ec7&tab=output",
           "job_name": "mi300_1: Engine (1 GPU)",
           "side": "amd"
         },
@@ -3873,7 +3875,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1153.4099999999999
+        "duration": 1116.75
       },
       "upstream": {
         "total": 259,
@@ -3898,13 +3900,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b070-4c1e-85ce-a1b3dc6ae00a&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e03-46b0-a1b7-d9ff33ad8de9&tab=output",
           "job_name": "mi300_1: Entrypoints Integration (API Server 2)",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0bd-4a43-88fe-c0afe87a51a0&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e60-4745-9321-63444cdd0c71&tab=output",
           "job_name": "mi355_1: Entrypoints Integration (API Server 2)",
           "side": "amd"
         },
@@ -3938,7 +3940,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3844.79
+        "duration": 3882.24
       },
       "upstream": {
         "total": 270,
@@ -3961,13 +3963,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b071-4ece-90c3-8e85ce7ce827&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e03-4d71-9ff8-7716b99e0977&tab=output",
           "job_name": "mi300_1: Entrypoints Integration (API Server openai - Part 1)",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0be-4b8e-b6ce-22c94f0b3ad4&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e61-4123-bbcf-0bb8cbfdf6a0&tab=output",
           "job_name": "mi355_1: Entrypoints Integration (API Server openai - Part 1)",
           "side": "amd"
         },
@@ -4001,7 +4003,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 246.95999999999998
+        "duration": 181.94
       },
       "upstream": {
         "total": 61,
@@ -4024,13 +4026,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b072-4f61-b02e-1433abc28057&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e04-4d2b-8878-3eae3ef06bab&tab=output",
           "job_name": "mi300_1: Entrypoints Integration (API Server openai - Part 2)",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0bf-49d7-bf6e-f5248fb132a3&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e62-4d07-9379-62320284058e&tab=output",
           "job_name": "mi355_1: Entrypoints Integration (API Server openai - Part 2)",
           "side": "amd"
         },
@@ -4057,14 +4059,14 @@
       "amd_job_name": "mi300_1: Entrypoints Integration (API Server openai - Part 3)",
       "upstream_job_name": "Entrypoints Integration (API Server openai - Part 3)",
       "amd": {
-        "total": 412,
-        "passed": 412,
+        "total": 424,
+        "passed": 424,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2712.81
+        "duration": 2746.37
       },
       "upstream": {
         "total": 212,
@@ -4087,13 +4089,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b073-43f2-8bc7-33bfc2431f6e&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e05-4e8c-82c1-f6e8245bc1fd&tab=output",
           "job_name": "mi300_1: Entrypoints Integration (API Server openai - Part 3)",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0c0-4f94-beea-3c6381f39c30&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e63-4c89-8eb8-08f019a53698&tab=output",
           "job_name": "mi355_1: Entrypoints Integration (API Server openai - Part 3)",
           "side": "amd"
         },
@@ -4105,8 +4107,8 @@
         }
       ],
       "delta": {
-        "total": 200,
-        "passed": 200,
+        "total": 212,
+        "passed": 212,
         "failed": 0,
         "skipped": 0
       },
@@ -4127,7 +4129,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 130.65
+        "duration": 132.81
       },
       "upstream": {
         "total": 2,
@@ -4149,7 +4151,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b074-43e2-b576-41fead4d5ec8&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e07-473c-b051-50f176b7749f&tab=output",
           "job_name": "mi300_1: Entrypoints Integration (LLM)",
           "side": "amd"
         },
@@ -4183,7 +4185,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3788.8999999999996
+        "duration": 3991.03
       },
       "upstream": {
         "total": 288,
@@ -4208,13 +4210,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b076-462a-9bfb-c4e0ac0d4da6&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e08-4b47-a087-9d4e1b59ff67&tab=output",
           "job_name": "mi300_1: Entrypoints Integration (Pooling)",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0c2-4a14-9ae1-a80f70550112&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e65-4785-96db-186157653ffc&tab=output",
           "job_name": "mi355_1: Entrypoints Integration (Pooling)",
           "side": "amd"
         },
@@ -4242,13 +4244,13 @@
       "upstream_job_name": "Entrypoints Integration (Responses API)",
       "amd": {
         "total": 225,
-        "passed": 222,
-        "failed": 1,
+        "passed": 223,
+        "failed": 0,
         "skipped": 2,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1219.69
+        "duration": 1163.55
       },
       "upstream": {
         "total": 225,
@@ -4264,15 +4266,13 @@
         "h100",
         "mi300"
       ],
-      "hw_failures": {
-        "mi300": 1
-      },
+      "hw_failures": null,
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b077-485b-9a69-885b90bbbfc8&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e09-40f3-ab3e-8d397d176fa8&tab=output",
           "job_name": "mi300_1: Entrypoints Integration (Responses API)",
           "side": "amd"
         },
@@ -4285,8 +4285,8 @@
       ],
       "delta": {
         "total": 0,
-        "passed": -1,
-        "failed": 1,
+        "passed": 0,
+        "failed": 0,
         "skipped": 0
       },
       "status": "both",
@@ -4306,7 +4306,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3996.88
+        "duration": 3942.8100000000004
       },
       "upstream": {
         "total": 59,
@@ -4332,13 +4332,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b073-4554-af17-c05c8e4924d9&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e06-432d-bf84-b98870e6f3f6&tab=output",
           "job_name": "mi300_1: Entrypoints Integration (Speech to Text)",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0c0-47ed-bfdb-286df4a22047&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e64-4873-a655-7a25483590cb&tab=output",
           "job_name": "mi355_1: Entrypoints Integration (Speech to Text)",
           "side": "amd"
         },
@@ -4366,13 +4366,13 @@
       "upstream_job_name": "Entrypoints Unit Tests",
       "amd": {
         "total": 278,
-        "passed": 275,
-        "failed": 1,
+        "passed": 274,
+        "failed": 2,
         "skipped": 2,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3019.28
+        "duration": 2819.16
       },
       "upstream": {
         "total": 185,
@@ -4389,14 +4389,14 @@
         "mi300"
       ],
       "hw_failures": {
-        "mi300": 1
+        "mi300": 2
       },
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b078-41b5-ab81-af6482e9ffe1&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e0b-4c8f-bd91-8682db4bc45b&tab=output",
           "job_name": "mi300_1: Entrypoints Unit Tests",
           "side": "amd"
         },
@@ -4409,8 +4409,8 @@
       ],
       "delta": {
         "total": 93,
-        "passed": 91,
-        "failed": 1,
+        "passed": 90,
+        "failed": 2,
         "skipped": 1
       },
       "status": "both",
@@ -4430,7 +4430,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1.59
+        "duration": 1.53
       },
       "upstream": {
         "total": 5,
@@ -4452,7 +4452,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b069-428d-9c23-aa282c41c750&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dfc-4ce7-86c1-7a7ca35adc15&tab=output",
           "job_name": "mi300_1: EPLB Algorithm",
           "side": "amd"
         },
@@ -4486,7 +4486,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 622.13
+        "duration": 488.07
       },
       "upstream": {
         "total": 32,
@@ -4508,7 +4508,7 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b03d-4189-b812-223404737724&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dd1-474c-93ad-e2658428bdec&tab=output",
           "job_name": "mi250_4: EPLB Execution",
           "side": "amd"
         },
@@ -4569,19 +4569,19 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b041-4a9a-959f-f34cae1137c5&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dd6-40a0-a766-c665aed5d289&tab=output",
           "job_name": "mi250_1: Examples",
           "side": "amd"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b082-4ce0-b58b-0c0be28a6b83&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e19-4af7-b693-7a0274eb201a&tab=output",
           "job_name": "mi300_1: Examples",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0c7-405e-b118-c43eb9131538&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e6c-4280-bb15-594a2d630d39&tab=output",
           "job_name": "mi355_1: Examples",
           "side": "amd"
         },
@@ -4615,7 +4615,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 654.96
+        "duration": 637.6
       },
       "upstream": {
         "total": 58,
@@ -4637,7 +4637,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b063-41b2-b4bd-d5b84fc0dd7d&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1df6-4975-8b39-89e52092298e&tab=output",
           "job_name": "mi300_1: Fusion E2E Config Sweep (H100-MI300)",
           "side": "amd"
         },
@@ -4671,7 +4671,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 253.41
+        "duration": 123.34
       },
       "upstream": {
         "total": 30,
@@ -4693,7 +4693,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b064-437d-be29-fceac7f39ca1&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1df7-4272-a024-9f377fa04f45&tab=output",
           "job_name": "mi300_1: Fusion E2E Quick (H100-MI300)",
           "side": "amd"
         },
@@ -4727,7 +4727,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1097.27
+        "duration": 1588.04
       },
       "upstream": {
         "total": 3,
@@ -4749,7 +4749,7 @@
       "job_links": [
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0c3-40cb-a468-bfdedd4170b5&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e66-4e08-9993-8c277ca1f9e5&tab=output",
           "job_name": "mi355_2: GPQA Eval (GPT-OSS) (2xB200-2xMI355)",
           "side": "amd"
         },
@@ -4783,7 +4783,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 459.95
+        "duration": 475.01
       },
       "upstream": {
         "total": 3,
@@ -4805,7 +4805,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b07c-470b-8057-a24101073a8a&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e11-4011-b080-425fb7d6c07d&tab=output",
           "job_name": "mi300_2: GPQA Eval (GPT-OSS) (2xH100-2xMI300)",
           "side": "amd"
         },
@@ -4833,27 +4833,25 @@
       "upstream_job_name": null,
       "amd": {
         "total": 1,
-        "passed": 0,
-        "failed": 1,
+        "passed": 1,
+        "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 118.63
       },
       "upstream": null,
       "hardware": [
         "mi300"
       ],
-      "hw_failures": {
-        "mi300": 1
-      },
+      "hw_failures": null,
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0ac-4ef1-a1a1-61293e77038e&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e4c-49dd-aadf-1313531c6d56&tab=output",
           "job_name": "mi300_4: Hyrbid SSM NixlConnector PD accuracy tests (4 GPUs)",
           "side": "amd"
         }
@@ -4899,7 +4897,7 @@
       "job_links": [
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0c8-40a6-8515-79a6897d7ae1&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e6e-4098-b38c-6a5d2628889e&tab=output",
           "job_name": "mi355_1: Kernels (B200-MI355)",
           "side": "amd"
         },
@@ -4923,17 +4921,17 @@
       "name": "kernels attention test",
       "family_key": "kernels attention test",
       "family_name": "kernels attention test",
-      "amd_job_name": "mi300_1: Kernels Attention Test 1",
+      "amd_job_name": "mi300_1: Kernels Attention Test 2",
       "upstream_job_name": "Kernels Attention Test 1",
       "amd": {
-        "total": 12102,
-        "passed": 5319,
-        "failed": 1,
-        "skipped": 6782,
+        "total": 32,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 28,
         "xfailed": 0,
         "xpassed": 0,
-        "error": 0,
-        "duration": 7695.869999999999
+        "error": 4,
+        "duration": 0.0
       },
       "upstream": {
         "total": 7547,
@@ -4951,21 +4949,22 @@
         "mi355"
       ],
       "hw_failures": {
-        "mi300": 1
+        "mi300": 2,
+        "mi355": 2
       },
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b084-47b7-a1a0-c3ec2aaa4ad9&tab=output",
-          "job_name": "mi300_1: Kernels Attention Test 1",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e19-4fee-984a-791ea00c5683&tab=output",
+          "job_name": "mi300_1: Kernels Attention Test 2",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0c9-4642-b8b9-572a25b6dc77&tab=output",
-          "job_name": "mi355_1: Kernels Attention Test 2",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e70-448c-8410-7b673d8cf595&tab=output",
+          "job_name": "mi355_1: Kernels Attention Test 1",
           "side": "amd"
         },
         {
@@ -4976,10 +4975,10 @@
         }
       ],
       "delta": {
-        "total": 4555,
-        "passed": -688,
-        "failed": 1,
-        "skipped": 5242
+        "total": -7515,
+        "passed": -6007,
+        "failed": 0,
+        "skipped": -1512
       },
       "status": "both",
       "backfilled": false
@@ -4991,14 +4990,14 @@
       "amd_job_name": "mi250_1: Kernels Core Operation Test",
       "upstream_job_name": "Kernels Core Operation Test",
       "amd": {
-        "total": 4482,
-        "passed": 4015,
-        "failed": 223,
-        "skipped": 244,
+        "total": 12996,
+        "passed": 6215,
+        "failed": 279,
+        "skipped": 6502,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2117.47
+        "duration": 6489.26
       },
       "upstream": {
         "total": 6604,
@@ -5016,21 +5015,21 @@
         "mi300"
       ],
       "hw_failures": {
-        "mi250": 103,
-        "mi300": 120
+        "mi250": 133,
+        "mi300": 146
       },
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b042-4523-ac7d-7e9dc8aff799&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dd6-4517-b036-75db76acd2a2&tab=output",
           "job_name": "mi250_1: Kernels Core Operation Test",
           "side": "amd"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b085-42d4-a9e9-72f186593f13&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e1b-440c-a6f2-5b55b4da5730&tab=output",
           "job_name": "mi300_1: Kernels Core Operation Test",
           "side": "amd"
         },
@@ -5042,10 +5041,10 @@
         }
       ],
       "delta": {
-        "total": -2122,
-        "passed": 549,
-        "failed": 223,
-        "skipped": -2894
+        "total": 6392,
+        "passed": 2749,
+        "failed": 279,
+        "skipped": 3364
       },
       "status": "both",
       "backfilled": false
@@ -5064,7 +5063,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1764.38
+        "duration": 1826.59
       },
       "upstream": {
         "total": 56,
@@ -5088,7 +5087,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b087-4b84-9f45-40c3c2a869b6&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e1e-46f6-b093-48ec5f8172f0&tab=output",
           "job_name": "mi300_2: Kernels FP8 MoE Test (2xH100-2xMI300)",
           "side": "amd"
         },
@@ -5122,7 +5121,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1316.86
+        "duration": 1327.51
       },
       "upstream": {
         "total": 56,
@@ -5146,7 +5145,7 @@
       "job_links": [
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0cb-4980-b641-81d70942adbf&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e73-40a8-b44e-a479049302ab&tab=output",
           "job_name": "mi355_2: Kernels FP8 MoE Test (2xH100-2xMI355)",
           "side": "amd"
         },
@@ -5180,7 +5179,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 32.53
+        "duration": 34.25
       },
       "upstream": {
         "total": 172,
@@ -5202,7 +5201,7 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b043-4a7e-b055-e7fbd6c0b6db&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dd7-4dcd-9848-0abf07753f9f&tab=output",
           "job_name": "mi250_1: Kernels Helion Test",
           "side": "amd"
         },
@@ -5229,14 +5228,14 @@
       "amd_job_name": "mi250_1: Kernels Mamba Test",
       "upstream_job_name": "Kernels Mamba Test",
       "amd": {
-        "total": 313,
-        "passed": 294,
+        "total": 574,
+        "passed": 552,
         "failed": 0,
-        "skipped": 19,
+        "skipped": 22,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 78.46
+        "duration": 1091.83
       },
       "upstream": {
         "total": 574,
@@ -5258,7 +5257,7 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b044-45b4-b7b3-25b004f00297&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dd8-4f5b-9972-46a9c0cb9eaf&tab=output",
           "job_name": "mi250_1: Kernels Mamba Test",
           "side": "amd"
         },
@@ -5270,10 +5269,10 @@
         }
       ],
       "delta": {
-        "total": -261,
-        "passed": -258,
+        "total": 0,
+        "passed": 0,
         "failed": 0,
-        "skipped": -3
+        "skipped": 0
       },
       "status": "both",
       "backfilled": false
@@ -5283,7 +5282,7 @@
       "family_key": "kernels moe test",
       "family_name": "kernels moe test",
       "amd_job_name": "mi300_1: Kernels MoE Test 1",
-      "upstream_job_name": "Kernels MoE Test 1",
+      "upstream_job_name": "Kernels MoE Test 2",
       "amd": {
         "total": 13849,
         "passed": 8008,
@@ -5292,7 +5291,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 10933.42
+        "duration": 11314.18
       },
       "upstream": {
         "total": 20,
@@ -5302,7 +5301,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 184.14
+        "duration": 184.14000000000001
       },
       "hardware": [
         "h100",
@@ -5318,20 +5317,20 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b085-4ed2-aa86-4eb61cf91e0f&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e1c-4074-8f30-605700c24806&tab=output",
           "job_name": "mi300_1: Kernels MoE Test 1",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0ca-4d32-9e4b-009d398ed599&tab=output",
-          "job_name": "mi355_1: Kernels MoE Test 1",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e71-4990-a814-1e029c7a4a60&tab=output",
+          "job_name": "mi355_1: Kernels MoE Test 2",
           "side": "amd"
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-71d5-4f91-be35-e3a42663ec3f&tab=output",
-          "job_name": "Kernels MoE Test 1",
+          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-71d6-48ce-b27e-f2bf99fcf661&tab=output",
+          "job_name": "Kernels MoE Test 2",
           "side": "upstream"
         }
       ],
@@ -5349,16 +5348,16 @@
       "family_key": "kernels quantization test",
       "family_name": "kernels quantization test",
       "amd_job_name": "mi300_1: Kernels Quantization Test 2",
-      "upstream_job_name": "Kernels Quantization Test 2",
+      "upstream_job_name": "Kernels Quantization Test 1",
       "amd": {
-        "total": 24432,
-        "passed": 13818,
+        "total": 26096,
+        "passed": 14872,
         "failed": 110,
-        "skipped": 10504,
+        "skipped": 11114,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 9062.57
+        "duration": 10153.49
       },
       "upstream": {
         "total": 14296,
@@ -5383,28 +5382,28 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b086-4427-9886-bdb770963907&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e1d-4289-8ee2-c875d31e0ca0&tab=output",
           "job_name": "mi300_1: Kernels Quantization Test 2",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0ca-4626-b567-740be5cd5a40&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e72-4511-9ad2-639f64119d31&tab=output",
           "job_name": "mi355_1: Kernels Quantization Test 1",
           "side": "amd"
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-71db-4d60-b298-7bade30c5ca6&tab=output",
-          "job_name": "Kernels Quantization Test 2",
+          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-71da-4355-acd6-7c246c229f21&tab=output",
+          "job_name": "Kernels Quantization Test 1",
           "side": "upstream"
         }
       ],
       "delta": {
-        "total": 10136,
-        "passed": 10967,
+        "total": 11800,
+        "passed": 12021,
         "failed": 110,
-        "skipped": -941
+        "skipped": -331
       },
       "status": "both",
       "backfilled": false
@@ -5423,7 +5422,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4399.76
+        "duration": 4884.29
       },
       "upstream": {
         "total": 38,
@@ -5449,13 +5448,13 @@
       "job_links": [
         {
           "hw": "mi325",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0b6-4a60-94de-552ae76c82cf&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e58-426c-9b1c-03752a592b88&tab=output",
           "job_name": "mi325_1: Language Models Test (Extended Generation)",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0cd-44cd-a499-72f1bf7eb10d&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e74-4356-b135-dc86a9e80310&tab=output",
           "job_name": "mi355_1: Language Models Test (Extended Generation)",
           "side": "amd"
         },
@@ -5489,7 +5488,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 5150.98
+        "duration": 5246.379999999999
       },
       "upstream": {
         "total": 106,
@@ -5512,13 +5511,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b089-4b96-952b-8eb632ee8c30&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e20-467f-9199-542eda329023&tab=output",
           "job_name": "mi300_1: Language Models Test (Extended Pooling)",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0ce-4eaf-b651-62444cbc9403&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e76-42a7-9e1c-921bc0d84dbc&tab=output",
           "job_name": "mi355_1: Language Models Test (Extended Pooling)",
           "side": "amd"
         },
@@ -5552,7 +5551,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1494.48
+        "duration": 1562.35
       },
       "upstream": {
         "total": 125,
@@ -5574,7 +5573,7 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b04a-4dfa-9fd9-845d073ace8c&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1ddf-4a30-9cb5-d82a7b0bae4c&tab=output",
           "job_name": "mi250_1: Language Models Test (MTEB)",
           "side": "amd"
         },
@@ -5608,7 +5607,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1307.3
+        "duration": 1304.51
       },
       "upstream": {
         "total": 7,
@@ -5631,13 +5630,13 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b04b-4cfa-be46-9f123c54ab73&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1de0-4d2a-887d-5188fa99de4b&tab=output",
           "job_name": "mi250_1: Language Models Test (PPL)",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0ce-45ed-8043-f09de6eaf00b&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e77-4539-81dd-077aaf3ac769&tab=output",
           "job_name": "mi355_1: Language Models Test (PPL)",
           "side": "amd"
         },
@@ -5671,7 +5670,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 714.39
+        "duration": 721.67
       },
       "upstream": {
         "total": 11,
@@ -5695,7 +5694,7 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b04c-42dc-9ce1-47bb148bb5e3&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1de1-4d49-825a-228bcdc6f7d5&tab=output",
           "job_name": "mi250_1: Language Models Tests (Extra Standard) 1",
           "side": "amd"
         },
@@ -5719,7 +5718,7 @@
       "name": "language models tests (hybrid)",
       "family_key": "language models tests (hybrid)",
       "family_name": "language models tests (hybrid)",
-      "amd_job_name": "mi325_1: Language Models Tests (Hybrid) 2",
+      "amd_job_name": "mi325_1: Language Models Tests (Hybrid) 1",
       "upstream_job_name": "Language Models Tests (Hybrid) 1",
       "amd": {
         "total": 47,
@@ -5729,7 +5728,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2887.41
+        "duration": 2915.84
       },
       "upstream": {
         "total": 47,
@@ -5751,8 +5750,8 @@
       "job_links": [
         {
           "hw": "mi325",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0b7-47c8-a12e-41bf4abe692d&tab=output",
-          "job_name": "mi325_1: Language Models Tests (Hybrid) 2",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e5a-4830-8655-86d89151e2c1&tab=output",
+          "job_name": "mi325_1: Language Models Tests (Hybrid) 1",
           "side": "amd"
         },
         {
@@ -5785,7 +5784,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1505.22
+        "duration": 1598.21
       },
       "upstream": {
         "total": 14,
@@ -5811,13 +5810,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b08a-4828-aaf0-f4ab8a7f7a37&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e21-49e3-a91c-d5f6b16053f1&tab=output",
           "job_name": "mi300_1: Language Models Tests (Standard)",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0cf-47c5-8ef5-b3be2674ce29&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e78-444e-9194-b4355e2e3479&tab=output",
           "job_name": "mi355_1: Language Models Tests (Standard)",
           "side": "amd"
         },
@@ -5851,7 +5850,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2472.97
+        "duration": 998.99
       },
       "upstream": {
         "total": 2,
@@ -5873,7 +5872,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b07f-40b9-b4b8-67f0c28f2764&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e15-4195-ae0b-1237c3636b87&tab=output",
           "job_name": "mi300_4: LM Eval Large Models (4xA100-4xMI300)",
           "side": "amd"
         },
@@ -5907,7 +5906,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 929.06
+        "duration": 1050.33
       },
       "upstream": {
         "total": 2,
@@ -5929,7 +5928,7 @@
       "job_links": [
         {
           "hw": "mi325",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0b4-4448-819b-cb6c351c19ad&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e56-4615-9052-dea9a28f314f&tab=output",
           "job_name": "mi325_4: LM Eval Large Models (4xH100-4xMI325)",
           "side": "amd"
         },
@@ -5963,7 +5962,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1169.17
+        "duration": 1191.61
       },
       "upstream": {
         "total": 2,
@@ -5985,7 +5984,7 @@
       "job_links": [
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0c6-4d8a-93a0-1228d2754c09&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e6b-458b-9d9a-ef3424156660&tab=output",
           "job_name": "mi355_4: LM Eval Large Models (4xH100-4xMI355)",
           "side": "amd"
         },
@@ -6019,7 +6018,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 886.34
+        "duration": 370.31
       },
       "upstream": {
         "total": 6,
@@ -6043,7 +6042,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b082-4582-9261-f7feb1d80eb6&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e18-4394-8acf-a22c6056d98b&tab=output",
           "job_name": "mi300_8: LM Eval Large Models (8xH200-8xMI300)",
           "side": "amd"
         },
@@ -6077,7 +6076,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 793.33
+        "duration": 763.83
       },
       "upstream": {
         "total": 3,
@@ -6099,7 +6098,7 @@
       "job_links": [
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0c3-495b-9bc5-e8c42e3ab8fa&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e68-4684-9eb5-80c06f847981&tab=output",
           "job_name": "mi355_2: LM Eval Qwen3-5 Models (B200-MI355)",
           "side": "amd"
         },
@@ -6133,7 +6132,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 759.33
+        "duration": 785.52
       },
       "upstream": {
         "total": 7,
@@ -6155,7 +6154,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b07b-4a4c-9e62-046534a04533&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e0e-4720-90d7-16adb2011593&tab=output",
           "job_name": "mi300_1: LM Eval Small Models",
           "side": "amd"
         },
@@ -6189,7 +6188,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1124.25
+        "duration": 1104.45
       },
       "upstream": {
         "total": 5,
@@ -6211,7 +6210,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b07d-4c77-82fe-b189f40df326&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e12-405a-89d6-e0701986c1c4&tab=output",
           "job_name": "mi300_2: LM Eval Small Models (2xB200-2xMI300)",
           "side": "amd"
         },
@@ -6245,7 +6244,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 845.33
+        "duration": 837.81
       },
       "upstream": {
         "total": 5,
@@ -6267,7 +6266,7 @@
       "job_links": [
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0c4-452e-8c14-e8433fee8b6c&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e69-4638-8920-0729b526adba&tab=output",
           "job_name": "mi355_2: LM Eval Small Models (2xB200-2xMI355)",
           "side": "amd"
         },
@@ -6301,7 +6300,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 496.88
+        "duration": 504.9
       },
       "upstream": {
         "total": 5,
@@ -6323,7 +6322,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b07b-4c77-a89c-70eeb779b6a8&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e10-4b2d-b9af-bc217206591f&tab=output",
           "job_name": "mi300_1: LM Eval Small Models (MI300)",
           "side": "amd"
         },
@@ -6357,7 +6356,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3608.46
+        "duration": 3654.77
       },
       "upstream": {
         "total": 6824,
@@ -6381,7 +6380,7 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b045-4df4-ac7c-51579ee4a870&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dda-4ad8-b25b-d7947fbbf57a&tab=output",
           "job_name": "mi250_1: LoRA 1",
           "side": "amd"
         },
@@ -6439,7 +6438,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b088-4b14-9fcc-382c60cd76a0&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e1f-4fed-ae1f-060292bd2f87&tab=output",
           "job_name": "mi300_4: LoRA TP (Distributed)",
           "side": "amd"
         },
@@ -6473,7 +6472,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 42.58
+        "duration": 42.57
       },
       "upstream": {
         "total": 1,
@@ -6495,7 +6494,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0a6-4554-b718-4a607310f1c4&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e44-4af3-ae61-5ca8fe8d5d3e&tab=output",
           "job_name": "mi300_2: Metrics, Tracing (2 GPUs)",
           "side": "amd"
         },
@@ -6522,14 +6521,14 @@
       "amd_job_name": "mi250_1: Model Executor",
       "upstream_job_name": null,
       "amd": {
-        "total": 265,
-        "passed": 249,
+        "total": 289,
+        "passed": 273,
         "failed": 3,
         "skipped": 13,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1079.74
+        "duration": 976.05
       },
       "upstream": null,
       "hardware": [
@@ -6544,7 +6543,7 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b046-4f6e-b51b-33b502b109c1&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1ddb-4539-90d1-3dc3ce1267a2&tab=output",
           "job_name": "mi250_1: Model Executor",
           "side": "amd"
         }
@@ -6560,13 +6559,13 @@
       "upstream_job_name": "Multi-Modal Accuracy Eval (Small Models)",
       "amd": {
         "total": 1,
-        "passed": 0,
-        "failed": 1,
+        "passed": 1,
+        "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 768.91
       },
       "upstream": {
         "total": 1,
@@ -6582,15 +6581,13 @@
         "h100",
         "mi250"
       ],
-      "hw_failures": {
-        "mi250": 1
-      },
+      "hw_failures": null,
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b040-4c48-b61a-3f4a16247267&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dd4-4118-aa28-39c8d88eb1a5&tab=output",
           "job_name": "mi250_1: Multi-Modal Accuracy Eval (Small Models)",
           "side": "amd"
         },
@@ -6603,8 +6600,8 @@
       ],
       "delta": {
         "total": 0,
-        "passed": -1,
-        "failed": 1,
+        "passed": 0,
+        "failed": 0,
         "skipped": 0
       },
       "status": "both",
@@ -6619,11 +6616,11 @@
       "amd": {
         "total": 2,
         "passed": 0,
-        "failed": 2,
+        "failed": 1,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
-        "error": 0,
+        "error": 1,
         "duration": 0.0
       },
       "upstream": {
@@ -6650,13 +6647,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b08b-4be9-8d07-d74b40c29bd7&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e22-4483-bd09-073acb6cb903&tab=output",
           "job_name": "mi300_1: Multi-Modal Models (Extended Generation 1)",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0d0-4866-9cd3-08487d9e4b96&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e78-4da4-9a52-9cea7e2b8206&tab=output",
           "job_name": "mi355_1: Multi-Modal Models (Extended Generation 1)",
           "side": "amd"
         },
@@ -6670,7 +6667,7 @@
       "delta": {
         "total": -85,
         "passed": -16,
-        "failed": 2,
+        "failed": 1,
         "skipped": -71
       },
       "status": "both",
@@ -6683,14 +6680,14 @@
       "amd_job_name": "mi250_1: Multi-Modal Models (Extended Generation 2)",
       "upstream_job_name": "Multi-Modal Models (Extended Generation 2)",
       "amd": {
-        "total": 197,
-        "passed": 76,
-        "failed": 2,
-        "skipped": 119,
+        "total": 138,
+        "passed": 43,
+        "failed": 1,
+        "skipped": 94,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 5054.29
+        "duration": 2707.85
       },
       "upstream": {
         "total": 137,
@@ -6708,20 +6705,20 @@
         "mi300"
       ],
       "hw_failures": {
-        "mi300": 2
+        "mi300": 1
       },
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b04d-4498-b73d-08f12ef3cf90&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1de2-41dd-97cb-062dc5f3c8bd&tab=output",
           "job_name": "mi250_1: Multi-Modal Models (Extended Generation 2)",
           "side": "amd"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b08c-4638-849b-e82304d75b4e&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e23-4256-ad15-9eb21ef6244c&tab=output",
           "job_name": "mi300_1: Multi-Modal Models (Extended Generation 2)",
           "side": "amd"
         },
@@ -6733,10 +6730,10 @@
         }
       ],
       "delta": {
-        "total": 60,
-        "passed": 39,
-        "failed": 2,
-        "skipped": 19
+        "total": 1,
+        "passed": 6,
+        "failed": 1,
+        "skipped": -6
       },
       "status": "both",
       "backfilled": false
@@ -6755,7 +6752,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 8571.77
+        "duration": 8848.83
       },
       "upstream": {
         "total": 113,
@@ -6778,13 +6775,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b08d-4d93-a3ae-54da4913a357&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e24-41e0-ab62-47c2ce5ff4f1&tab=output",
           "job_name": "mi300_1: Multi-Modal Models (Extended Generation 3)",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0d1-41b5-a8a8-0b7b978a6045&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e7a-4e66-b3ca-4f2a37797f03&tab=output",
           "job_name": "mi355_1: Multi-Modal Models (Extended Generation 3)",
           "side": "amd"
         },
@@ -6818,7 +6815,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4289.99
+        "duration": 4251.69
       },
       "upstream": {
         "total": 59,
@@ -6842,19 +6839,19 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b04e-48d4-826b-a39ac3767f54&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1de2-4fb7-b619-eeed43147511&tab=output",
           "job_name": "mi250_1: Multi-Modal Models (Extended Pooling)",
           "side": "amd"
         },
         {
           "hw": "mi325",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0b8-41b5-8475-53b1ac9b5760&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e5b-43b7-8a24-c49da0e06135&tab=output",
           "job_name": "mi325_1: Multi-Modal Models (Extended Pooling)",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0d2-4fb7-ac39-f2b59a9c3e5f&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e7b-4812-b42d-a8d7026b02b4&tab=output",
           "job_name": "mi355_1: Multi-Modal Models (Extended Pooling)",
           "side": "amd"
         },
@@ -6888,7 +6885,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 401.59000000000003
+        "duration": 425.15999999999997
       },
       "upstream": {
         "total": 3,
@@ -6911,13 +6908,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b08e-4750-8adc-bbba7f325c0e&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e26-4c70-87e5-a8938ae8dde4&tab=output",
           "job_name": "mi300_1: Multi-Modal Models (Standard) 1: qwen2",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0d3-41e1-9559-7e7eaa0ecb46&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e7c-46f5-bc10-dd4f86c9369a&tab=output",
           "job_name": "mi355_1: Multi-Modal Models (Standard) 1: qwen2",
           "side": "amd"
         },
@@ -6951,7 +6948,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 468.0
+        "duration": 743.8
       },
       "upstream": {
         "total": 8,
@@ -6973,7 +6970,7 @@
       "job_links": [
         {
           "hw": "mi325",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0b9-4361-b1f1-49397fedf6df&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e5b-446a-b795-cfb3831eefa6&tab=output",
           "job_name": "mi325_1: Multi-Modal Models (Standard) 2: qwen3 + gemma",
           "side": "amd"
         },
@@ -7007,7 +7004,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 984.9100000000001
+        "duration": 989.5
       },
       "upstream": {
         "total": 9,
@@ -7030,13 +7027,13 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b04f-452b-9b10-5809b35ed7b0&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1de3-4391-8af1-97fbb5d65d4c&tab=output",
           "job_name": "mi250_1: Multi-Modal Models (Standard) 3: llava + qwen2_vl",
           "side": "amd"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b08e-43bc-96be-175a6ab05329&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e27-434a-bbee-33c706186763&tab=output",
           "job_name": "mi300_1: Multi-Modal Models (Standard) 3: llava + qwen2_vl",
           "side": "amd"
         },
@@ -7070,7 +7067,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1306.53
+        "duration": 1398.0
       },
       "upstream": {
         "total": 7,
@@ -7096,13 +7093,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b090-4173-8aa0-1f1934b5aa33&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e28-457b-a6e2-f2a54bdd921f&tab=output",
           "job_name": "mi300_1: Multi-Modal Models (Standard) 4: other + whisper",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0d4-4ec3-9065-9fe1c001c264&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e7d-42d7-b453-7e56dc9efb28&tab=output",
           "job_name": "mi355_1: Multi-Modal Models (Standard) 4: other + whisper",
           "side": "amd"
         },
@@ -7130,13 +7127,13 @@
       "upstream_job_name": "Multi-Modal Processor",
       "amd": {
         "total": 141,
-        "passed": 141,
-        "failed": 0,
+        "passed": 140,
+        "failed": 1,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3153.55
+        "duration": 3087.75
       },
       "upstream": {
         "total": 141,
@@ -7152,13 +7149,15 @@
         "h100",
         "mi300"
       ],
-      "hw_failures": null,
+      "hw_failures": {
+        "mi300": 1
+      },
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b091-4741-a931-db74ce729307&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e29-4afc-ad2c-7187e21e713f&tab=output",
           "job_name": "mi300_1: Multi-Modal Processor",
           "side": "amd"
         },
@@ -7171,8 +7170,8 @@
       ],
       "delta": {
         "total": 0,
-        "passed": 0,
-        "failed": 0,
+        "passed": -1,
+        "failed": 1,
         "skipped": 0
       },
       "status": "both",
@@ -7185,14 +7184,14 @@
       "amd_job_name": "mi300_1: Multi-Modal Processor (CPU)",
       "upstream_job_name": "Multi-Modal Processor (CPU)",
       "amd": {
-        "total": 995,
-        "passed": 885,
+        "total": 1,
+        "passed": 0,
         "failed": 0,
-        "skipped": 110,
+        "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
-        "error": 0,
-        "duration": 9497.76
+        "error": 1,
+        "duration": 0.0
       },
       "upstream": {
         "total": 995,
@@ -7208,13 +7207,15 @@
         "h100",
         "mi300"
       ],
-      "hw_failures": null,
+      "hw_failures": {
+        "mi300": 1
+      },
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b091-4829-b64f-5f5159ecf219&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e2a-4021-913c-25aa5418ccfa&tab=output",
           "job_name": "mi300_1: Multi-Modal Processor (CPU)",
           "side": "amd"
         },
@@ -7226,10 +7227,10 @@
         }
       ],
       "delta": {
-        "total": 0,
-        "passed": 0,
+        "total": -994,
+        "passed": -885,
         "failed": 0,
-        "skipped": 0
+        "skipped": -110
       },
       "status": "both",
       "backfilled": false
@@ -7273,13 +7274,13 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b05b-4b7e-8f76-1ece9f79451c&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dee-40a9-9d7b-82039bee326c&tab=output",
           "job_name": "mi250_2: NixlConnector PD + Spec Decode acceptance (2 GPUs)",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0da-4c2b-b827-dba0dc642fe3&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e85-4262-b24f-567c9ac8d35e&tab=output",
           "job_name": "mi355_2: NixlConnector PD + Spec Decode acceptance (2 GPUs)",
           "side": "amd"
         },
@@ -7313,7 +7314,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 102.72
+        "duration": 106.06
       },
       "upstream": {
         "total": 1,
@@ -7335,7 +7336,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b078-4d59-833e-5cadda8bb3f6&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e0c-42ad-98d8-b46583ad30af&tab=output",
           "job_name": "mi300_1: OpenAI API correctness",
           "side": "amd"
         },
@@ -7393,7 +7394,7 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b03e-4233-9408-d0c76f5a1b66&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dd2-421d-b616-0927d9fb24c6&tab=output",
           "job_name": "mi250_4: Pipeline + Context Parallelism (4 GPUs)",
           "side": "amd"
         },
@@ -7427,7 +7428,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 6.75
+        "duration": 6.49
       },
       "upstream": {
         "total": 2,
@@ -7449,7 +7450,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b067-4625-a6f0-018b58a3f69d&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dfa-4f55-9bbb-5c8e794989fa&tab=output",
           "job_name": "mi300_1: Platform Tests (CUDA)",
           "side": "amd"
         },
@@ -7483,7 +7484,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3.78
+        "duration": 3.8
       },
       "upstream": {
         "total": 10,
@@ -7505,7 +7506,7 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b050-46bc-83c8-b5948ef26270&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1de4-4ce2-859c-2e368098eeb5&tab=output",
           "job_name": "mi250_2: Plugin Tests (2 GPUs)",
           "side": "amd"
         },
@@ -7561,7 +7562,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b097-4dbf-9c23-a0ed8f1bc0f0&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e31-44de-9c26-bf015ea29c72&tab=output",
           "job_name": "mi300_1: Python-only Installation",
           "side": "amd"
         },
@@ -7595,7 +7596,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 930.33
+        "duration": 1014.27
       },
       "upstream": {
         "total": 550,
@@ -7619,7 +7620,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b064-4fe9-929e-3916361afa34&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1df7-40a5-8258-dff46c4bf8b8&tab=output",
           "job_name": "mi300_1: PyTorch Compilation Passes Unit Tests",
           "side": "amd"
         },
@@ -7646,14 +7647,14 @@
       "amd_job_name": "mi250_1: PyTorch Compilation Unit Tests",
       "upstream_job_name": "PyTorch Compilation Unit Tests",
       "amd": {
-        "total": 3,
-        "passed": 2,
+        "total": 5,
+        "passed": 4,
         "failed": 1,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 5.64
+        "duration": 11.41
       },
       "upstream": {
         "total": 2,
@@ -7677,7 +7678,7 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b036-441d-a94f-71416ee6a671&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dcb-4f63-9d73-f9d7a5af8025&tab=output",
           "job_name": "mi250_1: PyTorch Compilation Unit Tests",
           "side": "amd"
         },
@@ -7689,8 +7690,8 @@
         }
       ],
       "delta": {
-        "total": 1,
-        "passed": 0,
+        "total": 3,
+        "passed": 2,
         "failed": 1,
         "skipped": 0
       },
@@ -7711,7 +7712,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1691.89
+        "duration": 1700.82
       },
       "upstream": {
         "total": 26,
@@ -7735,7 +7736,7 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b038-4836-901d-2aa2233532d6&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dcc-4132-8998-9683485f2b5e&tab=output",
           "job_name": "mi250_1: PyTorch Fullgraph",
           "side": "amd"
         },
@@ -7769,7 +7770,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 60.85
+        "duration": 52.93
       },
       "upstream": {
         "total": 3,
@@ -7791,7 +7792,7 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b039-4645-8fa7-b9ee3f424797&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dcd-4d9d-aa91-9a68f40131cc&tab=output",
           "job_name": "mi250_1: PyTorch Fullgraph Smoke Test",
           "side": "amd"
         },
@@ -7847,7 +7848,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b065-4305-9f0b-505511369fa3&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1df9-4292-8d4a-abb7c77dc066&tab=output",
           "job_name": "mi300_1: Pytorch Nightly Dependency Override Check",
           "side": "amd"
         },
@@ -7874,14 +7875,14 @@
       "amd_job_name": "mi300_1: Quantization",
       "upstream_job_name": "Quantization",
       "amd": {
-        "total": 636,
-        "passed": 544,
-        "failed": 16,
-        "skipped": 76,
+        "total": 319,
+        "passed": 273,
+        "failed": 10,
+        "skipped": 36,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 6420.65
+        "duration": 3492.1
       },
       "upstream": {
         "total": 310,
@@ -7899,7 +7900,7 @@
         "mi355"
       ],
       "hw_failures": {
-        "mi300": 7,
+        "mi300": 1,
         "mi355": 9,
         "h100": 1
       },
@@ -7908,13 +7909,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b094-4a40-a06a-c3b13e693dca&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e2e-475b-9b99-9440b5b68555&tab=output",
           "job_name": "mi300_1: Quantization",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0d5-4253-96f5-09ecdaaa8d68&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e7f-468b-b3e5-2602b41fa68a&tab=output",
           "job_name": "mi355_1: Quantization",
           "side": "amd"
         },
@@ -7926,10 +7927,10 @@
         }
       ],
       "delta": {
-        "total": 326,
-        "passed": 267,
-        "failed": 15,
-        "skipped": 44
+        "total": 9,
+        "passed": -4,
+        "failed": 9,
+        "skipped": 4
       },
       "status": "both",
       "backfilled": false
@@ -7948,7 +7949,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3372.14
+        "duration": 3360.1099999999997
       },
       "upstream": {
         "total": 62,
@@ -7974,13 +7975,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b092-45b0-9af9-14b41a2886b0&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e2b-4937-9cb2-552b10a86654&tab=output",
           "job_name": "mi300_1: Quantized Models Test",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0d4-44fd-a006-99c4aa6d5d96&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e7e-4346-bd9e-c34e46a63ef2&tab=output",
           "job_name": "mi355_1: Quantized Models Test",
           "side": "amd"
         },
@@ -8008,8 +8009,8 @@
       "upstream_job_name": "Qwen3-30B-A3B-FP8-block Accuracy",
       "amd": {
         "total": 1,
-        "passed": 0,
-        "failed": 1,
+        "passed": 1,
+        "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
@@ -8030,15 +8031,13 @@
         "h100",
         "mi300"
       ],
-      "hw_failures": {
-        "mi300": 1
-      },
+      "hw_failures": null,
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b080-4601-bcb1-ebe0490abe77&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e16-4186-9095-933634aa760f&tab=output",
           "job_name": "mi300_4: Qwen3-30B-A3B-FP8-block Accuracy (4xH100-4xMI300)",
           "side": "amd"
         },
@@ -8051,8 +8050,8 @@
       ],
       "delta": {
         "total": 0,
-        "passed": -1,
-        "failed": 1,
+        "passed": 0,
+        "failed": 0,
         "skipped": 0
       },
       "status": "both",
@@ -8094,7 +8093,7 @@
       "job_links": [
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0c5-44f8-b792-957509f23e5f&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e6a-4b8f-a689-e35979bb9375&tab=output",
           "job_name": "mi355_2: Qwen3-30B-A3B-FP8-block Accuracy (B200-MI355)",
           "side": "amd"
         },
@@ -8140,7 +8139,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b081-484b-9085-cb7080666a83&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e17-4c1d-8501-0d26fd7e8dde&tab=output",
           "job_name": "mi300_4: Qwen3-Next-80B-A3B-Instruct MTP Async EPLB Accuracy",
           "side": "amd"
         }
@@ -8184,7 +8183,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b099-4963-b600-919c99ff6cb0&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e33-41b3-9770-3c05a1b22ea8&tab=output",
           "job_name": "mi300_1: Ray Dependency Compatibility Check",
           "side": "amd"
         },
@@ -8218,7 +8217,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 249.13
+        "duration": 242.12
       },
       "upstream": {
         "total": 6,
@@ -8240,7 +8239,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b06e-4741-a2bf-ddc5246667b3&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e00-43b4-8c7e-18dabe71dfa0&tab=output",
           "job_name": "mi300_4: RayExecutorV2 (4 GPUs)",
           "side": "amd"
         },
@@ -8274,7 +8273,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 478.87
+        "duration": 416.73
       },
       "upstream": {
         "total": 3,
@@ -8297,13 +8296,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b098-464c-bd16-a9c9a2cf676c&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e32-47b1-84e4-7f215d5dccda&tab=output",
           "job_name": "mi300_1: Regression",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0df-44a2-82a7-250ce0068abf&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e8f-44a6-8097-a766b89af155&tab=output",
           "job_name": "mi355_1: Regression",
           "side": "amd"
         },
@@ -8337,7 +8336,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 6.3
+        "duration": 6.71
       },
       "upstream": null,
       "hardware": [
@@ -8349,7 +8348,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b095-40d0-822c-17b74fa00f62&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e2f-488d-a592-fd320e5b476f&tab=output",
           "job_name": "mi300_1: ROCm AITER Ops Test",
           "side": "amd"
         }
@@ -8371,7 +8370,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 714.12
+        "duration": 667.79
       },
       "upstream": null,
       "hardware": [
@@ -8383,7 +8382,7 @@
       "job_links": [
         {
           "hw": "mi325",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0b6-4fc3-b800-b18d68d549f6&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e57-4d76-abbb-9634058ce218&tab=output",
           "job_name": "mi325_8: ROCm LM Eval Large Models (8 GPUs)",
           "side": "amd"
         }
@@ -8405,7 +8404,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 424.65
+        "duration": 424.43
       },
       "upstream": {
         "total": 11,
@@ -8427,7 +8426,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b096-4226-ad06-8810084e6722&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e2f-40c6-a2e5-2ed94dc93e0e&tab=output",
           "job_name": "mi300_1: Samplers Test",
           "side": "amd"
         },
@@ -8461,7 +8460,7 @@
         "xfailed": 20,
         "xpassed": 0,
         "error": 0,
-        "duration": 2086.12
+        "duration": 2143.1
       },
       "upstream": {
         "total": 20,
@@ -8486,13 +8485,13 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b056-465f-acd2-f52a4d746bfe&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1de9-48b6-926a-f24792a0de9c&tab=output",
           "job_name": "mi250_1: Spec Decode Draft Model",
           "side": "amd"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b09d-4c1a-b5ff-9322d3c42296&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e38-4f82-9220-4acc98af9eaa&tab=output",
           "job_name": "mi300_1: Spec Decode Draft Model",
           "side": "amd"
         },
@@ -8526,7 +8525,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1444.8
+        "duration": 1443.39
       },
       "upstream": {
         "total": 18,
@@ -8550,7 +8549,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b09e-469e-837f-14a1b028e590&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e39-4d9d-b201-fc2d2d729a8c&tab=output",
           "job_name": "mi300_1: Spec Decode Eagle",
           "side": "amd"
         },
@@ -8584,7 +8583,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 386.49
+        "duration": 386.45
       },
       "upstream": {
         "total": 1,
@@ -8606,7 +8605,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b09f-44f7-a2eb-1e42a45999f2&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e3b-42a6-a774-a3d987b6bdfe&tab=output",
           "job_name": "mi300_1: Spec Decode Ngram + Suffix",
           "side": "amd"
         },
@@ -8640,7 +8639,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3977.21
+        "duration": 4092.1800000000003
       },
       "upstream": {
         "total": 1,
@@ -8663,13 +8662,13 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b057-423f-8639-df172717c425&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1deb-4920-b3c3-ad33d72f1685&tab=output",
           "job_name": "mi250_1: Spec Decode Speculators + MTP",
           "side": "amd"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0a0-46b1-9b15-fa7f936bb81f&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e3d-469d-9203-f58ec5641d76&tab=output",
           "job_name": "mi300_1: Spec Decode Speculators + MTP",
           "side": "amd"
         },
@@ -8694,7 +8693,7 @@
       "family_key": "transformers nightly models",
       "family_name": "transformers nightly models",
       "amd_job_name": "mi300_1: Transformers Nightly Models",
-      "upstream_job_name": null,
+      "upstream_job_name": "Transformers Nightly Models",
       "amd": {
         "total": 1,
         "passed": 0,
@@ -8705,25 +8704,47 @@
         "error": 1,
         "duration": 0.0
       },
-      "upstream": null,
+      "upstream": {
+        "total": 1136,
+        "passed": 918,
+        "failed": 117,
+        "skipped": 101,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 5429.78
+      },
       "hardware": [
         "h100",
         "mi300"
       ],
       "hw_failures": {
-        "mi300": 1
+        "mi300": 1,
+        "h100": 117
       },
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b093-4636-9b1a-dfecdaf12a8c&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e2d-4ce7-b6b5-7592c5494141&tab=output",
           "job_name": "mi300_1: Transformers Nightly Models",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-7240-48e6-a316-f6f5cecd49b7&tab=output",
+          "job_name": "Transformers Nightly Models",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": -1135,
+        "passed": -918,
+        "failed": -117,
+        "skipped": -101
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -8740,7 +8761,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2783.51
+        "duration": 2999.31
       },
       "upstream": {
         "total": 1841,
@@ -8762,7 +8783,7 @@
       "job_links": [
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0d7-47b7-8c52-781169fffbc2&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e81-4743-b31a-7e7c3d3bc0a9&tab=output",
           "job_name": "mi355_1: V1 attention (B200-MI355)",
           "side": "amd"
         },
@@ -8796,7 +8817,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1925.56
+        "duration": 1961.23
       },
       "upstream": {
         "total": 1841,
@@ -8818,7 +8839,7 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b058-4e3a-9247-06cf8703a14b&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dec-4e9b-bcfc-77c7d722fac3&tab=output",
           "job_name": "mi250_1: V1 attention (H100-MI250)",
           "side": "amd"
         },
@@ -8852,7 +8873,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1538.04
+        "duration": 1479.47
       },
       "upstream": {
         "total": 1841,
@@ -8874,7 +8895,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0a1-4392-b0af-0d030cb3e234&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e3e-4ef5-aea4-12f1e4f85e7b&tab=output",
           "job_name": "mi300_1: V1 attention (H100-MI300)",
           "side": "amd"
         },
@@ -8901,14 +8922,14 @@
       "amd_job_name": "mi300_1: V1 Core + KV + Metrics",
       "upstream_job_name": "V1 Core + KV + Metrics",
       "amd": {
-        "total": 616,
-        "passed": 586,
+        "total": 684,
+        "passed": 654,
         "failed": 4,
         "skipped": 26,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1108.06
+        "duration": 1169.4
       },
       "upstream": {
         "total": 1,
@@ -8934,13 +8955,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0a2-44b3-a5f5-0c022f46e766&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e3e-45aa-b39c-7b6ba11cad76&tab=output",
           "job_name": "mi300_1: V1 Core + KV + Metrics",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0d8-4bee-8bc1-e5c17c6fa720&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e82-490b-8fa7-0d67463b0956&tab=output",
           "job_name": "mi355_1: V1 Core + KV + Metrics",
           "side": "amd"
         },
@@ -8952,8 +8973,8 @@
         }
       ],
       "delta": {
-        "total": 615,
-        "passed": 585,
+        "total": 683,
+        "passed": 653,
         "failed": 4,
         "skipped": 26
       },
@@ -8974,7 +8995,7 @@
         "xfailed": 2,
         "xpassed": 0,
         "error": 0,
-        "duration": 349.81
+        "duration": 350.47
       },
       "upstream": {
         "total": 2,
@@ -8997,13 +9018,13 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b05c-427c-95be-460a5936fb9f&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1def-4a53-aed4-cb329a52aa43&tab=output",
           "job_name": "mi250_2: V1 e2e (2 GPUs)",
           "side": "amd"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0a7-46b4-9f80-a43527fb6dc3&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e45-4166-92bb-b7ed1bbe5d18&tab=output",
           "job_name": "mi300_2: V1 e2e (2 GPUs)",
           "side": "amd"
         },
@@ -9037,7 +9058,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4254.15
+        "duration": 4286.02
       },
       "upstream": {
         "total": 5,
@@ -9059,7 +9080,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0ad-43b4-bff0-9a5228dfd24a&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e4d-45c2-9e40-ee5eaa772144&tab=output",
           "job_name": "mi300_4: V1 e2e (4 GPUs)",
           "side": "amd"
         },
@@ -9093,7 +9114,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 307.66
+        "duration": 291.3
       },
       "upstream": {
         "total": 5,
@@ -9115,7 +9136,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0ae-4557-9337-7f15bf81ec93&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e4e-4fa9-bc5b-8edd6e7afa39&tab=output",
           "job_name": "mi300_4: V1 e2e (4xH100-4xMI300)",
           "side": "amd"
         },
@@ -9149,7 +9170,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2.27
+        "duration": 2.29
       },
       "upstream": {
         "total": 8,
@@ -9171,7 +9192,7 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0a3-4007-a844-ff4fa7bebc17&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e40-4f46-86a4-5a50adf57ebe&tab=output",
           "job_name": "mi300_1: V1 others (CPU)",
           "side": "amd"
         },
@@ -9205,7 +9226,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 7.3
+        "duration": 6.220000000000001
       },
       "upstream": {
         "total": 6,
@@ -9229,19 +9250,19 @@
       "job_links": [
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b059-4998-a635-663a4d2930d7&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1dec-488c-9cfe-2f2751b2226a&tab=output",
           "job_name": "mi250_1: V1 Sample + Logits",
           "side": "amd"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0a4-4314-8da4-7ed5b8652f5f&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e41-442f-bad0-2e97b420c4a0&tab=output",
           "job_name": "mi300_1: V1 Sample + Logits",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0d8-44c5-81ed-8d177fef4668&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e82-4e50-9b24-fc81fe277a68&tab=output",
           "job_name": "mi355_1: V1 Sample + Logits",
           "side": "amd"
         },
@@ -9275,7 +9296,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2771.7200000000003
+        "duration": 2658.15
       },
       "upstream": {
         "total": 129,
@@ -9301,13 +9322,13 @@
       "job_links": [
         {
           "hw": "mi325",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0ba-4cdf-b1ee-4ae0cb178729&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e5c-40a2-b16b-34d264cb83f9&tab=output",
           "job_name": "mi325_1: V1 Spec Decode",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0d9-4d2b-b0ac-dc2ff8126a6a&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e83-4825-a300-a40c531d1d8c&tab=output",
           "job_name": "mi355_1: V1 Spec Decode",
           "side": "amd"
         },
@@ -9341,7 +9362,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 202.88
+        "duration": 199.13
       },
       "upstream": {
         "total": 1,
@@ -9364,13 +9385,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0ae-4d47-ac54-fa4160438bdc&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e4f-453c-b473-ce379ee559ad&tab=output",
           "job_name": "mi300_2: Weight Loading Multiple GPU",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0dd-4a7f-8c76-d470cd62567b&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e8c-4cae-90cd-0d1ad0f22f02&tab=output",
           "job_name": "mi355_2: Weight Loading Multiple GPU",
           "side": "amd"
         },
@@ -9404,7 +9425,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 322.87
+        "duration": 482.63
       },
       "upstream": null,
       "hardware": [
@@ -9417,13 +9438,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0b0-4746-987c-d598c93d3c5d&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e50-4ee2-9618-b10c438b9d58&tab=output",
           "job_name": "mi300_2: Weight Loading Multiple GPU - Large Models",
           "side": "amd"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/8555/steps/canvas?sid=019e3003-b0de-49ae-91d5-2c611b648483&tab=output",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1e8d-4e16-8513-e6590796f54c&tab=output",
           "job_name": "mi355_2: Weight Loading Multiple GPU - Large Models",
           "side": "amd"
         }
@@ -10768,7 +10789,7 @@
       "family_key": "sequence parallel correctness tests (2 gpus)",
       "family_name": "sequence parallel correctness tests (2 gpus)",
       "amd_job_name": null,
-      "upstream_job_name": "Sequence Parallel Correctness Tests (2 GPUs)",
+      "upstream_job_name": "Sequence Parallel Correctness Tests (2xH100)",
       "amd": null,
       "upstream": {
         "total": 90,
@@ -10789,8 +10810,8 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-70ff-4e2a-871f-b6cddba57c07&tab=output",
-          "job_name": "Sequence Parallel Correctness Tests (2 GPUs)",
+          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-7104-4fd1-baa6-82cdbf0aa5b7&tab=output",
+          "job_name": "Sequence Parallel Correctness Tests (2xH100)",
           "side": "upstream"
         }
       ],
@@ -13044,6 +13065,24 @@
       "category": "upstream_only"
     },
     {
+      "test_id": "Transformers Nightly Models::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Transformers Nightly Models::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Transformers Nightly Models::__unidentified_failures__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
       "test_id": "V1 Core + KV + Metrics::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -13434,8 +13473,8 @@
       "category": "amd_only"
     },
     {
-      "test_id": "mi250_1: Multi-Modal Accuracy Eval (Small Models)::__unidentified_failures__",
-      "amd_status": "failed",
+      "test_id": "mi250_1: Multi-Modal Accuracy Eval (Small Models)::__passed__",
+      "amd_status": "passed",
       "upstream_status": "missing",
       "category": "amd_only"
     },
@@ -13723,7 +13762,7 @@
     },
     {
       "test_id": "mi300_1: DeepSeek V2-Lite Prefetch Offload Accuracy (H100-MI300)::__job_level__",
-      "amd_status": "passed",
+      "amd_status": "failed",
       "upstream_status": "missing",
       "category": "amd_only"
     },
@@ -13812,12 +13851,6 @@
       "category": "amd_only"
     },
     {
-      "test_id": "mi300_1: Entrypoints Integration (Responses API)::__unidentified_failures__",
-      "amd_status": "failed",
-      "upstream_status": "missing",
-      "category": "amd_only"
-    },
-    {
       "test_id": "mi300_1: Entrypoints Integration (Speech to Text)::__passed__",
       "amd_status": "passed",
       "upstream_status": "missing",
@@ -13884,20 +13917,14 @@
       "category": "amd_only"
     },
     {
-      "test_id": "mi300_1: Kernels Attention Test 1::__passed__",
-      "amd_status": "passed",
-      "upstream_status": "missing",
-      "category": "amd_only"
-    },
-    {
       "test_id": "mi300_1: Kernels Attention Test 1::__skipped__",
       "amd_status": "skipped",
       "upstream_status": "missing",
       "category": "amd_only"
     },
     {
-      "test_id": "mi300_1: Kernels Attention Test 2::__passed__",
-      "amd_status": "passed",
+      "test_id": "mi300_1: Kernels Attention Test 1::__unidentified_errors__",
+      "amd_status": "error",
       "upstream_status": "missing",
       "category": "amd_only"
     },
@@ -13908,8 +13935,8 @@
       "category": "amd_only"
     },
     {
-      "test_id": "mi300_1: Kernels Attention Test 2::__unidentified_failures__",
-      "amd_status": "failed",
+      "test_id": "mi300_1: Kernels Attention Test 2::__unidentified_errors__",
+      "amd_status": "error",
       "upstream_status": "missing",
       "category": "amd_only"
     },
@@ -14070,19 +14097,7 @@
       "category": "amd_only"
     },
     {
-      "test_id": "mi300_1: Multi-Modal Models (Extended Generation 2)::__passed__",
-      "amd_status": "passed",
-      "upstream_status": "missing",
-      "category": "amd_only"
-    },
-    {
-      "test_id": "mi300_1: Multi-Modal Models (Extended Generation 2)::__skipped__",
-      "amd_status": "skipped",
-      "upstream_status": "missing",
-      "category": "amd_only"
-    },
-    {
-      "test_id": "mi300_1: Multi-Modal Models (Extended Generation 2)::__unidentified_failures__",
+      "test_id": "mi300_1: Multi-Modal Models (Extended Generation 2)::__job_level__",
       "amd_status": "failed",
       "upstream_status": "missing",
       "category": "amd_only"
@@ -14130,20 +14145,20 @@
       "category": "amd_only"
     },
     {
-      "test_id": "mi300_1: Multi-Modal Processor (CPU)::__passed__",
-      "amd_status": "passed",
-      "upstream_status": "missing",
-      "category": "amd_only"
-    },
-    {
-      "test_id": "mi300_1: Multi-Modal Processor (CPU)::__skipped__",
-      "amd_status": "skipped",
+      "test_id": "mi300_1: Multi-Modal Processor (CPU)::__job_level__",
+      "amd_status": "error",
       "upstream_status": "missing",
       "category": "amd_only"
     },
     {
       "test_id": "mi300_1: Multi-Modal Processor::__passed__",
       "amd_status": "passed",
+      "upstream_status": "missing",
+      "category": "amd_only"
+    },
+    {
+      "test_id": "mi300_1: Multi-Modal Processor::__unidentified_failures__",
+      "amd_status": "failed",
       "upstream_status": "missing",
       "category": "amd_only"
     },
@@ -14190,19 +14205,7 @@
       "category": "amd_only"
     },
     {
-      "test_id": "mi300_1: Quantization::__passed__",
-      "amd_status": "passed",
-      "upstream_status": "missing",
-      "category": "amd_only"
-    },
-    {
-      "test_id": "mi300_1: Quantization::__skipped__",
-      "amd_status": "skipped",
-      "upstream_status": "missing",
-      "category": "amd_only"
-    },
-    {
-      "test_id": "mi300_1: Quantization::__unidentified_failures__",
+      "test_id": "mi300_1: Quantization::__job_level__",
       "amd_status": "failed",
       "upstream_status": "missing",
       "category": "amd_only"
@@ -14490,8 +14493,8 @@
       "category": "amd_only"
     },
     {
-      "test_id": "mi300_4: Distributed NixlConnector PD accuracy (4 GPUs)::__job_level__",
-      "amd_status": "failed",
+      "test_id": "mi300_4: Distributed NixlConnector PD accuracy (4 GPUs)::__passed__",
+      "amd_status": "passed",
       "upstream_status": "missing",
       "category": "amd_only"
     },
@@ -14514,8 +14517,8 @@
       "category": "amd_only"
     },
     {
-      "test_id": "mi300_4: Hyrbid SSM NixlConnector PD accuracy tests (4 GPUs)::__job_level__",
-      "amd_status": "failed",
+      "test_id": "mi300_4: Hyrbid SSM NixlConnector PD accuracy tests (4 GPUs)::__passed__",
+      "amd_status": "passed",
       "upstream_status": "missing",
       "category": "amd_only"
     },
@@ -14539,7 +14542,7 @@
     },
     {
       "test_id": "mi300_4: Qwen3-30B-A3B-FP8-block Accuracy (4xH100-4xMI300)::__job_level__",
-      "amd_status": "failed",
+      "amd_status": "passed",
       "upstream_status": "missing",
       "category": "amd_only"
     },
@@ -14575,7 +14578,7 @@
     },
     {
       "test_id": "mi300_8: Distributed Tests (8xH100-8xMI300)::__job_level__",
-      "amd_status": "failed",
+      "amd_status": "passed",
       "upstream_status": "missing",
       "category": "amd_only"
     },
@@ -14820,26 +14823,26 @@
       "category": "amd_only"
     },
     {
-      "test_id": "mi355_1: Kernels Attention Test 1::__passed__",
-      "amd_status": "passed",
-      "upstream_status": "missing",
-      "category": "amd_only"
-    },
-    {
       "test_id": "mi355_1: Kernels Attention Test 1::__skipped__",
       "amd_status": "skipped",
       "upstream_status": "missing",
       "category": "amd_only"
     },
     {
-      "test_id": "mi355_1: Kernels Attention Test 2::__passed__",
-      "amd_status": "passed",
+      "test_id": "mi355_1: Kernels Attention Test 1::__unidentified_errors__",
+      "amd_status": "error",
       "upstream_status": "missing",
       "category": "amd_only"
     },
     {
       "test_id": "mi355_1: Kernels Attention Test 2::__skipped__",
       "amd_status": "skipped",
+      "upstream_status": "missing",
+      "category": "amd_only"
+    },
+    {
+      "test_id": "mi355_1: Kernels Attention Test 2::__unidentified_errors__",
+      "amd_status": "error",
       "upstream_status": "missing",
       "category": "amd_only"
     },
@@ -14995,7 +14998,7 @@
     },
     {
       "test_id": "mi355_1: Multi-Modal Models (Extended Generation 1)::__job_level__",
-      "amd_status": "failed",
+      "amd_status": "error",
       "upstream_status": "missing",
       "category": "amd_only"
     },
@@ -15288,6 +15291,12 @@
       "category": "upstream_only"
     },
     {
+      "test_id": "tests/models/test_initialization.py::test_can_initialize_large_subset[Gemma4MTPModel]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
       "test_id": "tests/models/test_initialization.py::test_can_initialize_large_subset[Step3TextForCausalLM]",
       "amd_status": "missing",
       "upstream_status": "failed",
@@ -15295,6 +15304,12 @@
     },
     {
       "test_id": "tests/models/test_initialization.py::test_can_initialize_large_subset[Step3VLForConditionalGeneration]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "tests/models/test_initialization.py::test_can_initialize_small_subset[InternVLChatModel]",
       "amd_status": "missing",
       "upstream_status": "failed",
       "category": "upstream_only"
@@ -15312,6 +15327,6 @@
       "category": "upstream_only"
     }
   ],
-  "amd_build": 8555,
+  "amd_build": 8563,
   "upstream_build": 66569
 }
