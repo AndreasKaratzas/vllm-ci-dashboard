@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-05-17T16:06:32Z",
+  "generated_at": "2026-05-17T16:34:45Z",
   "amd_date": "2026-05-17",
   "upstream_date": "2026-05-17",
   "parity_pct": 0.0,
-  "total_tests": 659,
+  "total_tests": 660,
   "summary": {
-    "upstream_only": 318,
+    "upstream_only": 319,
     "amd_only": 341
   },
   "by_module": {
@@ -578,6 +578,10 @@
       "upstream_only": 2
     },
     "MoE Refactor Integration Test (H100 - TEMPORARY)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "Model Executor": {
       "parity_pct": 100.0,
       "upstream_only": 1
     },
@@ -2034,7 +2038,7 @@
       "family_key": "basic models tests (extra initialization)",
       "family_name": "basic models tests (extra initialization)",
       "amd_job_name": "mi250_1: Basic Models Tests (Extra Initialization) 2",
-      "upstream_job_name": "Basic Models Tests (Extra Initialization) 2",
+      "upstream_job_name": "Basic Models Tests (Extra Initialization) 1",
       "amd": {
         "total": 169,
         "passed": 151,
@@ -2073,8 +2077,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-723b-4910-a3ee-45190ad659ab&tab=output",
-          "job_name": "Basic Models Tests (Extra Initialization) 2",
+          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-723b-4c20-8856-29e864d060ba&tab=output",
+          "job_name": "Basic Models Tests (Extra Initialization) 1",
           "side": "upstream"
         }
       ],
@@ -5282,7 +5286,7 @@
       "family_key": "kernels moe test",
       "family_name": "kernels moe test",
       "amd_job_name": "mi300_1: Kernels MoE Test 1",
-      "upstream_job_name": "Kernels MoE Test 1",
+      "upstream_job_name": "Kernels MoE Test 2",
       "amd": {
         "total": 13849,
         "passed": 8008,
@@ -5329,8 +5333,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-71d5-4f91-be35-e3a42663ec3f&tab=output",
-          "job_name": "Kernels MoE Test 1",
+          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-71d6-48ce-b27e-f2bf99fcf661&tab=output",
+          "job_name": "Kernels MoE Test 2",
           "side": "upstream"
         }
       ],
@@ -5348,7 +5352,7 @@
       "family_key": "kernels quantization test",
       "family_name": "kernels quantization test",
       "amd_job_name": "mi300_1: Kernels Quantization Test 2",
-      "upstream_job_name": "Kernels Quantization Test 1",
+      "upstream_job_name": "Kernels Quantization Test 2",
       "amd": {
         "total": 26096,
         "passed": 14872,
@@ -5394,8 +5398,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-71da-4355-acd6-7c246c229f21&tab=output",
-          "job_name": "Kernels Quantization Test 1",
+          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-71db-4d60-b298-7bade30c5ca6&tab=output",
+          "job_name": "Kernels Quantization Test 2",
           "side": "upstream"
         }
       ],
@@ -5661,7 +5665,7 @@
       "family_key": "language models tests (extra standard)",
       "family_name": "language models tests (extra standard)",
       "amd_job_name": "mi250_1: Language Models Tests (Extra Standard) 1",
-      "upstream_job_name": "Language Models Tests (Extra Standard) 1",
+      "upstream_job_name": "Language Models Tests (Extra Standard) 2",
       "amd": {
         "total": 19,
         "passed": 11,
@@ -5700,8 +5704,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-7256-4c50-a902-58fed21f89b1&tab=output",
-          "job_name": "Language Models Tests (Extra Standard) 1",
+          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-7257-4a13-85ef-4749d1e11d26&tab=output",
+          "job_name": "Language Models Tests (Extra Standard) 2",
           "side": "upstream"
         }
       ],
@@ -5719,7 +5723,7 @@
       "family_key": "language models tests (hybrid)",
       "family_name": "language models tests (hybrid)",
       "amd_job_name": "mi325_1: Language Models Tests (Hybrid) 1",
-      "upstream_job_name": "Language Models Tests (Hybrid) 2",
+      "upstream_job_name": "Language Models Tests (Hybrid) 1",
       "amd": {
         "total": 47,
         "passed": 43,
@@ -5756,8 +5760,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-7258-459a-862b-f97a9f8fd5a6&tab=output",
-          "job_name": "Language Models Tests (Hybrid) 2",
+          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-7257-46bc-a8fa-844bc6ad9a3a&tab=output",
+          "job_name": "Language Models Tests (Hybrid) 1",
           "side": "upstream"
         }
       ],
@@ -6519,7 +6523,7 @@
       "family_key": "model executor",
       "family_name": "model executor",
       "amd_job_name": "mi250_1: Model Executor",
-      "upstream_job_name": null,
+      "upstream_job_name": "Model Executor",
       "amd": {
         "total": 289,
         "passed": 273,
@@ -6530,13 +6534,23 @@
         "error": 0,
         "duration": 976.05
       },
-      "upstream": null,
+      "upstream": {
+        "total": 1,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 1,
+        "duration": 0.0
+      },
       "hardware": [
         "h100",
         "mi250"
       ],
       "hw_failures": {
-        "mi250": 3
+        "mi250": 3,
+        "h100": 1
       },
       "hw_canceled": null,
       "failure_tests": [],
@@ -6546,9 +6560,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/8563/steps/canvas?sid=019e352a-1ddb-4539-90d1-3dc3ce1267a2&tab=output",
           "job_name": "mi250_1: Model Executor",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-721f-4c3b-81f2-d8d76ee53552&tab=output",
+          "job_name": "Model Executor",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 288,
+        "passed": 273,
+        "failed": 3,
+        "skipped": 13
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -12558,6 +12584,12 @@
       "test_id": "MoE Refactor Integration Test (H100 - TEMPORARY)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Model Executor::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "error",
       "category": "upstream_only"
     },
     {
