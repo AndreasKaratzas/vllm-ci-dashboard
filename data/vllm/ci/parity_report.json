@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-05-17T08:33:06Z",
+  "generated_at": "2026-05-17T09:21:56Z",
   "amd_date": "2026-05-16",
   "upstream_date": "2026-05-17",
   "parity_pct": 0.0,
-  "total_tests": 650,
+  "total_tests": 660,
   "summary": {
-    "upstream_only": 303,
+    "upstream_only": 313,
     "amd_only": 347
   },
   "by_module": {
@@ -784,6 +784,10 @@
     "Speculators Correctness": {
       "parity_pct": 100.0,
       "upstream_only": 2
+    },
+    "Torch Nightly Basic Models Tests (Extra Initialization) 1": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
     },
     "Torch Nightly Basic Models Tests (Extra Initialization) 2": {
       "parity_pct": 100.0,
@@ -1660,6 +1664,10 @@
     "mi355_4: LM Eval Large Models (4xH100-4xMI355)": {
       "parity_pct": 100.0,
       "amd_only": 1
+    },
+    "models/test_initialization.py": {
+      "parity_pct": 100.0,
+      "upstream_only": 9
     },
     "quantization/test_torchao.py": {
       "parity_pct": 100.0,
@@ -6340,7 +6348,7 @@
       "family_key": "lora",
       "family_name": "lora",
       "amd_job_name": "mi250_1: LoRA 1",
-      "upstream_job_name": "LoRA 2",
+      "upstream_job_name": "LoRA 1",
       "amd": {
         "total": 6822,
         "passed": 6723,
@@ -6379,8 +6387,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-71fe-49f7-b09e-f74d6a712ff0&tab=output",
-          "job_name": "LoRA 2",
+          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-71fe-403a-905b-3ef04f74f875&tab=output",
+          "job_name": "LoRA 1",
           "side": "upstream"
         }
       ],
@@ -10760,7 +10768,7 @@
       "family_key": "sequence parallel correctness tests (2 gpus)",
       "family_name": "sequence parallel correctness tests (2 gpus)",
       "amd_job_name": null,
-      "upstream_job_name": "Sequence Parallel Correctness Tests (2xH100)",
+      "upstream_job_name": "Sequence Parallel Correctness Tests (2 GPUs)",
       "amd": null,
       "upstream": {
         "total": 90,
@@ -10781,8 +10789,8 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-7104-4fd1-baa6-82cdbf0aa5b7&tab=output",
-          "job_name": "Sequence Parallel Correctness Tests (2xH100)",
+          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-70ff-4e2a-871f-b6cddba57c07&tab=output",
+          "job_name": "Sequence Parallel Correctness Tests (2 GPUs)",
           "side": "upstream"
         }
       ],
@@ -10957,6 +10965,42 @@
           "hw": "h100",
           "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-72ba-475d-b4fe-a5294ac55b37&tab=output",
           "job_name": "Speculators Correctness",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
+      "name": "torch nightly basic models tests (extra initialization) 1",
+      "family_key": "torch nightly basic models tests (extra initialization) 1",
+      "family_name": "torch nightly basic models tests (extra initialization) 1",
+      "amd_job_name": null,
+      "upstream_job_name": "Torch Nightly Basic Models Tests (Extra Initialization) 1",
+      "amd": null,
+      "upstream": {
+        "total": 188,
+        "passed": 179,
+        "failed": 9,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 6202.67
+      },
+      "hardware": [
+        "h100"
+      ],
+      "hw_failures": {
+        "h100": 9
+      },
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/66569/steps/canvas?jid=019e3486-72cc-4768-a33d-cd0a7693a1a9&tab=output",
+          "job_name": "Torch Nightly Basic Models Tests (Extra Initialization) 1",
           "side": "upstream"
         }
       ],
@@ -11304,25 +11348,6 @@
       ],
       "status": "upstream_only",
       "backfilled": false
-    },
-    {
-      "name": "torch nightly basic models tests (extra initialization) 1",
-      "family_key": "torch nightly basic models tests (extra initialization) 1",
-      "family_name": "torch nightly basic models tests (extra initialization) 1",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
     }
   ],
   "details": [
@@ -12944,6 +12969,12 @@
       "test_id": "Speculators Correctness::__unidentified_failures__",
       "amd_status": "missing",
       "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Torch Nightly Basic Models Tests (Extra Initialization) 1::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
@@ -15195,6 +15226,60 @@
       "amd_status": "passed",
       "upstream_status": "missing",
       "category": "amd_only"
+    },
+    {
+      "test_id": "models/test_initialization.py::test_can_initialize_large_subset[AyaVisionForConditionalGeneration]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "models/test_initialization.py::test_can_initialize_large_subset[Cohere2VisionForConditionalGeneration]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "models/test_initialization.py::test_can_initialize_large_subset[IQuestLoopCoderForCausalLM]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "models/test_initialization.py::test_can_initialize_large_subset[JinaEmbeddingsV5Model]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "models/test_initialization.py::test_can_initialize_large_subset[LlavaNextVideoForConditionalGeneration]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "models/test_initialization.py::test_can_initialize_large_subset[OlmoForCausalLM]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "models/test_initialization.py::test_can_initialize_large_subset[Phi3ForCausalLM]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "models/test_initialization.py::test_can_initialize_large_subset[Qwen2_5OmniModel]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "models/test_initialization.py::test_can_initialize_large_subset[VoxtralForConditionalGeneration]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
     },
     {
       "test_id": "quantization/test_torchao.py::test_reload_weights",
