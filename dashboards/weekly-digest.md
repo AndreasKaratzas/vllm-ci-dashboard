@@ -1,11 +1,10 @@
 # Weekly Digest
 
-Week of 2026-05-10 to 2026-05-17
+Week of 2026-05-11 to 2026-05-18
 
 ## New Releases
 
 - **vllm**: [v0.21.0](https://github.com/vllm-project/vllm/releases/tag/v0.21.0)
-- **vllm**: [v0.20.2](https://github.com/vllm-project/vllm/releases/tag/v0.20.2)
 
 ## PRs This Week
 
