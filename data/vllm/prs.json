@@ -1,6 +1,36 @@
 {
-  "collected_at": "2026-05-18T01:20:21Z",
+  "collected_at": "2026-05-18T02:41:50Z",
   "prs": [
+    {
+      "number": 41577,
+      "title": "[ROCm][CI] Fix ROCm LoRA Transformers fallback with full CUDA graphs",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-05-03T22:59:53Z",
+      "updated_at": "2026-05-18T01:52:46Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/41577",
+      "labels": [
+        "rocm",
+        "ready",
+        "nvidia"
+      ],
+      "draft": false,
+      "body_head": "Fixes `LoRA %N`\r\n\r\n- Restrict the gfx950 `wvSplitKrc` skinny GEMM path to 2D activations.\r\n- Make the vLLM C RMSNorm provider flatten N-D activations by token row and reshape back.\r\n- Initialize torch-compile support on the actual HF decoder instance for dynamic remote-code classes.\r\n\r\nThe original failure was `Unsupported N value: 512,2048,1` in `wvSplitKrc`. The selector counted flattened tokens from a 3D Transformers activation, but `wvSplitKrc` reads `size(0)` and is only correct for 2D row-major inputs. After fixing that selector bug, full decode graph capture exposed the same N-D activation mismatch in the `vllm_c` RMSNorm provider. Flattening RMSNorm inputs matches its row-wise kernel contract and preserves the public tensor shape.\r\n\r\n- Known-good commit: `0e39202ca911319c7747a2f9d5a0c162fdff4fd9`.\r\n- Failing commit observed in CI: `7845379230c48c9103ab71682ee05977dfbbdfce`.\r\n- The likely trigger is the update to transformers v5\r\n\r\ncc @kenroche ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        41578
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready",
+        "nvidia"
+      ]
+    },
     {
       "number": 41294,
       "title": "[ROCm][CI] Fix and stabilize EAGLE3 acceptance tests",
@@ -175,34 +205,6 @@
         "bug",
         "documentation",
         "ready"
-      ]
-    },
-    {
-      "number": 41577,
-      "title": "[ROCm][CI] Fix ROCm LoRA Transformers fallback with full CUDA graphs",
-      "author": "AndreasKaratzas",
-      "state": "open",
-      "merged": false,
-      "created_at": "2026-05-03T22:59:53Z",
-      "updated_at": "2026-05-09T21:04:27Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41577",
-      "labels": [
-        "rocm",
-        "nvidia"
-      ],
-      "draft": false,
-      "body_head": "Fixes `LoRA %N`\r\n\r\n- Restrict the gfx950 `wvSplitKrc` skinny GEMM path to 2D activations.\r\n- Make the vLLM C RMSNorm provider flatten N-D activations by token row and reshape back.\r\n- Initialize torch-compile support on the actual HF decoder instance for dynamic remote-code classes.\r\n\r\nThe original failure was `Unsupported N value: 512,2048,1` in `wvSplitKrc`. The selector counted flattened tokens from a 3D Transformers activation, but `wvSplitKrc` reads `size(0)` and is only correct for 2D row-major inputs. After fixing that selector bug, full decode graph capture exposed the same N-D activation mismatch in the `vllm_c` RMSNorm provider. Flattening RMSNorm inputs matches its row-wise kernel contract and preserves the public tensor shape.\r\n\r\n- Known-good commit: `0e39202ca911319c7747a2f9d5a0c162fdff4fd9`.\r\n- Failing commit observed in CI: `7845379230c48c9103ab71682ee05977dfbbdfce`.\r\n- The likely trigger is the update to transformers v5\r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        41578
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "nvidia"
       ]
     },
     {
