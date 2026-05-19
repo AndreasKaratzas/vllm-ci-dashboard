@@ -1,21 +1,21 @@
 {
-  "collected_at": "2026-05-19T21:14:29Z",
+  "collected_at": "2026-05-19T21:49:51Z",
   "prs": [
     {
       "number": 43120,
-      "title": "[AMD][CI][BugFix] Fix  Distributed Compile Unit Tests (2xH100-2xMI300) tests",
+      "title": "[AMD][CI][BugFix] Fix  Distributed Compile Unit Tests (2xH100-2xMI300) group",
       "author": "rasmith",
       "state": "open",
       "merged": false,
       "created_at": "2026-05-19T17:01:46Z",
-      "updated_at": "2026-05-19T21:00:14Z",
+      "updated_at": "2026-05-19T21:20:40Z",
       "html_url": "https://github.com/vllm-project/vllm/pull/43120",
       "labels": [
         "bug",
         "rocm"
       ],
       "draft": false,
-      "body_head": "\r\n## Purpose\r\nMultiple problems were encountered with the `test_tp2_ar_rms.py::test_tp2_ar_rms_fusions` tests.\r\n* `disable_custom_all_reduce=False`  needed to be set for the fusion passes to initalize on ROCm. Leaving this disabled causes the tests to fail since the custom all-reduce setup will be skipped during initalization.\r\n* On ROCm, `RocmAiterAllReduceFusionPass`  is used, so this test also needs to check patterns for `aiter_ar_rms_fusion` instead of `ar_rms_fusion`\r\n    - added patterns to `FUSION_LOG_PATTERNS` in ` tests/compile/fusions_e2e/common.py`\r\n    - update counts in `tests/compile/fusions_e2e/models.py` \r\n        + `llama3_8b`: `n_layers * 2` (dense MLP, all-reduce after both attn and MLP)\r\n        + `qwen3_a3b`: `n_layers * 2`\r\n        + `gpt_oss_20b`:` n_layers + 1` (MoE MLP has no all-reduce, only attn `o_proj`)\r\n* Swap out the `ar_rms_fusion` pattern for `aiter_ar_rms_fusion` on ROCm in `test_tp2_ar_rms.py::test_tp2_ar_rms_fusion`\r\n* Skip `openai/gpt-oss-20b` with `ROCM_ATTN` backend due to the following error:\r\n` ValueError: Selected backend AttentionBackendEnum.ROCM_ATTN is not valid for this configuration. Reason: ['attention sinks not supported]`\r\n## Test Plan\r\n`pytest -sv compile/fusions_e2e/test_tp2_ar_rms.py::test_tp2_ar_rms_fusions`\r\n## Test Result\r\n`======= 36 passed, 12 skipped, 17 warnings in 2237.40s (0:37:17) =======`\r\n\r\n<details>\r\n<summary> Essential Elements of an Effective PR Description Checklist </summary>\r\n\r\n- [ X] The purpose of the PR, such as \"Fix some issue (link existing issues this PR will resolve)\".\r\n- [ X] The test plan, such as providing test command.\r\n- [ X] The test results, such as pasting the results comparison before and after, or e2e results\r\n- [ ] (Optional) The necessary documentation update, such as updating `supported_models.md` and `examples` for a new model.\r\n</details>\r\n\r\n",
+      "body_head": "\r\n## Purpose\r\nMultiple problems were encountered with the `Distributed Compile Unit Tests (2xH100-2xMI300)` tests.\r\n\r\nFor `test_tp2_ar_rms.py:`\r\n* `disable_custom_all_reduce=False`  needed to be set for the fusion passes to initalize on ROCm. Leaving this disabled causes the tests to fail since the custom all-reduce setup will be skipped during initalization.\r\n* On ROCm, `RocmAiterAllReduceFusionPass`  is used, so this test also needs to check patterns for `aiter_ar_rms_fusion` instead of `ar_rms_fusion`\r\n    - added patterns to `FUSION_LOG_PATTERNS` in ` tests/compile/fusions_e2e/common.py`\r\n    - update counts in `tests/compile/fusions_e2e/models.py` \r\n        + `llama3_8b`: `n_layers * 2` (dense MLP, all-reduce after both attn and MLP)\r\n        + `qwen3_a3b`: `n_layers * 2`\r\n        + `gpt_oss_20b`:` n_layers + 1` (MoE MLP has no all-reduce, only attn `o_proj`)\r\n* Swap out the `ar_rms_fusion` pattern for `aiter_ar_rms_fusion` on ROCm in `test_tp2_ar_rms.py::test_tp2_ar_rms_fusion`\r\n* Skip `openai/gpt-oss-20b` with `ROCM_ATTN` backend due to the following error:\r\n` ValueError: Selected backend AttentionBackendEnum.ROCM_ATTN is not valid for this configuration. Reason: ['attention sinks not supported]`\r\n\r\nFor `test_async_tp.py`:\r\n* ` async_tp_pass_on_test_model ` tries to use port 12345, but on some systems `alloy `will be running which will use the same port\r\n     - find an open port and use that instead\r\n * `AsyncTPPass `does not check if CUTLASS is available before registering the `CutlassScaledMMReduceScatterPattern` and `AllGatherCutlassScaledMMPattern `patterns\r\n     - check if `cutlass_scaled_mm `is available in `torch.ops._C` before registering\r\n  * `test_async_tp_pass_replace` tests the `TestCutlassScaledMMRSModel` and `TestAGCutlassScaledMMModel` models but also does not check if `cutlass_scaled_mm `is available\r\n      - wrap these parameters using `param `and `skipif` `cutlass_scaled_mm` is not available.\r\n\r\n## Test Plan\r\n1) `pytest -sv compile/fusions_e",
       "is_ci_pr": true,
       "is_rocm_pr": true,
       "ci_issue_numbers": [
