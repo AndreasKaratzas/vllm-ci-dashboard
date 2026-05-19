@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-05-19T17:42:17Z",
+  "generated_at": "2026-05-19T18:25:46Z",
   "amd_date": "2026-05-19",
   "upstream_date": "2026-05-19",
   "parity_pct": 0.0,
-  "total_tests": 659,
+  "total_tests": 658,
   "summary": {
-    "upstream_only": 307,
+    "upstream_only": 306,
     "amd_only": 352
   },
   "by_module": {
@@ -570,10 +570,6 @@
       "upstream_only": 1
     },
     "MoE Refactor Integration Test (H100 - TEMPORARY)": {
-      "parity_pct": 100.0,
-      "upstream_only": 1
-    },
-    "Model Executor": {
       "parity_pct": 100.0,
       "upstream_only": 1
     },
@@ -5279,7 +5275,7 @@
       "family_key": "kernels moe test",
       "family_name": "kernels moe test",
       "amd_job_name": "mi300_1: Kernels MoE Test 2",
-      "upstream_job_name": "Kernels MoE Test 1",
+      "upstream_job_name": "Kernels MoE Test 4",
       "amd": {
         "total": 13851,
         "passed": 7994,
@@ -5326,8 +5322,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66835/steps/canvas?jid=019e3ed4-26e2-41db-b082-ef3f12295fef&tab=output",
-          "job_name": "Kernels MoE Test 1",
+          "url": "https://buildkite.com/vllm/ci/builds/66835/steps/canvas?jid=019e3ed4-26e3-4adb-9a6f-68d95ac0057d&tab=output",
+          "job_name": "Kernels MoE Test 4",
           "side": "upstream"
         }
       ],
@@ -5345,7 +5341,7 @@
       "family_key": "kernels quantization test",
       "family_name": "kernels quantization test",
       "amd_job_name": "mi300_1: Kernels Quantization Test 1",
-      "upstream_job_name": "Kernels Quantization Test 1",
+      "upstream_job_name": "Kernels Quantization Test 2",
       "amd": {
         "total": 26096,
         "passed": 14872,
@@ -5391,8 +5387,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66835/steps/canvas?jid=019e3ed4-26e4-4a2a-86a7-2900785ae3e5&tab=output",
-          "job_name": "Kernels Quantization Test 1",
+          "url": "https://buildkite.com/vllm/ci/builds/66835/steps/canvas?jid=019e3ed4-26e4-47db-a25e-ea97d4bcef29&tab=output",
+          "job_name": "Kernels Quantization Test 2",
           "side": "upstream"
         }
       ],
@@ -6518,7 +6514,7 @@
       "family_key": "model executor",
       "family_name": "model executor",
       "amd_job_name": "mi250_1: Model Executor",
-      "upstream_job_name": "Model Executor",
+      "upstream_job_name": null,
       "amd": {
         "total": 292,
         "passed": 276,
@@ -6529,17 +6525,7 @@
         "error": 0,
         "duration": 1135.94
       },
-      "upstream": {
-        "total": 1,
-        "passed": 0,
-        "failed": 0,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0,
-        "error": 0,
-        "duration": 0.0,
-        "canceled": 1
-      },
+      "upstream": null,
       "hardware": [
         "h100",
         "mi250"
@@ -6555,21 +6541,9 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/8592/steps/canvas?sid=019e3f77-8341-467d-9b01-30f36c634844&tab=output",
           "job_name": "mi250_1: Model Executor",
           "side": "amd"
-        },
-        {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66835/steps/canvas?jid=019e3ed4-2714-453e-a05b-9a21bcd18962&tab=output",
-          "job_name": "Model Executor",
-          "side": "upstream"
         }
       ],
-      "delta": {
-        "total": 291,
-        "passed": 276,
-        "failed": 3,
-        "skipped": 13
-      },
-      "status": "both",
+      "status": "amd_only",
       "backfilled": false
     },
     {
@@ -12557,12 +12531,6 @@
       "test_id": "MoE Refactor Integration Test (H100 - TEMPORARY)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "Model Executor::__job_level__",
-      "amd_status": "missing",
-      "upstream_status": "canceled",
       "category": "upstream_only"
     },
     {

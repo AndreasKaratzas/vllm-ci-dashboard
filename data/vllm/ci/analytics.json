@@ -3,7 +3,7 @@
     "pipeline": "amd-ci",
     "display_name": "AMD CI",
     "days": 14,
-    "generated_at": "2026-05-19T17:42:19Z",
+    "generated_at": "2026-05-19T18:25:48Z",
     "summary": {
       "total_builds": 14,
       "passed": 14,
@@ -206943,7 +206943,7 @@
     "pipeline": "ci",
     "display_name": "Upstream CI",
     "days": 14,
-    "generated_at": "2026-05-19T17:42:19Z",
+    "generated_at": "2026-05-19T18:25:48Z",
     "summary": {
       "total_builds": 15,
       "passed": 1,
@@ -207049,17 +207049,17 @@
     "builds": [
       {
         "number": 66835,
-        "state": "failed",
+        "state": "failing",
         "created_at": "2026-05-19T06:00:14.087Z",
         "date": "2026-05-19",
         "message": "Full CI run - nightly",
         "author": "",
-        "wall_mins": 627.2,
+        "wall_mins": null,
         "passed": 204,
-        "failed": 7,
+        "failed": 6,
         "soft_failed": 6,
         "skipped": 0,
-        "total_jobs": 217,
+        "total_jobs": 216,
         "jobs": [
           {
             "name": "2 Node Test (4 GPUs)",
@@ -208764,18 +208764,6 @@
             "skipped_tests": 0,
             "wait": 0.9,
             "q": "mithril-h100-pool"
-          },
-          {
-            "name": "Model Executor",
-            "raw_name": "Model Executor",
-            "state": "failed",
-            "dur": 168.2,
-            "tests": 1,
-            "passed_tests": 0,
-            "failed_tests": 1,
-            "skipped_tests": 0,
-            "wait": 0.0,
-            "q": "h200_35gb"
           },
           {
             "name": "Model Runner V2 Core Tests",
@@ -244640,17 +244628,17 @@
     "nightly_builds": [
       {
         "number": 66835,
-        "state": "failed",
+        "state": "failing",
         "created_at": "2026-05-19T06:00:14.087Z",
         "date": "2026-05-19",
         "message": "Full CI run - nightly",
         "author": "",
-        "wall_mins": 627.2,
+        "wall_mins": null,
         "passed": 204,
-        "failed": 7,
+        "failed": 6,
         "soft_failed": 6,
         "skipped": 0,
-        "total_jobs": 217,
+        "total_jobs": 216,
         "jobs": [
           {
             "name": "2 Node Test (4 GPUs)",
@@ -246355,18 +246343,6 @@
             "skipped_tests": 0,
             "wait": 0.9,
             "q": "mithril-h100-pool"
-          },
-          {
-            "name": "Model Executor",
-            "raw_name": "Model Executor",
-            "state": "failed",
-            "dur": 168.2,
-            "tests": 1,
-            "passed_tests": 0,
-            "failed_tests": 1,
-            "skipped_tests": 0,
-            "wait": 0.0,
-            "q": "h200_35gb"
           },
           {
             "name": "Model Runner V2 Core Tests",
@@ -280188,27 +280164,6 @@
         ]
       },
       {
-        "name": "Model Executor",
-        "runs": 15,
-        "passed": 11,
-        "failed": 4,
-        "soft_failed": 0,
-        "fail_rate": 26.7,
-        "is_soft_fail": false,
-        "median_dur": 1.9,
-        "p90_dur": 600.3,
-        "avg_dur": 92.8,
-        "max_dur": 600.5,
-        "median_wait": 3.2,
-        "p90_wait": 10.7,
-        "avg_wait": 4.4,
-        "max_wait": 12.4,
-        "queues": [
-          "gpu_1_queue",
-          "h200_35gb"
-        ]
-      },
-      {
         "name": "Quantization",
         "runs": 15,
         "passed": 11,
@@ -280327,6 +280282,26 @@
         "max_wait": 0.1,
         "queues": [
           "amd_mi300_1"
+        ]
+      },
+      {
+        "name": "Model Executor",
+        "runs": 14,
+        "passed": 11,
+        "failed": 3,
+        "soft_failed": 0,
+        "fail_rate": 21.4,
+        "is_soft_fail": false,
+        "median_dur": 1.9,
+        "p90_dur": 600.3,
+        "avg_dur": 87.4,
+        "max_dur": 600.5,
+        "median_wait": 3.4,
+        "p90_wait": 10.7,
+        "avg_wait": 4.7,
+        "max_wait": 12.4,
+        "queues": [
+          "gpu_1_queue"
         ]
       },
       {
@@ -285041,23 +285016,22 @@
       },
       {
         "name": "Model Executor",
-        "runs": 15,
+        "runs": 14,
         "passed": 11,
-        "failed": 4,
+        "failed": 3,
         "soft_failed": 0,
-        "fail_rate": 26.7,
+        "fail_rate": 21.4,
         "is_soft_fail": false,
         "median_dur": 1.9,
         "p90_dur": 600.3,
-        "avg_dur": 92.8,
+        "avg_dur": 87.4,
         "max_dur": 600.5,
-        "median_wait": 3.2,
+        "median_wait": 3.4,
         "p90_wait": 10.7,
-        "avg_wait": 4.4,
+        "avg_wait": 4.7,
         "max_wait": 12.4,
         "queues": [
-          "gpu_1_queue",
-          "h200_35gb"
+          "gpu_1_queue"
         ]
       },
       {
@@ -285765,15 +285739,15 @@
       },
       {
         "queue": "h200_35gb",
-        "jobs": 548,
+        "jobs": 533,
         "median_wait": 3.2,
         "p90_wait": 4.4,
-        "avg_wait": 3.3,
+        "avg_wait": 3.4,
         "max_wait": 6.2
       },
       {
         "queue": "gpu_1_queue",
-        "jobs": 1088,
+        "jobs": 1087,
         "median_wait": 3.0,
         "p90_wait": 4.4,
         "avg_wait": 3.1,
@@ -285910,9 +285884,9 @@
           "passed": 0,
           "failed": 1,
           "pass_rate": 0.0,
-          "total_jobs_tracked": 217,
-          "jobs_with_failures": 13,
-          "jobs_with_hard_failures": 7,
+          "total_jobs_tracked": 216,
+          "jobs_with_failures": 12,
+          "jobs_with_hard_failures": 6,
           "jobs_with_soft_failures": 6
         },
         "daily_stats": [
@@ -285926,17 +285900,17 @@
         "builds": [
           {
             "number": 66835,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-05-19T06:00:14.087Z",
             "date": "2026-05-19",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 627.2,
+            "wall_mins": null,
             "passed": 204,
-            "failed": 7,
+            "failed": 6,
             "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 217,
+            "total_jobs": 216,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -287641,18 +287615,6 @@
                 "skipped_tests": 0,
                 "wait": 0.9,
                 "q": "mithril-h100-pool"
-              },
-              {
-                "name": "Model Executor",
-                "raw_name": "Model Executor",
-                "state": "failed",
-                "dur": 168.2,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
-                "wait": 0.0,
-                "q": "h200_35gb"
               },
               {
                 "name": "Model Runner V2 Core Tests",
@@ -288550,17 +288512,17 @@
         "nightly_builds": [
           {
             "number": 66835,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-05-19T06:00:14.087Z",
             "date": "2026-05-19",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 627.2,
+            "wall_mins": null,
             "passed": 204,
-            "failed": 7,
+            "failed": 6,
             "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 217,
+            "total_jobs": 216,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -290265,18 +290227,6 @@
                 "skipped_tests": 0,
                 "wait": 0.9,
                 "q": "mithril-h100-pool"
-              },
-              {
-                "name": "Model Executor",
-                "raw_name": "Model Executor",
-                "state": "failed",
-                "dur": 168.2,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
-                "wait": 0.0,
-                "q": "h200_35gb"
               },
               {
                 "name": "Model Runner V2 Core Tests",
@@ -291253,26 +291203,6 @@
             ]
           },
           {
-            "name": "Model Executor",
-            "runs": 1,
-            "passed": 0,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 100.0,
-            "is_soft_fail": false,
-            "median_dur": 168.2,
-            "p90_dur": 168.2,
-            "avg_dur": 168.2,
-            "max_dur": 168.2,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
-            "queues": [
-              "h200_35gb"
-            ]
-          },
-          {
             "name": "Multi-Modal Models (Extended Generation 1)",
             "runs": 1,
             "passed": 0,
@@ -291434,26 +291364,6 @@
           }
         ],
         "duration_ranking": [
-          {
-            "name": "Model Executor",
-            "runs": 1,
-            "passed": 0,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 100.0,
-            "is_soft_fail": false,
-            "median_dur": 168.2,
-            "p90_dur": 168.2,
-            "avg_dur": 168.2,
-            "max_dur": 168.2,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
-            "queues": [
-              "h200_35gb"
-            ]
-          },
           {
             "name": "Multi-Modal Processor (CPU)",
             "runs": 1,
@@ -295890,10 +295800,10 @@
           },
           {
             "queue": "h200_35gb",
-            "jobs": 37,
+            "jobs": 36,
             "median_wait": 0.0,
             "p90_wait": 14.5,
-            "avg_wait": 4.5,
+            "avg_wait": 4.6,
             "max_wait": 14.5
           },
           {
@@ -295950,17 +295860,17 @@
         "builds": [
           {
             "number": 66835,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-05-19T06:00:14.087Z",
             "date": "2026-05-19",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 627.2,
+            "wall_mins": null,
             "passed": 204,
-            "failed": 7,
+            "failed": 6,
             "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 217,
+            "total_jobs": 216,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -297665,18 +297575,6 @@
                 "skipped_tests": 0,
                 "wait": 0.9,
                 "q": "mithril-h100-pool"
-              },
-              {
-                "name": "Model Executor",
-                "raw_name": "Model Executor",
-                "state": "failed",
-                "dur": 168.2,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
-                "wait": 0.0,
-                "q": "h200_35gb"
               },
               {
                 "name": "Model Runner V2 Core Tests",
@@ -303842,17 +303740,17 @@
         "nightly_builds": [
           {
             "number": 66835,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-05-19T06:00:14.087Z",
             "date": "2026-05-19",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 627.2,
+            "wall_mins": null,
             "passed": 204,
-            "failed": 7,
+            "failed": 6,
             "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 217,
+            "total_jobs": 216,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -305557,18 +305455,6 @@
                 "skipped_tests": 0,
                 "wait": 0.9,
                 "q": "mithril-h100-pool"
-              },
-              {
-                "name": "Model Executor",
-                "raw_name": "Model Executor",
-                "state": "failed",
-                "dur": 168.2,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
-                "wait": 0.0,
-                "q": "h200_35gb"
               },
               {
                 "name": "Model Runner V2 Core Tests",
@@ -311774,23 +311660,22 @@
           },
           {
             "name": "Model Executor",
-            "runs": 3,
+            "runs": 2,
             "passed": 0,
-            "failed": 3,
+            "failed": 2,
             "soft_failed": 0,
             "fail_rate": 100.0,
             "is_soft_fail": false,
-            "median_dur": 600.3,
+            "median_dur": 600.4,
             "p90_dur": 600.5,
-            "avg_dur": 456.3,
+            "avg_dur": 600.4,
             "max_dur": 600.5,
-            "median_wait": 2.8,
+            "median_wait": 4.3,
             "p90_wait": 5.8,
-            "avg_wait": 2.9,
+            "avg_wait": 4.3,
             "max_wait": 5.8,
             "queues": [
-              "gpu_1_queue",
-              "h200_35gb"
+              "gpu_1_queue"
             ]
           },
           {
@@ -312365,23 +312250,22 @@
         "duration_ranking": [
           {
             "name": "Model Executor",
-            "runs": 3,
+            "runs": 2,
             "passed": 0,
-            "failed": 3,
+            "failed": 2,
             "soft_failed": 0,
             "fail_rate": 100.0,
             "is_soft_fail": false,
-            "median_dur": 600.3,
+            "median_dur": 600.4,
             "p90_dur": 600.5,
-            "avg_dur": 456.3,
+            "avg_dur": 600.4,
             "max_dur": 600.5,
-            "median_wait": 2.8,
+            "median_wait": 4.3,
             "p90_wait": 5.8,
-            "avg_wait": 2.9,
+            "avg_wait": 4.3,
             "max_wait": 5.8,
             "queues": [
-              "gpu_1_queue",
-              "h200_35gb"
+              "gpu_1_queue"
             ]
           },
           {
@@ -316780,7 +316664,7 @@
           },
           {
             "queue": "gpu_1_queue",
-            "jobs": 198,
+            "jobs": 197,
             "median_wait": 2.9,
             "p90_wait": 6.1,
             "avg_wait": 3.6,
@@ -316788,7 +316672,7 @@
           },
           {
             "queue": "h200_35gb",
-            "jobs": 111,
+            "jobs": 108,
             "median_wait": 2.8,
             "p90_wait": 6.3,
             "avg_wait": 3.9,
@@ -316968,17 +316852,17 @@
         "builds": [
           {
             "number": 66835,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-05-19T06:00:14.087Z",
             "date": "2026-05-19",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 627.2,
+            "wall_mins": null,
             "passed": 204,
-            "failed": 7,
+            "failed": 6,
             "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 217,
+            "total_jobs": 216,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -318683,18 +318567,6 @@
                 "skipped_tests": 0,
                 "wait": 0.9,
                 "q": "mithril-h100-pool"
-              },
-              {
-                "name": "Model Executor",
-                "raw_name": "Model Executor",
-                "state": "failed",
-                "dur": 168.2,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
-                "wait": 0.0,
-                "q": "h200_35gb"
               },
               {
                 "name": "Model Runner V2 Core Tests",
@@ -335048,17 +334920,17 @@
         "nightly_builds": [
           {
             "number": 66835,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-05-19T06:00:14.087Z",
             "date": "2026-05-19",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 627.2,
+            "wall_mins": null,
             "passed": 204,
-            "failed": 7,
+            "failed": 6,
             "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 217,
+            "total_jobs": 216,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -336763,18 +336635,6 @@
                 "skipped_tests": 0,
                 "wait": 0.9,
                 "q": "mithril-h100-pool"
-              },
-              {
-                "name": "Model Executor",
-                "raw_name": "Model Executor",
-                "state": "failed",
-                "dur": 168.2,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
-                "wait": 0.0,
-                "q": "h200_35gb"
               },
               {
                 "name": "Model Runner V2 Core Tests",
@@ -353310,27 +353170,6 @@
             ]
           },
           {
-            "name": "Model Executor",
-            "runs": 7,
-            "passed": 3,
-            "failed": 4,
-            "soft_failed": 0,
-            "fail_rate": 57.1,
-            "is_soft_fail": false,
-            "median_dur": 2.2,
-            "p90_dur": 600.5,
-            "avg_dur": 196.7,
-            "max_dur": 600.5,
-            "median_wait": 3.5,
-            "p90_wait": 10.7,
-            "avg_wait": 4.4,
-            "max_wait": 10.7,
-            "queues": [
-              "gpu_1_queue",
-              "h200_35gb"
-            ]
-          },
-          {
             "name": "Quantization",
             "runs": 7,
             "passed": 3,
@@ -353368,6 +353207,26 @@
             "max_wait": 10.0,
             "queues": [
               "mithril-h100-pool"
+            ]
+          },
+          {
+            "name": "Model Executor",
+            "runs": 6,
+            "passed": 3,
+            "failed": 3,
+            "soft_failed": 0,
+            "fail_rate": 50.0,
+            "is_soft_fail": false,
+            "median_dur": 2.0,
+            "p90_dur": 600.5,
+            "avg_dur": 201.4,
+            "max_dur": 600.5,
+            "median_wait": 4.1,
+            "p90_wait": 10.7,
+            "avg_wait": 5.1,
+            "max_wait": 10.7,
+            "queues": [
+              "gpu_1_queue"
             ]
           },
           {
@@ -357672,27 +357531,6 @@
             ]
           },
           {
-            "name": "Model Executor",
-            "runs": 7,
-            "passed": 3,
-            "failed": 4,
-            "soft_failed": 0,
-            "fail_rate": 57.1,
-            "is_soft_fail": false,
-            "median_dur": 2.2,
-            "p90_dur": 600.5,
-            "avg_dur": 196.7,
-            "max_dur": 600.5,
-            "median_wait": 3.5,
-            "p90_wait": 10.7,
-            "avg_wait": 4.4,
-            "max_wait": 10.7,
-            "queues": [
-              "gpu_1_queue",
-              "h200_35gb"
-            ]
-          },
-          {
             "name": "Extract Hidden States Integration",
             "runs": 6,
             "passed": 6,
@@ -357749,6 +357587,26 @@
             "p90_wait": 10.3,
             "avg_wait": 4.2,
             "max_wait": 10.3,
+            "queues": [
+              "gpu_1_queue"
+            ]
+          },
+          {
+            "name": "Model Executor",
+            "runs": 6,
+            "passed": 3,
+            "failed": 3,
+            "soft_failed": 0,
+            "fail_rate": 50.0,
+            "is_soft_fail": false,
+            "median_dur": 2.0,
+            "p90_dur": 600.5,
+            "avg_dur": 201.4,
+            "max_dur": 600.5,
+            "median_wait": 4.1,
+            "p90_wait": 10.7,
+            "avg_wait": 5.1,
+            "max_wait": 10.7,
             "queues": [
               "gpu_1_queue"
             ]
@@ -358435,15 +358293,15 @@
           },
           {
             "queue": "h200_35gb",
-            "jobs": 259,
+            "jobs": 252,
             "median_wait": 3.6,
             "p90_wait": 6.3,
-            "avg_wait": 4.2,
+            "avg_wait": 4.3,
             "max_wait": 9.9
           },
           {
             "queue": "gpu_1_queue",
-            "jobs": 462,
+            "jobs": 461,
             "median_wait": 3.5,
             "p90_wait": 6.1,
             "avg_wait": 3.9,
@@ -358665,17 +358523,17 @@
         "builds": [
           {
             "number": 66835,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-05-19T06:00:14.087Z",
             "date": "2026-05-19",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 627.2,
+            "wall_mins": null,
             "passed": 204,
-            "failed": 7,
+            "failed": 6,
             "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 217,
+            "total_jobs": 216,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -360380,18 +360238,6 @@
                 "skipped_tests": 0,
                 "wait": 0.9,
                 "q": "mithril-h100-pool"
-              },
-              {
-                "name": "Model Executor",
-                "raw_name": "Model Executor",
-                "state": "failed",
-                "dur": 168.2,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
-                "wait": 0.0,
-                "q": "h200_35gb"
               },
               {
                 "name": "Model Runner V2 Core Tests",
@@ -393886,17 +393732,17 @@
         "nightly_builds": [
           {
             "number": 66835,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-05-19T06:00:14.087Z",
             "date": "2026-05-19",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 627.2,
+            "wall_mins": null,
             "passed": 204,
-            "failed": 7,
+            "failed": 6,
             "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 217,
+            "total_jobs": 216,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -395601,18 +395447,6 @@
                 "skipped_tests": 0,
                 "wait": 0.9,
                 "q": "mithril-h100-pool"
-              },
-              {
-                "name": "Model Executor",
-                "raw_name": "Model Executor",
-                "state": "failed",
-                "dur": 168.2,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
-                "wait": 0.0,
-                "q": "h200_35gb"
               },
               {
                 "name": "Model Runner V2 Core Tests",
@@ -429350,27 +429184,6 @@
             ]
           },
           {
-            "name": "Model Executor",
-            "runs": 14,
-            "passed": 10,
-            "failed": 4,
-            "soft_failed": 0,
-            "fail_rate": 28.6,
-            "is_soft_fail": false,
-            "median_dur": 1.9,
-            "p90_dur": 600.3,
-            "avg_dur": 99.3,
-            "max_dur": 600.5,
-            "median_wait": 3.4,
-            "p90_wait": 10.7,
-            "avg_wait": 4.5,
-            "max_wait": 12.4,
-            "queues": [
-              "gpu_1_queue",
-              "h200_35gb"
-            ]
-          },
-          {
             "name": "Quantization",
             "runs": 14,
             "passed": 10,
@@ -429489,6 +429302,26 @@
             "max_wait": 0.1,
             "queues": [
               "amd_mi300_1"
+            ]
+          },
+          {
+            "name": "Model Executor",
+            "runs": 13,
+            "passed": 10,
+            "failed": 3,
+            "soft_failed": 0,
+            "fail_rate": 23.1,
+            "is_soft_fail": false,
+            "median_dur": 1.9,
+            "p90_dur": 600.3,
+            "avg_dur": 94.0,
+            "max_dur": 600.5,
+            "median_wait": 3.5,
+            "p90_wait": 10.7,
+            "avg_wait": 4.9,
+            "max_wait": 12.4,
+            "queues": [
+              "gpu_1_queue"
             ]
           },
           {
@@ -434099,23 +433932,22 @@
           },
           {
             "name": "Model Executor",
-            "runs": 14,
+            "runs": 13,
             "passed": 10,
-            "failed": 4,
+            "failed": 3,
             "soft_failed": 0,
-            "fail_rate": 28.6,
+            "fail_rate": 23.1,
             "is_soft_fail": false,
             "median_dur": 1.9,
             "p90_dur": 600.3,
-            "avg_dur": 99.3,
+            "avg_dur": 94.0,
             "max_dur": 600.5,
-            "median_wait": 3.4,
+            "median_wait": 3.5,
             "p90_wait": 10.7,
-            "avg_wait": 4.5,
+            "avg_wait": 4.9,
             "max_wait": 12.4,
             "queues": [
-              "gpu_1_queue",
-              "h200_35gb"
+              "gpu_1_queue"
             ]
           },
           {
@@ -434780,7 +434612,7 @@
           },
           {
             "queue": "h200_35gb",
-            "jobs": 512,
+            "jobs": 498,
             "median_wait": 3.2,
             "p90_wait": 5.2,
             "avg_wait": 3.5,
@@ -434788,7 +434620,7 @@
           },
           {
             "queue": "gpu_1_queue",
-            "jobs": 1016,
+            "jobs": 1015,
             "median_wait": 3.0,
             "p90_wait": 4.8,
             "avg_wait": 3.2,
