@@ -9,8 +9,8 @@ Week of 2026-05-12 to 2026-05-19
 ## PRs This Week
 
 ### vllm
+- Opened: [#43120](https://github.com/vllm-project/vllm/pull/43120) [AMD][CI][BugFix] Fix  Distributed Compile Unit Tests (2xH10 (@rasmith)
 - Opened: [#42459](https://github.com/vllm-project/vllm/pull/42459) [CI][AMD][BugFix] Set num_gpus=2 for trainer for distributed (@rasmith)
-- Opened: [#43120](https://github.com/vllm-project/vllm/pull/43120) [AMD][CI][BugFix] Fix tps ar_rms_fusion unit tests (@rasmith)
 - Merged: [#42126](https://github.com/vllm-project/vllm/pull/42126) [CI][AMD] Skip tests where models have problems or fails on  (@rasmith)
 - Merged: [#42104](https://github.com/vllm-project/vllm/pull/42104) [CI] set max transformers version for skywork model (@divakar-amd)
 - Merged: [#41572](https://github.com/vllm-project/vllm/pull/41572) [ROCm][CI] Skip ROCm batch invalid-input test pending torch  (@AndreasKaratzas)
