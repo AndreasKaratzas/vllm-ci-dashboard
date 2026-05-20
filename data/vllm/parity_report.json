@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-05-19T23:41:49Z",
+  "generated_at": "2026-05-20T00:11:32Z",
   "amd_date": "2026-05-19",
   "upstream_date": "2026-05-19",
   "parity_pct": 0.0,
-  "total_tests": 658,
+  "total_tests": 659,
   "summary": {
-    "upstream_only": 306,
+    "upstream_only": 307,
     "amd_only": 352
   },
   "by_module": {
@@ -570,6 +570,10 @@
       "upstream_only": 1
     },
     "MoE Refactor Integration Test (H100 - TEMPORARY)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "Model Executor": {
       "parity_pct": 100.0,
       "upstream_only": 1
     },
@@ -5341,7 +5345,7 @@
       "family_key": "kernels quantization test",
       "family_name": "kernels quantization test",
       "amd_job_name": "mi300_1: Kernels Quantization Test 1",
-      "upstream_job_name": "Kernels Quantization Test 1",
+      "upstream_job_name": "Kernels Quantization Test 2",
       "amd": {
         "total": 26096,
         "passed": 14872,
@@ -5387,8 +5391,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66835/steps/canvas?jid=019e3ed4-26e4-4a2a-86a7-2900785ae3e5&tab=output",
-          "job_name": "Kernels Quantization Test 1",
+          "url": "https://buildkite.com/vllm/ci/builds/66835/steps/canvas?jid=019e3ed4-26e4-47db-a25e-ea97d4bcef29&tab=output",
+          "job_name": "Kernels Quantization Test 2",
           "side": "upstream"
         }
       ],
@@ -6361,7 +6365,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 5835.4400000000005
+        "duration": 5835.44
       },
       "hardware": [
         "h100",
@@ -6514,7 +6518,7 @@
       "family_key": "model executor",
       "family_name": "model executor",
       "amd_job_name": "mi250_1: Model Executor",
-      "upstream_job_name": null,
+      "upstream_job_name": "Model Executor",
       "amd": {
         "total": 292,
         "passed": 276,
@@ -6525,13 +6529,23 @@
         "error": 0,
         "duration": 1135.94
       },
-      "upstream": null,
+      "upstream": {
+        "total": 1,
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 0.0
+      },
       "hardware": [
         "h100",
         "mi250"
       ],
       "hw_failures": {
-        "mi250": 3
+        "mi250": 3,
+        "h100": 1
       },
       "hw_canceled": null,
       "failure_tests": [],
@@ -6541,9 +6555,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/8592/steps/canvas?sid=019e3f77-8341-467d-9b01-30f36c634844&tab=output",
           "job_name": "mi250_1: Model Executor",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/66835/steps/canvas?jid=019e4178-aab5-4846-b798-8b8dac7912ae&tab=output",
+          "job_name": "Model Executor",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 291,
+        "passed": 276,
+        "failed": 2,
+        "skipped": 13
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -9044,7 +9070,7 @@
       "family_key": "v1 e2e (4 gpus)",
       "family_name": "v1 e2e (4 gpus)",
       "amd_job_name": "mi300_4: V1 e2e (4 GPUs)",
-      "upstream_job_name": "V1 e2e (4 GPUs)",
+      "upstream_job_name": "V1 e2e (4xH100)",
       "amd": {
         "total": 6,
         "passed": 2,
@@ -9083,8 +9109,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66835/steps/canvas?jid=019e3ed4-26a7-407b-b4bf-91298bec6a79&tab=output",
-          "job_name": "V1 e2e (4 GPUs)",
+          "url": "https://buildkite.com/vllm/ci/builds/66835/steps/canvas?jid=019e3ed4-26a7-4136-b06d-7d5312344009&tab=output",
+          "job_name": "V1 e2e (4xH100)",
           "side": "upstream"
         }
       ],
@@ -9102,7 +9128,7 @@
       "family_key": "v1 e2e (4 gpus)",
       "family_name": "v1 e2e (4 gpus)",
       "amd_job_name": "mi300_4: V1 e2e (4xH100-4xMI300)",
-      "upstream_job_name": "V1 e2e (4 GPUs)",
+      "upstream_job_name": "V1 e2e (4xH100)",
       "amd": {
         "total": 4,
         "passed": 2,
@@ -9141,8 +9167,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66835/steps/canvas?jid=019e3ed4-26a7-407b-b4bf-91298bec6a79&tab=output",
-          "job_name": "V1 e2e (4 GPUs)",
+          "url": "https://buildkite.com/vllm/ci/builds/66835/steps/canvas?jid=019e3ed4-26a7-4136-b06d-7d5312344009&tab=output",
+          "job_name": "V1 e2e (4xH100)",
           "side": "upstream"
         }
       ],
@@ -10784,7 +10810,7 @@
       "family_key": "sequence parallel correctness tests (2 gpus)",
       "family_name": "sequence parallel correctness tests (2 gpus)",
       "amd_job_name": null,
-      "upstream_job_name": "Sequence Parallel Correctness Tests (2xH100)",
+      "upstream_job_name": "Sequence Parallel Correctness Tests (2 GPUs)",
       "amd": null,
       "upstream": {
         "total": 90,
@@ -10805,8 +10831,8 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/66835/steps/canvas?jid=019e3ed4-2683-4c89-9b32-f7b8935c4a67&tab=output",
-          "job_name": "Sequence Parallel Correctness Tests (2xH100)",
+          "url": "https://buildkite.com/vllm/ci/builds/66835/steps/canvas?jid=019e3ed4-2680-4dbf-9414-68826c548ebb&tab=output",
+          "job_name": "Sequence Parallel Correctness Tests (2 GPUs)",
           "side": "upstream"
         }
       ],
@@ -12531,6 +12557,12 @@
       "test_id": "MoE Refactor Integration Test (H100 - TEMPORARY)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Model Executor::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
       "category": "upstream_only"
     },
     {
