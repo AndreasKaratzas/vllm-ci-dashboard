@@ -9,6 +9,18 @@ from .models import BuildSummary, TestHealth, TestResult
 
 log = logging.getLogger(__name__)
 
+HEALTH_LABEL_BUCKETS = (
+    "passing",
+    "failing",
+    "new_failure",
+    "fixed",
+    "flaky",
+    "skipped",
+    "new_test",
+    "quarantined",
+    "allowlisted",
+)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -67,8 +79,8 @@ def write_ci_health(
     Returns:
         Path to the written file.
     """
-    # Count labels
-    label_counts = {}
+    # Keep the output schema stable even when a bucket has no current tests.
+    label_counts = {label: 0 for label in HEALTH_LABEL_BUCKETS}
     for h in health_data:
         label_counts[h.label] = label_counts.get(h.label, 0) + 1
 
