@@ -3,7 +3,7 @@
     "pipeline": "amd-ci",
     "display_name": "AMD CI",
     "days": 14,
-    "generated_at": "2026-05-21T20:23:39Z",
+    "generated_at": "2026-05-21T21:18:07Z",
     "summary": {
       "total_builds": 15,
       "passed": 15,
@@ -214483,7 +214483,7 @@
     "pipeline": "ci",
     "display_name": "Upstream CI",
     "days": 14,
-    "generated_at": "2026-05-21T20:23:39Z",
+    "generated_at": "2026-05-21T21:18:07Z",
     "summary": {
       "total_builds": 15,
       "passed": 1,
@@ -214595,11 +214595,11 @@
         "message": "Full CI run - nightly",
         "author": "",
         "wall_mins": null,
-        "passed": 203,
+        "passed": 204,
         "failed": 12,
-        "soft_failed": 3,
+        "soft_failed": 4,
         "skipped": 0,
-        "total_jobs": 218,
+        "total_jobs": 220,
         "jobs": [
           {
             "name": "2 Node Test (4 GPUs)",
@@ -216669,11 +216669,11 @@
             "name": "Quantization",
             "raw_name": "Quantization",
             "state": "failed",
-            "dur": 38.9,
-            "tests": 1,
-            "passed_tests": 0,
-            "failed_tests": 1,
-            "skipped_tests": 0,
+            "dur": 34.2,
+            "tests": 312,
+            "passed_tests": 268,
+            "failed_tests": 9,
+            "skipped_tests": 35,
             "wait": 3.1,
             "q": "gpu_1_queue"
           },
@@ -216681,11 +216681,11 @@
             "name": "Quantized MoE Test (B200)",
             "raw_name": "Quantized MoE Test (B200)",
             "state": "passed",
-            "dur": 27.0,
-            "tests": 1,
-            "passed_tests": 1,
+            "dur": 26.4,
+            "tests": 21,
+            "passed_tests": 15,
             "failed_tests": 0,
-            "skipped_tests": 0,
+            "skipped_tests": 6,
             "wait": 1.0,
             "q": "b200-k8s"
           },
@@ -216693,11 +216693,11 @@
             "name": "Quantized Models Test",
             "raw_name": "Quantized Models Test",
             "state": "failed",
-            "dur": 45.1,
-            "tests": 1,
-            "passed_tests": 0,
-            "failed_tests": 1,
-            "skipped_tests": 0,
+            "dur": 40.3,
+            "tests": 62,
+            "passed_tests": 31,
+            "failed_tests": 2,
+            "skipped_tests": 29,
             "wait": 3.3,
             "q": "gpu_1_queue"
           },
@@ -216777,7 +216777,7 @@
             "name": "Rust Frontend Core Correctness",
             "raw_name": "Rust Frontend Core Correctness",
             "state": "passed",
-            "dur": 4.3,
+            "dur": 2.9,
             "tests": 1,
             "passed_tests": 1,
             "failed_tests": 0,
@@ -216789,9 +216789,9 @@
             "name": "Rust Frontend Distributed",
             "raw_name": "Rust Frontend Distributed",
             "state": "passed",
-            "dur": 7.9,
-            "tests": 1,
-            "passed_tests": 1,
+            "dur": 2.5,
+            "tests": 4,
+            "passed_tests": 4,
             "failed_tests": 0,
             "skipped_tests": 0,
             "wait": 5.1,
@@ -216801,7 +216801,7 @@
             "name": "Rust Frontend OpenAI Coverage",
             "raw_name": "Rust Frontend OpenAI Coverage",
             "state": "passed",
-            "dur": 11.4,
+            "dur": 1.7,
             "tests": 1,
             "passed_tests": 1,
             "failed_tests": 0,
@@ -216813,9 +216813,9 @@
             "name": "Rust Frontend Serve/Admin Coverage",
             "raw_name": "Rust Frontend Serve/Admin Coverage",
             "state": "passed",
-            "dur": 9.1,
-            "tests": 1,
-            "passed_tests": 1,
+            "dur": 1.6,
+            "tests": 2,
+            "passed_tests": 2,
             "failed_tests": 0,
             "skipped_tests": 0,
             "wait": 0.0,
@@ -216825,11 +216825,11 @@
             "name": "Rust Frontend Tool Use",
             "raw_name": "Rust Frontend Tool Use",
             "state": "passed",
-            "dur": 6.7,
-            "tests": 1,
-            "passed_tests": 1,
+            "dur": 1.9,
+            "tests": 215,
+            "passed_tests": 163,
             "failed_tests": 0,
-            "skipped_tests": 0,
+            "skipped_tests": 52,
             "wait": 3.3,
             "q": "gpu_1_queue"
           },
@@ -216856,6 +216856,18 @@
             "skipped_tests": 0,
             "wait": 2.7,
             "q": "gpu_4_queue"
+          },
+          {
+            "name": "Sequence Parallel Correctness Tests (2xH100)",
+            "raw_name": "Sequence Parallel Correctness Tests (2xH100)",
+            "state": "passed",
+            "dur": 56.1,
+            "tests": 45,
+            "passed_tests": 45,
+            "failed_tests": 0,
+            "skipped_tests": 0,
+            "wait": 89.9,
+            "q": "mithril-h100-pool"
           },
           {
             "name": "Spec Decode Draft Model",
@@ -217060,6 +217072,18 @@
             "skipped_tests": 3,
             "wait": 0.1,
             "q": "h200_18gb"
+          },
+          {
+            "name": "Transformers Backward Compatibility Models Test",
+            "raw_name": "Transformers Backward Compatibility Models Test",
+            "state": "soft_fail",
+            "dur": 0.9,
+            "tests": 15,
+            "passed_tests": 14,
+            "failed_tests": 1,
+            "skipped_tests": 0,
+            "wait": 0.0,
+            "q": "h200_35gb"
           },
           {
             "name": "V1 Core + KV + Metrics",
@@ -252703,11 +252727,11 @@
         "message": "Full CI run - nightly",
         "author": "",
         "wall_mins": null,
-        "passed": 203,
+        "passed": 204,
         "failed": 12,
-        "soft_failed": 3,
+        "soft_failed": 4,
         "skipped": 0,
-        "total_jobs": 218,
+        "total_jobs": 220,
         "jobs": [
           {
             "name": "2 Node Test (4 GPUs)",
@@ -254777,11 +254801,11 @@
             "name": "Quantization",
             "raw_name": "Quantization",
             "state": "failed",
-            "dur": 38.9,
-            "tests": 1,
-            "passed_tests": 0,
-            "failed_tests": 1,
-            "skipped_tests": 0,
+            "dur": 34.2,
+            "tests": 312,
+            "passed_tests": 268,
+            "failed_tests": 9,
+            "skipped_tests": 35,
             "wait": 3.1,
             "q": "gpu_1_queue"
           },
@@ -254789,11 +254813,11 @@
             "name": "Quantized MoE Test (B200)",
             "raw_name": "Quantized MoE Test (B200)",
             "state": "passed",
-            "dur": 27.0,
-            "tests": 1,
-            "passed_tests": 1,
+            "dur": 26.4,
+            "tests": 21,
+            "passed_tests": 15,
             "failed_tests": 0,
-            "skipped_tests": 0,
+            "skipped_tests": 6,
             "wait": 1.0,
             "q": "b200-k8s"
           },
@@ -254801,11 +254825,11 @@
             "name": "Quantized Models Test",
             "raw_name": "Quantized Models Test",
             "state": "failed",
-            "dur": 45.1,
-            "tests": 1,
-            "passed_tests": 0,
-            "failed_tests": 1,
-            "skipped_tests": 0,
+            "dur": 40.3,
+            "tests": 62,
+            "passed_tests": 31,
+            "failed_tests": 2,
+            "skipped_tests": 29,
             "wait": 3.3,
             "q": "gpu_1_queue"
           },
@@ -254885,7 +254909,7 @@
             "name": "Rust Frontend Core Correctness",
             "raw_name": "Rust Frontend Core Correctness",
             "state": "passed",
-            "dur": 4.3,
+            "dur": 2.9,
             "tests": 1,
             "passed_tests": 1,
             "failed_tests": 0,
@@ -254897,9 +254921,9 @@
             "name": "Rust Frontend Distributed",
             "raw_name": "Rust Frontend Distributed",
             "state": "passed",
-            "dur": 7.9,
-            "tests": 1,
-            "passed_tests": 1,
+            "dur": 2.5,
+            "tests": 4,
+            "passed_tests": 4,
             "failed_tests": 0,
             "skipped_tests": 0,
             "wait": 5.1,
@@ -254909,7 +254933,7 @@
             "name": "Rust Frontend OpenAI Coverage",
             "raw_name": "Rust Frontend OpenAI Coverage",
             "state": "passed",
-            "dur": 11.4,
+            "dur": 1.7,
             "tests": 1,
             "passed_tests": 1,
             "failed_tests": 0,
@@ -254921,9 +254945,9 @@
             "name": "Rust Frontend Serve/Admin Coverage",
             "raw_name": "Rust Frontend Serve/Admin Coverage",
             "state": "passed",
-            "dur": 9.1,
-            "tests": 1,
-            "passed_tests": 1,
+            "dur": 1.6,
+            "tests": 2,
+            "passed_tests": 2,
             "failed_tests": 0,
             "skipped_tests": 0,
             "wait": 0.0,
@@ -254933,11 +254957,11 @@
             "name": "Rust Frontend Tool Use",
             "raw_name": "Rust Frontend Tool Use",
             "state": "passed",
-            "dur": 6.7,
-            "tests": 1,
-            "passed_tests": 1,
+            "dur": 1.9,
+            "tests": 215,
+            "passed_tests": 163,
             "failed_tests": 0,
-            "skipped_tests": 0,
+            "skipped_tests": 52,
             "wait": 3.3,
             "q": "gpu_1_queue"
           },
@@ -254964,6 +254988,18 @@
             "skipped_tests": 0,
             "wait": 2.7,
             "q": "gpu_4_queue"
+          },
+          {
+            "name": "Sequence Parallel Correctness Tests (2xH100)",
+            "raw_name": "Sequence Parallel Correctness Tests (2xH100)",
+            "state": "passed",
+            "dur": 56.1,
+            "tests": 45,
+            "passed_tests": 45,
+            "failed_tests": 0,
+            "skipped_tests": 0,
+            "wait": 89.9,
+            "q": "mithril-h100-pool"
           },
           {
             "name": "Spec Decode Draft Model",
@@ -255168,6 +255204,18 @@
             "skipped_tests": 3,
             "wait": 0.1,
             "q": "h200_18gb"
+          },
+          {
+            "name": "Transformers Backward Compatibility Models Test",
+            "raw_name": "Transformers Backward Compatibility Models Test",
+            "state": "soft_fail",
+            "dur": 0.9,
+            "tests": 15,
+            "passed_tests": 14,
+            "failed_tests": 1,
+            "skipped_tests": 0,
+            "wait": 0.0,
+            "q": "h200_35gb"
           },
           {
             "name": "V1 Core + KV + Metrics",
@@ -288455,19 +288503,19 @@
       },
       {
         "name": "Transformers Backward Compatibility Models Test",
-        "runs": 14,
+        "runs": 15,
         "passed": 0,
         "failed": 0,
-        "soft_failed": 14,
+        "soft_failed": 15,
         "fail_rate": 100.0,
         "is_soft_fail": true,
         "median_dur": 0.7,
         "p90_dur": 1.2,
         "avg_dur": 1.1,
         "max_dur": 5.9,
-        "median_wait": 3.6,
+        "median_wait": 3.5,
         "p90_wait": 10.7,
-        "avg_wait": 5.2,
+        "avg_wait": 4.8,
         "max_wait": 15.8,
         "queues": [
           "gpu_1_queue",
@@ -288687,10 +288735,10 @@
         "soft_failed": 0,
         "fail_rate": 33.3,
         "is_soft_fail": false,
-        "median_dur": 36.2,
-        "p90_dur": 38.7,
-        "avg_dur": 36.2,
-        "max_dur": 38.9,
+        "median_dur": 35.9,
+        "p90_dur": 37.3,
+        "avg_dur": 35.9,
+        "max_dur": 38.7,
         "median_wait": 4.1,
         "p90_wait": 11.0,
         "avg_wait": 6.2,
@@ -289136,8 +289184,8 @@
         "is_soft_fail": false,
         "median_dur": 17.7,
         "p90_dur": 26.3,
-        "avg_dur": 19.2,
-        "max_dur": 27.0,
+        "avg_dur": 19.1,
+        "max_dur": 26.4,
         "median_wait": 1.0,
         "p90_wait": 2.7,
         "avg_wait": 1.8,
@@ -289265,26 +289313,6 @@
         "max_wait": 0.2,
         "queues": [
           "amd_mi300_1"
-        ]
-      },
-      {
-        "name": "Sequence Parallel Correctness Tests (2xH100)",
-        "runs": 14,
-        "passed": 13,
-        "failed": 1,
-        "soft_failed": 0,
-        "fail_rate": 7.1,
-        "is_soft_fail": false,
-        "median_dur": 51.0,
-        "p90_dur": 55.1,
-        "avg_dur": 50.9,
-        "max_dur": 55.4,
-        "median_wait": 1.0,
-        "p90_wait": 3.6,
-        "avg_wait": 4.0,
-        "max_wait": 34.3,
-        "queues": [
-          "mithril-h100-pool"
         ]
       },
       {
@@ -289702,10 +289730,10 @@
         "soft_failed": 0,
         "fail_rate": 6.7,
         "is_soft_fail": false,
-        "median_dur": 40.9,
-        "p90_dur": 42.9,
-        "avg_dur": 40.9,
-        "max_dur": 45.1,
+        "median_dur": 40.8,
+        "p90_dur": 42.2,
+        "avg_dur": 40.6,
+        "max_dur": 42.9,
         "median_wait": 4.2,
         "p90_wait": 11.0,
         "avg_wait": 6.3,
@@ -289732,6 +289760,26 @@
         "max_wait": 2.7,
         "queues": [
           "b200-k8s"
+        ]
+      },
+      {
+        "name": "Sequence Parallel Correctness Tests (2xH100)",
+        "runs": 15,
+        "passed": 14,
+        "failed": 1,
+        "soft_failed": 0,
+        "fail_rate": 6.7,
+        "is_soft_fail": false,
+        "median_dur": 51.3,
+        "p90_dur": 55.4,
+        "avg_dur": 51.3,
+        "max_dur": 56.1,
+        "median_wait": 1.0,
+        "p90_wait": 34.3,
+        "avg_wait": 9.7,
+        "max_wait": 89.9,
+        "queues": [
+          "mithril-h100-pool"
         ]
       },
       {
@@ -290109,20 +290157,20 @@
       },
       {
         "name": "Sequence Parallel Correctness Tests (2xH100)",
-        "runs": 14,
-        "passed": 13,
+        "runs": 15,
+        "passed": 14,
         "failed": 1,
         "soft_failed": 0,
-        "fail_rate": 7.1,
+        "fail_rate": 6.7,
         "is_soft_fail": false,
-        "median_dur": 51.0,
-        "p90_dur": 55.1,
-        "avg_dur": 50.9,
-        "max_dur": 55.4,
+        "median_dur": 51.3,
+        "p90_dur": 55.4,
+        "avg_dur": 51.3,
+        "max_dur": 56.1,
         "median_wait": 1.0,
-        "p90_wait": 3.6,
-        "avg_wait": 4.0,
-        "max_wait": 34.3,
+        "p90_wait": 34.3,
+        "avg_wait": 9.7,
+        "max_wait": 89.9,
         "queues": [
           "mithril-h100-pool"
         ]
@@ -290360,10 +290408,10 @@
         "soft_failed": 0,
         "fail_rate": 6.7,
         "is_soft_fail": false,
-        "median_dur": 40.9,
-        "p90_dur": 42.9,
-        "avg_dur": 40.9,
-        "max_dur": 45.1,
+        "median_dur": 40.8,
+        "p90_dur": 42.2,
+        "avg_dur": 40.6,
+        "max_dur": 42.9,
         "median_wait": 4.2,
         "p90_wait": 11.0,
         "avg_wait": 6.3,
@@ -290481,10 +290529,10 @@
         "soft_failed": 0,
         "fail_rate": 33.3,
         "is_soft_fail": false,
-        "median_dur": 36.2,
-        "p90_dur": 38.7,
-        "avg_dur": 36.2,
-        "max_dur": 38.9,
+        "median_dur": 35.9,
+        "p90_dur": 37.3,
+        "avg_dur": 35.9,
+        "max_dur": 38.7,
         "median_wait": 4.1,
         "p90_wait": 11.0,
         "avg_wait": 6.2,
@@ -291478,8 +291526,8 @@
         "is_soft_fail": false,
         "median_dur": 17.7,
         "p90_dur": 26.3,
-        "avg_dur": 19.2,
-        "max_dur": 27.0,
+        "avg_dur": 19.1,
+        "max_dur": 26.4,
         "median_wait": 1.0,
         "p90_wait": 2.7,
         "avg_wait": 1.8,
@@ -291872,26 +291920,6 @@
         ]
       },
       {
-        "name": "Rust Frontend OpenAI Coverage",
-        "runs": 1,
-        "passed": 1,
-        "failed": 0,
-        "soft_failed": 0,
-        "fail_rate": 0.0,
-        "is_soft_fail": false,
-        "median_dur": 11.4,
-        "p90_dur": 11.4,
-        "avg_dur": 11.4,
-        "max_dur": 11.4,
-        "median_wait": 0.0,
-        "p90_wait": 0.0,
-        "avg_wait": 0.0,
-        "max_wait": 0.0,
-        "queues": [
-          "h200_18gb"
-        ]
-      },
-      {
         "name": "Language Models Test (PPL)",
         "runs": 15,
         "passed": 15,
@@ -292197,26 +292225,6 @@
         ]
       },
       {
-        "name": "Rust Frontend Serve/Admin Coverage",
-        "runs": 1,
-        "passed": 1,
-        "failed": 0,
-        "soft_failed": 0,
-        "fail_rate": 0.0,
-        "is_soft_fail": false,
-        "median_dur": 9.1,
-        "p90_dur": 9.1,
-        "avg_dur": 9.1,
-        "max_dur": 9.1,
-        "median_wait": 0.0,
-        "p90_wait": 0.0,
-        "avg_wait": 0.0,
-        "max_wait": 0.0,
-        "queues": [
-          "h200_18gb"
-        ]
-      },
-      {
         "name": "Kernels FusedMoE Layer Test (2 B200s)",
         "runs": 15,
         "passed": 13,
@@ -292361,26 +292369,6 @@
         ]
       },
       {
-        "name": "Rust Frontend Distributed",
-        "runs": 1,
-        "passed": 1,
-        "failed": 0,
-        "soft_failed": 0,
-        "fail_rate": 0.0,
-        "is_soft_fail": false,
-        "median_dur": 7.9,
-        "p90_dur": 7.9,
-        "avg_dur": 7.9,
-        "max_dur": 7.9,
-        "median_wait": 5.1,
-        "p90_wait": 5.1,
-        "avg_wait": 5.1,
-        "max_wait": 5.1,
-        "queues": [
-          "gpu_4_queue"
-        ]
-      },
-      {
         "name": "Cudagraph",
         "runs": 15,
         "passed": 15,
@@ -292458,26 +292446,6 @@
         "max_wait": 35.2,
         "queues": [
           "mithril-h100-pool"
-        ]
-      },
-      {
-        "name": "Rust Frontend Tool Use",
-        "runs": 1,
-        "passed": 1,
-        "failed": 0,
-        "soft_failed": 0,
-        "fail_rate": 0.0,
-        "is_soft_fail": false,
-        "median_dur": 6.7,
-        "p90_dur": 6.7,
-        "avg_dur": 6.7,
-        "max_dur": 6.7,
-        "median_wait": 3.3,
-        "p90_wait": 3.3,
-        "avg_wait": 3.3,
-        "max_wait": 3.3,
-        "queues": [
-          "gpu_1_queue"
         ]
       },
       {
@@ -292947,26 +292915,6 @@
         ]
       },
       {
-        "name": "Rust Frontend Core Correctness",
-        "runs": 1,
-        "passed": 1,
-        "failed": 0,
-        "soft_failed": 0,
-        "fail_rate": 0.0,
-        "is_soft_fail": false,
-        "median_dur": 4.3,
-        "p90_dur": 4.3,
-        "avg_dur": 4.3,
-        "max_dur": 4.3,
-        "median_wait": 0.0,
-        "p90_wait": 0.0,
-        "avg_wait": 0.0,
-        "max_wait": 0.0,
-        "queues": [
-          "h200_18gb"
-        ]
-      },
-      {
         "name": "DeepSeek V2-Lite Prefetch Offload Accuracy (H100)",
         "runs": 15,
         "passed": 15,
@@ -293349,6 +293297,26 @@
         ]
       },
       {
+        "name": "Rust Frontend Core Correctness",
+        "runs": 1,
+        "passed": 1,
+        "failed": 0,
+        "soft_failed": 0,
+        "fail_rate": 0.0,
+        "is_soft_fail": false,
+        "median_dur": 2.9,
+        "p90_dur": 2.9,
+        "avg_dur": 2.9,
+        "max_dur": 2.9,
+        "median_wait": 0.0,
+        "p90_wait": 0.0,
+        "avg_wait": 0.0,
+        "max_wait": 0.0,
+        "queues": [
+          "h200_18gb"
+        ]
+      },
+      {
         "name": "Distributed FlashInfer NixlConnector PD accuracy (4 GPUs)",
         "runs": 15,
         "passed": 11,
@@ -293424,6 +293392,26 @@
         "p90_wait": 25.3,
         "avg_wait": 11.7,
         "max_wait": 36.1,
+        "queues": [
+          "gpu_4_queue"
+        ]
+      },
+      {
+        "name": "Rust Frontend Distributed",
+        "runs": 1,
+        "passed": 1,
+        "failed": 0,
+        "soft_failed": 0,
+        "fail_rate": 0.0,
+        "is_soft_fail": false,
+        "median_dur": 2.5,
+        "p90_dur": 2.5,
+        "avg_dur": 2.5,
+        "max_dur": 2.5,
+        "median_wait": 5.1,
+        "p90_wait": 5.1,
+        "avg_wait": 5.1,
+        "max_wait": 5.1,
         "queues": [
           "gpu_4_queue"
         ]
@@ -293791,6 +293779,26 @@
         ]
       },
       {
+        "name": "Rust Frontend Tool Use",
+        "runs": 1,
+        "passed": 1,
+        "failed": 0,
+        "soft_failed": 0,
+        "fail_rate": 0.0,
+        "is_soft_fail": false,
+        "median_dur": 1.9,
+        "p90_dur": 1.9,
+        "avg_dur": 1.9,
+        "max_dur": 1.9,
+        "median_wait": 3.3,
+        "p90_wait": 3.3,
+        "avg_wait": 3.3,
+        "max_wait": 3.3,
+        "queues": [
+          "gpu_1_queue"
+        ]
+      },
+      {
         "name": "Entrypoints Integration (LLM)",
         "runs": 15,
         "passed": 15,
@@ -293871,6 +293879,26 @@
         ]
       },
       {
+        "name": "Rust Frontend OpenAI Coverage",
+        "runs": 1,
+        "passed": 1,
+        "failed": 0,
+        "soft_failed": 0,
+        "fail_rate": 0.0,
+        "is_soft_fail": false,
+        "median_dur": 1.7,
+        "p90_dur": 1.7,
+        "avg_dur": 1.7,
+        "max_dur": 1.7,
+        "median_wait": 0.0,
+        "p90_wait": 0.0,
+        "avg_wait": 0.0,
+        "max_wait": 0.0,
+        "queues": [
+          "h200_18gb"
+        ]
+      },
+      {
         "name": "Model Runner V2 Distributed (2 GPUs)",
         "runs": 15,
         "passed": 15,
@@ -293888,6 +293916,26 @@
         "max_wait": 37.1,
         "queues": [
           "gpu_4_queue"
+        ]
+      },
+      {
+        "name": "Rust Frontend Serve/Admin Coverage",
+        "runs": 1,
+        "passed": 1,
+        "failed": 0,
+        "soft_failed": 0,
+        "fail_rate": 0.0,
+        "is_soft_fail": false,
+        "median_dur": 1.6,
+        "p90_dur": 1.6,
+        "avg_dur": 1.6,
+        "max_dur": 1.6,
+        "median_wait": 0.0,
+        "p90_wait": 0.0,
+        "avg_wait": 0.0,
+        "max_wait": 0.0,
+        "queues": [
+          "h200_18gb"
         ]
       },
       {
@@ -294092,19 +294140,19 @@
       },
       {
         "name": "Transformers Backward Compatibility Models Test",
-        "runs": 14,
+        "runs": 15,
         "passed": 0,
         "failed": 0,
-        "soft_failed": 14,
+        "soft_failed": 15,
         "fail_rate": 100.0,
         "is_soft_fail": true,
         "median_dur": 0.7,
         "p90_dur": 1.2,
         "avg_dur": 1.1,
         "max_dur": 5.9,
-        "median_wait": 3.6,
+        "median_wait": 3.5,
         "p90_wait": 10.7,
-        "avg_wait": 5.2,
+        "avg_wait": 4.8,
         "max_wait": 15.8,
         "queues": [
           "gpu_1_queue",
@@ -294452,15 +294500,15 @@
       },
       {
         "queue": "h200_35gb",
-        "jobs": 547,
+        "jobs": 548,
         "median_wait": 3.2,
         "p90_wait": 6.0,
-        "avg_wait": 3.7,
+        "avg_wait": 3.6,
         "max_wait": 6.8
       },
       {
         "queue": "gpu_1_queue",
-        "jobs": 1088,
+        "jobs": 1089,
         "median_wait": 3.0,
         "p90_wait": 4.6,
         "avg_wait": 3.1,
@@ -294484,7 +294532,7 @@
       },
       {
         "queue": "mithril-h100-pool",
-        "jobs": 434,
+        "jobs": 435,
         "median_wait": 1.1,
         "p90_wait": 5.4,
         "avg_wait": 1.9,
@@ -294597,10 +294645,10 @@
           "passed": 0,
           "failed": 1,
           "pass_rate": 0.0,
-          "total_jobs_tracked": 218,
-          "jobs_with_failures": 15,
+          "total_jobs_tracked": 220,
+          "jobs_with_failures": 16,
           "jobs_with_hard_failures": 12,
-          "jobs_with_soft_failures": 3
+          "jobs_with_soft_failures": 4
         },
         "daily_stats": [
           {
@@ -294619,11 +294667,11 @@
             "message": "Full CI run - nightly",
             "author": "",
             "wall_mins": null,
-            "passed": 203,
+            "passed": 204,
             "failed": 12,
-            "soft_failed": 3,
+            "soft_failed": 4,
             "skipped": 0,
-            "total_jobs": 218,
+            "total_jobs": 220,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -296693,11 +296741,11 @@
                 "name": "Quantization",
                 "raw_name": "Quantization",
                 "state": "failed",
-                "dur": 38.9,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
+                "dur": 34.2,
+                "tests": 312,
+                "passed_tests": 268,
+                "failed_tests": 9,
+                "skipped_tests": 35,
                 "wait": 3.1,
                 "q": "gpu_1_queue"
               },
@@ -296705,11 +296753,11 @@
                 "name": "Quantized MoE Test (B200)",
                 "raw_name": "Quantized MoE Test (B200)",
                 "state": "passed",
-                "dur": 27.0,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 26.4,
+                "tests": 21,
+                "passed_tests": 15,
                 "failed_tests": 0,
-                "skipped_tests": 0,
+                "skipped_tests": 6,
                 "wait": 1.0,
                 "q": "b200-k8s"
               },
@@ -296717,11 +296765,11 @@
                 "name": "Quantized Models Test",
                 "raw_name": "Quantized Models Test",
                 "state": "failed",
-                "dur": 45.1,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
+                "dur": 40.3,
+                "tests": 62,
+                "passed_tests": 31,
+                "failed_tests": 2,
+                "skipped_tests": 29,
                 "wait": 3.3,
                 "q": "gpu_1_queue"
               },
@@ -296801,7 +296849,7 @@
                 "name": "Rust Frontend Core Correctness",
                 "raw_name": "Rust Frontend Core Correctness",
                 "state": "passed",
-                "dur": 4.3,
+                "dur": 2.9,
                 "tests": 1,
                 "passed_tests": 1,
                 "failed_tests": 0,
@@ -296813,9 +296861,9 @@
                 "name": "Rust Frontend Distributed",
                 "raw_name": "Rust Frontend Distributed",
                 "state": "passed",
-                "dur": 7.9,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 2.5,
+                "tests": 4,
+                "passed_tests": 4,
                 "failed_tests": 0,
                 "skipped_tests": 0,
                 "wait": 5.1,
@@ -296825,7 +296873,7 @@
                 "name": "Rust Frontend OpenAI Coverage",
                 "raw_name": "Rust Frontend OpenAI Coverage",
                 "state": "passed",
-                "dur": 11.4,
+                "dur": 1.7,
                 "tests": 1,
                 "passed_tests": 1,
                 "failed_tests": 0,
@@ -296837,9 +296885,9 @@
                 "name": "Rust Frontend Serve/Admin Coverage",
                 "raw_name": "Rust Frontend Serve/Admin Coverage",
                 "state": "passed",
-                "dur": 9.1,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 1.6,
+                "tests": 2,
+                "passed_tests": 2,
                 "failed_tests": 0,
                 "skipped_tests": 0,
                 "wait": 0.0,
@@ -296849,11 +296897,11 @@
                 "name": "Rust Frontend Tool Use",
                 "raw_name": "Rust Frontend Tool Use",
                 "state": "passed",
-                "dur": 6.7,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 1.9,
+                "tests": 215,
+                "passed_tests": 163,
                 "failed_tests": 0,
-                "skipped_tests": 0,
+                "skipped_tests": 52,
                 "wait": 3.3,
                 "q": "gpu_1_queue"
               },
@@ -296880,6 +296928,18 @@
                 "skipped_tests": 0,
                 "wait": 2.7,
                 "q": "gpu_4_queue"
+              },
+              {
+                "name": "Sequence Parallel Correctness Tests (2xH100)",
+                "raw_name": "Sequence Parallel Correctness Tests (2xH100)",
+                "state": "passed",
+                "dur": 56.1,
+                "tests": 45,
+                "passed_tests": 45,
+                "failed_tests": 0,
+                "skipped_tests": 0,
+                "wait": 89.9,
+                "q": "mithril-h100-pool"
               },
               {
                 "name": "Spec Decode Draft Model",
@@ -297084,6 +297144,18 @@
                 "skipped_tests": 3,
                 "wait": 0.1,
                 "q": "h200_18gb"
+              },
+              {
+                "name": "Transformers Backward Compatibility Models Test",
+                "raw_name": "Transformers Backward Compatibility Models Test",
+                "state": "soft_fail",
+                "dur": 0.9,
+                "tests": 15,
+                "passed_tests": 14,
+                "failed_tests": 1,
+                "skipped_tests": 0,
+                "wait": 0.0,
+                "q": "h200_35gb"
               },
               {
                 "name": "V1 Core + KV + Metrics",
@@ -297255,11 +297327,11 @@
             "message": "Full CI run - nightly",
             "author": "",
             "wall_mins": null,
-            "passed": 203,
+            "passed": 204,
             "failed": 12,
-            "soft_failed": 3,
+            "soft_failed": 4,
             "skipped": 0,
-            "total_jobs": 218,
+            "total_jobs": 220,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -299329,11 +299401,11 @@
                 "name": "Quantization",
                 "raw_name": "Quantization",
                 "state": "failed",
-                "dur": 38.9,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
+                "dur": 34.2,
+                "tests": 312,
+                "passed_tests": 268,
+                "failed_tests": 9,
+                "skipped_tests": 35,
                 "wait": 3.1,
                 "q": "gpu_1_queue"
               },
@@ -299341,11 +299413,11 @@
                 "name": "Quantized MoE Test (B200)",
                 "raw_name": "Quantized MoE Test (B200)",
                 "state": "passed",
-                "dur": 27.0,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 26.4,
+                "tests": 21,
+                "passed_tests": 15,
                 "failed_tests": 0,
-                "skipped_tests": 0,
+                "skipped_tests": 6,
                 "wait": 1.0,
                 "q": "b200-k8s"
               },
@@ -299353,11 +299425,11 @@
                 "name": "Quantized Models Test",
                 "raw_name": "Quantized Models Test",
                 "state": "failed",
-                "dur": 45.1,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
+                "dur": 40.3,
+                "tests": 62,
+                "passed_tests": 31,
+                "failed_tests": 2,
+                "skipped_tests": 29,
                 "wait": 3.3,
                 "q": "gpu_1_queue"
               },
@@ -299437,7 +299509,7 @@
                 "name": "Rust Frontend Core Correctness",
                 "raw_name": "Rust Frontend Core Correctness",
                 "state": "passed",
-                "dur": 4.3,
+                "dur": 2.9,
                 "tests": 1,
                 "passed_tests": 1,
                 "failed_tests": 0,
@@ -299449,9 +299521,9 @@
                 "name": "Rust Frontend Distributed",
                 "raw_name": "Rust Frontend Distributed",
                 "state": "passed",
-                "dur": 7.9,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 2.5,
+                "tests": 4,
+                "passed_tests": 4,
                 "failed_tests": 0,
                 "skipped_tests": 0,
                 "wait": 5.1,
@@ -299461,7 +299533,7 @@
                 "name": "Rust Frontend OpenAI Coverage",
                 "raw_name": "Rust Frontend OpenAI Coverage",
                 "state": "passed",
-                "dur": 11.4,
+                "dur": 1.7,
                 "tests": 1,
                 "passed_tests": 1,
                 "failed_tests": 0,
@@ -299473,9 +299545,9 @@
                 "name": "Rust Frontend Serve/Admin Coverage",
                 "raw_name": "Rust Frontend Serve/Admin Coverage",
                 "state": "passed",
-                "dur": 9.1,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 1.6,
+                "tests": 2,
+                "passed_tests": 2,
                 "failed_tests": 0,
                 "skipped_tests": 0,
                 "wait": 0.0,
@@ -299485,11 +299557,11 @@
                 "name": "Rust Frontend Tool Use",
                 "raw_name": "Rust Frontend Tool Use",
                 "state": "passed",
-                "dur": 6.7,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 1.9,
+                "tests": 215,
+                "passed_tests": 163,
                 "failed_tests": 0,
-                "skipped_tests": 0,
+                "skipped_tests": 52,
                 "wait": 3.3,
                 "q": "gpu_1_queue"
               },
@@ -299516,6 +299588,18 @@
                 "skipped_tests": 0,
                 "wait": 2.7,
                 "q": "gpu_4_queue"
+              },
+              {
+                "name": "Sequence Parallel Correctness Tests (2xH100)",
+                "raw_name": "Sequence Parallel Correctness Tests (2xH100)",
+                "state": "passed",
+                "dur": 56.1,
+                "tests": 45,
+                "passed_tests": 45,
+                "failed_tests": 0,
+                "skipped_tests": 0,
+                "wait": 89.9,
+                "q": "mithril-h100-pool"
               },
               {
                 "name": "Spec Decode Draft Model",
@@ -299720,6 +299804,18 @@
                 "skipped_tests": 3,
                 "wait": 0.1,
                 "q": "h200_18gb"
+              },
+              {
+                "name": "Transformers Backward Compatibility Models Test",
+                "raw_name": "Transformers Backward Compatibility Models Test",
+                "state": "soft_fail",
+                "dur": 0.9,
+                "tests": 15,
+                "passed_tests": 14,
+                "failed_tests": 1,
+                "skipped_tests": 0,
+                "wait": 0.0,
+                "q": "h200_35gb"
               },
               {
                 "name": "V1 Core + KV + Metrics",
@@ -300051,10 +300147,10 @@
             "soft_failed": 0,
             "fail_rate": 100.0,
             "is_soft_fail": false,
-            "median_dur": 38.9,
-            "p90_dur": 38.9,
-            "avg_dur": 38.9,
-            "max_dur": 38.9,
+            "median_dur": 34.2,
+            "p90_dur": 34.2,
+            "avg_dur": 34.2,
+            "max_dur": 34.2,
             "median_wait": 3.1,
             "p90_wait": 3.1,
             "avg_wait": 3.1,
@@ -300071,10 +300167,10 @@
             "soft_failed": 0,
             "fail_rate": 100.0,
             "is_soft_fail": false,
-            "median_dur": 45.1,
-            "p90_dur": 45.1,
-            "avg_dur": 45.1,
-            "max_dur": 45.1,
+            "median_dur": 40.3,
+            "p90_dur": 40.3,
+            "avg_dur": 40.3,
+            "max_dur": 40.3,
             "median_wait": 3.3,
             "p90_wait": 3.3,
             "avg_wait": 3.3,
@@ -300155,6 +300251,26 @@
             "p90_dur": 62.5,
             "avg_dur": 62.5,
             "max_dur": 62.5,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_35gb"
+            ]
+          },
+          {
+            "name": "Transformers Backward Compatibility Models Test",
+            "runs": 1,
+            "passed": 0,
+            "failed": 0,
+            "soft_failed": 1,
+            "fail_rate": 100.0,
+            "is_soft_fail": true,
+            "median_dur": 0.9,
+            "p90_dur": 0.9,
+            "avg_dur": 0.9,
+            "max_dur": 0.9,
             "median_wait": 0.0,
             "p90_wait": 0.0,
             "avg_wait": 0.0,
@@ -300386,6 +300502,26 @@
             ]
           },
           {
+            "name": "Sequence Parallel Correctness Tests (2xH100)",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 56.1,
+            "p90_dur": 56.1,
+            "avg_dur": 56.1,
+            "max_dur": 56.1,
+            "median_wait": 89.9,
+            "p90_wait": 89.9,
+            "avg_wait": 89.9,
+            "max_wait": 89.9,
+            "queues": [
+              "mithril-h100-pool"
+            ]
+          },
+          {
             "name": "Language Models Test (Extended Pooling)",
             "runs": 1,
             "passed": 1,
@@ -300486,26 +300622,6 @@
             ]
           },
           {
-            "name": "Quantized Models Test",
-            "runs": 1,
-            "passed": 0,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 100.0,
-            "is_soft_fail": false,
-            "median_dur": 45.1,
-            "p90_dur": 45.1,
-            "avg_dur": 45.1,
-            "max_dur": 45.1,
-            "median_wait": 3.3,
-            "p90_wait": 3.3,
-            "avg_wait": 3.3,
-            "max_wait": 3.3,
-            "queues": [
-              "gpu_1_queue"
-            ]
-          },
-          {
             "name": "Multi-Modal Processor",
             "runs": 1,
             "passed": 1,
@@ -300586,6 +300702,26 @@
             ]
           },
           {
+            "name": "Quantized Models Test",
+            "runs": 1,
+            "passed": 0,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 100.0,
+            "is_soft_fail": false,
+            "median_dur": 40.3,
+            "p90_dur": 40.3,
+            "avg_dur": 40.3,
+            "max_dur": 40.3,
+            "median_wait": 3.3,
+            "p90_wait": 3.3,
+            "avg_wait": 3.3,
+            "max_wait": 3.3,
+            "queues": [
+              "gpu_1_queue"
+            ]
+          },
+          {
             "name": "Torch Nightly Language Models Tests (Hybrid) 2",
             "runs": 1,
             "passed": 1,
@@ -300641,26 +300777,6 @@
             "p90_wait": 2.4,
             "avg_wait": 2.4,
             "max_wait": 2.4,
-            "queues": [
-              "gpu_1_queue"
-            ]
-          },
-          {
-            "name": "Quantization",
-            "runs": 1,
-            "passed": 0,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 100.0,
-            "is_soft_fail": false,
-            "median_dur": 38.9,
-            "p90_dur": 38.9,
-            "avg_dur": 38.9,
-            "max_dur": 38.9,
-            "median_wait": 3.1,
-            "p90_wait": 3.1,
-            "avg_wait": 3.1,
-            "max_wait": 3.1,
             "queues": [
               "gpu_1_queue"
             ]
@@ -300741,6 +300857,26 @@
             "p90_wait": 2.5,
             "avg_wait": 2.5,
             "max_wait": 2.5,
+            "queues": [
+              "gpu_1_queue"
+            ]
+          },
+          {
+            "name": "Quantization",
+            "runs": 1,
+            "passed": 0,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 100.0,
+            "is_soft_fail": false,
+            "median_dur": 34.2,
+            "p90_dur": 34.2,
+            "avg_dur": 34.2,
+            "max_dur": 34.2,
+            "median_wait": 3.1,
+            "p90_wait": 3.1,
+            "avg_wait": 3.1,
+            "max_wait": 3.1,
             "queues": [
               "gpu_1_queue"
             ]
@@ -301026,26 +301162,6 @@
             ]
           },
           {
-            "name": "Quantized MoE Test (B200)",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 27.0,
-            "p90_dur": 27.0,
-            "avg_dur": 27.0,
-            "max_dur": 27.0,
-            "median_wait": 1.0,
-            "p90_wait": 1.0,
-            "avg_wait": 1.0,
-            "max_wait": 1.0,
-            "queues": [
-              "b200-k8s"
-            ]
-          },
-          {
             "name": "LoRA 2",
             "runs": 1,
             "passed": 1,
@@ -301083,6 +301199,26 @@
             "max_wait": 2.6,
             "queues": [
               "gpu_1_queue"
+            ]
+          },
+          {
+            "name": "Quantized MoE Test (B200)",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 26.4,
+            "p90_dur": 26.4,
+            "avg_dur": 26.4,
+            "max_dur": 26.4,
+            "median_wait": 1.0,
+            "p90_wait": 1.0,
+            "avg_wait": 1.0,
+            "max_wait": 1.0,
+            "queues": [
+              "b200-k8s"
             ]
           },
           {
@@ -302006,26 +302142,6 @@
             ]
           },
           {
-            "name": "Rust Frontend OpenAI Coverage",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 11.4,
-            "p90_dur": 11.4,
-            "avg_dur": 11.4,
-            "max_dur": 11.4,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
-            "queues": [
-              "h200_18gb"
-            ]
-          },
-          {
             "name": "AMD: Engine (1 GPU) (mi300_1)",
             "runs": 1,
             "passed": 1,
@@ -302346,26 +302462,6 @@
             ]
           },
           {
-            "name": "Rust Frontend Serve/Admin Coverage",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 9.1,
-            "p90_dur": 9.1,
-            "avg_dur": 9.1,
-            "max_dur": 9.1,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
-            "queues": [
-              "h200_18gb"
-            ]
-          },
-          {
             "name": "PyTorch Compilation Unit Tests (H100)",
             "runs": 1,
             "passed": 1,
@@ -302506,26 +302602,6 @@
             ]
           },
           {
-            "name": "Rust Frontend Distributed",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 7.9,
-            "p90_dur": 7.9,
-            "avg_dur": 7.9,
-            "max_dur": 7.9,
-            "median_wait": 5.1,
-            "p90_wait": 5.1,
-            "avg_wait": 5.1,
-            "max_wait": 5.1,
-            "queues": [
-              "gpu_4_queue"
-            ]
-          },
-          {
             "name": "AMD: Samplers Test (mi250_1)",
             "runs": 1,
             "passed": 1,
@@ -302623,26 +302699,6 @@
             "max_wait": 35.2,
             "queues": [
               "mithril-h100-pool"
-            ]
-          },
-          {
-            "name": "Rust Frontend Tool Use",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 6.7,
-            "p90_dur": 6.7,
-            "avg_dur": 6.7,
-            "max_dur": 6.7,
-            "median_wait": 3.3,
-            "p90_wait": 3.3,
-            "avg_wait": 3.3,
-            "max_wait": 3.3,
-            "queues": [
-              "gpu_1_queue"
             ]
           },
           {
@@ -303066,26 +303122,6 @@
             ]
           },
           {
-            "name": "Rust Frontend Core Correctness",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 4.3,
-            "p90_dur": 4.3,
-            "avg_dur": 4.3,
-            "max_dur": 4.3,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
-            "queues": [
-              "h200_18gb"
-            ]
-          },
-          {
             "name": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy",
             "runs": 1,
             "passed": 1,
@@ -303486,6 +303522,26 @@
             ]
           },
           {
+            "name": "Rust Frontend Core Correctness",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 2.9,
+            "p90_dur": 2.9,
+            "avg_dur": 2.9,
+            "max_dur": 2.9,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_18gb"
+            ]
+          },
+          {
             "name": "Hybrid SSM NixlConnector PD accuracy tests (4 GPUs)",
             "runs": 1,
             "passed": 1,
@@ -303601,6 +303657,26 @@
             "p90_wait": 4.0,
             "avg_wait": 4.0,
             "max_wait": 4.0,
+            "queues": [
+              "gpu_4_queue"
+            ]
+          },
+          {
+            "name": "Rust Frontend Distributed",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 2.5,
+            "p90_dur": 2.5,
+            "avg_dur": 2.5,
+            "max_dur": 2.5,
+            "median_wait": 5.1,
+            "p90_wait": 5.1,
+            "avg_wait": 5.1,
+            "max_wait": 5.1,
             "queues": [
               "gpu_4_queue"
             ]
@@ -303806,6 +303882,26 @@
             ]
           },
           {
+            "name": "Rust Frontend Tool Use",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 1.9,
+            "p90_dur": 1.9,
+            "avg_dur": 1.9,
+            "max_dur": 1.9,
+            "median_wait": 3.3,
+            "p90_wait": 3.3,
+            "avg_wait": 3.3,
+            "max_wait": 3.3,
+            "queues": [
+              "gpu_1_queue"
+            ]
+          },
+          {
             "name": "Entrypoints Integration (LLM)",
             "runs": 1,
             "passed": 1,
@@ -303883,6 +303979,46 @@
             "max_wait": 4.9,
             "queues": [
               "gpu_4_queue"
+            ]
+          },
+          {
+            "name": "Rust Frontend OpenAI Coverage",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 1.7,
+            "p90_dur": 1.7,
+            "avg_dur": 1.7,
+            "max_dur": 1.7,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_18gb"
+            ]
+          },
+          {
+            "name": "Rust Frontend Serve/Admin Coverage",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 1.6,
+            "p90_dur": 1.6,
+            "avg_dur": 1.6,
+            "max_dur": 1.6,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_18gb"
             ]
           },
           {
@@ -304023,6 +304159,26 @@
             "max_wait": 3.7,
             "queues": [
               "gpu_4_queue"
+            ]
+          },
+          {
+            "name": "Transformers Backward Compatibility Models Test",
+            "runs": 1,
+            "passed": 0,
+            "failed": 0,
+            "soft_failed": 1,
+            "fail_rate": 100.0,
+            "is_soft_fail": true,
+            "median_dur": 0.9,
+            "p90_dur": 0.9,
+            "avg_dur": 0.9,
+            "max_dur": 0.9,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_35gb"
             ]
           },
           {
@@ -304549,11 +304705,11 @@
         "queue_stats": [
           {
             "queue": "mithril-h100-pool",
-            "jobs": 28,
-            "median_wait": 34.8,
-            "p90_wait": 40.5,
-            "avg_wait": 33.9,
-            "max_wait": 55.4
+            "jobs": 29,
+            "median_wait": 35.2,
+            "p90_wait": 42.2,
+            "avg_wait": 35.9,
+            "max_wait": 89.9
           },
           {
             "queue": "gpu_4_queue",
@@ -304669,7 +304825,7 @@
           },
           {
             "queue": "h200_35gb",
-            "jobs": 30,
+            "jobs": 31,
             "median_wait": 0.0,
             "p90_wait": 0.0,
             "avg_wait": 0.0,
@@ -304727,11 +304883,11 @@
             "message": "Full CI run - nightly",
             "author": "",
             "wall_mins": null,
-            "passed": 203,
+            "passed": 204,
             "failed": 12,
-            "soft_failed": 3,
+            "soft_failed": 4,
             "skipped": 0,
-            "total_jobs": 218,
+            "total_jobs": 220,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -306801,11 +306957,11 @@
                 "name": "Quantization",
                 "raw_name": "Quantization",
                 "state": "failed",
-                "dur": 38.9,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
+                "dur": 34.2,
+                "tests": 312,
+                "passed_tests": 268,
+                "failed_tests": 9,
+                "skipped_tests": 35,
                 "wait": 3.1,
                 "q": "gpu_1_queue"
               },
@@ -306813,11 +306969,11 @@
                 "name": "Quantized MoE Test (B200)",
                 "raw_name": "Quantized MoE Test (B200)",
                 "state": "passed",
-                "dur": 27.0,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 26.4,
+                "tests": 21,
+                "passed_tests": 15,
                 "failed_tests": 0,
-                "skipped_tests": 0,
+                "skipped_tests": 6,
                 "wait": 1.0,
                 "q": "b200-k8s"
               },
@@ -306825,11 +306981,11 @@
                 "name": "Quantized Models Test",
                 "raw_name": "Quantized Models Test",
                 "state": "failed",
-                "dur": 45.1,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
+                "dur": 40.3,
+                "tests": 62,
+                "passed_tests": 31,
+                "failed_tests": 2,
+                "skipped_tests": 29,
                 "wait": 3.3,
                 "q": "gpu_1_queue"
               },
@@ -306909,7 +307065,7 @@
                 "name": "Rust Frontend Core Correctness",
                 "raw_name": "Rust Frontend Core Correctness",
                 "state": "passed",
-                "dur": 4.3,
+                "dur": 2.9,
                 "tests": 1,
                 "passed_tests": 1,
                 "failed_tests": 0,
@@ -306921,9 +307077,9 @@
                 "name": "Rust Frontend Distributed",
                 "raw_name": "Rust Frontend Distributed",
                 "state": "passed",
-                "dur": 7.9,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 2.5,
+                "tests": 4,
+                "passed_tests": 4,
                 "failed_tests": 0,
                 "skipped_tests": 0,
                 "wait": 5.1,
@@ -306933,7 +307089,7 @@
                 "name": "Rust Frontend OpenAI Coverage",
                 "raw_name": "Rust Frontend OpenAI Coverage",
                 "state": "passed",
-                "dur": 11.4,
+                "dur": 1.7,
                 "tests": 1,
                 "passed_tests": 1,
                 "failed_tests": 0,
@@ -306945,9 +307101,9 @@
                 "name": "Rust Frontend Serve/Admin Coverage",
                 "raw_name": "Rust Frontend Serve/Admin Coverage",
                 "state": "passed",
-                "dur": 9.1,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 1.6,
+                "tests": 2,
+                "passed_tests": 2,
                 "failed_tests": 0,
                 "skipped_tests": 0,
                 "wait": 0.0,
@@ -306957,11 +307113,11 @@
                 "name": "Rust Frontend Tool Use",
                 "raw_name": "Rust Frontend Tool Use",
                 "state": "passed",
-                "dur": 6.7,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 1.9,
+                "tests": 215,
+                "passed_tests": 163,
                 "failed_tests": 0,
-                "skipped_tests": 0,
+                "skipped_tests": 52,
                 "wait": 3.3,
                 "q": "gpu_1_queue"
               },
@@ -306988,6 +307144,18 @@
                 "skipped_tests": 0,
                 "wait": 2.7,
                 "q": "gpu_4_queue"
+              },
+              {
+                "name": "Sequence Parallel Correctness Tests (2xH100)",
+                "raw_name": "Sequence Parallel Correctness Tests (2xH100)",
+                "state": "passed",
+                "dur": 56.1,
+                "tests": 45,
+                "passed_tests": 45,
+                "failed_tests": 0,
+                "skipped_tests": 0,
+                "wait": 89.9,
+                "q": "mithril-h100-pool"
               },
               {
                 "name": "Spec Decode Draft Model",
@@ -307192,6 +307360,18 @@
                 "skipped_tests": 3,
                 "wait": 0.1,
                 "q": "h200_18gb"
+              },
+              {
+                "name": "Transformers Backward Compatibility Models Test",
+                "raw_name": "Transformers Backward Compatibility Models Test",
+                "state": "soft_fail",
+                "dur": 0.9,
+                "tests": 15,
+                "passed_tests": 14,
+                "failed_tests": 1,
+                "skipped_tests": 0,
+                "wait": 0.0,
+                "q": "h200_35gb"
               },
               {
                 "name": "V1 Core + KV + Metrics",
@@ -312607,11 +312787,11 @@
             "message": "Full CI run - nightly",
             "author": "",
             "wall_mins": null,
-            "passed": 203,
+            "passed": 204,
             "failed": 12,
-            "soft_failed": 3,
+            "soft_failed": 4,
             "skipped": 0,
-            "total_jobs": 218,
+            "total_jobs": 220,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -314681,11 +314861,11 @@
                 "name": "Quantization",
                 "raw_name": "Quantization",
                 "state": "failed",
-                "dur": 38.9,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
+                "dur": 34.2,
+                "tests": 312,
+                "passed_tests": 268,
+                "failed_tests": 9,
+                "skipped_tests": 35,
                 "wait": 3.1,
                 "q": "gpu_1_queue"
               },
@@ -314693,11 +314873,11 @@
                 "name": "Quantized MoE Test (B200)",
                 "raw_name": "Quantized MoE Test (B200)",
                 "state": "passed",
-                "dur": 27.0,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 26.4,
+                "tests": 21,
+                "passed_tests": 15,
                 "failed_tests": 0,
-                "skipped_tests": 0,
+                "skipped_tests": 6,
                 "wait": 1.0,
                 "q": "b200-k8s"
               },
@@ -314705,11 +314885,11 @@
                 "name": "Quantized Models Test",
                 "raw_name": "Quantized Models Test",
                 "state": "failed",
-                "dur": 45.1,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
+                "dur": 40.3,
+                "tests": 62,
+                "passed_tests": 31,
+                "failed_tests": 2,
+                "skipped_tests": 29,
                 "wait": 3.3,
                 "q": "gpu_1_queue"
               },
@@ -314789,7 +314969,7 @@
                 "name": "Rust Frontend Core Correctness",
                 "raw_name": "Rust Frontend Core Correctness",
                 "state": "passed",
-                "dur": 4.3,
+                "dur": 2.9,
                 "tests": 1,
                 "passed_tests": 1,
                 "failed_tests": 0,
@@ -314801,9 +314981,9 @@
                 "name": "Rust Frontend Distributed",
                 "raw_name": "Rust Frontend Distributed",
                 "state": "passed",
-                "dur": 7.9,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 2.5,
+                "tests": 4,
+                "passed_tests": 4,
                 "failed_tests": 0,
                 "skipped_tests": 0,
                 "wait": 5.1,
@@ -314813,7 +314993,7 @@
                 "name": "Rust Frontend OpenAI Coverage",
                 "raw_name": "Rust Frontend OpenAI Coverage",
                 "state": "passed",
-                "dur": 11.4,
+                "dur": 1.7,
                 "tests": 1,
                 "passed_tests": 1,
                 "failed_tests": 0,
@@ -314825,9 +315005,9 @@
                 "name": "Rust Frontend Serve/Admin Coverage",
                 "raw_name": "Rust Frontend Serve/Admin Coverage",
                 "state": "passed",
-                "dur": 9.1,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 1.6,
+                "tests": 2,
+                "passed_tests": 2,
                 "failed_tests": 0,
                 "skipped_tests": 0,
                 "wait": 0.0,
@@ -314837,11 +315017,11 @@
                 "name": "Rust Frontend Tool Use",
                 "raw_name": "Rust Frontend Tool Use",
                 "state": "passed",
-                "dur": 6.7,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 1.9,
+                "tests": 215,
+                "passed_tests": 163,
                 "failed_tests": 0,
-                "skipped_tests": 0,
+                "skipped_tests": 52,
                 "wait": 3.3,
                 "q": "gpu_1_queue"
               },
@@ -314868,6 +315048,18 @@
                 "skipped_tests": 0,
                 "wait": 2.7,
                 "q": "gpu_4_queue"
+              },
+              {
+                "name": "Sequence Parallel Correctness Tests (2xH100)",
+                "raw_name": "Sequence Parallel Correctness Tests (2xH100)",
+                "state": "passed",
+                "dur": 56.1,
+                "tests": 45,
+                "passed_tests": 45,
+                "failed_tests": 0,
+                "skipped_tests": 0,
+                "wait": 89.9,
+                "q": "mithril-h100-pool"
               },
               {
                 "name": "Spec Decode Draft Model",
@@ -315072,6 +315264,18 @@
                 "skipped_tests": 3,
                 "wait": 0.1,
                 "q": "h200_18gb"
+              },
+              {
+                "name": "Transformers Backward Compatibility Models Test",
+                "raw_name": "Transformers Backward Compatibility Models Test",
+                "state": "soft_fail",
+                "dur": 0.9,
+                "tests": 15,
+                "passed_tests": 14,
+                "failed_tests": 1,
+                "skipped_tests": 0,
+                "wait": 0.0,
+                "q": "h200_35gb"
               },
               {
                 "name": "V1 Core + KV + Metrics",
@@ -320561,19 +320765,19 @@
           },
           {
             "name": "Transformers Backward Compatibility Models Test",
-            "runs": 2,
+            "runs": 3,
             "passed": 0,
             "failed": 0,
-            "soft_failed": 2,
+            "soft_failed": 3,
             "fail_rate": 100.0,
             "is_soft_fail": true,
-            "median_dur": 1.1,
+            "median_dur": 0.9,
             "p90_dur": 1.2,
-            "avg_dur": 1.1,
+            "avg_dur": 1.0,
             "max_dur": 1.2,
-            "median_wait": 10.2,
+            "median_wait": 4.5,
             "p90_wait": 15.8,
-            "avg_wait": 10.2,
+            "avg_wait": 6.8,
             "max_wait": 15.8,
             "queues": [
               "h200_35gb"
@@ -320988,10 +321192,10 @@
             "soft_failed": 0,
             "fail_rate": 33.3,
             "is_soft_fail": false,
-            "median_dur": 34.8,
-            "p90_dur": 38.9,
-            "avg_dur": 36.1,
-            "max_dur": 38.9,
+            "median_dur": 34.6,
+            "p90_dur": 34.8,
+            "avg_dur": 34.5,
+            "max_dur": 34.8,
             "median_wait": 3.5,
             "p90_wait": 4.1,
             "avg_wait": 3.6,
@@ -321009,9 +321213,9 @@
             "fail_rate": 33.3,
             "is_soft_fail": false,
             "median_dur": 26.3,
-            "p90_dur": 27.0,
-            "avg_dur": 26.1,
-            "max_dur": 27.0,
+            "p90_dur": 26.4,
+            "avg_dur": 25.9,
+            "max_dur": 26.4,
             "median_wait": 1.0,
             "p90_wait": 2.7,
             "avg_wait": 1.3,
@@ -321028,10 +321232,10 @@
             "soft_failed": 0,
             "fail_rate": 33.3,
             "is_soft_fail": false,
-            "median_dur": 40.9,
-            "p90_dur": 45.1,
-            "avg_dur": 42.3,
-            "max_dur": 45.1,
+            "median_dur": 40.8,
+            "p90_dur": 40.9,
+            "avg_dur": 40.7,
+            "max_dur": 40.9,
             "median_wait": 3.5,
             "p90_wait": 4.2,
             "avg_wait": 3.7,
@@ -321364,6 +321568,26 @@
             ]
           },
           {
+            "name": "Sequence Parallel Correctness Tests (2xH100)",
+            "runs": 3,
+            "passed": 3,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 55.4,
+            "p90_dur": 56.1,
+            "avg_dur": 54.9,
+            "max_dur": 56.1,
+            "median_wait": 2.4,
+            "p90_wait": 89.9,
+            "avg_wait": 31.1,
+            "max_wait": 89.9,
+            "queues": [
+              "mithril-h100-pool"
+            ]
+          },
+          {
             "name": "Multi-Modal Models (Extended Generation 3)",
             "runs": 3,
             "passed": 2,
@@ -321381,26 +321605,6 @@
             "max_wait": 20.8,
             "queues": [
               "h200_35gb"
-            ]
-          },
-          {
-            "name": "Sequence Parallel Correctness Tests (2xH100)",
-            "runs": 2,
-            "passed": 2,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 54.3,
-            "p90_dur": 55.4,
-            "avg_dur": 54.3,
-            "max_dur": 55.4,
-            "median_wait": 1.6,
-            "p90_wait": 2.4,
-            "avg_wait": 1.6,
-            "max_wait": 2.4,
-            "queues": [
-              "mithril-h100-pool"
             ]
           },
           {
@@ -321585,26 +321789,6 @@
             ]
           },
           {
-            "name": "Quantized Models Test",
-            "runs": 3,
-            "passed": 2,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 33.3,
-            "is_soft_fail": false,
-            "median_dur": 40.9,
-            "p90_dur": 45.1,
-            "avg_dur": 42.3,
-            "max_dur": 45.1,
-            "median_wait": 3.5,
-            "p90_wait": 4.2,
-            "avg_wait": 3.7,
-            "max_wait": 4.2,
-            "queues": [
-              "gpu_1_queue"
-            ]
-          },
-          {
             "name": "Torch Nightly Language Models Tests (Hybrid) 2",
             "runs": 3,
             "passed": 3,
@@ -321623,6 +321807,26 @@
             "queues": [
               "gpu_1_queue",
               "h200_35gb"
+            ]
+          },
+          {
+            "name": "Quantized Models Test",
+            "runs": 3,
+            "passed": 2,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 33.3,
+            "is_soft_fail": false,
+            "median_dur": 40.8,
+            "p90_dur": 40.9,
+            "avg_dur": 40.7,
+            "max_dur": 40.9,
+            "median_wait": 3.5,
+            "p90_wait": 4.2,
+            "avg_wait": 3.7,
+            "max_wait": 4.2,
+            "queues": [
+              "gpu_1_queue"
             ]
           },
           {
@@ -321753,10 +321957,10 @@
             "soft_failed": 0,
             "fail_rate": 33.3,
             "is_soft_fail": false,
-            "median_dur": 34.8,
-            "p90_dur": 38.9,
-            "avg_dur": 36.1,
-            "max_dur": 38.9,
+            "median_dur": 34.6,
+            "p90_dur": 34.8,
+            "avg_dur": 34.5,
+            "max_dur": 34.8,
             "median_wait": 3.5,
             "p90_wait": 4.1,
             "avg_wait": 3.6,
@@ -322096,9 +322300,9 @@
             "fail_rate": 33.3,
             "is_soft_fail": false,
             "median_dur": 26.3,
-            "p90_dur": 27.0,
-            "avg_dur": 26.1,
-            "max_dur": 27.0,
+            "p90_dur": 26.4,
+            "avg_dur": 25.9,
+            "max_dur": 26.4,
             "median_wait": 1.0,
             "p90_wait": 2.7,
             "avg_wait": 1.3,
@@ -323068,26 +323272,6 @@
             ]
           },
           {
-            "name": "Rust Frontend OpenAI Coverage",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 11.4,
-            "p90_dur": 11.4,
-            "avg_dur": 11.4,
-            "max_dur": 11.4,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
-            "queues": [
-              "h200_18gb"
-            ]
-          },
-          {
             "name": "AMD: Engine (1 GPU) (mi300_1)",
             "runs": 3,
             "passed": 3,
@@ -323388,26 +323572,6 @@
             ]
           },
           {
-            "name": "Rust Frontend Serve/Admin Coverage",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 9.1,
-            "p90_dur": 9.1,
-            "avg_dur": 9.1,
-            "max_dur": 9.1,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
-            "queues": [
-              "h200_18gb"
-            ]
-          },
-          {
             "name": "PyTorch Compilation Unit Tests (H100)",
             "runs": 3,
             "passed": 3,
@@ -323548,26 +323712,6 @@
             ]
           },
           {
-            "name": "Rust Frontend Distributed",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 7.9,
-            "p90_dur": 7.9,
-            "avg_dur": 7.9,
-            "max_dur": 7.9,
-            "median_wait": 5.1,
-            "p90_wait": 5.1,
-            "avg_wait": 5.1,
-            "max_wait": 5.1,
-            "queues": [
-              "gpu_4_queue"
-            ]
-          },
-          {
             "name": "AMD: Samplers Test (mi250_1)",
             "runs": 3,
             "passed": 3,
@@ -323645,26 +323789,6 @@
             "max_wait": 1.7,
             "queues": [
               "a100_queue"
-            ]
-          },
-          {
-            "name": "Rust Frontend Tool Use",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 6.7,
-            "p90_dur": 6.7,
-            "avg_dur": 6.7,
-            "max_dur": 6.7,
-            "median_wait": 3.3,
-            "p90_wait": 3.3,
-            "avg_wait": 3.3,
-            "max_wait": 3.3,
-            "queues": [
-              "gpu_1_queue"
             ]
           },
           {
@@ -324088,26 +324212,6 @@
             ]
           },
           {
-            "name": "Rust Frontend Core Correctness",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 4.3,
-            "p90_dur": 4.3,
-            "avg_dur": 4.3,
-            "max_dur": 4.3,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
-            "queues": [
-              "h200_18gb"
-            ]
-          },
-          {
             "name": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy",
             "runs": 3,
             "passed": 3,
@@ -324488,6 +324592,26 @@
             ]
           },
           {
+            "name": "Rust Frontend Core Correctness",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 2.9,
+            "p90_dur": 2.9,
+            "avg_dur": 2.9,
+            "max_dur": 2.9,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_18gb"
+            ]
+          },
+          {
             "name": "Distributed FlashInfer NixlConnector PD accuracy (4 GPUs)",
             "runs": 3,
             "passed": 3,
@@ -324625,6 +324749,26 @@
             "max_wait": 1.7,
             "queues": [
               "a100_queue"
+            ]
+          },
+          {
+            "name": "Rust Frontend Distributed",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 2.5,
+            "p90_dur": 2.5,
+            "avg_dur": 2.5,
+            "max_dur": 2.5,
+            "median_wait": 5.1,
+            "p90_wait": 5.1,
+            "avg_wait": 5.1,
+            "max_wait": 5.1,
+            "queues": [
+              "gpu_4_queue"
             ]
           },
           {
@@ -324828,6 +324972,26 @@
             ]
           },
           {
+            "name": "Rust Frontend Tool Use",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 1.9,
+            "p90_dur": 1.9,
+            "avg_dur": 1.9,
+            "max_dur": 1.9,
+            "median_wait": 3.3,
+            "p90_wait": 3.3,
+            "avg_wait": 3.3,
+            "max_wait": 3.3,
+            "queues": [
+              "gpu_1_queue"
+            ]
+          },
+          {
             "name": "Entrypoints Integration (LLM)",
             "runs": 3,
             "passed": 3,
@@ -324928,6 +325092,46 @@
             ]
           },
           {
+            "name": "Rust Frontend OpenAI Coverage",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 1.7,
+            "p90_dur": 1.7,
+            "avg_dur": 1.7,
+            "max_dur": 1.7,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_18gb"
+            ]
+          },
+          {
+            "name": "Rust Frontend Serve/Admin Coverage",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 1.6,
+            "p90_dur": 1.6,
+            "avg_dur": 1.6,
+            "max_dur": 1.6,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_18gb"
+            ]
+          },
+          {
             "name": "Kernels Helion Test",
             "runs": 3,
             "passed": 3,
@@ -324988,26 +325192,6 @@
             ]
           },
           {
-            "name": "Transformers Backward Compatibility Models Test",
-            "runs": 2,
-            "passed": 0,
-            "failed": 0,
-            "soft_failed": 2,
-            "fail_rate": 100.0,
-            "is_soft_fail": true,
-            "median_dur": 1.1,
-            "p90_dur": 1.2,
-            "avg_dur": 1.1,
-            "max_dur": 1.2,
-            "median_wait": 10.2,
-            "p90_wait": 15.8,
-            "avg_wait": 10.2,
-            "max_wait": 15.8,
-            "queues": [
-              "h200_35gb"
-            ]
-          },
-          {
             "name": "Weight Loading Multiple GPU",
             "runs": 3,
             "passed": 3,
@@ -325065,6 +325249,26 @@
             "max_wait": 34.3,
             "queues": [
               "gpu_4_queue"
+            ]
+          },
+          {
+            "name": "Transformers Backward Compatibility Models Test",
+            "runs": 3,
+            "passed": 0,
+            "failed": 0,
+            "soft_failed": 3,
+            "fail_rate": 100.0,
+            "is_soft_fail": true,
+            "median_dur": 0.9,
+            "p90_dur": 1.2,
+            "avg_dur": 1.0,
+            "max_dur": 1.2,
+            "median_wait": 4.5,
+            "p90_wait": 15.8,
+            "avg_wait": 6.8,
+            "max_wait": 15.8,
+            "queues": [
+              "h200_35gb"
             ]
           },
           {
@@ -325587,7 +325791,7 @@
           },
           {
             "queue": "mithril-h100-pool",
-            "jobs": 86,
+            "jobs": 87,
             "median_wait": 5.0,
             "p90_wait": 8.6,
             "avg_wait": 4.7,
@@ -325643,10 +325847,10 @@
           },
           {
             "queue": "h200_35gb",
-            "jobs": 108,
-            "median_wait": 0.2,
+            "jobs": 109,
+            "median_wait": 0.4,
             "p90_wait": 14.5,
-            "avg_wait": 4.0,
+            "avg_wait": 3.9,
             "max_wait": 14.5
           },
           {
@@ -325773,11 +325977,11 @@
             "message": "Full CI run - nightly",
             "author": "",
             "wall_mins": null,
-            "passed": 203,
+            "passed": 204,
             "failed": 12,
-            "soft_failed": 3,
+            "soft_failed": 4,
             "skipped": 0,
-            "total_jobs": 218,
+            "total_jobs": 220,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -327847,11 +328051,11 @@
                 "name": "Quantization",
                 "raw_name": "Quantization",
                 "state": "failed",
-                "dur": 38.9,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
+                "dur": 34.2,
+                "tests": 312,
+                "passed_tests": 268,
+                "failed_tests": 9,
+                "skipped_tests": 35,
                 "wait": 3.1,
                 "q": "gpu_1_queue"
               },
@@ -327859,11 +328063,11 @@
                 "name": "Quantized MoE Test (B200)",
                 "raw_name": "Quantized MoE Test (B200)",
                 "state": "passed",
-                "dur": 27.0,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 26.4,
+                "tests": 21,
+                "passed_tests": 15,
                 "failed_tests": 0,
-                "skipped_tests": 0,
+                "skipped_tests": 6,
                 "wait": 1.0,
                 "q": "b200-k8s"
               },
@@ -327871,11 +328075,11 @@
                 "name": "Quantized Models Test",
                 "raw_name": "Quantized Models Test",
                 "state": "failed",
-                "dur": 45.1,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
+                "dur": 40.3,
+                "tests": 62,
+                "passed_tests": 31,
+                "failed_tests": 2,
+                "skipped_tests": 29,
                 "wait": 3.3,
                 "q": "gpu_1_queue"
               },
@@ -327955,7 +328159,7 @@
                 "name": "Rust Frontend Core Correctness",
                 "raw_name": "Rust Frontend Core Correctness",
                 "state": "passed",
-                "dur": 4.3,
+                "dur": 2.9,
                 "tests": 1,
                 "passed_tests": 1,
                 "failed_tests": 0,
@@ -327967,9 +328171,9 @@
                 "name": "Rust Frontend Distributed",
                 "raw_name": "Rust Frontend Distributed",
                 "state": "passed",
-                "dur": 7.9,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 2.5,
+                "tests": 4,
+                "passed_tests": 4,
                 "failed_tests": 0,
                 "skipped_tests": 0,
                 "wait": 5.1,
@@ -327979,7 +328183,7 @@
                 "name": "Rust Frontend OpenAI Coverage",
                 "raw_name": "Rust Frontend OpenAI Coverage",
                 "state": "passed",
-                "dur": 11.4,
+                "dur": 1.7,
                 "tests": 1,
                 "passed_tests": 1,
                 "failed_tests": 0,
@@ -327991,9 +328195,9 @@
                 "name": "Rust Frontend Serve/Admin Coverage",
                 "raw_name": "Rust Frontend Serve/Admin Coverage",
                 "state": "passed",
-                "dur": 9.1,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 1.6,
+                "tests": 2,
+                "passed_tests": 2,
                 "failed_tests": 0,
                 "skipped_tests": 0,
                 "wait": 0.0,
@@ -328003,11 +328207,11 @@
                 "name": "Rust Frontend Tool Use",
                 "raw_name": "Rust Frontend Tool Use",
                 "state": "passed",
-                "dur": 6.7,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 1.9,
+                "tests": 215,
+                "passed_tests": 163,
                 "failed_tests": 0,
-                "skipped_tests": 0,
+                "skipped_tests": 52,
                 "wait": 3.3,
                 "q": "gpu_1_queue"
               },
@@ -328034,6 +328238,18 @@
                 "skipped_tests": 0,
                 "wait": 2.7,
                 "q": "gpu_4_queue"
+              },
+              {
+                "name": "Sequence Parallel Correctness Tests (2xH100)",
+                "raw_name": "Sequence Parallel Correctness Tests (2xH100)",
+                "state": "passed",
+                "dur": 56.1,
+                "tests": 45,
+                "passed_tests": 45,
+                "failed_tests": 0,
+                "skipped_tests": 0,
+                "wait": 89.9,
+                "q": "mithril-h100-pool"
               },
               {
                 "name": "Spec Decode Draft Model",
@@ -328238,6 +328454,18 @@
                 "skipped_tests": 3,
                 "wait": 0.1,
                 "q": "h200_18gb"
+              },
+              {
+                "name": "Transformers Backward Compatibility Models Test",
+                "raw_name": "Transformers Backward Compatibility Models Test",
+                "state": "soft_fail",
+                "dur": 0.9,
+                "tests": 15,
+                "passed_tests": 14,
+                "failed_tests": 1,
+                "skipped_tests": 0,
+                "wait": 0.0,
+                "q": "h200_35gb"
               },
               {
                 "name": "V1 Core + KV + Metrics",
@@ -344081,11 +344309,11 @@
             "message": "Full CI run - nightly",
             "author": "",
             "wall_mins": null,
-            "passed": 203,
+            "passed": 204,
             "failed": 12,
-            "soft_failed": 3,
+            "soft_failed": 4,
             "skipped": 0,
-            "total_jobs": 218,
+            "total_jobs": 220,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -346155,11 +346383,11 @@
                 "name": "Quantization",
                 "raw_name": "Quantization",
                 "state": "failed",
-                "dur": 38.9,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
+                "dur": 34.2,
+                "tests": 312,
+                "passed_tests": 268,
+                "failed_tests": 9,
+                "skipped_tests": 35,
                 "wait": 3.1,
                 "q": "gpu_1_queue"
               },
@@ -346167,11 +346395,11 @@
                 "name": "Quantized MoE Test (B200)",
                 "raw_name": "Quantized MoE Test (B200)",
                 "state": "passed",
-                "dur": 27.0,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 26.4,
+                "tests": 21,
+                "passed_tests": 15,
                 "failed_tests": 0,
-                "skipped_tests": 0,
+                "skipped_tests": 6,
                 "wait": 1.0,
                 "q": "b200-k8s"
               },
@@ -346179,11 +346407,11 @@
                 "name": "Quantized Models Test",
                 "raw_name": "Quantized Models Test",
                 "state": "failed",
-                "dur": 45.1,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
+                "dur": 40.3,
+                "tests": 62,
+                "passed_tests": 31,
+                "failed_tests": 2,
+                "skipped_tests": 29,
                 "wait": 3.3,
                 "q": "gpu_1_queue"
               },
@@ -346263,7 +346491,7 @@
                 "name": "Rust Frontend Core Correctness",
                 "raw_name": "Rust Frontend Core Correctness",
                 "state": "passed",
-                "dur": 4.3,
+                "dur": 2.9,
                 "tests": 1,
                 "passed_tests": 1,
                 "failed_tests": 0,
@@ -346275,9 +346503,9 @@
                 "name": "Rust Frontend Distributed",
                 "raw_name": "Rust Frontend Distributed",
                 "state": "passed",
-                "dur": 7.9,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 2.5,
+                "tests": 4,
+                "passed_tests": 4,
                 "failed_tests": 0,
                 "skipped_tests": 0,
                 "wait": 5.1,
@@ -346287,7 +346515,7 @@
                 "name": "Rust Frontend OpenAI Coverage",
                 "raw_name": "Rust Frontend OpenAI Coverage",
                 "state": "passed",
-                "dur": 11.4,
+                "dur": 1.7,
                 "tests": 1,
                 "passed_tests": 1,
                 "failed_tests": 0,
@@ -346299,9 +346527,9 @@
                 "name": "Rust Frontend Serve/Admin Coverage",
                 "raw_name": "Rust Frontend Serve/Admin Coverage",
                 "state": "passed",
-                "dur": 9.1,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 1.6,
+                "tests": 2,
+                "passed_tests": 2,
                 "failed_tests": 0,
                 "skipped_tests": 0,
                 "wait": 0.0,
@@ -346311,11 +346539,11 @@
                 "name": "Rust Frontend Tool Use",
                 "raw_name": "Rust Frontend Tool Use",
                 "state": "passed",
-                "dur": 6.7,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 1.9,
+                "tests": 215,
+                "passed_tests": 163,
                 "failed_tests": 0,
-                "skipped_tests": 0,
+                "skipped_tests": 52,
                 "wait": 3.3,
                 "q": "gpu_1_queue"
               },
@@ -346342,6 +346570,18 @@
                 "skipped_tests": 0,
                 "wait": 2.7,
                 "q": "gpu_4_queue"
+              },
+              {
+                "name": "Sequence Parallel Correctness Tests (2xH100)",
+                "raw_name": "Sequence Parallel Correctness Tests (2xH100)",
+                "state": "passed",
+                "dur": 56.1,
+                "tests": 45,
+                "passed_tests": 45,
+                "failed_tests": 0,
+                "skipped_tests": 0,
+                "wait": 89.9,
+                "q": "mithril-h100-pool"
               },
               {
                 "name": "Spec Decode Draft Model",
@@ -346546,6 +346786,18 @@
                 "skipped_tests": 3,
                 "wait": 0.1,
                 "q": "h200_18gb"
+              },
+              {
+                "name": "Transformers Backward Compatibility Models Test",
+                "raw_name": "Transformers Backward Compatibility Models Test",
+                "state": "soft_fail",
+                "dur": 0.9,
+                "tests": 15,
+                "passed_tests": 14,
+                "failed_tests": 1,
+                "skipped_tests": 0,
+                "wait": 0.0,
+                "q": "h200_35gb"
               },
               {
                 "name": "V1 Core + KV + Metrics",
@@ -362423,19 +362675,19 @@
           },
           {
             "name": "Transformers Backward Compatibility Models Test",
-            "runs": 6,
+            "runs": 7,
             "passed": 0,
             "failed": 0,
-            "soft_failed": 6,
+            "soft_failed": 7,
             "fail_rate": 100.0,
             "is_soft_fail": true,
             "median_dur": 0.7,
             "p90_dur": 1.2,
             "avg_dur": 0.8,
             "max_dur": 1.2,
-            "median_wait": 6.0,
+            "median_wait": 5.9,
             "p90_wait": 15.8,
-            "avg_wait": 7.6,
+            "avg_wait": 6.5,
             "max_wait": 15.8,
             "queues": [
               "gpu_1_queue",
@@ -362573,10 +362825,10 @@
             "soft_failed": 0,
             "fail_rate": 71.4,
             "is_soft_fail": false,
-            "median_dur": 35.0,
-            "p90_dur": 38.9,
-            "avg_dur": 35.7,
-            "max_dur": 38.9,
+            "median_dur": 34.8,
+            "p90_dur": 36.5,
+            "avg_dur": 35.0,
+            "max_dur": 36.5,
             "median_wait": 4.1,
             "p90_wait": 11.0,
             "avg_wait": 5.8,
@@ -362775,9 +363027,9 @@
             "fail_rate": 28.6,
             "is_soft_fail": false,
             "median_dur": 18.2,
-            "p90_dur": 27.0,
-            "avg_dur": 21.4,
-            "max_dur": 27.0,
+            "p90_dur": 26.4,
+            "avg_dur": 21.3,
+            "max_dur": 26.4,
             "median_wait": 1.6,
             "p90_wait": 2.7,
             "avg_wait": 1.5,
@@ -362885,26 +363137,6 @@
             "max_wait": 0.1,
             "queues": [
               "amd_mi300_1"
-            ]
-          },
-          {
-            "name": "Sequence Parallel Correctness Tests (2xH100)",
-            "runs": 6,
-            "passed": 5,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 16.7,
-            "is_soft_fail": false,
-            "median_dur": 52.7,
-            "p90_dur": 55.4,
-            "avg_dur": 53.0,
-            "max_dur": 55.4,
-            "median_wait": 1.0,
-            "p90_wait": 3.5,
-            "avg_wait": 1.6,
-            "max_wait": 3.5,
-            "queues": [
-              "mithril-h100-pool"
             ]
           },
           {
@@ -363298,10 +363530,10 @@
             "soft_failed": 0,
             "fail_rate": 14.3,
             "is_soft_fail": false,
-            "median_dur": 40.9,
-            "p90_dur": 45.1,
-            "avg_dur": 41.5,
-            "max_dur": 45.1,
+            "median_dur": 40.8,
+            "p90_dur": 42.2,
+            "avg_dur": 40.8,
+            "max_dur": 42.2,
             "median_wait": 4.2,
             "p90_wait": 11.0,
             "avg_wait": 5.9,
@@ -363328,6 +363560,26 @@
             "max_wait": 2.5,
             "queues": [
               "b200-k8s"
+            ]
+          },
+          {
+            "name": "Sequence Parallel Correctness Tests (2xH100)",
+            "runs": 7,
+            "passed": 6,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 14.3,
+            "is_soft_fail": false,
+            "median_dur": 53.3,
+            "p90_dur": 56.1,
+            "avg_dur": 53.5,
+            "max_dur": 56.1,
+            "median_wait": 1.0,
+            "p90_wait": 89.9,
+            "avg_wait": 14.2,
+            "max_wait": 89.9,
+            "queues": [
+              "mithril-h100-pool"
             ]
           },
           {
@@ -363742,20 +363994,20 @@
           },
           {
             "name": "Sequence Parallel Correctness Tests (2xH100)",
-            "runs": 6,
-            "passed": 5,
+            "runs": 7,
+            "passed": 6,
             "failed": 1,
             "soft_failed": 0,
-            "fail_rate": 16.7,
+            "fail_rate": 14.3,
             "is_soft_fail": false,
-            "median_dur": 52.7,
-            "p90_dur": 55.4,
-            "avg_dur": 53.0,
-            "max_dur": 55.4,
+            "median_dur": 53.3,
+            "p90_dur": 56.1,
+            "avg_dur": 53.5,
+            "max_dur": 56.1,
             "median_wait": 1.0,
-            "p90_wait": 3.5,
-            "avg_wait": 1.6,
-            "max_wait": 3.5,
+            "p90_wait": 89.9,
+            "avg_wait": 14.2,
+            "max_wait": 89.9,
             "queues": [
               "mithril-h100-pool"
             ]
@@ -363994,10 +364246,10 @@
             "soft_failed": 0,
             "fail_rate": 14.3,
             "is_soft_fail": false,
-            "median_dur": 40.9,
-            "p90_dur": 45.1,
-            "avg_dur": 41.5,
-            "max_dur": 45.1,
+            "median_dur": 40.8,
+            "p90_dur": 42.2,
+            "avg_dur": 40.8,
+            "max_dur": 42.2,
             "median_wait": 4.2,
             "p90_wait": 11.0,
             "avg_wait": 5.9,
@@ -364135,10 +364387,10 @@
             "soft_failed": 0,
             "fail_rate": 71.4,
             "is_soft_fail": false,
-            "median_dur": 35.0,
-            "p90_dur": 38.9,
-            "avg_dur": 35.7,
-            "max_dur": 38.9,
+            "median_dur": 34.8,
+            "p90_dur": 36.5,
+            "avg_dur": 35.0,
+            "max_dur": 36.5,
             "median_wait": 4.1,
             "p90_wait": 11.0,
             "avg_wait": 5.8,
@@ -365007,9 +365259,9 @@
             "fail_rate": 28.6,
             "is_soft_fail": false,
             "median_dur": 18.2,
-            "p90_dur": 27.0,
-            "avg_dur": 21.4,
-            "max_dur": 27.0,
+            "p90_dur": 26.4,
+            "avg_dur": 21.3,
+            "max_dur": 26.4,
             "median_wait": 1.6,
             "p90_wait": 2.7,
             "avg_wait": 1.5,
@@ -365483,26 +365735,6 @@
             ]
           },
           {
-            "name": "Rust Frontend OpenAI Coverage",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 11.4,
-            "p90_dur": 11.4,
-            "avg_dur": 11.4,
-            "max_dur": 11.4,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
-            "queues": [
-              "h200_18gb"
-            ]
-          },
-          {
             "name": "Language Models Test (PPL)",
             "runs": 7,
             "passed": 7,
@@ -365845,26 +366077,6 @@
             ]
           },
           {
-            "name": "Rust Frontend Serve/Admin Coverage",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 9.1,
-            "p90_dur": 9.1,
-            "avg_dur": 9.1,
-            "max_dur": 9.1,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
-            "queues": [
-              "h200_18gb"
-            ]
-          },
-          {
             "name": "PyTorch Compilation Unit Tests (H100)",
             "runs": 7,
             "passed": 7,
@@ -365986,26 +366198,6 @@
             ]
           },
           {
-            "name": "Rust Frontend Distributed",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 7.9,
-            "p90_dur": 7.9,
-            "avg_dur": 7.9,
-            "max_dur": 7.9,
-            "median_wait": 5.1,
-            "p90_wait": 5.1,
-            "avg_wait": 5.1,
-            "max_wait": 5.1,
-            "queues": [
-              "gpu_4_queue"
-            ]
-          },
-          {
             "name": "CPU-Quantization Model Tests",
             "runs": 7,
             "passed": 7,
@@ -366083,26 +366275,6 @@
             "max_wait": 35.2,
             "queues": [
               "mithril-h100-pool"
-            ]
-          },
-          {
-            "name": "Rust Frontend Tool Use",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 6.7,
-            "p90_dur": 6.7,
-            "avg_dur": 6.7,
-            "max_dur": 6.7,
-            "median_wait": 3.3,
-            "p90_wait": 3.3,
-            "avg_wait": 3.3,
-            "max_wait": 3.3,
-            "queues": [
-              "gpu_1_queue"
             ]
           },
           {
@@ -366503,26 +366675,6 @@
             "p90_wait": 0.2,
             "avg_wait": 0.1,
             "max_wait": 0.2,
-            "queues": [
-              "h200_18gb"
-            ]
-          },
-          {
-            "name": "Rust Frontend Core Correctness",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 4.3,
-            "p90_dur": 4.3,
-            "avg_dur": 4.3,
-            "max_dur": 4.3,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
             "queues": [
               "h200_18gb"
             ]
@@ -366929,6 +367081,26 @@
             ]
           },
           {
+            "name": "Rust Frontend Core Correctness",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 2.9,
+            "p90_dur": 2.9,
+            "avg_dur": 2.9,
+            "max_dur": 2.9,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_18gb"
+            ]
+          },
+          {
             "name": "Distributed FlashInfer NixlConnector PD accuracy (4 GPUs)",
             "runs": 7,
             "passed": 3,
@@ -367044,6 +367216,26 @@
             "p90_wait": 32.0,
             "avg_wait": 9.2,
             "max_wait": 32.0,
+            "queues": [
+              "gpu_4_queue"
+            ]
+          },
+          {
+            "name": "Rust Frontend Distributed",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 2.5,
+            "p90_dur": 2.5,
+            "avg_dur": 2.5,
+            "max_dur": 2.5,
+            "median_wait": 5.1,
+            "p90_wait": 5.1,
+            "avg_wait": 5.1,
+            "max_wait": 5.1,
             "queues": [
               "gpu_4_queue"
             ]
@@ -367310,6 +367502,26 @@
             ]
           },
           {
+            "name": "Rust Frontend Tool Use",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 1.9,
+            "p90_dur": 1.9,
+            "avg_dur": 1.9,
+            "max_dur": 1.9,
+            "median_wait": 3.3,
+            "p90_wait": 3.3,
+            "avg_wait": 3.3,
+            "max_wait": 3.3,
+            "queues": [
+              "gpu_1_queue"
+            ]
+          },
+          {
             "name": "Entrypoints Integration (LLM)",
             "runs": 7,
             "passed": 7,
@@ -367407,6 +367619,46 @@
             "max_wait": 37.1,
             "queues": [
               "gpu_4_queue"
+            ]
+          },
+          {
+            "name": "Rust Frontend OpenAI Coverage",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 1.7,
+            "p90_dur": 1.7,
+            "avg_dur": 1.7,
+            "max_dur": 1.7,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_18gb"
+            ]
+          },
+          {
+            "name": "Rust Frontend Serve/Admin Coverage",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 1.6,
+            "p90_dur": 1.6,
+            "avg_dur": 1.6,
+            "max_dur": 1.6,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_18gb"
             ]
           },
           {
@@ -367631,19 +367883,19 @@
           },
           {
             "name": "Transformers Backward Compatibility Models Test",
-            "runs": 6,
+            "runs": 7,
             "passed": 0,
             "failed": 0,
-            "soft_failed": 6,
+            "soft_failed": 7,
             "fail_rate": 100.0,
             "is_soft_fail": true,
             "median_dur": 0.7,
             "p90_dur": 1.2,
             "avg_dur": 0.8,
             "max_dur": 1.2,
-            "median_wait": 6.0,
+            "median_wait": 5.9,
             "p90_wait": 15.8,
-            "avg_wait": 7.6,
+            "avg_wait": 6.5,
             "max_wait": 15.8,
             "queues": [
               "gpu_1_queue",
@@ -368011,7 +368263,7 @@
           },
           {
             "queue": "h200_35gb",
-            "jobs": 256,
+            "jobs": 257,
             "median_wait": 4.8,
             "p90_wait": 8.4,
             "avg_wait": 5.0,
@@ -368019,7 +368271,7 @@
           },
           {
             "queue": "gpu_1_queue",
-            "jobs": 460,
+            "jobs": 461,
             "median_wait": 3.5,
             "p90_wait": 6.8,
             "avg_wait": 4.2,
@@ -368035,7 +368287,7 @@
           },
           {
             "queue": "mithril-h100-pool",
-            "jobs": 202,
+            "jobs": 203,
             "median_wait": 1.0,
             "p90_wait": 5.2,
             "avg_wait": 1.9,
@@ -368247,11 +368499,11 @@
             "message": "Full CI run - nightly",
             "author": "",
             "wall_mins": null,
-            "passed": 203,
+            "passed": 204,
             "failed": 12,
-            "soft_failed": 3,
+            "soft_failed": 4,
             "skipped": 0,
-            "total_jobs": 218,
+            "total_jobs": 220,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -370321,11 +370573,11 @@
                 "name": "Quantization",
                 "raw_name": "Quantization",
                 "state": "failed",
-                "dur": 38.9,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
+                "dur": 34.2,
+                "tests": 312,
+                "passed_tests": 268,
+                "failed_tests": 9,
+                "skipped_tests": 35,
                 "wait": 3.1,
                 "q": "gpu_1_queue"
               },
@@ -370333,11 +370585,11 @@
                 "name": "Quantized MoE Test (B200)",
                 "raw_name": "Quantized MoE Test (B200)",
                 "state": "passed",
-                "dur": 27.0,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 26.4,
+                "tests": 21,
+                "passed_tests": 15,
                 "failed_tests": 0,
-                "skipped_tests": 0,
+                "skipped_tests": 6,
                 "wait": 1.0,
                 "q": "b200-k8s"
               },
@@ -370345,11 +370597,11 @@
                 "name": "Quantized Models Test",
                 "raw_name": "Quantized Models Test",
                 "state": "failed",
-                "dur": 45.1,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
+                "dur": 40.3,
+                "tests": 62,
+                "passed_tests": 31,
+                "failed_tests": 2,
+                "skipped_tests": 29,
                 "wait": 3.3,
                 "q": "gpu_1_queue"
               },
@@ -370429,7 +370681,7 @@
                 "name": "Rust Frontend Core Correctness",
                 "raw_name": "Rust Frontend Core Correctness",
                 "state": "passed",
-                "dur": 4.3,
+                "dur": 2.9,
                 "tests": 1,
                 "passed_tests": 1,
                 "failed_tests": 0,
@@ -370441,9 +370693,9 @@
                 "name": "Rust Frontend Distributed",
                 "raw_name": "Rust Frontend Distributed",
                 "state": "passed",
-                "dur": 7.9,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 2.5,
+                "tests": 4,
+                "passed_tests": 4,
                 "failed_tests": 0,
                 "skipped_tests": 0,
                 "wait": 5.1,
@@ -370453,7 +370705,7 @@
                 "name": "Rust Frontend OpenAI Coverage",
                 "raw_name": "Rust Frontend OpenAI Coverage",
                 "state": "passed",
-                "dur": 11.4,
+                "dur": 1.7,
                 "tests": 1,
                 "passed_tests": 1,
                 "failed_tests": 0,
@@ -370465,9 +370717,9 @@
                 "name": "Rust Frontend Serve/Admin Coverage",
                 "raw_name": "Rust Frontend Serve/Admin Coverage",
                 "state": "passed",
-                "dur": 9.1,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 1.6,
+                "tests": 2,
+                "passed_tests": 2,
                 "failed_tests": 0,
                 "skipped_tests": 0,
                 "wait": 0.0,
@@ -370477,11 +370729,11 @@
                 "name": "Rust Frontend Tool Use",
                 "raw_name": "Rust Frontend Tool Use",
                 "state": "passed",
-                "dur": 6.7,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 1.9,
+                "tests": 215,
+                "passed_tests": 163,
                 "failed_tests": 0,
-                "skipped_tests": 0,
+                "skipped_tests": 52,
                 "wait": 3.3,
                 "q": "gpu_1_queue"
               },
@@ -370508,6 +370760,18 @@
                 "skipped_tests": 0,
                 "wait": 2.7,
                 "q": "gpu_4_queue"
+              },
+              {
+                "name": "Sequence Parallel Correctness Tests (2xH100)",
+                "raw_name": "Sequence Parallel Correctness Tests (2xH100)",
+                "state": "passed",
+                "dur": 56.1,
+                "tests": 45,
+                "passed_tests": 45,
+                "failed_tests": 0,
+                "skipped_tests": 0,
+                "wait": 89.9,
+                "q": "mithril-h100-pool"
               },
               {
                 "name": "Spec Decode Draft Model",
@@ -370712,6 +370976,18 @@
                 "skipped_tests": 3,
                 "wait": 0.1,
                 "q": "h200_18gb"
+              },
+              {
+                "name": "Transformers Backward Compatibility Models Test",
+                "raw_name": "Transformers Backward Compatibility Models Test",
+                "state": "soft_fail",
+                "dur": 0.9,
+                "tests": 15,
+                "passed_tests": 14,
+                "failed_tests": 1,
+                "skipped_tests": 0,
+                "wait": 0.0,
+                "q": "h200_35gb"
               },
               {
                 "name": "V1 Core + KV + Metrics",
@@ -403985,11 +404261,11 @@
             "message": "Full CI run - nightly",
             "author": "",
             "wall_mins": null,
-            "passed": 203,
+            "passed": 204,
             "failed": 12,
-            "soft_failed": 3,
+            "soft_failed": 4,
             "skipped": 0,
-            "total_jobs": 218,
+            "total_jobs": 220,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -406059,11 +406335,11 @@
                 "name": "Quantization",
                 "raw_name": "Quantization",
                 "state": "failed",
-                "dur": 38.9,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
+                "dur": 34.2,
+                "tests": 312,
+                "passed_tests": 268,
+                "failed_tests": 9,
+                "skipped_tests": 35,
                 "wait": 3.1,
                 "q": "gpu_1_queue"
               },
@@ -406071,11 +406347,11 @@
                 "name": "Quantized MoE Test (B200)",
                 "raw_name": "Quantized MoE Test (B200)",
                 "state": "passed",
-                "dur": 27.0,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 26.4,
+                "tests": 21,
+                "passed_tests": 15,
                 "failed_tests": 0,
-                "skipped_tests": 0,
+                "skipped_tests": 6,
                 "wait": 1.0,
                 "q": "b200-k8s"
               },
@@ -406083,11 +406359,11 @@
                 "name": "Quantized Models Test",
                 "raw_name": "Quantized Models Test",
                 "state": "failed",
-                "dur": 45.1,
-                "tests": 1,
-                "passed_tests": 0,
-                "failed_tests": 1,
-                "skipped_tests": 0,
+                "dur": 40.3,
+                "tests": 62,
+                "passed_tests": 31,
+                "failed_tests": 2,
+                "skipped_tests": 29,
                 "wait": 3.3,
                 "q": "gpu_1_queue"
               },
@@ -406167,7 +406443,7 @@
                 "name": "Rust Frontend Core Correctness",
                 "raw_name": "Rust Frontend Core Correctness",
                 "state": "passed",
-                "dur": 4.3,
+                "dur": 2.9,
                 "tests": 1,
                 "passed_tests": 1,
                 "failed_tests": 0,
@@ -406179,9 +406455,9 @@
                 "name": "Rust Frontend Distributed",
                 "raw_name": "Rust Frontend Distributed",
                 "state": "passed",
-                "dur": 7.9,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 2.5,
+                "tests": 4,
+                "passed_tests": 4,
                 "failed_tests": 0,
                 "skipped_tests": 0,
                 "wait": 5.1,
@@ -406191,7 +406467,7 @@
                 "name": "Rust Frontend OpenAI Coverage",
                 "raw_name": "Rust Frontend OpenAI Coverage",
                 "state": "passed",
-                "dur": 11.4,
+                "dur": 1.7,
                 "tests": 1,
                 "passed_tests": 1,
                 "failed_tests": 0,
@@ -406203,9 +406479,9 @@
                 "name": "Rust Frontend Serve/Admin Coverage",
                 "raw_name": "Rust Frontend Serve/Admin Coverage",
                 "state": "passed",
-                "dur": 9.1,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 1.6,
+                "tests": 2,
+                "passed_tests": 2,
                 "failed_tests": 0,
                 "skipped_tests": 0,
                 "wait": 0.0,
@@ -406215,11 +406491,11 @@
                 "name": "Rust Frontend Tool Use",
                 "raw_name": "Rust Frontend Tool Use",
                 "state": "passed",
-                "dur": 6.7,
-                "tests": 1,
-                "passed_tests": 1,
+                "dur": 1.9,
+                "tests": 215,
+                "passed_tests": 163,
                 "failed_tests": 0,
-                "skipped_tests": 0,
+                "skipped_tests": 52,
                 "wait": 3.3,
                 "q": "gpu_1_queue"
               },
@@ -406246,6 +406522,18 @@
                 "skipped_tests": 0,
                 "wait": 2.7,
                 "q": "gpu_4_queue"
+              },
+              {
+                "name": "Sequence Parallel Correctness Tests (2xH100)",
+                "raw_name": "Sequence Parallel Correctness Tests (2xH100)",
+                "state": "passed",
+                "dur": 56.1,
+                "tests": 45,
+                "passed_tests": 45,
+                "failed_tests": 0,
+                "skipped_tests": 0,
+                "wait": 89.9,
+                "q": "mithril-h100-pool"
               },
               {
                 "name": "Spec Decode Draft Model",
@@ -406450,6 +406738,18 @@
                 "skipped_tests": 3,
                 "wait": 0.1,
                 "q": "h200_18gb"
+              },
+              {
+                "name": "Transformers Backward Compatibility Models Test",
+                "raw_name": "Transformers Backward Compatibility Models Test",
+                "state": "soft_fail",
+                "dur": 0.9,
+                "tests": 15,
+                "passed_tests": 14,
+                "failed_tests": 1,
+                "skipped_tests": 0,
+                "wait": 0.0,
+                "q": "h200_35gb"
               },
               {
                 "name": "V1 Core + KV + Metrics",
@@ -439737,19 +440037,19 @@
           },
           {
             "name": "Transformers Backward Compatibility Models Test",
-            "runs": 13,
+            "runs": 14,
             "passed": 0,
             "failed": 0,
-            "soft_failed": 13,
+            "soft_failed": 14,
             "fail_rate": 100.0,
             "is_soft_fail": true,
             "median_dur": 0.7,
             "p90_dur": 0.9,
             "avg_dur": 0.8,
             "max_dur": 1.2,
-            "median_wait": 3.7,
+            "median_wait": 3.6,
             "p90_wait": 10.7,
-            "avg_wait": 5.3,
+            "avg_wait": 5.0,
             "max_wait": 15.8,
             "queues": [
               "gpu_1_queue",
@@ -439948,10 +440248,10 @@
             "soft_failed": 0,
             "fail_rate": 35.7,
             "is_soft_fail": false,
-            "median_dur": 36.0,
-            "p90_dur": 38.7,
-            "avg_dur": 36.1,
-            "max_dur": 38.9,
+            "median_dur": 35.8,
+            "p90_dur": 36.5,
+            "avg_dur": 35.8,
+            "max_dur": 38.7,
             "median_wait": 4.6,
             "p90_wait": 11.0,
             "avg_wait": 6.4,
@@ -440316,7 +440616,7 @@
             "median_dur": 17.8,
             "p90_dur": 26.3,
             "avg_dur": 19.3,
-            "max_dur": 27.0,
+            "max_dur": 26.4,
             "median_wait": 1.0,
             "p90_wait": 2.7,
             "avg_wait": 1.9,
@@ -440385,26 +440685,6 @@
             "max_wait": 0.2,
             "queues": [
               "h200_18gb"
-            ]
-          },
-          {
-            "name": "Sequence Parallel Correctness Tests (2xH100)",
-            "runs": 13,
-            "passed": 12,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 7.7,
-            "is_soft_fail": false,
-            "median_dur": 51.3,
-            "p90_dur": 55.1,
-            "avg_dur": 51.0,
-            "max_dur": 55.4,
-            "median_wait": 1.0,
-            "p90_wait": 3.6,
-            "avg_wait": 4.2,
-            "max_wait": 34.3,
-            "queues": [
-              "mithril-h100-pool"
             ]
           },
           {
@@ -440924,10 +441204,10 @@
             "soft_failed": 0,
             "fail_rate": 7.1,
             "is_soft_fail": false,
-            "median_dur": 41.0,
-            "p90_dur": 42.9,
-            "avg_dur": 41.2,
-            "max_dur": 45.1,
+            "median_dur": 40.8,
+            "p90_dur": 42.2,
+            "avg_dur": 40.8,
+            "max_dur": 42.9,
             "median_wait": 4.7,
             "p90_wait": 11.0,
             "avg_wait": 6.5,
@@ -440954,6 +441234,26 @@
             "max_wait": 2.7,
             "queues": [
               "b200-k8s"
+            ]
+          },
+          {
+            "name": "Sequence Parallel Correctness Tests (2xH100)",
+            "runs": 14,
+            "passed": 13,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 7.1,
+            "is_soft_fail": false,
+            "median_dur": 51.5,
+            "p90_dur": 55.4,
+            "avg_dur": 51.4,
+            "max_dur": 56.1,
+            "median_wait": 1.2,
+            "p90_wait": 34.3,
+            "avg_wait": 10.4,
+            "max_wait": 89.9,
+            "queues": [
+              "mithril-h100-pool"
             ]
           },
           {
@@ -441352,20 +441652,20 @@
           },
           {
             "name": "Sequence Parallel Correctness Tests (2xH100)",
-            "runs": 13,
-            "passed": 12,
+            "runs": 14,
+            "passed": 13,
             "failed": 1,
             "soft_failed": 0,
-            "fail_rate": 7.7,
+            "fail_rate": 7.1,
             "is_soft_fail": false,
-            "median_dur": 51.3,
-            "p90_dur": 55.1,
-            "avg_dur": 51.0,
-            "max_dur": 55.4,
-            "median_wait": 1.0,
-            "p90_wait": 3.6,
-            "avg_wait": 4.2,
-            "max_wait": 34.3,
+            "median_dur": 51.5,
+            "p90_dur": 55.4,
+            "avg_dur": 51.4,
+            "max_dur": 56.1,
+            "median_wait": 1.2,
+            "p90_wait": 34.3,
+            "avg_wait": 10.4,
+            "max_wait": 89.9,
             "queues": [
               "mithril-h100-pool"
             ]
@@ -441602,10 +441902,10 @@
             "soft_failed": 0,
             "fail_rate": 7.1,
             "is_soft_fail": false,
-            "median_dur": 41.0,
-            "p90_dur": 42.9,
-            "avg_dur": 41.2,
-            "max_dur": 45.1,
+            "median_dur": 40.8,
+            "p90_dur": 42.2,
+            "avg_dur": 40.8,
+            "max_dur": 42.9,
             "median_wait": 4.7,
             "p90_wait": 11.0,
             "avg_wait": 6.5,
@@ -441723,10 +442023,10 @@
             "soft_failed": 0,
             "fail_rate": 35.7,
             "is_soft_fail": false,
-            "median_dur": 36.0,
-            "p90_dur": 38.7,
-            "avg_dur": 36.1,
-            "max_dur": 38.9,
+            "median_dur": 35.8,
+            "p90_dur": 36.5,
+            "avg_dur": 35.8,
+            "max_dur": 38.7,
             "median_wait": 4.6,
             "p90_wait": 11.0,
             "avg_wait": 6.4,
@@ -442701,7 +443001,7 @@
             "median_dur": 17.8,
             "p90_dur": 26.3,
             "avg_dur": 19.3,
-            "max_dur": 27.0,
+            "max_dur": 26.4,
             "median_wait": 1.0,
             "p90_wait": 2.7,
             "avg_wait": 1.9,
@@ -443094,26 +443394,6 @@
             ]
           },
           {
-            "name": "Rust Frontend OpenAI Coverage",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 11.4,
-            "p90_dur": 11.4,
-            "avg_dur": 11.4,
-            "max_dur": 11.4,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
-            "queues": [
-              "h200_18gb"
-            ]
-          },
-          {
             "name": "Language Models Test (PPL)",
             "runs": 14,
             "passed": 14,
@@ -443440,26 +443720,6 @@
             ]
           },
           {
-            "name": "Rust Frontend Serve/Admin Coverage",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 9.1,
-            "p90_dur": 9.1,
-            "avg_dur": 9.1,
-            "max_dur": 9.1,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
-            "queues": [
-              "h200_18gb"
-            ]
-          },
-          {
             "name": "Multi-Modal Models (Standard) 2: qwen3 + gemma",
             "runs": 14,
             "passed": 14,
@@ -443583,26 +443843,6 @@
             ]
           },
           {
-            "name": "Rust Frontend Distributed",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 7.9,
-            "p90_dur": 7.9,
-            "avg_dur": 7.9,
-            "max_dur": 7.9,
-            "median_wait": 5.1,
-            "p90_wait": 5.1,
-            "avg_wait": 5.1,
-            "max_wait": 5.1,
-            "queues": [
-              "gpu_4_queue"
-            ]
-          },
-          {
             "name": "Cudagraph",
             "runs": 14,
             "passed": 14,
@@ -443680,26 +443920,6 @@
             "max_wait": 35.2,
             "queues": [
               "mithril-h100-pool"
-            ]
-          },
-          {
-            "name": "Rust Frontend Tool Use",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 6.7,
-            "p90_dur": 6.7,
-            "avg_dur": 6.7,
-            "max_dur": 6.7,
-            "median_wait": 3.3,
-            "p90_wait": 3.3,
-            "avg_wait": 3.3,
-            "max_wait": 3.3,
-            "queues": [
-              "gpu_1_queue"
             ]
           },
           {
@@ -444169,26 +444389,6 @@
             ]
           },
           {
-            "name": "Rust Frontend Core Correctness",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 4.3,
-            "p90_dur": 4.3,
-            "avg_dur": 4.3,
-            "max_dur": 4.3,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
-            "queues": [
-              "h200_18gb"
-            ]
-          },
-          {
             "name": "DeepSeek V2-Lite Prefetch Offload Accuracy (H100)",
             "runs": 14,
             "passed": 14,
@@ -444571,6 +444771,26 @@
             ]
           },
           {
+            "name": "Rust Frontend Core Correctness",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 2.9,
+            "p90_dur": 2.9,
+            "avg_dur": 2.9,
+            "max_dur": 2.9,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_18gb"
+            ]
+          },
+          {
             "name": "Distributed FlashInfer NixlConnector PD accuracy (4 GPUs)",
             "runs": 14,
             "passed": 10,
@@ -444646,6 +444866,26 @@
             "p90_wait": 25.3,
             "avg_wait": 12.3,
             "max_wait": 36.1,
+            "queues": [
+              "gpu_4_queue"
+            ]
+          },
+          {
+            "name": "Rust Frontend Distributed",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 2.5,
+            "p90_dur": 2.5,
+            "avg_dur": 2.5,
+            "max_dur": 2.5,
+            "median_wait": 5.1,
+            "p90_wait": 5.1,
+            "avg_wait": 5.1,
+            "max_wait": 5.1,
             "queues": [
               "gpu_4_queue"
             ]
@@ -445033,6 +445273,26 @@
             ]
           },
           {
+            "name": "Rust Frontend Tool Use",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 1.9,
+            "p90_dur": 1.9,
+            "avg_dur": 1.9,
+            "max_dur": 1.9,
+            "median_wait": 3.3,
+            "p90_wait": 3.3,
+            "avg_wait": 3.3,
+            "max_wait": 3.3,
+            "queues": [
+              "gpu_1_queue"
+            ]
+          },
+          {
             "name": "Entrypoints Integration (LLM)",
             "runs": 14,
             "passed": 14,
@@ -445093,6 +445353,26 @@
             ]
           },
           {
+            "name": "Rust Frontend OpenAI Coverage",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 1.7,
+            "p90_dur": 1.7,
+            "avg_dur": 1.7,
+            "max_dur": 1.7,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_18gb"
+            ]
+          },
+          {
             "name": "Model Runner V2 Distributed (2 GPUs)",
             "runs": 14,
             "passed": 14,
@@ -445110,6 +445390,26 @@
             "max_wait": 37.1,
             "queues": [
               "gpu_4_queue"
+            ]
+          },
+          {
+            "name": "Rust Frontend Serve/Admin Coverage",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 1.6,
+            "p90_dur": 1.6,
+            "avg_dur": 1.6,
+            "max_dur": 1.6,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_18gb"
             ]
           },
           {
@@ -445314,19 +445614,19 @@
           },
           {
             "name": "Transformers Backward Compatibility Models Test",
-            "runs": 13,
+            "runs": 14,
             "passed": 0,
             "failed": 0,
-            "soft_failed": 13,
+            "soft_failed": 14,
             "fail_rate": 100.0,
             "is_soft_fail": true,
             "median_dur": 0.7,
             "p90_dur": 0.9,
             "avg_dur": 0.8,
             "max_dur": 1.2,
-            "median_wait": 3.7,
+            "median_wait": 3.6,
             "p90_wait": 10.7,
-            "avg_wait": 5.3,
+            "avg_wait": 5.0,
             "max_wait": 15.8,
             "queues": [
               "gpu_1_queue",
@@ -445674,7 +445974,7 @@
           },
           {
             "queue": "h200_35gb",
-            "jobs": 511,
+            "jobs": 512,
             "median_wait": 3.4,
             "p90_wait": 6.2,
             "avg_wait": 3.8,
@@ -445682,7 +445982,7 @@
           },
           {
             "queue": "gpu_1_queue",
-            "jobs": 1016,
+            "jobs": 1017,
             "median_wait": 3.1,
             "p90_wait": 5.3,
             "avg_wait": 3.2,
@@ -445706,7 +446006,7 @@
           },
           {
             "queue": "mithril-h100-pool",
-            "jobs": 405,
+            "jobs": 406,
             "median_wait": 1.1,
             "p90_wait": 4.2,
             "avg_wait": 1.8,
