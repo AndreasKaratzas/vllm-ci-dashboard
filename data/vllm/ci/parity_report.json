@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-05-21T19:25:06Z",
+  "generated_at": "2026-05-21T20:23:36Z",
   "amd_date": "2026-05-21",
   "upstream_date": "2026-05-21",
   "parity_pct": 0.0,
-  "total_tests": 711,
+  "total_tests": 700,
   "summary": {
-    "upstream_only": 359,
+    "upstream_only": 348,
     "amd_only": 352
   },
   "by_module": {
@@ -699,15 +699,15 @@
     },
     "Quantization": {
       "parity_pct": 100.0,
-      "upstream_only": 2
+      "upstream_only": 1
     },
     "Quantized MoE Test (B200)": {
       "parity_pct": 100.0,
-      "upstream_only": 2
+      "upstream_only": 1
     },
     "Quantized Models Test": {
       "parity_pct": 100.0,
-      "upstream_only": 2
+      "upstream_only": 1
     },
     "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy": {
       "parity_pct": 100.0,
@@ -751,7 +751,7 @@
     },
     "Rust Frontend Tool Use": {
       "parity_pct": 100.0,
-      "upstream_only": 2
+      "upstream_only": 1
     },
     "Samplers Test": {
       "parity_pct": 100.0,
@@ -796,6 +796,14 @@
     "Speculators Correctness": {
       "parity_pct": 100.0,
       "upstream_only": 1
+    },
+    "Torch Nightly Basic Models Tests (Extra Initialization) 1": {
+      "parity_pct": 100.0,
+      "upstream_only": 2
+    },
+    "Torch Nightly Basic Models Tests (Extra Initialization) 2": {
+      "parity_pct": 100.0,
+      "upstream_only": 2
     },
     "Torch Nightly Basic Models Tests (Initialization)": {
       "parity_pct": 100.0,
@@ -1668,18 +1676,6 @@
     "mi355_4: LM Eval Large Models (4xH100-4xMI355)": {
       "parity_pct": 100.0,
       "amd_only": 1
-    },
-    "models/quantization/test_awq.py": {
-      "parity_pct": 100.0,
-      "upstream_only": 2
-    },
-    "quantization/test_fp8.py": {
-      "parity_pct": 100.0,
-      "upstream_only": 5
-    },
-    "quantization/test_online.py": {
-      "parity_pct": 100.0,
-      "upstream_only": 4
     },
     "vLLM IR Tests": {
       "parity_pct": 100.0,
@@ -4932,7 +4928,7 @@
       "family_key": "kernels attention test",
       "family_name": "kernels attention test",
       "amd_job_name": "mi300_1: Kernels Attention Test 1",
-      "upstream_job_name": "Kernels Attention Test 2",
+      "upstream_job_name": "Kernels Attention Test 1",
       "amd": {
         "total": 13146,
         "passed": 5621,
@@ -4979,8 +4975,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/67339/steps/canvas?jid=019e491f-fa48-4fb3-9f8a-5e2d9a6c2d92&tab=output",
-          "job_name": "Kernels Attention Test 2",
+          "url": "https://buildkite.com/vllm/ci/builds/67339/steps/canvas?jid=019e491f-fa47-4cca-b466-87f9ba7defa0&tab=output",
+          "job_name": "Kernels Attention Test 1",
           "side": "upstream"
         }
       ],
@@ -5292,7 +5288,7 @@
       "family_key": "kernels moe test",
       "family_name": "kernels moe test",
       "amd_job_name": "mi300_1: Kernels MoE Test 1",
-      "upstream_job_name": "Kernels MoE Test 3",
+      "upstream_job_name": "Kernels MoE Test 1",
       "amd": {
         "total": 13859,
         "passed": 7994,
@@ -5339,8 +5335,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/67339/steps/canvas?jid=019e491f-fa50-45b0-a2e3-1c74285ab32f&tab=output",
-          "job_name": "Kernels MoE Test 3",
+          "url": "https://buildkite.com/vllm/ci/builds/67339/steps/canvas?jid=019e491f-fa4f-4e02-bdc8-567584827957&tab=output",
+          "job_name": "Kernels MoE Test 1",
           "side": "upstream"
         }
       ],
@@ -7904,14 +7900,14 @@
         "duration": 3277.71
       },
       "upstream": {
-        "total": 312,
-        "passed": 268,
-        "failed": 9,
-        "skipped": 35,
+        "total": 1,
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2050.4
+        "duration": 0.0
       },
       "hardware": [
         "h100",
@@ -7921,7 +7917,7 @@
       "hw_failures": {
         "mi300": 7,
         "mi355": 1,
-        "h100": 9
+        "h100": 1
       },
       "hw_canceled": null,
       "failure_tests": [],
@@ -7946,10 +7942,10 @@
         }
       ],
       "delta": {
-        "total": 9,
-        "passed": 2,
-        "failed": -2,
-        "skipped": 8
+        "total": 320,
+        "passed": 270,
+        "failed": 6,
+        "skipped": 43
       },
       "status": "both",
       "backfilled": false
@@ -7971,14 +7967,14 @@
         "duration": 3491.81
       },
       "upstream": {
-        "total": 62,
-        "passed": 31,
-        "failed": 2,
-        "skipped": 29,
+        "total": 1,
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2416.06
+        "duration": 0.0
       },
       "hardware": [
         "h100",
@@ -7988,7 +7984,7 @@
       "hw_failures": {
         "mi300": 4,
         "mi355": 3,
-        "h100": 2
+        "h100": 1
       },
       "hw_canceled": null,
       "failure_tests": [],
@@ -8013,10 +8009,10 @@
         }
       ],
       "delta": {
-        "total": 62,
-        "passed": 10,
-        "failed": 5,
-        "skipped": 47
+        "total": 123,
+        "passed": 41,
+        "failed": 6,
+        "skipped": 76
       },
       "status": "both",
       "backfilled": false
@@ -10727,14 +10723,14 @@
       "upstream_job_name": "Quantized MoE Test (B200)",
       "amd": null,
       "upstream": {
-        "total": 21,
-        "passed": 15,
+        "total": 1,
+        "passed": 1,
         "failed": 0,
-        "skipped": 6,
+        "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1586.98
+        "duration": 0.0
       },
       "hardware": [
         "b200"
@@ -10802,7 +10798,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 174.75
+        "duration": 0.0
       },
       "hardware": [
         "h100"
@@ -10829,14 +10825,14 @@
       "upstream_job_name": "Rust Frontend Distributed",
       "amd": null,
       "upstream": {
-        "total": 4,
-        "passed": 4,
+        "total": 1,
+        "passed": 1,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 150.43
+        "duration": 0.0
       },
       "hardware": [
         "h100"
@@ -10870,7 +10866,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 104.33
+        "duration": 0.0
       },
       "hardware": [
         "h100"
@@ -10897,14 +10893,14 @@
       "upstream_job_name": "Rust Frontend Serve/Admin Coverage",
       "amd": null,
       "upstream": {
-        "total": 2,
-        "passed": 2,
+        "total": 1,
+        "passed": 1,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 95.34
+        "duration": 0.0
       },
       "hardware": [
         "h100"
@@ -10931,14 +10927,14 @@
       "upstream_job_name": "Rust Frontend Tool Use",
       "amd": null,
       "upstream": {
-        "total": 215,
-        "passed": 163,
+        "total": 1,
+        "passed": 1,
         "failed": 0,
-        "skipped": 52,
+        "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 115.68
+        "duration": 0.0
       },
       "hardware": [
         "h100"
@@ -11157,6 +11153,78 @@
           "hw": "h100",
           "url": "https://buildkite.com/vllm/ci/builds/67339/steps/canvas?jid=019e491f-fad3-4099-898e-1ad749878c3e&tab=output",
           "job_name": "Speculators Correctness",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
+      "name": "torch nightly basic models tests (extra initialization) 1",
+      "family_key": "torch nightly basic models tests (extra initialization) 1",
+      "family_name": "torch nightly basic models tests (extra initialization) 1",
+      "amd_job_name": null,
+      "upstream_job_name": "Torch Nightly Basic Models Tests (Extra Initialization) 1",
+      "amd": null,
+      "upstream": {
+        "total": 189,
+        "passed": 186,
+        "failed": 3,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 4109.86
+      },
+      "hardware": [
+        "h100"
+      ],
+      "hw_failures": {
+        "h100": 3
+      },
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/67339/steps/canvas?jid=019e4bc8-b31e-4525-a162-ea5ac1c1a6cf&tab=output",
+          "job_name": "Torch Nightly Basic Models Tests (Extra Initialization) 1",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
+      "name": "torch nightly basic models tests (extra initialization) 2",
+      "family_key": "torch nightly basic models tests (extra initialization) 2",
+      "family_name": "torch nightly basic models tests (extra initialization) 2",
+      "amd_job_name": null,
+      "upstream_job_name": "Torch Nightly Basic Models Tests (Extra Initialization) 2",
+      "amd": null,
+      "upstream": {
+        "total": 168,
+        "passed": 165,
+        "failed": 3,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 3750.26
+      },
+      "hardware": [
+        "h100"
+      ],
+      "hw_failures": {
+        "h100": 3
+      },
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/67339/steps/canvas?jid=019e4bc8-b396-4cdf-bd73-4400ffe5701d&tab=output",
+          "job_name": "Torch Nightly Basic Models Tests (Extra Initialization) 2",
           "side": "upstream"
         }
       ],
@@ -11439,44 +11507,6 @@
       "name": "transformers backward compatibility models test",
       "family_key": "transformers backward compatibility models test",
       "family_name": "transformers backward compatibility models test",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "torch nightly basic models tests (extra initialization) 1",
-      "family_key": "torch nightly basic models tests (extra initialization) 1",
-      "family_name": "torch nightly basic models tests (extra initialization) 1",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "torch nightly basic models tests (extra initialization) 2",
-      "family_key": "torch nightly basic models tests (extra initialization) 2",
-      "family_name": "torch nightly basic models tests (extra initialization) 2",
       "amd_job_name": null,
       "upstream_job_name": null,
       "amd": null,
@@ -12893,39 +12923,21 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "Quantization::__passed__",
+      "test_id": "Quantization::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Quantized MoE Test (B200)::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Quantization::__skipped__",
+      "test_id": "Quantized Models Test::__job_level__",
       "amd_status": "missing",
-      "upstream_status": "skipped",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "Quantized MoE Test (B200)::__passed__",
-      "amd_status": "missing",
-      "upstream_status": "passed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "Quantized MoE Test (B200)::__skipped__",
-      "amd_status": "missing",
-      "upstream_status": "skipped",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "Quantized Models Test::__passed__",
-      "amd_status": "missing",
-      "upstream_status": "passed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "Quantized Models Test::__skipped__",
-      "amd_status": "missing",
-      "upstream_status": "skipped",
+      "upstream_status": "failed",
       "category": "upstream_only"
     },
     {
@@ -12965,39 +12977,33 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "Rust Frontend Core Correctness::__passed__",
+      "test_id": "Rust Frontend Core Correctness::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Rust Frontend Distributed::__passed__",
+      "test_id": "Rust Frontend Distributed::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Rust Frontend OpenAI Coverage::__passed__",
+      "test_id": "Rust Frontend OpenAI Coverage::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Rust Frontend Serve/Admin Coverage::__passed__",
+      "test_id": "Rust Frontend Serve/Admin Coverage::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Rust Frontend Tool Use::__passed__",
+      "test_id": "Rust Frontend Tool Use::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "Rust Frontend Tool Use::__skipped__",
-      "amd_status": "missing",
-      "upstream_status": "skipped",
       "category": "upstream_only"
     },
     {
@@ -13118,6 +13124,30 @@
       "test_id": "Speculators Correctness::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Torch Nightly Basic Models Tests (Extra Initialization) 1::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Torch Nightly Basic Models Tests (Extra Initialization) 1::__unidentified_failures__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Torch Nightly Basic Models Tests (Extra Initialization) 2::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Torch Nightly Basic Models Tests (Extra Initialization) 2::__unidentified_failures__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
       "category": "upstream_only"
     },
     {
@@ -15681,72 +15711,6 @@
       "amd_status": "passed",
       "upstream_status": "missing",
       "category": "amd_only"
-    },
-    {
-      "test_id": "models/quantization/test_awq.py::test_awq_load[gemma4-moe-compressed-tensors-underscore-suffix]",
-      "amd_status": "missing",
-      "upstream_status": "failed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "models/quantization/test_awq.py::test_awq_load[gemma4-moe-standard-awq-dot-suffix]",
-      "amd_status": "missing",
-      "upstream_status": "failed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "quantization/test_fp8.py::test_fp8_reloading[False-None-True-Fp8LinearMethod]",
-      "amd_status": "missing",
-      "upstream_status": "failed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "quantization/test_fp8.py::test_online_quant_load_format_dummy",
-      "amd_status": "missing",
-      "upstream_status": "failed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "quantization/test_fp8.py::test_online_quant_peak_mem",
-      "amd_status": "missing",
-      "upstream_status": "failed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "quantization/test_fp8.py::test_online_quantization[False-False-auto]",
-      "amd_status": "missing",
-      "upstream_status": "failed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "quantization/test_fp8.py::test_online_quantization[False-False-fp8]",
-      "amd_status": "missing",
-      "upstream_status": "failed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "quantization/test_online.py::test_online_quant_load_format_dummy",
-      "amd_status": "missing",
-      "upstream_status": "failed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "quantization/test_online.py::test_online_quant_peak_mem",
-      "amd_status": "missing",
-      "upstream_status": "failed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "quantization/test_online.py::test_online_quantization[False-fp8_per_tensor-None-Fp8PerTensorOnlineLinearMethod-Fp8PerTensorOnlineMoEMethod]",
-      "amd_status": "missing",
-      "upstream_status": "failed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "quantization/test_online.py::test_online_quantization[False-fp8_per_tensor-online_quant_args3-Fp8PerTensorOnlineLinearMethod-Fp8PerTensorOnlineMoEMethod]",
-      "amd_status": "missing",
-      "upstream_status": "failed",
-      "category": "upstream_only"
     },
     {
       "test_id": "vLLM IR Tests::__passed__",
