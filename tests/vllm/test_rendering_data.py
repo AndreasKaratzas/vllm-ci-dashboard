@@ -185,6 +185,47 @@ class TestJSRenderingSafety:
                 if tgp is not None:
                     assert isinstance(tgp, int), f"Build #{b.get('build_number')} test_groups_passing_or is {type(tgp)}"
 
+    def test_ci_health_group_pass_math_is_self_consistent(self):
+        """Passing-any-HW is strict all-HW plus partial groups."""
+        path = DATA / "vllm" / "ci" / "ci_health.json"
+        if not path.exists():
+            pytest.skip("no ci_health")
+        d = json.loads(path.read_text())
+        for section in ["amd", "upstream"]:
+            builds = (d.get(section) or {}).get("builds", [])
+            for b in builds:
+                total = b.get("unique_test_groups") or 0
+                passing_or = b.get("test_groups_passing_or") or 0
+                passing_all = b.get("test_groups_passing_all") or 0
+                partial = b.get("test_groups_partial") or 0
+                assert passing_or == passing_all + partial, (
+                    f"{section} build #{b.get('build_number')} has inconsistent group pass math"
+                )
+                assert 0 <= passing_or <= total, (
+                    f"{section} build #{b.get('build_number')} passing groups out of range"
+                )
+
+    def test_runtime_parity_counts_cover_latest_amd_groups(self):
+        """Group-level common + AMD-only parity rows should equal AMD unique groups."""
+        health_path = DATA / "vllm" / "ci" / "ci_health.json"
+        parity_path = DATA / "vllm" / "ci" / "parity_report.json"
+        if not health_path.exists() or not parity_path.exists():
+            pytest.skip("no CI parity data")
+        health = json.loads(health_path.read_text())
+        parity = json.loads(parity_path.read_text())
+        latest_amd = (health.get("amd") or {}).get("latest_build") or {}
+        amd_total = latest_amd.get("unique_test_groups")
+        if amd_total is None:
+            pytest.skip("latest AMD build has no unique group count")
+
+        groups = parity.get("job_groups") or []
+        common = sum(1 for g in groups if g.get("amd") and g.get("upstream"))
+        amd_only = sum(1 for g in groups if g.get("amd") and not g.get("upstream"))
+        assert common + amd_only == amd_total, (
+            f"runtime parity common+AMD-only ({common}+{amd_only}) must equal "
+            f"latest AMD unique test groups ({amd_total})"
+        )
+
 
 class TestNoJobStateMismatch:
     """Tests that passed jobs are not reported as failed."""

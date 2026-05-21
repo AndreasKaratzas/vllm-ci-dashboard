@@ -63,7 +63,10 @@
 
     // Use merged group counts
     const mergedGroups=parity?.job_groups?(typeof mergeShardedGroups==='function'?mergeShardedGroups(parity.job_groups):parity.job_groups):[];
-    const parityGroups=parity?.job_groups?(typeof mergeParityGroups==='function'?mergeParityGroups(parity.job_groups):mergedGroups):mergedGroups;
+    // Top-card coverage counts should remain group-level so:
+    // common + AMD-only == AMD unique test groups.
+    // Family-merged parity rows are still used in the detailed parity sections.
+    const coverageGroups=mergedGroups;
     const mergedAmdGroups=mergedGroups.filter(g=>g.amd).length;
     // A group is "failing" if it has ANY hard-fail signal — both pytest
     // ``failed`` assertions AND job-level ``error`` (timeouts, crashes,
@@ -101,16 +104,19 @@
 
     // Test groups card -> overlay with ALL groups (failing first, then passing)
     const allAmdGroups=mergedGroups.filter(g=>g.amd);
-    if(mergedAmdGroups) {
-      const groupRate=passingGroups.length/mergedAmdGroups;
-      const failCount=failingGroups.length;
-      const sub=`${passingGroups.length} passing${failCount>0?' &bull; <span style="color:'+C.r+'">'+failCount+' failing</span>':''}`;
-      row.append(card('Test Groups',`${passingGroups.length}/${mergedAmdGroups}`,sub,rc(groupRate),
-        ()=>showGroupOverlay_health('All Test Groups (AMD)',allAmdGroups,C.b,null,null,true)));
-    } else if(a.unique_test_groups) {
-      const orRate=a.test_groups_passing_or/a.unique_test_groups;
-      const sub=`${a.test_groups_passing_all} strict (all HW)${a.test_groups_partial>0?' &bull; <span style="color:'+C.y+'">'+a.test_groups_partial+' partial</span>':''}`;
-      row.append(card('Test Groups',`${a.test_groups_passing_or}/${a.unique_test_groups}`,sub,rc(orRate),
+    const amdTotalGroups=a.unique_test_groups||mergedAmdGroups||0;
+    if(amdTotalGroups) {
+      const amdPassAny=a.test_groups_passing_or ?? passingGroups.length;
+      const amdPassAll=a.test_groups_passing_all ?? passingGroups.length;
+      const amdPartial=a.test_groups_partial ?? Math.max(0, amdPassAny-amdPassAll);
+      const amdFailAll=Math.max(0, amdTotalGroups-amdPassAny);
+      const groupRate=amdPassAny/amdTotalGroups;
+      const sub=[
+        `${amdPassAll} strict all-HW`,
+        amdPartial>0?`<span style="color:${C.y}">${amdPartial} partial</span>`:'',
+        amdFailAll>0?`<span style="color:${C.r}">${amdFailAll} failing</span>`:'',
+      ].filter(Boolean).join(' &bull; ');
+      row.append(card('Test Groups',`${amdPassAny}/${amdTotalGroups}`,sub,rc(groupRate),
         ()=>showGroupOverlay_health('All Test Groups (AMD)',allAmdGroups,C.b,null,null,true)));
     } else {
       row.append(card('Test Groups',mergedAmdGroups||a.test_groups,`${a.jobs_passed||0} jobs passed`,C.b,
@@ -119,9 +125,10 @@
 
     // Parity card -> overlay with 3-tab parity breakdown
     if(mergedGroups.length) {
-      const bothGroups=parityGroups.filter(g=>g.amd&&g.upstream);
-      const aOnlyGroups=parityGroups.filter(g=>g.amd&&!g.upstream);
-      const uOnlyGroups=parityGroups.filter(g=>!g.amd&&g.upstream);
+      const hasUpstreamCoverage=g=>!!g.upstream||g.status==='upstream_only'||g.backfilled||g.hw_backfilled;
+      const bothGroups=coverageGroups.filter(g=>g.amd&&g.upstream);
+      const aOnlyGroups=coverageGroups.filter(g=>g.amd&&!g.upstream);
+      const uOnlyGroups=coverageGroups.filter(g=>!g.amd&&hasUpstreamCoverage(g));
       row.append(card('Coverage Parity',`${bothGroups.length} common`,`${aOnlyGroups.length} AMD-only &bull; ${uOnlyGroups.length} upstream-only`,C.p,
         ()=>showParityOverlay(bothGroups,aOnlyGroups,uOnlyGroups)));
     } else if(u) {

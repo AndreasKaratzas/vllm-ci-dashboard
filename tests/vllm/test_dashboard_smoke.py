@@ -177,6 +177,15 @@ class TestJsFileShape:
             "ci-health.js should use canonical parity families in its parity-focused sections"
         )
 
+    def test_ci_health_top_cards_use_consistent_group_denominators(self):
+        text = (JS / "ci-health.js").read_text()
+        assert "const amdTotalGroups=a.unique_test_groups||mergedAmdGroups||0" in text
+        assert "const amdPassAny=a.test_groups_passing_or ?? passingGroups.length" in text
+        assert "card('Test Groups',`${amdPassAny}/${amdTotalGroups}`" in text
+        assert "const coverageGroups=mergedGroups" in text
+        assert "const hasUpstreamCoverage=g=>!!g.upstream||g.status==='upstream_only'" in text
+        assert "bothGroups=coverageGroups.filter" in text
+
     def test_fetchjson_catches_rejected_fetches(self):
         text = (JS / "utils.js").read_text()
         m = re.search(
