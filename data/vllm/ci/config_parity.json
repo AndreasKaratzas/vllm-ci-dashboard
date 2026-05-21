@@ -1,10 +1,10 @@
 {
   "summary": {
     "total_amd_steps": 122,
-    "total_nvidia_steps": 157,
+    "total_nvidia_steps": 162,
     "matched": 115,
     "amd_only": 7,
-    "nvidia_only": 45,
+    "nvidia_only": 50,
     "mirrors": 16,
     "match_rate_pct": 94.3,
     "avg_command_similarity_pct": 93.9
@@ -1868,6 +1868,36 @@
       "normalized": "quantized moe test (b200)",
       "identity_key": "quantized moe test",
       "source": ".buildkite/test_areas/quantization.yaml"
+    },
+    {
+      "label": "Rust Frontend OpenAI Coverage",
+      "normalized": "rust frontend openai coverage",
+      "identity_key": "rust frontend openai coverage",
+      "source": ".buildkite/test_areas/rust_frontend.yaml"
+    },
+    {
+      "label": "Rust Frontend Serve/Admin Coverage",
+      "normalized": "rust frontend serve/admin coverage",
+      "identity_key": "rust frontend serve/admin coverage",
+      "source": ".buildkite/test_areas/rust_frontend.yaml"
+    },
+    {
+      "label": "Rust Frontend Core Correctness",
+      "normalized": "rust frontend core correctness",
+      "identity_key": "rust frontend core correctness",
+      "source": ".buildkite/test_areas/rust_frontend.yaml"
+    },
+    {
+      "label": "Rust Frontend Tool Use",
+      "normalized": "rust frontend tool use",
+      "identity_key": "rust frontend tool use",
+      "source": ".buildkite/test_areas/rust_frontend.yaml"
+    },
+    {
+      "label": "Rust Frontend Distributed",
+      "normalized": "rust frontend distributed",
+      "identity_key": "rust frontend distributed (4 gpus)",
+      "source": ".buildkite/test_areas/rust_frontend.yaml"
     },
     {
       "label": "Spec Decode Eagle Nightly B200",
