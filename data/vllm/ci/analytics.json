@@ -3,7 +3,7 @@
     "pipeline": "amd-ci",
     "display_name": "AMD CI",
     "days": 14,
-    "generated_at": "2026-05-21T15:24:57Z",
+    "generated_at": "2026-05-21T16:40:05Z",
     "summary": {
       "total_builds": 15,
       "passed": 15,
@@ -214483,7 +214483,7 @@
     "pipeline": "ci",
     "display_name": "Upstream CI",
     "days": 14,
-    "generated_at": "2026-05-21T15:24:57Z",
+    "generated_at": "2026-05-21T16:40:05Z",
     "summary": {
       "total_builds": 15,
       "passed": 1,
@@ -214589,17 +214589,17 @@
     "builds": [
       {
         "number": 67339,
-        "state": "failing",
+        "state": "failed",
         "created_at": "2026-05-21T06:00:21.623Z",
         "date": "2026-05-21",
         "message": "Full CI run - nightly",
         "author": "",
-        "wall_mins": null,
+        "wall_mins": 622.7,
         "passed": 201,
-        "failed": 14,
-        "soft_failed": 5,
+        "failed": 15,
+        "soft_failed": 6,
         "skipped": 0,
-        "total_jobs": 220,
+        "total_jobs": 222,
         "jobs": [
           {
             "name": "2 Node Test (4 GPUs)",
@@ -216306,6 +216306,18 @@
             "q": "mithril-h100-pool"
           },
           {
+            "name": "Model Executor",
+            "raw_name": "Model Executor",
+            "state": "failed",
+            "dur": 600.9,
+            "tests": 1,
+            "passed_tests": 0,
+            "failed_tests": 1,
+            "skipped_tests": 0,
+            "wait": 3.0,
+            "q": "gpu_1_queue"
+          },
+          {
             "name": "Model Runner V2 Core Tests",
             "raw_name": "Model Runner V2 Core Tests",
             "state": "passed",
@@ -217082,6 +217094,18 @@
             "passed_tests": 14,
             "failed_tests": 1,
             "skipped_tests": 0,
+            "wait": 0.0,
+            "q": "h200_35gb"
+          },
+          {
+            "name": "Transformers Nightly Models",
+            "raw_name": "Transformers Nightly Models",
+            "state": "soft_fail",
+            "dur": 10.0,
+            "tests": 14,
+            "passed_tests": 12,
+            "failed_tests": 1,
+            "skipped_tests": 1,
             "wait": 0.0,
             "q": "h200_35gb"
           },
@@ -252721,17 +252745,17 @@
     "nightly_builds": [
       {
         "number": 67339,
-        "state": "failing",
+        "state": "failed",
         "created_at": "2026-05-21T06:00:21.623Z",
         "date": "2026-05-21",
         "message": "Full CI run - nightly",
         "author": "",
-        "wall_mins": null,
+        "wall_mins": 622.7,
         "passed": 201,
-        "failed": 14,
-        "soft_failed": 5,
+        "failed": 15,
+        "soft_failed": 6,
         "skipped": 0,
-        "total_jobs": 220,
+        "total_jobs": 222,
         "jobs": [
           {
             "name": "2 Node Test (4 GPUs)",
@@ -254438,6 +254462,18 @@
             "q": "mithril-h100-pool"
           },
           {
+            "name": "Model Executor",
+            "raw_name": "Model Executor",
+            "state": "failed",
+            "dur": 600.9,
+            "tests": 1,
+            "passed_tests": 0,
+            "failed_tests": 1,
+            "skipped_tests": 0,
+            "wait": 3.0,
+            "q": "gpu_1_queue"
+          },
+          {
             "name": "Model Runner V2 Core Tests",
             "raw_name": "Model Runner V2 Core Tests",
             "state": "passed",
@@ -255214,6 +255250,18 @@
             "passed_tests": 14,
             "failed_tests": 1,
             "skipped_tests": 0,
+            "wait": 0.0,
+            "q": "h200_35gb"
+          },
+          {
+            "name": "Transformers Nightly Models",
+            "raw_name": "Transformers Nightly Models",
+            "state": "soft_fail",
+            "dur": 10.0,
+            "tests": 14,
+            "passed_tests": 12,
+            "failed_tests": 1,
+            "skipped_tests": 1,
             "wait": 0.0,
             "q": "h200_35gb"
           },
@@ -288524,19 +288572,19 @@
       },
       {
         "name": "Transformers Nightly Models",
-        "runs": 14,
+        "runs": 15,
         "passed": 0,
         "failed": 0,
-        "soft_failed": 14,
+        "soft_failed": 15,
         "fail_rate": 100.0,
         "is_soft_fail": true,
-        "median_dur": 49.1,
+        "median_dur": 10.0,
         "p90_dur": 94.5,
-        "avg_dur": 52.2,
+        "avg_dur": 49.4,
         "max_dur": 124.8,
-        "median_wait": 4.8,
+        "median_wait": 3.7,
         "p90_wait": 15.3,
-        "avg_wait": 6.7,
+        "avg_wait": 6.2,
         "max_wait": 18.8,
         "queues": [
           "gpu_1_queue",
@@ -288645,6 +288693,27 @@
         ]
       },
       {
+        "name": "Model Executor",
+        "runs": 15,
+        "passed": 9,
+        "failed": 6,
+        "soft_failed": 0,
+        "fail_rate": 40.0,
+        "is_soft_fail": false,
+        "median_dur": 1.9,
+        "p90_dur": 600.9,
+        "avg_dur": 184.4,
+        "max_dur": 601.3,
+        "median_wait": 3.5,
+        "p90_wait": 10.7,
+        "avg_wait": 4.7,
+        "max_wait": 12.4,
+        "queues": [
+          "gpu_1_queue",
+          "h200_35gb"
+        ]
+      },
+      {
         "name": "Spec Decode Draft Model",
         "runs": 15,
         "passed": 9,
@@ -288680,27 +288749,6 @@
         "p90_wait": 3.1,
         "avg_wait": 3.0,
         "max_wait": 26.8,
-        "queues": [
-          "gpu_1_queue",
-          "h200_35gb"
-        ]
-      },
-      {
-        "name": "Model Executor",
-        "runs": 14,
-        "passed": 9,
-        "failed": 5,
-        "soft_failed": 0,
-        "fail_rate": 35.7,
-        "is_soft_fail": false,
-        "median_dur": 1.9,
-        "p90_dur": 600.5,
-        "avg_dur": 154.7,
-        "max_dur": 601.3,
-        "median_wait": 3.5,
-        "p90_wait": 10.7,
-        "avg_wait": 4.8,
-        "max_wait": 12.4,
         "queues": [
           "gpu_1_queue",
           "h200_35gb"
@@ -290193,27 +290241,6 @@
         "max_wait": 34.3,
         "queues": [
           "mithril-h100-pool"
-        ]
-      },
-      {
-        "name": "Transformers Nightly Models",
-        "runs": 14,
-        "passed": 0,
-        "failed": 0,
-        "soft_failed": 14,
-        "fail_rate": 100.0,
-        "is_soft_fail": true,
-        "median_dur": 49.1,
-        "p90_dur": 94.5,
-        "avg_dur": 52.2,
-        "max_dur": 124.8,
-        "median_wait": 4.8,
-        "p90_wait": 15.3,
-        "avg_wait": 6.7,
-        "max_wait": 18.8,
-        "queues": [
-          "gpu_1_queue",
-          "h200_35gb"
         ]
       },
       {
@@ -292060,6 +292087,27 @@
         ]
       },
       {
+        "name": "Transformers Nightly Models",
+        "runs": 15,
+        "passed": 0,
+        "failed": 0,
+        "soft_failed": 15,
+        "fail_rate": 100.0,
+        "is_soft_fail": true,
+        "median_dur": 10.0,
+        "p90_dur": 94.5,
+        "avg_dur": 49.4,
+        "max_dur": 124.8,
+        "median_wait": 3.7,
+        "p90_wait": 15.3,
+        "avg_wait": 6.2,
+        "max_wait": 18.8,
+        "queues": [
+          "gpu_1_queue",
+          "h200_35gb"
+        ]
+      },
+      {
         "name": "AMD: Entrypoints Integration (API Server 2) (mi300_1)",
         "runs": 6,
         "passed": 5,
@@ -293779,19 +293827,19 @@
       },
       {
         "name": "Model Executor",
-        "runs": 14,
+        "runs": 15,
         "passed": 9,
-        "failed": 5,
+        "failed": 6,
         "soft_failed": 0,
-        "fail_rate": 35.7,
+        "fail_rate": 40.0,
         "is_soft_fail": false,
         "median_dur": 1.9,
-        "p90_dur": 600.5,
-        "avg_dur": 154.7,
+        "p90_dur": 600.9,
+        "avg_dur": 184.4,
         "max_dur": 601.3,
         "median_wait": 3.5,
         "p90_wait": 10.7,
-        "avg_wait": 4.8,
+        "avg_wait": 4.7,
         "max_wait": 12.4,
         "queues": [
           "gpu_1_queue",
@@ -294520,7 +294568,7 @@
       },
       {
         "queue": "h200_35gb",
-        "jobs": 548,
+        "jobs": 550,
         "median_wait": 3.2,
         "p90_wait": 6.0,
         "avg_wait": 3.6,
@@ -294528,10 +294576,10 @@
       },
       {
         "queue": "gpu_1_queue",
-        "jobs": 1089,
+        "jobs": 1091,
         "median_wait": 3.0,
-        "p90_wait": 4.6,
-        "avg_wait": 3.1,
+        "p90_wait": 4.2,
+        "avg_wait": 3.0,
         "max_wait": 6.8
       },
       {
@@ -294665,10 +294713,10 @@
           "passed": 0,
           "failed": 1,
           "pass_rate": 0.0,
-          "total_jobs_tracked": 220,
-          "jobs_with_failures": 19,
-          "jobs_with_hard_failures": 14,
-          "jobs_with_soft_failures": 5
+          "total_jobs_tracked": 222,
+          "jobs_with_failures": 21,
+          "jobs_with_hard_failures": 15,
+          "jobs_with_soft_failures": 6
         },
         "daily_stats": [
           {
@@ -294681,17 +294729,17 @@
         "builds": [
           {
             "number": 67339,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-05-21T06:00:21.623Z",
             "date": "2026-05-21",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 622.7,
             "passed": 201,
-            "failed": 14,
-            "soft_failed": 5,
+            "failed": 15,
+            "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 220,
+            "total_jobs": 222,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -296398,6 +296446,18 @@
                 "q": "mithril-h100-pool"
               },
               {
+                "name": "Model Executor",
+                "raw_name": "Model Executor",
+                "state": "failed",
+                "dur": 600.9,
+                "tests": 1,
+                "passed_tests": 0,
+                "failed_tests": 1,
+                "skipped_tests": 0,
+                "wait": 3.0,
+                "q": "gpu_1_queue"
+              },
+              {
                 "name": "Model Runner V2 Core Tests",
                 "raw_name": "Model Runner V2 Core Tests",
                 "state": "passed",
@@ -297174,6 +297234,18 @@
                 "passed_tests": 14,
                 "failed_tests": 1,
                 "skipped_tests": 0,
+                "wait": 0.0,
+                "q": "h200_35gb"
+              },
+              {
+                "name": "Transformers Nightly Models",
+                "raw_name": "Transformers Nightly Models",
+                "state": "soft_fail",
+                "dur": 10.0,
+                "tests": 14,
+                "passed_tests": 12,
+                "failed_tests": 1,
+                "skipped_tests": 1,
                 "wait": 0.0,
                 "q": "h200_35gb"
               },
@@ -297341,17 +297413,17 @@
         "nightly_builds": [
           {
             "number": 67339,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-05-21T06:00:21.623Z",
             "date": "2026-05-21",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 622.7,
             "passed": 201,
-            "failed": 14,
-            "soft_failed": 5,
+            "failed": 15,
+            "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 220,
+            "total_jobs": 222,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -299058,6 +299130,18 @@
                 "q": "mithril-h100-pool"
               },
               {
+                "name": "Model Executor",
+                "raw_name": "Model Executor",
+                "state": "failed",
+                "dur": 600.9,
+                "tests": 1,
+                "passed_tests": 0,
+                "failed_tests": 1,
+                "skipped_tests": 0,
+                "wait": 3.0,
+                "q": "gpu_1_queue"
+              },
+              {
                 "name": "Model Runner V2 Core Tests",
                 "raw_name": "Model Runner V2 Core Tests",
                 "state": "passed",
@@ -299834,6 +299918,18 @@
                 "passed_tests": 14,
                 "failed_tests": 1,
                 "skipped_tests": 0,
+                "wait": 0.0,
+                "q": "h200_35gb"
+              },
+              {
+                "name": "Transformers Nightly Models",
+                "raw_name": "Transformers Nightly Models",
+                "state": "soft_fail",
+                "dur": 10.0,
+                "tests": 14,
+                "passed_tests": 12,
+                "failed_tests": 1,
+                "skipped_tests": 1,
                 "wait": 0.0,
                 "q": "h200_35gb"
               },
@@ -300140,6 +300236,26 @@
             ]
           },
           {
+            "name": "Model Executor",
+            "runs": 1,
+            "passed": 0,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 100.0,
+            "is_soft_fail": false,
+            "median_dur": 600.9,
+            "p90_dur": 600.9,
+            "avg_dur": 600.9,
+            "max_dur": 600.9,
+            "median_wait": 3.0,
+            "p90_wait": 3.0,
+            "avg_wait": 3.0,
+            "max_wait": 3.0,
+            "queues": [
+              "gpu_1_queue"
+            ]
+          },
+          {
             "name": "Multi-Modal Models (Extended Generation 3)",
             "runs": 1,
             "passed": 0,
@@ -300360,6 +300476,26 @@
             ]
           },
           {
+            "name": "Transformers Nightly Models",
+            "runs": 1,
+            "passed": 0,
+            "failed": 0,
+            "soft_failed": 1,
+            "fail_rate": 100.0,
+            "is_soft_fail": true,
+            "median_dur": 10.0,
+            "p90_dur": 10.0,
+            "avg_dur": 10.0,
+            "max_dur": 10.0,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_35gb"
+            ]
+          },
+          {
             "name": "V1 Spec Decode",
             "runs": 1,
             "passed": 0,
@@ -300381,6 +300517,26 @@
           }
         ],
         "duration_ranking": [
+          {
+            "name": "Model Executor",
+            "runs": 1,
+            "passed": 0,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 100.0,
+            "is_soft_fail": false,
+            "median_dur": 600.9,
+            "p90_dur": 600.9,
+            "avg_dur": 600.9,
+            "max_dur": 600.9,
+            "median_wait": 3.0,
+            "p90_wait": 3.0,
+            "avg_wait": 3.0,
+            "max_wait": 3.0,
+            "queues": [
+              "gpu_1_queue"
+            ]
+          },
           {
             "name": "Kernels Core Operation Test",
             "runs": 1,
@@ -302359,6 +302515,26 @@
             "max_wait": 37.0,
             "queues": [
               "mithril-h100-pool"
+            ]
+          },
+          {
+            "name": "Transformers Nightly Models",
+            "runs": 1,
+            "passed": 0,
+            "failed": 0,
+            "soft_failed": 1,
+            "fail_rate": 100.0,
+            "is_soft_fail": true,
+            "median_dur": 10.0,
+            "p90_dur": 10.0,
+            "avg_dur": 10.0,
+            "max_dur": 10.0,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_35gb"
             ]
           },
           {
@@ -304801,7 +304977,7 @@
           },
           {
             "queue": "gpu_1_queue",
-            "jobs": 34,
+            "jobs": 35,
             "median_wait": 2.7,
             "p90_wait": 3.2,
             "avg_wait": 2.7,
@@ -304905,7 +305081,7 @@
           },
           {
             "queue": "h200_35gb",
-            "jobs": 31,
+            "jobs": 32,
             "median_wait": 0.0,
             "p90_wait": 0.0,
             "avg_wait": 0.0,
@@ -304957,17 +305133,17 @@
         "builds": [
           {
             "number": 67339,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-05-21T06:00:21.623Z",
             "date": "2026-05-21",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 622.7,
             "passed": 201,
-            "failed": 14,
-            "soft_failed": 5,
+            "failed": 15,
+            "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 220,
+            "total_jobs": 222,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -306674,6 +306850,18 @@
                 "q": "mithril-h100-pool"
               },
               {
+                "name": "Model Executor",
+                "raw_name": "Model Executor",
+                "state": "failed",
+                "dur": 600.9,
+                "tests": 1,
+                "passed_tests": 0,
+                "failed_tests": 1,
+                "skipped_tests": 0,
+                "wait": 3.0,
+                "q": "gpu_1_queue"
+              },
+              {
                 "name": "Model Runner V2 Core Tests",
                 "raw_name": "Model Runner V2 Core Tests",
                 "state": "passed",
@@ -307450,6 +307638,18 @@
                 "passed_tests": 14,
                 "failed_tests": 1,
                 "skipped_tests": 0,
+                "wait": 0.0,
+                "q": "h200_35gb"
+              },
+              {
+                "name": "Transformers Nightly Models",
+                "raw_name": "Transformers Nightly Models",
+                "state": "soft_fail",
+                "dur": 10.0,
+                "tests": 14,
+                "passed_tests": 12,
+                "failed_tests": 1,
+                "skipped_tests": 1,
                 "wait": 0.0,
                 "q": "h200_35gb"
               },
@@ -312861,17 +313061,17 @@
         "nightly_builds": [
           {
             "number": 67339,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-05-21T06:00:21.623Z",
             "date": "2026-05-21",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 622.7,
             "passed": 201,
-            "failed": 14,
-            "soft_failed": 5,
+            "failed": 15,
+            "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 220,
+            "total_jobs": 222,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -314578,6 +314778,18 @@
                 "q": "mithril-h100-pool"
               },
               {
+                "name": "Model Executor",
+                "raw_name": "Model Executor",
+                "state": "failed",
+                "dur": 600.9,
+                "tests": 1,
+                "passed_tests": 0,
+                "failed_tests": 1,
+                "skipped_tests": 0,
+                "wait": 3.0,
+                "q": "gpu_1_queue"
+              },
+              {
                 "name": "Model Runner V2 Core Tests",
                 "raw_name": "Model Runner V2 Core Tests",
                 "state": "passed",
@@ -315354,6 +315566,18 @@
                 "passed_tests": 14,
                 "failed_tests": 1,
                 "skipped_tests": 0,
+                "wait": 0.0,
+                "q": "h200_35gb"
+              },
+              {
+                "name": "Transformers Nightly Models",
+                "raw_name": "Transformers Nightly Models",
+                "state": "soft_fail",
+                "dur": 10.0,
+                "tests": 14,
+                "passed_tests": 12,
+                "failed_tests": 1,
+                "skipped_tests": 1,
                 "wait": 0.0,
                 "q": "h200_35gb"
               },
@@ -320765,21 +320989,22 @@
         "failure_ranking": [
           {
             "name": "Model Executor",
-            "runs": 2,
+            "runs": 3,
             "passed": 0,
-            "failed": 2,
+            "failed": 3,
             "soft_failed": 0,
             "fail_rate": 100.0,
             "is_soft_fail": false,
-            "median_dur": 472.6,
+            "median_dur": 600.9,
             "p90_dur": 601.3,
-            "avg_dur": 472.6,
+            "avg_dur": 515.4,
             "max_dur": 601.3,
-            "median_wait": 3.4,
+            "median_wait": 3.0,
             "p90_wait": 6.8,
-            "avg_wait": 3.4,
+            "avg_wait": 3.3,
             "max_wait": 6.8,
             "queues": [
+              "gpu_1_queue",
               "h200_35gb"
             ]
           },
@@ -320865,19 +321090,19 @@
           },
           {
             "name": "Transformers Nightly Models",
-            "runs": 2,
+            "runs": 3,
             "passed": 0,
             "failed": 0,
-            "soft_failed": 2,
+            "soft_failed": 3,
             "fail_rate": 100.0,
             "is_soft_fail": true,
-            "median_dur": 67.3,
+            "median_dur": 10.0,
             "p90_dur": 124.8,
-            "avg_dur": 67.3,
+            "avg_dur": 48.2,
             "max_dur": 124.8,
-            "median_wait": 13.1,
+            "median_wait": 7.4,
             "p90_wait": 18.8,
-            "avg_wait": 13.1,
+            "avg_wait": 8.7,
             "max_wait": 18.8,
             "queues": [
               "h200_35gb"
@@ -321469,21 +321694,22 @@
         "duration_ranking": [
           {
             "name": "Model Executor",
-            "runs": 2,
+            "runs": 3,
             "passed": 0,
-            "failed": 2,
+            "failed": 3,
             "soft_failed": 0,
             "fail_rate": 100.0,
             "is_soft_fail": false,
-            "median_dur": 472.6,
+            "median_dur": 600.9,
             "p90_dur": 601.3,
-            "avg_dur": 472.6,
+            "avg_dur": 515.4,
             "max_dur": 601.3,
-            "median_wait": 3.4,
+            "median_wait": 3.0,
             "p90_wait": 6.8,
-            "avg_wait": 3.4,
+            "avg_wait": 3.3,
             "max_wait": 6.8,
             "queues": [
+              "gpu_1_queue",
               "h200_35gb"
             ]
           },
@@ -321603,26 +321829,6 @@
             "p90_wait": 10.8,
             "avg_wait": 4.4,
             "max_wait": 10.8,
-            "queues": [
-              "h200_35gb"
-            ]
-          },
-          {
-            "name": "Transformers Nightly Models",
-            "runs": 2,
-            "passed": 0,
-            "failed": 0,
-            "soft_failed": 2,
-            "fail_rate": 100.0,
-            "is_soft_fail": true,
-            "median_dur": 67.3,
-            "p90_dur": 124.8,
-            "avg_dur": 67.3,
-            "max_dur": 124.8,
-            "median_wait": 13.1,
-            "p90_wait": 18.8,
-            "avg_wait": 13.1,
-            "max_wait": 18.8,
             "queues": [
               "h200_35gb"
             ]
@@ -323529,6 +323735,26 @@
             "max_wait": 1.0,
             "queues": [
               "b200-k8s"
+            ]
+          },
+          {
+            "name": "Transformers Nightly Models",
+            "runs": 3,
+            "passed": 0,
+            "failed": 0,
+            "soft_failed": 3,
+            "fail_rate": 100.0,
+            "is_soft_fail": true,
+            "median_dur": 10.0,
+            "p90_dur": 124.8,
+            "avg_dur": 48.2,
+            "max_dur": 124.8,
+            "median_wait": 7.4,
+            "p90_wait": 18.8,
+            "avg_wait": 8.7,
+            "max_wait": 18.8,
+            "queues": [
+              "h200_35gb"
             ]
           },
           {
@@ -325939,7 +326165,7 @@
           },
           {
             "queue": "gpu_1_queue",
-            "jobs": 100,
+            "jobs": 103,
             "median_wait": 2.7,
             "p90_wait": 3.2,
             "avg_wait": 2.7,
@@ -325987,10 +326213,10 @@
           },
           {
             "queue": "h200_35gb",
-            "jobs": 109,
+            "jobs": 111,
             "median_wait": 0.4,
             "p90_wait": 14.5,
-            "avg_wait": 3.9,
+            "avg_wait": 3.8,
             "max_wait": 14.5
           },
           {
@@ -326111,17 +326337,17 @@
         "builds": [
           {
             "number": 67339,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-05-21T06:00:21.623Z",
             "date": "2026-05-21",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 622.7,
             "passed": 201,
-            "failed": 14,
-            "soft_failed": 5,
+            "failed": 15,
+            "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 220,
+            "total_jobs": 222,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -327828,6 +328054,18 @@
                 "q": "mithril-h100-pool"
               },
               {
+                "name": "Model Executor",
+                "raw_name": "Model Executor",
+                "state": "failed",
+                "dur": 600.9,
+                "tests": 1,
+                "passed_tests": 0,
+                "failed_tests": 1,
+                "skipped_tests": 0,
+                "wait": 3.0,
+                "q": "gpu_1_queue"
+              },
+              {
                 "name": "Model Runner V2 Core Tests",
                 "raw_name": "Model Runner V2 Core Tests",
                 "state": "passed",
@@ -328604,6 +328842,18 @@
                 "passed_tests": 14,
                 "failed_tests": 1,
                 "skipped_tests": 0,
+                "wait": 0.0,
+                "q": "h200_35gb"
+              },
+              {
+                "name": "Transformers Nightly Models",
+                "raw_name": "Transformers Nightly Models",
+                "state": "soft_fail",
+                "dur": 10.0,
+                "tests": 14,
+                "passed_tests": 12,
+                "failed_tests": 1,
+                "skipped_tests": 1,
                 "wait": 0.0,
                 "q": "h200_35gb"
               },
@@ -344443,17 +344693,17 @@
         "nightly_builds": [
           {
             "number": 67339,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-05-21T06:00:21.623Z",
             "date": "2026-05-21",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 622.7,
             "passed": 201,
-            "failed": 14,
-            "soft_failed": 5,
+            "failed": 15,
+            "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 220,
+            "total_jobs": 222,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -346160,6 +346410,18 @@
                 "q": "mithril-h100-pool"
               },
               {
+                "name": "Model Executor",
+                "raw_name": "Model Executor",
+                "state": "failed",
+                "dur": 600.9,
+                "tests": 1,
+                "passed_tests": 0,
+                "failed_tests": 1,
+                "skipped_tests": 0,
+                "wait": 3.0,
+                "q": "gpu_1_queue"
+              },
+              {
                 "name": "Model Runner V2 Core Tests",
                 "raw_name": "Model Runner V2 Core Tests",
                 "state": "passed",
@@ -346936,6 +347198,18 @@
                 "passed_tests": 14,
                 "failed_tests": 1,
                 "skipped_tests": 0,
+                "wait": 0.0,
+                "q": "h200_35gb"
+              },
+              {
+                "name": "Transformers Nightly Models",
+                "raw_name": "Transformers Nightly Models",
+                "state": "soft_fail",
+                "dur": 10.0,
+                "tests": 14,
+                "passed_tests": 12,
+                "failed_tests": 1,
+                "skipped_tests": 1,
                 "wait": 0.0,
                 "q": "h200_35gb"
               },
@@ -362836,19 +363110,19 @@
           },
           {
             "name": "Transformers Nightly Models",
-            "runs": 6,
+            "runs": 7,
             "passed": 0,
             "failed": 0,
-            "soft_failed": 6,
+            "soft_failed": 7,
             "fail_rate": 100.0,
             "is_soft_fail": true,
-            "median_dur": 50.2,
+            "median_dur": 10.0,
             "p90_dur": 124.8,
-            "avg_dur": 55.8,
+            "avg_dur": 49.2,
             "max_dur": 124.8,
-            "median_wait": 6.8,
+            "median_wait": 6.1,
             "p90_wait": 18.8,
-            "avg_wait": 8.6,
+            "avg_wait": 7.4,
             "max_wait": 18.8,
             "queues": [
               "gpu_1_queue",
@@ -362873,6 +363147,27 @@
             "max_wait": 0.2,
             "queues": [
               "ascend"
+            ]
+          },
+          {
+            "name": "Model Executor",
+            "runs": 7,
+            "passed": 1,
+            "failed": 6,
+            "soft_failed": 0,
+            "fail_rate": 85.7,
+            "is_soft_fail": false,
+            "median_dur": 600.3,
+            "p90_dur": 601.3,
+            "avg_dur": 393.0,
+            "max_dur": 601.3,
+            "median_wait": 4.7,
+            "p90_wait": 10.7,
+            "avg_wait": 4.8,
+            "max_wait": 10.7,
+            "queues": [
+              "gpu_1_queue",
+              "h200_35gb"
             ]
           },
           {
@@ -362911,27 +363206,6 @@
             "p90_wait": 26.8,
             "avg_wait": 5.2,
             "max_wait": 26.8,
-            "queues": [
-              "gpu_1_queue",
-              "h200_35gb"
-            ]
-          },
-          {
-            "name": "Model Executor",
-            "runs": 6,
-            "passed": 1,
-            "failed": 5,
-            "soft_failed": 0,
-            "fail_rate": 83.3,
-            "is_soft_fail": false,
-            "median_dur": 472.1,
-            "p90_dur": 601.3,
-            "avg_dur": 358.3,
-            "max_dur": 601.3,
-            "median_wait": 5.2,
-            "p90_wait": 10.7,
-            "avg_wait": 5.1,
-            "max_wait": 10.7,
             "queues": [
               "gpu_1_queue",
               "h200_35gb"
@@ -363908,19 +364182,19 @@
         "duration_ranking": [
           {
             "name": "Model Executor",
-            "runs": 6,
+            "runs": 7,
             "passed": 1,
-            "failed": 5,
+            "failed": 6,
             "soft_failed": 0,
-            "fail_rate": 83.3,
+            "fail_rate": 85.7,
             "is_soft_fail": false,
-            "median_dur": 472.1,
+            "median_dur": 600.3,
             "p90_dur": 601.3,
-            "avg_dur": 358.3,
+            "avg_dur": 393.0,
             "max_dur": 601.3,
-            "median_wait": 5.2,
+            "median_wait": 4.7,
             "p90_wait": 10.7,
-            "avg_wait": 5.1,
+            "avg_wait": 4.8,
             "max_wait": 10.7,
             "queues": [
               "gpu_1_queue",
@@ -364170,27 +364444,6 @@
             "max_wait": 29.1,
             "queues": [
               "mithril-h100-pool"
-            ]
-          },
-          {
-            "name": "Transformers Nightly Models",
-            "runs": 6,
-            "passed": 0,
-            "failed": 0,
-            "soft_failed": 6,
-            "fail_rate": 100.0,
-            "is_soft_fail": true,
-            "median_dur": 50.2,
-            "p90_dur": 124.8,
-            "avg_dur": 55.8,
-            "max_dur": 124.8,
-            "median_wait": 6.8,
-            "p90_wait": 18.8,
-            "avg_wait": 8.6,
-            "max_wait": 18.8,
-            "queues": [
-              "gpu_1_queue",
-              "h200_35gb"
             ]
           },
           {
@@ -366032,6 +366285,27 @@
             "max_wait": 0.8,
             "queues": [
               "small_cpu_queue_premerge"
+            ]
+          },
+          {
+            "name": "Transformers Nightly Models",
+            "runs": 7,
+            "passed": 0,
+            "failed": 0,
+            "soft_failed": 7,
+            "fail_rate": 100.0,
+            "is_soft_fail": true,
+            "median_dur": 10.0,
+            "p90_dur": 124.8,
+            "avg_dur": 49.2,
+            "max_dur": 124.8,
+            "median_wait": 6.1,
+            "p90_wait": 18.8,
+            "avg_wait": 7.4,
+            "max_wait": 18.8,
+            "queues": [
+              "gpu_1_queue",
+              "h200_35gb"
             ]
           },
           {
@@ -368423,17 +368697,17 @@
           },
           {
             "queue": "h200_35gb",
-            "jobs": 257,
-            "median_wait": 4.8,
+            "jobs": 259,
+            "median_wait": 4.7,
             "p90_wait": 8.4,
-            "avg_wait": 5.0,
+            "avg_wait": 4.9,
             "max_wait": 11.1
           },
           {
             "queue": "gpu_1_queue",
-            "jobs": 461,
+            "jobs": 463,
             "median_wait": 3.5,
-            "p90_wait": 6.8,
+            "p90_wait": 6.4,
             "avg_wait": 4.2,
             "max_wait": 11.1
           },
@@ -368653,17 +368927,17 @@
         "builds": [
           {
             "number": 67339,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-05-21T06:00:21.623Z",
             "date": "2026-05-21",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 622.7,
             "passed": 201,
-            "failed": 14,
-            "soft_failed": 5,
+            "failed": 15,
+            "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 220,
+            "total_jobs": 222,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -370370,6 +370644,18 @@
                 "q": "mithril-h100-pool"
               },
               {
+                "name": "Model Executor",
+                "raw_name": "Model Executor",
+                "state": "failed",
+                "dur": 600.9,
+                "tests": 1,
+                "passed_tests": 0,
+                "failed_tests": 1,
+                "skipped_tests": 0,
+                "wait": 3.0,
+                "q": "gpu_1_queue"
+              },
+              {
                 "name": "Model Runner V2 Core Tests",
                 "raw_name": "Model Runner V2 Core Tests",
                 "state": "passed",
@@ -371146,6 +371432,18 @@
                 "passed_tests": 14,
                 "failed_tests": 1,
                 "skipped_tests": 0,
+                "wait": 0.0,
+                "q": "h200_35gb"
+              },
+              {
+                "name": "Transformers Nightly Models",
+                "raw_name": "Transformers Nightly Models",
+                "state": "soft_fail",
+                "dur": 10.0,
+                "tests": 14,
+                "passed_tests": 12,
+                "failed_tests": 1,
+                "skipped_tests": 1,
                 "wait": 0.0,
                 "q": "h200_35gb"
               },
@@ -404415,17 +404713,17 @@
         "nightly_builds": [
           {
             "number": 67339,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-05-21T06:00:21.623Z",
             "date": "2026-05-21",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 622.7,
             "passed": 201,
-            "failed": 14,
-            "soft_failed": 5,
+            "failed": 15,
+            "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 220,
+            "total_jobs": 222,
             "jobs": [
               {
                 "name": "2 Node Test (4 GPUs)",
@@ -406132,6 +406430,18 @@
                 "q": "mithril-h100-pool"
               },
               {
+                "name": "Model Executor",
+                "raw_name": "Model Executor",
+                "state": "failed",
+                "dur": 600.9,
+                "tests": 1,
+                "passed_tests": 0,
+                "failed_tests": 1,
+                "skipped_tests": 0,
+                "wait": 3.0,
+                "q": "gpu_1_queue"
+              },
+              {
                 "name": "Model Runner V2 Core Tests",
                 "raw_name": "Model Runner V2 Core Tests",
                 "state": "passed",
@@ -406908,6 +407218,18 @@
                 "passed_tests": 14,
                 "failed_tests": 1,
                 "skipped_tests": 0,
+                "wait": 0.0,
+                "q": "h200_35gb"
+              },
+              {
+                "name": "Transformers Nightly Models",
+                "raw_name": "Transformers Nightly Models",
+                "state": "soft_fail",
+                "dur": 10.0,
+                "tests": 14,
+                "passed_tests": 12,
+                "failed_tests": 1,
+                "skipped_tests": 1,
                 "wait": 0.0,
                 "q": "h200_35gb"
               },
@@ -440218,19 +440540,19 @@
           },
           {
             "name": "Transformers Nightly Models",
-            "runs": 13,
+            "runs": 14,
             "passed": 0,
             "failed": 0,
-            "soft_failed": 13,
+            "soft_failed": 14,
             "fail_rate": 100.0,
             "is_soft_fail": true,
-            "median_dur": 88.3,
+            "median_dur": 49.1,
             "p90_dur": 94.5,
-            "avg_dur": 55.5,
+            "avg_dur": 52.3,
             "max_dur": 124.8,
-            "median_wait": 5.9,
+            "median_wait": 4.8,
             "p90_wait": 15.3,
-            "avg_wait": 6.9,
+            "avg_wait": 6.5,
             "max_wait": 18.8,
             "queues": [
               "gpu_1_queue",
@@ -440339,6 +440661,27 @@
             ]
           },
           {
+            "name": "Model Executor",
+            "runs": 14,
+            "passed": 8,
+            "failed": 6,
+            "soft_failed": 0,
+            "fail_rate": 42.9,
+            "is_soft_fail": false,
+            "median_dur": 1.9,
+            "p90_dur": 600.9,
+            "avg_dur": 197.4,
+            "max_dur": 601.3,
+            "median_wait": 3.5,
+            "p90_wait": 10.7,
+            "avg_wait": 4.8,
+            "max_wait": 12.4,
+            "queues": [
+              "gpu_1_queue",
+              "h200_35gb"
+            ]
+          },
+          {
             "name": "Spec Decode Draft Model",
             "runs": 14,
             "passed": 8,
@@ -440374,27 +440717,6 @@
             "p90_wait": 3.1,
             "avg_wait": 3.2,
             "max_wait": 26.8,
-            "queues": [
-              "gpu_1_queue",
-              "h200_35gb"
-            ]
-          },
-          {
-            "name": "Model Executor",
-            "runs": 13,
-            "passed": 8,
-            "failed": 5,
-            "soft_failed": 0,
-            "fail_rate": 38.5,
-            "is_soft_fail": false,
-            "median_dur": 1.9,
-            "p90_dur": 600.5,
-            "avg_dur": 166.4,
-            "max_dur": 601.3,
-            "median_wait": 3.5,
-            "p90_wait": 10.7,
-            "avg_wait": 4.9,
-            "max_wait": 12.4,
             "queues": [
               "gpu_1_queue",
               "h200_35gb"
@@ -441604,27 +441926,6 @@
         ],
         "duration_ranking": [
           {
-            "name": "Transformers Nightly Models",
-            "runs": 13,
-            "passed": 0,
-            "failed": 0,
-            "soft_failed": 13,
-            "fail_rate": 100.0,
-            "is_soft_fail": true,
-            "median_dur": 88.3,
-            "p90_dur": 94.5,
-            "avg_dur": 55.5,
-            "max_dur": 124.8,
-            "median_wait": 5.9,
-            "p90_wait": 15.3,
-            "avg_wait": 6.9,
-            "max_wait": 18.8,
-            "queues": [
-              "gpu_1_queue",
-              "h200_35gb"
-            ]
-          },
-          {
             "name": "Multi-Modal Processor (CPU)",
             "runs": 14,
             "passed": 14,
@@ -441868,6 +442169,27 @@
             "max_wait": 26.9,
             "queues": [
               "mithril-h100-pool"
+            ]
+          },
+          {
+            "name": "Transformers Nightly Models",
+            "runs": 14,
+            "passed": 0,
+            "failed": 0,
+            "soft_failed": 14,
+            "fail_rate": 100.0,
+            "is_soft_fail": true,
+            "median_dur": 49.1,
+            "p90_dur": 94.5,
+            "avg_dur": 52.3,
+            "max_dur": 124.8,
+            "median_wait": 4.8,
+            "p90_wait": 15.3,
+            "avg_wait": 6.5,
+            "max_wait": 18.8,
+            "queues": [
+              "gpu_1_queue",
+              "h200_35gb"
             ]
           },
           {
@@ -445433,19 +445755,19 @@
           },
           {
             "name": "Model Executor",
-            "runs": 13,
+            "runs": 14,
             "passed": 8,
-            "failed": 5,
+            "failed": 6,
             "soft_failed": 0,
-            "fail_rate": 38.5,
+            "fail_rate": 42.9,
             "is_soft_fail": false,
             "median_dur": 1.9,
-            "p90_dur": 600.5,
-            "avg_dur": 166.4,
+            "p90_dur": 600.9,
+            "avg_dur": 197.4,
             "max_dur": 601.3,
             "median_wait": 3.5,
             "p90_wait": 10.7,
-            "avg_wait": 4.9,
+            "avg_wait": 4.8,
             "max_wait": 12.4,
             "queues": [
               "gpu_1_queue",
@@ -446154,7 +446476,7 @@
           },
           {
             "queue": "h200_35gb",
-            "jobs": 512,
+            "jobs": 514,
             "median_wait": 3.4,
             "p90_wait": 6.2,
             "avg_wait": 3.8,
@@ -446162,9 +446484,9 @@
           },
           {
             "queue": "gpu_1_queue",
-            "jobs": 1017,
+            "jobs": 1019,
             "median_wait": 3.1,
-            "p90_wait": 5.3,
+            "p90_wait": 4.8,
             "avg_wait": 3.2,
             "max_wait": 7.4
           },
