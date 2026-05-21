@@ -3,12 +3,12 @@
 All tracked PRs across projects, grouped by project.
 
 ## vllm (Upstream Watch)
-Repo: `vllm-project/vllm` | Last collected: 2026-05-21T01:24:20Z
+Repo: `vllm-project/vllm` | Last collected: 2026-05-21T02:42:44Z
 
 | # | Title | Author | Status | Created | Updated |
 |---|-------|--------|--------|---------|---------|
+| [#41577](https://github.com/vllm-project/vllm/pull/41577) | [ROCm][CI] Fix ROCm LoRA Transformers fallback with full CUD... | @AndreasKaratzas | open | 2026-05-03 | 2026-05-21 |
 | [#41532](https://github.com/vllm-project/vllm/pull/41532) | [ROCm][CI] Gate incompatible HF references on Transformers v... | @AndreasKaratzas | open | 2026-05-03 | 2026-05-20 |
-| [#41577](https://github.com/vllm-project/vllm/pull/41577) | [ROCm][CI] Fix ROCm LoRA Transformers fallback with full CUD... | @AndreasKaratzas | open | 2026-05-03 | 2026-05-20 |
 | [#43120](https://github.com/vllm-project/vllm/pull/43120) | [AMD][CI][BugFix] Fix  Distributed Compile Unit Tests (2xH10... | @rasmith | open | 2026-05-19 | 2026-05-19 |
 | [#42459](https://github.com/vllm-project/vllm/pull/42459) | [CI][AMD][BugFix] Set num_gpus=2 for trainer for distributed... | @rasmith | open | 2026-05-12 | 2026-05-19 |
 | [#41294](https://github.com/vllm-project/vllm/pull/41294) | [ROCm][CI] Fix and stabilize EAGLE3 acceptance tests | @AndreasKaratzas | open | 2026-04-29 | 2026-05-14 |
