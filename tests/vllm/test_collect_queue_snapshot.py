@@ -50,6 +50,91 @@ class TestRewriteJobUrl:
         assert cqs._rewrite_job_url("") == ""
 
 
+class TestGraphqlQueueMetrics:
+    def test_fetches_official_queue_wait_metrics(self, monkeypatch):
+        def fake_graphql(query, token, variables):
+            return {
+                "organization": {
+                    "cluster": {
+                        "queues": {
+                            "edges": [{
+                                "node": {
+                                    "id": "ClusterQueueID",
+                                    "key": "amd_mi355_1",
+                                    "uuid": "queue-uuid",
+                                    "dispatchPaused": False,
+                                    "metrics": {
+                                        "timestamp": "2026-05-20T12:00:00Z",
+                                        "connectedAgentsCount": 8,
+                                        "waitingJobsCount": 3,
+                                        "runningJobsCount": 5,
+                                        "waitTimeSec": {
+                                            "min": 60,
+                                            "p50": 120,
+                                            "p95": 900,
+                                            "max": 1200,
+                                        },
+                                    },
+                                }
+                            }],
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        }
+                    }
+                }
+            }
+
+        monkeypatch.setattr(cqs, "bk_graphql", fake_graphql)
+
+        metrics = cqs.fetch_cluster_queue_metrics("fake-token")
+
+        assert metrics["amd_mi355_1"]["graphql_id"] == "ClusterQueueID"
+        assert metrics["amd_mi355_1"]["wait_summary"]["p50_wait"] == 2.0
+        assert metrics["amd_mi355_1"]["wait_summary"]["p95_wait"] == 15.0
+        assert metrics["amd_mi355_1"]["wait_summary"]["max_wait"] == 20.0
+
+    def test_fetches_jobs_by_cluster_queue_graphql_id(self, monkeypatch):
+        calls = []
+
+        def fake_graphql(query, token, variables):
+            calls.append((query, variables))
+            return {
+                "organization": {
+                    "jobs": {
+                        "edges": [{
+                            "node": {
+                                "uuid": "deadbeef-1234-5678-90ab-cdef01234567",
+                                "state": "SCHEDULED",
+                                "label": "mi355_1: queue check",
+                                "runnableAt": "2026-05-20T12:00:00Z",
+                                "scheduledAt": "2026-05-20T12:00:00Z",
+                                "createdAt": "2026-05-20T11:59:00Z",
+                                "startedAt": None,
+                                "agentQueryRules": [],
+                                "clusterQueue": {"key": "amd_mi355_1"},
+                                "build": {
+                                    "number": 123,
+                                    "branch": "main",
+                                    "commit": "abcdef1234567890",
+                                    "url": "https://buildkite.com/vllm/amd-ci/builds/123",
+                                },
+                                "pipeline": {"slug": "amd-ci"},
+                            }
+                        }],
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                    }
+                }
+            }
+
+        monkeypatch.setattr(cqs, "bk_graphql", fake_graphql)
+
+        jobs = cqs.fetch_active_cluster_jobs("fake-token", {"amd_mi355_1": "ClusterQueueID"})
+
+        assert calls[0][0] == cqs.GRAPHQL_QUEUE_JOBS_Q
+        assert calls[0][1]["queue"] == "ClusterQueueID"
+        assert jobs[0]["queue"] == "amd_mi355_1"
+        assert jobs[0]["state"] == "SCHEDULED"
+
+
 class TestHistoryPrune:
     def test_drops_pre_reset_and_old_schema_rows(self, tmp_path):
         path = tmp_path / "queue_timeseries.jsonl"
@@ -171,7 +256,7 @@ class TestCollectSnapshot:
     def test_tracked_queue_zero_filled_when_empty(self, monkeypatch, tmp_path):
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "queue_timeseries.jsonl", raising=False)
         monkeypatch.setattr(cqs, "fetch_cluster_queue_metrics", lambda token: {})
-        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token: [])
+        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token, queue_ids_by_key=None: [])
 
         snap = cqs.collect_snapshot("fake-token")
         for q in cqs.TRACKED_QUEUES:
@@ -184,7 +269,7 @@ class TestCollectSnapshot:
     def test_running_jobs_do_not_inflate_current_wait(self, monkeypatch, tmp_path):
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)
         monkeypatch.setattr(cqs, "fetch_cluster_queue_metrics", lambda token: {})
-        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token: [
+        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token, queue_ids_by_key=None: [
             _active_job("amd_mi250_1", "SCHEDULED", runnable_at="2026-04-18T11:55:00Z"),
             _active_job(
                 "amd_mi250_1",
@@ -218,7 +303,7 @@ class TestCollectSnapshot:
                 "metrics_ts": "2026-04-20T23:50:00Z",
             }
         })
-        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token: [
+        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token, queue_ids_by_key=None: [
             _active_job("amd_mi250_1", "SCHEDULED", runnable_at="2026-04-20T19:00:00Z"),
             _active_job("amd_mi250_1", "SCHEDULED", runnable_at="2026-04-20T23:45:00Z"),
             _active_job("amd_mi250_1", "RUNNING", started_at="2026-04-20T19:00:00Z"),
@@ -250,9 +335,18 @@ class TestCollectSnapshot:
                 "metrics_ts": "2026-04-18T12:00:00Z",
                 "queue_url": "https://buildkite.com/organizations/vllm/clusters/cluster/queues/q1",
                 "dispatch_paused": False,
+                "wait_summary": {
+                    "p50_wait": 2.0,
+                    "p75_wait": 12.0,
+                    "p90_wait": 12.0,
+                    "p95_wait": 12.0,
+                    "p99_wait": 20.0,
+                    "max_wait": 20.0,
+                    "avg_wait": 2.0,
+                },
             }
         })
-        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token: [
+        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token, queue_ids_by_key=None: [
             _active_job("amd_mi250_1", "SCHEDULED", runnable_at="2026-04-18T11:55:00Z"),
             _active_job("amd_mi250_1", "RUNNING", runnable_at="2026-04-18T11:58:00Z", started_at="2026-04-18T11:59:00Z"),
         ])
@@ -269,13 +363,18 @@ class TestCollectSnapshot:
         assert row["total"] == 17
         assert row["connected_agents"] == 7
         assert row["queue_url"].endswith("/queues/q1")
+        assert row["wait_source"] == "cluster_metrics"
+        assert row["p50_wait"] == 2.0
+        assert row["p95_wait"] == 12.0
+        assert row["max_wait"] == 20.0
+        assert snap["sources"]["waits"] == "cluster_metrics"
         assert row["waiting_by_workload"] == {"vllm": 1, "omni": 0}
         assert row["running_by_workload"] == {"vllm": 1, "omni": 0}
 
     def test_workload_split_from_omni_queue(self, monkeypatch, tmp_path):
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)
         monkeypatch.setattr(cqs, "fetch_cluster_queue_metrics", lambda token: {})
-        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token: [
+        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token, queue_ids_by_key=None: [
             _active_job("intel-gpu-omni", "SCHEDULED", runnable_at="2026-04-18T11:59:00Z"),
         ])
 
@@ -290,7 +389,7 @@ class TestCollectSnapshot:
     def test_workload_split_from_omni_branch(self, monkeypatch, tmp_path):
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)
         monkeypatch.setattr(cqs, "fetch_cluster_queue_metrics", lambda token: {})
-        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token: [
+        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token, queue_ids_by_key=None: [
             _active_job(
                 "amd_mi250_1",
                 "RUNNING",
@@ -311,7 +410,7 @@ class TestCollectSnapshot:
     def test_jobs_without_queue_rule_skipped(self, monkeypatch, tmp_path):
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)
         monkeypatch.setattr(cqs, "fetch_cluster_queue_metrics", lambda token: {})
-        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token: [
+        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token, queue_ids_by_key=None: [
             _active_job("", "RUNNING", name="no-queue job"),
         ])
 
@@ -321,7 +420,7 @@ class TestCollectSnapshot:
     def test_legacy_fallback_treats_assigned_as_running(self, monkeypatch, tmp_path):
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)
         monkeypatch.setattr(cqs, "fetch_cluster_queue_metrics", lambda token: {})
-        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token: (_ for _ in ()).throw(RuntimeError("no graphql")))
+        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token, queue_ids_by_key=None: (_ for _ in ()).throw(RuntimeError("no graphql")))
         monkeypatch.setattr(cqs, "bk_get", _FakeBk(running_builds=[_build(jobs=[
             _job("amd_mi250_1", "scheduled", runnable_at="2026-04-18T11:55:00Z"),
             _job("amd_mi250_1", "assigned", runnable_at="2026-04-18T11:58:00Z"),
@@ -340,7 +439,7 @@ class TestCollectSnapshot:
     def test_output_schema_has_required_top_level_keys(self, monkeypatch, tmp_path):
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)
         monkeypatch.setattr(cqs, "fetch_cluster_queue_metrics", lambda token: {})
-        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token: [])
+        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token, queue_ids_by_key=None: [])
 
         snap = cqs.collect_snapshot("fake-token")
         for key in ("ts", "queues", "total_waiting", "total_running", "total_zombie_waiting", "total_zombie_running", "sources"):
@@ -356,7 +455,7 @@ class TestJobsJsonSideEffect:
         out_path = tmp_path / "queue_timeseries.jsonl"
         monkeypatch.setattr(cqs, "OUTPUT", out_path, raising=False)
         monkeypatch.setattr(cqs, "fetch_cluster_queue_metrics", lambda token: {})
-        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token: [
+        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token, queue_ids_by_key=None: [
             _active_job("amd_mi250_1", "SCHEDULED", runnable_at="2026-04-18T11:55:00Z"),
             _active_job("amd_mi250_1", "RUNNING", started_at="2026-04-18T11:58:00Z"),
         ])

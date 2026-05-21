@@ -4,9 +4,9 @@
 Appends one JSON line per snapshot to ``data/vllm/ci/queue_timeseries.jsonl``.
 
 The collector prefers Buildkite's queue-native cluster metrics for queue
-counts, and uses active scheduled jobs to compute "current wait" percentiles.
-If GraphQL queue access is unavailable, it falls back to the legacy active
-build scan so the dashboard still stays live.
+counts and wait-time percentiles. Active jobs are still collected for job
+detail, workload splits, zombie filtering, and as a fallback when queue-native
+metrics are unavailable.
 """
 
 from __future__ import annotations
@@ -54,6 +54,7 @@ query QueueMetrics($org: ID!, $cluster: ID!, $first: Int!, $after: String) {
       queues(first: $first, after: $after) {
         edges {
           node {
+            id
             key
             uuid
             dispatchPaused
@@ -62,6 +63,12 @@ query QueueMetrics($org: ID!, $cluster: ID!, $first: Int!, $after: String) {
               connectedAgentsCount
               waitingJobsCount
               runningJobsCount
+              waitTimeSec {
+                min
+                p50
+                p95
+                max
+              }
             }
           }
         }
@@ -76,13 +83,57 @@ query QueueMetrics($org: ID!, $cluster: ID!, $first: Int!, $after: String) {
 """
 
 GRAPHQL_ACTIVE_JOBS_Q = """
-query ActiveJobs($org: ID!, $cluster: ID!, $states: [JobStates!], $first: Int!, $after: String) {
+query ActiveJobs($org: ID!, $states: [JobStates!], $first: Int!, $after: String) {
   organization(slug: $org) {
     jobs(
       first: $first,
       after: $after,
-      cluster: $cluster,
       clustered: true,
+      type: [COMMAND],
+      state: $states
+    ) {
+      edges {
+        node {
+          ... on JobTypeCommand {
+            uuid
+            state
+            label
+            runnableAt
+            scheduledAt
+            createdAt
+            startedAt
+            agentQueryRules
+            clusterQueue {
+              key
+            }
+            build {
+              number
+              branch
+              commit
+              url
+            }
+            pipeline {
+              slug
+            }
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+}
+"""
+
+GRAPHQL_QUEUE_JOBS_Q = """
+query QueueJobs($org: ID!, $queue: ID!, $states: [JobStates!], $first: Int!, $after: String) {
+  organization(slug: $org) {
+    jobs(
+      first: $first,
+      after: $after,
+      clusterQueue: $queue,
       type: [COMMAND],
       state: $states
     ) {
@@ -288,6 +339,38 @@ def _wait_summary(times: list[float]) -> dict:
     }
 
 
+def _minutes_from_seconds(value) -> float | None:
+    if value is None:
+        return None
+    try:
+        return round(float(value) / 60.0, 1)
+    except (TypeError, ValueError):
+        return None
+
+
+def _wait_summary_from_queue_metrics(wait_time_sec: dict | None) -> dict | None:
+    if not isinstance(wait_time_sec, dict):
+        return None
+    p50 = _minutes_from_seconds(wait_time_sec.get("p50"))
+    p95 = _minutes_from_seconds(wait_time_sec.get("p95"))
+    max_wait = _minutes_from_seconds(wait_time_sec.get("max"))
+    if p50 is None and p95 is None and max_wait is None:
+        return None
+
+    # Buildkite exposes min/p50/p95/max for queue-native wait time. Keep the
+    # legacy dashboard schema filled, but point visible controls at official
+    # fields rather than inventing unsupported percentiles.
+    return {
+        "p50_wait": p50 if p50 is not None else 0,
+        "p75_wait": p95 if p95 is not None else (p50 if p50 is not None else 0),
+        "p90_wait": p95 if p95 is not None else (max_wait if max_wait is not None else 0),
+        "p95_wait": p95 if p95 is not None else (max_wait if max_wait is not None else 0),
+        "p99_wait": max_wait if max_wait is not None else (p95 if p95 is not None else 0),
+        "max_wait": max_wait if max_wait is not None else (p95 if p95 is not None else 0),
+        "avg_wait": p50 if p50 is not None else 0,
+    }
+
+
 def _make_canvas_job_url(build_url: str, job_uuid: str, fallback_url: str = "") -> str:
     if build_url and job_uuid:
         return f"{build_url}/steps/canvas?jid={job_uuid}&tab=output"
@@ -339,9 +422,11 @@ def fetch_cluster_queue_metrics(token: str) -> dict[str, dict]:
                 continue
             latest = node.get("metrics") or {}
             metrics[key] = {
+                "graphql_id": node.get("id") or "",
                 "waiting": int(latest.get("waitingJobsCount") or 0),
                 "running": int(latest.get("runningJobsCount") or 0),
                 "connected_agents": int(latest.get("connectedAgentsCount") or 0),
+                "wait_summary": _wait_summary_from_queue_metrics(latest.get("waitTimeSec")),
                 "metrics_ts": latest.get("timestamp") or "",
                 "queue_url": _queue_web_url(node.get("uuid")),
                 "dispatch_paused": bool(node.get("dispatchPaused")),
@@ -352,53 +437,100 @@ def fetch_cluster_queue_metrics(token: str) -> dict[str, dict]:
         after = page.get("endCursor")
 
 
-def fetch_active_cluster_jobs(token: str) -> list[dict]:
-    """Fetch all active command jobs in the Buildkite cluster via GraphQL."""
+def _graphql_job_record(node: dict, fallback_queue: str = "") -> dict | None:
+    state = node.get("state") or ""
+    queue = (
+        ((node.get("clusterQueue") or {}).get("key"))
+        or fallback_queue
+        or queue_from_rules(node.get("agentQueryRules"))
+    )
+    if not queue:
+        return None
+    build = node.get("build") or {}
+    pipeline = node.get("pipeline") or {}
+    return {
+        "queue": queue,
+        "state": state,
+        "name": node.get("label") or "",
+        "job_uuid": node.get("uuid") or "",
+        "build_url": build.get("url") or "",
+        "pipeline": pipeline.get("slug") or "",
+        "build": build.get("number") or 0,
+        "branch": build.get("branch") or "",
+        "commit": (build.get("commit") or "")[:12],
+        "workload": classify_workload(pipeline.get("slug") or "", build.get("branch") or "", queue),
+        "fork_url": "",
+        "source": "",
+        "runnable_at": node.get("runnableAt"),
+        "scheduled_at": node.get("scheduledAt"),
+        "created_at": node.get("createdAt"),
+        "started_at": node.get("startedAt"),
+    }
+
+
+def _fetch_graphql_jobs(
+    token: str,
+    *,
+    query: str,
+    variables: dict,
+    fallback_queue: str = "",
+) -> list[dict]:
     jobs: list[dict] = []
     after = None
     while True:
+        page_vars = dict(variables)
+        page_vars["after"] = after
         data = bk_graphql(
-            GRAPHQL_ACTIVE_JOBS_Q,
+            query,
             token,
-            {
-                "org": BK_ORG,
-                "cluster": BK_CLUSTER_UUID,
-                "states": list(GRAPHQL_ACTIVE_STATES),
-                "first": GRAPHQL_PAGE_SIZE,
-                "after": after,
-            },
+            page_vars,
         )
         conn = (data.get("organization") or {}).get("jobs") or {}
         for edge in conn.get("edges") or []:
             node = edge.get("node") or {}
-            state = node.get("state") or ""
-            queue = ((node.get("clusterQueue") or {}).get("key")) or queue_from_rules(node.get("agentQueryRules"))
-            if not queue:
-                continue
-            build = node.get("build") or {}
-            pipeline = node.get("pipeline") or {}
-            jobs.append({
-                "queue": queue,
-                "state": state,
-                "name": node.get("label") or "",
-                "job_uuid": node.get("uuid") or "",
-                "build_url": build.get("url") or "",
-                "pipeline": pipeline.get("slug") or "",
-                "build": build.get("number") or 0,
-                "branch": build.get("branch") or "",
-                "commit": (build.get("commit") or "")[:12],
-                "workload": classify_workload(pipeline.get("slug") or "", build.get("branch") or "", queue),
-                "fork_url": "",
-                "source": "",
-                "runnable_at": node.get("runnableAt"),
-                "scheduled_at": node.get("scheduledAt"),
-                "created_at": node.get("createdAt"),
-                "started_at": node.get("startedAt"),
-            })
+            record = _graphql_job_record(node, fallback_queue)
+            if record:
+                jobs.append(record)
         page = conn.get("pageInfo") or {}
         if not page.get("hasNextPage"):
             return jobs
         after = page.get("endCursor")
+
+
+def fetch_active_cluster_jobs(token: str, queue_ids_by_key: dict[str, str] | None = None) -> list[dict]:
+    """Fetch active command jobs via GraphQL.
+
+    Buildkite's queue metrics API accepts a cluster UUID, but the jobs API
+    expects a GraphQL cluster-queue ID. Querying active jobs per queue keeps
+    wait samples aligned with the queue-native backlog counts.
+    """
+    if queue_ids_by_key:
+        jobs: list[dict] = []
+        for queue, queue_id in sorted(queue_ids_by_key.items()):
+            if not queue_id:
+                continue
+            jobs.extend(_fetch_graphql_jobs(
+                token,
+                query=GRAPHQL_QUEUE_JOBS_Q,
+                variables={
+                    "org": BK_ORG,
+                    "queue": queue_id,
+                    "states": list(GRAPHQL_ACTIVE_STATES),
+                    "first": GRAPHQL_PAGE_SIZE,
+                },
+                fallback_queue=queue,
+            ))
+        return jobs
+
+    return _fetch_graphql_jobs(
+        token,
+        query=GRAPHQL_ACTIVE_JOBS_Q,
+        variables={
+            "org": BK_ORG,
+            "states": list(GRAPHQL_ACTIVE_STATES),
+            "first": GRAPHQL_PAGE_SIZE,
+        },
+    )
 
 
 def _collect_legacy_active_jobs(token: str) -> list[dict]:
@@ -464,6 +596,9 @@ def _seed_queue_metrics(queue_stats: dict, metrics_by_queue: dict[str, dict]) ->
             stats["metrics_ts"] = meta["metrics_ts"]
         if meta.get("dispatch_paused"):
             stats["dispatch_paused"] = True
+        if meta.get("wait_summary"):
+            stats["wait_summary"] = dict(meta["wait_summary"])
+            stats["wait_source"] = "cluster_metrics"
 
 
 def _apply_active_jobs(
@@ -594,9 +729,15 @@ def collect_snapshot(token: str) -> dict:
     except Exception as exc:
         log.warning("Buildkite cluster metrics unavailable, falling back to active job counts: %s", exc)
 
+    active_queue_ids = {
+        queue: str(meta.get("graphql_id") or "")
+        for queue, meta in metrics_by_queue.items()
+        if meta.get("graphql_id") and (int(meta.get("waiting") or 0) or int(meta.get("running") or 0))
+    }
+
     try:
-        active_jobs = fetch_active_cluster_jobs(token)
-        active_jobs_source = "cluster_jobs_graphql"
+        active_jobs = fetch_active_cluster_jobs(token, active_queue_ids or None)
+        active_jobs_source = "cluster_queue_graphql" if active_queue_ids else "organization_jobs_graphql"
     except Exception as exc:
         log.warning("Buildkite GraphQL active jobs unavailable, falling back to build scan: %s", exc)
         active_jobs = _collect_legacy_active_jobs(token)
@@ -607,9 +748,11 @@ def collect_snapshot(token: str) -> dict:
     for queue, stats in sorted(queue_stats.items()):
         if queue not in TRACKED_QUEUES and not stats["waiting"] and not stats["running"]:
             continue
-        row = {k: v for k, v in stats.items() if k != "wait_times"}
+        row = {k: v for k, v in stats.items() if k not in {"wait_times", "wait_summary"}}
         row["wait_sample_count"] = len(stats["wait_times"])
-        row.update(_wait_summary(stats["wait_times"]))
+        sample_summary = _wait_summary(stats["wait_times"])
+        row.update(stats.get("wait_summary") or sample_summary)
+        row["wait_source"] = stats.get("wait_source") or ("scheduled_jobs" if stats["wait_times"] else "none")
         queues[queue] = row
 
     snapshot = {
@@ -621,7 +764,7 @@ def collect_snapshot(token: str) -> dict:
         "total_zombie_running": sum(int(s.get("zombie_running") or 0) for s in queues.values()),
         "sources": {
             "counts": counts_source,
-            "waits": "scheduled_jobs",
+            "waits": "cluster_metrics" if counts_source == "cluster_metrics" else "scheduled_jobs",
             "active_jobs": active_jobs_source,
             "history_reset_ts": queue_history_reset_datetime().strftime("%Y-%m-%dT%H:%M:%SZ"),
             "zombie_threshold_min": QUEUE_ZOMBIE_THRESHOLD_MIN,

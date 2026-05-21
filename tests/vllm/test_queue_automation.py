@@ -272,24 +272,34 @@ class TestQueueDashboardControls:
             "Queue dashboard should default Jobs Over Time to running workload"
         )
 
-    def test_wait_dashboard_defaults_to_p90(self):
+    def test_wait_dashboard_defaults_to_official_p95(self):
         js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
-        assert "const DEFAULT_WAIT_METRIC = 'p90_wait';" in js, \
-            "Queue dashboard should default to p90 wait"
+        assert "const DEFAULT_WAIT_METRIC = 'p95_wait';" in js, (
+            "Queue dashboard should default to Buildkite's official p95 wait"
+        )
 
-    def test_wait_dashboard_hides_removed_metrics(self):
+    def test_wait_dashboard_hides_unsupported_wait_metrics(self):
         js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
         for token in (
             "{k:'avg_wait',label:'Avg'}",
             "{k:'p75_wait',label:'p75'}",
-            "{k:'p95_wait',label:'p95'}",
-            "{k:'max_wait',label:'Max'}",
+            "{k:'p90_wait',label:'p90'}",
+            "{k:'p99_wait',label:'p99'}",
             "{key:'p75_wait',label:'p75'}",
-            "{key:'p95_wait',label:'p95'}",
-            "{key:'max_wait',label:'Max'}",
+            "{key:'p90_wait',label:'p90'}",
+            "{key:'p99_wait',label:'p99'}",
             "{key:'avg_wait',label:'Avg'}",
         ):
             assert token not in js, f"Queue dashboard should not expose removed wait metric control {token}"
+
+    def test_wait_dashboard_does_not_flatten_unsampled_backlog_to_zero(self):
+        js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
+        assert "wait_sample_count" in js
+        assert "wait_source !== 'cluster_metrics'" in js
+        assert "return null" in js, (
+            "Backlogged queues without job-level wait samples should render as "
+            "missing data, not as a false 0m wait"
+        )
 
 
 class TestCollectorPagination:

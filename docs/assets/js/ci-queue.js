@@ -561,9 +561,10 @@
       return qd[key];
     }
 
-    const DEFAULT_WAIT_METRIC = 'p90_wait';
+    const DEFAULT_WAIT_METRIC = 'p95_wait';
     function queueWaitValue(qd, key) {
       if (!qd) return 0;
+      if ((qd.waiting || 0) > 0 && qd.wait_source !== 'cluster_metrics' && (qd.wait_sample_count || 0) === 0) return null;
       if (qd[key] != null) return qd[key];
       return 0;
     }
@@ -885,8 +886,8 @@
     const BUSY_METRICS = [
       {k:'latest',label:'Latest'},
       {k:'p50_wait',label:'p50'},
-      {k:'p90_wait',label:'p90'},
-      {k:'p99_wait',label:'p99'},
+      {k:'p95_wait',label:'p95'},
+      {k:'max_wait',label:'Max'},
     ];
     let busyMetric = DEFAULT_WAIT_METRIC;
     const busyMetricBtns = {};
@@ -1001,14 +1002,14 @@
     // Wait time chart with percentile selector
     const PERCENTILES = [
       {key:'p50_wait',label:'p50'},
-      {key:'p90_wait',label:'p90'},
-      {key:'p99_wait',label:'p99'},
+      {key:'p95_wait',label:'p95'},
+      {key:'max_wait',label:'Max'},
     ];
     let selectedPercentile = DEFAULT_WAIT_METRIC;
 
     const waitSection = h('div',{style:{background:C.bg,border:`1px solid ${C.bd}`,borderRadius:'8px',padding:'20px',marginBottom:'20px'}});
     const waitHeader = h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px',flexWrap:'wrap',gap:'8px'}});
-    waitHeader.append(h('h3',{text:'Current Wait (derived from scheduled jobs, minutes)',style:{fontSize:'15px'}}));
+    waitHeader.append(h('h3',{text:'Current Wait (Buildkite queue metrics, minutes)',style:{fontSize:'15px'}}));
     const pctBar = h('div',{style:{display:'flex',gap:'2px'}});
     const pctBtns = {};
     for (const p of PERCENTILES) {
@@ -1105,7 +1106,9 @@
                               filteredHours < 24 ? `${filteredHours} hours` :
                               `${Math.round(filteredHours / 24)} days`;
       const countsSource = latest.sources?.counts === 'cluster_metrics' ? 'Buildkite queue metrics' : 'fallback active job scan';
-      const waitsSource = latest.sources?.waits === 'scheduled_jobs'
+      const waitsSource = latest.sources?.waits === 'cluster_metrics'
+        ? 'Buildkite queue metrics'
+        : latest.sources?.waits === 'scheduled_jobs'
         ? 'derived from waiting jobs via Buildkite job data'
         : (latest.sources?.waits || 'active jobs');
       const zombieWait = latest.total_zombie_waiting || 0;
@@ -1113,7 +1116,12 @@
       const zombieNote = (zombieWait || zombieRun)
         ? ` Excluding <strong>${zombieWait}</strong> queued and <strong>${zombieRun}</strong> running zombie jobs (&gt;4h) from queue stats.`
         : ' Queue stats exclude zombie jobs older than 4 hours.';
-      infoBanner.innerHTML = `<strong>${filtered.length}</strong> snapshots over <strong>${filteredDurText}</strong> of data collected. Counts use <strong>${countsSource}</strong>; current waits use <strong>${waitsSource}</strong> rather than the Buildkite queue page's native Current Wait panel.${zombieNote}`;
+      const missingWaitSamples = Object.values(latestQueues)
+        .filter(q => (q?.waiting || 0) > 0 && q?.wait_source !== 'cluster_metrics' && (q?.wait_sample_count || 0) === 0).length;
+      const waitSampleNote = missingWaitSamples
+        ? ` <strong>${missingWaitSamples}</strong> queues currently have backlog but no job-level wait samples; the wait chart shows gaps for those queues.`
+        : '';
+      infoBanner.innerHTML = `<strong>${filtered.length}</strong> snapshots over <strong>${filteredDurText}</strong> of data collected. Counts use <strong>${countsSource}</strong>; current waits use <strong>${waitsSource}</strong>.${zombieNote}${waitSampleNote}`;
 
       renderBusyTable(filtered);
 
@@ -1166,9 +1174,8 @@
       const waitDatasets = [];
       for (const q of [...selectedQueues].sort()) {
         const qc = qColorMap[q] || '#8b949e';
-        // Treat missing samples as 0-wait rather than null. The user prefers a
-        // continuous line over honest breaks: an empty queue has 0m wait by
-        // definition, so filling with 0 doesn't falsify anything.
+        // Empty queues have 0m wait. Backlogged queues with no official
+        // metrics or job-level samples are unknown, so draw a gap.
         const rawWait = filtered.map(s => {
           const qd = s.queues?.[q];
           if (!qd) return 0;
