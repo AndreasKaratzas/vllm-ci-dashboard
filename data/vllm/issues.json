@@ -1,16 +1,48 @@
 {
-  "collected_at": "2026-02-21T08:07:11Z",
+  "collected_at": "2026-06-20T20:54:55Z",
   "issues": [
     {
-      "number": 34090,
-      "title": "what am I doing wrong ? libmpi_cxx.so.40: cannot open shared object file: No such file or directory",
-      "author": "peter247",
+      "number": 40554,
+      "title": "[AMD][CI Failure][Tracker] Static dashboard tracker for current CI failures",
+      "author": "AndreasKaratzas",
       "state": "open",
-      "created_at": "2026-02-08T15:24:48Z",
-      "updated_at": "2026-02-21T04:43:38Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/34090",
+      "created_at": "2026-04-21T20:29:34Z",
+      "updated_at": "2026-06-20T17:32:33Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/40554",
       "labels": [
-        "usage"
+        "rocm",
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "Backlog",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "This is the single dashboard-managed umbrella issue for current AMD CI failures tracked by `AndreasKaratzas/vllm-ci-dashboard`.\n\n## Rules\n- The dashboard automation updates only one managed comment on this issue.\n- The dashboard automation must not create or modify any other `vllm-project/vllm` issues.\n- Engineers should open separate manual issues when they pick up a specific failure to work on.\n- Those manual issues can move through [project #39](https://github.com/orgs/vllm-project/projects/39) and be referenced by the dashboard, but they are not edited by the dashboard automation.\n\n## Engineer workflow\n- Check the managed comment on this issue for the latest failing groups.\n- Open a separate issue for any failure you pick up.\n- Move that separate issue through the appropriate [project #39](https://github.com/orgs/vllm-project/projects/39) column and assign an owner there.\n\n## Ownership\n- Dashboard owner: `@AndreasKaratzas`\n- Repo: `AndreasKaratzas/vllm-ci-dashboard`\n",
+      "linked_prs": []
+    },
+    {
+      "number": 35133,
+      "title": "[CI Failure]:  mi325_4: LoRA TP (Distributed)",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "created_at": "2026-02-23T18:34:13Z",
+      "updated_at": "2026-06-19T02:26:13Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/35133",
+      "labels": [
+        "stale",
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "In progress",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\n`pytest -v -s -x lora/test_chatglm3_tp.py && pytest -v -s -x lora/test_llama_tp.py && pytest -v -s -x lora/test_llm_with_multi_loras.py && pytest -v -s -x lora/test_olmoe_tp.py && pytest -v -s -x lora/test_gptoss_tp.py`\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\nThis test has a failure here:\n\n```log\nFAILED lora/test_olmoe_tp.py::test_olmoe_lora_mixed\n```\n\nThis is an accuracy bug. **However**, in this TG, we would like to enable another test:\n\n```bash\npytest -v -s -x lora/test_gptoss_tp.py\n```\n\nCurrently this test is not in `test-amd.yaml` file. However, in our effort to achieve parity with upstream signal, we need to enable this test.\n\n### \ud83d\udcdd History of failing test\n\nhttps://buildkite.com/vllm/amd-ci/builds/5234/steps/canvas?sid=019c894c-5e4d-41a0-9f59-b5785b8ccbd1&tab=output",
+      "linked_prs": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": 35224,
+          "url": "https://github.com/vllm-project/vllm/pull/35224"
+        }
       ]
     },
     {
@@ -19,662 +51,307 @@
       "author": "NickLucche",
       "state": "open",
       "created_at": "2025-11-21T10:33:58Z",
-      "updated_at": "2026-02-21T02:45:24Z",
+      "updated_at": "2026-06-10T02:18:00Z",
       "html_url": "https://github.com/vllm-project/vllm/issues/29176",
       "labels": [
         "rocm",
         "stale",
         "ci-failure"
-      ]
+      ],
+      "assignees": [],
+      "project_status": "Backlog",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\nbash v1/kv_connector/nixl_integration/tp_config_sweep_accuracy_test.sh\n\n### Basic information\n\n- [ ] Flaky test\n- [ ] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\nI think there may be some issues with the nixl package being installed on the amd CI, as it appears to be missing UCX, which possibly would need to be built from source?\n\n```\n\n(Worker_TP0 pid=1295) ERROR 11-20 07:10:15 [multiproc_executor.py:822]     self.model_runner.initialize_kv_cache(kv_cache_config)\n--\n(Worker_TP0 pid=1295) ERROR 11-20 07:10:15 [multiproc_executor.py:822]   File \"/usr/local/lib/python3.12/dist-packages/vllm/v1/worker/gpu_model_runner.py\", line 5020, in initialize_kv_cache\n(Worker_TP0 pid=1295) ERROR 11-20 07:10:15 [multiproc_executor.py:822]     kv_transfer_group.register_kv_caches(kv_caches)\n(Worker_TP0 pid=1295) ERROR 11-20 07:10:15 [multiproc_executor.py:822]   File \"/usr/local/lib/python3.12/dist-packages/vllm/distributed/kv_transfer/kv_connector/v1/nixl_connector.py\", line 256, in register_kv_caches\n(Worker_TP0 pid=1295) ERROR 11-20 07:10:15 [multiproc_executor.py:822]     self.connector_worker.register_kv_caches(kv_caches)\n(Worker_TP0 pid=1295) ERROR 11-20 07:10:15 [multiproc_executor.py:822]   File \"/usr/local/lib/python3.12/dist-packages/vllm/distributed/kv_transfer/kv_connector/v1/nixl_connector.py\", line 1244, in register_kv_caches\n(Worker_TP0 pid=1295) ERROR 11-20 07:10:15 [multiproc_executor.py:822]     self.nixl_wrapper.register_memory(descs, backends=self.nixl_backends)\n(Worker_TP0 pid=1295) ERROR 11-20 07:10:15 [multiproc_executor.py:822]   File \"/usr/local/lib/python3.12/dist-packages/nixl_cu12/_api.py\", line 383, in register_memory\n(Worker_TP0 pid=1295) ERROR 11-20 07:10:15 [multiproc_executor.py:822]     handle_list.append(self.backends[backend_string])\n(Worker_TP0 pid=1295) ERROR 11-20 07:10:15 [multiproc_executor.py:822]                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^\n(Worker_TP0 pid=1295) ERROR 11-20 07:10:15 [multiproc_executor.py:822] KeyError: 'UCX'\n\u00a0\n\n<br class=\"Apple-interchange-newline\">\n```\n\n### \ud83d\udcdd History of failing test\n\nat least since https://buildkite.com/vllm/amd-ci/builds/1088/steps/canvas?sid=019aa006-b84c-4329-a88d-4f8487e6112b\n\n\n### CC List.\n\n@Alexei-V-Ivanov-AMD ",
+      "linked_prs": []
     },
     {
-      "number": 34994,
-      "title": "[Feature]: Infrastructure Improvements for ROCm CI",
+      "number": 42184,
+      "title": "[CI Failure]:  mi300_2: Distributed Compile Unit Tests (2xH100-2xMI300)",
       "author": "AndreasKaratzas",
       "state": "open",
-      "created_at": "2026-02-20T22:35:58Z",
-      "updated_at": "2026-02-21T02:40:23Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/34994",
-      "labels": [
-        "feature request",
-        "rocm"
-      ]
-    },
-    {
-      "number": 28110,
-      "title": "[Bug]: spark can not run MoE GEMM",
-      "author": "qiyuxinlin",
-      "state": "open",
-      "created_at": "2025-11-05T07:58:49Z",
-      "updated_at": "2026-02-21T02:15:05Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/28110",
-      "labels": [
-        "bug",
-        "stale"
-      ]
-    },
-    {
-      "number": 29138,
-      "title": "[Bug]: AttributeError: 'NoneType' object has no attribute 'use_mxfp4_w4a16'",
-      "author": "nole69",
-      "state": "open",
-      "created_at": "2025-11-21T01:34:26Z",
-      "updated_at": "2026-02-21T02:14:13Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/29138",
-      "labels": [
-        "bug",
-        "stale"
-      ]
-    },
-    {
-      "number": 25179,
-      "title": "[Performance]: Custom fused kernel tracking",
-      "author": "ProExpertProg",
-      "state": "open",
-      "created_at": "2025-09-18T15:31:02Z",
-      "updated_at": "2026-02-21T00:43:36Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/25179",
-      "labels": [
-        "performance",
-        "torch.compile"
-      ]
-    },
-    {
-      "number": 34954,
-      "title": "[Bug]: Triton Error [CUDA]: out of memory when received query",
-      "author": "kwonmha",
-      "state": "open",
-      "created_at": "2026-02-20T13:46:28Z",
-      "updated_at": "2026-02-20T23:34:52Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/34954",
-      "labels": [
-        "bug"
-      ]
-    },
-    {
-      "number": 29373,
-      "title": "[Bug]: Multinode inference request with Ray and vLLM crashes - regression from vLLM v0.7.3",
-      "author": "ysimeonovatnvidia",
-      "state": "open",
-      "created_at": "2025-11-25T05:01:15Z",
-      "updated_at": "2026-02-20T20:09:13Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/29373",
-      "labels": [
-        "bug",
-        "ray"
-      ]
-    },
-    {
-      "number": 29462,
-      "title": "[CI Failure]: mi325_8: Language Models Tests (Hybrid) %N",
-      "author": "AndreasKaratzas",
-      "state": "open",
-      "created_at": "2025-11-26T00:21:48Z",
-      "updated_at": "2026-02-20T18:34:44Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/29462",
+      "created_at": "2026-05-09T21:01:42Z",
+      "updated_at": "2026-05-19T18:32:21Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/42184",
       "labels": [
         "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "In review",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\n`(command rocm-smi || true) && export VLLM_TEST_GROUP_NAME=mi300_2-distributed-compile-unit-tests-2xh100-2xmi300 && export VLLM_ALLOW_DEPRECATED_BEAM_SEARCH=1 && cd /vllm-workspace/ && export VLLM_TEST_CLEAN_GPU_MEMORY=1 && VLLM_TEST_CLEAN_GPU_MEMORY=1 pytest -v -s tests/compile/passes/distributed/test_async_tp.py && pytest -v -s tests/compile/passes/distributed/test_sequence_parallelism.py && pytest -v -s tests/compile/passes/distributed/test_tp2_ar_rms.py::test_tp2_ar_rms_fusions`\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\n```\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[True-dtype0-16-16-8-TestMMRSModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[True-dtype0-16-16-8-TestAGMMModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[True-dtype1-16-16-8-TestMMRSModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[True-dtype1-16-16-8-TestAGMMModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[True-dtype1-16-16-8-TestScaledMMRSModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[True-dtype1-16-16-8-TestAGScaledMMModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[True-dtype1-16-16-8-TestCutlassScaledMMRSModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[True-dtype1-16-16-8-TestAGCutlassScaledMMModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[False-dtype0-16-16-8-TestMMRSModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[False-dtype0-16-16-8-TestAGMMModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[False-dtype1-16-16-8-TestMMRSModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[False-dtype1-16-16-8-TestAGMMModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[False-dtype1-16-16-8-TestScaledMMRSModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[False-dtype1-16-16-8-TestAGScaledMMModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[False-dtype1-16-16-8-TestCutlassScaledMMRSModel]\nFAILED tests/compile/passes/distributed/test_async_tp.py::test_async_tp_pass_replace[False-dtype1-16-16-8-TestAGCutlassScaledMMModel]\n```\n\n### \ud83d\udcdd History of failing test\n\n- Current streak start: 2026-05-02\n- First failure in 60d window: 2026-05-02\n- Last successful nightly: 2026-05-01\n- Break frequency (60d, pass\u2194fail flips): 1\n- Latest nightly date: 2026-05-09\n- Latest build(s): [amd-ci #8371](https://buildkite.com/vllm/amd-ci/builds/8371)\n- Latest hardware status: `mi300_2`=fail",
+      "linked_prs": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": 43120,
+          "url": "https://github.com/vllm-project/vllm/pull/43120"
+        }
       ]
     },
     {
-      "number": 29520,
-      "title": "[CI Failure]: mi325_1: Multi-Modal Models Test (Standard)",
+      "number": 42183,
+      "title": "[CI Failure]:  mi300_4: Distributed Torchrun + Examples (4 GPUs)",
       "author": "AndreasKaratzas",
       "state": "open",
-      "created_at": "2025-11-26T18:24:37Z",
-      "updated_at": "2026-02-20T18:01:58Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/29520",
+      "created_at": "2026-05-09T21:00:01Z",
+      "updated_at": "2026-05-12T21:16:56Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/42183",
       "labels": [
         "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "In review",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\n`(command rocm-smi || true) && export VLLM_TEST_GROUP_NAME=mi300_4-distributed-torchrun---examples-4-gpus && export VLLM_ALLOW_DEPRECATED_BEAM_SEARCH=1 && cd /vllm-workspace/tests && torchrun --nproc-per-node=4 distributed/test_torchrun_example.py && PP_SIZE=2 torchrun --nproc-per-node=4 distributed/test_torchrun_example.py && TP_SIZE=4 torchrun --nproc-per-node=4 distributed/test_torchrun_example_moe.py && PP_SIZE=2 TP_SIZE=2 torchrun --nproc-per-node=4 distributed/test_torchrun_example_moe.py && DP_SIZE=4 ENABLE_EP=1 torchrun --nproc-per-node=4 distributed/test_torchrun_example_moe.py && TP_SIZE=2 DP_SIZE=2 ENABLE_EP=1 torchrun --nproc-per-node=4 distributed/test_torchrun_example_moe.py && python3 ../examples/features/data_parallel/data_parallel_offline.py --enforce-eager && VLLM_ALLOW_INSECURE_SERIALIZATION=1 python3 ../examples/rl/rlhf_nccl.py && VLLM_ALLOW_INSECURE_SERIALIZATION=1 python3 ../examples/rl/rlhf_ipc.py`\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\n```\nRuntimeError: NCCL error: unhandled cuda error (run with NCCL_DEBUG=INFO for details)\n```\n\nhttps://buildkite.com/vllm/amd-ci/builds/8371/canvas?sid=019e0bf7-4aec-42bb-85d9-00364d4e4194&tab=output\n\n### \ud83d\udcdd History of failing test\n\n- Current streak start: 2026-05-06\n- First failure in 60d window: 2026-05-06\n- Last successful nightly: 2026-05-04\n- Break frequency (60d, pass\u2194fail flips): 1\n- Latest nightly date: 2026-05-09\n- Latest build(s): [amd-ci #8371](https://buildkite.com/vllm/amd-ci/builds/8371)\n- Latest hardware status: `mi300_4`=fail",
+      "linked_prs": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": 42459,
+          "url": "https://github.com/vllm-project/vllm/pull/42459"
+        }
       ]
     },
     {
-      "number": 34331,
-      "title": "[RFC]: Ahead of time dequantization of weights for quantization emulation (OCP MX, NVFP4) on unsupported devices",
-      "author": "fxmarty-amd",
+      "number": 41854,
+      "title": "[CI Failure]:  mi300_1: Multi-Modal Models (Extended Generation 3)",
+      "author": "AndreasKaratzas",
       "state": "open",
-      "created_at": "2026-02-11T10:26:38Z",
-      "updated_at": "2026-02-20T17:51:40Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/34331",
+      "created_at": "2026-05-06T18:42:04Z",
+      "updated_at": "2026-05-09T02:43:55Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/41854",
+      "labels": [
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "In review",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\n```\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[aria-test_case127]\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[glm4v-test_case134]\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[glm4v-test_case135]\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[glm4v-test_case136]\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[aria-test_case98]\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[glm_ocr-test_case102]\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[glm_ocr-test_case103]\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[glm_ocr-test_case104]\n```\n\n### \ud83d\udcdd History of failing test\n\n- Latest nightly date: 2026-05-06\n- Latest build(s): [amd-ci #8223](https://buildkite.com/vllm/amd-ci/builds/8223)\n- Latest hardware status: `mi300_1`=fail",
+      "linked_prs": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": 42126,
+          "url": "https://github.com/vllm-project/vllm/pull/42126"
+        }
+      ]
+    },
+    {
+      "number": 42020,
+      "title": "[CI Failure]:  mi300_1: Multi-Modal Models (Extended Generation 2)",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "created_at": "2026-05-08T03:55:07Z",
+      "updated_at": "2026-05-08T18:16:40Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/42020",
+      "labels": [
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "In review",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\n`pytest -v -s models/multimodal/generation/test_common.py -m 'split(group=0) and not core_model'`\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\n```\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[skywork_r1v-test_case57]\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[skywork_r1v-test_case58]\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[skywork_r1v-test_case59]\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[skywork_r1v-test_case53]\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[skywork_r1v-test_case54]\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[skywork_r1v-test_case55]\n```\n\n### \ud83d\udcdd History of failing test\n\n- Latest nightly date: 2026-05-07\n- Latest build(s): [amd-ci #8279](https://buildkite.com/vllm/amd-ci/builds/8279)\n- Latest hardware status: `mi300_1`=fail",
+      "linked_prs": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": 42104,
+          "url": "https://github.com/vllm-project/vllm/pull/42104"
+        }
+      ]
+    },
+    {
+      "number": 41989,
+      "title": "[CI Failure]:  mi300_1: Quantized Models Test",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "created_at": "2026-05-07T18:19:09Z",
+      "updated_at": "2026-05-07T18:19:28Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/41989",
+      "labels": [
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "In progress",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\n`(command rocm-smi || true) && export VLLM_TEST_GROUP_NAME=mi300_1-quantized-models-test && export VLLM_ALLOW_DEPRECATED_BEAM_SEARCH=1 && cd /vllm-workspace/tests && pytest -v -s models/quantization`\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\nExited with status 139 (soft failed)\nLink: https://buildkite.com/vllm/amd-ci/builds/8279/canvas?sid=019e0105-dcaa-41ef-b8a3-c4987192a08a&tab=output\n\n### \ud83d\udcdd History of failing test\n\n- Current streak start: 2026-04-23\n- First failure in 60d window: 2026-04-23\n- Last successful nightly: 2026-04-22\n- Break frequency (60d, pass\u2194fail flips): 1\n- Latest nightly date: 2026-05-07\n- Latest build(s): [amd-ci #8279](https://buildkite.com/vllm/amd-ci/builds/8279)\n- Latest hardware status: `mi300_1`=fail",
+      "linked_prs": []
+    },
+    {
+      "number": 40645,
+      "title": "[CI Failure]: mi355_1: Language Models Tests (Standard)",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "created_at": "2026-04-22T19:29:35Z",
+      "updated_at": "2026-05-04T00:07:34Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/40645",
+      "labels": [
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "In review",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\n`(command rocm-smi || true) && export VLLM_TEST_GROUP_NAME=mi355_1-language-models-tests-standard && export VLLM_ALLOW_DEPRECATED_BEAM_SEARCH=1 && cd /vllm-workspace/tests && pip freeze | grep -E 'torch' && pytest -v -s models/language -m 'core_model and (not slow_test)'`\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\n- Latest nightly date: 2026-04-22\n- Latest build(s): [amd-ci #7880](https://buildkite.com/vllm/amd-ci/builds/7880)\n- Latest hardware status: `mi355_1`=fail\n\n### \ud83d\udcdd History of failing test\n\n- Current streak start: 2026-04-16\n- First failure: Unknown",
+      "linked_prs": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": 41532,
+          "url": "https://github.com/vllm-project/vllm/pull/41532"
+        }
+      ]
+    },
+    {
+      "number": 41584,
+      "title": "[CI Failure]:  mi325_1: Language Models Test (Extended Generation)",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "created_at": "2026-05-04T00:03:34Z",
+      "updated_at": "2026-05-04T00:07:20Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/41584",
+      "labels": [
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "In review",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\n`(command rocm-smi || true) && export VLLM_TEST_GROUP_NAME=mi325_1-language-models-test-extended-generation && export VLLM_ALLOW_DEPRECATED_BEAM_SEARCH=1 && cd /vllm-workspace/tests && uv pip install --system --no-build-isolation 'git+https://github.com/AndreasKaratzas/mamba@fix-rocm-7.0-warp-size-constexpr' && uv pip install --system --no-build-isolation 'git+https://github.com/Dao-AILab/causal-conv1d@v1.6.0' && pytest -v -s models/language/generation -m '(not core_model) and (not hybrid_model)'`\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\n```\nFAILED models/language/generation/test_common.py::test_models[True-False-5-32-naver-hyperclovax/HyperCLOVAX-SEED-Think-14B]\nFAILED models/language/generation/test_common.py::test_models[False-False-5-32-naver-hyperclovax/HyperCLOVAX-SEED-Think-14B]\n```\n\n### \ud83d\udcdd History of failing test\n\n- Current streak start: 2026-04-16\n- First failure in 60d window: 2026-04-09\n- Last successful nightly: 2026-04-15\n- Break frequency (60d, pass\u2194fail flips): 3\n- Latest nightly date: 2026-05-03\n- Latest build(s): [amd-ci #8177](https://buildkite.com/vllm/amd-ci/builds/8177)\n- Latest hardware status: `mi325_1`=fail",
+      "linked_prs": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": 41532,
+          "url": "https://github.com/vllm-project/vllm/pull/41532"
+        }
+      ]
+    },
+    {
+      "number": 41582,
+      "title": "[CI Failure]:  mi355_1: Entrypoints Integration (API Server openai - Part 3)",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "created_at": "2026-05-03T23:54:40Z",
+      "updated_at": "2026-05-03T23:55:21Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/41582",
+      "labels": [
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "In review",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\n`(command rocm-smi || true) && export VLLM_TEST_GROUP_NAME=mi355_1-entrypoints-integration-api-server-openai---part-3 && export VLLM_ALLOW_DEPRECATED_BEAM_SEARCH=1 && cd /vllm-workspace/tests && export VLLM_WORKER_MULTIPROC_METHOD=spawn && pytest -v -s entrypoints/openai     --ignore=entrypoints/openai/chat_completion/test_audio.py     --ignore=entrypoints/openai/completion/test_shutdown.py     --ignore=entrypoints/openai/test_completion.py     --ignore=entrypoints/openai/models/test_models.py     --ignore=entrypoints/openai/test_return_tokens_as_ids.py     --ignore=entrypoints/openai/chat_completion/test_root_path.py     --ignore=entrypoints/openai/completion/test_prompt_validation.py --ignore=entrypoints/openai/chat_completion --ignore=entrypoints/openai/completion --ignore=entrypoints/openai/speech_to_text/ --ignore=entrypoints/openai/correctness/ --ignore=entrypoints/openai/tool_parsers/ --ignore=entrypoints/openai/responses --ignore=entrypoints/openai/test_multi_api_servers.py`\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\n```\nFAILED entrypoints/openai/realtime/test_realtime_validation.py::test_multi_chunk_streaming[mistralai/Voxtral-Mini-4B-Realtime-2602]\nFAILED entrypoints/openai/test_run_batch.py::test_completions_invalid_input\n```\n\n### \ud83d\udcdd History of failing test\n\n- Current streak start: 2026-04-03\n- First failure in 60d window: 2026-04-03\n- Last successful nightly: \u2014\n- Break frequency (60d, pass\u2194fail flips): 0\n- Latest nightly date: 2026-05-03\n- Latest build(s): [amd-ci #8177](https://buildkite.com/vllm/amd-ci/builds/8177)\n- Latest hardware status: `mi355_1`=fail",
+      "linked_prs": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": 41572,
+          "url": "https://github.com/vllm-project/vllm/pull/41572"
+        }
+      ]
+    },
+    {
+      "number": 41578,
+      "title": "[CI Failure]:  mi250_1: LoRA %N",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "created_at": "2026-05-03T23:24:21Z",
+      "updated_at": "2026-05-03T23:25:01Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/41578",
+      "labels": [
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "In review",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\n`(command rocm-smi || true) && export VLLM_TEST_GROUP_NAME=mi250_1-lora-n && export VLLM_ALLOW_DEPRECATED_BEAM_SEARCH=1 && cd /vllm-workspace/tests && pytest -v -s lora --shard-id=$BUILDKITE_PARALLEL_JOB --num-shards=$BUILDKITE_PARALLEL_JOB_COUNT --ignore=lora/test_chatglm3_tp.py --ignore=lora/test_llama_tp.py --ignore=lora/test_llm_with_multi_loras.py --ignore=lora/test_olmoe_tp.py --ignore=lora/test_deepseekv2_tp.py --ignore=lora/test_gptoss_tp.py --ignore=lora/test_qwen3moe_tp.py --ignore=lora/test_qwen35_densemodel_lora.py`\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\n```\nFAILED lora/test_transformers_model.py::test_ilama_lora\n```\n\n### \ud83d\udcdd History of failing test\n\n- Current streak start: 2026-04-16\n- First failure in 60d window: 2026-04-16\n- Last successful nightly: 2026-04-15\n- Break frequency (60d, pass\u2194fail flips): 1\n- Latest nightly date: 2026-05-03\n- Latest build(s): [amd-ci #8177](https://buildkite.com/vllm/amd-ci/builds/8177)\n- Latest hardware status: `mi250_1`=fail",
+      "linked_prs": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": 41577,
+          "url": "https://github.com/vllm-project/vllm/pull/41577"
+        }
+      ]
+    },
+    {
+      "number": 41321,
+      "title": "[CI Failure]:  mi300_1: Acceptance Length Test (Large Models)",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "created_at": "2026-04-30T02:33:10Z",
+      "updated_at": "2026-04-30T12:02:44Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/41321",
+      "labels": [
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "In review",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\n`(command rocm-smi || true) && export VLLM_TEST_GROUP_NAME=mi300_1-acceptance-length-test-large-models && export VLLM_ALLOW_DEPRECATED_BEAM_SEARCH=1 && cd /vllm-workspace/tests && export VLLM_ALLOW_INSECURE_SERIALIZATION=1 && pytest -v -s v1/spec_decode/test_acceptance_length.py -m slow_test`\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\n```\nFAILED v1/spec_decode/test_acceptance_length.py::test_eagle3_acceptance_length[ROCM_ATTN-tp1-3-qwen3-30b-moe-vl-eagle3]\nFAILED v1/spec_decode/test_acceptance_length.py::test_eagle3_acceptance_length[ROCM_AITER_UNIFIED_ATTN-tp1-3-qwen3-30b-moe-vl-eagle3]\nFAILED v1/spec_decode/test_acceptance_length.py::test_eagle3_acceptance_length[TRITON_ATTN-tp1-3-qwen3-30b-moe-vl-eagle3]\n```\n\n### \ud83d\udcdd History of failing test\n\n- Current streak start: 2026-04-25\n- First failure in 60d window: 2026-04-25\n- Last successful nightly: 2026-04-24\n- Break frequency (60d, pass\u2194fail flips): 1\n- Latest nightly date: 2026-04-29\n- Latest build(s): [amd-ci #8058](https://buildkite.com/vllm/amd-ci/builds/8058)\n- Latest hardware status: `mi300_1`=fail",
+      "linked_prs": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": 41294,
+          "url": "https://github.com/vllm-project/vllm/pull/41294"
+        }
+      ]
+    },
+    {
+      "number": 40728,
+      "title": "[CI Failure]: mi355_1: Kernels MoE Test %N",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "created_at": "2026-04-23T19:04:55Z",
+      "updated_at": "2026-04-30T02:42:13Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/40728",
+      "labels": [
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "In review",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\n`(command rocm-smi || true) && export VLLM_TEST_GROUP_NAME=mi355_1-kernels-moe-test-n && export VLLM_ALLOW_DEPRECATED_BEAM_SEARCH=1 && cd /vllm-workspace/tests && pytest -v -s kernels/moe --ignore=kernels/moe/test_modular_oai_triton_moe.py --shard-id=$BUILDKITE_PARALLEL_JOB --num-shards=$BUILDKITE_PARALLEL_JOB_COUNT && pytest -v -s kernels/moe/test_modular_oai_triton_moe.py --shard-id=$BUILDKITE_PARALLEL_JOB --num-shards=$BUILDKITE_PARALLEL_JOB_COUNT     --ignore=kernels/moe/test_moe.py     --ignore=kernels/moe/test_cutlass_moe.py`\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\nhttps://buildkite.com/vllm/amd-ci/builds/7923/steps/canvas?jid=019db8ed-a5d8-42a7-9b22-404dac86af4d&tab=output\n\n### \ud83d\udcdd History of failing test\n\n- Last successful nightly: -\n- Latest nightly date: 2026-04-23\n- Latest build(s): [amd-ci #7923](https://buildkite.com/vllm/amd-ci/builds/7923)",
+      "linked_prs": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": 41290,
+          "url": "https://github.com/vllm-project/vllm/pull/41290"
+        }
+      ]
+    },
+    {
+      "number": 37736,
+      "title": "[CI Failure]:  Gemma3 OOMs with transformers backend",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "created_at": "2026-03-21T05:32:29Z",
+      "updated_at": "2026-03-21T17:06:54Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/37736",
       "labels": [
         "rocm",
-        "RFC"
-      ]
-    },
-    {
-      "number": 34326,
-      "title": "[Bug]: --served-model-name causes model detection issues",
-      "author": "ssendev",
-      "state": "open",
-      "created_at": "2026-02-11T09:21:49Z",
-      "updated_at": "2026-02-20T17:38:00Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/34326",
-      "labels": [
-        "bug"
-      ]
-    },
-    {
-      "number": 34705,
-      "title": "[Bug]: Old torch compile files cause poor CPU utilisation",
-      "author": "almayne",
-      "state": "open",
-      "created_at": "2026-02-17T14:27:14Z",
-      "updated_at": "2026-02-20T17:27:40Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/34705",
-      "labels": [
-        "bug",
-        "torch.compile"
-      ]
-    },
-    {
-      "number": 34650,
-      "title": "Bug: Speculative Decoding (MTP) Causes </think> Detection Failure in Structured Output + Reasoning Mode",
-      "author": "cicirori",
-      "state": "open",
-      "created_at": "2026-02-16T22:09:56Z",
-      "updated_at": "2026-02-20T17:02:08Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/34650",
-      "labels": [
-        "bug"
-      ]
-    },
-    {
-      "number": 26211,
-      "title": "[Bug]: vLLM does not support DeepSeek series on RTX PRO 6000/SM120",
-      "author": "yuanyuan19",
-      "state": "open",
-      "created_at": "2025-10-04T05:52:15Z",
-      "updated_at": "2026-02-20T15:58:47Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/26211",
-      "labels": [
-        "bug"
-      ]
-    },
-    {
-      "number": 34886,
-      "title": "[Bug]: #32618 performance issue",
-      "author": "gengchaogit",
-      "state": "open",
-      "created_at": "2026-02-19T10:38:26Z",
-      "updated_at": "2026-02-20T12:48:49Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/34886",
-      "labels": [
-        "bug"
-      ]
-    },
-    {
-      "number": 34496,
-      "title": "[Bug]: Responses API crashes with KeyError when reasoning input item has no `content` field",
-      "author": "jeonsworld",
-      "state": "open",
-      "created_at": "2026-02-13T07:12:56Z",
-      "updated_at": "2026-02-20T12:37:56Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/34496",
-      "labels": [
-        "bug"
-      ]
-    },
-    {
-      "number": 32180,
-      "title": "[Bug]: Performance Bottlenecks and V1 Engine Instability on AMD gfx1151 (Strix Halo)",
-      "author": "kgundbrain",
-      "state": "open",
-      "created_at": "2026-01-12T14:03:38Z",
-      "updated_at": "2026-02-20T06:25:28Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/32180",
-      "labels": [
-        "bug",
-        "performance",
-        "feature request",
-        "rocm"
-      ]
-    },
-    {
-      "number": 34939,
-      "title": "[CI Failure]: V1 e2e + engine : Cannot re-initialize CUDA in forked subprocess",
-      "author": "varun-sundar-rabindranath",
-      "state": "open",
-      "created_at": "2026-02-20T05:11:36Z",
-      "updated_at": "2026-02-20T05:11:36Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/34939",
-      "labels": [
         "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "Backlog",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Test group\n\nmi250_1: Multi-Modal Models (Standard) 2: qwen3 + gemma\n\n### Describe the failing test\n\nThis is not exactly a test failure, but it has been recommended to investigate further the OOMing event of Gemma3, which is a 4B model. The intuition here is that the fake tensor that is used for profiling is large enough that exceeds the 64 GB of MI250 GPUs. However, it has been suggested that this is still weird. \n\n### \ud83d\udcdd History of failing test\n\nhttps://github.com/vllm-project/vllm/pull/37610#issuecomment-4102286515\n\n### CC List.\n\n@DarkLight1337 (for transparency)",
+      "linked_prs": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": 37610,
+          "url": "https://github.com/vllm-project/vllm/pull/37610"
+        },
+        {
+          "repo": "vllm-project/vllm",
+          "number": 37717,
+          "url": "https://github.com/vllm-project/vllm/pull/37717"
+        }
       ]
-    },
-    {
-      "number": 33672,
-      "title": "[Bug]: HTTP API multimodal embedding causes image_pad token duplication, producing incorrect results",
-      "author": "ojipadeson",
-      "state": "open",
-      "created_at": "2026-02-03T09:08:23Z",
-      "updated_at": "2026-02-20T03:53:20Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/33672",
-      "labels": [
-        "bug"
-      ]
-    },
-    {
-      "number": 26897,
-      "title": "[Bug]: deepseekv3.2 tool_calls failure",
-      "author": "CallmeZhangChenchen",
-      "state": "open",
-      "created_at": "2025-10-15T08:34:45Z",
-      "updated_at": "2026-02-20T02:22:41Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/26897",
-      "labels": [
-        "bug",
-        "stale"
-      ]
-    },
-    {
-      "number": 27300,
-      "title": "[Bug]: vLLM produces invalid UTF-8 tokens and \u201c\ufffd\u201d replacement characters when returning logprobs",
-      "author": "yinggeh",
-      "state": "open",
-      "created_at": "2025-10-21T22:17:25Z",
-      "updated_at": "2026-02-20T01:05:51Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/27300",
-      "labels": [
-        "bug"
-      ]
-    },
-    {
-      "number": 34752,
-      "title": "[Bug]: Improve `--kv-cache-dtype` behavior when checkpoint specifies `kv_cache_quant_algo`",
-      "author": "pavanimajety",
-      "state": "open",
-      "created_at": "2026-02-17T21:29:55Z",
-      "updated_at": "2026-02-20T00:39:49Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/34752",
-      "labels": [
-        "bug",
-        "good first issue"
-      ]
-    },
-    {
-      "number": 34851,
-      "title": "[Feature]: Refactor Quark MoE and mxfp4 MoE to align with MoE oracle/MK",
-      "author": "BowenBao",
-      "state": "open",
-      "created_at": "2026-02-18T23:27:55Z",
-      "updated_at": "2026-02-20T00:37:45Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/34851",
-      "labels": [
-        "feature request"
-      ]
-    },
-    {
-      "number": 34812,
-      "title": "[Bug]: GraniteMoeHybridModel not applying embedding_multiplier to input embeddings",
-      "author": "gabe-l-hart",
-      "state": "open",
-      "created_at": "2026-02-18T15:09:32Z",
-      "updated_at": "2026-02-19T22:00:03Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/34812",
-      "labels": [
-        "bug"
-      ]
-    },
-    {
-      "number": 34859,
-      "title": "[Bug]: missing shards from quantized checkpoint fails silently",
-      "author": "andrea-fasoli",
-      "state": "open",
-      "created_at": "2026-02-19T00:22:43Z",
-      "updated_at": "2026-02-19T21:59:55Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/34859",
-      "labels": [
-        "bug"
-      ]
-    },
-    {
-      "number": 33445,
-      "title": "[RFC] Remove mandatory ray installation",
-      "author": "yewentao256",
-      "state": "open",
-      "created_at": "2026-01-30T20:37:53Z",
-      "updated_at": "2026-02-19T21:40:04Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/33445",
-      "labels": []
-    },
-    {
-      "number": 34118,
-      "title": "[Feature]: [ROCm]: GPTQ INT4 MoE kernel fails on non-SiLU activations - no Marlin fallback on AMD",
-      "author": "ehartford",
-      "state": "open",
-      "created_at": "2026-02-09T05:28:24Z",
-      "updated_at": "2026-02-19T18:42:48Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/34118",
-      "labels": [
-        "feature request",
-        "rocm"
-      ]
-    },
-    {
-      "number": 32455,
-      "title": "[Roadmap] vLLM Roadmap Q1 2026",
-      "author": "simon-mo",
-      "state": "open",
-      "created_at": "2026-01-16T04:23:29Z",
-      "updated_at": "2026-02-19T17:14:39Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/32455",
-      "labels": [
-        "rocm"
-      ]
-    },
-    {
-      "number": 34817,
-      "title": "[Bug]: Trying to run gpt-oss-120b on rtx pro 6000",
-      "author": "chadbek",
-      "state": "open",
-      "created_at": "2026-02-18T15:37:43Z",
-      "updated_at": "2026-02-19T11:34:00Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/34817",
-      "labels": [
-        "bug"
-      ]
-    },
-    {
-      "number": 34759,
-      "title": "[Bug]: nvidia/Llama-3.3-70B-Instruct-NVFP4 Degraded / Gibberish Output with TRITON_ATTN",
-      "author": "frankwang28",
-      "state": "open",
-      "created_at": "2026-02-17T23:19:47Z",
-      "updated_at": "2026-02-19T07:22:17Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/34759",
-      "labels": [
-        "bug"
-      ]
-    },
-    {
-      "number": 27645,
-      "title": "[Bug]: Qwen3-VL-235B-A22B-Instruct stuck with assert placeholder < len(self._out_of_band_tensors)",
-      "author": "yry0008",
-      "state": "open",
-      "created_at": "2025-10-28T09:53:39Z",
-      "updated_at": "2026-02-19T02:16:14Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/27645",
-      "labels": [
-        "bug",
-        "stale"
-      ]
-    },
-    {
-      "number": 28234,
-      "title": "Online Dynamic FP8 Quantization (--quantization=\"fp8\") is slower than BF16/FP16 on RTX 5090",
-      "author": "rEwfii",
-      "state": "open",
-      "created_at": "2025-11-06T18:18:29Z",
-      "updated_at": "2026-02-19T02:15:25Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/28234",
-      "labels": [
-        "bug",
-        "stale"
-      ]
-    },
-    {
-      "number": 28371,
-      "title": "[Installation]: Recipe Installation fails due to missing linux aarch64.whl",
-      "author": "SourBhow",
-      "state": "open",
-      "created_at": "2025-11-10T01:30:20Z",
-      "updated_at": "2026-02-19T02:15:15Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/28371",
-      "labels": [
-        "installation",
-        "stale"
-      ]
-    },
-    {
-      "number": 28456,
-      "title": "[Usage]: benchmark_moe Usage",
-      "author": "ekmekovski",
-      "state": "open",
-      "created_at": "2025-11-11T09:22:33Z",
-      "updated_at": "2026-02-19T02:15:10Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/28456",
-      "labels": [
-        "usage",
-        "stale"
-      ]
-    },
-    {
-      "number": 28669,
-      "title": "vLLM 0.11.0 CUDA Library Mismatch on ARM64 with CUDA 13.x",
-      "author": "swatson1000000",
-      "state": "open",
-      "created_at": "2025-11-13T17:06:38Z",
-      "updated_at": "2026-02-19T02:14:58Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/28669",
-      "labels": [
-        "installation",
-        "stale"
-      ]
-    },
-    {
-      "number": 28843,
-      "title": "[Bug]: GPTQ quants fails to run ( RuntimeError: gpt_marlin_gemm only supports bfloat16 and float16 )",
-      "author": "drrros",
-      "state": "open",
-      "created_at": "2025-11-17T07:58:37Z",
-      "updated_at": "2026-02-19T02:14:43Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/28843",
-      "labels": [
-        "bug",
-        "stale"
-      ]
-    },
-    {
-      "number": 28910,
-      "title": "[Bug]:",
-      "author": "SongXiaoMao",
-      "state": "open",
-      "created_at": "2025-11-18T06:22:25Z",
-      "updated_at": "2026-02-19T02:14:38Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/28910",
-      "labels": [
-        "bug",
-        "stale"
-      ]
-    },
-    {
-      "number": 29014,
-      "title": "[Bug]: stride mismatch when using torch compile on graphs with splitting_ops and non-standard tensor dimensions",
-      "author": "tomeras91",
-      "state": "open",
-      "created_at": "2025-11-19T15:48:38Z",
-      "updated_at": "2026-02-19T02:14:28Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/29014",
-      "labels": [
-        "bug",
-        "torch.compile",
-        "stale"
-      ]
-    },
-    {
-      "number": 29098,
-      "title": "[Installation]: Failed building wheel for vllm",
-      "author": "aizyler",
-      "state": "open",
-      "created_at": "2025-11-20T15:16:30Z",
-      "updated_at": "2026-02-19T02:14:18Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/29098",
-      "labels": [
-        "installation",
-        "stale"
-      ]
-    },
-    {
-      "number": 33857,
-      "title": "[Bug]: Qwen3-Coder-Next fails with Triton allocator error on DGX Spark cluster (GB10, sm121)",
-      "author": "eugr",
-      "state": "open",
-      "created_at": "2026-02-05T02:15:14Z",
-      "updated_at": "2026-02-19T02:08:04Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/33857",
-      "labels": [
-        "bug"
-      ]
-    },
-    {
-      "number": 26206,
-      "title": "[Bug]: Qwen3-Next-80B-A3B-Thinking fails to load with CPU offload",
-      "author": "br00t4c",
-      "state": "open",
-      "created_at": "2025-10-04T00:45:39Z",
-      "updated_at": "2026-02-19T00:02:53Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/26206",
-      "labels": [
-        "bug"
-      ]
-    },
-    {
-      "number": 34205,
-      "title": "[Bug]: Set env ROCP_TOOL_ATTACH=1 caused vllm server stopped",
-      "author": "BigFaceBoy",
-      "state": "open",
-      "created_at": "2026-02-10T03:50:51Z",
-      "updated_at": "2026-02-18T22:54:58Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/34205",
-      "labels": [
-        "bug",
-        "rocm"
-      ]
-    },
-    {
-      "number": 34470,
-      "title": "[Bug]: NVIDIA Jetson Thor: Value 'sm_110a' is not defined for option 'gpu-name'",
-      "author": "Kaweees",
-      "state": "open",
-      "created_at": "2026-02-12T22:08:41Z",
-      "updated_at": "2026-02-18T22:11:52Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/34470",
-      "labels": [
-        "bug"
-      ]
-    },
-    {
-      "number": 34755,
-      "title": "Qwen3-Coder-Next-FP8 with tool calling causes system hard-freeze on multi-GPU tensor parallel (v0.15.1)",
-      "author": "zaidorx",
-      "state": "open",
-      "created_at": "2026-02-17T21:59:44Z",
-      "updated_at": "2026-02-18T17:07:14Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/34755",
-      "labels": [
-        "usage"
-      ]
-    },
-    {
-      "number": 34573,
-      "title": "[Installation/Runtime]: Linux ROCM7 /  RuntimeError: No HIP GPUs are available",
-      "author": "NickJLange",
-      "state": "open",
-      "created_at": "2026-02-15T05:46:42Z",
-      "updated_at": "2026-02-18T14:26:07Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/34573",
-      "labels": [
-        "installation",
-        "rocm"
-      ]
-    },
-    {
-      "number": 29516,
-      "title": "[CI Failure]: mi325_4: Distributed Tests (A100)",
-      "author": "AndreasKaratzas",
-      "state": "open",
-      "created_at": "2025-11-26T18:12:19Z",
-      "updated_at": "2026-02-18T04:46:14Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/29516",
-      "labels": [
-        "ci-failure"
-      ]
-    },
-    {
-      "number": 29006,
-      "title": "[Bug]: OpenAI completion error: 500 Unable to allocate 31.6 GiB for an array with shape (65158, 65158) and data type int64",
-      "author": "abhiram1809",
-      "state": "open",
-      "created_at": "2025-11-19T10:46:01Z",
-      "updated_at": "2026-02-18T02:14:43Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/29006",
-      "labels": [
-        "bug",
-        "stale"
-      ]
-    },
-    {
-      "number": 29007,
-      "title": "[Bug]: 0.11.1 A6000x2 120B OSS wrong generations",
-      "author": "Nokimann",
-      "state": "open",
-      "created_at": "2025-11-19T10:57:06Z",
-      "updated_at": "2026-02-18T02:14:41Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/29007",
-      "labels": [
-        "bug",
-        "stale"
-      ]
-    },
-    {
-      "number": 32864,
-      "title": "[Bug] [ROCm]: Loading Qwen3-MoE-MXFP4 Weights in v0.14.",
-      "author": "tjtanaa",
-      "state": "open",
-      "created_at": "2026-01-22T15:31:23Z",
-      "updated_at": "2026-02-18T01:45:06Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/32864",
-      "labels": [
-        "bug",
-        "rocm"
-      ]
-    },
-    {
-      "number": 34607,
-      "title": "[Bug]: specualative decoding error in 0.15.1",
-      "author": "hocop",
-      "state": "open",
-      "created_at": "2026-02-16T07:46:49Z",
-      "updated_at": "2026-02-18T01:21:54Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/34607",
-      "labels": [
-        "bug"
-      ]
-    },
-    {
-      "number": 31028,
-      "title": "[RFC]: AMD-Quark Online Quantization",
-      "author": "hangy-amd",
-      "state": "open",
-      "created_at": "2025-12-19T12:27:00Z",
-      "updated_at": "2026-02-17T23:38:12Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/31028",
-      "labels": [
-        "rocm",
-        "RFC"
-      ]
-    },
-    {
-      "number": 33812,
-      "title": "[CI Failure]:  mi325_4: LM Eval Large Models (H100)",
-      "author": "AndreasKaratzas",
-      "state": "open",
-      "created_at": "2026-02-04T17:50:56Z",
-      "updated_at": "2026-02-17T21:49:16Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/33812",
-      "labels": [
-        "ci-failure"
-      ]
-    },
-    {
-      "number": 31856,
-      "title": "[Bug]: Text degeneration / repetition loops with MiniMax-M2.1-NVFP4 on v0.14.0rc1.dev308",
-      "author": "ktsaou",
-      "state": "open",
-      "created_at": "2026-01-07T01:36:58Z",
-      "updated_at": "2026-02-17T17:41:37Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/31856",
-      "labels": []
     }
   ]
 }

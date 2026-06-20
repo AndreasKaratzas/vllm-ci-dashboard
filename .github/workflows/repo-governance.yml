@@ -1,0 +1,108 @@
+name: Repo Governance
+
+on:
+  issues:
+    types: [opened, reopened]
+  pull_request_target:
+    types: [opened, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  govern:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const isIssue = context.eventName === 'issues';
+            const item = isIssue ? context.payload.issue : context.payload.pull_request;
+            const number = item.number;
+            const author = item.user?.login || '';
+            const senderType = context.payload.sender?.type || '';
+            const labels = (item.labels || []).map((label) =>
+              typeof label === 'string' ? label : label.name
+            ).filter(Boolean);
+
+            const isBotActor = senderType === 'Bot' || author.endsWith('[bot]');
+            const isOwner = author.toLowerCase() === owner.toLowerCase();
+            let isCollaborator = isOwner;
+
+            if (!isCollaborator && !isBotActor) {
+              try {
+                const perm = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner,
+                  repo,
+                  username: author,
+                });
+                const level = perm.data.permission || '';
+                isCollaborator = ['admin', 'maintain', 'write', 'triage'].includes(level);
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+            }
+
+            const allow = isCollaborator || isBotActor;
+
+            if (!allow) {
+              const body = isIssue
+                ? `@${author} this repository only accepts issues from the owner or collaborators. Closing automatically. Please contact @${owner} directly if something needs attention.`
+                : `@${author} this repository only accepts pull requests from the owner or collaborators. Closing automatically. Please contact @${owner} directly if a change needs review.`;
+
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: number,
+                body,
+              });
+
+              if (isIssue) {
+                await github.rest.issues.update({
+                  owner,
+                  repo,
+                  issue_number: number,
+                  state: 'closed',
+                  state_reason: 'not_planned',
+                });
+                await github.rest.issues.lock({
+                  owner,
+                  repo,
+                  issue_number: number,
+                  lock_reason: 'resolved',
+                });
+              } else {
+                await github.rest.pulls.update({
+                  owner,
+                  repo,
+                  pull_number: number,
+                  state: 'closed',
+                });
+              }
+              return;
+            }
+
+            await github.rest.issues.addAssignees({
+              owner,
+              repo,
+              issue_number: number,
+              assignees: [owner],
+            });
+
+            if (!isIssue && author.toLowerCase() !== owner.toLowerCase()) {
+              try {
+                await github.rest.pulls.requestReviewers({
+                  owner,
+                  repo,
+                  pull_number: number,
+                  reviewers: [owner],
+                });
+              } catch (error) {
+                if (error.status !== 422) throw error;
+              }
+            }

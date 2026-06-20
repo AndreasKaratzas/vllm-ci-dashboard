@@ -29,6 +29,10 @@ WORKFLOW_IDS = {
         "rocm": 158326442,
         "cuda": 158326443,
     },
+    "xla": {
+        "rocm": 203835682,
+        "cuda": 140570787,
+    },
 }
 
 
@@ -480,6 +484,176 @@ def collect_ci_signal_time(repo, project_name):
 
 
 # ---------------------------------------------------------------------------
+# vLLM Buildkite CI helpers (GitHub Actions not used for vLLM CI)
+# ---------------------------------------------------------------------------
+
+
+def _load_vllm_builds():
+    """Load vLLM build data from analytics.json (more history than ci_health.json)."""
+    analytics_path = DATA / "vllm" / "ci" / "analytics.json"
+    if analytics_path.exists():
+        try:
+            return json.loads(analytics_path.read_text())
+        except Exception:
+            pass
+    # Fallback to ci_health.json
+    ci_path = DATA / "vllm" / "ci" / "ci_health.json"
+    if ci_path.exists():
+        try:
+            data = json.loads(ci_path.read_text())
+            # Reshape to analytics format
+            return {
+                "amd-ci": {"builds": data.get("amd", {}).get("builds", [])},
+                "ci": {"builds": data.get("upstream", {}).get("builds", [])},
+            }
+        except Exception:
+            pass
+    return None
+
+
+def _is_bad_nightly(build: dict) -> bool:
+    """Detect bad nightlies: bootstrap-only, docker build failure, etc.
+
+    A build with fewer than 50 test jobs is considered a bad nightly
+    (e.g., only bootstrap ran, or docker build failed and nothing else ran).
+    These are filtered out from health metrics to avoid skewing averages.
+    """
+    jobs = build.get("jobs", [])
+    total_jobs = len(jobs)
+
+    # Fewer than 50 jobs means most tests didn't run
+    if total_jobs < 50:
+        return True
+
+    # Docker build failed — rest of the nightly is unreliable
+    docker_jobs = [j for j in jobs if "docker" in j.get("name", "").lower()]
+    if docker_jobs and all(j.get("state") in ("failed", "timed_out") for j in docker_jobs):
+        return True
+
+    return False
+
+
+def _vllm_ci_health_from_buildkite():
+    """Derive CI health for vLLM from Buildkite nightly builds.
+
+    Uses test group pass/fail ratios (passing_groups / total_groups)
+    averaged across recent good nightlies (filtering out bad nightlies
+    like bootstrap-only or docker build failures).
+
+    Uses ci_health.json for group-level stats (test_groups_passing_or)
+    and analytics.json for bad nightly detection (job counts).
+    """
+    ci_path = DATA / "vllm" / "ci" / "ci_health.json"
+    if not ci_path.exists():
+        return None
+    try:
+        ci_data = json.loads(ci_path.read_text())
+    except Exception:
+        return None
+
+    # Load analytics for bad nightly detection
+    analytics_data = _load_vllm_builds() or {}
+
+    results = {}
+    for ci_key, bk_key, platform in [
+        ("amd", "amd-ci", "rocm"),
+        ("upstream", "ci", "cuda"),
+    ]:
+        ci_builds = ci_data.get(ci_key, {}).get("builds", [])
+        analytics_builds = analytics_data.get(bk_key, {}).get("builds", [])
+
+        # Index analytics builds by number for bad nightly check
+        analytics_by_num = {}
+        for b in analytics_builds:
+            bn = b.get("number")
+            if bn and bn not in analytics_by_num:
+                analytics_by_num[bn] = b
+
+        # Collect group pass rates from good nightlies
+        seen = set()
+        passing_counts = []
+        total_counts = []
+        for b in ci_builds:
+            bn = b.get("build_number")
+            if bn in seen:
+                continue
+            seen.add(bn)
+
+            # Filter out bad nightlies
+            ab = analytics_by_num.get(bn)
+            if ab and _is_bad_nightly(ab):
+                continue
+
+            passing = b.get("test_groups_passing_or", 0)
+            total = b.get("unique_test_groups", 0)
+            if total > 0:
+                passing_counts.append(passing)
+                total_counts.append(total)
+
+            if len(passing_counts) >= 20:
+                break
+
+        if not passing_counts:
+            results[platform] = None
+            continue
+
+        # Use the latest good nightly's group counts for display
+        # (avg across builds would show cumulative totals which is confusing)
+        latest_passing = passing_counts[0]
+        latest_total = total_counts[0]
+        avg_rate = round(
+            sum(p / t for p, t in zip(passing_counts, total_counts))
+            / len(passing_counts) * 100, 1
+        ) if passing_counts else 0
+
+        results[platform] = {
+            "total_runs": latest_total,
+            "succeeded": latest_passing,
+            "failed": latest_total - latest_passing,
+            "success_rate": avg_rate,
+        }
+
+    return results if results else None
+
+
+def _vllm_ci_signal_from_buildkite():
+    """Derive CI signal time for vLLM from Buildkite data."""
+    data = _load_vllm_builds()
+    if not data:
+        return None
+
+    results = {}
+    for bk_key, platform in [("amd-ci", "rocm"), ("ci", "cuda")]:
+        builds = data.get(bk_key, {}).get("builds", [])
+        seen = set()
+        durations = []
+        for b in builds:
+            bn = b.get("number") or b.get("build_number")
+            if bn in seen:
+                continue
+            seen.add(bn)
+            # analytics.json uses wall_mins; ci_health.json uses wall_clock_secs
+            wc_min = b.get("wall_mins") or (b.get("wall_clock_secs", 0) / 60 if b.get("wall_clock_secs") else 0)
+            state = b.get("state", "")
+            if state in ("passed", "failed", "canceled", "timed_out", "broken") and wc_min > 0:
+                durations.append(round(wc_min, 1))
+        durations = sorted(durations[:20])
+        if not durations:
+            results[platform] = None
+            continue
+        mid = len(durations) // 2
+        median = round((durations[mid - 1] + durations[mid]) / 2, 1) if len(durations) % 2 == 0 and len(durations) > 1 else durations[mid]
+        results[platform] = {
+            "sample_size": len(durations),
+            "median_minutes": median,
+            "p90_minutes": durations[int(len(durations) * 0.9)],
+            "min_minutes": durations[0],
+            "max_minutes": durations[-1],
+        }
+    return results if results else None
+
+
+# ---------------------------------------------------------------------------
 # Release Cadence
 # ---------------------------------------------------------------------------
 
@@ -559,11 +733,15 @@ def collect_project_activity(name, cfg):
     # CI Health
     print(f"  CI health...")
     ci_health = collect_ci_health(repo, name)
+    if ci_health is None and name == "vllm":
+        ci_health = _vllm_ci_health_from_buildkite()
     activity["ci_health"] = ci_health
 
     # Time to CI Signal
     print(f"  CI signal time...")
     ci_signal = collect_ci_signal_time(repo, name)
+    if ci_signal is None and name == "vllm":
+        ci_signal = _vllm_ci_signal_from_buildkite()
     activity["ci_signal_time"] = ci_signal
 
     # Release Cadence
@@ -578,6 +756,9 @@ def main():
         config = yaml.safe_load(f)
 
     for name, cfg in config["projects"].items():
+        if name != "vllm":
+            print(f"Skipping {name} (test-parity only)")
+            continue
         try:
             activity = collect_project_activity(name, cfg)
             out_dir = DATA / name

@@ -1,19 +1,4 @@
 projects:
-  pytorch:
-    repo: pytorch/pytorch
-    role: upstream_watch
-    track_authors: []
-    track_labels: ["module: rocm"]
-    track_keywords: [ROCm, AMD]
-
-  jax:
-    repo: jax-ml/jax
-    role: upstream_watch
-    track_authors: []
-    track_labels: ["AMD GPU"]
-    track_keywords: [ROCm]
-    keyword_scope: title
-
   vllm:
     repo: vllm-project/vllm
     fork: sunway513/vllm
@@ -21,57 +6,7 @@ projects:
     track_authors: []
     track_labels: [rocm, amd]
     track_keywords: [ROCm, AMD, HIP]
-
-  sglang:
-    repo: sgl-project/sglang
-    role: upstream_watch
-    track_authors: []
-    track_labels: [rocm, amd]
-    track_keywords: [ROCm, AMD, HIP]
-
-  triton:
-    repo: triton-lang/triton
-    role: upstream_watch
-    track_authors: []
-    track_labels: []
-    track_keywords: ["[AMD]"]
-    keyword_scope: title
-
-  migraphx:
-    repo: ROCm/AMDMIGraphX
-    role: active_dev
-    track_authors: []
-    track_labels: []
-    track_keywords: []
-
-  aiter:
-    repo: ROCm/aiter
-    fork: sunway513/aiter
-    role: active_dev
-    track_authors: [sunway513]
-    track_labels: []
-    track_keywords: []
-
-  atom:
-    repo: ROCm/ATOM
-    fork: sunway513/ATOM
-    role: active_dev
-    track_authors: [sunway513]
-    track_labels: []
-    track_keywords: []
-
-  mori:
-    repo: ROCm/mori
-    fork: sunway513/mori
-    role: active_dev
-    track_authors: [sunway513]
-    track_labels: []
-    track_keywords: []
-
-  flydsl:
-    repo: ROCm/FlyDSL
-    fork: sunway513/FlyDSL
-    role: active_dev
-    track_authors: [sunway513]
-    track_labels: []
-    track_keywords: []
+    depends_on: []
+    build_workflows:
+      - name: "Docker Image CI"
+        id: 141341664

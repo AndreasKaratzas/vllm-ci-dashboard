@@ -1,0 +1,1005 @@
+{
+  "generated_at": "2026-06-20T20:43:05Z",
+  "source": {
+    "kind": "github_archive",
+    "github_repo": "vllm-project/vllm",
+    "ref": "main",
+    "test_areas_path": ".buildkite/test_areas"
+  },
+  "assumptions": {
+    "capacity_basis": "Buildkite connected-agent peak capacity from the AMD queue screenshot",
+    "projection_model": "Naive scale-up of current mirror.amd group count, configured parallelism, and source_file_dependencies line scope. The frontend also scales observed queue peaks from the live queue history for pressure estimates.",
+    "default_theoretical_groups": 125
+  },
+  "summary": {
+    "queue_count": 16,
+    "total_capacity": 715,
+    "gated_group_count": 29,
+    "capacity_scoped_group_count": 29,
+    "gated_job_count": 34,
+    "total_dependency_files": 43736,
+    "total_dependency_lines": 14297662,
+    "unique_dependency_files": 3170,
+    "average_dependency_files_per_group": 1508.1,
+    "average_dependency_lines_per_group": 493022.8,
+    "queues_with_gated_work": 4
+  },
+  "queues": [
+    {
+      "id": "amd_mi250_1",
+      "label": "mi250_1",
+      "max_agents": 78,
+      "gated_groups": 3,
+      "gated_jobs": 3,
+      "dependency_file_count": 1499,
+      "dependency_lines": 420692,
+      "max_group_dependency_lines": 190027
+    },
+    {
+      "id": "amd_mi250_2",
+      "label": "mi250_2",
+      "max_agents": 24,
+      "gated_groups": 0,
+      "gated_jobs": 0,
+      "dependency_file_count": 0,
+      "dependency_lines": 0,
+      "max_group_dependency_lines": 0
+    },
+    {
+      "id": "amd_mi250_4",
+      "label": "mi250_4",
+      "max_agents": 16,
+      "gated_groups": 0,
+      "gated_jobs": 0,
+      "dependency_file_count": 0,
+      "dependency_lines": 0,
+      "max_group_dependency_lines": 0
+    },
+    {
+      "id": "amd_mi250_8",
+      "label": "mi250_8",
+      "max_agents": 4,
+      "gated_groups": 0,
+      "gated_jobs": 0,
+      "dependency_file_count": 0,
+      "dependency_lines": 0,
+      "max_group_dependency_lines": 0
+    },
+    {
+      "id": "amd_mi300_1",
+      "label": "mi300_1",
+      "max_agents": 264,
+      "gated_groups": 1,
+      "gated_jobs": 1,
+      "dependency_file_count": 1883,
+      "dependency_lines": 609702,
+      "max_group_dependency_lines": 609702
+    },
+    {
+      "id": "amd_mi300_2",
+      "label": "mi300_2",
+      "max_agents": 40,
+      "gated_groups": 0,
+      "gated_jobs": 0,
+      "dependency_file_count": 0,
+      "dependency_lines": 0,
+      "max_group_dependency_lines": 0
+    },
+    {
+      "id": "amd_mi300_4",
+      "label": "mi300_4",
+      "max_agents": 30,
+      "gated_groups": 0,
+      "gated_jobs": 0,
+      "dependency_file_count": 0,
+      "dependency_lines": 0,
+      "max_group_dependency_lines": 0
+    },
+    {
+      "id": "amd_mi300_8",
+      "label": "mi300_8",
+      "max_agents": 3,
+      "gated_groups": 1,
+      "gated_jobs": 1,
+      "dependency_file_count": 0,
+      "dependency_lines": 0,
+      "max_group_dependency_lines": 0
+    },
+    {
+      "id": "amd_mi325_1",
+      "label": "mi325_1",
+      "max_agents": 180,
+      "gated_groups": 24,
+      "gated_jobs": 29,
+      "dependency_file_count": 40354,
+      "dependency_lines": 13267268,
+      "max_group_dependency_lines": 859938
+    },
+    {
+      "id": "amd_mi325_2",
+      "label": "mi325_2",
+      "max_agents": 8,
+      "gated_groups": 0,
+      "gated_jobs": 0,
+      "dependency_file_count": 0,
+      "dependency_lines": 0,
+      "max_group_dependency_lines": 0
+    },
+    {
+      "id": "amd_mi325_4",
+      "label": "mi325_4",
+      "max_agents": 4,
+      "gated_groups": 0,
+      "gated_jobs": 0,
+      "dependency_file_count": 0,
+      "dependency_lines": 0,
+      "max_group_dependency_lines": 0
+    },
+    {
+      "id": "amd_mi325_8",
+      "label": "mi325_8",
+      "max_agents": 1,
+      "gated_groups": 0,
+      "gated_jobs": 0,
+      "dependency_file_count": 0,
+      "dependency_lines": 0,
+      "max_group_dependency_lines": 0
+    },
+    {
+      "id": "amd_mi355_1",
+      "label": "mi355_1",
+      "max_agents": 39,
+      "gated_groups": 0,
+      "gated_jobs": 0,
+      "dependency_file_count": 0,
+      "dependency_lines": 0,
+      "max_group_dependency_lines": 0
+    },
+    {
+      "id": "amd_mi355_2",
+      "label": "mi355_2",
+      "max_agents": 20,
+      "gated_groups": 0,
+      "gated_jobs": 0,
+      "dependency_file_count": 0,
+      "dependency_lines": 0,
+      "max_group_dependency_lines": 0
+    },
+    {
+      "id": "amd_mi355_4",
+      "label": "mi355_4",
+      "max_agents": 3,
+      "gated_groups": 0,
+      "gated_jobs": 0,
+      "dependency_file_count": 0,
+      "dependency_lines": 0,
+      "max_group_dependency_lines": 0
+    },
+    {
+      "id": "amd_mi355_8",
+      "label": "mi355_8",
+      "max_agents": 1,
+      "gated_groups": 0,
+      "gated_jobs": 0,
+      "dependency_file_count": 0,
+      "dependency_lines": 0,
+      "max_group_dependency_lines": 0
+    }
+  ],
+  "groups": [
+    {
+      "key": "v1-attention-h100-mi300",
+      "label": "V1 attention (H100-MI300)",
+      "area": "Attention",
+      "yaml_file": ".buildkite/test_areas/attention.yaml",
+      "yaml_index": 0,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 70,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/config/attention.py",
+        "vllm/model_executor/layers/attention",
+        "vllm/v1/attention",
+        "tests/v1/attention",
+        "vllm/_aiter_ops.py",
+        "vllm/envs.py",
+        "vllm/platforms/rocm.py"
+      ],
+      "dependency_file_count": 101,
+      "dependency_lines": 50684,
+      "missing_dependencies": []
+    },
+    {
+      "key": "engine",
+      "label": "Engine",
+      "area": "Engine",
+      "yaml_file": ".buildkite/test_areas/engine.yaml",
+      "yaml_index": 0,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 60,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/compilation/",
+        "vllm/config/",
+        "vllm/engine/",
+        "vllm/entrypoints/logger.py",
+        "vllm/envs.py",
+        "vllm/logger.py",
+        "vllm/logging_utils/",
+        "vllm/platforms/",
+        "vllm/sequence.py",
+        "vllm/triton_utils/",
+        "vllm/utils/",
+        "tests/engine",
+        "tests/test_sequence",
+        "tests/test_config",
+        "tests/test_logger",
+        "tests/test_vllm_port",
+        "tests/test_jit_monitor.py"
+      ],
+      "dependency_file_count": 140,
+      "dependency_lines": 47606,
+      "missing_dependencies": [
+        "vllm/entrypoints/logger.py",
+        "tests/test_sequence",
+        "tests/test_config",
+        "tests/test_logger",
+        "tests/test_vllm_port"
+      ]
+    },
+    {
+      "key": "engine-1-gpu",
+      "label": "Engine (1 GPU)",
+      "area": "Engine",
+      "yaml_file": ".buildkite/test_areas/engine.yaml",
+      "yaml_index": 1,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 40,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/v1/engine/",
+        "tests/v1/engine/"
+      ],
+      "dependency_file_count": 31,
+      "dependency_lines": 16479,
+      "missing_dependencies": []
+    },
+    {
+      "key": "e2e-scheduling-1-gpu",
+      "label": "e2e Scheduling (1 GPU)",
+      "area": "Engine",
+      "yaml_file": ".buildkite/test_areas/engine.yaml",
+      "yaml_index": 2,
+      "device": "mi250_1",
+      "queue": "amd_mi250_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 60,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/v1/",
+        "tests/v1/e2e/general/"
+      ],
+      "dependency_file_count": 309,
+      "dependency_lines": 114822,
+      "missing_dependencies": []
+    },
+    {
+      "key": "e2e-core-1-gpu",
+      "label": "e2e Core (1 GPU)",
+      "area": "Engine",
+      "yaml_file": ".buildkite/test_areas/engine.yaml",
+      "yaml_index": 3,
+      "device": "mi250_1",
+      "queue": "amd_mi250_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 35,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/v1/",
+        "tests/v1/e2e/general/",
+        "vllm/platforms/rocm.py"
+      ],
+      "dependency_file_count": 310,
+      "dependency_lines": 115843,
+      "missing_dependencies": []
+    },
+    {
+      "key": "entrypoints-integration-llm",
+      "label": "Entrypoints Integration (LLM)",
+      "area": "Entrypoints",
+      "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
+      "yaml_index": 1,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 40,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/",
+        "tests/entrypoints/llm"
+      ],
+      "dependency_file_count": 2468,
+      "dependency_lines": 840493,
+      "missing_dependencies": []
+    },
+    {
+      "key": "entrypoints-integration-api-server",
+      "label": "Entrypoints Integration (API Server)",
+      "area": "Entrypoints",
+      "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
+      "yaml_index": 2,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 130,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/",
+        "tests/entrypoints/serve"
+      ],
+      "dependency_file_count": 2501,
+      "dependency_lines": 845762,
+      "missing_dependencies": []
+    },
+    {
+      "key": "entrypoints-integration-api-server-openai-part-1",
+      "label": "Entrypoints Integration (API Server OpenAI - Part 1)",
+      "area": "Entrypoints",
+      "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
+      "yaml_index": 3,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 80,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/",
+        "tests/entrypoints/openai",
+        "tests/entrypoints/test_chat_utils"
+      ],
+      "dependency_file_count": 2525,
+      "dependency_lines": 859938,
+      "missing_dependencies": [
+        "tests/entrypoints/test_chat_utils"
+      ]
+    },
+    {
+      "key": "entrypoints-integration-api-server-openai-part-2",
+      "label": "Entrypoints Integration (API Server OpenAI - Part 2)",
+      "area": "Entrypoints",
+      "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
+      "yaml_index": 4,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 80,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/",
+        "tests/entrypoints/openai",
+        "tests/entrypoints/test_chat_utils"
+      ],
+      "dependency_file_count": 2525,
+      "dependency_lines": 859938,
+      "missing_dependencies": [
+        "tests/entrypoints/test_chat_utils"
+      ]
+    },
+    {
+      "key": "entrypoints-integration-api-server-generate",
+      "label": "Entrypoints Integration (API Server Generate)",
+      "area": "Entrypoints",
+      "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
+      "yaml_index": 5,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 60,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/",
+        "tests/tool_use",
+        "tests/entrypoints/tool_parsers",
+        "tests/entrypoints/anthropic",
+        "tests/entrypoints/generate"
+      ],
+      "dependency_file_count": 2484,
+      "dependency_lines": 844353,
+      "missing_dependencies": []
+    },
+    {
+      "key": "openai-api-correctness",
+      "label": "OpenAI API Correctness",
+      "area": "Entrypoints",
+      "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
+      "yaml_index": 10,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 30,
+      "optional": false,
+      "source_file_dependencies": [
+        "csrc/",
+        "vllm/entrypoints/openai/",
+        "vllm/model_executor/layers/",
+        "vllm/v1/attention/backends/",
+        "vllm/v1/attention/selector.py",
+        "vllm/_aiter_ops.py",
+        "vllm/platforms/rocm.py",
+        "vllm/model_executor/model_loader/"
+      ],
+      "dependency_file_count": 1249,
+      "dependency_lines": 339541,
+      "missing_dependencies": []
+    },
+    {
+      "key": "kernels-quantization-test",
+      "label": "Kernels Quantization Test %N",
+      "area": "Kernels",
+      "yaml_file": ".buildkite/test_areas/kernels.yaml",
+      "yaml_index": 7,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 2,
+      "timeout_in_minutes": 90,
+      "optional": false,
+      "source_file_dependencies": [
+        "csrc/quantization/",
+        "vllm/model_executor/layers/quantization",
+        "vllm/config/",
+        "tests/kernels/quantization",
+        "tests/kernels/quantization/test_rocm_skinny_gemms.py",
+        "vllm/_aiter_ops.py",
+        "vllm/platforms/rocm.py",
+        "vllm/model_executor/kernels/"
+      ],
+      "dependency_file_count": 462,
+      "dependency_lines": 100409,
+      "missing_dependencies": []
+    },
+    {
+      "key": "lm-eval-small-models",
+      "label": "LM Eval Small Models",
+      "area": "LM Eval",
+      "yaml_file": ".buildkite/test_areas/lm_eval.yaml",
+      "yaml_index": 0,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 55,
+      "optional": false,
+      "source_file_dependencies": [
+        "csrc/",
+        "vllm/model_executor/layers/quantization",
+        "vllm/model_executor/models/",
+        "vllm/model_executor/model_loader/",
+        "vllm/v1/attention/backends/",
+        "vllm/v1/attention/selector.py",
+        "vllm/_aiter_ops.py",
+        "vllm/platforms/rocm.py"
+      ],
+      "dependency_file_count": 973,
+      "dependency_lines": 393189,
+      "missing_dependencies": []
+    },
+    {
+      "key": "lm-eval-large-models-h200",
+      "label": "LM Eval Large Models (H200)",
+      "area": "LM Eval",
+      "yaml_file": ".buildkite/test_areas/lm_eval.yaml",
+      "yaml_index": 5,
+      "device": "mi300_8",
+      "queue": "amd_mi300_8",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 180,
+      "optional": true,
+      "source_file_dependencies": [],
+      "dependency_file_count": 0,
+      "dependency_lines": 0,
+      "missing_dependencies": []
+    },
+    {
+      "key": "lora",
+      "label": "LoRA %N",
+      "area": "LoRA",
+      "yaml_file": ".buildkite/test_areas/lora.yaml",
+      "yaml_index": 0,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 4,
+      "timeout_in_minutes": 60,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/lora",
+        "tests/lora",
+        "vllm/platforms/rocm.py"
+      ],
+      "dependency_file_count": 81,
+      "dependency_lines": 26077,
+      "missing_dependencies": []
+    },
+    {
+      "key": "v1-spec-decode",
+      "label": "V1 Spec Decode",
+      "area": "Miscellaneous",
+      "yaml_file": ".buildkite/test_areas/misc.yaml",
+      "yaml_index": 0,
+      "device": "mi300_1",
+      "queue": "amd_mi300_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 65,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/config/",
+        "vllm/distributed/",
+        "vllm/inputs/",
+        "vllm/model_executor/",
+        "vllm/platforms/",
+        "vllm/sampling_params.py",
+        "vllm/transformers_utils/",
+        "vllm/utils/",
+        "vllm/v1/",
+        "tests/v1/spec_decode"
+      ],
+      "dependency_file_count": 1883,
+      "dependency_lines": 609702,
+      "missing_dependencies": []
+    },
+    {
+      "key": "v1-sample-logits",
+      "label": "V1 Sample + Logits",
+      "area": "Miscellaneous",
+      "yaml_file": ".buildkite/test_areas/misc.yaml",
+      "yaml_index": 1,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 30,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/config/",
+        "vllm/distributed/",
+        "vllm/engine/",
+        "vllm/inputs/",
+        "vllm/logger.py",
+        "vllm/model_executor/",
+        "vllm/platforms/",
+        "vllm/sampling_params.py",
+        "vllm/transformers_utils/",
+        "vllm/utils/",
+        "vllm/v1/",
+        "tests/v1/sample",
+        "tests/v1/logits_processors",
+        "tests/v1/test_oracle.py",
+        "tests/v1/test_request.py",
+        "tests/v1/test_outputs.py"
+      ],
+      "dependency_file_count": 1890,
+      "dependency_lines": 615561,
+      "missing_dependencies": []
+    },
+    {
+      "key": "language-models-tests-hybrid",
+      "label": "Language Models Tests (Hybrid) %N",
+      "area": "Models - Language",
+      "yaml_file": ".buildkite/test_areas/models_language.yaml",
+      "yaml_index": 2,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 2,
+      "timeout_in_minutes": 90,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/",
+        "tests/models/language/generation"
+      ],
+      "dependency_file_count": 2467,
+      "dependency_lines": 840567,
+      "missing_dependencies": []
+    },
+    {
+      "key": "language-models-test-extended-pooling",
+      "label": "Language Models Test (Extended Pooling)",
+      "area": "Models - Language",
+      "yaml_file": ".buildkite/test_areas/models_language.yaml",
+      "yaml_index": 5,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 100,
+      "optional": true,
+      "source_file_dependencies": [
+        "vllm/",
+        "tests/models/language/pooling"
+      ],
+      "dependency_file_count": 2481,
+      "dependency_lines": 841589,
+      "missing_dependencies": []
+    },
+    {
+      "key": "multi-modal-models-standard-1-qwen2",
+      "label": "Multi-Modal Models (Standard) 1: qwen2",
+      "area": "Models - Multimodal",
+      "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
+      "yaml_index": 0,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 45,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/",
+        "tests/models/multimodal"
+      ],
+      "dependency_file_count": 2542,
+      "dependency_lines": 857080,
+      "missing_dependencies": []
+    },
+    {
+      "key": "multi-modal-models-standard-2-qwen3-gemma",
+      "label": "Multi-Modal Models (Standard) 2: qwen3 + gemma",
+      "area": "Models - Multimodal",
+      "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
+      "yaml_index": 1,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 45,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/",
+        "tests/models/multimodal"
+      ],
+      "dependency_file_count": 2542,
+      "dependency_lines": 857080,
+      "missing_dependencies": []
+    },
+    {
+      "key": "multi-modal-models-standard-3-llava-qwen2-vl",
+      "label": "Multi-Modal Models (Standard) 3: llava + qwen2_vl",
+      "area": "Models - Multimodal",
+      "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
+      "yaml_index": 2,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 45,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/",
+        "tests/models/multimodal"
+      ],
+      "dependency_file_count": 2542,
+      "dependency_lines": 857080,
+      "missing_dependencies": []
+    },
+    {
+      "key": "multi-modal-models-standard-4-other-whisper",
+      "label": "Multi-Modal Models (Standard) 4: other + whisper",
+      "area": "Models - Multimodal",
+      "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
+      "yaml_index": 3,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 45,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/",
+        "tests/models/multimodal"
+      ],
+      "dependency_file_count": 2542,
+      "dependency_lines": 857080,
+      "missing_dependencies": []
+    },
+    {
+      "key": "multi-modal-models-extended-generation-1",
+      "label": "Multi-Modal Models (Extended Generation 1)",
+      "area": "Models - Multimodal",
+      "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
+      "yaml_index": 7,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 0,
+      "optional": true,
+      "source_file_dependencies": [
+        "vllm/",
+        "tests/models/multimodal/generation",
+        "tests/models/multimodal/test_mapping.py"
+      ],
+      "dependency_file_count": 2489,
+      "dependency_lines": 848581,
+      "missing_dependencies": []
+    },
+    {
+      "key": "multi-modal-models-extended-pooling",
+      "label": "Multi-Modal Models (Extended Pooling)",
+      "area": "Models - Multimodal",
+      "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
+      "yaml_index": 10,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 60,
+      "optional": true,
+      "source_file_dependencies": [
+        "vllm/",
+        "tests/models/multimodal/pooling"
+      ],
+      "dependency_file_count": 2475,
+      "dependency_lines": 841728,
+      "missing_dependencies": []
+    },
+    {
+      "key": "samplers-test",
+      "label": "Samplers Test",
+      "area": "Samplers",
+      "yaml_file": ".buildkite/test_areas/samplers.yaml",
+      "yaml_index": 0,
+      "device": "mi250_1",
+      "queue": "amd_mi250_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 75,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/model_executor/layers",
+        "vllm/sampling_metadata.py",
+        "tests/samplers",
+        "tests/conftest.py",
+        "vllm/entrypoints/generate/beam_search"
+      ],
+      "dependency_file_count": 880,
+      "dependency_lines": 190027,
+      "missing_dependencies": [
+        "vllm/sampling_metadata.py"
+      ]
+    },
+    {
+      "key": "spec-decode-speculators-mtp",
+      "label": "Spec Decode Speculators + MTP",
+      "area": "Spec Decode",
+      "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
+      "yaml_index": 2,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 65,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/v1/spec_decode/",
+        "vllm/v1/worker/gpu/spec_decode/",
+        "vllm/model_executor/model_loader/",
+        "vllm/v1/sample/",
+        "vllm/model_executor/layers/",
+        "vllm/transformers_utils/configs/speculators/",
+        "tests/v1/e2e/spec_decode/",
+        "vllm/platforms/rocm.py"
+      ],
+      "dependency_file_count": 950,
+      "dependency_lines": 208983,
+      "missing_dependencies": []
+    },
+    {
+      "key": "spec-decode-ngram-suffix",
+      "label": "Spec Decode Ngram + Suffix",
+      "area": "Spec Decode",
+      "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
+      "yaml_index": 4,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 65,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/v1/spec_decode/",
+        "vllm/v1/worker/gpu/spec_decode/",
+        "vllm/model_executor/model_loader/",
+        "vllm/v1/sample/",
+        "vllm/model_executor/layers/",
+        "tests/v1/e2e/spec_decode/",
+        "vllm/platforms/rocm.py"
+      ],
+      "dependency_file_count": 947,
+      "dependency_lines": 208735,
+      "missing_dependencies": []
+    },
+    {
+      "key": "spec-decode-draft-model",
+      "label": "Spec Decode Draft Model",
+      "area": "Spec Decode",
+      "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
+      "yaml_index": 5,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 50,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/v1/spec_decode/",
+        "vllm/v1/worker/gpu/spec_decode/",
+        "vllm/model_executor/model_loader/",
+        "vllm/v1/sample/",
+        "vllm/model_executor/layers/",
+        "tests/v1/e2e/spec_decode/",
+        "vllm/platforms/rocm.py"
+      ],
+      "dependency_file_count": 947,
+      "dependency_lines": 208735,
+      "missing_dependencies": []
+    }
+  ],
+  "projection": {
+    "theoretical_groups": 125,
+    "scale": 4.3103,
+    "projected_total_jobs": 146.5,
+    "projected_dependency_lines": 61627853,
+    "projected_capacity_ratio": 0.2049,
+    "bottleneck_queue": "amd_mi300_8",
+    "queues": [
+      {
+        "id": "amd_mi250_1",
+        "label": "mi250_1",
+        "max_agents": 78,
+        "projected_jobs": 12.9,
+        "projected_dependency_lines": 1813328,
+        "projected_capacity_ratio": 0.1654
+      },
+      {
+        "id": "amd_mi250_2",
+        "label": "mi250_2",
+        "max_agents": 24,
+        "projected_jobs": 0.0,
+        "projected_dependency_lines": 0,
+        "projected_capacity_ratio": 0.0
+      },
+      {
+        "id": "amd_mi250_4",
+        "label": "mi250_4",
+        "max_agents": 16,
+        "projected_jobs": 0.0,
+        "projected_dependency_lines": 0,
+        "projected_capacity_ratio": 0.0
+      },
+      {
+        "id": "amd_mi250_8",
+        "label": "mi250_8",
+        "max_agents": 4,
+        "projected_jobs": 0.0,
+        "projected_dependency_lines": 0,
+        "projected_capacity_ratio": 0.0
+      },
+      {
+        "id": "amd_mi300_1",
+        "label": "mi300_1",
+        "max_agents": 264,
+        "projected_jobs": 4.3,
+        "projected_dependency_lines": 2628026,
+        "projected_capacity_ratio": 0.0163
+      },
+      {
+        "id": "amd_mi300_2",
+        "label": "mi300_2",
+        "max_agents": 40,
+        "projected_jobs": 0.0,
+        "projected_dependency_lines": 0,
+        "projected_capacity_ratio": 0.0
+      },
+      {
+        "id": "amd_mi300_4",
+        "label": "mi300_4",
+        "max_agents": 30,
+        "projected_jobs": 0.0,
+        "projected_dependency_lines": 0,
+        "projected_capacity_ratio": 0.0
+      },
+      {
+        "id": "amd_mi300_8",
+        "label": "mi300_8",
+        "max_agents": 3,
+        "projected_jobs": 4.3,
+        "projected_dependency_lines": 0,
+        "projected_capacity_ratio": 1.4333
+      },
+      {
+        "id": "amd_mi325_1",
+        "label": "mi325_1",
+        "max_agents": 180,
+        "projected_jobs": 125.0,
+        "projected_dependency_lines": 57186500,
+        "projected_capacity_ratio": 0.6944
+      },
+      {
+        "id": "amd_mi325_2",
+        "label": "mi325_2",
+        "max_agents": 8,
+        "projected_jobs": 0.0,
+        "projected_dependency_lines": 0,
+        "projected_capacity_ratio": 0.0
+      },
+      {
+        "id": "amd_mi325_4",
+        "label": "mi325_4",
+        "max_agents": 4,
+        "projected_jobs": 0.0,
+        "projected_dependency_lines": 0,
+        "projected_capacity_ratio": 0.0
+      },
+      {
+        "id": "amd_mi325_8",
+        "label": "mi325_8",
+        "max_agents": 1,
+        "projected_jobs": 0.0,
+        "projected_dependency_lines": 0,
+        "projected_capacity_ratio": 0.0
+      },
+      {
+        "id": "amd_mi355_1",
+        "label": "mi355_1",
+        "max_agents": 39,
+        "projected_jobs": 0.0,
+        "projected_dependency_lines": 0,
+        "projected_capacity_ratio": 0.0
+      },
+      {
+        "id": "amd_mi355_2",
+        "label": "mi355_2",
+        "max_agents": 20,
+        "projected_jobs": 0.0,
+        "projected_dependency_lines": 0,
+        "projected_capacity_ratio": 0.0
+      },
+      {
+        "id": "amd_mi355_4",
+        "label": "mi355_4",
+        "max_agents": 3,
+        "projected_jobs": 0.0,
+        "projected_dependency_lines": 0,
+        "projected_capacity_ratio": 0.0
+      },
+      {
+        "id": "amd_mi355_8",
+        "label": "mi355_8",
+        "max_agents": 1,
+        "projected_jobs": 0.0,
+        "projected_dependency_lines": 0,
+        "projected_capacity_ratio": 0.0
+      }
+    ]
+  }
+}

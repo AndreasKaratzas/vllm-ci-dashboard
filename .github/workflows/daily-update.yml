@@ -1,9 +1,18 @@
-name: Daily Update
+name: Hourly Update
 
 on:
-  schedule:
-    - cron: '0 8 * * *'  # Daily 8am UTC
-  workflow_dispatch:       # Manual trigger
+  workflow_dispatch:  # Manual trigger (hourly runs handled by hourly-master)
+    inputs:
+      force_full:
+        description: 'Force full data collection (skip freshness check)'
+        required: false
+        default: 'false'
+
+concurrency:
+  # Shares the same lock as every workflow that publishes to gh-pages so
+  # queue, CI, manual, and preview deploys never overlap on the branch.
+  group: gh-pages-deploy
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -19,33 +28,143 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install pyyaml
+        run: pip install pyyaml requests
+
+      # Min-frequency logic: only run heavy GitHub API collection if data
+      # is older than 1 hour, or if force_full is set. Queue and CI data
+      # have their own dedicated workflows, so we always deploy but only
+      # re-collect GitHub data when stale.
+      - name: Check data freshness
+        id: freshness
+        run: |
+          FORCE="${{ github.event.inputs.force_full || 'false' }}"
+          if [ "$FORCE" = "true" ]; then
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+            echo "reason=forced" >> "$GITHUB_OUTPUT"
+            echo "Data collection forced by manual trigger"
+            exit 0
+          fi
+          python3 - <<'PY'
+          import datetime
+          import json
+          import os
+          from pathlib import Path
+
+          now = datetime.datetime.now(datetime.timezone.utc)
+
+          def load_ts(path_str: str, key: str):
+              path = Path(path_str)
+              if not path.exists():
+                  return None
+              try:
+                  payload = json.loads(path.read_text())
+              except Exception:
+                  return None
+              raw = payload.get(key) or ""
+              if not raw:
+                  return None
+              try:
+                  return datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+              except ValueError:
+                  return None
+
+          prs_ts = load_ts("data/vllm/prs.json", "collected_at")
+          ready_ts = load_ts("data/vllm/ci/ready_tickets.json", "generated_at")
+          project_ts = load_ts("data/vllm/ci/project_items.json", "generated_at")
+
+          prs_age_seconds = int((now - prs_ts).total_seconds()) if prs_ts else 999999
+          ready_newer = bool(prs_ts and ready_ts and ready_ts > prs_ts)
+          project_newer = bool(prs_ts and project_ts and project_ts > prs_ts)
+          stale = prs_ts is None or prs_age_seconds > 3600 or ready_newer or project_newer
+
+          reasons = []
+          if prs_ts is None:
+              reasons.append("prs_missing")
+          elif prs_age_seconds > 3600:
+              reasons.append("prs_stale")
+          if ready_newer:
+              reasons.append("ready_tickets_newer")
+          if project_newer:
+              reasons.append("project_items_newer")
+          reason = ",".join(reasons) or "fresh"
+
+          print(
+              f"GitHub data freshness: prs_age_seconds={prs_age_seconds}, "
+              f"ready_tickets_newer={ready_newer}, project_items_newer={project_newer}, "
+              f"reason={reason}"
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"stale={'true' if stale else 'false'}\n")
+              fh.write(f"prs_age_seconds={prs_age_seconds}\n")
+              fh.write(f"reason={reason}\n")
+          PY
 
       - name: Collect data
+        if: steps.freshness.outputs.stale == 'true'
         run: python scripts/collect.py
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Collect test results
-        run: python scripts/collect_tests.py
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Collect activity metrics
-        run: python scripts/collect_activity.py
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Take weekly snapshot
-        run: python scripts/snapshot.py
+          PROJECTS_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
 
       - name: Render dashboards
+        if: steps.freshness.outputs.stale == 'true'
         run: python scripts/render.py
 
       - name: Commit and push
+        if: steps.freshness.outputs.stale == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/ dashboards/ docs/_data/ README.md
-          git diff --staged --quiet || git commit -m "daily update $(date -u +%Y-%m-%d)"
-          git push
+          git add data/ dashboards/ README.md
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "update $(date -u +%Y-%m-%dT%H:%M)"
+            # Push to main is best-effort — branch protection may block it.
+            # The deploy to gh-pages below ensures data is always published.
+            if git pull --rebase origin main; then
+              git push || echo "::warning::Push to main failed (branch protection). Data will be deployed to gh-pages directly."
+            else
+              git rebase --abort || true
+              echo "::warning::Rebase against origin/main failed; deploying from the pre-rebase tree instead."
+            fi
+          fi
+
+      # Always deploy — picks up queue snapshots and CI data from other workflows
+      - name: Sync live data from gh-pages
+        run: |
+          # gh-pages has the latest CI + queue data (ci-collect and queue-monitor
+          # push there directly since branch protection blocks pushes to main).
+          git fetch origin gh-pages --depth=1 || true
+          # Sync queue timeseries (append-only, take the longer file)
+          LIVE_FILE=$(git show origin/gh-pages:data/vllm/ci/queue_timeseries.jsonl 2>/dev/null || true)
+          if [ -n "$LIVE_FILE" ]; then
+            LIVE_LINES=$(echo "$LIVE_FILE" | wc -l)
+            LOCAL_LINES=$(wc -l < data/vllm/ci/queue_timeseries.jsonl)
+            if [ "$LIVE_LINES" -gt "$LOCAL_LINES" ]; then
+              echo "Using gh-pages queue data ($LIVE_LINES lines vs $LOCAL_LINES on main)"
+              echo "$LIVE_FILE" > data/vllm/ci/queue_timeseries.jsonl
+            fi
+          fi
+          # Sync CI analysis JSON files
+          for f in ci_health.json parity_report.json config_parity.json flaky_tests.json failure_trends.json quarantine.json analytics.json shard_bases.json group_changes.json amd_test_matrix.json; do
+            LIVE=$(git show origin/gh-pages:data/vllm/ci/$f 2>/dev/null || true)
+            if [ -n "$LIVE" ]; then
+              echo "$LIVE" > data/vllm/ci/$f
+              echo "Synced $f from gh-pages"
+            fi
+          done
+
+      - name: Prune queue history to post-fix baseline
+        run: python scripts/vllm/collect_queue_snapshot.py --prune-only
+
+      - name: Assemble site
+        run: python scripts/build_site.py --cache-bust-index
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_site
+          publish_branch: gh-pages
+          keep_files: true

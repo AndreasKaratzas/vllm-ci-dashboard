@@ -1,0 +1,132 @@
+name: Queue Monitor (Hourly)
+
+on:
+  repository_dispatch:
+    types: [buildkite_queue_changed]
+  workflow_dispatch:       # Manual trigger (hourly runs handled by hourly-master)
+
+concurrency:
+  # Shares the same lock as every workflow that publishes to gh-pages so
+  # queue, CI, manual, and preview deploys never overlap on the branch.
+  group: gh-pages-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests pyyaml
+
+      - name: Sync queue data from gh-pages
+        run: |
+          # The push to main may fail due to branch protection, so gh-pages
+          # may have newer queue data than main. Fetch the live version.
+          git fetch origin gh-pages --depth=1 || true
+          LIVE_FILE=$(git show origin/gh-pages:data/vllm/ci/queue_timeseries.jsonl 2>/dev/null || true)
+          if [ -n "$LIVE_FILE" ]; then
+            LIVE_LINES=$(echo "$LIVE_FILE" | wc -l)
+            LOCAL_LINES=$(wc -l < data/vllm/ci/queue_timeseries.jsonl)
+            echo "gh-pages has $LIVE_LINES lines, main has $LOCAL_LINES lines"
+            if [ "$LIVE_LINES" -gt "$LOCAL_LINES" ]; then
+              echo "Using gh-pages version (more recent data)"
+              echo "$LIVE_FILE" > data/vllm/ci/queue_timeseries.jsonl
+            fi
+          fi
+
+      - name: Sync queue issue state from gh-pages
+        run: |
+          git fetch origin gh-pages --depth=1 || true
+          for f in open_queue_issues.json open_queue_zombie_issues.json; do
+            LIVE=$(git show origin/gh-pages:data/vllm/ci/$f 2>/dev/null || true)
+            if [ -n "$LIVE" ]; then
+              echo "$LIVE" > data/vllm/ci/$f
+              echo "Synced $f from gh-pages"
+            fi
+          done
+
+      - name: Prune queue history to post-fix baseline
+        run: python scripts/vllm/collect_queue_snapshot.py --prune-only
+
+      - name: Collect queue snapshot
+        env:
+          BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
+        run: |
+          echo "Before: $(wc -l < data/vllm/ci/queue_timeseries.jsonl) lines"
+          python scripts/vllm/collect_queue_snapshot.py
+          echo "After: $(wc -l < data/vllm/ci/queue_timeseries.jsonl) lines"
+          tail -1 data/vllm/ci/queue_timeseries.jsonl | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'Latest: ts={d[\"ts\"]}, queues={len(d[\"queues\"])}')"
+
+      - name: Collect queue capacity monitor
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/vllm/collect_capacity_monitor.py --output data/vllm/ci/
+
+      - name: Watch queue latency (open/close issues)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: python scripts/vllm/queue_issue_watcher.py
+
+      - name: Watch zombie queue jobs (open/close issues)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: python scripts/vllm/queue_zombie_watcher.py
+
+      - name: Commit and push
+        run: |
+          echo "Lines in file: $(wc -l < data/vllm/ci/queue_timeseries.jsonl)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/vllm/ci/queue_timeseries.jsonl data/vllm/ci/queue_jobs.json data/vllm/ci/capacity_monitor.json data/vllm/ci/open_queue_issues.json data/vllm/ci/open_queue_zombie_issues.json
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "queue snapshot $(date -u +%Y-%m-%dT%H:%M)"
+            # Push to main is best-effort — branch protection may block it.
+            # The deploy to gh-pages below ensures data is always published.
+            if git pull --rebase origin main; then
+              git push || echo "::warning::Push to main failed (branch protection). Data will be deployed to gh-pages directly."
+            else
+              git rebase --abort || true
+              echo "::warning::Rebase against origin/main failed; deploying from the pre-rebase tree instead."
+            fi
+          fi
+
+      - name: Sync CI data from gh-pages
+        run: |
+          # gh-pages has the latest CI data (ci-collect pushes there directly).
+          # Without this sync, assembling _site from main would overwrite fresh
+          # CI data with stale copies from the main branch checkout.
+          git fetch origin gh-pages --depth=1 || true
+          for f in ci_health.json parity_report.json config_parity.json flaky_tests.json failure_trends.json quarantine.json analytics.json shard_bases.json group_changes.json amd_test_matrix.json; do
+            LIVE=$(git show origin/gh-pages:data/vllm/ci/$f 2>/dev/null || true)
+            if [ -n "$LIVE" ]; then
+              echo "$LIVE" > data/vllm/ci/$f
+              echo "Synced $f from gh-pages"
+            fi
+          done
+
+      - name: Assemble site
+        run: python scripts/build_site.py --cache-bust-index
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_site
+          publish_branch: gh-pages
+          keep_files: true

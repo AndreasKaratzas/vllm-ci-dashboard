@@ -1,0 +1,1129 @@
+{
+  "groups": [
+    {
+      "id": 1,
+      "label": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 2,
+      "label": "Distributed Torchrun + Examples (4 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 3,
+      "label": "Distributed Tests (4 GPUs)(A100)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 4,
+      "label": "Pipeline + Context Parallelism (4 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 5,
+      "label": "RayExecutorV2 (4 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 6,
+      "label": "EPLB Execution",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 7,
+      "label": "Kernels Core Operation Test",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 8,
+      "label": "Kernels FP8 MoE Test (1 H100)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 9,
+      "label": "LoRA TP (Distributed)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 10,
+      "label": "Basic Models Tests (Initialization)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 11,
+      "label": "Basic Models Tests (Other)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 12,
+      "label": "Distributed Model Tests (2 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 13,
+      "label": "Language Models Tests (Extra Standard) %N",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 14,
+      "label": "PyTorch Fullgraph",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 15,
+      "label": "Entrypoints Integration (Speech to Text)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "gray",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 16,
+      "label": "Entrypoints Integration (Pooling)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "gray",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 17,
+      "label": "Extract Hidden States Integration",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "gray",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 18,
+      "label": "Basic Correctness",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Stefan",
+      "note": ""
+    },
+    {
+      "id": 19,
+      "label": "DeepSeek V2-Lite Prefetch Offload Accuracy (H100)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Aarushi",
+      "note": ""
+    },
+    {
+      "id": 20,
+      "label": "e2e Core (1 GPU)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Matt",
+      "note": ""
+    },
+    {
+      "id": 21,
+      "label": "Elastic EP Scaling Test",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Divakar",
+      "note": ""
+    },
+    {
+      "id": 22,
+      "label": "Kernels Attention Test %N",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Matt",
+      "note": ""
+    },
+    {
+      "id": 23,
+      "label": "Kernels MoE Test %N",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Matt",
+      "note": ""
+    },
+    {
+      "id": 24,
+      "label": "Kernels FP8 MoE Test (2 H100s)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Divakar",
+      "note": ""
+    },
+    {
+      "id": 25,
+      "label": "LoRA %N",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Divakar",
+      "note": ""
+    },
+    {
+      "id": 26,
+      "label": "V1 Core + KV + Metrics",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Micah",
+      "note": ""
+    },
+    {
+      "id": 27,
+      "label": "Basic Models Tests (Extra Initialization) %N",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Matt",
+      "note": ""
+    },
+    {
+      "id": 28,
+      "label": "Multi-Modal Models (Standard) 4: other + whisper",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Djordje",
+      "note": ""
+    },
+    {
+      "id": 29,
+      "label": "PyTorch Compilation Passes Unit Tests",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Charlie",
+      "note": ""
+    },
+    {
+      "id": 30,
+      "label": "Quantization",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Divakar",
+      "note": ""
+    },
+    {
+      "id": 31,
+      "label": "Spec Decode Eagle",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Matt",
+      "note": ""
+    },
+    {
+      "id": 32,
+      "label": "Hybrid SSM NixlConnector PD prefix cache test (2 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo"
+    },
+    {
+      "id": 33,
+      "label": "MultiConnector (Nixl+Offloading) PD accuracy (2 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo"
+    },
+    {
+      "id": 34,
+      "label": "MultiConnector (Nixl+Offloading) PD edge cases (2 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo"
+    },
+    {
+      "id": 35,
+      "label": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo"
+    },
+    {
+      "id": 36,
+      "label": "Deepseek V4 Kernel Test (H100)",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo"
+    },
+    {
+      "id": 37,
+      "label": "Kernels Attention DiffKV Test (H100)",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo"
+    },
+    {
+      "id": 38,
+      "label": "Kernels KDA Test",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo"
+    },
+    {
+      "id": 39,
+      "label": "Kernels FusedMoE Layer Test (2 H100s)",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo"
+    },
+    {
+      "id": 40,
+      "label": "LM Eval TurboQuant KV Cache",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo"
+    },
+    {
+      "id": 41,
+      "label": "MRCR Eval Small Models",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo"
+    },
+    {
+      "id": 42,
+      "label": "Extract Hidden States Integration (2 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo"
+    },
+    {
+      "id": 43,
+      "label": "GGUF Plugin",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo"
+    },
+    {
+      "id": 44,
+      "label": "Quantized Fusions",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo"
+    },
+    {
+      "id": 45,
+      "label": "2 Node Test (4 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "purple",
+      "target_signal": "green",
+      "owner": "",
+      "note": "not supported due to infra"
+    },
+    {
+      "id": 46,
+      "label": "Benchmarks CLI Test",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 47,
+      "label": "Attention Benchmarks Smoke Test (B200)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "mi355"
+    },
+    {
+      "id": 48,
+      "label": "Distributed Compile Unit Tests (2xH100)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 49,
+      "label": "Fusion E2E Quick (H100)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 50,
+      "label": "Fusion E2E Config Sweep (H100)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 51,
+      "label": "Platform Tests (CUDA)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 52,
+      "label": "Distributed Comm Ops",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 53,
+      "label": "Distributed DP Tests (2 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 54,
+      "label": "Distributed Compile + RPC Tests (2 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 55,
+      "label": "Distributed DP Tests (4 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 56,
+      "label": "Distributed Compile + Comm (4 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 57,
+      "label": "Distributed Tests (8 GPUs)(H100)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 58,
+      "label": "DeepSeek V2-Lite Sync EPLB Accuracy",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 59,
+      "label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 60,
+      "label": "V1 e2e (2 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 61,
+      "label": "V1 e2e (4 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 62,
+      "label": "V1 e2e (4xH100)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 63,
+      "label": "EPLB Algorithm",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 64,
+      "label": "LM Eval Large Models (4 GPUs)(H100)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 65,
+      "label": "GPQA Eval (GPT-OSS) (H100)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 66,
+      "label": "Regression",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 67,
+      "label": "Examples",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 68,
+      "label": "Metrics, Tracing (2 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 69,
+      "label": "Async Engine, Inputs, Utils, Worker",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 70,
+      "label": "Batch Invariance (A100)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 71,
+      "label": "Acceptance Length Test (Large Models)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 72,
+      "label": "Model Executor",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 73,
+      "label": "Language Models Test (Extended Generation)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 74,
+      "label": "Language Models Test (PPL)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 75,
+      "label": "Multi-Modal Accuracy Eval (Small Models)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 76,
+      "label": "PyTorch Compilation Unit Tests",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 77,
+      "label": "PyTorch Fullgraph Smoke Test",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 78,
+      "label": "Pytorch Nightly Dependency Override Check",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 79,
+      "label": "Ray Dependency Compatibility Check",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 80,
+      "label": "Weight Loading Multiple GPU",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 81,
+      "label": "Cudagraph",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 82,
+      "label": "Distributed NixlConnector PD accuracy (4 GPUs)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 83,
+      "label": "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 84,
+      "label": "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 85,
+      "label": "Hybrid SSM NixlConnector PD accuracy tests (4 GPUs)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 86,
+      "label": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 87,
+      "label": "Distributed Tests (2 GPUs)(H100)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 88,
+      "label": "Entrypoints Unit Tests",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 89,
+      "label": "Entrypoints Integration (Responses API)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 90,
+      "label": "Entrypoints Integration (Multimodal)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 91,
+      "label": "Kernels Mamba Test",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 92,
+      "label": "Kernels Helion Test",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 93,
+      "label": "V1 Spec Decode",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 94,
+      "label": "Python-only Installation",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 95,
+      "label": "Language Models Tests (Standard)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 96,
+      "label": "Language Models Test (MTEB)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 97,
+      "label": "Multi-Modal Processor",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 98,
+      "label": "Multi-Modal Models (Extended Generation 2)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 99,
+      "label": "Multi-Modal Models (Extended Generation 3)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 100,
+      "label": "Plugin Tests (2 GPUs)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 101,
+      "label": "Quantized Models Test",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 102,
+      "label": "Speculators Correctness",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 103,
+      "label": "V1 attention (H100-MI300)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 104,
+      "label": "Engine (1 GPU)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 105,
+      "label": "e2e Scheduling (1 GPU)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 106,
+      "label": "Entrypoints Integration (LLM)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 107,
+      "label": "Entrypoints Integration (API Server)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 108,
+      "label": "Entrypoints Integration (API Server OpenAI - Part 1)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 109,
+      "label": "Entrypoints Integration (API Server OpenAI - Part 2)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 110,
+      "label": "Entrypoints Integration (API Server Generate)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 111,
+      "label": "OpenAI API Correctness",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 112,
+      "label": "Kernels Quantization Test %N",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 113,
+      "label": "LM Eval Small Models",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 114,
+      "label": "V1 Sample + Logits",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 115,
+      "label": "Language Models Tests (Hybrid) %N",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 116,
+      "label": "Language Models Test (Extended Pooling)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 117,
+      "label": "Multi-Modal Models (Standard) 1: qwen2",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 118,
+      "label": "Multi-Modal Models (Standard) 2: qwen3 + gemma",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 119,
+      "label": "Multi-Modal Models (Standard) 3: llava + qwen2_vl",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 120,
+      "label": "Multi-Modal Models (Extended Generation 1)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 121,
+      "label": "Multi-Modal Models (Extended Pooling)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 122,
+      "label": "Samplers Test",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 123,
+      "label": "Spec Decode Speculators + MTP",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 124,
+      "label": "Spec Decode Ngram + Suffix",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 125,
+      "label": "Spec Decode Draft Model",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    }
+  ]
+}

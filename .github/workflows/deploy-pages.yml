@@ -1,36 +1,97 @@
 name: Deploy to GitHub Pages
 
 on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-
-permissions:
-  pages: write
-  id-token: write
+  workflow_dispatch:  # Manual trigger only; daily deploys handled by daily-update.yml
 
 concurrency:
-  group: pages
-  cancel-in-progress: true
+  group: gh-pages-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: write
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Assemble site
-        run: |
-          mkdir -p _site
-          cp -r docs/* _site/
-          cp -r data/ _site/data/
-
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/setup-python@v5
         with:
-          path: _site
+          python-version: '3.12'
 
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Install dependencies
+        run: pip install pyyaml requests
+
+      - name: Sync live data from gh-pages
+        run: |
+          # gh-pages has the latest CI + queue data. Sync unless corrupt.
+          git fetch origin gh-pages --depth=1 || true
+
+          # Quick corruption check: if ANY file on gh-pages has conflict markers, skip ALL syncing
+          CORRUPT=$(git show origin/gh-pages:data/vllm/ci/ci_health.json 2>/dev/null | head -5 | grep -c "^>>>>>>>\|^<<<<<<<\|^=======" || true)
+          if [ "$CORRUPT" -gt 0 ]; then
+            echo "WARNING: gh-pages data is corrupted (merge conflict markers). Skipping all sync — deploying from main only."
+          else
+            # Sync queue timeseries (append-only, take the longer file)
+            LIVE_FILE=$(git show origin/gh-pages:data/vllm/ci/queue_timeseries.jsonl 2>/dev/null || true)
+            if [ -n "$LIVE_FILE" ]; then
+              if echo "$LIVE_FILE" | grep -q "^>>>>>>>\|^<<<<<<<\|^======="; then
+                echo "WARNING: gh-pages queue data has conflict markers, using main branch copy"
+              else
+                LIVE_LINES=$(echo "$LIVE_FILE" | wc -l)
+                LOCAL_LINES=$(wc -l < data/vllm/ci/queue_timeseries.jsonl)
+                if [ "$LIVE_LINES" -gt "$LOCAL_LINES" ]; then
+                  echo "Using gh-pages queue data ($LIVE_LINES lines vs $LOCAL_LINES on main)"
+                  echo "$LIVE_FILE" > data/vllm/ci/queue_timeseries.jsonl
+                fi
+              fi
+            fi
+            # CI analysis JSON files are committed to main by hourly-master.
+            # Do NOT sync from gh-pages — main always has the latest data.
+            echo "Skipping CI JSON sync — main branch is authoritative."
+          fi
+
+      - name: Prune queue history to post-fix baseline
+        run: python scripts/vllm/collect_queue_snapshot.py --prune-only
+
+      - name: Render site data
+        run: python scripts/render.py
+
+      - name: Assemble site
+        run: python scripts/build_site.py --cache-bust-index
+
+      - uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_site
+          publish_branch: gh-pages
+          keep_files: true
+
+      - name: Post-deploy validation
+        id: post-deploy-validation
+        run: |
+          git fetch origin gh-pages --depth=1 2>/dev/null || true
+          CORRUPT=0
+          for f in $(git ls-tree -r --name-only origin/gh-pages -- data/ 2>/dev/null | grep '\.json$\|\.jsonl$'); do
+            CONTENT=$(git show "origin/gh-pages:$f" 2>/dev/null || true)
+            if echo "$CONTENT" | grep -q "^>>>>>>>\|^<<<<<<<\|^======="; then
+              echo "CORRUPT: $f"
+              CORRUPT=$((CORRUPT + 1))
+            fi
+          done
+          if [ "$CORRUPT" -gt 0 ]; then
+            echo "::error::$CORRUPT files corrupted on gh-pages! Redeploying without keep_files..."
+            exit 1
+          fi
+          echo "All data files clean."
+
+      - name: Redeploy if corrupted
+        if: failure() && steps.post-deploy-validation.outcome == 'failure' && hashFiles('_site/index.html') != ''
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_site
+          publish_branch: gh-pages
+          keep_files: false
+          force_orphan: true

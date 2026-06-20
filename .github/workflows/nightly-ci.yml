@@ -1,0 +1,199 @@
+name: CI Build Eval
+
+# Runs every 3 hours to catch issues quickly.
+on:
+  workflow_dispatch:  # Manual trigger (hourly runs handled by hourly-master)
+    inputs:
+      max_data_age_hours:
+        description: 'Max allowed data age in hours (default 36)'
+        required: false
+        default: '36'
+
+concurrency:
+  group: nightly-ci
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    outputs:
+      test_result: ${{ steps.run-tests.outcome }}
+      test_output: ${{ steps.run-tests.outputs.output }}
+      summary: ${{ steps.run-tests.outputs.summary }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install pyyaml requests pytest
+
+      - name: Run full test suite
+        id: run-tests
+        env:
+          CI: "1"
+          MAX_DATA_AGE_HOURS: ${{ github.event.inputs.max_data_age_hours || '36' }}
+        run: |
+          set +e
+          pytest tests/ -v --tb=short 2>&1 | tee test-output.txt
+          EXIT_CODE=${PIPESTATUS[0]}
+          set -e
+
+          # Parse results for output
+          SUMMARY=$(tail -1 test-output.txt)
+          echo "summary=$SUMMARY" >> "$GITHUB_OUTPUT"
+
+          # Save full output (truncated to 60k chars for GH Actions)
+          OUTPUT=$(cat test-output.txt | tail -200)
+          {
+            echo "output<<TESTEOF"
+            echo "$OUTPUT"
+            echo "TESTEOF"
+          } >> "$GITHUB_OUTPUT"
+
+          exit $EXIT_CODE
+
+  create-issue-on-failure:
+    needs: tests
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create or update GitHub issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const summary = `${{ needs.tests.outputs.summary }}` || 'Unknown';
+            const output = `${{ needs.tests.outputs.output }}` || 'No output captured';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const date = new Date().toISOString().slice(0, 10);
+
+            // Parse failure details
+            const lines = output.split('\n');
+            const failures = lines.filter(l => l.includes('FAILED'));
+            const errors = lines.filter(l => l.includes('ERROR'));
+
+            let failureList = '';
+            if (failures.length > 0) {
+              failureList = '### Failed Tests\n```\n' + failures.slice(0, 30).join('\n') + '\n```\n\n';
+            }
+            if (errors.length > 0) {
+              failureList += '### Errors\n```\n' + errors.slice(0, 10).join('\n') + '\n```\n\n';
+            }
+
+            const body = [
+              `## Nightly CI Failure — ${date}`,
+              '',
+              `**Summary:** \`${summary}\``,
+              `**Run:** ${runUrl}`,
+              '',
+              failureList,
+              '<details><summary>Full test output (last 200 lines)</summary>',
+              '',
+              '```',
+              output.slice(-4000),
+              '```',
+              '</details>',
+              '',
+              '---',
+              '*This issue was created automatically by the nightly CI workflow.*',
+              '*Fix the failing tests and close this issue.*',
+            ].join('\n');
+
+            const title = `Nightly CI failure — ${date}`;
+            const labels = ['ci-failure', 'automated'];
+
+            // Check for existing open issue with same label to avoid duplicates
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'ci-failure',
+              state: 'open',
+              per_page: 5,
+            });
+
+            if (existing.data.length > 0) {
+              // Update existing issue with new failure info
+              const issue = existing.data[0];
+              try {
+                await github.rest.issues.addAssignees({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  assignees: [context.repo.owner],
+                });
+              } catch (error) {
+                if (error.status !== 422) throw error;
+              }
+              const comment = [
+                `## New failure — ${date}`,
+                '',
+                `**Summary:** \`${summary}\``,
+                `**Run:** ${runUrl}`,
+                '',
+                failureList,
+              ].join('\n');
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: comment,
+              });
+              console.log(`Updated existing issue #${issue.number}`);
+            } else {
+              // Create new issue
+              const created = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body: `${body}\n\ncc @${context.repo.owner} for visibility.`,
+                labels,
+                assignees: [context.repo.owner],
+              });
+              console.log(`Created issue #${created.data.number}`);
+            }
+
+  close-issue-on-success:
+    needs: tests
+    if: success()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Close resolved ci-failure issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'ci-failure',
+              state: 'open',
+              per_page: 10,
+            });
+
+            for (const issue of issues.data) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `Nightly CI is passing again. Closing automatically.\n\n**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed',
+              });
+              console.log(`Closed issue #${issue.number}`);
+            }

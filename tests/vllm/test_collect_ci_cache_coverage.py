@@ -1,0 +1,273 @@
+"""Regression tests for the cache-coverage check in collect_ci.py.
+
+The AMD nightly build can flip to ``state="passed"`` while one or more
+``soft_fail: true`` jobs are still running — the build doesn't wait on
+soft-fail jobs to block completion. Concrete incident that motivated this:
+
+    build 7791, job "mi250_1: Basic Models Tests (Other)":
+        state=timed_out  soft_failed=true  retries_count=2
+        started 12:30 UTC, finished 15:31 UTC (timeout at 3h)
+
+    The previous collector pass ran at ~04:46 UTC (before the job even
+    started). It wrote a partial jsonl without this job. When the next
+    collector pass eventually ran (with build now state=passed), the old
+    cache-skip logic saw ``date in existing_dates and state in
+    TERMINAL_STATES`` and skipped. Result: the timed-out job was
+    permanently missing, parity_report.json recorded ``amd=None`` for
+    ``basic models tests (other)``, and the dashboard's "Failing Tests"
+    filter (which requires ``g.amd.failed > 0``) dropped the group
+    from the count — 9 shown, 10 actually soft-failed on Buildkite.
+
+These tests exercise the ``_cache_covers_all_jobs`` / ``_cached_job_names``
+helpers directly, without hitting Buildkite. The rule being locked in:
+for the newest nightly, *cache-skip is only valid if every test job currently
+visible in the build has at least one record in the cached jsonl*. Historical
+cached builds are trusted; re-fetching old complete Buildkite logs is slow and
+can rate-limit hard enough to block publication of the latest snapshot.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+
+
+SCRIPTS = Path(__file__).resolve().parent.parent.parent / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+
+from collect_ci import (  # noqa: E402
+    _cache_covers_all_jobs,
+    _cached_job_names,
+    _is_parity_excluded_group,
+    _should_verify_cache_coverage,
+)
+
+
+def _job(name: str, state: str = "passed", soft_failed: bool = False) -> dict:
+    return {
+        "type": "script",
+        "name": name,
+        "state": state,
+        "soft_failed": soft_failed,
+    }
+
+
+def _write_jsonl(path: Path, records: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        for r in records:
+            f.write(json.dumps(r) + "\n")
+
+
+def _record(job_name: str, build_num: int = 7791) -> dict:
+    return {
+        "test_id": f"{job_name}::__passed__",
+        "name": "__passed__ (1)",
+        "classname": job_name,
+        "status": "passed",
+        "duration_secs": 1.0,
+        "failure_message": "",
+        "job_name": job_name,
+        "job_id": "",
+        "step_id": "",
+        "build_number": build_num,
+        "pipeline": "amd-ci",
+        "date": "2026-04-18",
+    }
+
+
+class TestCachedJobNames:
+    def test_empty_when_file_missing(self, tmp_path):
+        # No cache file means no coverage — the collector must re-fetch.
+        names = _cached_job_names(tmp_path / "missing.jsonl", 7791)
+        assert names == set()
+
+    def test_returns_distinct_job_names(self, tmp_path):
+        path = tmp_path / "2026-04-18_amd.jsonl"
+        _write_jsonl(path, [
+            _record("mi250_1: LoRA"),
+            _record("mi250_1: LoRA"),           # duplicate row — dedupes
+            _record("mi250_1: OpenAI API correctness"),
+            _record("mi250_1: V1 Sample + Logits"),
+        ])
+        assert _cached_job_names(path, 7791) == {
+            "mi250_1: LoRA",
+            "mi250_1: OpenAI API correctness",
+            "mi250_1: V1 Sample + Logits",
+        }
+
+    def test_ignores_other_build_numbers(self, tmp_path):
+        # A date collision between builds must not make the current build
+        # look more covered than it actually is.
+        path = tmp_path / "2026-04-18_amd.jsonl"
+        _write_jsonl(path, [
+            _record("mi250_1: LoRA", build_num=7791),
+            _record("mi250_1: SomethingElse", build_num=7777),  # different build
+        ])
+        assert _cached_job_names(path, 7791) == {"mi250_1: LoRA"}
+
+    def test_skips_malformed_lines(self, tmp_path):
+        path = tmp_path / "2026-04-18_amd.jsonl"
+        path.write_text(
+            json.dumps(_record("mi250_1: LoRA")) + "\n"
+            "not valid json\n"
+            "\n"
+            + json.dumps(_record("mi250_1: OpenAI API")) + "\n"
+        )
+        assert _cached_job_names(path, 7791) == {
+            "mi250_1: LoRA",
+            "mi250_1: OpenAI API",
+        }
+
+
+class TestParityCandidateExclusions:
+    def test_amd_prefixed_upstream_control_jobs_are_not_parity_groups(self):
+        assert _is_parity_excluded_group("amd: engine (1 gpu) (mi325_1)")
+
+    def test_real_gpu_queue_groups_remain_parity_candidates(self):
+        assert not _is_parity_excluded_group("mi325_1: engine (1 gpu)")
+
+
+class TestCacheCoversAllJobs:
+    def test_only_latest_build_forces_cache_coverage_verification(self):
+        assert _should_verify_cache_coverage(8193, 8193) is True
+        assert _should_verify_cache_coverage(64187, 64258) is False
+
+    def test_cache_complete_skips(self, tmp_path):
+        # All 3 current jobs are in the cache → cache is complete → True.
+        jsonl = tmp_path / "2026-04-18_amd.jsonl"
+        _write_jsonl(jsonl, [
+            _record("mi250_1: LoRA"),
+            _record("mi250_1: OpenAI API correctness"),
+            _record("mi250_1: Basic Models Tests (Other)"),
+        ])
+        build = {
+            "jobs": [
+                _job("mi250_1: LoRA"),
+                _job("mi250_1: OpenAI API correctness"),
+                _job("mi250_1: Basic Models Tests (Other)",
+                     state="timed_out", soft_failed=True),
+            ],
+        }
+        assert _cache_covers_all_jobs(build, jsonl, "amd", 7791) is True
+
+    def test_cache_missing_soft_fail_timeout_triggers_refetch(self, tmp_path):
+        # Exact shape of the build-7791 incident: the cache has the jobs
+        # that finished before the cache was written, but NOT the soft-fail
+        # that timed out hours later. Must return False so collector
+        # re-fetches.
+        jsonl = tmp_path / "2026-04-18_amd.jsonl"
+        _write_jsonl(jsonl, [
+            _record("mi250_1: LoRA"),
+            _record("mi250_1: OpenAI API correctness"),
+            # NB: "Basic Models Tests (Other)" is absent here
+        ])
+        build = {
+            "jobs": [
+                _job("mi250_1: LoRA"),
+                _job("mi250_1: OpenAI API correctness"),
+                _job("mi250_1: Basic Models Tests (Other)",
+                     state="timed_out", soft_failed=True),
+            ],
+        }
+        assert _cache_covers_all_jobs(build, jsonl, "amd", 7791) is False
+
+    def test_skip_patterns_not_counted(self, tmp_path):
+        # bootstrap / docker / build image / upload jobs are filtered from
+        # the collector's parse path, so they must not count as "missing"
+        # from the cache either — otherwise every cached build would look
+        # incomplete and we'd re-fetch on every cron tick.
+        jsonl = tmp_path / "2026-04-18_amd.jsonl"
+        _write_jsonl(jsonl, [
+            _record("mi250_1: LoRA"),
+        ])
+        build = {
+            "jobs": [
+                _job("mi250_1: LoRA"),
+                _job("bootstrap"),           # skipped
+                _job("docker build image"),  # skipped
+                _job("upload artifacts"),    # skipped
+            ],
+        }
+        assert _cache_covers_all_jobs(build, jsonl, "amd", 7791) is True
+
+    def test_retried_and_nonterminal_jobs_already_excluded(self, tmp_path):
+        # ``fetch_build_jobs`` already filters superseded retries and
+        # non-terminal jobs, so ``_cache_covers_all_jobs`` should only
+        # inspect jobs that survived that filter. We inline that contract:
+        # a retried job (``retried_in_job_id`` set) should not count as
+        # missing from the cache.
+        from vllm.ci.buildkite_client import fetch_build_jobs
+
+        build = {
+            "jobs": [
+                {"type": "script", "name": "mi250_1: LoRA",
+                 "state": "passed"},
+                # Superseded retry — fetch_build_jobs must drop this.
+                {"type": "script", "name": "mi250_1: Superseded",
+                 "state": "failed",
+                 "retried_in_job_id": "abc-123"},
+                # Still running — fetch_build_jobs must drop this too.
+                {"type": "script", "name": "mi250_1: StillRunning",
+                 "state": "running"},
+            ],
+        }
+        surviving = {j["name"] for j in fetch_build_jobs(build)}
+        assert surviving == {"mi250_1: LoRA"}
+
+        # With only LoRA surviving, a cache that has LoRA is complete.
+        jsonl = tmp_path / "2026-04-18_amd.jsonl"
+        _write_jsonl(jsonl, [_record("mi250_1: LoRA")])
+        assert _cache_covers_all_jobs(build, jsonl, "amd", 7791) is True
+
+    def test_empty_cache_is_incomplete_when_jobs_exist(self, tmp_path):
+        jsonl = tmp_path / "2026-04-18_amd.jsonl"  # not created
+        build = {"jobs": [_job("mi250_1: LoRA")]}
+        assert _cache_covers_all_jobs(build, jsonl, "amd", 7791) is False
+
+    def test_empty_build_jobs_trusts_cache(self, tmp_path):
+        # Pathological but defensive: if the build has no test jobs at all
+        # (e.g. a pipeline-upload-only build) the cache trivially covers
+        # it. Must not thrash by returning False on an empty set diff.
+        jsonl = tmp_path / "2026-04-18_amd.jsonl"
+        _write_jsonl(jsonl, [])
+        build = {"jobs": []}
+        assert _cache_covers_all_jobs(build, jsonl, "amd", 7791) is True
+
+    def test_fetches_detail_when_jobs_missing_from_summary(self, tmp_path):
+        # ``fetch_nightly_builds`` sometimes returns summaries without the
+        # ``jobs`` array. The helper must fetch full build detail in that
+        # case rather than silently treating "no jobs visible" as covered.
+        jsonl = tmp_path / "2026-04-18_amd.jsonl"
+        _write_jsonl(jsonl, [_record("mi250_1: LoRA")])
+        summary_only_build = {"number": 7791}  # no "jobs" key
+        full_detail = {
+            "number": 7791,
+            "jobs": [
+                _job("mi250_1: LoRA"),
+                _job("mi250_1: Basic Models Tests (Other)",
+                     state="timed_out", soft_failed=True),
+            ],
+        }
+        with patch("collect_ci.fetch_build_detail", return_value=full_detail) as m:
+            assert _cache_covers_all_jobs(
+                summary_only_build, jsonl, "amd", 7791
+            ) is False
+            m.assert_called_once_with("amd", 7791)
+
+    def test_api_failure_on_detail_falls_back_to_trusting_cache(self, tmp_path):
+        # If Buildkite is flaky we must not make collection fail outright
+        # for the rest of the pipeline — next cron tick retries. The helper
+        # logs a warning and returns True so the caller uses the cache.
+        jsonl = tmp_path / "2026-04-18_amd.jsonl"
+        _write_jsonl(jsonl, [_record("mi250_1: LoRA")])
+        summary_only_build = {"number": 7791}
+        with patch("collect_ci.fetch_build_detail",
+                   side_effect=RuntimeError("503 upstream")):
+            assert _cache_covers_all_jobs(
+                summary_only_build, jsonl, "amd", 7791
+            ) is True

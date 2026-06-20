@@ -1,0 +1,308 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dev dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Ruff lint
+        run: ruff check scripts tests
+
+      - name: Mypy (strict on scripts/vllm/ci)
+        run: mypy scripts/vllm/ci
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install cspell
+        run: npm install -g cspell@8
+
+      - name: Spellcheck (cspell)
+        run: |
+          cspell --no-progress --no-summary \
+            "scripts/**/*.py" "tests/**/*.py" \
+            "docs/assets/js/*.js" "docs/*.html" \
+            "README.md" "dashboards/**/*.md" \
+            ".github/workflows/*.yml"
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short 2>&1 | tee test-output.txt
+
+      - name: Comment test results on PR
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('test-output.txt', 'utf8');
+            const lines = output.split('\n');
+
+            // Extract summary line
+            const summary = lines.find(l => l.includes('passed') || l.includes('failed') || l.includes('error')) || 'No summary';
+            const passed = (summary.match(/(\d+) passed/) || [,'0'])[1];
+            const failed = (summary.match(/(\d+) failed/) || [,'0'])[1];
+            const skipped = (summary.match(/(\d+) skipped/) || [,'0'])[1];
+            const hasFailures = parseInt(failed) > 0;
+
+            const icon = hasFailures ? '❌' : '✅';
+            const status = hasFailures ? 'FAILED' : 'PASSED';
+
+            let body = `## ${icon} CI Tests ${status}\n\n`;
+            body += `| Passed | Failed | Skipped |\n|--------|--------|--------|\n`;
+            body += `| ${passed} | ${failed} | ${skipped} |\n\n`;
+
+            if (hasFailures) {
+              // Show failed test details
+              const failures = lines.filter(l => l.includes('FAILED'));
+              if (failures.length) {
+                body += `### Failed Tests\n\`\`\`\n${failures.join('\n')}\n\`\`\`\n`;
+              }
+            }
+
+            body += `\n<details><summary>Full output</summary>\n\n\`\`\`\n${output.slice(-3000)}\n\`\`\`\n</details>`;
+
+            const prNum = context.payload.pull_request.number;
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: prNum
+            });
+            const existing = comments.data.find(c => c.body?.includes('CI Tests'));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: existing.id, body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: prNum, body
+              });
+            }
+
+  validate-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check JS brace balance
+        run: |
+          FAIL=0
+          for f in docs/assets/js/*.js; do
+            OPEN=$(grep -o '{' "$f" | wc -l)
+            CLOSE=$(grep -o '}' "$f" | wc -l)
+            if [ "$OPEN" -ne "$CLOSE" ]; then
+              echo "❌ $f: $OPEN { vs $CLOSE }"
+              FAIL=1
+            else
+              echo "✅ $f: balanced ($OPEN)"
+            fi
+          done
+          exit $FAIL
+
+      - name: Check required files exist
+        run: |
+          for f in docs/index.html docs/assets/css/dashboard.css \
+                   docs/assets/js/dashboard.js docs/assets/js/ci-health.js \
+                   docs/assets/js/ci-analytics.js docs/assets/js/ci-queue.js \
+                   docs/assets/js/utils.js; do
+            if [ ! -f "$f" ]; then
+              echo "❌ Missing: $f"
+              exit 1
+            fi
+            echo "✅ $f exists"
+          done
+
+      - name: Validate HTML structure
+        run: |
+          # Check that index.html has all required elements (static or dynamically registered)
+          for id in sidebar main-content parity-view; do
+            if ! grep -q "id=\"$id\"" docs/index.html; then
+              echo "❌ Missing element: #$id"
+              exit 1
+            fi
+            echo "✅ #$id present (HTML)"
+          done
+          # CI views are dynamically created by registerCISection() in utils.js
+          for id in ci-health ci-analytics ci-queue; do
+            if ! grep -q "id: '$id'" docs/assets/js/utils.js; then
+              echo "❌ Missing CI tab registration: $id"
+              exit 1
+            fi
+            echo "✅ #$id-view registered (JS)"
+          done
+
+  validate-data:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate JSON files
+        run: |
+          FAIL=0
+          for f in $(find data/ -name '*.json' -size +0c 2>/dev/null | head -50); do
+            if ! python3 -m json.tool "$f" > /dev/null 2>&1; then
+              echo "❌ Invalid JSON: $f"
+              FAIL=1
+            fi
+          done
+          if [ $FAIL -eq 1 ]; then exit 1; fi
+          echo "✅ All JSON files valid"
+
+      - name: Check CI data schema
+        run: |
+          python3 -c "
+          import json, sys
+          errors = []
+
+          # Validate ci_health.json
+          try:
+              d = json.load(open('data/vllm/ci/ci_health.json'))
+              if 'amd' not in d:
+                  errors.append('ci_health.json: missing amd key')
+              elif 'latest_build' not in d['amd']:
+                  errors.append('ci_health.json: missing amd.latest_build')
+              else:
+                  lb = d['amd']['latest_build']
+                  for f in ['total_tests','passed','failed','pass_rate']:
+                      if f not in lb:
+                          errors.append(f'ci_health.json: missing amd.latest_build.{f}')
+          except FileNotFoundError:
+              print('⚠️  ci_health.json not found (skipping)')
+          except Exception as e:
+              errors.append(f'ci_health.json: {e}')
+
+          # Validate parity_report.json
+          try:
+              d = json.load(open('data/vllm/ci/parity_report.json'))
+              if 'job_groups' not in d:
+                  errors.append('parity_report.json: missing job_groups')
+              elif len(d['job_groups']) == 0:
+                  errors.append('parity_report.json: job_groups is empty')
+          except FileNotFoundError:
+              print('⚠️  parity_report.json not found (skipping)')
+          except Exception as e:
+              errors.append(f'parity_report.json: {e}')
+
+          if errors:
+              for e in errors:
+                  print(f'❌ {e}')
+              sys.exit(1)
+          else:
+              print('✅ CI data schema valid')
+          "
+
+  e2e-smoke:
+    # End-to-end: serve the static dashboard, make sure every asset & data
+    # file referenced by the SPA is reachable, and run the JS files through
+    # Node's parser to catch syntax errors the brace-check can't see.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Parse JS files with node --check
+        run: |
+          FAIL=0
+          for f in docs/assets/js/*.js; do
+            if ! node --check "$f" 2>&1; then
+              echo "❌ Syntax error in $f"
+              FAIL=1
+            else
+              echo "✅ $f parses"
+            fi
+          done
+          exit $FAIL
+
+      - name: Serve docs/ and fetch every referenced asset
+        run: |
+          python3 -m http.server 8000 --directory docs &
+          SERVER_PID=$!
+          trap "kill $SERVER_PID 2>/dev/null || true" EXIT
+          sleep 1
+
+          # Wait for server
+          for i in 1 2 3 4 5; do
+            curl -sf http://127.0.0.1:8000/ >/dev/null && break
+            sleep 1
+          done
+
+          FAIL=0
+          # Every asset the SPA pulls at bootstrap
+          for path in \
+            /index.html \
+            /assets/css/dashboard.css \
+            /assets/js/dashboard.js \
+            /assets/js/ci-health.js \
+            /assets/js/ci-analytics.js \
+            /assets/js/ci-queue.js \
+            /assets/js/utils.js; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:8000${path}")
+            if [ "$code" != "200" ]; then
+              echo "❌ ${path} -> HTTP ${code}"
+              FAIL=1
+            else
+              echo "✅ ${path} -> 200"
+            fi
+          done
+          exit $FAIL
+
+      - name: Verify data fixtures present on HTTP
+        run: |
+          python3 -m http.server 8000 --directory . &
+          SERVER_PID=$!
+          trap "kill $SERVER_PID 2>/dev/null || true" EXIT
+          sleep 1
+
+          FAIL=0
+          for f in ci_health.json parity_report.json analytics.json \
+                   queue_jobs.json open_queue_issues.json open_queue_zombie_issues.json config_parity.json \
+                   failure_trends.json flaky_tests.json; do
+            path="/data/vllm/ci/${f}"
+            code=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:8000${path}")
+            # Missing data files are tolerated (fresh clone) — but if present,
+            # they must parse as JSON.
+            if [ "$code" = "200" ]; then
+              if ! curl -sf "http://127.0.0.1:8000${path}" | python3 -m json.tool >/dev/null; then
+                echo "❌ ${path} is not valid JSON"
+                FAIL=1
+              else
+                echo "✅ ${path} served + parsed"
+              fi
+            else
+              echo "⚠️  ${path} -> HTTP ${code} (absent; fresh-clone tolerated)"
+            fi
+          done
+          exit $FAIL

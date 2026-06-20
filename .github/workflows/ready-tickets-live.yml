@@ -1,0 +1,70 @@
+name: Ready Tickets (live sync)
+
+# Triple-daily sync of AMD nightly failures into one upstream master issue.
+# This workflow no longer creates one issue per failing group; it updates the
+# single umbrella issue managed by sync_ready_tickets.py.
+#
+# GitHub Actions crons are UTC. These keep the prior cadence:
+#   10:00 CDT = 15:00 UTC
+#   12:00 CDT = 17:00 UTC
+#   18:00 CDT = 23:00 UTC
+on:
+  schedule:
+    - cron: '0 15 * * *'
+    - cron: '0 17 * * *'
+    - cron: '0 23 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ready-tickets-live
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install requests pyyaml
+
+      - name: Refresh AMD nightly master issue
+        env:
+          PROJECTS_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
+          READY_TICKETS_LIVE: '1'
+          READY_TICKETS_ALLOW_UPSTREAM_WRITES: '1'
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: python scripts/vllm/sync_ready_tickets.py
+
+      - name: Commit + push data snapshot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/vllm/ci/ready_tickets.json data/vllm/ci/ready_tickets_state.json data/vllm/ci/project_items.json
+          if ! git diff --cached --quiet; then
+            git commit -m "ready-tickets: sync master issue $(date -u +%Y-%m-%dT%H:%M)"
+            if git pull --rebase origin main; then
+              git push || echo "::warning::Push to main failed"
+            else
+              git rebase --abort || true
+              echo "::warning::Rebase against origin/main failed; snapshot commit remains local to the workflow"
+            fi
+          fi
+
+      - name: Summary
+        run: |
+          echo "### Ready Tickets live sync" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f data/vllm/ci/ready_tickets.json ]; then
+            COUNT=$(python -c "import json; print(json.load(open('data/vllm/ci/ready_tickets.json')).get('failing_groups_total', 0))")
+            ISSUE=$(python -c "import json; d=json.load(open('data/vllm/ci/ready_tickets.json')); m=d.get('master_issue') or {}; print(m.get('number', '—'))")
+            echo "- Failing groups: $COUNT" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Master issue: #$ISSUE" >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -1,0 +1,98 @@
+name: Site Health Check
+
+on:
+  workflow_dispatch:  # Manual trigger (hourly runs handled by hourly-master)
+
+concurrency:
+  group: health-check
+  cancel-in-progress: true
+
+permissions:
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check site is live
+        id: site
+        run: |
+          URL="https://andreaskaratzas.github.io/vllm-ci-dashboard/"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL" --max-time 15 || echo "000")
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          echo "Site status: $STATUS"
+
+          # Also check that the page has content (not blank)
+          if [ "$STATUS" = "200" ]; then
+            SIZE=$(curl -s "$URL" --max-time 15 | wc -c)
+            echo "size=$SIZE" >> "$GITHUB_OUTPUT"
+            if [ "$SIZE" -lt 500 ]; then
+              echo "Page is suspiciously small: ${SIZE} bytes"
+              echo "healthy=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "healthy=true" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "healthy=false" >> "$GITHUB_OUTPUT"
+            echo "size=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check data freshness
+        id: data
+        run: |
+          # Check if queue data is being updated (should update hourly)
+          DATA_URL="https://andreaskaratzas.github.io/vllm-ci-dashboard/data/vllm/ci/queue_timeseries.jsonl"
+          LAST_LINE=$(curl -s "$DATA_URL" --max-time 15 | tail -1)
+          if [ -n "$LAST_LINE" ]; then
+            TS=$(echo "$LAST_LINE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('ts',''))" 2>/dev/null || echo "")
+            echo "last_snapshot=$TS" >> "$GITHUB_OUTPUT"
+            if [ -n "$TS" ]; then
+              AGE=$(python3 -c "
+          from datetime import datetime, timezone
+          ts = datetime.fromisoformat('$TS'.replace('Z','+00:00'))
+          age_h = (datetime.now(timezone.utc) - ts).total_seconds() / 3600
+          print(f'{age_h:.1f}')
+          " 2>/dev/null || echo "999")
+              echo "age_hours=$AGE" >> "$GITHUB_OUTPUT"
+              echo "Queue data age: ${AGE}h"
+            fi
+          else
+            echo "last_snapshot=none" >> "$GITHUB_OUTPUT"
+            echo "age_hours=999" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create issue if unhealthy
+        if: steps.site.outputs.healthy == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Check if there's already an open health issue
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --label "site-health" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$EXISTING" ]; then
+            echo "Health issue #$EXISTING already open, skipping"
+            exit 0
+          fi
+
+          gh issue create \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Site health alert: dashboard is down or blank" \
+            --body "The site health check detected a problem:
+          - **HTTP status**: ${{ steps.site.outputs.status }}
+          - **Page size**: ${{ steps.site.outputs.size }} bytes
+          - **Last queue snapshot**: ${{ steps.data.outputs.last_snapshot }}
+
+          Check the [GitHub Pages deployment](https://github.com/$GITHUB_REPOSITORY/deployments) and recent [workflow runs](https://github.com/$GITHUB_REPOSITORY/actions).
+
+          Common causes:
+          - Push conflict between concurrent workflows (check for 'rejected' errors)
+          - gh-pages branch has no index.html (deploy step failed)" \
+            --assignee AndreasKaratzas \
+            --label "site-health"
+
+      # Keep interaction limits active (GitHub max is 6 months, so auto-renew)
+      - name: Renew interaction limits
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/$GITHUB_REPOSITORY/interaction-limits -X PUT \
+            -f limit=existing_users -f expiry=six_months > /dev/null 2>&1 || true

@@ -2,111 +2,317 @@
  * Main dashboard application.
  * Loads project config + JSON data, renders weekly stats, contributors, and cards.
  */
+var _ds=getComputedStyle(document.documentElement);
+var _TC={text:_ds.getPropertyValue('--text').trim()||'#e6edf3',muted:_ds.getPropertyValue('--text-muted').trim()||'#8b949e',border:_ds.getPropertyValue('--border').trim()||'#30363d'};
+var HomeTableState = {
+  prs: { page: 1, pageSize: 10, sortKey: 'updated', sortDir: 'desc', filter: 'all', search: '' },
+  issues: { page: 1, pageSize: 10, sortKey: 'updated', sortDir: 'desc', filter: 'all', search: '' },
+};
+function _homeState(kind) {
+  return HomeTableState[kind] || HomeTableState.prs;
+}
+function _rerenderHome() {
+  if (typeof window.__dashboardRenderAll === 'function') window.__dashboardRenderAll();
+}
+window.setHomeSort = function(kind, key) {
+  var s = _homeState(kind);
+  if (s.sortKey === key) {
+    s.sortDir = s.sortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    s.sortKey = key;
+    s.sortDir = key === 'title' || key === 'author' || key === 'owner' || key === 'status' ? 'asc' : 'desc';
+  }
+  s.page = 1;
+  _rerenderHome();
+};
+window.setHomePage = function(kind, page) {
+  var s = _homeState(kind);
+  s.page = Math.max(1, parseInt(page, 10) || 1);
+  _rerenderHome();
+};
+window.setHomeFilter = function(kind, filter) {
+  var s = _homeState(kind);
+  s.filter = filter || 'all';
+  s.page = 1;
+  _rerenderHome();
+};
+window.setHomeSearch = function(kind, value) {
+  var s = _homeState(kind);
+  s.search = value || '';
+  s.page = 1;
+  _rerenderHome();
+};
+window.setHomePageSize = function(kind, value) {
+  var s = _homeState(kind);
+  var n = parseInt(value, 10);
+  s.pageSize = n > 0 ? n : 10;
+  s.page = 1;
+  _rerenderHome();
+};
+// Safe number formatting — prevents "Cannot read properties of undefined (reading 'toFixed')"
+function _pct(v,d){return(typeof v==='number'?(v*100).toFixed(d||1):'N/A')+'%'}
+function _fix(v,d){return typeof v==='number'?v.toFixed(d||1):'N/A'}
+function _isFilePreview(){return location.protocol==='file:'}
+function _computeLatestTs(d){
+  var latestTs = null;
+  for (const src of [d.prs, d.issues, d.releases, d.testResults]) {
+    if (src && src.collected_at && (!latestTs || src.collected_at > latestTs)) latestTs = src.collected_at;
+  }
+  if (d.ciHealth && d.ciHealth.generated_at && (!latestTs || d.ciHealth.generated_at > latestTs)) latestTs = d.ciHealth.generated_at;
+  return latestTs;
+}
+function renderStartupError(message,detail){
+  var lastUpdated=document.getElementById('last-updated');
+  if(lastUpdated) lastUpdated.textContent='Dashboard failed to load';
+  var weekly=document.getElementById('weekly-summary');
+  if(weekly) weekly.innerHTML='';
+  var parity=document.getElementById('parity-view');
+  if(parity) parity.innerHTML='';
+
+  var title='Dashboard failed to load';
+  var summary=message||'The dashboard could not load its startup data.';
+  var body='<div style="margin:24px 0;padding:20px;border:1px solid #da3633;border-radius:12px;background:rgba(218,54,51,0.08)">';
+  body+='<h2 style="margin:0 0 8px;color:#ffb3b3">'+escapeHtml(title)+'</h2>';
+  body+='<p style="margin:0;color:var(--text,#e6edf3)">'+escapeHtml(summary)+'</p>';
+  if(detail){
+    body+='<p style="margin:12px 0 0;color:var(--text-muted,#8b949e);white-space:pre-line">'+escapeHtml(detail)+'</p>';
+  }
+  body+='</div>';
+
+  var dashboard=document.getElementById('dashboard');
+  if(dashboard) dashboard.innerHTML=body;
+}
 
 (async function init() {
-  const projects = await fetchJSON("_data/projects.json");
-  if (!projects || !projects.projects) {
-    document.getElementById("dashboard").innerHTML =
-      '<p class="empty">Failed to load project data.</p>';
-    return;
-  }
+  try {
+    const projects = await fetchJSON("data/site/projects.json", { timeoutMs: 6000 });
+    if (!projects || !projects.projects) {
+      var loadMsg = _isFilePreview()
+        ? 'This page was opened directly from disk, so the browser blocked the JSON fetches the dashboard needs.'
+        : 'Failed to load project data.';
+      var loadDetail = _isFilePreview()
+        ? 'Start a local server instead, for example:\n\nnix develop -c python3 -m http.server 8000 -d docs\n\nThen open http://127.0.0.1:8000/'
+        : 'Check the browser console and network tab for the first failed request.';
+      renderStartupError(loadMsg, loadDetail);
+      return;
+    }
 
-  // Load all project data in parallel
-  const names = Object.keys(projects.projects);
-  const dataMap = {};
+    const dataMap = {};
+    dataMap["vllm"] = {
+      prs: null,
+      issues: null,
+      releases: null,
+      testResults: null,
+      parityReport: null,
+      ciHealth: null,
+      ciParity: null,
+      readyTickets: null,
+      projectItems: null,
+      amdTestMatrix: null,
+    };
 
-  const fetches = names.map(async (name) => {
-    const [prs, issues, releases, testResults, activity, parityReport] = await Promise.all([
-      fetchJSON("data/" + name + "/prs.json"),
-      fetchJSON("data/" + name + "/issues.json"),
-      fetchJSON("data/" + name + "/releases.json"),
-      fetchJSON("data/" + name + "/test_results.json"),
-      fetchJSON("data/" + name + "/activity.json"),
-      fetchJSON("data/" + name + "/parity_report.json"),
-    ]);
-    dataMap[name] = { prs, issues, releases, testResults, activity, parityReport };
-  });
+    let latestTs = _computeLatestTs(dataMap["vllm"]);
+    function updateSidebarTs(ts) {
+      document.getElementById("last-updated").textContent = ts
+        ? "Last updated: " + relativeTime(ts) + " (" + formatDate(ts) + ")"
+        : "Last updated: unknown";
+    }
+    updateSidebarTs(latestTs);
+    // Keep sidebar timestamp fresh (update relative time every 60s)
+    setInterval(function() { updateSidebarTs(latestTs); }, 60000);
+    // Expose for CI Health auto-refresh to update when new data arrives
+    window._updateSidebarTs = function(ts) { if (ts > latestTs) { latestTs = ts; } updateSidebarTs(latestTs); };
 
-  // Also load trend history + parity history
-  const historyIndex = fetchJSON("data/history/index.json");
-  const parityHistPromise = fetchJSON("data/pytorch/parity_history.json");
-
-  await Promise.all(fetches);
-  const histIdx = await historyIndex;
-
-  // Load history snapshots
-  var historyData = [];
-  if (histIdx && histIdx.weeks) {
-    var histFetches = histIdx.weeks.map(function (w) {
-      return fetchJSON("data/history/" + w + ".json");
-    });
-    historyData = await Promise.all(histFetches);
-    historyData = historyData.filter(function (h) { return h != null; });
-  }
-
-  // Find latest collected_at for header
-  let latestTs = null;
-  for (const name of names) {
-    const d = dataMap[name];
-    for (const src of [d.prs, d.issues, d.releases, d.testResults, d.activity]) {
-      if (src && src.collected_at) {
-        if (!latestTs || src.collected_at > latestTs) {
-          latestTs = src.collected_at;
+    // Render views — vLLM only
+    var vllmCfg = {"vllm": projects.projects["vllm"]};
+    function renderAll() {
+      window.__dashboardRenderAll = renderAll;
+      var renderSteps = [
+        ['weekly-summary', 'CurrentSummary', function() { renderWeeklySummary(dataMap); }],
+        ['dashboard', 'Cards', function() { renderCards(vllmCfg, dataMap); }],
+        ['parity-view', 'TestParity', function() { renderParityView(vllmCfg, dataMap, null); }],
+      ];
+      for (var rs of renderSteps) {
+        try {
+          rs[2]();
+        } catch (e) {
+          console.error(rs[1] + ' render error:', e);
+          var errEl = document.getElementById(rs[0]);
+          if (errEl) errEl.innerHTML += '<div style="color:#da3633;padding:16px;border:1px solid #da3633;border-radius:8px;margin:12px">[' + rs[1] + ' error: ' + e.message + ']</div>';
         }
       }
     }
-  }
-  document.getElementById("last-updated").textContent = latestTs
-    ? "Last updated: " + relativeTime(latestTs) + " (" + formatDate(latestTs) + ")"
-    : "Last updated: unknown";
+    function loadExtraData() {
+      return Promise.all([
+        fetchJSON("data/vllm/parity_report.json", { timeoutMs: 7000 }),
+        fetchJSON("data/vllm/ci/ci_health.json", { timeoutMs: 7000 }),
+        fetchJSON("data/vllm/ci/parity_report.json", { timeoutMs: 7000 }),
+        fetchJSON("data/vllm/ci/ready_tickets.json", { timeoutMs: 7000 }),
+        fetchJSON("data/vllm/ci/project_items.json", { timeoutMs: 5000 }),
+        fetchJSON("data/vllm/ci/amd_test_matrix.json", { timeoutMs: 7000 }),
+      ]).then(function(extra) {
+        dataMap["vllm"].parityReport = extra[0];
+        dataMap["vllm"].ciHealth = extra[1];
+        dataMap["vllm"].ciParity = extra[2];
+        dataMap["vllm"].readyTickets = extra[3];
+        dataMap["vllm"].projectItems = extra[4];
+        dataMap["vllm"].amdTestMatrix = extra[5];
+        var nextTs = _computeLatestTs(dataMap["vllm"]);
+        if (nextTs) latestTs = nextTs;
+        updateSidebarTs(latestTs);
+        renderAll();
+      });
+    }
 
-  const parityHistData = await parityHistPromise;
+    function loadHomeData() {
+      // Load vLLM data only. ``readyTickets`` is the Projects V2 #39 view of
+      // ``ci-failure`` issues — the Projects card uses it to enrich each tracked
+      // issue with streak / break-frequency / hardware metadata so the reader
+      // doesn't need to click through to see how long a group has been broken.
+      return Promise.all([
+        fetchJSON("data/vllm/prs.json", { timeoutMs: 6000 }),
+        fetchJSON("data/vllm/issues.json", { timeoutMs: 6000 }),
+        fetchJSON("data/vllm/releases.json", { timeoutMs: 6000 }),
+        fetchJSON("data/vllm/test_results.json", { timeoutMs: 6000 }),
+      ]).then(function(core) {
+        dataMap["vllm"].prs = core[0];
+        dataMap["vllm"].issues = core[1];
+        dataMap["vllm"].releases = core[2];
+        dataMap["vllm"].testResults = core[3];
+        var nextTs = _computeLatestTs(dataMap["vllm"]);
+        if (nextTs) latestTs = nextTs;
+        updateSidebarTs(latestTs);
+        renderAll();
+        return loadExtraData();
+      });
+    }
 
-  // Render all views
-  renderWeeklySummary(dataMap);
-  renderCards(projects.projects, dataMap);
-  renderParityView(projects.projects, dataMap, parityHistData);
-  renderActivityView(projects.projects, dataMap);
-  renderTrendsView(projects.projects, dataMap, historyData);
+    renderAll();
 
-  // Tab switching
-  var tabBtns = document.querySelectorAll(".tab-btn");
-  for (var i = 0; i < tabBtns.length; i++) {
-    tabBtns[i].addEventListener("click", function () {
-      var target = this.getAttribute("data-tab");
-      document.querySelectorAll(".tab-btn").forEach(function (b) { b.classList.remove("active"); });
-      document.querySelectorAll(".tab-panel").forEach(function (p) { p.classList.remove("active"); });
-      this.classList.add("active");
-      document.getElementById("tab-" + target).classList.add("active");
-    });
+    var initialTab = location.hash.replace("#", "") || "projects";
+    var deferHomeData = initialTab && initialTab !== "projects";
+    if (deferHomeData) {
+      var startDeferredHomeLoad = function() { loadHomeData().catch(function(e) { console.error('Deferred home data load failed:', e); }); };
+      var scheduleDeferredHomeLoad = function() {
+        if (window.requestIdleCallback) {
+          window.requestIdleCallback(startDeferredHomeLoad, { timeout: 3000 });
+        } else {
+          startDeferredHomeLoad();
+        }
+      };
+      setTimeout(scheduleDeferredHomeLoad, 1500);
+    } else {
+      await loadHomeData();
+    }
+  } catch (err) {
+    console.error('Dashboard init failed:', err);
+    var fallbackMsg = _isFilePreview()
+      ? 'This page was opened directly from disk, so the browser blocked the dashboard data fetches.'
+      : 'The dashboard hit an unexpected startup error.';
+    var fallbackDetail = _isFilePreview()
+      ? 'Start a local server instead, for example:\n\nnix develop -c python3 -m http.server 8000 -d docs\n\nThen open http://127.0.0.1:8000/'
+      : (err && err.message ? err.message : 'Check the browser console for the first stack trace.');
+    renderStartupError(fallbackMsg, fallbackDetail);
   }
 })();
 
+// Tab switching — runs immediately, independent of async data loading.
+// Navigation is intentionally auth-agnostic: protected tabs stay
+// discoverable, and their own renderers decide whether to show the tool
+// or a sign-in / admin-required state.
+(function() {
+  function _hasTab(id) {
+    return !!(id && document.getElementById('tab-' + id));
+  }
+
+  function _reapplyVisibility() {
+    if (window.__authGate && typeof window.__authGate.applyTabVisibility === 'function') {
+      window.__authGate.applyTabVisibility();
+    }
+  }
+
+  function switchTab(target) {
+    if (!_hasTab(target)) {
+      target = 'projects';
+    }
+    document.querySelectorAll(".nav-btn").forEach(function (b) { b.classList.remove("active"); });
+    document.querySelectorAll(".tab-panel").forEach(function (p) { p.classList.remove("active"); });
+    var btn = document.querySelector('.nav-btn[data-tab="' + target + '"]');
+    if (btn) btn.classList.add("active");
+    var panel = document.getElementById("tab-" + target);
+    if (panel) panel.classList.add("active");
+    _reapplyVisibility();
+    return target;
+  }
+
+  window.__dashboardNav = {
+    switchTab: function(target, opts) {
+      opts = opts || {};
+      var next = switchTab(target);
+      if (opts.updateHash !== false) {
+        history.replaceState(null, "", "#" + next);
+      }
+      if (next === "builds" && window._onBuildTabShown) {
+        window._onBuildTabShown();
+      }
+      if (next === "trends" && window._onTrendsTabShown) {
+        window._onTrendsTabShown();
+      }
+      return next;
+    },
+  };
+
+  var sidebarNav = document.getElementById('sidebar-nav');
+  if (sidebarNav) {
+    sidebarNav.addEventListener('click', function(e) {
+      var btn = e.target.closest && e.target.closest('.nav-btn');
+      if (!btn) return;
+      var target = btn.getAttribute('data-tab');
+      if (!target) return;
+      window.__dashboardNav.switchTab(target);
+    });
+  }
+
+  // Activate tab from URL hash on load.
+  var hash = location.hash.replace("#", "");
+  if (hash && _hasTab(hash)) {
+    switchTab(hash);
+  }
+
+  // React to manual hash edits after boot too.
+  window.addEventListener('hashchange', function() {
+    var h = location.hash.replace('#', '');
+    if (!h || !_hasTab(h)) return;
+    switchTab(h);
+  });
+
+  document.addEventListener('auth:changed', _reapplyVisibility);
+})();
+
 function renderWeeklySummary(dataMap) {
-  let totalOpened = 0;
-  let totalMerged = 0;
+  let totalOpenPrs = 0;
+  let totalCiPrs = 0;
+  let totalRocmPrs = 0;
   let totalIssues = 0;
-  let totalReleases = 0;
 
   for (const d of Object.values(dataMap)) {
     const prs = (d.prs && d.prs.prs) || [];
     const issues = (d.issues && d.issues.issues) || [];
-    const releases = (d.releases && d.releases.releases) || [];
-    const stats = getWeeklyStats(prs, issues, releases);
-    totalOpened += stats.prsOpened;
-    totalMerged += stats.prsMerged;
-    totalIssues += stats.issuesOpened;
-    totalReleases += stats.newReleases;
+    const openPrs = prs.filter(function(p) { return p.state === 'open'; });
+    totalOpenPrs += openPrs.length;
+    totalCiPrs += openPrs.filter(function(p) { return !!p.is_ci_pr; }).length;
+    totalRocmPrs += openPrs.filter(function(p) { return !!p.is_rocm_pr || _labelHas(p, 'rocm'); }).length;
+    totalIssues += issues.filter(function(i) { return (i.state || '').toLowerCase() === 'open'; }).length;
   }
 
   const el = document.getElementById("weekly-summary");
   el.innerHTML =
-    '<h2>This Week</h2>' +
+    '<h2>Current Snapshot</h2>' +
     '<div class="weekly-boxes">' +
-    '<div class="weekly-box weekly-box-opened"><div class="weekly-num">' + totalOpened + '</div><div class="weekly-label">PRs Opened</div></div>' +
-    '<div class="weekly-box weekly-box-merged"><div class="weekly-num">' + totalMerged + '</div><div class="weekly-label">PRs Merged</div></div>' +
-    '<div class="weekly-box weekly-box-issues"><div class="weekly-num">' + totalIssues + '</div><div class="weekly-label">Issues</div></div>' +
-    '<div class="weekly-box weekly-box-releases"><div class="weekly-num">' + totalReleases + '</div><div class="weekly-label">Releases</div></div>' +
+    '<div class="weekly-box weekly-box-opened"><div class="weekly-num">' + totalOpenPrs + '</div><div class="weekly-label">Open PRs</div></div>' +
+    '<div class="weekly-box weekly-box-merged"><div class="weekly-num">' + totalCiPrs + '</div><div class="weekly-label">CI PRs</div></div>' +
+    '<div class="weekly-box weekly-box-rocm"><div class="weekly-num">' + totalRocmPrs + '</div><div class="weekly-label">ROCm PRs</div></div>' +
+    '<div class="weekly-box weekly-box-issues"><div class="weekly-num">' + totalIssues + '</div><div class="weekly-label">Open Project Issues</div></div>' +
     '</div>';
 }
 
@@ -132,26 +338,76 @@ function renderParityView(projectsCfg, dataMap, parityHistData) {
   var hasAny = false;
 
   for (var name in dataMap) {
-    if (dataMap[name].testResults || dataMap[name].parityReport) { hasAny = true; break; }
+    if (dataMap[name].testResults || dataMap[name].parityReport || dataMap[name].ciParity) { hasAny = true; break; }
   }
 
   if (!hasAny) {
-    el.innerHTML = '<h2>ROCm vs CUDA Test Parity</h2><p class="parity-no-data">No test result data available yet.</p>';
+    el.innerHTML = '<div class="parity-section-heading"><h2>Test Parity</h2><p>AMD hardware status and upstream CUDA parity for vLLM CI.</p></div><p class="parity-no-data">No test result data available yet.</p>';
     return;
   }
 
-  var html = '<h2>ROCm vs CUDA Test Parity</h2>';
+  var html = '<div class="parity-section-heading"><h2>Test Parity</h2><p>AMD hardware status and upstream CUDA parity for vLLM CI.</p></div>';
   html += '<div class="parity-grid">';
 
   for (var name in projectsCfg) {
     var cfg = projectsCfg[name];
     var d = dataMap[name] || {};
     var tr = d.testResults;
-    if (!tr && !d.parityReport) continue;
+    if (!tr && !d.parityReport && !d.ciParity) continue;
 
-    // Enhanced PyTorch card when parityReport is available
-    if (name === "pytorch" && d.parityReport) {
-      html += buildPytorchParityCard(name, cfg, d.parityReport, parityHistData);
+    // vLLM CI parity card (from Buildkite CI data)
+    if (name === "vllm" && d.ciParity) {
+      var p = d.ciParity;
+      var groups = typeof mergeParityGroups === 'function'
+        ? mergeParityGroups(p.job_groups || [])
+        : mergeShardedGroups(p.job_groups || []);
+      var both = groups.filter(function(g) { return g.amd && g.upstream; });
+      var amdOnly = groups.filter(function(g) { return g.amd && !g.upstream; });
+      var upOnly = groups.filter(function(g) { return !g.amd && g.upstream; });
+
+      var total = both.length + amdOnly.length + upOnly.length;
+      var overlapPct = total > 0 ? Math.round(both.length / total * 100) : 0;
+      var hwMap = _parityHwGroupMap(p);
+      var hwSummary = _summarizeParityHwMap(hwMap);
+      var hwPassPct = hwSummary.current > 0 ? Math.round(hwSummary.passing / hwSummary.current * 100) : 0;
+
+      // Store groups on window for overlay access
+      var overlayId = 'parity_' + Date.now();
+      window['_parityData_' + overlayId] = { both: both, amdOnly: amdOnly, upOnly: upOnly, groups: groups, hwMap: hwMap };
+
+      html += '<div class="parity-card" style="max-width:none">';
+      html += '<div class="parity-card-header"><h3>' + LinkRegistry.aTag(LinkRegistry.github.repo(cfg.repo), 'vLLM') + '</h3></div>';
+
+      // 5-column stats — each clickable to show group list overlay
+      html += '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:16px 0">';
+
+      html += '<div style="text-align:center;padding:14px;background:var(--bg);border-radius:6px;border:1px solid var(--border);border-top:3px solid #da3633;cursor:pointer;transition:transform .15s,box-shadow .15s" onclick="showGroupOverlay(\'' + overlayId + '\',\'amd-hw\')" onmouseenter="this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 4px 12px rgba(0,0,0,.3)\'" onmouseleave="this.style.transform=\'\';this.style.boxShadow=\'\'">';
+      html += '<div style="font-size:28px;font-weight:800;color:' + (hwPassPct >= 85 ? '#238636' : hwPassPct >= 70 ? '#db6d28' : '#da3633') + '">' + hwPassPct + '%</div>';
+      html += '<div style="font-size:15px;color:var(--text-muted)">AMD HW Pass Rate</div>';
+      html += '<div style="font-size:13px;color:var(--text-muted);margin-top:4px">' + hwSummary.passing + '/' + hwSummary.current + ' hardware groups passing</div></div>';
+
+      html += '<div style="text-align:center;padding:14px;background:var(--bg);border-radius:6px;border:1px solid var(--border);border-top:3px solid #238636;cursor:pointer;transition:transform .15s,box-shadow .15s" onclick="showGroupOverlay(\'' + overlayId + '\',\'common\')" onmouseenter="this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 4px 12px rgba(0,0,0,.3)\'" onmouseleave="this.style.transform=\'\';this.style.boxShadow=\'\'">';
+      html += '<div style="font-size:28px;font-weight:800;color:#238636">' + both.length + '</div>';
+      html += '<div style="font-size:15px;color:var(--text-muted)">Common Families</div>';
+      html += '<div style="font-size:14px;color:var(--text-muted);margin-top:4px">' + overlapPct + '% overlap</div></div>';
+
+      html += '<div style="text-align:center;padding:14px;background:var(--bg);border-radius:6px;border:1px solid var(--border);border-top:3px solid #1f6feb;cursor:pointer;transition:transform .15s,box-shadow .15s" onclick="showGroupOverlay(\'' + overlayId + '\',\'upstream\')" onmouseenter="this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 4px 12px rgba(0,0,0,.3)\'" onmouseleave="this.style.transform=\'\';this.style.boxShadow=\'\'">';
+      html += '<div style="font-size:28px;font-weight:800;color:#1f6feb">' + (both.length + upOnly.length) + '</div>';
+      html += '<div style="font-size:15px;color:var(--text-muted)">Upstream Families</div>';
+      html += '<div style="font-size:13px;color:var(--text-muted);margin-top:4px">click to view</div></div>';
+
+      html += '<div style="text-align:center;padding:14px;background:var(--bg);border-radius:6px;border:1px solid rgba(218,54,51,0.2);border-top:3px solid #da3633;cursor:pointer;transition:transform .15s,box-shadow .15s" onclick="showGroupOverlay(\'' + overlayId + '\',\'amd-only\')" onmouseenter="this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 4px 12px rgba(0,0,0,.3)\'" onmouseleave="this.style.transform=\'\';this.style.boxShadow=\'\'">';
+      html += '<div style="font-size:28px;font-weight:800;color:#da3633">' + amdOnly.length + '</div>';
+      html += '<div style="font-size:15px;color:var(--text-muted)">AMD-Only Families</div></div>';
+
+      html += '<div style="text-align:center;padding:14px;background:var(--bg);border-radius:6px;border:1px solid rgba(31,111,235,0.2);border-top:3px solid #1f6feb;cursor:pointer;transition:transform .15s,box-shadow .15s" onclick="showGroupOverlay(\'' + overlayId + '\',\'upstream-only\')" onmouseenter="this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 4px 12px rgba(0,0,0,.3)\'" onmouseleave="this.style.transform=\'\';this.style.boxShadow=\'\'">';
+      html += '<div style="font-size:28px;font-weight:800;color:#1f6feb">' + upOnly.length + '</div>';
+      html += '<div style="font-size:15px;color:var(--text-muted)">Upstream-Only Families</div></div>';
+
+      html += '</div>';
+
+      html += buildParityHardwareBreakdown(d.ciHealth, p);
+      html += '</div>';
       continue;
     }
 
@@ -159,13 +415,13 @@ function renderParityView(projectsCfg, dataMap, parityHistData) {
 
     var rocm = tr.rocm;
     var cuda = tr.cuda;
-    var repoUrl = "https://github.com/" + cfg.repo;
+    var repoUrl = LinkRegistry.github.repo(cfg.repo);
 
     html += '<div class="parity-card">';
 
     // Header with project name and overall conclusion
     html += '<div class="parity-card-header">';
-    html += '<a href="' + repoUrl + '" target="_blank">' + escapeHtml(name) + '</a>';
+    html += LinkRegistry.aTag(repoUrl, name);
     var conclParts = [];
     if (rocm) conclParts.push("ROCm: " + (rocm.conclusion || "?"));
     if (cuda) conclParts.push("CUDA: " + (cuda.conclusion || "?"));
@@ -225,199 +481,546 @@ function renderParityView(projectsCfg, dataMap, parityHistData) {
 
   html += '</div>'; // parity-grid
   el.innerHTML = html;
-
-  // Init parity mini chart if history available
-  if (parityHistData && parityHistData.length > 1) {
-    drawParityMiniChart('chart-pytorch-parity', parityHistData);
-  }
 }
 
-function buildPytorchParityCard(name, cfg, report, history) {
-  var repoUrl = "https://github.com/" + cfg.repo;
-  var s = report.summary;
-  var pct = s.parity_pct;
-  var colorClass = pct >= 90 ? "rate-good-text" : pct >= 70 ? "rate-warn-text" : "rate-bad-text";
-  var barColorClass = pct >= 90 ? "rate-good" : pct >= 70 ? "rate-warn" : "rate-bad";
+function _amdHwLabel(hw) {
+  var names = { mi250: 'MI250 (gfx90a)', mi300: 'MI300', mi325: 'MI325 (gfx942)', mi355: 'MI355 (gfx950)' };
+  return names[hw] || String(hw || 'unknown').toUpperCase();
+}
 
-  var html = '<div class="parity-card">';
+function _isAmdHwKey(hw) {
+  return /^mi\d+/i.test(String(hw || ''));
+}
 
-  // Header
-  html += '<div class="parity-card-header">';
-  html += '<a href="' + repoUrl + '" target="_blank">' + escapeHtml(name) + '</a>';
-  html += '<span class="parity-arch-badge">' + escapeHtml(report.arch.toUpperCase()) + '</span>';
-  html += '</div>';
-
-  // Big parity number
-  html += '<div class="parity-primary">';
-  html += '<div class="parity-big-num ' + colorClass + '">' + pct.toFixed(1) + '%</div>';
-  html += '<div class="parity-big-label">CUDA Parity (1-to-1 test-name matching)</div>';
-  html += '</div>';
-
-  // Parity bar
-  var barWidth = Math.min(pct, 100);
-  html += '<div class="pass-rate-row">';
-  html += '<span class="pass-rate-label">Parity</span>';
-  html += '<div class="pass-rate-bar-bg"><div class="pass-rate-bar-fill ' + barColorClass + '" style="width:' + barWidth + '%"></div></div>';
-  html += '<span class="pass-rate-pct">' + s.total_rocm + ' / ' + s.total_cuda + '</span>';
-  html += '</div>';
-
-  // Gap breakdown
-  html += '<div class="parity-gap-breakdown">';
-  html += '<span class="gap-item">Skipped: <strong>' + s.skipped + '</strong></span>';
-  html += '<span class="gap-item">Missed: <strong>' + s.missed + '</strong></span>';
-  html += '<span class="gap-item">Gap: <strong>' + s.gap + '</strong></span>';
-  html += '<span class="gap-item">ROCm-only: <strong>' + s.rocmonly + '</strong></span>';
-  html += '</div>';
-
-  // Per-workflow table
-  var wfs = report.by_workflow;
-  if (wfs && Object.keys(wfs).length > 0) {
-    html += '<table class="parity-workflow-table">';
-    html += '<tr><th>Workflow</th><th>ROCm</th><th>CUDA</th><th>Skipped</th><th>Missed</th><th>ROCm-only</th><th>Parity</th></tr>';
-    for (var wf in wfs) {
-      var w = wfs[wf];
-      var wGap = w.skipped + w.missed;
-      var wParity = w.cuda > 0 ? ((1 - wGap / w.cuda) * 100).toFixed(1) : "N/A";
-      var wPctClass = w.cuda > 0 ? (parseFloat(wParity) >= 90 ? "rate-good-text" : parseFloat(wParity) >= 70 ? "rate-warn-text" : "rate-bad-text") : "";
-      html += '<tr>';
-      html += '<td class="project-name">' + escapeHtml(wf) + '</td>';
-      html += '<td>' + w.rocm + '</td>';
-      html += '<td>' + w.cuda + '</td>';
-      html += '<td>' + w.skipped + '</td>';
-      html += '<td>' + w.missed + '</td>';
-      html += '<td>' + w.rocmonly + '</td>';
-      html += '<td class="' + wPctClass + '">' + wParity + '%</td>';
-      html += '</tr>';
+function _parityHwGroupMap(parity) {
+  var merged = parity && parity.job_groups
+    ? (typeof mergeShardedGroups === 'function' ? mergeShardedGroups(parity.job_groups) : parity.job_groups)
+    : [];
+  var map = {};
+  for (var i = 0; i < merged.length; i++) {
+    var g = merged[i];
+    if (!g || (!g.amd && !g.upstream && !g.backfilled && !g.hw_backfilled)) continue;
+    var hardware = g.hardware || [];
+    for (var j = 0; j < hardware.length; j++) {
+      var hw = hardware[j];
+      if (!_isAmdHwKey(hw)) continue;
+      if (!map[hw]) map[hw] = { passing: [], failing: [], pending: [], canceled: [] };
+      var pending = g.backfilled || (g.hw_backfilled && g.hw_backfilled[hw]);
+      if (pending) {
+        map[hw].pending.push(g);
+        continue;
+      }
+      var failed = !!(g.hw_failures && g.hw_failures[hw] > 0);
+      var canceled = !!(g.hw_canceled && g.hw_canceled[hw] > 0 && !failed);
+      if (failed) map[hw].failing.push(g);
+      else if (canceled) map[hw].canceled.push(g);
+      else map[hw].passing.push(g);
     }
-    html += '</table>';
   }
+  return map;
+}
 
-  // Top skip reasons (collapsible)
-  var reasons = report.top_skip_reasons;
-  if (reasons && reasons.length > 0) {
-    html += '<details>';
-    html += '<summary>Top Skip Reasons (' + reasons.length + ')</summary>';
-    html += '<div class="skip-reasons-list">';
-    for (var i = 0; i < reasons.length; i++) {
-      html += '<div class="skip-reason-item">';
-      html += '<span class="skip-reason-name">' + escapeHtml(reasons[i].reason) + '</span>';
-      html += '<span class="skip-reason-count">' + reasons[i].count + '</span>';
-      html += '</div>';
-    }
-    html += '</div></details>';
+function _summarizeParityHwMap(map) {
+  var out = { passing: 0, failing: 0, pending: 0, canceled: 0, current: 0, total: 0, hardware: 0 };
+  for (var hw in (map || {})) {
+    if (!_isAmdHwKey(hw)) continue;
+    var groups = map[hw] || {};
+    out.hardware++;
+    out.passing += (groups.passing || []).length;
+    out.failing += (groups.failing || []).length;
+    out.pending += (groups.pending || []).length;
+    out.canceled += (groups.canceled || []).length;
   }
+  out.current = out.passing + out.failing + out.canceled;
+  out.total = out.current + out.pending;
+  return out;
+}
 
-  // Mini trend chart
-  if (history && history.length > 1) {
-    html += '<div class="parity-trend">';
-    html += '<h4>Parity Trend</h4>';
-    html += '<canvas id="chart-pytorch-parity" height="120"></canvas>';
-    html += '</div>';
+function buildParityHardwareBreakdown(health, parity) {
+  var latest = health && health.amd && health.amd.latest_build;
+  if (!latest || !latest.by_hardware) return '';
+  var hwMap = _parityHwGroupMap(parity);
+  var rows = Object.entries(latest.by_hardware)
+    .filter(function(entry) { return _isAmdHwKey(entry[0]); })
+    .sort(function(a, b) { return a[0].localeCompare(b[0]); });
+  if (!rows.length) return '';
+  var overlayId = 'parity_hw_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+  window['_parityHwData_' + overlayId] = { map: hwMap, counts: latest.by_hardware, buildUrl: latest.build_url || '' };
+  var summary = _summarizeParityHwMap(hwMap);
+  var overallRate = summary.current > 0 ? summary.passing / summary.current : 1;
+  var overallColor = overallRate >= 0.95 ? '#238636' : overallRate >= 0.85 ? '#d29922' : overallRate >= 0.7 ? '#db6d28' : '#da3633';
+  var html = '<details class="parity-hw-breakdown" open>';
+  html += '<summary><span style="color:#da3633;font-weight:700">AMD</span> Hardware Breakdown</summary>';
+  html += '<div class="parity-hw-overall"><div class="parity-hw-overall-head"><span>Overall pass rate</span><strong style="color:' + overallColor + '">' + _fix(overallRate * 100, 1) + '%</strong><span>' + summary.passing + '/' + summary.current + ' hardware groups passing</span></div><span class="parity-score-bar"><span style="width:' + _fix(overallRate * 100, 2) + '%;background:' + overallColor + '"></span></span></div>';
+  html += '<table class="parity-hw-table"><tr><th>Hardware</th><th>Group Pass Rate</th><th>Passing</th><th>Failing</th><th>Total Groups</th></tr>';
+  for (var i = 0; i < rows.length; i++) {
+    var hw = rows[i][0];
+    var groups = hwMap[hw] || { passing: [], failing: [], pending: [], canceled: [] };
+    var pass = groups.passing.length;
+    var fail = groups.failing.length;
+    var pending = groups.pending.length;
+    var canceled = groups.canceled.length;
+    var current = pass + fail + canceled;
+    var total = current + pending;
+    var rate = current > 0 ? pass / current : 1;
+    var color = rate >= 0.95 ? '#238636' : rate >= 0.85 ? '#d29922' : rate >= 0.7 ? '#db6d28' : '#da3633';
+    html += '<tr class="clickable-row" onclick="showParityHwOverlay(\'' + overlayId + '\',\'' + escapeHtml(hw) + '\')">';
+    html += '<td><a href="javascript:void(0)" onclick="event.preventDefault()">' + escapeHtml(_amdHwLabel(hw)) + '</a></td>';
+    html += '<td><span class="parity-rate-wrap"><span class="mini-bar mini-bar-wide"><span style="width:' + _fix(rate * 100, 2) + '%;background:' + color + '"></span></span><strong style="color:' + color + '">' + _fix(rate * 100, 0) + '%</strong></span></td>';
+    html += '<td class="num-good">' + pass + '</td>';
+    html += '<td class="' + (fail > 0 ? 'num-bad' : 'num-good') + '">' + fail + '</td>';
+    html += '<td>' + total + (pending ? ' <span class="muted">(' + pending + ' pending)</span>' : '') + (canceled ? ' <span class="muted">(' + canceled + ' canceled)</span>' : '') + '</td>';
+    html += '</tr>';
   }
-
-  // Metadata line
-  html += '<div class="parity-meta">';
-  var shaShort = report.commit_sha ? report.commit_sha.slice(0, 8) : "?";
-  var shaUrl = "https://github.com/" + cfg.repo + "/commit/" + report.commit_sha;
-  html += 'Commit: <a href="' + shaUrl + '" target="_blank">' + shaShort + '</a>';
-  html += ' &middot; Collected: ' + formatDate(report.collected_at);
-  if (report.running_time) {
-    html += ' &middot; ROCm: ' + formatSeconds(report.running_time.rocm_seconds);
-    html += ' / CUDA: ' + formatSeconds(report.running_time.cuda_seconds);
-  }
-  html += '</div>';
-
-  html += '</div>'; // parity-card
+  html += '</table></details>';
   return html;
 }
 
-function drawParityMiniChart(canvasId, history) {
-  var canvas = document.getElementById(canvasId);
-  if (!canvas) return;
-
-  var labels = history.map(function (h) { return h.date; });
-  var data = history.map(function (h) { return h.parity_pct; });
-
-  new Chart(canvas, {
-    type: 'line',
-    data: {
-      labels: labels,
-      datasets: [{
-        label: 'Parity %',
-        data: data,
-        borderColor: '#58a6ff',
-        backgroundColor: '#58a6ff33',
-        tension: 0.3,
-        pointRadius: 3,
-        borderWidth: 2,
-        fill: true,
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false }
-      },
-      scales: {
-        x: {
-          ticks: { color: '#8b949e', font: { size: 10 } },
-          grid: { color: '#30363d' }
-        },
-        y: {
-          min: 0,
-          max: 100,
-          ticks: { color: '#8b949e', font: { size: 10 }, callback: function (v) { return v + '%'; } },
-          grid: { color: '#30363d' }
+window.showParityHwOverlay = function(dataId, hw) {
+  var data = window['_parityHwData_' + dataId];
+  if (!data) return;
+  var groups = (data.map && data.map[hw]) || { passing: [], failing: [], pending: [], canceled: [] };
+  var all = []
+    .concat((groups.failing || []).map(function(g) { return { g: g, status: 'FAIL' }; }))
+    .concat((groups.canceled || []).map(function(g) { return { g: g, status: 'CANCELED' }; }))
+    .concat((groups.passing || []).map(function(g) { return { g: g, status: 'PASS' }; }))
+    .concat((groups.pending || []).map(function(g) { return { g: g, status: 'PENDING' }; }));
+  all.sort(function(a, b) {
+    var order = { FAIL: 0, CANCELED: 1, PASS: 2, PENDING: 3 };
+    var ao = order[a.status] == null ? 9 : order[a.status];
+    var bo = order[b.status] == null ? 9 : order[b.status];
+    if (ao !== bo) return ao - bo;
+    return (a.g.name || '').localeCompare(b.g.name || '');
+  });
+  var backdrop = document.createElement('div');
+  backdrop.className = 'overlay-backdrop';
+  backdrop.onclick = function(e) { if (e.target === backdrop) backdrop.remove(); };
+  var panel = document.createElement('div');
+  panel.className = 'overlay-panel';
+  var header = document.createElement('div');
+  header.className = 'overlay-header';
+  header.innerHTML = '<h3>' + escapeHtml(_amdHwLabel(hw)) + ' <span style="color:var(--text-muted);font-weight:400">(' + all.length + ' groups)</span></h3>';
+  var closeBtn = document.createElement('button');
+  closeBtn.className = 'overlay-close';
+  closeBtn.innerHTML = '&times;';
+  closeBtn.onclick = function() { backdrop.remove(); };
+  header.appendChild(closeBtn);
+  var body = document.createElement('div');
+  body.className = 'overlay-body';
+  var html = '<table style="width:100%;border-collapse:collapse;font-size:14px"><tr><th>#</th><th>Test Group</th><th>Tests P/F/S</th><th>Status</th><th>Links</th></tr>';
+  for (var i = 0; i < all.length; i++) {
+    var row = all[i], g = row.g || {};
+    var a = g.amd || {};
+    var link = '';
+    if (g.job_links) {
+      for (var j = 0; j < g.job_links.length; j++) {
+        var jl = g.job_links[j];
+        if (jl.side === 'amd' && (!jl.hw || jl.hw === hw)) {
+          link = LinkRegistry.aTag(jl.url, 'log');
+          break;
         }
       }
     }
+    if (!link && data.buildUrl) link = LinkRegistry.aTag(data.buildUrl, 'build');
+    var statusCls = row.status === 'FAIL' ? 'num-bad' : row.status === 'PASS' ? 'num-good' : 'muted';
+    html += '<tr>';
+    html += '<td>' + (i + 1) + '</td>';
+    html += '<td>' + escapeHtml(g.name || '') + '</td>';
+    html += '<td><span class="num-good">' + (a.passed || 0) + '</span>/<span class="' + ((a.failed || 0) > 0 ? 'num-bad' : 'muted') + '">' + (a.failed || 0) + '</span>/<span class="muted">' + (a.skipped || 0) + '</span></td>';
+    html += '<td class="' + statusCls + '">' + row.status + '</td>';
+    html += '<td>' + (link || '<span class="muted">-</span>') + '</td>';
+    html += '</tr>';
+  }
+  html += '</table>';
+  body.innerHTML = html;
+  panel.appendChild(header);
+  panel.appendChild(body);
+  backdrop.appendChild(panel);
+  document.body.appendChild(backdrop);
+};
+
+function _labelHas(item, wanted) {
+  var labels = (item && item.labels) || [];
+  var w = String(wanted || '').toLowerCase();
+  return labels.some(function(label) { return String(label).toLowerCase() === w; });
+}
+
+function _csvText(values) {
+  return (values || []).map(function(v) { return String(v || '').toLowerCase(); }).join(' ');
+}
+
+function _attr(v) {
+  return escapeHtml(v == null ? '' : v).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function _issueProjectStatus(row, projectItemsByNum) {
+  var pi = projectItemsByNum && projectItemsByNum[String(row.number)];
+  return row.project_status || (pi && pi.status) || '';
+}
+
+function _issueLinkedPrRefs(row, issueLinkedPrsByNum) {
+  return row.linked_prs || (issueLinkedPrsByNum && issueLinkedPrsByNum[row.number]) || [];
+}
+
+function _sortValue(row, key, kind, opts) {
+  opts = opts || {};
+  if (kind === 'prs') {
+    if (key === 'number') return row.number || 0;
+    if (key === 'title') return (row.title || '').toLowerCase();
+    if (key === 'author') return (effectiveAuthor(row) || '').toLowerCase();
+    if (key === 'ci') return row.is_ci_pr ? 1 : 0;
+    if (key === 'rocm') return (row.is_rocm_pr || _labelHas(row, 'rocm')) ? 1 : 0;
+    if (key === 'tags') return _csvText(row.other_tags || row.labels || []);
+    return Date.parse(row.updated_at || row.created_at || '') || 0;
+  }
+  if (key === 'number') return row.number || 0;
+  if (key === 'title') return (row.title || '').toLowerCase();
+  if (key === 'owner') return _csvText(row.assignees || []);
+  if (key === 'status') return _issueProjectStatus(row, opts.projectItemsByNum).toLowerCase();
+  if (key === 'prs') return _issueLinkedPrRefs(row, opts.issueLinkedPrsByNum).length;
+  return Date.parse(row.updated_at || row.created_at || '') || 0;
+}
+
+function _sortedRows(rows, kind, opts) {
+  var s = _homeState(kind);
+  return rows.slice().sort(function(a, b) {
+    var av = _sortValue(a, s.sortKey, kind, opts);
+    var bv = _sortValue(b, s.sortKey, kind, opts);
+    var cmp = 0;
+    if (typeof av === 'number' && typeof bv === 'number') cmp = av - bv;
+    else cmp = String(av).localeCompare(String(bv));
+    if (cmp === 0) cmp = (b.number || 0) - (a.number || 0);
+    return s.sortDir === 'asc' ? cmp : -cmp;
+  });
+}
+
+function _sortTh(kind, key, label) {
+  var s = _homeState(kind);
+  var active = s.sortKey === key;
+  var arrow = active ? (s.sortDir === 'asc' ? ' &#8593;' : ' &#8595;') : '';
+  return '<th><button class="table-sort" type="button" onclick="setHomeSort(\'' + kind + '\',\'' + key + '\')">' + escapeHtml(label) + arrow + '</button></th>';
+}
+
+function _sortButton(kind, key, label) {
+  var s = _homeState(kind);
+  var active = s.sortKey === key;
+  var arrow = active ? (s.sortDir === 'asc' ? ' &#8593;' : ' &#8595;') : '';
+  return '<button class="control-chip ' + (active ? 'active' : '') + '" type="button" onclick="setHomeSort(\'' + kind + '\',\'' + key + '\')">' + escapeHtml(label) + arrow + '</button>';
+}
+
+function _filterButton(kind, value, label, count) {
+  var s = _homeState(kind);
+  var active = s.filter === value;
+  var countHtml = typeof count === 'number' ? ' <span>' + count + '</span>' : '';
+  return '<button class="control-chip ' + (active ? 'active' : '') + '" type="button" onclick="setHomeFilter(\'' + kind + '\',\'' + value + '\')">' + escapeHtml(label) + countHtml + '</button>';
+}
+
+function _pageSizeSelect(kind) {
+  var s = _homeState(kind);
+  var out = '<label class="page-size-label">Rows <select onchange="setHomePageSize(\'' + kind + '\',this.value)">';
+  [10, 25, 50, 100].forEach(function(size) {
+    out += '<option value="' + size + '"' + (s.pageSize === size ? ' selected' : '') + '>' + size + '</option>';
+  });
+  out += '</select></label>';
+  return out;
+}
+
+function _pager(kind, total) {
+  var s = _homeState(kind);
+  var pages = Math.max(1, Math.ceil(total / s.pageSize));
+  if (s.page > pages) s.page = pages;
+  var start = total ? ((s.page - 1) * s.pageSize) + 1 : 0;
+  var end = Math.min(total, s.page * s.pageSize);
+  var html = '<div class="table-pager">';
+  html += '<span>Showing ' + start + '-' + end + ' of ' + total + '</span>';
+  if (pages <= 1) return html + '</div>';
+  html += '<button type="button" ' + (s.page <= 1 ? 'disabled' : '') + ' onclick="setHomePage(\'' + kind + '\',' + (s.page - 1) + ')">Prev</button>';
+  html += '<span>Page ' + s.page + ' of ' + pages + '</span>';
+  html += '<button type="button" ' + (s.page >= pages ? 'disabled' : '') + ' onclick="setHomePage(\'' + kind + '\',' + (s.page + 1) + ')">Next</button>';
+  html += '</div>';
+  return html;
+}
+
+function _pageRows(rows, kind) {
+  var s = _homeState(kind);
+  var pages = Math.max(1, Math.ceil(rows.length / s.pageSize));
+  if (s.page > pages) s.page = pages;
+  var start = (s.page - 1) * s.pageSize;
+  return rows.slice(start, start + s.pageSize);
+}
+
+function _tagChip(label, cls) {
+  return '<span class="tag-chip ' + (cls || '') + '">' + escapeHtml(label) + '</span>';
+}
+
+function _prTagCell(pr) {
+  var parts = [];
+  if (pr.is_ci_pr) parts.push(_tagChip('CI', 'tag-ci'));
+  if (pr.is_rocm_pr || _labelHas(pr, 'rocm')) parts.push(_tagChip('ROCm', 'tag-rocm'));
+  return parts.length ? parts.join(' ') : '<span class="muted">-</span>';
+}
+
+function _otherTagCell(pr) {
+  var tags = pr.other_tags || (pr.labels || []).filter(function(label) {
+    return String(label).toLowerCase() !== 'rocm';
+  });
+  if (!tags.length) return '<span class="muted">-</span>';
+  return tags.slice(0, 4).map(function(label) { return _tagChip(label, 'tag-label'); }).join(' ') +
+    (tags.length > 4 ? ' <span class="muted">+' + (tags.length - 4) + '</span>' : '');
+}
+
+function _linkedIssueLinks(pr, ciIssueNumSet, issueNumsByLinkedPr, repo) {
+  const linkedNums = _linkedCiIssueNums(pr, ciIssueNumSet, issueNumsByLinkedPr);
+  const issueNums = (pr.ci_issue_numbers && pr.ci_issue_numbers.length) ? pr.ci_issue_numbers : linkedNums;
+  return issueNums.map(function(n) {
+    return LinkRegistry.aTag(LinkRegistry.github.issue(repo, n), '#' + n);
+  }).join(', ') || '<span class="muted">-</span>';
+}
+
+function _homeRowText(row, kind, repo, issueNumsByLinkedPr, issueLinkedPrsByNum, projectItemsByNum) {
+  if (kind === 'prs') {
+    var issues = (row.ci_issue_numbers || (issueNumsByLinkedPr && issueNumsByLinkedPr[row.number]) || []).join(' ');
+    return [
+      row.number, row.title, effectiveAuthor(row), (row.labels || []).join(' '),
+      (row.other_tags || []).join(' '), row.is_ci_pr ? 'ci' : '', row.is_rocm_pr ? 'rocm' : '', issues
+    ].join(' ').toLowerCase();
+  }
+  var refs = _issueLinkedPrRefs(row, issueLinkedPrsByNum)
+    .map(function(ref) { return ref && ref.number; }).join(' ');
+  return [
+    row.number, row.title, (row.assignees || []).join(' '), _issueProjectStatus(row, projectItemsByNum),
+    (row.labels || []).join(' '), refs
+  ].join(' ').toLowerCase();
+}
+
+function _filterHomeRows(rows, kind, opts) {
+  opts = opts || {};
+  var s = _homeState(kind);
+  var q = (s.search || '').trim().toLowerCase();
+  return rows.filter(function(row) {
+    if (kind === 'prs') {
+      var isCi = !!row.is_ci_pr || !!(opts.issueNumsByLinkedPr && opts.issueNumsByLinkedPr[row.number]);
+      var isRocm = !!row.is_rocm_pr || _labelHas(row, 'rocm');
+      if (s.filter === 'ci' && !isCi) return false;
+      if (s.filter === 'rocm' && !isRocm) return false;
+    } else {
+      var linkedCount = _issueLinkedPrRefs(row, opts.issueLinkedPrsByNum).length;
+      var status = _issueProjectStatus(row, opts.projectItemsByNum).toLowerCase().replace(/\s+/g, '-');
+      if (s.filter === 'has-pr' && linkedCount === 0) return false;
+      if (s.filter === 'no-pr' && linkedCount > 0) return false;
+      if (['backlog', 'in-review', 'in-progress', 'done'].indexOf(s.filter) !== -1 && status !== s.filter) return false;
+    }
+    if (!q) return true;
+    return _homeRowText(row, kind, opts.repo, opts.issueNumsByLinkedPr, opts.issueLinkedPrsByNum, opts.projectItemsByNum).indexOf(q) !== -1;
   });
 }
 
 function buildCard(name, cfg, d) {
-  const repoUrl = "https://github.com/" + cfg.repo;
+  const repoUrl = LinkRegistry.github.repo(cfg.repo);
   const prs = (d.prs && d.prs.prs) || [];
   const issues = (d.issues && d.issues.issues) || [];
-  const releases = (d.releases && d.releases.releases) || [];
-
+  const projectItemsByNum = (d.projectItems && d.projectItems.items_by_number) || {};
   const openPrs = prs.filter((p) => p.state === "open");
-  const latestRelease = releases.length ? releases[0].tag_name : "-";
+  const projectIssues = issues.filter(function(i) { return (i.state || '').toLowerCase() === 'open'; });
+  const ciIssueNumSet = new Set(projectIssues.map(function(i) { return i.number; }));
+
+  // Index ready_tickets.json so we can surface streak / break-frequency /
+  // hardware metadata inline. We index by both ``issue_number`` (populated
+  // in live mode and by the dry-run preflight when token+match succeed)
+  // AND by ``title`` — the canonical ``[CI Failure]:`` title is stable
+  // across the syncer and the upstream issue, so the title lookup
+  // recovers metadata even when ``issue_number`` is null in the preview
+  // dump.
+  const ticketsByNum = {};
+  const ticketsByTitle = {};
+  const issueLinkedPrsByNum = {};
+  const issueNumsByLinkedPr = {};
+  if (d.readyTickets && Array.isArray(d.readyTickets.tickets)) {
+    for (const t of d.readyTickets.tickets) {
+      if (t.issue_number) ticketsByNum[t.issue_number] = t;
+      if (t.title) ticketsByTitle[t.title] = t;
+      if (t.issue_number && Array.isArray(t.linked_prs)) {
+        issueLinkedPrsByNum[t.issue_number] = t.linked_prs;
+        for (const ref of t.linked_prs) {
+          const prNum = parseInt(ref && ref.number, 10);
+          if (!prNum) continue;
+          if (!issueNumsByLinkedPr[prNum]) issueNumsByLinkedPr[prNum] = [];
+          if (issueNumsByLinkedPr[prNum].indexOf(t.issue_number) === -1) {
+            issueNumsByLinkedPr[prNum].push(t.issue_number);
+          }
+        }
+      }
+    }
+  }
+  for (const issue of projectIssues) {
+    if (Array.isArray(issue.linked_prs) && issue.linked_prs.length) {
+      issueLinkedPrsByNum[issue.number] = issue.linked_prs;
+      for (const ref of issue.linked_prs) {
+        const prNum = parseInt(ref && ref.number, 10);
+        if (!prNum) continue;
+        if (!issueNumsByLinkedPr[prNum]) issueNumsByLinkedPr[prNum] = [];
+        if (issueNumsByLinkedPr[prNum].indexOf(issue.number) === -1) {
+          issueNumsByLinkedPr[prNum].push(issue.number);
+        }
+      }
+    }
+  }
+
+  // project_items.json is the live snapshot of every item on project #39
+  // keyed by issue_number. Used to render the current column (Backlog /
+  // Ready / In Progress / In Review / Done) next to each CI issue row.
+  // May be absent in dry-run environments — callers must handle {}.
+  const projectBoardUrl =
+    (d.projectItems && d.projectItems.project_url) ||
+    LinkRegistry.github.orgProject("vllm-project", 39);
+
+  const ciPrs = openPrs.filter(function(p) { return p.is_ci_pr || _linkedCiIssueNums(p, ciIssueNumSet, issueNumsByLinkedPr).length > 0; });
+  const rocmPrs = openPrs.filter(function(p) { return p.is_rocm_pr || _labelHas(p, 'rocm'); });
 
   let html = "";
 
-  // Header (no role badge)
+  // Header
   html += '<div class="card-header">';
-  html += '<a href="' + repoUrl + '" target="_blank">' + escapeHtml(name) + "</a>";
+  html += LinkRegistry.aTag(repoUrl, name);
+  html += '<span class="card-header-stats">';
+  html += 'Open PRs: <span class="stat-value">' + openPrs.length + '</span>';
+  html += ' &middot; CI: <span class="stat-value">' + ciPrs.length + '</span>';
+  html += ' &middot; ROCm: <span class="stat-value">' + rocmPrs.length + '</span>';
+  html += ' &middot; Project issues: <span class="stat-value">' + projectIssues.length + '</span>';
+  html += '</span>';
   html += "</div>";
 
-  // Stats
-  html += '<div class="stats">';
-  html += "<span>PRs: <span class='stat-value'>" + openPrs.length + "</span></span>";
-  html += "<span>Issues: <span class='stat-value'>" + issues.length + "</span></span>";
-  html += "<span>Release: <span class='stat-value'>" + escapeHtml(latestRelease) + "</span></span>";
-  html += "</div>";
+  html += '<div class="home-workbench">';
+  html += buildPRWorkbenchSection(openPrs, ciIssueNumSet, issueNumsByLinkedPr, cfg.repo);
+  html += buildIssueWorkbenchSection(projectIssues, ticketsByNum, ticketsByTitle, projectItemsByNum, projectBoardUrl, issueLinkedPrsByNum);
+  html += '</div>';
 
-  // Test Results section (ROCm vs CUDA)
-  if (d.testResults) {
-    html += buildTestSection(d.testResults, d.parityReport);
+  return html;
+}
+
+function buildPRWorkbenchSection(prs, ciIssueNumSet, issueNumsByLinkedPr, repo) {
+  var filtered = _filterHomeRows(prs, 'prs', { repo: repo, issueNumsByLinkedPr: issueNumsByLinkedPr });
+  var sorted = _sortedRows(filtered, 'prs', { issueNumsByLinkedPr: issueNumsByLinkedPr });
+  var page = _pageRows(sorted, 'prs');
+  var ciCount = prs.filter(function(p) { return p.is_ci_pr || (issueNumsByLinkedPr && issueNumsByLinkedPr[p.number]); }).length;
+  var rocmCount = prs.filter(function(p) { return p.is_rocm_pr || _labelHas(p, 'rocm'); }).length;
+  var html = '<details class="card-section workbench-section" open>';
+  html += '<summary>Open PRs <span class="section-count">(' + prs.length + ')</span></summary>';
+  if (!prs.length) {
+    html += '<p class="empty">No open ROCm or CI-linked PRs are currently tracked.</p>';
+    return html + '</details>';
+  }
+  html += '<div class="workbench-controls">';
+  html += '<div class="control-group">' +
+    _filterButton('prs', 'all', 'All', prs.length) +
+    _filterButton('prs', 'ci', 'CI', ciCount) +
+    _filterButton('prs', 'rocm', 'ROCm', rocmCount) +
+    '</div>';
+  html += '<div class="control-search"><input type="search" value="' + _attr(_homeState('prs').search) + '" placeholder="Search PRs" oninput="setHomeSearch(\'prs\',this.value)"></div>';
+  html += '<div class="control-group sort-group">' +
+    '<span>Sort</span>' +
+    _sortButton('prs', 'updated', 'Updated') +
+    _sortButton('prs', 'number', '#') +
+    _sortButton('prs', 'title', 'Title') +
+    _sortButton('prs', 'author', 'Author') +
+    _pageSizeSelect('prs') +
+    '</div>';
+  html += '</div>';
+  html += _pager('prs', sorted.length);
+  if (!sorted.length) {
+    html += '<p class="empty">No PRs match the current filters.</p>';
+    return html + '</details>';
+  }
+  html += '<div class="workbench-list">';
+  for (const pr of page) {
+    const issueLinks = _linkedIssueLinks(pr, ciIssueNumSet, issueNumsByLinkedPr, repo);
+    html += '<article class="workbench-row pr-row">';
+    html += '<div class="row-main">';
+    html += '<div class="row-title-line">' + LinkRegistry.aTag(pr.html_url, '#' + pr.number, { cls: 'row-number' }) + '<a class="row-title" href="' + _attr(pr.html_url) + '" target="_blank" rel="noopener" title="' + _attr(pr.title) + '">' + escapeHtml(pr.title) + '</a></div>';
+    html += '<div class="row-meta"><span>' + escapeHtml(effectiveAuthor(pr)) + '</span><span>Updated ' + relativeTime(pr.updated_at) + '</span><span>Issues ' + issueLinks + '</span></div>';
+    html += '</div>';
+    html += '<div class="row-tags">' + _prTagCell(pr) + _otherTagCell(pr) + '</div>';
+    html += '</article>';
+  }
+  html += '</div>';
+  html += _pager('prs', sorted.length);
+  html += '</details>';
+  return html;
+}
+
+function buildIssueWorkbenchSection(projectIssues, ticketsByNum, ticketsByTitle, projectItemsByNum, projectBoardUrl, issueLinkedPrsByNum) {
+  var issueOpts = { issueLinkedPrsByNum: issueLinkedPrsByNum, projectItemsByNum: projectItemsByNum };
+  var filtered = _filterHomeRows(projectIssues, 'issues', issueOpts);
+  var sorted = _sortedRows(filtered, 'issues', issueOpts);
+  var page = _pageRows(sorted, 'issues');
+  var hasPrCount = projectIssues.filter(function(issue) {
+    return (issue.linked_prs || (issueLinkedPrsByNum && issueLinkedPrsByNum[issue.number]) || []).length > 0;
+  }).length;
+  let html = '<details class="card-section workbench-section" open>';
+  const boardLink = LinkRegistry.aTag(projectBoardUrl, "project #39");
+  html += '<summary>Open issues (' + boardLink + ') <span class="section-count">(' + projectIssues.length + ')</span></summary>';
+
+  if (!projectIssues.length) {
+    html += '<p class="empty">No open project #39 issues are currently tracked.</p>';
+    return html + '</details>';
   }
 
-  // This Week section
-  html += buildWeekSection(prs, issues, releases, cfg);
+  html += '<div class="workbench-controls">';
+  html += '<div class="control-group">' +
+    _filterButton('issues', 'all', 'All', projectIssues.length) +
+    _filterButton('issues', 'has-pr', 'Has PR', hasPrCount) +
+    _filterButton('issues', 'no-pr', 'No PR', projectIssues.length - hasPrCount) +
+    _filterButton('issues', 'backlog', 'Backlog') +
+    _filterButton('issues', 'in-review', 'In review') +
+    _filterButton('issues', 'in-progress', 'In progress') +
+    '</div>';
+  html += '<div class="control-search"><input type="search" value="' + _attr(_homeState('issues').search) + '" placeholder="Search issues" oninput="setHomeSearch(\'issues\',this.value)"></div>';
+  html += '<div class="control-group sort-group">' +
+    '<span>Sort</span>' +
+    _sortButton('issues', 'updated', 'Updated') +
+    _sortButton('issues', 'number', '#') +
+    _sortButton('issues', 'status', 'Column') +
+    _sortButton('issues', 'prs', 'PRs') +
+    _pageSizeSelect('issues') +
+    '</div>';
+  html += '</div>';
+  html += _pager('issues', sorted.length);
+  if (!sorted.length) {
+    html += '<p class="empty">No issues match the current filters.</p>';
+    return html + '</details>';
+  }
+  html += '<div class="workbench-list">';
+  for (const issue of page) {
+    const t = ticketsByNum[issue.number] || (ticketsByTitle && ticketsByTitle[issue.title]);
+    const streak = t && t.summary ? _streakDays(t.summary.current_streak_started) : null;
+    const streakCell = streak == null
+      ? '<span class="muted">-</span>'
+      : '<span class="streak-chip streak-' + (streak >= 7 ? 'hot' : streak >= 2 ? 'warm' : 'fresh') + '">' + streak + 'd</span>';
+    const breaks = t && t.summary ? t.summary.break_frequency : null;
+    const breaksCell = breaks == null
+      ? '<span class="muted">-</span>'
+      : '<span class="breaks-chip">' + breaks + '</span>';
+    const assignees = Array.isArray(issue.assignees) ? issue.assignees : [];
+    const ownerCell = assignees.length
+      ? escapeHtml(assignees.slice(0, 2).join(', ')) + (assignees.length > 2 ? ' +' + (assignees.length - 2) : '')
+      : '<span class="muted">-</span>';
+    const pi = (projectItemsByNum && projectItemsByNum[String(issue.number)]) || {};
+    const status = issue.project_status || pi.status || '';
+    const columnCell = status
+      ? '<a href="' + _attr(projectBoardUrl) + '" target="_blank" rel="noopener" class="' + _projectStatusClass(status) + '" title="Open project #39 board">' + escapeHtml(status) + '</a>'
+      : '<span class="muted">-</span>';
 
-  // Top Contributors section
-  html += buildContributorSection(prs);
-
-  // PRs section
-  html += buildPRSection(openPrs);
-
-  // Issues section
-  html += buildIssueSection(issues);
-
-  // Releases section
-  html += buildReleaseSection(releases);
-
+    html += '<article class="workbench-row issue-row">';
+    html += '<div class="row-main">';
+    html += '<div class="row-title-line">' + LinkRegistry.aTag(issue.html_url, '#' + issue.number, { cls: 'row-number' }) + '<a class="row-title" href="' + _attr(issue.html_url) + '" target="_blank" rel="noopener" title="' + _attr(issue.title) + '">' + escapeHtml(issue.title) + '</a></div>';
+    html += '<div class="row-meta"><span>Owner ' + ownerCell + '</span><span>PRs ' + _linkedPrCell(issue, t, issueLinkedPrsByNum) + '</span><span>Updated ' + relativeTime(issue.updated_at) + '</span></div>';
+    html += '</div>';
+    html += '<div class="row-tags">' + columnCell + streakCell + breaksCell + '</div>';
+    html += '</article>';
+  }
+  html += '</div>';
+  html += _pager('issues', sorted.length);
+  html += '</details>';
   return html;
 }
 
@@ -443,9 +1046,9 @@ function buildWeekSection(prs, issues, releases, cfg) {
     html += '<table><tr><th>#</th><th>Title</th><th>Author</th><th>Status</th></tr>';
     for (const pr of recentPrs.slice(0, 10)) {
       html += "<tr>";
-      html += '<td><a href="' + pr.html_url + '" target="_blank">#' + pr.number + "</a></td>";
+      html += '<td>' + LinkRegistry.aTag(pr.html_url, '#' + pr.number) + '</td>';
       html += '<td class="td-title" title="' + escapeHtml(pr.title) + '">' + escapeHtml(pr.title.slice(0, 60)) + "</td>";
-      html += "<td>" + escapeHtml(pr.author) + "</td>";
+      html += "<td>" + escapeHtml(effectiveAuthor(pr)) + "</td>";
       html += "<td>" + statusBadge(pr) + "</td>";
       html += "</tr>";
     }
@@ -461,521 +1064,155 @@ function buildWeekSection(prs, issues, releases, cfg) {
   return html;
 }
 
-function buildContributorSection(prs) {
-  const contributors = getProjectContributors(prs, 10);
-  if (!contributors.length) {
-    return "<details><summary>Top Contributors (0)</summary><p class='empty'>None</p></details>";
+// Collect the set of CI-issue numbers each PR references, so the row can
+// link back to the tickets it fixes. Same ``#N`` scan as the filter above.
+function _linkedCiIssueNums(pr, ciIssueNumSet, issueNumsByLinkedPr) {
+  const hay = (pr.title || "") + "\n" + (pr.body_head || "");
+  const re = /#(\d+)/g;
+  const out = [];
+  const seen = new Set();
+  let m;
+  while ((m = re.exec(hay)) !== null) {
+    const n = parseInt(m[1], 10);
+    if (ciIssueNumSet.has(n) && !seen.has(n)) {
+      seen.add(n);
+      out.push(n);
+    }
   }
-
-  let html = "<details><summary>Top Contributors (" + contributors.length + ")</summary>";
-  html += '<table><tr><th>#</th><th>Author</th><th>Submitted</th><th>Merged</th></tr>';
-
-  for (let i = 0; i < contributors.length; i++) {
-    const c = contributors[i];
-    html += "<tr>";
-    html += '<td class="contrib-rank">' + (i + 1) + "</td>";
-    html += '<td><a href="https://github.com/' + encodeURIComponent(c.author) + '" target="_blank">' + escapeHtml(c.author) + "</a></td>";
-    html += '<td class="contrib-count">' + c.submitted + "</td>";
-    html += '<td class="contrib-count">' + c.merged + "</td>";
-    html += "</tr>";
+  const extra = issueNumsByLinkedPr && issueNumsByLinkedPr[pr.number];
+  if (Array.isArray(extra)) {
+    for (const n of extra) {
+      if (!seen.has(n)) {
+        seen.add(n);
+        out.push(n);
+      }
+    }
   }
-
-  html += "</table></details>";
-  return html;
+  return out;
 }
 
-function buildPRSection(prs) {
+function buildLinkedPRSection(prs, ciIssueNumSet, issueNumsByLinkedPr) {
+  let html = '<details class="card-section" open>';
+  html += '<summary>PRs linked to a CI issue <span class="section-count">(' + prs.length + ')</span></summary>';
+
   if (!prs.length) {
-    return "<details><summary>Pull Requests (0)</summary><p class='empty'>None</p></details>";
+    html += '<p class="empty">No open PRs currently reference a tracked CI issue.</p>';
+    return html + '</details>';
   }
 
-  let html = "<details><summary>Pull Requests (" + prs.length + ")</summary>";
-  html += "<table><tr><th>#</th><th>Title</th><th>Author</th><th>Status</th><th>Updated</th></tr>";
-
+  html += '<table><tr><th>#</th><th>Title</th><th>Author</th><th>Fixes</th><th>Updated</th></tr>';
   for (const pr of prs.slice(0, 50)) {
-    html += "<tr>";
-    html += '<td><a href="' + pr.html_url + '" target="_blank">#' + pr.number + "</a></td>";
-    html += '<td class="td-title" title="' + escapeHtml(pr.title) + '">' + escapeHtml(pr.title.slice(0, 60)) + "</td>";
-    html += "<td>" + escapeHtml(pr.author) + "</td>";
-    html += "<td>" + statusBadge(pr) + "</td>";
-    html += "<td>" + relativeTime(pr.updated_at) + "</td>";
-    html += "</tr>";
+    const linkedNums = _linkedCiIssueNums(pr, ciIssueNumSet, issueNumsByLinkedPr);
+    const repoBase = (pr.html_url || "").split("/pull/")[0];
+    const fixesCell = linkedNums.map(function(n) {
+      return LinkRegistry.aTag(repoBase + "/issues/" + n, "#" + n);
+    }).join(", ") || '<span class="muted">—</span>';
+    html += '<tr>';
+    html += '<td>' + LinkRegistry.aTag(pr.html_url, '#' + pr.number) + '</td>';
+    html += '<td class="td-title" title="' + escapeHtml(pr.title) + '">' + escapeHtml(pr.title.slice(0, 80)) + '</td>';
+    html += '<td>' + escapeHtml(effectiveAuthor(pr)) + '</td>';
+    html += '<td class="td-fixes">' + fixesCell + '</td>';
+    html += '<td>' + relativeTime(pr.updated_at) + '</td>';
+    html += '</tr>';
   }
-
   if (prs.length > 50) {
-    html += '<tr><td colspan="5" class="empty">...and ' + (prs.length - 50) + " more</td></tr>";
+    html += '<tr><td colspan="5" class="empty">...and ' + (prs.length - 50) + ' more</td></tr>';
   }
-
-  html += "</table></details>";
+  html += '</table></details>';
   return html;
 }
 
-function buildIssueSection(issues) {
-  if (!issues.length) {
-    return "<details><summary>Issues (0)</summary><p class='empty'>None</p></details>";
-  }
-
-  let html = "<details><summary>Issues (" + issues.length + ")</summary>";
-  html += "<table><tr><th>#</th><th>Title</th><th>Author</th><th>Updated</th></tr>";
-
-  for (const issue of issues.slice(0, 50)) {
-    html += "<tr>";
-    html += '<td><a href="' + issue.html_url + '" target="_blank">#' + issue.number + "</a></td>";
-    html += '<td class="td-title" title="' + escapeHtml(issue.title) + '">' + escapeHtml(issue.title.slice(0, 60)) + "</td>";
-    html += "<td>" + escapeHtml(issue.author) + "</td>";
-    html += "<td>" + relativeTime(issue.updated_at) + "</td>";
-    html += "</tr>";
-  }
-
-  if (issues.length > 50) {
-    html += '<tr><td colspan="4" class="empty">...and ' + (issues.length - 50) + " more</td></tr>";
-  }
-
-  html += "</table></details>";
-  return html;
+function _streakDays(startIso) {
+  // Rough day-count between ``startIso`` (YYYY-MM-DD) and today, UTC. We
+  // deliberately do not call into any date library — the values come from
+  // ``ready_tickets.json`` which already stores dates in ISO form.
+  if (!startIso) return null;
+  const start = new Date(startIso + "T00:00:00Z").getTime();
+  const now = Date.now();
+  if (!isFinite(start)) return null;
+  return Math.max(0, Math.floor((now - start) / 86400000));
 }
 
-function buildReleaseSection(releases) {
-  if (!releases.length) {
-    return "<details><summary>Releases (0)</summary><p class='empty'>None</p></details>";
-  }
-
-  let html = "<details><summary>Releases (" + releases.length + ")</summary>";
-  html += "<table><tr><th>Tag</th><th>Published</th></tr>";
-
-  for (const r of releases) {
-    html += "<tr>";
-    html += '<td><a href="' + r.html_url + '" target="_blank">' + escapeHtml(r.tag_name) + "</a></td>";
-    html += "<td>" + formatDate(r.published_at) + "</td>";
-    html += "</tr>";
-  }
-
-  html += "</table></details>";
-  return html;
+// Map a project #39 Status option name to the chip CSS modifier. Unknown
+// statuses fall back to a muted grey chip so new columns added upstream
+// don't render a broken style.
+function _projectStatusClass(status) {
+  var s = (status || "").toLowerCase().replace(/\s+/g, "-");
+  var known = { "backlog": 1, "ready": 1, "in-progress": 1, "in-review": 1, "done": 1 };
+  return known[s] ? "col-chip col-" + s : "col-chip col-unknown";
 }
 
-function buildTestSection(testResults, parityReport) {
-  var rocm = testResults.rocm;
-  var cuda = testResults.cuda;
-
-  // Build summary text for the <summary> line
-  var summaryText = "";
-  if (parityReport && parityReport.summary) {
-    summaryText = "Parity: " + parityReport.summary.parity_pct.toFixed(1) + "% (matched)";
-  } else if (testResults.cuda_parity) {
-    summaryText = "Parity: " + testResults.cuda_parity.ratio.toFixed(1) + "%";
-  } else {
-    var parts = [];
-    if (rocm && rocm.summary) {
-      parts.push("ROCm: " + (rocm.summary.pass_rate != null ? rocm.summary.pass_rate.toFixed(1) + "%" : "N/A"));
-    }
-    if (cuda && cuda.summary) {
-      parts.push("CUDA: " + (cuda.summary.pass_rate != null ? cuda.summary.pass_rate.toFixed(1) + "%" : "N/A"));
-    }
-    summaryText = parts.length ? parts.join(" | ") : "No data";
-  }
-
-  var html = '<details class="test-results">';
-  html += '<summary>Test Results <span class="test-summary-inline">' + escapeHtml(summaryText) + "</span></summary>";
-
-  // Pass rate bars
-  if (rocm && rocm.summary) {
-    html += buildPassRateBar("ROCm", rocm.summary, rocm.run_url);
-  }
-  if (cuda && cuda.summary) {
-    html += buildPassRateBar("CUDA", cuda.summary, cuda.run_url);
-  }
-
-  // Suite detail table
-  html += buildSuiteTable(rocm, cuda);
-
-  // Freshness line
-  var dates = [];
-  if (rocm && rocm.run_date) dates.push("ROCm: " + relativeTime(rocm.run_date));
-  if (cuda && cuda.run_date) dates.push("CUDA: " + relativeTime(cuda.run_date));
-  if (dates.length) {
-    html += '<div class="test-meta">Runs: ' + dates.join(", ");
-    if (testResults.source === "manual") html += " (manual)";
-    html += "</div>";
-  }
-
-  html += "</details>";
-  return html;
+function _linkedPrCell(issue, ticket, issueLinkedPrsByNum) {
+  const refs = (ticket && Array.isArray(ticket.linked_prs) && ticket.linked_prs.length)
+    ? ticket.linked_prs
+    : (issueLinkedPrsByNum && issueLinkedPrsByNum[issue.number]) || [];
+  if (!refs.length) return '<span class="muted">—</span>';
+  const repoBase = (issue.html_url || "").split("/issues/")[0];
+  return refs.slice(0, 3).map(function(ref) {
+    const prNum = parseInt(ref && ref.number, 10);
+    if (!prNum) return '';
+    const prUrl = (ref && ref.url) || (repoBase + '/pull/' + prNum);
+    return LinkRegistry.aTag(prUrl, '#' + prNum);
+  }).filter(Boolean).join(', ') || '<span class="muted">—</span>';
 }
 
-// ---------------------------------------------------------------------------
-// Activity View (Tab 3)
-// ---------------------------------------------------------------------------
+function buildCIIssueSection(ciIssues, ticketsByNum, ticketsByTitle, projectItemsByNum, projectBoardUrl, issueLinkedPrsByNum) {
+  let html = '<details class="card-section" open>';
+  const boardLink = LinkRegistry.aTag(projectBoardUrl, "project #39");
+  html += '<summary>Open CI issues (' + boardLink + ') <span class="section-count">(' + ciIssues.length + ')</span></summary>';
 
-function renderActivityView(projectsCfg, dataMap) {
-  var el = document.getElementById("activity-view");
-  var html = "";
-
-  // Activity summary boxes (cross-project)
-  html += buildActivitySummary(dataMap);
-
-  // Per-section views
-  html += '<div class="activity-sections">';
-  html += buildPRVelocitySection(projectsCfg, dataMap);
-  html += buildCISignalSection(projectsCfg, dataMap);
-  html += buildCIHealthSection(projectsCfg, dataMap);
-  html += buildContributorSection2(projectsCfg, dataMap);
-  html += buildIssueHealthSection(projectsCfg, dataMap);
-  html += buildReleaseCadenceSection(projectsCfg, dataMap);
-  html += '</div>';
-
-  el.innerHTML = html;
-}
-
-function buildActivitySummary(dataMap) {
-  var totalOpened = 0, totalMerged = 0, totalActive = 0, totalStale = 0;
-  var ttms = [];
-
-  for (var name in dataMap) {
-    var a = (dataMap[name] || {}).activity;
-    if (!a) continue;
-    var pv = a.pr_velocity || {};
-    var tw = pv.this_week || {};
-    totalOpened += tw.opened || 0;
-    totalMerged += tw.merged || 0;
-    totalStale += pv.stale_prs || 0;
-    if (pv.median_time_to_merge_hours != null) ttms.push(pv.median_time_to_merge_hours);
-    var c = a.contributors || {};
-    totalActive += c.active_this_week || 0;
+  if (!ciIssues.length) {
+    html += '<p class="empty">No CI-failure issues currently tracked.</p>';
+    return html + '</details>';
   }
 
-  var avgTTM = ttms.length > 0 ? ttms.reduce(function (a, b) { return a + b; }, 0) / ttms.length : null;
+  html += '<table><tr><th>#</th><th>Title</th><th>Owner</th><th>Column</th><th>PRs</th><th>Streak</th><th>Breaks (60d)</th><th>Updated</th></tr>';
+  for (const issue of ciIssues.slice(0, 60)) {
+    // Prefer issue_number (authoritative), fall back to title (works even
+    // when dry-run preflight couldn't resolve the number).
+    const t = ticketsByNum[issue.number] || (ticketsByTitle && ticketsByTitle[issue.title]);
+    const streak = t && t.summary ? _streakDays(t.summary.current_streak_started) : null;
+    const streakCell = streak == null
+      ? '<span class="muted">—</span>'
+      : '<span class="streak-chip streak-' + (streak >= 7 ? 'hot' : streak >= 2 ? 'warm' : 'fresh') + '">' + streak + 'd</span>';
+    const breaks = t && t.summary ? t.summary.break_frequency : null;
+    const breaksCell = breaks == null
+      ? '<span class="muted">—</span>'
+      : '<span class="breaks-chip">' + breaks + '</span>';
+    const assignees = Array.isArray(issue.assignees) ? issue.assignees : [];
+    const ownerCell = assignees.length
+      ? escapeHtml(assignees.slice(0, 2).join(', ')) + (assignees.length > 2 ? ' +' + (assignees.length - 2) : '')
+      : '<span class="muted">—</span>';
 
-  var html = '<h2>Activity Overview</h2>';
-  html += '<div class="activity-boxes">';
-  html += '<div class="activity-box activity-box-opened"><div class="activity-num">' + totalOpened + '</div><div class="activity-label">PRs Opened (week)</div></div>';
-  html += '<div class="activity-box activity-box-merged"><div class="activity-num">' + totalMerged + '</div><div class="activity-label">PRs Merged (week)</div></div>';
-  html += '<div class="activity-box activity-box-ttm"><div class="activity-num">' + formatHours(avgTTM) + '</div><div class="activity-label">Avg Time-to-Merge</div></div>';
-  html += '<div class="activity-box activity-box-contributors"><div class="activity-num">' + totalActive + '</div><div class="activity-label">Active Contributors</div></div>';
-  html += '<div class="activity-box activity-box-stale"><div class="activity-num">' + totalStale + '</div><div class="activity-label">Stale PRs (>30d)</div></div>';
-  html += '</div>';
-  return html;
-}
-
-function buildPRVelocitySection(projectsCfg, dataMap) {
-  var html = '<div class="activity-section">';
-  html += '<h3>PR Velocity</h3>';
-  html += '<table class="activity-table"><tr>';
-  html += '<th>Project</th><th>Opened</th><th>Merged</th><th>Closed</th>';
-  html += '<th>Time-to-Merge</th><th>Stale</th>';
-  html += '</tr>';
-
-  for (var name in projectsCfg) {
-    var a = (dataMap[name] || {}).activity;
-    if (!a) continue;
-    var pv = a.pr_velocity || {};
-    var tw = pv.this_week || {};
-    var lw = pv.last_week || {};
-
-    html += '<tr>';
-    html += '<td class="project-name">' + escapeHtml(name) + '</td>';
-    html += '<td>' + (tw.opened || 0) + deltaArrow(tw.opened, lw.opened) + '</td>';
-    html += '<td>' + (tw.merged || 0) + deltaArrow(tw.merged, lw.merged) + '</td>';
-    html += '<td>' + (tw.closed || 0) + '</td>';
-    html += '<td>' + formatHours(pv.median_time_to_merge_hours) + '</td>';
-    html += '<td>' + (pv.stale_prs > 0 ? '<span class="stale-count">' + pv.stale_prs + '</span>' : '0') + '</td>';
-    html += '</tr>';
-  }
-
-  html += '</table></div>';
-  return html;
-}
-
-function buildCISignalSection(projectsCfg, dataMap) {
-  // Only show projects that have CI signal data
-  var hasData = false;
-  for (var name in dataMap) {
-    if (dataMap[name].activity && dataMap[name].activity.ci_signal_time) {
-      hasData = true;
-      break;
-    }
-  }
-  if (!hasData) return '';
-
-  var html = '<div class="activity-section">';
-  html += '<h3>Time to CI Signal</h3>';
-  html += '<p class="section-desc">Median time from workflow trigger to completion (last 20 runs)</p>';
-  html += '<table class="activity-table"><tr>';
-  html += '<th>Project</th><th>Platform</th><th>Median</th><th>P90</th><th>Min</th><th>Max</th><th></th>';
-  html += '</tr>';
-
-  for (var name in projectsCfg) {
-    var a = (dataMap[name] || {}).activity;
-    if (!a || !a.ci_signal_time) continue;
-
-    var validPlatforms = Object.keys(a.ci_signal_time).filter(function (p) { return a.ci_signal_time[p] != null; });
-    if (validPlatforms.length === 0) continue;
-    var first = true;
-    for (var pi = 0; pi < validPlatforms.length; pi++) {
-      var platform = validPlatforms[pi];
-      var d = a.ci_signal_time[platform];
-
-      html += '<tr>';
-      if (first) {
-        html += '<td class="project-name" rowspan="' + validPlatforms.length + '">' + escapeHtml(name) + '</td>';
-        first = false;
-      }
-      html += '<td><span class="platform-label platform-' + platform + '">' + platform.toUpperCase() + '</span></td>';
-      html += '<td class="ci-signal-val">' + formatMinutes(d.median_minutes) + '</td>';
-      html += '<td>' + formatMinutes(d.p90_minutes) + '</td>';
-      html += '<td>' + formatMinutes(d.min_minutes) + '</td>';
-      html += '<td>' + formatMinutes(d.max_minutes) + '</td>';
-      // Visual bar: median relative to 6 hours (360 min)
-      var pct = Math.min(100, (d.median_minutes / 360) * 100);
-      var barColor = d.median_minutes < 60 ? 'rate-good' : d.median_minutes < 180 ? 'rate-warn' : 'rate-bad';
-      html += '<td class="ci-signal-bar-cell"><div class="ci-signal-bar-bg"><div class="ci-signal-bar-fill ' + barColor + '" style="width:' + pct + '%"></div></div></td>';
-      html += '</tr>';
-    }
-  }
-
-  html += '</table></div>';
-  return html;
-}
-
-function buildCIHealthSection(projectsCfg, dataMap) {
-  var hasData = false;
-  for (var name in dataMap) {
-    if (dataMap[name].activity && dataMap[name].activity.ci_health) {
-      hasData = true;
-      break;
-    }
-  }
-  if (!hasData) return '';
-
-  var html = '<div class="activity-section">';
-  html += '<h3>CI Health</h3>';
-  html += '<p class="section-desc">Build success rate from last 20 workflow runs</p>';
-  html += '<table class="activity-table"><tr>';
-  html += '<th>Project</th><th>ROCm</th><th></th><th>CUDA</th><th></th>';
-  html += '</tr>';
-
-  for (var name in projectsCfg) {
-    var a = (dataMap[name] || {}).activity;
-    if (!a || !a.ci_health) continue;
-    var rocm = a.ci_health.rocm;
-    var cuda = a.ci_health.cuda;
-
-    html += '<tr>';
-    html += '<td class="project-name">' + escapeHtml(name) + '</td>';
-
-    if (rocm) {
-      html += '<td>' + ciHealthBadge(rocm.success_rate) + '</td>';
-      html += '<td class="ci-detail">' + rocm.succeeded + '/' + rocm.total_runs + ' passed</td>';
+    // Column chip: click-through to project #39 board so the triage lead
+    // can jump straight to the card. If the live snapshot is absent
+    // (dry-run env) or the issue hasn't been added to the board yet, we
+    // show an em-dash instead of faking a status.
+    const pi = projectItemsByNum && projectItemsByNum[String(issue.number)];
+    let columnCell;
+    if (pi && pi.status) {
+      const cls = _projectStatusClass(pi.status);
+      columnCell = '<a href="' + escapeHtml(projectBoardUrl) + '" target="_blank" rel="noopener" class="' + cls + '" title="Open project #39 board">' + escapeHtml(pi.status) + '</a>';
     } else {
-      html += '<td colspan="2" class="text-muted">N/A</td>';
-    }
-
-    if (cuda) {
-      html += '<td>' + ciHealthBadge(cuda.success_rate) + '</td>';
-      html += '<td class="ci-detail">' + cuda.succeeded + '/' + cuda.total_runs + ' passed</td>';
-    } else {
-      html += '<td colspan="2" class="text-muted">N/A</td>';
-    }
-
-    html += '</tr>';
-  }
-
-  html += '</table></div>';
-  return html;
-}
-
-function buildContributorSection2(projectsCfg, dataMap) {
-  var html = '<div class="activity-section">';
-  html += '<h3>Contributor Activity</h3>';
-  html += '<table class="activity-table"><tr>';
-  html += '<th>Project</th><th>Active (week)</th><th>Total</th><th>Bus Factor</th><th>Top Contributor</th>';
-  html += '</tr>';
-
-  for (var name in projectsCfg) {
-    var a = (dataMap[name] || {}).activity;
-    if (!a) continue;
-    var c = a.contributors || {};
-    var top = (c.top_contributors && c.top_contributors.length > 0) ? c.top_contributors[0] : null;
-
-    html += '<tr>';
-    html += '<td class="project-name">' + escapeHtml(name) + '</td>';
-    html += '<td>' + (c.active_this_week || 0) + '</td>';
-    html += '<td>' + (c.total_contributors || 0) + '</td>';
-    html += '<td>' + (c.bus_factor != null ? '<span class="bus-factor' + (c.bus_factor <= 2 ? ' bus-factor-warn' : '') + '">' + c.bus_factor + '</span>' : 'N/A') + '</td>';
-    html += '<td>' + (top ? '<a href="https://github.com/' + encodeURIComponent(top.author) + '" target="_blank">' + escapeHtml(top.author) + '</a> (' + top.prs_submitted + ' PRs)' : 'N/A') + '</td>';
-    html += '</tr>';
-  }
-
-  html += '</table></div>';
-  return html;
-}
-
-function buildIssueHealthSection(projectsCfg, dataMap) {
-  var html = '<div class="activity-section">';
-  html += '<h3>Issue Health</h3>';
-  html += '<table class="activity-table"><tr>';
-  html += '<th>Project</th><th>Open</th><th>Opened (week)</th><th>Closed (week)</th><th>Net</th><th>Unanswered</th>';
-  html += '</tr>';
-
-  for (var name in projectsCfg) {
-    var a = (dataMap[name] || {}).activity;
-    if (!a) continue;
-    var ih = a.issue_health || {};
-    var net = (ih.opened_this_week || 0) - (ih.closed_this_week || 0);
-    var netClass = net > 0 ? 'delta-up' : net < 0 ? 'delta-down' : 'delta-flat';
-    var netStr = (net > 0 ? '+' : '') + net;
-
-    html += '<tr>';
-    html += '<td class="project-name">' + escapeHtml(name) + '</td>';
-    html += '<td>' + (ih.total_open || 0) + '</td>';
-    html += '<td>' + (ih.opened_this_week || 0) + '</td>';
-    html += '<td>' + (ih.closed_this_week || 0) + '</td>';
-    html += '<td><span class="delta ' + netClass + '">' + netStr + '</span></td>';
-    html += '<td>' + (ih.unanswered > 0 ? '<span class="unanswered-count">' + ih.unanswered + '</span>' : '0') + '</td>';
-    html += '</tr>';
-  }
-
-  html += '</table></div>';
-  return html;
-}
-
-function buildReleaseCadenceSection(projectsCfg, dataMap) {
-  var html = '<div class="activity-section">';
-  html += '<h3>Release Cadence</h3>';
-  html += '<table class="activity-table"><tr>';
-  html += '<th>Project</th><th>Latest</th><th>Days Ago</th><th>Avg Interval</th><th>Total Releases</th>';
-  html += '</tr>';
-
-  for (var name in projectsCfg) {
-    var a = (dataMap[name] || {}).activity;
-    if (!a) continue;
-    var rc = a.release_cadence;
-    if (!rc) {
-      html += '<tr><td class="project-name">' + escapeHtml(name) + '</td><td colspan="4" class="text-muted">No releases</td></tr>';
-      continue;
-    }
-
-    var daysAgoClass = '';
-    if (rc.days_since_last != null) {
-      daysAgoClass = rc.days_since_last > 90 ? ' release-stale' : rc.days_since_last > 30 ? ' release-aging' : '';
+      columnCell = '<span class="muted">—</span>';
     }
 
     html += '<tr>';
-    html += '<td class="project-name">' + escapeHtml(name) + '</td>';
-    html += '<td>' + escapeHtml(rc.latest_tag || '-') + '</td>';
-    html += '<td class="' + daysAgoClass + '">' + (rc.days_since_last != null ? Math.round(rc.days_since_last) + 'd' : 'N/A') + '</td>';
-    html += '<td>' + (rc.avg_interval_days != null ? Math.round(rc.avg_interval_days) + 'd' : 'N/A') + '</td>';
-    html += '<td>' + (rc.total_releases || 0) + '</td>';
+    html += '<td>' + LinkRegistry.aTag(issue.html_url, '#' + issue.number) + '</td>';
+    html += '<td class="td-title" title="' + escapeHtml(issue.title) + '">' + escapeHtml(issue.title.slice(0, 80)) + '</td>';
+    html += '<td>' + ownerCell + '</td>';
+    html += '<td>' + columnCell + '</td>';
+    html += '<td class="td-fixes">' + _linkedPrCell(issue, t, issueLinkedPrsByNum) + '</td>';
+    html += '<td>' + streakCell + '</td>';
+    html += '<td>' + breaksCell + '</td>';
+    html += '<td>' + relativeTime(issue.updated_at) + '</td>';
     html += '</tr>';
   }
-
-  html += '</table></div>';
+  if (ciIssues.length > 60) {
+    html += '<tr><td colspan="8" class="empty">...and ' + (ciIssues.length - 60) + ' more</td></tr>';
+  }
+  html += '</table></details>';
   return html;
-}
-
-// ---------------------------------------------------------------------------
-// Trends View (Tab 4)
-// ---------------------------------------------------------------------------
-
-function renderTrendsView(projectsCfg, dataMap, historyData) {
-  var el = document.getElementById("trends-view");
-
-  if (!historyData || historyData.length === 0) {
-    el.innerHTML = '<h2>Trends</h2><p class="empty">No historical data yet. Trends will appear after multiple weekly snapshots.</p>';
-    return;
-  }
-
-  var html = '<h2>Trends</h2>';
-  html += '<p class="section-desc">Weekly snapshots across projects. More data points will appear over time.</p>';
-
-  // Chart containers
-  html += '<div class="trends-grid">';
-  html += '<div class="trend-card"><h4>PRs Merged per Week</h4><canvas id="chart-prs-merged"></canvas></div>';
-  html += '<div class="trend-card"><h4>Open Issues</h4><canvas id="chart-open-issues"></canvas></div>';
-  html += '<div class="trend-card"><h4>Active Contributors</h4><canvas id="chart-active-contributors"></canvas></div>';
-  html += '<div class="trend-card"><h4>Time-to-Merge (median, hours)</h4><canvas id="chart-ttm"></canvas></div>';
-  html += '<div class="trend-card"><h4>CI Signal Time - ROCm (median, min)</h4><canvas id="chart-ci-signal-rocm"></canvas></div>';
-  html += '<div class="trend-card"><h4>Test Pass Rate - ROCm (%)</h4><canvas id="chart-test-rate-rocm"></canvas></div>';
-  html += '<div class="trend-card"><h4>CUDA Parity - PyTorch (%)</h4><canvas id="chart-parity-pct"></canvas></div>';
-  html += '</div>';
-
-  el.innerHTML = html;
-
-  // Build charts
-  var weeks = historyData.map(function (h) { return h.week; });
-  var projectNames = Object.keys(projectsCfg);
-  var colors = [
-    '#58a6ff', '#f78166', '#7ee787', '#d2a8ff', '#ffd33d',
-    '#ff7b72', '#79c0ff', '#a5d6ff', '#d29922', '#8b949e'
-  ];
-
-  buildTrendChart('chart-prs-merged', weeks, historyData, projectNames, 'prs_merged', colors);
-  buildTrendChart('chart-open-issues', weeks, historyData, projectNames, 'open_issues', colors);
-  buildTrendChart('chart-active-contributors', weeks, historyData, projectNames, 'active_contributors', colors);
-  buildTrendChart('chart-ttm', weeks, historyData, projectNames, 'median_ttm_hours', colors);
-  buildTrendChart('chart-ci-signal-rocm', weeks, historyData, projectNames, 'ci_signal_rocm_median_min', colors);
-  buildTrendChart('chart-test-rate-rocm', weeks, historyData, projectNames, 'test_pass_rate_rocm', colors);
-  buildTrendChart('chart-parity-pct', weeks, historyData, ['pytorch'], 'parity_pct', ['#58a6ff']);
-}
-
-function buildTrendChart(canvasId, weeks, historyData, projectNames, metric, colors) {
-  var canvas = document.getElementById(canvasId);
-  if (!canvas) return;
-
-  var datasets = [];
-  for (var i = 0; i < projectNames.length; i++) {
-    var name = projectNames[i];
-    var data = weeks.map(function (w, idx) {
-      var snap = historyData[idx];
-      if (!snap || !snap.projects || !snap.projects[name]) return null;
-      var val = snap.projects[name][metric];
-      return val != null ? val : null;
-    });
-    // Only include if there's at least one data point
-    if (data.some(function (v) { return v != null; })) {
-      datasets.push({
-        label: name,
-        data: data,
-        borderColor: colors[i % colors.length],
-        backgroundColor: colors[i % colors.length] + '33',
-        tension: 0.3,
-        pointRadius: 3,
-        borderWidth: 2,
-        spanGaps: true,
-      });
-    }
-  }
-
-  if (datasets.length === 0) {
-    canvas.parentElement.style.display = 'none';
-    return;
-  }
-
-  new Chart(canvas, {
-    type: 'line',
-    data: { labels: weeks, datasets: datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: true,
-      plugins: {
-        legend: {
-          position: 'bottom',
-          labels: { color: '#e6edf3', font: { size: 11 } }
-        }
-      },
-      scales: {
-        x: {
-          ticks: { color: '#8b949e', font: { size: 11 } },
-          grid: { color: '#30363d' }
-        },
-        y: {
-          beginAtZero: true,
-          ticks: { color: '#8b949e', font: { size: 11 } },
-          grid: { color: '#30363d' }
-        }
-      }
-    }
-  });
 }
 
 function buildSuiteTable(rocm, cuda) {

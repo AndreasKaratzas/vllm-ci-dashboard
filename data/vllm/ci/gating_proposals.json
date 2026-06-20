@@ -1,0 +1,718 @@
+{
+  "generated_at": "2026-06-20T20:54:29Z",
+  "source_repo": "vllm-project/vllm",
+  "tracked_authors": [
+    "AndreasKaratzas",
+    "micah-wil",
+    "charlifu",
+    "divakar-amd",
+    "mawong-amd",
+    "Fangzhou-Ai",
+    "aarushjain29",
+    "stefankoncarevic",
+    "djramic",
+    "okorzh-amd"
+  ],
+  "summary": {
+    "tracked_author_count": 10,
+    "scanned_pr_count": 6,
+    "proposal_pr_count": 6,
+    "proposed_group_count": 24,
+    "by_device": {
+      "mi250_1": 2,
+      "mi250_2": 1,
+      "mi300_1": 11,
+      "mi300_2": 2,
+      "mi300_4": 4,
+      "mi325_1": 4
+    },
+    "by_author": {
+      "AndreasKaratzas": 20,
+      "charlifu": 1,
+      "mawong-amd": 1,
+      "micah-wil": 2
+    }
+  },
+  "collection": {
+    "complete": true,
+    "error_count": 0,
+    "errors": [],
+    "retained_pr_count": 0,
+    "retained_pr_numbers": [],
+    "lookback_days": 35,
+    "since_date": "2026-05-16",
+    "fresh_candidate_count": 0,
+    "candidate_cache": {
+      "generated_at": "2026-06-20T20:54:29Z",
+      "pr_count": 6,
+      "proposal_pr_numbers": [
+        45998,
+        46018,
+        45967,
+        45955,
+        45219,
+        44969
+      ],
+      "pull_requests": [
+        {
+          "number": 45998,
+          "title": "[ROCm][Bugfix] Fix `use_v2_model_runner` inside Ray driver thread",
+          "url": "https://github.com/vllm-project/vllm/pull/45998",
+          "api_url": "https://api.github.com/repos/vllm-project/vllm/pulls/45998",
+          "author": "micah-wil",
+          "state": "open",
+          "created_at": "2026-06-18T05:44:06Z",
+          "updated_at": "2026-06-20T06:55:58Z",
+          "checked_at": "2026-06-20T20:54:29Z",
+          "has_new_mirrors": true,
+          "new_mirror_count": 1,
+          "head_sha": "ef2ad9a5e2417a8829ee75b8b2dae445859def96",
+          "new_mirror_labels": [
+            "Distributed Tests (2xH100-2xMI300)"
+          ],
+          "from_previous_proposal": true
+        },
+        {
+          "number": 46018,
+          "title": "[Hardware][AMD][CI] Fix Spec Decode Eagle test group",
+          "url": "https://github.com/vllm-project/vllm/pull/46018",
+          "api_url": "https://api.github.com/repos/vllm-project/vllm/pulls/46018",
+          "author": "mawong-amd",
+          "state": "open",
+          "created_at": "2026-06-18T08:36:20Z",
+          "updated_at": "2026-06-20T04:58:48Z",
+          "checked_at": "2026-06-20T20:54:29Z",
+          "has_new_mirrors": true,
+          "new_mirror_count": 1,
+          "head_sha": "536a636ae1676c4ffc7d43f98449ba87ae7ac43e",
+          "new_mirror_labels": [
+            "Spec Decode Eagle"
+          ],
+          "from_previous_proposal": true
+        },
+        {
+          "number": 45967,
+          "title": "[ROCm][CI] skip test_double_aiter_rms_quant_fusion",
+          "url": "https://github.com/vllm-project/vllm/pull/45967",
+          "api_url": "https://api.github.com/repos/vllm-project/vllm/pulls/45967",
+          "author": "charlifu",
+          "state": "open",
+          "created_at": "2026-06-17T21:34:38Z",
+          "updated_at": "2026-06-20T04:26:24Z",
+          "checked_at": "2026-06-20T20:54:29Z",
+          "has_new_mirrors": true,
+          "new_mirror_count": 1,
+          "head_sha": "815bb4b0a049f7fbd34701f359e869cb20aabfe9",
+          "new_mirror_labels": [
+            "PyTorch Compilation Passes Unit Tests"
+          ],
+          "from_previous_proposal": true
+        },
+        {
+          "number": 45955,
+          "title": "[ROCm][CI] Disable Latency Check for some offloading connector tests using MRV2 on ROCm",
+          "url": "https://github.com/vllm-project/vllm/pull/45955",
+          "api_url": "https://api.github.com/repos/vllm-project/vllm/pulls/45955",
+          "author": "micah-wil",
+          "state": "open",
+          "created_at": "2026-06-17T19:17:02Z",
+          "updated_at": "2026-06-20T04:08:02Z",
+          "checked_at": "2026-06-20T20:54:29Z",
+          "has_new_mirrors": true,
+          "new_mirror_count": 1,
+          "head_sha": "a38caa2c9ca831f2d0bd97cd945563a33de59df5",
+          "new_mirror_labels": [
+            "V1 Core + KV + Metrics"
+          ],
+          "from_previous_proposal": true
+        },
+        {
+          "number": 45219,
+          "title": "[ROCm][CI] Fix nixl tests",
+          "url": "https://github.com/vllm-project/vllm/pull/45219",
+          "api_url": "https://api.github.com/repos/vllm-project/vllm/pulls/45219",
+          "author": "AndreasKaratzas",
+          "state": "open",
+          "created_at": "2026-06-11T03:20:03Z",
+          "updated_at": "2026-06-20T03:49:41Z",
+          "checked_at": "2026-06-20T20:54:29Z",
+          "has_new_mirrors": true,
+          "new_mirror_count": 5,
+          "head_sha": "9bba75ca4dbb6b739de744671478da07f98c938d",
+          "new_mirror_labels": [
+            "Distributed NixlConnector PD accuracy (4 GPUs)",
+            "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
+            "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
+            "Hybrid SSM NixlConnector PD accuracy tests (4 GPUs)",
+            "NixlConnector PD + Spec Decode acceptance (2 GPUs)"
+          ],
+          "from_previous_proposal": true
+        },
+        {
+          "number": 44969,
+          "title": "[ROCm][CI] Gating more ROCm tests",
+          "url": "https://github.com/vllm-project/vllm/pull/44969",
+          "api_url": "https://api.github.com/repos/vllm-project/vllm/pulls/44969",
+          "author": "AndreasKaratzas",
+          "state": "open",
+          "created_at": "2026-06-09T06:56:07Z",
+          "updated_at": "2026-06-19T23:12:45Z",
+          "checked_at": "2026-06-20T20:54:29Z",
+          "has_new_mirrors": true,
+          "new_mirror_count": 15,
+          "head_sha": "e009f127419f766b69095c0456753a57d7ad94d3",
+          "new_mirror_labels": [
+            "Cudagraph",
+            "Entrypoints Unit Tests",
+            "Entrypoints Integration (Responses API)",
+            "Entrypoints Integration (Multimodal)",
+            "Kernels Mamba Test",
+            "Kernels Helion Test",
+            "Async Engine, Inputs, Utils, Worker",
+            "Language Models Test (Extended Generation)",
+            "Language Models Test (PPL)",
+            "Language Models Test (MTEB)",
+            "Multi-Modal Processor",
+            "Multi-Modal Models (Extended Generation 2)",
+            "Multi-Modal Models (Extended Generation 3)",
+            "Plugin Tests (2 GPUs)",
+            "Speculators Correctness"
+          ],
+          "from_previous_proposal": true
+        }
+      ]
+    }
+  },
+  "pull_requests": [
+    {
+      "number": 45998,
+      "title": "[ROCm][Bugfix] Fix `use_v2_model_runner` inside Ray driver thread",
+      "state": "open",
+      "url": "https://github.com/vllm-project/vllm/pull/45998",
+      "api_url": "https://api.github.com/repos/vllm-project/vllm/pulls/45998",
+      "author": "micah-wil",
+      "head_ref": "micah/cache-use-mrv2",
+      "head_sha": "ef2ad9a5e2417a8829ee75b8b2dae445859def96",
+      "base_ref": "main",
+      "base_sha": "058cc0a8b6e33523b1ed75db933726959df43791",
+      "updated_at": "2026-06-20T06:55:58Z",
+      "created_at": "2026-06-18T05:44:06Z",
+      "new_mirror_count": 1,
+      "new_mirrors": [
+        {
+          "identity": "distributed-tests-2-gpus-h100",
+          "label": "Distributed Tests (2xH100-2xMI300)",
+          "key": "distributed-tests-2-gpus-h100",
+          "area": "Distributed",
+          "yaml_file": ".buildkite/test_areas/distributed.yaml",
+          "yaml_index": 9,
+          "device": "mi300_2",
+          "timeout_in_minutes": 180,
+          "source_file_dependencies": []
+        }
+      ]
+    },
+    {
+      "number": 46018,
+      "title": "[Hardware][AMD][CI] Fix Spec Decode Eagle test group",
+      "state": "open",
+      "url": "https://github.com/vllm-project/vllm/pull/46018",
+      "api_url": "https://api.github.com/repos/vllm-project/vllm/pulls/46018",
+      "author": "mawong-amd",
+      "head_ref": "mawong/fix-spec-decode-eagle",
+      "head_sha": "536a636ae1676c4ffc7d43f98449ba87ae7ac43e",
+      "base_ref": "main",
+      "base_sha": "93bad119120d0f9bff707dcbf5af5c029158b969",
+      "updated_at": "2026-06-20T04:58:48Z",
+      "created_at": "2026-06-18T08:36:20Z",
+      "new_mirror_count": 1,
+      "new_mirrors": [
+        {
+          "identity": "spec-decode-eagle",
+          "label": "Spec Decode Eagle",
+          "key": "spec-decode-eagle",
+          "area": "Spec Decode",
+          "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
+          "yaml_index": 0,
+          "device": "mi325_1",
+          "timeout_in_minutes": 45,
+          "source_file_dependencies": [
+            "vllm/v1/spec_decode/",
+            "vllm/v1/worker/gpu/spec_decode/",
+            "vllm/model_executor/model_loader/",
+            "vllm/v1/sample/",
+            "vllm/model_executor/layers/",
+            "tests/v1/e2e/spec_decode/",
+            "vllm/platforms/rocm.py"
+          ]
+        }
+      ]
+    },
+    {
+      "number": 45967,
+      "title": "[ROCm][CI] skip test_double_aiter_rms_quant_fusion",
+      "state": "open",
+      "url": "https://github.com/vllm-project/vllm/pull/45967",
+      "api_url": "https://api.github.com/repos/vllm-project/vllm/pulls/45967",
+      "author": "charlifu",
+      "head_ref": "amd/fix_torch_compiliation_passes",
+      "head_sha": "815bb4b0a049f7fbd34701f359e869cb20aabfe9",
+      "base_ref": "main",
+      "base_sha": "93bad119120d0f9bff707dcbf5af5c029158b969",
+      "updated_at": "2026-06-20T04:26:24Z",
+      "created_at": "2026-06-17T21:34:38Z",
+      "new_mirror_count": 1,
+      "new_mirrors": [
+        {
+          "identity": "pytorch-compilation-passes-unit-tests",
+          "label": "PyTorch Compilation Passes Unit Tests",
+          "key": "pytorch-compilation-passes-unit-tests",
+          "area": "PyTorch",
+          "yaml_file": ".buildkite/test_areas/pytorch.yaml",
+          "yaml_index": 2,
+          "device": "mi300_1",
+          "timeout_in_minutes": 180,
+          "source_file_dependencies": [
+            "vllm/__init__.py",
+            "vllm/_aiter_ops.py",
+            "vllm/_custom_ops.py",
+            "vllm/compilation/",
+            "vllm/config/",
+            "vllm/distributed/",
+            "vllm/engine/",
+            "vllm/env_override.py",
+            "vllm/envs.py",
+            "vllm/forward_context.py",
+            "vllm/inputs/",
+            "vllm/ir/",
+            "vllm/kernels/",
+            "vllm/logger.py",
+            "vllm/model_executor/",
+            "vllm/multimodal/",
+            "vllm/platforms/",
+            "vllm/plugins/",
+            "vllm/sampling_params.py",
+            "vllm/sequence.py",
+            "vllm/transformers_utils/",
+            "vllm/triton_utils/",
+            "vllm/utils/",
+            "vllm/v1/",
+            "tests/compile/passes"
+          ]
+        }
+      ]
+    },
+    {
+      "number": 45955,
+      "title": "[ROCm][CI] Disable Latency Check for some offloading connector tests using MRV2 on ROCm",
+      "state": "open",
+      "url": "https://github.com/vllm-project/vllm/pull/45955",
+      "api_url": "https://api.github.com/repos/vllm-project/vllm/pulls/45955",
+      "author": "micah-wil",
+      "head_ref": "micah/offloading-connector-test",
+      "head_sha": "a38caa2c9ca831f2d0bd97cd945563a33de59df5",
+      "base_ref": "main",
+      "base_sha": "93bad119120d0f9bff707dcbf5af5c029158b969",
+      "updated_at": "2026-06-20T04:08:02Z",
+      "created_at": "2026-06-17T19:17:02Z",
+      "new_mirror_count": 1,
+      "new_mirrors": [
+        {
+          "identity": "v1-core-kv-metrics",
+          "label": "V1 Core + KV + Metrics",
+          "key": "v1-core-kv-metrics",
+          "area": "Miscellaneous",
+          "yaml_file": ".buildkite/test_areas/misc.yaml",
+          "yaml_index": 2,
+          "device": "mi325_1",
+          "timeout_in_minutes": 60,
+          "source_file_dependencies": [
+            "vllm/config/",
+            "vllm/distributed/",
+            "vllm/engine/",
+            "vllm/entrypoints/pooling/",
+            "vllm/inputs/",
+            "vllm/lora/",
+            "vllm/model_executor/",
+            "vllm/multimodal/",
+            "vllm/outputs.py",
+            "vllm/platforms/",
+            "vllm/pooling_params.py",
+            "vllm/profiler/",
+            "vllm/sampling_params.py",
+            "vllm/tokenizers/",
+            "vllm/transformers_utils/",
+            "vllm/utils/",
+            "vllm/v1/",
+            "tests/v1/core",
+            "tests/v1/executor",
+            "tests/v1/kv_offload",
+            "tests/v1/simple_kv_offload",
+            "tests/v1/worker",
+            "tests/v1/kv_connector/unit",
+            "tests/v1/metrics",
+            "tests/entrypoints/openai/correctness/test_lmeval.py"
+          ]
+        }
+      ]
+    },
+    {
+      "number": 45219,
+      "title": "[ROCm][CI] Fix nixl tests",
+      "state": "open",
+      "url": "https://github.com/vllm-project/vllm/pull/45219",
+      "api_url": "https://api.github.com/repos/vllm-project/vllm/pulls/45219",
+      "author": "AndreasKaratzas",
+      "head_ref": "akaratza_fix_nixl_tests",
+      "head_sha": "9bba75ca4dbb6b739de744671478da07f98c938d",
+      "base_ref": "main",
+      "base_sha": "93bad119120d0f9bff707dcbf5af5c029158b969",
+      "updated_at": "2026-06-20T03:49:41Z",
+      "created_at": "2026-06-11T03:20:03Z",
+      "new_mirror_count": 5,
+      "new_mirrors": [
+        {
+          "identity": "distributed-nixlconnector-pd-accuracy-4-gpus",
+          "label": "Distributed NixlConnector PD accuracy (4 GPUs)",
+          "key": "distributed-nixlconnector-pd-accuracy-4-gpus",
+          "area": "Disaggregated",
+          "yaml_file": ".buildkite/test_areas/disaggregated.yaml",
+          "yaml_index": 0,
+          "device": "mi300_4",
+          "timeout_in_minutes": 110,
+          "source_file_dependencies": [
+            "vllm/distributed/kv_transfer/kv_connector/v1/nixl/",
+            "tests/v1/kv_connector/nixl_integration/",
+            "vllm/platforms/rocm.py"
+          ]
+        },
+        {
+          "identity": "dp-ep-distributed-nixlconnector-pd-accuracy-tests-4-gpus",
+          "label": "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
+          "key": "dp-ep-distributed-nixlconnector-pd-accuracy-tests-4-gpus",
+          "area": "Disaggregated",
+          "yaml_file": ".buildkite/test_areas/disaggregated.yaml",
+          "yaml_index": 2,
+          "device": "mi300_4",
+          "timeout_in_minutes": 50,
+          "source_file_dependencies": [
+            "vllm/distributed/kv_transfer/kv_connector/v1/nixl/",
+            "tests/v1/kv_connector/nixl_integration/",
+            "vllm/platforms/rocm.py"
+          ]
+        },
+        {
+          "identity": "crosslayer-kv-layout-distributed-nixlconnector-pd-accuracy-tests-4-gpus",
+          "label": "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
+          "key": "crosslayer-kv-layout-distributed-nixlconnector-pd-accuracy-tests-4-gpus",
+          "area": "Disaggregated",
+          "yaml_file": ".buildkite/test_areas/disaggregated.yaml",
+          "yaml_index": 3,
+          "device": "mi300_4",
+          "timeout_in_minutes": 110,
+          "source_file_dependencies": [
+            "vllm/distributed/kv_transfer/kv_connector/v1/nixl/",
+            "tests/v1/kv_connector/nixl_integration/",
+            "vllm/platforms/rocm.py"
+          ]
+        },
+        {
+          "identity": "hybrid-ssm-nixlconnector-pd-accuracy-tests-4-gpus",
+          "label": "Hybrid SSM NixlConnector PD accuracy tests (4 GPUs)",
+          "key": "hybrid-ssm-nixlconnector-pd-accuracy-tests-4-gpus",
+          "area": "Disaggregated",
+          "yaml_file": ".buildkite/test_areas/disaggregated.yaml",
+          "yaml_index": 4,
+          "device": "mi300_4",
+          "timeout_in_minutes": 60,
+          "source_file_dependencies": [
+            "vllm/distributed/kv_transfer/kv_connector/v1/nixl/",
+            "tests/v1/kv_connector/nixl_integration/",
+            "vllm/platforms/rocm.py"
+          ]
+        },
+        {
+          "identity": "nixlconnector-pd-spec-decode-acceptance-2-gpus",
+          "label": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
+          "key": "nixlconnector-pd-spec-decode-acceptance-2-gpus",
+          "area": "Disaggregated",
+          "yaml_file": ".buildkite/test_areas/disaggregated.yaml",
+          "yaml_index": 7,
+          "device": "mi300_2",
+          "timeout_in_minutes": 60,
+          "source_file_dependencies": [
+            "vllm/distributed/kv_transfer/kv_connector/v1/nixl/",
+            "vllm/v1/worker/kv_connector_model_runner_mixin.py",
+            "tests/v1/kv_connector/nixl_integration/",
+            "vllm/platforms/rocm.py"
+          ]
+        }
+      ]
+    },
+    {
+      "number": 44969,
+      "title": "[ROCm][CI] Gating more ROCm tests",
+      "state": "open",
+      "url": "https://github.com/vllm-project/vllm/pull/44969",
+      "api_url": "https://api.github.com/repos/vllm-project/vllm/pulls/44969",
+      "author": "AndreasKaratzas",
+      "head_ref": "akaratza_stage_d_gating",
+      "head_sha": "e009f127419f766b69095c0456753a57d7ad94d3",
+      "base_ref": "main",
+      "base_sha": "0fbf42af841993ab1c189efca34de6b9799526b7",
+      "updated_at": "2026-06-19T23:12:45Z",
+      "created_at": "2026-06-09T06:56:07Z",
+      "new_mirror_count": 15,
+      "new_mirrors": [
+        {
+          "identity": "cudagraph",
+          "label": "Cudagraph",
+          "key": "cudagraph",
+          "area": "CUDA",
+          "yaml_file": ".buildkite/test_areas/cuda.yaml",
+          "yaml_index": 1,
+          "device": "mi250_1",
+          "timeout_in_minutes": 60,
+          "source_file_dependencies": [
+            "tests/v1/cudagraph",
+            "vllm/v1/cudagraph_dispatcher.py",
+            "vllm/config/compilation.py",
+            "vllm/compilation",
+            "vllm/platforms/rocm.py"
+          ]
+        },
+        {
+          "identity": "entrypoints-unit-tests",
+          "label": "Entrypoints Unit Tests",
+          "key": "entrypoints-unit-tests",
+          "area": "Entrypoints",
+          "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
+          "yaml_index": 0,
+          "device": "mi300_1",
+          "timeout_in_minutes": 10,
+          "source_file_dependencies": [
+            "vllm/entrypoints",
+            "tests/entrypoints/unit_tests",
+            "tests/entrypoints/weight_transfer"
+          ]
+        },
+        {
+          "identity": "entrypoints-integration-responses-api",
+          "label": "Entrypoints Integration (Responses API)",
+          "key": "entrypoints-integration-responses-api",
+          "area": "Entrypoints",
+          "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
+          "yaml_index": 6,
+          "device": "mi300_1",
+          "timeout_in_minutes": 50,
+          "source_file_dependencies": [
+            "vllm/",
+            "tests/entrypoints/openai/responses"
+          ]
+        },
+        {
+          "identity": "entrypoints-integration-multimodal",
+          "label": "Entrypoints Integration (Multimodal)",
+          "key": "entrypoints-integration-multimodal",
+          "area": "Entrypoints",
+          "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
+          "yaml_index": 8,
+          "device": "mi300_1",
+          "timeout_in_minutes": 50,
+          "source_file_dependencies": [
+            "vllm/",
+            "tests/entrypoints/multimodal"
+          ]
+        },
+        {
+          "identity": "kernels-mamba-test",
+          "label": "Kernels Mamba Test",
+          "key": "kernels-mamba-test",
+          "area": "Kernels",
+          "yaml_file": ".buildkite/test_areas/kernels.yaml",
+          "yaml_index": 9,
+          "device": "mi250_1",
+          "timeout_in_minutes": 70,
+          "source_file_dependencies": [
+            "csrc/mamba/",
+            "tests/kernels/mamba",
+            "vllm/model_executor/layers/mamba/ops"
+          ]
+        },
+        {
+          "identity": "kernels-helion-test",
+          "label": "Kernels Helion Test",
+          "key": "kernels-helion-test",
+          "area": "Kernels",
+          "yaml_file": ".buildkite/test_areas/kernels.yaml",
+          "yaml_index": 13,
+          "device": "mi300_1",
+          "timeout_in_minutes": 50,
+          "source_file_dependencies": [
+            "vllm/utils/import_utils.py",
+            "tests/kernels/helion/"
+          ]
+        },
+        {
+          "identity": "async-engine-inputs-utils-worker",
+          "label": "Async Engine, Inputs, Utils, Worker",
+          "key": "async-engine-inputs-utils-worker",
+          "area": "Miscellaneous",
+          "yaml_file": ".buildkite/test_areas/misc.yaml",
+          "yaml_index": 10,
+          "device": "mi325_1",
+          "timeout_in_minutes": 50,
+          "source_file_dependencies": [
+            "vllm/assets/",
+            "vllm/config/",
+            "vllm/distributed/",
+            "vllm/engine/",
+            "vllm/inputs/",
+            "vllm/model_executor/",
+            "vllm/multimodal/",
+            "vllm/platforms/",
+            "vllm/sampling_params.py",
+            "vllm/tokenizers/",
+            "vllm/transformers_utils/",
+            "vllm/utils/",
+            "vllm/v1/",
+            "tests/detokenizer",
+            "tests/multimodal",
+            "tests/utils_"
+          ]
+        },
+        {
+          "identity": "language-models-test-extended-generation",
+          "label": "Language Models Test (Extended Generation)",
+          "key": "language-models-test-extended-generation",
+          "area": "Models - Language",
+          "yaml_file": ".buildkite/test_areas/models_language.yaml",
+          "yaml_index": 3,
+          "device": "mi325_1",
+          "timeout_in_minutes": 110,
+          "source_file_dependencies": [
+            "vllm/",
+            "tests/models/language/generation"
+          ]
+        },
+        {
+          "identity": "language-models-test-ppl",
+          "label": "Language Models Test (PPL)",
+          "key": "language-models-test-ppl",
+          "area": "Models - Language",
+          "yaml_file": ".buildkite/test_areas/models_language.yaml",
+          "yaml_index": 4,
+          "device": "mi300_1",
+          "timeout_in_minutes": 110,
+          "source_file_dependencies": [
+            "vllm/model_executor/models/qwen3_5.py",
+            "vllm/model_executor/models/qwen3_5_mtp.py",
+            "vllm/transformers_utils/configs/qwen3_5.py",
+            "vllm/transformers_utils/configs/qwen3_5_moe.py",
+            "vllm/model_executor/models/qwen2.py",
+            "vllm/model_executor/models/qwen3.py",
+            "vllm/model_executor/models/qwen3_next.py",
+            "vllm/model_executor/models/qwen3_next_mtp.py",
+            "vllm/model_executor/layers/fla/ops/",
+            "vllm/_aiter_ops.py",
+            "vllm/v1/attention/backends/triton_attn.py",
+            "vllm/v1/attention/backends/rocm_attn.py",
+            "vllm/v1/attention/backends/rocm_aiter_unified_attn.py",
+            "vllm/v1/attention/backends/rocm_aiter_fa.py",
+            "vllm/v1/attention/backends/flex_attention.py",
+            "vllm/v1/attention/ops/",
+            "vllm/platforms/rocm.py",
+            "tests/models/language/generation_ppl_test"
+          ]
+        },
+        {
+          "identity": "language-models-test-mteb",
+          "label": "Language Models Test (MTEB)",
+          "key": "language-models-test-mteb",
+          "area": "Models - Language",
+          "yaml_file": ".buildkite/test_areas/models_language.yaml",
+          "yaml_index": 6,
+          "device": "mi300_1",
+          "timeout_in_minutes": 100,
+          "source_file_dependencies": [
+            "vllm/",
+            "tests/models/language/pooling_mteb_test"
+          ]
+        },
+        {
+          "identity": "multi-modal-processor",
+          "label": "Multi-Modal Processor",
+          "key": "multi-modal-processor",
+          "area": "Models - Multimodal",
+          "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
+          "yaml_index": 5,
+          "device": "mi300_1",
+          "timeout_in_minutes": 60,
+          "source_file_dependencies": [
+            "vllm/",
+            "tests/models/multimodal",
+            "tests/models/registry.py"
+          ]
+        },
+        {
+          "identity": "multi-modal-models-extended-generation-2",
+          "label": "Multi-Modal Models (Extended Generation 2)",
+          "key": "multi-modal-models-extended-generation-2",
+          "area": "Models - Multimodal",
+          "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
+          "yaml_index": 8,
+          "device": "mi300_1",
+          "timeout_in_minutes": null,
+          "source_file_dependencies": [
+            "vllm/",
+            "tests/models/multimodal/generation"
+          ]
+        },
+        {
+          "identity": "multi-modal-models-extended-generation-3",
+          "label": "Multi-Modal Models (Extended Generation 3)",
+          "key": "multi-modal-models-extended-generation-3",
+          "area": "Models - Multimodal",
+          "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
+          "yaml_index": 9,
+          "device": "mi300_1",
+          "timeout_in_minutes": null,
+          "source_file_dependencies": [
+            "vllm/",
+            "tests/models/multimodal/generation"
+          ]
+        },
+        {
+          "identity": "plugin-tests-2-gpus",
+          "label": "Plugin Tests (2 GPUs)",
+          "key": "plugin-tests-2-gpus",
+          "area": "Plugins",
+          "yaml_file": ".buildkite/test_areas/plugins.yaml",
+          "yaml_index": 0,
+          "device": "mi250_2",
+          "timeout_in_minutes": 50,
+          "source_file_dependencies": [
+            "vllm/plugins/",
+            "tests/plugins/",
+            "vllm/platforms/rocm.py"
+          ]
+        },
+        {
+          "identity": "speculators-correctness",
+          "label": "Speculators Correctness",
+          "key": "speculators-correctness",
+          "area": "Spec Decode",
+          "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
+          "yaml_index": 7,
+          "device": "mi300_1",
+          "timeout_in_minutes": 60,
+          "source_file_dependencies": [
+            "vllm/v1/spec_decode/",
+            "vllm/model_executor/models/qwen3_dflash.py",
+            "tests/v1/spec_decode/test_speculators_correctness.py"
+          ]
+        }
+      ]
+    }
+  ]
+}
