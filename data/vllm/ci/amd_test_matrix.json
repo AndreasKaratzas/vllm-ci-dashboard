@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-21T20:58:00Z",
+  "generated_at": "2026-06-21T21:55:08Z",
   "source": {
     "yaml_url": "https://raw.githubusercontent.com/vllm-project/vllm/refs/heads/main/.buildkite/test-amd.yaml",
     "latest_build_number": 9765,
@@ -6413,14 +6413,14 @@
         },
         "mi300": {
           "exists": true,
-          "optional": false,
+          "optional": true,
           "variant_count": 1,
           "variants": [
             {
               "label": "Kernels MoE Test",
               "agent_pool": "mi300_1",
-              "optional": false,
-              "parallelism": 4,
+              "optional": true,
+              "parallelism": 5,
               "latest_matched": true,
               "latest_match_count": 4,
               "latest_state": "soft_fail",
@@ -6433,8 +6433,8 @@
                 {
                   "label": "Kernels MoE Test",
                   "agent_pool": "mi300_1",
-                  "optional": false,
-                  "parallelism": 4,
+                  "optional": true,
+                  "parallelism": 5,
                   "latest_matched": true,
                   "latest_match_count": 4,
                   "latest_state": "soft_fail",
@@ -6466,7 +6466,7 @@
               "label": "Kernels MoE Test",
               "agent_pool": "mi355_1",
               "optional": false,
-              "parallelism": 4,
+              "parallelism": 5,
               "latest_matched": true,
               "latest_match_count": 4,
               "latest_state": "soft_fail",
@@ -6480,7 +6480,7 @@
                   "label": "Kernels MoE Test",
                   "agent_pool": "mi355_1",
                   "optional": false,
-                  "parallelism": 4,
+                  "parallelism": 5,
                   "latest_matched": true,
                   "latest_match_count": 4,
                   "latest_state": "soft_fail",

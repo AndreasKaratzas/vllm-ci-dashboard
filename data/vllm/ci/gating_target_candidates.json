@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-21T20:58:18Z",
+  "generated_at": "2026-06-21T21:55:22Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -1616,17 +1616,7 @@
       "source_signal": "red",
       "readiness_signal": "red",
       "target_signal": "green",
-      "proposal_matches": [
-        {
-          "pr": 45967,
-          "url": "https://github.com/vllm-project/vllm/pull/45967",
-          "title": "[ROCm][CI] skip test_double_aiter_rms_quant_fusion",
-          "author": "charlifu",
-          "label": "PyTorch Compilation Passes Unit Tests",
-          "device": "mi300_1",
-          "yaml_file": ".buildkite/test_areas/pytorch.yaml"
-        }
-      ]
+      "proposal_matches": []
     },
     {
       "label": "PyTorch Compilation Unit Tests",
