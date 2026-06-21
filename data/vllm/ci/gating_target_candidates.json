@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-21T01:41:37Z",
+  "generated_at": "2026-06-21T02:51:39Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -23,15 +23,15 @@
     "upstream_build": 73176,
     "amd_ci_build": 9745,
     "canonical_target_count": 125,
-    "row_count": 230,
+    "row_count": 231,
     "canonical_match_count": 117,
     "likely_duplicate_count": 14,
     "new_candidate_count": 48,
-    "excluded_count": 44,
+    "excluded_count": 45,
     "missing_from_upstream_count": 7,
     "by_decision": {
       "canonical": 117,
-      "excluded": 44,
+      "excluded": 45,
       "likely_duplicate": 14,
       "missing_from_upstream": 7,
       "new_candidate": 48
@@ -3710,6 +3710,17 @@
       "state": "timed_out",
       "queue": "intel-gpu",
       "url": "https://buildkite.com/vllm/ci/builds/73176/steps/canvas?jid=019ee39e-c51e-4580-9b6e-85a32e253177&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "XPU V1 test",
+      "canonical_key": "xpu v1 test",
+      "state": "running",
+      "queue": "intel-gpu",
+      "url": "https://buildkite.com/vllm/ci/builds/73176/steps/canvas?jid=019ee7d1-d95a-4aee-b4d0-05c1120da89f&tab=output",
       "exclusion_reasons": [
         "cpu_or_non_gpu"
       ],

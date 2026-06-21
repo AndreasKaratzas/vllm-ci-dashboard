@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-06-21T01:31:40Z",
+  "generated_at": "2026-06-21T02:41:22Z",
   "amd_date": "2026-06-20",
   "upstream_date": "2026-06-20",
   "parity_pct": 0.0,
-  "total_tests": 703,
+  "total_tests": 701,
   "summary": {
-    "upstream_only": 350,
+    "upstream_only": 348,
     "amd_only": 353
   },
   "by_module": {
@@ -976,10 +976,6 @@
     "Weight Loading Multiple GPU": {
       "parity_pct": 100.0,
       "upstream_only": 1
-    },
-    "XPU V1 test": {
-      "parity_pct": 100.0,
-      "upstream_only": 2
     },
     "XPU example Test": {
       "parity_pct": 100.0,
@@ -5167,7 +5163,7 @@
       "family_key": "kernels attention test",
       "family_name": "kernels attention test",
       "amd_job_name": "mi300_1: Kernels Attention Test 1",
-      "upstream_job_name": "Kernels Attention Test 2",
+      "upstream_job_name": "Kernels Attention Test 1",
       "amd": {
         "total": 13638,
         "passed": 5869,
@@ -5214,8 +5210,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/73176/steps/canvas?jid=019ee39e-c528-4f0b-a083-bd2850b9a92b&tab=output",
-          "job_name": "Kernels Attention Test 2",
+          "url": "https://buildkite.com/vllm/ci/builds/73176/steps/canvas?jid=019ee39e-c527-4013-a67c-c3c2d3a3b677&tab=output",
+          "job_name": "Kernels Attention Test 1",
           "side": "upstream"
         }
       ],
@@ -5546,7 +5542,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 83.66999999999999
+        "duration": 83.67
       },
       "hardware": [
         "h100",
@@ -9387,7 +9383,7 @@
       "family_key": "v1 e2e (4 gpus)",
       "family_name": "v1 e2e (4 gpus)",
       "amd_job_name": "mi300_4: V1 e2e (4 GPUs)",
-      "upstream_job_name": "V1 e2e (4 GPUs)",
+      "upstream_job_name": "V1 e2e (4xH100)",
       "amd": {
         "total": 6,
         "passed": 6,
@@ -9424,8 +9420,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/73176/steps/canvas?jid=019ee39e-c4d4-4b89-a8be-843cae509255&tab=output",
-          "job_name": "V1 e2e (4 GPUs)",
+          "url": "https://buildkite.com/vllm/ci/builds/73176/steps/canvas?jid=019ee39e-c4d5-46dd-bd53-45e31afd503a&tab=output",
+          "job_name": "V1 e2e (4xH100)",
           "side": "upstream"
         }
       ],
@@ -9443,7 +9439,7 @@
       "family_key": "v1 e2e (4 gpus)",
       "family_name": "v1 e2e (4 gpus)",
       "amd_job_name": "mi300_4: V1 e2e (4xH100-4xMI300)",
-      "upstream_job_name": "V1 e2e (4 GPUs)",
+      "upstream_job_name": "V1 e2e (4xH100)",
       "amd": {
         "total": 4,
         "passed": 2,
@@ -9480,8 +9476,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/73176/steps/canvas?jid=019ee39e-c4d4-4b89-a8be-843cae509255&tab=output",
-          "job_name": "V1 e2e (4 GPUs)",
+          "url": "https://buildkite.com/vllm/ci/builds/73176/steps/canvas?jid=019ee39e-c4d5-46dd-bd53-45e31afd503a&tab=output",
+          "job_name": "V1 e2e (4xH100)",
           "side": "upstream"
         }
       ],
@@ -12089,36 +12085,19 @@
       "family_key": "xpu v1 test",
       "family_name": "xpu v1 test",
       "amd_job_name": null,
-      "upstream_job_name": "XPU V1 test",
+      "upstream_job_name": null,
       "amd": null,
-      "upstream": {
-        "total": 11,
-        "passed": 10,
-        "failed": 1,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0,
-        "error": 0,
-        "duration": 1.9
-      },
+      "upstream": null,
       "hardware": [
         "h100"
       ],
-      "hw_failures": {
-        "h100": 1
-      },
+      "hw_failures": null,
       "hw_canceled": null,
       "failure_tests": [],
-      "job_links": [
-        {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/73176/steps/canvas?jid=019ee39e-c51e-4580-9b6e-85a32e253177&tab=output",
-          "job_name": "XPU V1 test",
-          "side": "upstream"
-        }
-      ],
+      "job_links": [],
+      "delta": null,
       "status": "upstream_only",
-      "backfilled": false
+      "backfilled": true
     }
   ],
   "details": [
@@ -14154,18 +14133,6 @@
       "test_id": "Weight Loading Multiple GPU::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "XPU V1 test::__passed__",
-      "amd_status": "missing",
-      "upstream_status": "passed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "XPU V1 test::__unidentified_failures__",
-      "amd_status": "missing",
-      "upstream_status": "failed",
       "category": "upstream_only"
     },
     {
