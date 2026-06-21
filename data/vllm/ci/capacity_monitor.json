@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-21T22:14:38Z",
+  "generated_at": "2026-06-21T23:08:24Z",
   "source": {
     "kind": "github_archive",
     "github_repo": "vllm-project/vllm",
@@ -14,14 +14,14 @@
   "summary": {
     "queue_count": 16,
     "total_capacity": 715,
-    "gated_group_count": 32,
-    "capacity_scoped_group_count": 32,
-    "gated_job_count": 42,
-    "total_dependency_files": 46434,
-    "total_dependency_lines": 15225457,
+    "gated_group_count": 33,
+    "capacity_scoped_group_count": 33,
+    "gated_job_count": 43,
+    "total_dependency_files": 47381,
+    "total_dependency_lines": 15434311,
     "unique_dependency_files": 3287,
-    "average_dependency_files_per_group": 1451.1,
-    "average_dependency_lines_per_group": 475795.5,
+    "average_dependency_files_per_group": 1435.8,
+    "average_dependency_lines_per_group": 467706.4,
     "queues_with_gated_work": 4
   },
   "queues": [
@@ -109,10 +109,10 @@
       "id": "amd_mi325_1",
       "label": "mi325_1",
       "max_agents": 180,
-      "gated_groups": 26,
-      "gated_jobs": 36,
-      "dependency_file_count": 41032,
-      "dependency_lines": 13479878,
+      "gated_groups": 27,
+      "gated_jobs": 37,
+      "dependency_file_count": 41979,
+      "dependency_lines": 13688732,
       "max_group_dependency_lines": 861355
     },
     {
@@ -885,6 +885,31 @@
       ]
     },
     {
+      "key": "spec-decode-eagle",
+      "label": "Spec Decode Eagle",
+      "area": "Spec Decode",
+      "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
+      "yaml_index": 0,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 45,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/v1/spec_decode/",
+        "vllm/v1/worker/gpu/spec_decode/",
+        "vllm/model_executor/model_loader/",
+        "vllm/v1/sample/",
+        "vllm/model_executor/layers/",
+        "tests/v1/e2e/spec_decode/",
+        "vllm/platforms/rocm.py"
+      ],
+      "dependency_file_count": 947,
+      "dependency_lines": 208854,
+      "missing_dependencies": []
+    },
+    {
       "key": "spec-decode-speculators-mtp",
       "label": "Spec Decode Speculators + MTP",
       "area": "Spec Decode",
@@ -963,19 +988,19 @@
   ],
   "projection": {
     "theoretical_groups": 125,
-    "scale": 3.9062,
-    "projected_total_jobs": 164.0,
-    "projected_dependency_lines": 59474441,
-    "projected_capacity_ratio": 0.2294,
+    "scale": 3.7879,
+    "projected_total_jobs": 163.0,
+    "projected_dependency_lines": 58463299,
+    "projected_capacity_ratio": 0.228,
     "bottleneck_queue": "amd_mi300_8",
     "queues": [
       {
         "id": "amd_mi250_1",
         "label": "mi250_1",
         "max_agents": 78,
-        "projected_jobs": 11.7,
-        "projected_dependency_lines": 1644559,
-        "projected_capacity_ratio": 0.15
+        "projected_jobs": 11.4,
+        "projected_dependency_lines": 1594723,
+        "projected_capacity_ratio": 0.1462
       },
       {
         "id": "amd_mi250_2",
@@ -1005,9 +1030,9 @@
         "id": "amd_mi300_1",
         "label": "mi300_1",
         "max_agents": 264,
-        "projected_jobs": 7.8,
-        "projected_dependency_lines": 5174109,
-        "projected_capacity_ratio": 0.0295
+        "projected_jobs": 7.6,
+        "projected_dependency_lines": 5017318,
+        "projected_capacity_ratio": 0.0288
       },
       {
         "id": "amd_mi300_2",
@@ -1029,17 +1054,17 @@
         "id": "amd_mi300_8",
         "label": "mi300_8",
         "max_agents": 3,
-        "projected_jobs": 3.9,
+        "projected_jobs": 3.8,
         "projected_dependency_lines": 0,
-        "projected_capacity_ratio": 1.3
+        "projected_capacity_ratio": 1.2667
       },
       {
         "id": "amd_mi325_1",
         "label": "mi325_1",
         "max_agents": 180,
-        "projected_jobs": 140.6,
-        "projected_dependency_lines": 52655773,
-        "projected_capacity_ratio": 0.7811
+        "projected_jobs": 140.2,
+        "projected_dependency_lines": 51851258,
+        "projected_capacity_ratio": 0.7789
       },
       {
         "id": "amd_mi325_2",
