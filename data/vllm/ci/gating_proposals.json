@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-21T04:20:57Z",
+  "generated_at": "2026-06-21T06:06:45Z",
   "source_repo": "vllm-project/vllm",
   "tracked_authors": [
     "AndreasKaratzas",
@@ -43,17 +43,35 @@
     "since_date": "2026-05-17",
     "fresh_candidate_count": 0,
     "candidate_cache": {
-      "generated_at": "2026-06-21T04:20:57Z",
+      "generated_at": "2026-06-21T06:06:45Z",
       "pr_count": 6,
       "proposal_pr_numbers": [
+        45955,
         46018,
         45967,
         45998,
-        45955,
         45219,
         44969
       ],
       "pull_requests": [
+        {
+          "number": 45955,
+          "title": "[ROCm][CI] Disable Latency Check for some offloading connector tests using MRV2 on ROCm",
+          "url": "https://github.com/vllm-project/vllm/pull/45955",
+          "api_url": "https://api.github.com/repos/vllm-project/vllm/pulls/45955",
+          "author": "micah-wil",
+          "state": "open",
+          "created_at": "2026-06-17T19:17:02Z",
+          "updated_at": "2026-06-21T06:02:05Z",
+          "checked_at": "2026-06-21T06:06:45Z",
+          "has_new_mirrors": true,
+          "new_mirror_count": 1,
+          "head_sha": "a38caa2c9ca831f2d0bd97cd945563a33de59df5",
+          "new_mirror_labels": [
+            "V1 Core + KV + Metrics"
+          ],
+          "from_previous_proposal": true
+        },
         {
           "number": 46018,
           "title": "[Hardware][AMD][CI] Fix Spec Decode Eagle test group",
@@ -63,7 +81,7 @@
           "state": "open",
           "created_at": "2026-06-18T08:36:20Z",
           "updated_at": "2026-06-20T23:38:13Z",
-          "checked_at": "2026-06-21T04:20:57Z",
+          "checked_at": "2026-06-21T06:06:45Z",
           "has_new_mirrors": true,
           "new_mirror_count": 1,
           "head_sha": "b17c96ad3fba8ef9605fb268fc135ae6be42dd1a",
@@ -81,7 +99,7 @@
           "state": "open",
           "created_at": "2026-06-17T21:34:38Z",
           "updated_at": "2026-06-20T23:27:28Z",
-          "checked_at": "2026-06-21T04:20:57Z",
+          "checked_at": "2026-06-21T06:06:45Z",
           "has_new_mirrors": true,
           "new_mirror_count": 1,
           "head_sha": "39e7455677b14007af3a4465716459a3ae2ec08b",
@@ -99,30 +117,12 @@
           "state": "open",
           "created_at": "2026-06-18T05:44:06Z",
           "updated_at": "2026-06-20T22:04:53Z",
-          "checked_at": "2026-06-21T04:20:57Z",
+          "checked_at": "2026-06-21T06:06:45Z",
           "has_new_mirrors": true,
           "new_mirror_count": 1,
           "head_sha": "5184d44f35820aad1e217a9fe62112113a9119ff",
           "new_mirror_labels": [
             "Distributed Tests (2xH100-2xMI300)"
-          ],
-          "from_previous_proposal": true
-        },
-        {
-          "number": 45955,
-          "title": "[ROCm][CI] Disable Latency Check for some offloading connector tests using MRV2 on ROCm",
-          "url": "https://github.com/vllm-project/vllm/pull/45955",
-          "api_url": "https://api.github.com/repos/vllm-project/vllm/pulls/45955",
-          "author": "micah-wil",
-          "state": "open",
-          "created_at": "2026-06-17T19:17:02Z",
-          "updated_at": "2026-06-20T04:08:02Z",
-          "checked_at": "2026-06-21T04:20:57Z",
-          "has_new_mirrors": true,
-          "new_mirror_count": 1,
-          "head_sha": "a38caa2c9ca831f2d0bd97cd945563a33de59df5",
-          "new_mirror_labels": [
-            "V1 Core + KV + Metrics"
           ],
           "from_previous_proposal": true
         },
@@ -135,7 +135,7 @@
           "state": "open",
           "created_at": "2026-06-11T03:20:03Z",
           "updated_at": "2026-06-20T03:49:41Z",
-          "checked_at": "2026-06-21T04:20:57Z",
+          "checked_at": "2026-06-21T06:06:45Z",
           "has_new_mirrors": true,
           "new_mirror_count": 5,
           "head_sha": "9bba75ca4dbb6b739de744671478da07f98c938d",
@@ -157,7 +157,7 @@
           "state": "open",
           "created_at": "2026-06-09T06:56:07Z",
           "updated_at": "2026-06-19T23:12:45Z",
-          "checked_at": "2026-06-21T04:20:57Z",
+          "checked_at": "2026-06-21T06:06:45Z",
           "has_new_mirrors": true,
           "new_mirror_count": 15,
           "head_sha": "e009f127419f766b69095c0456753a57d7ad94d3",
@@ -184,6 +184,60 @@
     }
   },
   "pull_requests": [
+    {
+      "number": 45955,
+      "title": "[ROCm][CI] Disable Latency Check for some offloading connector tests using MRV2 on ROCm",
+      "state": "open",
+      "url": "https://github.com/vllm-project/vllm/pull/45955",
+      "api_url": "https://api.github.com/repos/vllm-project/vllm/pulls/45955",
+      "author": "micah-wil",
+      "head_ref": "micah/offloading-connector-test",
+      "head_sha": "a38caa2c9ca831f2d0bd97cd945563a33de59df5",
+      "base_ref": "main",
+      "base_sha": "93bad119120d0f9bff707dcbf5af5c029158b969",
+      "updated_at": "2026-06-21T06:02:05Z",
+      "created_at": "2026-06-17T19:17:02Z",
+      "new_mirror_count": 1,
+      "new_mirrors": [
+        {
+          "identity": "v1-core-kv-metrics",
+          "label": "V1 Core + KV + Metrics",
+          "key": "v1-core-kv-metrics",
+          "area": "Miscellaneous",
+          "yaml_file": ".buildkite/test_areas/misc.yaml",
+          "yaml_index": 2,
+          "device": "mi325_1",
+          "timeout_in_minutes": 60,
+          "source_file_dependencies": [
+            "vllm/config/",
+            "vllm/distributed/",
+            "vllm/engine/",
+            "vllm/entrypoints/pooling/",
+            "vllm/inputs/",
+            "vllm/lora/",
+            "vllm/model_executor/",
+            "vllm/multimodal/",
+            "vllm/outputs.py",
+            "vllm/platforms/",
+            "vllm/pooling_params.py",
+            "vllm/profiler/",
+            "vllm/sampling_params.py",
+            "vllm/tokenizers/",
+            "vllm/transformers_utils/",
+            "vllm/utils/",
+            "vllm/v1/",
+            "tests/v1/core",
+            "tests/v1/executor",
+            "tests/v1/kv_offload",
+            "tests/v1/simple_kv_offload",
+            "tests/v1/worker",
+            "tests/v1/kv_connector/unit",
+            "tests/v1/metrics",
+            "tests/entrypoints/openai/correctness/test_lmeval.py"
+          ]
+        }
+      ]
+    },
     {
       "number": 46018,
       "title": "[Hardware][AMD][CI] Fix Spec Decode Eagle test group",
@@ -299,60 +353,6 @@
           "device": "mi300_2",
           "timeout_in_minutes": 180,
           "source_file_dependencies": []
-        }
-      ]
-    },
-    {
-      "number": 45955,
-      "title": "[ROCm][CI] Disable Latency Check for some offloading connector tests using MRV2 on ROCm",
-      "state": "open",
-      "url": "https://github.com/vllm-project/vllm/pull/45955",
-      "api_url": "https://api.github.com/repos/vllm-project/vllm/pulls/45955",
-      "author": "micah-wil",
-      "head_ref": "micah/offloading-connector-test",
-      "head_sha": "a38caa2c9ca831f2d0bd97cd945563a33de59df5",
-      "base_ref": "main",
-      "base_sha": "93bad119120d0f9bff707dcbf5af5c029158b969",
-      "updated_at": "2026-06-20T04:08:02Z",
-      "created_at": "2026-06-17T19:17:02Z",
-      "new_mirror_count": 1,
-      "new_mirrors": [
-        {
-          "identity": "v1-core-kv-metrics",
-          "label": "V1 Core + KV + Metrics",
-          "key": "v1-core-kv-metrics",
-          "area": "Miscellaneous",
-          "yaml_file": ".buildkite/test_areas/misc.yaml",
-          "yaml_index": 2,
-          "device": "mi325_1",
-          "timeout_in_minutes": 60,
-          "source_file_dependencies": [
-            "vllm/config/",
-            "vllm/distributed/",
-            "vllm/engine/",
-            "vllm/entrypoints/pooling/",
-            "vllm/inputs/",
-            "vllm/lora/",
-            "vllm/model_executor/",
-            "vllm/multimodal/",
-            "vllm/outputs.py",
-            "vllm/platforms/",
-            "vllm/pooling_params.py",
-            "vllm/profiler/",
-            "vllm/sampling_params.py",
-            "vllm/tokenizers/",
-            "vllm/transformers_utils/",
-            "vllm/utils/",
-            "vllm/v1/",
-            "tests/v1/core",
-            "tests/v1/executor",
-            "tests/v1/kv_offload",
-            "tests/v1/simple_kv_offload",
-            "tests/v1/worker",
-            "tests/v1/kv_connector/unit",
-            "tests/v1/metrics",
-            "tests/entrypoints/openai/correctness/test_lmeval.py"
-          ]
         }
       ]
     },
