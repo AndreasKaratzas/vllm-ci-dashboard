@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-21T21:43:16Z",
+  "generated_at": "2026-06-21T22:14:38Z",
   "source": {
     "kind": "github_archive",
     "github_repo": "vllm-project/vllm",
@@ -14,14 +14,14 @@
   "summary": {
     "queue_count": 16,
     "total_capacity": 715,
-    "gated_group_count": 29,
-    "capacity_scoped_group_count": 29,
-    "gated_job_count": 34,
-    "total_dependency_files": 43767,
-    "total_dependency_lines": 14320590,
-    "unique_dependency_files": 3172,
-    "average_dependency_files_per_group": 1509.2,
-    "average_dependency_lines_per_group": 493813.4,
+    "gated_group_count": 32,
+    "capacity_scoped_group_count": 32,
+    "gated_job_count": 42,
+    "total_dependency_files": 46434,
+    "total_dependency_lines": 15225457,
+    "unique_dependency_files": 3287,
+    "average_dependency_files_per_group": 1451.1,
+    "average_dependency_lines_per_group": 475795.5,
     "queues_with_gated_work": 4
   },
   "queues": [
@@ -69,11 +69,11 @@
       "id": "amd_mi300_1",
       "label": "mi300_1",
       "max_agents": 264,
-      "gated_groups": 1,
-      "gated_jobs": 1,
-      "dependency_file_count": 1885,
-      "dependency_lines": 610866,
-      "max_group_dependency_lines": 610866
+      "gated_groups": 2,
+      "gated_jobs": 2,
+      "dependency_file_count": 3903,
+      "dependency_lines": 1324572,
+      "max_group_dependency_lines": 713706
     },
     {
       "id": "amd_mi300_2",
@@ -109,10 +109,10 @@
       "id": "amd_mi325_1",
       "label": "mi325_1",
       "max_agents": 180,
-      "gated_groups": 24,
-      "gated_jobs": 29,
-      "dependency_file_count": 40383,
-      "dependency_lines": 13288717,
+      "gated_groups": 26,
+      "gated_jobs": 36,
+      "dependency_file_count": 41032,
+      "dependency_lines": 13479878,
       "max_group_dependency_lines": 861355
     },
     {
@@ -450,6 +450,31 @@
       "missing_dependencies": []
     },
     {
+      "key": "kernels-attention-test",
+      "label": "Kernels Attention Test %N",
+      "area": "Kernels",
+      "yaml_file": ".buildkite/test_areas/kernels.yaml",
+      "yaml_index": 5,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 2,
+      "timeout_in_minutes": 55,
+      "optional": false,
+      "source_file_dependencies": [
+        "csrc/attention/",
+        "vllm/v1/attention",
+        "vllm/model_executor/layers/attention",
+        "tests/kernels/attention",
+        "vllm/_aiter_ops.py",
+        "vllm/envs.py",
+        "vllm/platforms/rocm.py"
+      ],
+      "dependency_file_count": 122,
+      "dependency_lines": 58044,
+      "missing_dependencies": []
+    },
+    {
       "key": "kernels-quantization-test",
       "label": "Kernels Quantization Test %N",
       "area": "Kernels",
@@ -474,6 +499,35 @@
       "dependency_file_count": 462,
       "dependency_lines": 100409,
       "missing_dependencies": []
+    },
+    {
+      "key": "kernels-moe-test",
+      "label": "Kernels MoE Test %N",
+      "area": "Kernels",
+      "yaml_file": ".buildkite/test_areas/kernels.yaml",
+      "yaml_index": 8,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 5,
+      "timeout_in_minutes": 50,
+      "optional": false,
+      "source_file_dependencies": [
+        "csrc/quantization/cutlass_w8a8/moe/",
+        "csrc/moe/",
+        "tests/kernels/moe",
+        "vllm/model_executor/layers/fused_moe/",
+        "vllm/distributed/device_communicators/",
+        "vllm/envs.py",
+        "vllm/config",
+        "vllm/_aiter_ops.py",
+        "vllm/platforms/rocm.py"
+      ],
+      "dependency_file_count": 527,
+      "dependency_lines": 133117,
+      "missing_dependencies": [
+        "csrc/quantization/cutlass_w8a8/moe/"
+      ]
     },
     {
       "key": "lm-eval-small-models",
@@ -763,6 +817,49 @@
       "missing_dependencies": []
     },
     {
+      "key": "pytorch-compilation-passes-unit-tests",
+      "label": "PyTorch Compilation Passes Unit Tests",
+      "area": "PyTorch",
+      "yaml_file": ".buildkite/test_areas/pytorch.yaml",
+      "yaml_index": 2,
+      "device": "mi300_1",
+      "queue": "amd_mi300_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 180,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/__init__.py",
+        "vllm/_aiter_ops.py",
+        "vllm/_custom_ops.py",
+        "vllm/compilation/",
+        "vllm/config/",
+        "vllm/distributed/",
+        "vllm/engine/",
+        "vllm/env_override.py",
+        "vllm/envs.py",
+        "vllm/forward_context.py",
+        "vllm/inputs/",
+        "vllm/ir/",
+        "vllm/kernels/",
+        "vllm/logger.py",
+        "vllm/model_executor/",
+        "vllm/multimodal/",
+        "vllm/platforms/",
+        "vllm/plugins/",
+        "vllm/sampling_params.py",
+        "vllm/sequence.py",
+        "vllm/transformers_utils/",
+        "vllm/triton_utils/",
+        "vllm/utils/",
+        "vllm/v1/",
+        "tests/compile/passes"
+      ],
+      "dependency_file_count": 2018,
+      "dependency_lines": 713706,
+      "missing_dependencies": []
+    },
+    {
       "key": "samplers-test",
       "label": "Samplers Test",
       "area": "Samplers",
@@ -866,19 +963,19 @@
   ],
   "projection": {
     "theoretical_groups": 125,
-    "scale": 4.3103,
-    "projected_total_jobs": 146.5,
-    "projected_dependency_lines": 61726681,
-    "projected_capacity_ratio": 0.2049,
+    "scale": 3.9062,
+    "projected_total_jobs": 164.0,
+    "projected_dependency_lines": 59474441,
+    "projected_capacity_ratio": 0.2294,
     "bottleneck_queue": "amd_mi300_8",
     "queues": [
       {
         "id": "amd_mi250_1",
         "label": "mi250_1",
         "max_agents": 78,
-        "projected_jobs": 12.9,
-        "projected_dependency_lines": 1814685,
-        "projected_capacity_ratio": 0.1654
+        "projected_jobs": 11.7,
+        "projected_dependency_lines": 1644559,
+        "projected_capacity_ratio": 0.15
       },
       {
         "id": "amd_mi250_2",
@@ -908,9 +1005,9 @@
         "id": "amd_mi300_1",
         "label": "mi300_1",
         "max_agents": 264,
-        "projected_jobs": 4.3,
-        "projected_dependency_lines": 2633043,
-        "projected_capacity_ratio": 0.0163
+        "projected_jobs": 7.8,
+        "projected_dependency_lines": 5174109,
+        "projected_capacity_ratio": 0.0295
       },
       {
         "id": "amd_mi300_2",
@@ -932,17 +1029,17 @@
         "id": "amd_mi300_8",
         "label": "mi300_8",
         "max_agents": 3,
-        "projected_jobs": 4.3,
+        "projected_jobs": 3.9,
         "projected_dependency_lines": 0,
-        "projected_capacity_ratio": 1.4333
+        "projected_capacity_ratio": 1.3
       },
       {
         "id": "amd_mi325_1",
         "label": "mi325_1",
         "max_agents": 180,
-        "projected_jobs": 125.0,
-        "projected_dependency_lines": 57278953,
-        "projected_capacity_ratio": 0.6944
+        "projected_jobs": 140.6,
+        "projected_dependency_lines": 52655773,
+        "projected_capacity_ratio": 0.7811
       },
       {
         "id": "amd_mi325_2",

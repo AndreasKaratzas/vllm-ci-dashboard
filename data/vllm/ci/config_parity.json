@@ -5,7 +5,7 @@
     "matched": 117,
     "amd_only": 8,
     "nvidia_only": 56,
-    "mirrors": 29,
+    "mirrors": 32,
     "match_rate_pct": 93.6,
     "avg_command_similarity_pct": 93.2
   },
@@ -2123,8 +2123,24 @@
       "source_file": ".buildkite/test_areas/entrypoints.yaml"
     },
     {
+      "nvidia_label": "Kernels Attention Test %N",
+      "identity_key": "kernels attention test",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/kernels.yaml"
+    },
+    {
       "nvidia_label": "Kernels Quantization Test %N",
       "identity_key": "kernels quantization test",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/kernels.yaml"
+    },
+    {
+      "nvidia_label": "Kernels MoE Test %N",
+      "identity_key": "kernels moe test",
       "commands_overridden": false,
       "command_similarity": 1.0,
       "color": "green",
@@ -2233,6 +2249,14 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/models_multimodal.yaml"
+    },
+    {
+      "nvidia_label": "PyTorch Compilation Passes Unit Tests",
+      "identity_key": "pytorch compilation passes unit tests",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/pytorch.yaml"
     },
     {
       "nvidia_label": "Samplers Test",
