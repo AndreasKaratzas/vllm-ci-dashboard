@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-22T01:29:45Z",
+  "generated_at": "2026-06-22T02:39:12Z",
   "source": {
     "kind": "github_archive",
     "github_repo": "vllm-project/vllm",
@@ -14,14 +14,14 @@
   "summary": {
     "queue_count": 16,
     "total_capacity": 715,
-    "gated_group_count": 33,
-    "capacity_scoped_group_count": 33,
-    "gated_job_count": 43,
-    "total_dependency_files": 47381,
-    "total_dependency_lines": 15434287,
-    "unique_dependency_files": 3287,
-    "average_dependency_files_per_group": 1435.8,
-    "average_dependency_lines_per_group": 467705.7,
+    "gated_group_count": 34,
+    "capacity_scoped_group_count": 34,
+    "gated_job_count": 44,
+    "total_dependency_files": 49476,
+    "total_dependency_lines": 16133497,
+    "unique_dependency_files": 3391,
+    "average_dependency_files_per_group": 1455.2,
+    "average_dependency_lines_per_group": 474514.6,
     "queues_with_gated_work": 4
   },
   "queues": [
@@ -109,10 +109,10 @@
       "id": "amd_mi325_1",
       "label": "mi325_1",
       "max_agents": 180,
-      "gated_groups": 27,
-      "gated_jobs": 37,
-      "dependency_file_count": 41979,
-      "dependency_lines": 13688711,
+      "gated_groups": 28,
+      "gated_jobs": 38,
+      "dependency_file_count": 44074,
+      "dependency_lines": 14387921,
       "max_group_dependency_lines": 861354
     },
     {
@@ -656,6 +656,49 @@
       "missing_dependencies": []
     },
     {
+      "key": "v1-core-kv-metrics",
+      "label": "V1 Core + KV + Metrics",
+      "area": "Miscellaneous",
+      "yaml_file": ".buildkite/test_areas/misc.yaml",
+      "yaml_index": 2,
+      "device": "mi325_1",
+      "queue": "amd_mi325_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 60,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/config/",
+        "vllm/distributed/",
+        "vllm/engine/",
+        "vllm/entrypoints/pooling/",
+        "vllm/inputs/",
+        "vllm/lora/",
+        "vllm/model_executor/",
+        "vllm/multimodal/",
+        "vllm/outputs.py",
+        "vllm/platforms/",
+        "vllm/pooling_params.py",
+        "vllm/profiler/",
+        "vllm/sampling_params.py",
+        "vllm/tokenizers/",
+        "vllm/transformers_utils/",
+        "vllm/utils/",
+        "vllm/v1/",
+        "tests/v1/core",
+        "tests/v1/executor",
+        "tests/v1/kv_offload",
+        "tests/v1/simple_kv_offload",
+        "tests/v1/worker",
+        "tests/v1/kv_connector/unit",
+        "tests/v1/metrics",
+        "tests/entrypoints/openai/correctness/test_lmeval.py"
+      ],
+      "dependency_file_count": 2095,
+      "dependency_lines": 699210,
+      "missing_dependencies": []
+    },
+    {
       "key": "language-models-tests-hybrid",
       "label": "Language Models Tests (Hybrid) %N",
       "area": "Models - Language",
@@ -988,19 +1031,19 @@
   ],
   "projection": {
     "theoretical_groups": 125,
-    "scale": 3.7879,
-    "projected_total_jobs": 163.0,
-    "projected_dependency_lines": 58463208,
-    "projected_capacity_ratio": 0.228,
+    "scale": 3.6765,
+    "projected_total_jobs": 161.8,
+    "projected_dependency_lines": 59314327,
+    "projected_capacity_ratio": 0.2263,
     "bottleneck_queue": "amd_mi300_8",
     "queues": [
       {
         "id": "amd_mi250_1",
         "label": "mi250_1",
         "max_agents": 78,
-        "projected_jobs": 11.4,
-        "projected_dependency_lines": 1594720,
-        "projected_capacity_ratio": 0.1462
+        "projected_jobs": 11.0,
+        "projected_dependency_lines": 1547816,
+        "projected_capacity_ratio": 0.141
       },
       {
         "id": "amd_mi250_2",
@@ -1030,9 +1073,9 @@
         "id": "amd_mi300_1",
         "label": "mi300_1",
         "max_agents": 264,
-        "projected_jobs": 7.6,
-        "projected_dependency_lines": 5017311,
-        "projected_capacity_ratio": 0.0288
+        "projected_jobs": 7.4,
+        "projected_dependency_lines": 4869743,
+        "projected_capacity_ratio": 0.028
       },
       {
         "id": "amd_mi300_2",
@@ -1054,17 +1097,17 @@
         "id": "amd_mi300_8",
         "label": "mi300_8",
         "max_agents": 3,
-        "projected_jobs": 3.8,
+        "projected_jobs": 3.7,
         "projected_dependency_lines": 0,
-        "projected_capacity_ratio": 1.2667
+        "projected_capacity_ratio": 1.2333
       },
       {
         "id": "amd_mi325_1",
         "label": "mi325_1",
         "max_agents": 180,
-        "projected_jobs": 140.2,
-        "projected_dependency_lines": 51851178,
-        "projected_capacity_ratio": 0.7789
+        "projected_jobs": 139.7,
+        "projected_dependency_lines": 52896768,
+        "projected_capacity_ratio": 0.7761
       },
       {
         "id": "amd_mi325_2",
