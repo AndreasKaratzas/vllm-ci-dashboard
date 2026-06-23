@@ -5,7 +5,7 @@
     "matched": 117,
     "amd_only": 8,
     "nvidia_only": 60,
-    "mirrors": 34,
+    "mirrors": 35,
     "match_rate_pct": 93.6,
     "avg_command_similarity_pct": 93.2
   },
@@ -2213,6 +2213,14 @@
     {
       "nvidia_label": "V1 Core + KV + Metrics",
       "identity_key": "v1 core + kv + metrics",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/misc.yaml"
+    },
+    {
+      "nvidia_label": "Python-only Installation",
+      "identity_key": "python-only installation",
       "commands_overridden": false,
       "command_similarity": 1.0,
       "color": "green",
