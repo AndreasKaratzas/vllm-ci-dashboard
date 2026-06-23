@@ -1,10 +1,10 @@
 {
   "summary": {
     "total_amd_steps": 125,
-    "total_nvidia_steps": 169,
+    "total_nvidia_steps": 173,
     "matched": 117,
     "amd_only": 8,
-    "nvidia_only": 56,
+    "nvidia_only": 60,
     "mirrors": 34,
     "match_rate_pct": 93.6,
     "avg_command_similarity_pct": 93.2
@@ -855,16 +855,6 @@
       "nvidia_source": ".buildkite/test_areas/pytorch.yaml"
     },
     {
-      "amd_label": "PyTorch Fullgraph",
-      "nvidia_label": "PyTorch Fullgraph",
-      "normalized": "pytorch fullgraph",
-      "identity_key": "pytorch fullgraph",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/pytorch.yaml"
-    },
-    {
       "amd_label": "Distributed Compile + RPC Tests (2 GPUs)",
       "nvidia_label": "Distributed Compile + RPC Tests (2 GPUs)",
       "normalized": "distributed compile + rpc tests (2 gpus)",
@@ -895,26 +885,6 @@
       "nvidia_source": ".buildkite/test_areas/distributed.yaml"
     },
     {
-      "amd_label": "Elastic EP Scaling Test",
-      "nvidia_label": "Elastic EP Scaling Test",
-      "normalized": "elastic ep scaling test",
-      "identity_key": "elastic ep scaling test (4 gpus)",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/expert_parallelism.yaml"
-    },
-    {
-      "amd_label": "EPLB Execution",
-      "nvidia_label": "EPLB Execution",
-      "normalized": "eplb execution",
-      "identity_key": "eplb execution (4 gpus)",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/expert_parallelism.yaml"
-    },
-    {
       "amd_label": "Pipeline + Context Parallelism (4 GPUs)",
       "nvidia_label": "Pipeline + Context Parallelism (4 GPUs)",
       "normalized": "pipeline + context parallelism (4 gpus)",
@@ -923,16 +893,6 @@
       "color": "green",
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/distributed.yaml"
-    },
-    {
-      "amd_label": "Multi-Modal Accuracy Eval (Small Models)",
-      "nvidia_label": "Multi-Modal Accuracy Eval (Small Models)",
-      "normalized": "multi-modal accuracy eval (small models)",
-      "identity_key": "multi-modal accuracy eval (small models)",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/models_multimodal.yaml"
     },
     {
       "amd_label": "Kernels Helion Test",
@@ -965,36 +925,6 @@
       "nvidia_source": ".buildkite/test_areas/models_basic.yaml"
     },
     {
-      "amd_label": "Basic Models Tests (Extra Initialization) %N",
-      "nvidia_label": "Basic Models Tests (Extra Initialization) %N",
-      "normalized": "basic models tests (extra initialization)",
-      "identity_key": "basic models tests (extra initialization)",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/models_basic.yaml"
-    },
-    {
-      "amd_label": "Basic Models Tests (Initialization)",
-      "nvidia_label": "Basic Models Tests (Initialization)",
-      "normalized": "basic models tests (initialization)",
-      "identity_key": "basic models tests (initialization)",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/models_basic.yaml"
-    },
-    {
-      "amd_label": "Basic Models Tests (Other)",
-      "nvidia_label": "Basic Models Tests (Other)",
-      "normalized": "basic models tests (other)",
-      "identity_key": "basic models tests (other)",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/models_basic.yaml"
-    },
-    {
       "amd_label": "Language Models Test (MTEB)",
       "nvidia_label": "Language Models Test (MTEB)",
       "normalized": "language models test (mteb)",
@@ -1013,36 +943,6 @@
       "color": "green",
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/models_language.yaml"
-    },
-    {
-      "amd_label": "Language Models Tests (Extra Standard) %N",
-      "nvidia_label": "Language Models Tests (Extra Standard) %N",
-      "normalized": "language models tests (extra standard)",
-      "identity_key": "language models tests (extra standard)",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/models_language.yaml"
-    },
-    {
-      "amd_label": "Multi-Modal Models (Extended Generation 2)",
-      "nvidia_label": "Multi-Modal Models (Extended Generation 2)",
-      "normalized": "multi-modal models (extended generation 2)",
-      "identity_key": "multi-modal models (extended generation 2)",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/models_multimodal.yaml"
-    },
-    {
-      "amd_label": "Multi-Modal Models (Extended Pooling)",
-      "nvidia_label": "Multi-Modal Models (Extended Pooling)",
-      "normalized": "multi-modal models (extended pooling)",
-      "identity_key": "multi-modal models (extended pooling)",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/models_multimodal.yaml"
     },
     {
       "amd_label": "Multi-Modal Models (Standard) 3: llava + qwen2_vl",
@@ -1175,6 +1075,16 @@
       "nvidia_source": ".buildkite/test_areas/pytorch.yaml"
     },
     {
+      "amd_label": "PyTorch Fullgraph",
+      "nvidia_label": "PyTorch Fullgraph",
+      "normalized": "pytorch fullgraph",
+      "identity_key": "pytorch fullgraph",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/pytorch.yaml"
+    },
+    {
       "amd_label": "Pytorch Nightly Dependency Override Check",
       "nvidia_label": "Pytorch Nightly Dependency Override Check",
       "normalized": "pytorch nightly dependency override check",
@@ -1215,6 +1125,16 @@
       "nvidia_source": ".buildkite/test_areas/expert_parallelism.yaml"
     },
     {
+      "amd_label": "EPLB Execution",
+      "nvidia_label": "EPLB Execution",
+      "normalized": "eplb execution",
+      "identity_key": "eplb execution (4 gpus)",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/expert_parallelism.yaml"
+    },
+    {
       "amd_label": "Distributed Tests (4xA100-4xMI300)",
       "nvidia_label": "Distributed Tests (4 GPUs)(A100)",
       "normalized": "distributed tests (4xa100-4xmi300)",
@@ -1223,6 +1143,16 @@
       "color": "green",
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/distributed.yaml"
+    },
+    {
+      "amd_label": "Elastic EP Scaling Test",
+      "nvidia_label": "Elastic EP Scaling Test",
+      "normalized": "elastic ep scaling test",
+      "identity_key": "elastic ep scaling test (4 gpus)",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/expert_parallelism.yaml"
     },
     {
       "amd_label": "RayExecutorV2 (4 GPUs)",
@@ -1355,6 +1285,16 @@
       "nvidia_source": ".buildkite/test_areas/lm_eval.yaml"
     },
     {
+      "amd_label": "Multi-Modal Accuracy Eval (Small Models)",
+      "nvidia_label": "Multi-Modal Accuracy Eval (Small Models)",
+      "normalized": "multi-modal accuracy eval (small models)",
+      "identity_key": "multi-modal accuracy eval (small models)",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/models_multimodal.yaml"
+    },
+    {
       "amd_label": "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100-4xMI300)",
       "nvidia_label": "DeepSeek V2-Lite Sync EPLB Accuracy",
       "normalized": "deepseek v2-lite sync eplb accuracy (4xh100-4xmi300)",
@@ -1425,6 +1365,36 @@
       "nvidia_source": ".buildkite/test_areas/lora.yaml"
     },
     {
+      "amd_label": "Basic Models Tests (Extra Initialization) %N",
+      "nvidia_label": "Basic Models Tests (Extra Initialization) %N",
+      "normalized": "basic models tests (extra initialization)",
+      "identity_key": "basic models tests (extra initialization)",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/models_basic.yaml"
+    },
+    {
+      "amd_label": "Basic Models Tests (Initialization)",
+      "nvidia_label": "Basic Models Tests (Initialization)",
+      "normalized": "basic models tests (initialization)",
+      "identity_key": "basic models tests (initialization)",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/models_basic.yaml"
+    },
+    {
+      "amd_label": "Basic Models Tests (Other)",
+      "nvidia_label": "Basic Models Tests (Other)",
+      "normalized": "basic models tests (other)",
+      "identity_key": "basic models tests (other)",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/models_basic.yaml"
+    },
+    {
       "amd_label": "Language Models Test (Extended Pooling)",
       "nvidia_label": "Language Models Test (Extended Pooling)",
       "normalized": "language models test (extended pooling)",
@@ -1445,10 +1415,30 @@
       "nvidia_source": ".buildkite/test_areas/models_language.yaml"
     },
     {
+      "amd_label": "Language Models Tests (Extra Standard) %N",
+      "nvidia_label": "Language Models Tests (Extra Standard) %N",
+      "normalized": "language models tests (extra standard)",
+      "identity_key": "language models tests (extra standard)",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/models_language.yaml"
+    },
+    {
       "amd_label": "Multi-Modal Models (Extended Generation 1)",
       "nvidia_label": "Multi-Modal Models (Extended Generation 1)",
       "normalized": "multi-modal models (extended generation 1)",
       "identity_key": "multi-modal models (extended generation 1)",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/models_multimodal.yaml"
+    },
+    {
+      "amd_label": "Multi-Modal Models (Extended Generation 2)",
+      "nvidia_label": "Multi-Modal Models (Extended Generation 2)",
+      "normalized": "multi-modal models (extended generation 2)",
+      "identity_key": "multi-modal models (extended generation 2)",
       "command_similarity": 1.0,
       "color": "green",
       "amd_source": "test-amd.yaml",
@@ -1613,6 +1603,16 @@
       "color": "green",
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/engine.yaml"
+    },
+    {
+      "amd_label": "Multi-Modal Models (Extended Pooling)",
+      "nvidia_label": "Multi-Modal Models (Extended Pooling)",
+      "normalized": "multi-modal models (extended pooling)",
+      "identity_key": "multi-modal models (extended pooling)",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/models_multimodal.yaml"
     },
     {
       "amd_label": "Multi-Modal Models (Standard) 2: qwen3 + gemma",
@@ -1883,9 +1883,33 @@
       "source": ".buildkite/test_areas/lm_eval.yaml"
     },
     {
+      "label": "LM Eval Humming (A100 - TEMPORARY)",
+      "normalized": "lm eval humming (a100 - temporary)",
+      "identity_key": "lm eval humming (a100 - temporary) (1 gpus)",
+      "source": ".buildkite/test_areas/lm_eval.yaml"
+    },
+    {
+      "label": "LM Eval Humming (H100 - TEMPORARY)",
+      "normalized": "lm eval humming (h100 - temporary)",
+      "identity_key": "lm eval humming (h100 - temporary) (1 gpus)",
+      "source": ".buildkite/test_areas/lm_eval.yaml"
+    },
+    {
+      "label": "LM Eval Humming (B200 - TEMPORARY)",
+      "normalized": "lm eval humming (b200 - temporary)",
+      "identity_key": "lm eval humming (b200 - temporary) (1 gpus)",
+      "source": ".buildkite/test_areas/lm_eval.yaml"
+    },
+    {
       "label": "LM Eval TurboQuant KV Cache",
       "normalized": "lm eval turboquant kv cache",
       "identity_key": "lm eval turboquant kv cache",
+      "source": ".buildkite/test_areas/lm_eval.yaml"
+    },
+    {
+      "label": "GPQA Eval (GPT-OSS) (DGX Spark)",
+      "normalized": "gpqa eval (gpt-oss) (dgx spark)",
+      "identity_key": "gpqa eval (gpt-oss) (dgx spark) (1 gpus)",
       "source": ".buildkite/test_areas/lm_eval.yaml"
     },
     {

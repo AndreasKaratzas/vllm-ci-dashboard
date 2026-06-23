@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-22T08:30:27Z",
+  "generated_at": "2026-06-23T12:40:22Z",
   "window_builds": 10,
   "total_flaky": 5,
   "tests": [
@@ -58,19 +58,42 @@
       "mean_duration": 0.0
     },
     {
-      "test_id": "mi355_2: Attention Benchmarks Smoke Test (B200-MI355)::__job_level__",
+      "test_id": "mi355_2: Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (B200-MI355)::__job_level__",
       "label": "flaky",
-      "pass_rate": 0.6,
-      "appearances": 29,
-      "last_seen": "2026-06-21",
-      "first_failure": null,
-      "failure_streak": 0,
+      "pass_rate": 0.5,
+      "appearances": 24,
+      "last_seen": "2026-06-23",
+      "first_failure": "2026-06-20",
+      "failure_streak": 4,
       "history": [
+        "P",
+        "P",
+        "P",
+        "F",
+        "P",
         "P",
         "F",
         "F",
         "F",
+        "F"
+      ],
+      "module": "mi355_2: Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (B200-MI355)",
+      "mean_duration": 0.0
+    },
+    {
+      "test_id": "mi355_2: Attention Benchmarks Smoke Test (B200-MI355)::__job_level__",
+      "label": "flaky",
+      "pass_rate": 0.7,
+      "appearances": 31,
+      "last_seen": "2026-06-23",
+      "first_failure": null,
+      "failure_streak": 0,
+      "history": [
         "F",
+        "F",
+        "F",
+        "P",
+        "P",
         "P",
         "P",
         "P",
@@ -78,29 +101,6 @@
         "P"
       ],
       "module": "mi355_2: Attention Benchmarks Smoke Test (B200-MI355)",
-      "mean_duration": 0.0
-    },
-    {
-      "test_id": "mi355_2: Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (B200-MI355)::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.7,
-      "appearances": 22,
-      "last_seen": "2026-06-21",
-      "first_failure": "2026-06-20",
-      "failure_streak": 2,
-      "history": [
-        "P",
-        "P",
-        "P",
-        "P",
-        "P",
-        "F",
-        "P",
-        "P",
-        "F",
-        "F"
-      ],
-      "module": "mi355_2: Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (B200-MI355)",
       "mean_duration": 0.0
     }
   ]

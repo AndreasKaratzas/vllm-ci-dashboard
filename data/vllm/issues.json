@@ -1,5 +1,5 @@
 {
-  "collected_at": "2026-06-22T08:34:12Z",
+  "collected_at": "2026-06-23T12:51:49Z",
   "issues": [
     {
       "number": 40554,
@@ -7,7 +7,7 @@
       "author": "AndreasKaratzas",
       "state": "open",
       "created_at": "2026-04-21T20:29:34Z",
-      "updated_at": "2026-06-21T23:36:52Z",
+      "updated_at": "2026-06-22T23:36:50Z",
       "html_url": "https://github.com/vllm-project/vllm/issues/40554",
       "labels": [
         "rocm",
@@ -90,7 +90,7 @@
         "ci-failure"
       ],
       "assignees": [],
-      "project_status": "Backlog",
+      "project_status": "In progress",
       "project_url": "https://github.com/orgs/vllm-project/projects/39",
       "repo": "vllm-project/vllm",
       "body_head": "### Name of failing test\n\nbash v1/kv_connector/nixl_integration/tp_config_sweep_accuracy_test.sh\n\n### Basic information\n\n- [ ] Flaky test\n- [ ] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\nI think there may be some issues with the nixl package being installed on the amd CI, as it appears to be missing UCX, which possibly would need to be built from source?\n\n```\n\n(Worker_TP0 pid=1295) ERROR 11-20 07:10:15 [multiproc_executor.py:822]     self.model_runner.initialize_kv_cache(kv_cache_config)\n--\n(Worker_TP0 pid=1295) ERROR 11-20 07:10:15 [multiproc_executor.py:822]   File \"/usr/local/lib/python3.12/dist-packages/vllm/v1/worker/gpu_model_runner.py\", line 5020, in initialize_kv_cache\n(Worker_TP0 pid=1295) ERROR 11-20 07:10:15 [multiproc_executor.py:822]     kv_transfer_group.register_kv_caches(kv_caches)\n(Worker_TP0 pid=1295) ERROR 11-20 07:10:15 [multiproc_executor.py:822]   File \"/usr/local/lib/python3.12/dist-packages/vllm/distributed/kv_transfer/kv_connector/v1/nixl_connector.py\", line 256, in register_kv_caches\n(Worker_TP0 pid=1295) ERROR 11-20 07:10:15 [multiproc_executor.py:822]     self.connector_worker.register_kv_caches(kv_caches)\n(Worker_TP0 pid=1295) ERROR 11-20 07:10:15 [multiproc_executor.py:822]   File \"/usr/local/lib/python3.12/dist-packages/vllm/distributed/kv_transfer/kv_connector/v1/nixl_connector.py\", line 1244, in register_kv_caches\n(Worker_TP0 pid=1295) ERROR 11-20 07:10:15 [multiproc_executor.py:822]     self.nixl_wrapper.register_memory(descs, backends=self.nixl_backends)\n(Worker_TP0 pid=1295) ERROR 11-20 07:10:15 [multiproc_executor.py:822]   File \"/usr/local/lib/python3.12/dist-packages/nixl_cu12/_api.py\", line 383, in register_memory\n(Worker_TP0 pid=1295) ERROR 11-20 07:10:15 [multiproc_executor.py:822]     handle_list.append(self.backends[backend_string])\n(Worker_TP0 pid=1295) ERROR 11-20 07:10:15 [multiproc_executor.py:822]                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^\n(Worker_TP0 pid=1295) ERROR 11-20 07:10:15 [multiproc_executor.py:822] KeyError: 'UCX'\n\u00a0\n\n<br class=\"Apple-interchange-newline\">\n```\n\n### \ud83d\udcdd History of failing test\n\nat least since https://buildkite.com/vllm/amd-ci/builds/1088/steps/canvas?sid=019aa006-b84c-4329-a88d-4f8487e6112b\n\n\n### CC List.\n\n@Alexei-V-Ivanov-AMD ",
