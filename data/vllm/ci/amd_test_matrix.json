@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-23T16:50:17Z",
+  "generated_at": "2026-06-24T01:26:59Z",
   "source": {
     "yaml_url": "https://raw.githubusercontent.com/vllm-project/vllm/refs/heads/main/.buildkite/test-amd.yaml",
     "latest_build_number": 9851,
@@ -2003,13 +2003,13 @@
         },
         "mi300": {
           "exists": true,
-          "optional": false,
+          "optional": true,
           "variant_count": 1,
           "variants": [
             {
               "label": "Distributed DP Tests (2 GPUs)",
               "agent_pool": "mi300_2",
-              "optional": false,
+              "optional": true,
               "parallelism": 1,
               "latest_matched": true,
               "latest_match_count": 1,
@@ -2023,7 +2023,7 @@
                 {
                   "label": "Distributed DP Tests (2 GPUs)",
                   "agent_pool": "mi300_2",
-                  "optional": false,
+                  "optional": true,
                   "parallelism": 1,
                   "latest_matched": true,
                   "latest_match_count": 1,
@@ -2375,13 +2375,13 @@
         },
         "mi300": {
           "exists": true,
-          "optional": false,
+          "optional": true,
           "variant_count": 1,
           "variants": [
             {
               "label": "Benchmarks CLI Test",
               "agent_pool": "mi300_1",
-              "optional": false,
+              "optional": true,
               "parallelism": 1,
               "latest_matched": true,
               "latest_match_count": 1,
@@ -2395,7 +2395,7 @@
                 {
                   "label": "Benchmarks CLI Test",
                   "agent_pool": "mi300_1",
-                  "optional": false,
+                  "optional": true,
                   "parallelism": 1,
                   "latest_matched": true,
                   "latest_match_count": 1,
@@ -2969,13 +2969,13 @@
         },
         "mi300": {
           "exists": true,
-          "optional": false,
+          "optional": true,
           "variant_count": 1,
           "variants": [
             {
               "label": "EPLB Algorithm",
               "agent_pool": "mi300_1",
-              "optional": false,
+              "optional": true,
               "parallelism": 1,
               "latest_matched": true,
               "latest_match_count": 1,
@@ -2989,7 +2989,7 @@
                 {
                   "label": "EPLB Algorithm",
                   "agent_pool": "mi300_1",
-                  "optional": false,
+                  "optional": true,
                   "parallelism": 1,
                   "latest_matched": true,
                   "latest_match_count": 1,
@@ -6447,13 +6447,13 @@
         },
         "mi300": {
           "exists": true,
-          "optional": false,
+          "optional": true,
           "variant_count": 1,
           "variants": [
             {
               "label": "Language Models Tests (Extra Standard)",
               "agent_pool": "mi300_1",
-              "optional": false,
+              "optional": true,
               "parallelism": 2,
               "latest_matched": true,
               "latest_match_count": 2,
@@ -6467,7 +6467,7 @@
                 {
                   "label": "Language Models Tests (Extra Standard)",
                   "agent_pool": "mi300_1",
-                  "optional": false,
+                  "optional": true,
                   "parallelism": 2,
                   "latest_matched": true,
                   "latest_match_count": 2,
@@ -8358,76 +8358,10 @@
       "signature": "MI300"
     },
     {
-      "title": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
-      "canonical_title": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
-      "area": "Spec Decode",
-      "yaml_order": 113,
-      "cells": {
-        "mi250": {
-          "exists": false
-        },
-        "mi300": {
-          "exists": true,
-          "optional": false,
-          "variant_count": 1,
-          "variants": [
-            {
-              "label": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
-              "agent_pool": "mi300_2",
-              "optional": false,
-              "parallelism": 1,
-              "latest_matched": true,
-              "latest_match_count": 1,
-              "latest_state": "passed",
-              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/9851/steps/canvas?sid=019ef3b5-7583-43fc-a915-973186cc4584&tab=output",
-              "aliases": [
-                "NixlConnector PD + Spec Decode acceptance (2 GPUs)"
-              ],
-              "raw_variant_count": 1,
-              "entries": [
-                {
-                  "label": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
-                  "agent_pool": "mi300_2",
-                  "optional": false,
-                  "parallelism": 1,
-                  "latest_matched": true,
-                  "latest_match_count": 1,
-                  "latest_state": "passed",
-                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/9851/steps/canvas?sid=019ef3b5-7583-43fc-a915-973186cc4584&tab=output",
-                  "aliases": [
-                    "NixlConnector PD + Spec Decode acceptance (2 GPUs)"
-                  ],
-                  "raw_variant_count": 1
-                }
-              ]
-            }
-          ],
-          "latest_matched": true,
-          "latest_state": "passed",
-          "latest_build_number": 9851,
-          "primary_label": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
-          "raw_variant_count": 1,
-          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/9851/steps/canvas?sid=019ef3b5-7583-43fc-a915-973186cc4584&tab=output"
-        },
-        "mi325": {
-          "exists": false
-        },
-        "mi355": {
-          "exists": false
-        }
-      },
-      "coverage_count": 1,
-      "nightly_coverage_count": 1,
-      "architectures_present": [
-        "mi300"
-      ],
-      "signature": "MI300"
-    },
-    {
       "title": "Distributed Tests (2xH100-2xMI300)",
       "canonical_title": "Distributed Tests (2xH100-2xMI)",
       "area": "Distributed",
-      "yaml_order": 114,
+      "yaml_order": 113,
       "cells": {
         "mi250": {
           "exists": false
@@ -8493,20 +8427,20 @@
       "title": "Metrics, Tracing (2 GPUs)",
       "canonical_title": "Metrics, Tracing (2 GPUs)",
       "area": "Other",
-      "yaml_order": 115,
+      "yaml_order": 114,
       "cells": {
         "mi250": {
           "exists": false
         },
         "mi300": {
           "exists": true,
-          "optional": false,
+          "optional": true,
           "variant_count": 1,
           "variants": [
             {
               "label": "Metrics, Tracing (2 GPUs)",
               "agent_pool": "mi300_2",
-              "optional": false,
+              "optional": true,
               "parallelism": 1,
               "latest_matched": true,
               "latest_match_count": 1,
@@ -8520,7 +8454,7 @@
                 {
                   "label": "Metrics, Tracing (2 GPUs)",
                   "agent_pool": "mi300_2",
-                  "optional": false,
+                  "optional": true,
                   "parallelism": 1,
                   "latest_matched": true,
                   "latest_match_count": 1,
@@ -8556,6 +8490,72 @@
       "signature": "MI300"
     },
     {
+      "title": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
+      "canonical_title": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
+      "area": "Spec Decode",
+      "yaml_order": 116,
+      "cells": {
+        "mi250": {
+          "exists": false
+        },
+        "mi300": {
+          "exists": true,
+          "optional": true,
+          "variant_count": 1,
+          "variants": [
+            {
+              "label": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
+              "agent_pool": "mi300_2",
+              "optional": true,
+              "parallelism": 1,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "passed",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/9851/steps/canvas?sid=019ef3b5-7583-43fc-a915-973186cc4584&tab=output",
+              "aliases": [
+                "NixlConnector PD + Spec Decode acceptance (2 GPUs)"
+              ],
+              "raw_variant_count": 1,
+              "entries": [
+                {
+                  "label": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
+                  "agent_pool": "mi300_2",
+                  "optional": true,
+                  "parallelism": 1,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "passed",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/9851/steps/canvas?sid=019ef3b5-7583-43fc-a915-973186cc4584&tab=output",
+                  "aliases": [
+                    "NixlConnector PD + Spec Decode acceptance (2 GPUs)"
+                  ],
+                  "raw_variant_count": 1
+                }
+              ]
+            }
+          ],
+          "latest_matched": true,
+          "latest_state": "passed",
+          "latest_build_number": 9851,
+          "primary_label": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
+          "raw_variant_count": 1,
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/9851/steps/canvas?sid=019ef3b5-7583-43fc-a915-973186cc4584&tab=output"
+        },
+        "mi325": {
+          "exists": false
+        },
+        "mi355": {
+          "exists": false
+        }
+      },
+      "coverage_count": 1,
+      "nightly_coverage_count": 1,
+      "architectures_present": [
+        "mi300"
+      ],
+      "signature": "MI300"
+    },
+    {
       "title": "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
       "canonical_title": "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
       "area": "Distributed",
@@ -8566,13 +8566,13 @@
         },
         "mi300": {
           "exists": true,
-          "optional": false,
+          "optional": true,
           "variant_count": 1,
           "variants": [
             {
               "label": "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
               "agent_pool": "mi300_4",
-              "optional": false,
+              "optional": true,
               "parallelism": 1,
               "latest_matched": true,
               "latest_match_count": 1,
@@ -8586,7 +8586,7 @@
                 {
                   "label": "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
                   "agent_pool": "mi300_4",
-                  "optional": false,
+                  "optional": true,
                   "parallelism": 1,
                   "latest_matched": true,
                   "latest_match_count": 1,
@@ -8764,13 +8764,13 @@
         },
         "mi300": {
           "exists": true,
-          "optional": false,
+          "optional": true,
           "variant_count": 1,
           "variants": [
             {
               "label": "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
               "agent_pool": "mi300_4",
-              "optional": false,
+              "optional": true,
               "parallelism": 1,
               "latest_matched": true,
               "latest_match_count": 1,
@@ -8784,7 +8784,7 @@
                 {
                   "label": "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
                   "agent_pool": "mi300_4",
-                  "optional": false,
+                  "optional": true,
                   "parallelism": 1,
                   "latest_matched": true,
                   "latest_match_count": 1,
@@ -8830,13 +8830,13 @@
         },
         "mi300": {
           "exists": true,
-          "optional": false,
+          "optional": true,
           "variant_count": 1,
           "variants": [
             {
               "label": "Hybrid SSM NixlConnector PD accuracy tests (4 GPUs)",
               "agent_pool": "mi300_4",
-              "optional": false,
+              "optional": true,
               "parallelism": 1,
               "latest_matched": true,
               "latest_match_count": 1,
@@ -8850,7 +8850,7 @@
                 {
                   "label": "Hybrid SSM NixlConnector PD accuracy tests (4 GPUs)",
                   "agent_pool": "mi300_4",
-                  "optional": false,
+                  "optional": true,
                   "parallelism": 1,
                   "latest_matched": true,
                   "latest_match_count": 1,
@@ -10236,9 +10236,9 @@
               "label": "LM Eval Qwen3-5 Models (B200-MI355)",
               "agent_pool": "mi355_2",
               "optional": true,
-              "parallelism": 1,
+              "parallelism": 4,
               "latest_matched": true,
-              "latest_match_count": 1,
+              "latest_match_count": 2,
               "latest_state": "soft_fail",
               "latest_url": "https://buildkite.com/vllm/amd-ci/builds/9851/steps/canvas?sid=019ef3b5-75b0-45e8-9fa5-04a8ac4ff682&tab=output",
               "aliases": [
@@ -10250,9 +10250,9 @@
                   "label": "LM Eval Qwen3-5 Models (B200-MI355)",
                   "agent_pool": "mi355_2",
                   "optional": true,
-                  "parallelism": 1,
+                  "parallelism": 4,
                   "latest_matched": true,
-                  "latest_match_count": 1,
+                  "latest_match_count": 2,
                   "latest_state": "soft_fail",
                   "latest_url": "https://buildkite.com/vllm/amd-ci/builds/9851/steps/canvas?sid=019ef3b5-75b0-45e8-9fa5-04a8ac4ff682&tab=output",
                   "aliases": [

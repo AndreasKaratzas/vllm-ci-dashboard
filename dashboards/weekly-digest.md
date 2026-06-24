@@ -1,6 +1,6 @@
 # Weekly Digest
 
-Week of 2026-06-16 to 2026-06-23
+Week of 2026-06-17 to 2026-06-24
 
 ## New Releases
 
@@ -8,8 +8,7 @@ _No new releases this week._
 
 ## PRs This Week
 
-### vllm
-- Merged: [#41532](https://github.com/vllm-project/vllm/pull/41532) [ROCm][CI] Gate incompatible HF references on Transformers v (@AndreasKaratzas)
+_No PR activity this week._
 
 ## New Issues This Week
 

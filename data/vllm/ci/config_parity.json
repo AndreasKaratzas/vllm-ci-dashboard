@@ -5,9 +5,9 @@
     "matched": 117,
     "amd_only": 8,
     "nvidia_only": 60,
-    "mirrors": 35,
+    "mirrors": 52,
     "match_rate_pct": 93.6,
-    "avg_command_similarity_pct": 93.2
+    "avg_command_similarity_pct": 93.1
   },
   "matches": [
     {
@@ -89,7 +89,7 @@
     },
     {
       "amd_label": "Distributed Tests (2xH100-2xMI250)",
-      "nvidia_label": "Distributed Tests (2 GPUs)(H100)",
+      "nvidia_label": "Distributed Tests (2xH100-2xMI300)",
       "normalized": "distributed tests (2xh100-2xmi250)",
       "identity_key": "distributed tests (2 gpus)",
       "command_similarity": 0.5549,
@@ -107,24 +107,6 @@
         "pytest -v -s tests/v1/distributed/test_dbo.py",
         "VLLM_ALLOW_INSECURE_SERIALIZATION=1 pytest -v -s tests/distributed/test_weight_transfer.py",
         "pytest -v -s tests/distributed/test_packed_tensor.py"
-      ]
-    },
-    {
-      "amd_label": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
-      "nvidia_label": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
-      "normalized": "nixlconnector pd + spec decode acceptance (2 gpus)",
-      "identity_key": "nixlconnector pd + spec decode acceptance (2 gpus)",
-      "command_similarity": 0.609,
-      "color": "orange",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/disaggregated.yaml",
-      "amd_commands": [
-        "uv pip install --system -r /vllm-workspace/requirements/kv_connectors_rocm.txt",
-        "ATTENTION_BACKEND=TRITON_ATTN bash v1/kv_connector/nixl_integration/spec_decode_acceptance_test.sh"
-      ],
-      "nvidia_commands": [
-        "bash /vllm-workspace/.buildkite/scripts/install-kv-connectors.sh",
-        "bash v1/kv_connector/nixl_integration/config_sweep_spec_decode_test.sh"
       ]
     },
     {
@@ -243,6 +225,24 @@
       ]
     },
     {
+      "amd_label": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
+      "nvidia_label": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
+      "normalized": "nixlconnector pd + spec decode acceptance (2 gpus)",
+      "identity_key": "nixlconnector pd + spec decode acceptance (2 gpus)",
+      "command_similarity": 0.6879,
+      "color": "orange",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/disaggregated.yaml",
+      "amd_commands": [
+        "uv pip install --system -r /vllm-workspace/requirements/kv_connectors_rocm.txt",
+        "ATTENTION_BACKEND=TRITON_ATTN bash v1/kv_connector/nixl_integration/config_sweep_spec_decode_test.sh"
+      ],
+      "nvidia_commands": [
+        "bash /vllm-workspace/.buildkite/scripts/install-kv-connectors.sh",
+        "bash v1/kv_connector/nixl_integration/config_sweep_spec_decode_test.sh"
+      ]
+    },
+    {
       "amd_label": "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
       "nvidia_label": "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
       "normalized": "dp ep distributed nixlconnector pd accuracy tests (4 gpus)",
@@ -345,6 +345,22 @@
       ],
       "nvidia_commands": [
         "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=configs/models-blackwell.txt"
+      ]
+    },
+    {
+      "amd_label": "LM Eval Qwen3-5 Models (B200-MI355) %N",
+      "nvidia_label": "LM Eval Qwen3.5 Models (B200)",
+      "normalized": "lm eval qwen3-5 models (b200-mi355)",
+      "identity_key": "lm eval qwen3-5 models (2 gpus)",
+      "command_similarity": 0.8205,
+      "color": "yellow",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/lm_eval.yaml",
+      "amd_commands": [
+        "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=configs/models-qwen35-mi355.txt --shard-id=$$BUILDKITE_PARALLEL_JOB --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT"
+      ],
+      "nvidia_commands": [
+        "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=configs/models-qwen35-blackwell.txt"
       ]
     },
     {
@@ -582,22 +598,6 @@
       ],
       "nvidia_commands": [
         "pytest -v -s kernels/core --ignore=kernels/core/test_minimax_reduce_rms.py  kernels/test_concat_mla_q.py kernels/test_fused_qk_norm_rope_gate.py"
-      ]
-    },
-    {
-      "amd_label": "LM Eval Qwen3-5 Models (B200-MI355)",
-      "nvidia_label": "LM Eval Qwen3.5 Models (B200)",
-      "normalized": "lm eval qwen3-5 models (b200-mi355)",
-      "identity_key": "lm eval qwen3-5 models (2 gpus)",
-      "command_similarity": 0.932,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/lm_eval.yaml",
-      "amd_commands": [
-        "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=configs/models-qwen35-mi355.txt"
-      ],
-      "nvidia_commands": [
-        "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=configs/models-qwen35-blackwell.txt"
       ]
     },
     {
@@ -2067,6 +2067,78 @@
       "source_file": ".buildkite/test_areas/attention.yaml"
     },
     {
+      "nvidia_label": "Basic Correctness",
+      "identity_key": "basic correctness",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/basic_correctness.yaml"
+    },
+    {
+      "nvidia_label": "Benchmarks CLI Test",
+      "identity_key": "benchmarks cli test",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/benchmarks.yaml"
+    },
+    {
+      "nvidia_label": "Distributed NixlConnector PD accuracy (4 GPUs)",
+      "identity_key": "distributed nixlconnector pd accuracy (4 gpus)",
+      "commands_overridden": true,
+      "command_similarity": 0.6883,
+      "color": "orange",
+      "source_file": ".buildkite/test_areas/disaggregated.yaml"
+    },
+    {
+      "nvidia_label": "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
+      "identity_key": "dp ep distributed nixlconnector pd accuracy tests (4 gpus)",
+      "commands_overridden": true,
+      "command_similarity": 0.7037,
+      "color": "yellow",
+      "source_file": ".buildkite/test_areas/disaggregated.yaml"
+    },
+    {
+      "nvidia_label": "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
+      "identity_key": "crosslayer kv layout distributed nixlconnector pd accuracy tests (4 gpus)",
+      "commands_overridden": true,
+      "command_similarity": 0.6201,
+      "color": "orange",
+      "source_file": ".buildkite/test_areas/disaggregated.yaml"
+    },
+    {
+      "nvidia_label": "Hybrid SSM NixlConnector PD accuracy tests (4 GPUs)",
+      "identity_key": "hybrid ssm nixlconnector pd accuracy tests (4 gpus)",
+      "commands_overridden": true,
+      "command_similarity": 0.7126,
+      "color": "yellow",
+      "source_file": ".buildkite/test_areas/disaggregated.yaml"
+    },
+    {
+      "nvidia_label": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
+      "identity_key": "nixlconnector pd + spec decode acceptance (2 gpus)",
+      "commands_overridden": true,
+      "command_similarity": 0.6943,
+      "color": "orange",
+      "source_file": ".buildkite/test_areas/disaggregated.yaml"
+    },
+    {
+      "nvidia_label": "Distributed DP Tests (2 GPUs)",
+      "identity_key": "distributed dp tests (2 gpus)",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/distributed.yaml"
+    },
+    {
+      "nvidia_label": "Distributed Tests (2xH100-2xMI300)",
+      "identity_key": "distributed tests (2 gpus)",
+      "commands_overridden": true,
+      "command_similarity": 0.8773,
+      "color": "yellow",
+      "source_file": ".buildkite/test_areas/distributed.yaml"
+    },
+    {
       "nvidia_label": "Engine",
       "identity_key": "engine",
       "commands_overridden": false,
@@ -2093,6 +2165,14 @@
     {
       "nvidia_label": "e2e Core (1 GPU)",
       "identity_key": "e2e core (1 gpu)",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/engine.yaml"
+    },
+    {
+      "nvidia_label": "V1 e2e (2 GPUs)",
+      "identity_key": "v1 e2e (2 gpus)",
       "commands_overridden": false,
       "command_similarity": 1.0,
       "color": "green",
@@ -2145,6 +2225,14 @@
       "command_similarity": 0.6165,
       "color": "orange",
       "source_file": ".buildkite/test_areas/entrypoints.yaml"
+    },
+    {
+      "nvidia_label": "EPLB Algorithm",
+      "identity_key": "eplb algorithm",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/expert_parallelism.yaml"
     },
     {
       "nvidia_label": "Kernels Attention Test %N",
@@ -2219,12 +2307,44 @@
       "source_file": ".buildkite/test_areas/misc.yaml"
     },
     {
+      "nvidia_label": "Metrics, Tracing (2 GPUs)",
+      "identity_key": "metrics, tracing (2 gpus)",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/misc.yaml"
+    },
+    {
       "nvidia_label": "Python-only Installation",
       "identity_key": "python-only installation",
       "commands_overridden": false,
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/misc.yaml"
+    },
+    {
+      "nvidia_label": "Model Executor",
+      "identity_key": "model executor",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/model_executor.yaml"
+    },
+    {
+      "nvidia_label": "Language Models Tests (Standard)",
+      "identity_key": "language models tests (standard)",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/models_language.yaml"
+    },
+    {
+      "nvidia_label": "Language Models Tests (Extra Standard) %N",
+      "identity_key": "language models tests (extra standard)",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/models_language.yaml"
     },
     {
       "nvidia_label": "Language Models Tests (Hybrid) %N",
@@ -2275,6 +2395,14 @@
       "source_file": ".buildkite/test_areas/models_multimodal.yaml"
     },
     {
+      "nvidia_label": "Multi-Modal Accuracy Eval (Small Models)",
+      "identity_key": "multi-modal accuracy eval (small models)",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/models_multimodal.yaml"
+    },
+    {
       "nvidia_label": "Multi-Modal Models (Extended Generation 1)",
       "identity_key": "multi-modal models (extended generation 1)",
       "commands_overridden": false,
@@ -2293,6 +2421,14 @@
     {
       "nvidia_label": "PyTorch Compilation Passes Unit Tests",
       "identity_key": "pytorch compilation passes unit tests",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/pytorch.yaml"
+    },
+    {
+      "nvidia_label": "Pytorch Nightly Dependency Override Check",
+      "identity_key": "pytorch nightly dependency override check",
       "commands_overridden": false,
       "command_similarity": 1.0,
       "color": "green",
