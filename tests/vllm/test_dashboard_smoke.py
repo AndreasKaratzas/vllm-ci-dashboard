@@ -233,10 +233,11 @@ for (const file of process.argv.slice(1)) {
         assert "upstreamNightlyBuilds" in text
         assert "vllm/ci nightly build on main at 1:00 AM Central" in text
         assert "_jsonCache" in text
-        assert "if (_jsonCache.has(u)) return _jsonCache.get(u);" in text
+        assert "if (!opts.forceRefresh && _jsonCache.has(u)) return _jsonCache.get(u);" in text
+        assert "forceRefresh:true" in text
         assert "Gating Progress Over Time" in text
         assert "GATING_PROGRESS_WINDOWS" in text
-        assert "DEFAULT_GATING_PROGRESS_WINDOW = '30d'" in text
+        assert "DEFAULT_GATING_PROGRESS_WINDOW = '7d'" in text
         assert "Green of target" in text
         assert "configuredTarget" in text
         assert "extraGatedRows" in text

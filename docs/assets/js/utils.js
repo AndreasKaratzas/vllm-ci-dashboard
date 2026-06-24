@@ -71,7 +71,7 @@ var LinkRegistry = (function() {
       }
     }
 
-    fetch('data/vllm/ci/ci_health.json?_='+Math.floor(Date.now()/1000)).then(function(r){ return r.json() }).then(function(d) {
+    fetch('data/vllm/ci/ci_health.json').then(function(r){ return r.json() }).then(function(d) {
       if (d && d.amd && d.amd.latest_build && d.amd.latest_build.build_url)
         _bkBuildUrls.amd = stripTrailingSlash(d.amd.latest_build.build_url);
       if (d && d.upstream && d.upstream.latest_build && d.upstream.latest_build.build_url)
@@ -79,7 +79,7 @@ var LinkRegistry = (function() {
       check();
     }).catch(function(){ check(); });
 
-    fetch('data/vllm/ci/parity_report.json?_='+Math.floor(Date.now()/1000)).then(function(r){ return r.json() }).then(function(d) {
+    fetch('data/vllm/ci/parity_report.json').then(function(r){ return r.json() }).then(function(d) {
       if (d && d.job_groups) {
         for (var i = 0; i < d.job_groups.length; i++) {
           var g = d.job_groups[i];
@@ -312,7 +312,6 @@ function makeGroupLink(name, pipeline) {
 
 async function fetchJSON(url, opts) {
   opts = opts || {};
-  const sep = url.includes('?') ? '&' : '?';
   const timeoutMs = typeof opts.timeoutMs === 'number' ? opts.timeoutMs : 8000;
   var timer = null;
   var controller = typeof AbortController === 'function' ? new AbortController() : null;
@@ -321,7 +320,8 @@ async function fetchJSON(url, opts) {
     if (controller) {
       timer = setTimeout(function() { controller.abort(); }, timeoutMs);
     }
-    const resp = await fetch(url + sep + '_=' + Math.floor(Date.now()/1000), fetchOpts);
+    if (opts.forceRefresh) fetchOpts.cache = 'no-cache';
+    const resp = await fetch(url, fetchOpts);
     if (timer) clearTimeout(timer);
     if (!resp.ok) return null;
     return await resp.json();

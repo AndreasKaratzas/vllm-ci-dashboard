@@ -9,18 +9,30 @@
   const LC = { passing:C.g,failing:C.r,new_failure:'#f85149',fixed:'#3fb950',flaky:C.y,skipped:C.m,new_test:C.b,quarantined:C.p };
   const AREAS = ['kernels','entrypoints','distributed','compile','engine','lora','multi-modal','multimodal','quantiz','language models','basic correctness','benchmark','regression','examples','v1','lm eval','gpqa','ray','nixl','weight loading','fusion','batch invariance','model executor','attention benchmark','spec decode','transformers','plugin','sampler','python-only','pytorch','model runner'];
 
-  const _cb = () => '?_=' + Math.floor(Date.now()/1000);
   const _jsonCache = new Map();
-  const J = async u => {
-    if (_jsonCache.has(u)) return _jsonCache.get(u);
+  const _sourceAliasesCache = new Map();
+  const _upstreamNightlyBuildsCache = new WeakMap();
+  const _internalBuildsCache = new WeakMap();
+  const _upstreamAmdIndexCache = new WeakMap();
+  const _upstreamCudaIndexCache = new WeakMap();
+  const _internalAmdIndexCache = new WeakMap();
+  const _targetAliasSetCache = new WeakMap();
+  const J = async (u, opts={}) => {
+    if (!opts.forceRefresh && _jsonCache.has(u)) return _jsonCache.get(u);
     const p = (async () => {
       try {
-        const r = await fetch(u + _cb());
+        const fetchOpts = opts.forceRefresh ? {cache:'no-cache'} : {};
+        const r = await fetch(u, fetchOpts);
         return r.ok ? r.json() : null;
       } catch {
         return null;
       }
     })();
+    if (opts.forceRefresh) {
+      const data = await p;
+      if (data != null) _jsonCache.set(u, Promise.resolve(data));
+      return data;
+    }
     _jsonCache.set(u, p);
     return p;
   };
@@ -122,9 +134,14 @@
   }
 
   function upstreamNightlyBuilds(analytics) {
-    return (analytics?.ci?.builds || [])
+    const ci = analytics?.ci;
+    if (!ci) return [];
+    if (_upstreamNightlyBuildsCache.has(ci)) return _upstreamNightlyBuildsCache.get(ci);
+    const builds = (ci.builds || [])
       .filter(b => /^Full CI run\s*-\s*nightly(?:\s|$)/i.test(String(b.message || '')))
       .sort((a,b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+    _upstreamNightlyBuildsCache.set(ci, builds);
+    return builds;
   }
 
   function upstreamBuildUrl(build) {
@@ -203,6 +220,9 @@
   }
 
   function sourceAliases(value, shardable) {
+    const cacheKey = `${shardable ? '1' : '0'}:${String(value || '')}`;
+    const cached = _sourceAliasesCache.get(cacheKey);
+    if (cached) return cached;
     const base = sourceKey(value);
     const aliases = new Set([base, normalizeHardwareDecoratedName(value)]);
     for (const alias of pairedHardwareTopologyAliases(value)) aliases.add(alias);
@@ -212,10 +232,14 @@
       aliases.add(alias.replace(/\s*\((cpu|cuda)\)\s*$/i, '').trim());
       addHardwareAliasVariants(aliases, alias);
     }
-    return [...aliases].filter(Boolean);
+    const out = [...aliases].filter(Boolean);
+    _sourceAliasesCache.set(cacheKey, out);
+    return out;
   }
 
   function buildUpstreamAmdIndex(build) {
+    if (!build) return {};
+    if (_upstreamAmdIndexCache.has(build)) return _upstreamAmdIndexCache.get(build);
     const byDevice = {};
     for (const job of build?.jobs || []) {
       const raw = String(job.raw_name || job.name || '');
@@ -227,6 +251,7 @@
         (bucket[alias] || (bucket[alias] = [])).push(job);
       }
     }
+    _upstreamAmdIndexCache.set(build, byDevice);
     return byDevice;
   }
 
@@ -250,8 +275,13 @@
 
 
   function internalAmdBuilds(analytics) {
-    return (analytics?.['amd-ci']?.builds || [])
+    const amd = analytics?.['amd-ci'];
+    if (!amd) return [];
+    if (_internalBuildsCache.has(amd)) return _internalBuildsCache.get(amd);
+    const builds = [...(amd.builds || [])]
       .sort((a,b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+    _internalBuildsCache.set(amd, builds);
+    return builds;
   }
 
   const GATING_PROGRESS_WINDOWS = [
@@ -261,7 +291,7 @@
     {key:'30d', label:'1m', days:30},
     {key:'90d', label:'3m', days:90},
   ];
-  const DEFAULT_GATING_PROGRESS_WINDOW = '30d';
+  const DEFAULT_GATING_PROGRESS_WINDOW = '7d';
 
   function buildTimeMs(build) {
     const raw = build?.created_at || build?.date || '';
@@ -322,6 +352,8 @@
   }
 
   function buildInternalAmdIndex(build) {
+    if (!build) return {};
+    if (_internalAmdIndexCache.has(build)) return _internalAmdIndexCache.get(build);
     const byAlias = {};
     for (const job of build?.jobs || []) {
       if (!isInternalAmdJob(job)) continue;
@@ -331,6 +363,7 @@
         (byAlias[alias] || (byAlias[alias] = [])).push(job);
       }
     }
+    _internalAmdIndexCache.set(build, byAlias);
     return byAlias;
   }
 
@@ -392,6 +425,22 @@
     return /(gpu|cuda|h100|h200|a100|b200|gh200|mithril)/i.test(`${raw} ${queue}`);
   }
 
+  function buildUpstreamCudaIndex(build) {
+    if (!build) return {};
+    if (_upstreamCudaIndexCache.has(build)) return _upstreamCudaIndexCache.get(build);
+    const byAlias = {};
+    for (const job of build?.jobs || []) {
+      if (!isUpstreamCudaJob(job)) continue;
+      const raw = job.raw_name || job.name || '';
+      const shardable = /\s+\d+$/.test(sourceKey(raw));
+      for (const alias of sourceAliases(raw, shardable)) {
+        (byAlias[alias] || (byAlias[alias] = [])).push(job);
+      }
+    }
+    _upstreamCudaIndexCache.set(build, byAlias);
+    return byAlias;
+  }
+
   function upstreamCudaCandidateRows(build, currentRows, limit) {
     const mirrored = mirroredAliasSet(currentRows);
     const seen = new Set();
@@ -434,13 +483,17 @@
   }
 
   function matchingUpstreamJobsForLabel(label, build) {
-    const wanted = new Set(sourceAliases(label, /%N/i.test(String(label || ''))));
+    const index = buildUpstreamCudaIndex(build);
     const matches = [];
-    for (const job of build?.jobs || []) {
-      if (!isUpstreamCudaJob(job)) continue;
-      const raw = job.raw_name || job.name || '';
-      const aliases = sourceAliases(raw, /\s+\d+$/.test(sourceKey(raw)));
-      if (aliases.some(alias => wanted.has(alias))) matches.push(job);
+    const seen = new Set();
+    for (const alias of sourceAliases(label, /%N/i.test(String(label || '')))) {
+      for (const job of index[alias] || []) {
+        const key = job.raw_name || job.name || JSON.stringify(job);
+        if (!seen.has(key)) {
+          seen.add(key);
+          matches.push(job);
+        }
+      }
     }
     return matches.sort((a,b) => String(a.raw_name || a.name || '').localeCompare(String(b.raw_name || b.name || '')));
   }
@@ -909,11 +962,14 @@
   }
 
   function targetAliasSet(targets) {
+    if (!targets) return new Set();
+    if (_targetAliasSetCache.has(targets)) return _targetAliasSetCache.get(targets);
     const aliases = new Set();
     for (const target of targetGroups(targets)) {
       const label = target.label || '';
       for (const alias of sourceAliases(label, /%N/i.test(label))) aliases.add(alias);
     }
+    _targetAliasSetCache.set(targets, aliases);
     return aliases;
   }
 
@@ -975,13 +1031,25 @@
     return String(target?.[key] || target?.[fallbackKey] || 'unknown').toLowerCase();
   }
 
-  function currentRowForTarget(target, rows) {
-    const label = target?.label || '';
-    const wanted = new Set(sourceAliases(label, /%N/i.test(label)));
-    return rows.find(row => {
+  function buildCurrentRowAliasIndex(rows) {
+    const index = new Map();
+    for (const row of rows || []) {
       const rowLabel = row.group?.label || '';
-      return sourceAliases(rowLabel, /%N/i.test(rowLabel)).some(alias => wanted.has(alias));
-    }) || null;
+      for (const alias of sourceAliases(rowLabel, /%N/i.test(rowLabel))) {
+        if (!index.has(alias)) index.set(alias, row);
+      }
+    }
+    return index;
+  }
+
+  function currentRowForTarget(target, rows, rowIndex) {
+    const label = target?.label || '';
+    const index = rowIndex || buildCurrentRowAliasIndex(rows);
+    for (const alias of sourceAliases(label, /%N/i.test(label))) {
+      const row = index.get(alias);
+      if (row) return row;
+    }
+    return null;
   }
 
   function canonicalStatusForTarget(target, sourceRuntimeStatus=null, internalRuntimeStatus=null) {
@@ -1021,8 +1089,9 @@
 
   function buildCanonicalTargetRows(targets, currentRows, sourceBuild, internalBuild) {
     const internalIndex = buildInternalAmdIndex(internalBuild);
+    const currentRowIndex = buildCurrentRowAliasIndex(currentRows);
     return targetGroups(targets).map(target => {
-      const currentRow = currentRowForTarget(target, currentRows);
+      const currentRow = currentRowForTarget(target, currentRows, currentRowIndex);
       const label = target.label || '';
       const mirroredSourceJobs = currentRow?.sourceJobs?.length
         ? targetRuntimeJobs(label, currentRow.sourceJobs)
@@ -1364,7 +1433,15 @@
     section.append(cardGrid);
     section.append(h('p',{text:hasCanonicalTargets ? `Runtime target accounting: ${fmtInt(canonicalGatedGreenRows.length)} gated/proposed green + ${fmtInt(canonicalReadyRows.length)} passing ready to gate + ${fmtInt(canonicalFailingRows.length)} failing + ${fmtInt(canonicalTodoRows.length)} todo/no signal + ${fmtInt(canonicalInfraRows.length)} infra-blocked${extraGatedRows.length ? ` + ${fmtInt(extraGatedRows.length)} currently gated outside the reviewed target list` : ''} = ${fmtInt(target)} active groups. Live upstream and amd-ci evidence is used before the reviewed fallback columns.` : `Target accounting: ${fmtInt(greenReady)} green + ${fmtInt(internalFailingStillToGate)} failing or soft-failing + ${fmtInt(internalNoSignalStillToGate)} no amd-ci signal = ${fmtInt(greenReady + internalFailingStillToGate + internalNoSignalStillToGate)} / ${fmtInt(target)} target groups.`,style:{color:C.m,fontSize:'12px',margin:'-4px 0 14px'}}));
 
-    renderGatingProgressChart(section, capacity, analytics, target, proposals, targets);
+    const chartSlot = h('div',{},[
+      h('p',{text:'Loading gating progress...',style:{color:C.m,fontSize:'12px',margin:'0 0 14px'}})
+    ]);
+    section.append(chartSlot);
+    setTimeout(() => {
+      if (!chartSlot.isConnected) return;
+      chartSlot.innerHTML = '';
+      renderGatingProgressChart(chartSlot, capacity, analytics, target, proposals, targets);
+    }, 0);
 
     const progress = h('div',{style:{background:C.bg,border:`1px solid ${C.bd}`,borderRadius:'8px',padding:'14px 16px',marginBottom:'14px'}});
     progress.append(h('strong',{text:`Path to ${fmtInt(target)} gated groups`,style:{display:'block',fontSize:'14px',marginBottom:'8px'}}));
@@ -2333,13 +2410,17 @@
     if(!box)return;
     box.innerHTML='<p style="color:#8b949e">Loading...</p>';
 
-    const[health,capacity,analytics,proposals,targets,targetCandidates]=await Promise.all([
+    const analyticsPromise = J(`${CI}/gating_nightlies.json`);
+    const[health,capacity,proposals,targets,targetCandidates]=await Promise.all([
       J(`${CI}/ci_health.json`),
-      J(`${CI}/capacity_monitor.json`),J(`${CI}/gating_nightlies.json`),
+      J(`${CI}/capacity_monitor.json`),
       J(`${CI}/gating_proposals.json`),J(`${CI}/gating_targets.json`),J(`${CI}/gating_target_candidates.json`)
     ]);
 
-    if(!health&&!capacity&&!analytics&&!proposals&&!targets&&!targetCandidates){box.innerHTML='<p style="color:#8b949e">No data. Run collect_ci.py.</p>';return}
+    if(!health&&!capacity&&!proposals&&!targets&&!targetCandidates){
+      const analytics=await analyticsPromise;
+      if(!analytics){box.innerHTML='<p style="color:#8b949e">No data. Run collect_ci.py.</p>';return}
+    }
     box.innerHTML='';
 
     box.append(h('h2',{text:'AMD CI',style:{marginBottom:'4px'}}));
@@ -2376,14 +2457,20 @@
       box.append(nextP);
     }
 
-    renderHealthSubviewTabs(box, {health, capacity, analytics, proposals, targets, targetCandidates});
+    const viewHost = h('div',{},[
+      h('p',{text:'Loading gating history...',style:{color:C.m,fontSize:'13px',margin:'8px 0 0'}})
+    ]);
+    box.append(viewHost);
+    const analytics=await analyticsPromise;
+    viewHost.innerHTML='';
+    renderHealthSubviewTabs(viewHost, {health, capacity, analytics, proposals, targets, targetCandidates});
 
     // Auto-refresh: poll every 5 min, re-render if data changed
     if(!window._ciHealthPoll){
       let lastGen=health?.generated_at||'';
       window._ciHealthPoll=setInterval(async()=>{
         try{
-          const fresh=await J(`${CI}/ci_health.json`);
+          const fresh=await J(`${CI}/ci_health.json`, {forceRefresh:true});
           if(fresh?.generated_at&&fresh.generated_at!==lastGen){
             lastGen=fresh.generated_at;
             if(window._updateSidebarTs) window._updateSidebarTs(lastGen);
