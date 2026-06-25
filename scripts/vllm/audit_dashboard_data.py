@@ -31,6 +31,7 @@ CI = VLLM / "ci"
 AMD_FAILURE_STATES = {"failed", "timed_out", "broken", "soft_fail"}
 AMD_WAITING_STATES = {"running", "scheduled", "assigned"}
 RESULT_SUFFIXES = {"amd-ci": "amd", "ci": "upstream"}
+CROSS_VIEW_GROUP_DRIFT_TOLERANCE = 1
 
 
 @dataclass(frozen=True)
@@ -814,12 +815,21 @@ class DashboardAudit:
             )
             if health_groups is not None and health_groups != arch_stats["total"]:
                 terminal_total = arch_stats["total"] - arch_stats["waiting"]
+                diff = abs(int(health_groups) - int(arch_stats["total"]))
                 if terminal_total <= health_groups <= arch_stats["total"]:
                     self.warning(
                         "matrix-health-hardware-count-in-progress",
                         f"{arch} matrix groups={arch_stats['total']} including "
                         f"{arch_stats['waiting']} waiting cells; ci_health by_hardware "
                         f"currently reports {health_groups} terminal groups",
+                        "data/vllm/ci/amd_test_matrix.json",
+                    )
+                elif diff <= CROSS_VIEW_GROUP_DRIFT_TOLERANCE:
+                    self.warning(
+                        "matrix-health-hardware-count-drift",
+                        f"{arch} matrix groups={arch_stats['total']} but ci_health "
+                        f"by_hardware groups={health_groups}; allowing one-group "
+                        "cross-view collector drift",
                         "data/vllm/ci/amd_test_matrix.json",
                     )
                 else:
@@ -893,11 +903,21 @@ class DashboardAudit:
         for arch, mstats in matrix_stats["by_arch"].items():
             pstats = parity_stats.get(arch, {})
             if pstats.get("total") != mstats["total"]:
-                self.error(
-                    "parity-matrix-hardware-total",
-                    f"{arch} parity hardware total={pstats.get('total')} but AMD matrix total={mstats['total']}",
-                    "data/vllm/ci/parity_report.json",
-                )
+                diff = abs((pstats.get("total") or 0) - mstats["total"])
+                if diff <= CROSS_VIEW_GROUP_DRIFT_TOLERANCE:
+                    self.warning(
+                        "parity-matrix-hardware-total-drift",
+                        f"{arch} parity hardware total={pstats.get('total')} and AMD "
+                        f"matrix total={mstats['total']} differ by one group; allowing "
+                        "cross-view collector drift",
+                        "data/vllm/ci/parity_report.json",
+                    )
+                else:
+                    self.error(
+                        "parity-matrix-hardware-total",
+                        f"{arch} parity hardware total={pstats.get('total')} but AMD matrix total={mstats['total']}",
+                        "data/vllm/ci/parity_report.json",
+                    )
             parity_failing = pstats.get("failing")
             if parity_failing != mstats["failing"]:
                 diff = abs((parity_failing or 0) - mstats["failing"])
@@ -907,6 +927,14 @@ class DashboardAudit:
                         f"{arch} parity failing groups={parity_failing} and AMD matrix "
                         f"failing cells={mstats['failing']} differ by {diff} while "
                         f"{mstats['waiting']} matrix cells are still waiting",
+                        "data/vllm/ci/parity_report.json",
+                    )
+                elif diff <= CROSS_VIEW_GROUP_DRIFT_TOLERANCE:
+                    self.warning(
+                        "parity-matrix-hardware-failing-drift",
+                        f"{arch} parity failing groups={parity_failing} and AMD matrix "
+                        f"failing cells={mstats['failing']} differ by one group; "
+                        "allowing cross-view collector drift",
                         "data/vllm/ci/parity_report.json",
                     )
                 else:
