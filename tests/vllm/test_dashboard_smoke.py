@@ -238,6 +238,7 @@ for (const file of process.argv.slice(1)) {
         assert "Gating Progress Over Time" in text
         assert "GATING_PROGRESS_WINDOWS" in text
         assert "DEFAULT_GATING_PROGRESS_WINDOW = '7d'" in text
+        assert "{key:'90d'" not in text
         assert "Green of target" in text
         assert "configuredTarget" in text
         assert "extraGatedRows" in text

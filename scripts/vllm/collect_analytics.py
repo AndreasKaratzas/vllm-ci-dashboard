@@ -45,6 +45,7 @@ ANALYTICS_BUILD_LIMIT = 120
 ANALYTICS_NIGHTLY_LIMIT = 90
 ANALYTICS_WINDOW_BUILD_LIMIT = 50
 ANALYTICS_WINDOW_NIGHTLY_LIMIT = 30
+GATING_NIGHTLY_LIMIT = 30
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 OUTPUT = ROOT / "data" / "vllm" / "ci"
@@ -689,10 +690,13 @@ def write_gating_nightlies(output: Path, all_data: dict[str, dict[str, Any]], ge
         payload[slug] = {
             "pipeline": slug,
             "display_name": block.get("display_name") or PIPELINES.get(slug, slug),
-            "builds": [gating_build_summary(build) for build in block.get("builds") or []],
+            "builds": [
+                gating_build_summary(build)
+                for build in (block.get("builds") or [])[:GATING_NIGHTLY_LIMIT]
+            ],
         }
     out_path = output / "gating_nightlies.json"
-    out_path.write_text(json.dumps(payload, indent=2, default=str) + "\n")
+    out_path.write_text(json.dumps(payload, separators=(",", ":"), default=str) + "\n")
     log.info("Wrote %s", out_path)
 
 

@@ -289,7 +289,6 @@
     {key:'7d', label:'7d', days:7},
     {key:'14d', label:'14d', days:14},
     {key:'30d', label:'1m', days:30},
-    {key:'90d', label:'3m', days:90},
   ];
   const DEFAULT_GATING_PROGRESS_WINDOW = '7d';
 

@@ -200,6 +200,25 @@ class TestWindowedAnalytics:
         assert payload["ci"]["builds"][0]["jobs"][0]["job_id"] == "019ed951-af8e-4dc8-9590-72a47f9fed96"
         assert payload["amd-ci"]["builds"][0]["jobs"][0]["step_id"] == "019ed951-ad41-4cc1-8942-051077910be7"
 
+    def test_gating_nightlies_are_capped_and_compact(self, tmp_path):
+        builds = [
+            _build(i, i * 0.5, [_job(f"Job {i}", 40)])
+            for i in range(ca.GATING_NIGHTLY_LIMIT + 5)
+        ]
+        all_data = {
+            "ci": {"display_name": "Upstream CI", "builds": builds},
+            "amd-ci": {"display_name": "AMD CI", "builds": builds},
+        }
+
+        ca.write_gating_nightlies(tmp_path, all_data, "2026-04-20T12:00:00Z")
+        text = (tmp_path / "gating_nightlies.json").read_text()
+        payload = json.loads(text)
+
+        assert text.count("\n") == 1
+        assert len(payload["ci"]["builds"]) == ca.GATING_NIGHTLY_LIMIT
+        assert len(payload["amd-ci"]["builds"]) == ca.GATING_NIGHTLY_LIMIT
+        assert payload["ci"]["builds"][-1]["number"] == ca.GATING_NIGHTLY_LIMIT - 1
+
     def test_summary_counts_soft_failed_jobs_as_failures(self):
         builds = [
             _build(1, 0.5, [_job("Accepted Failure", 20, state="soft_fail")]),
