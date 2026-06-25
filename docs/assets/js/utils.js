@@ -152,6 +152,13 @@ var DashboardTabs = (function() {
     { id: 'projects', label: 'Home', section: 'core', family: 'static' },
     { id: 'ci-health', label: 'CI Health', section: 'vLLM', family: 'ci' },
     { id: 'ci-analytics', label: 'CI Analytics', section: 'vLLM', family: 'ci' },
+    {
+      id: 'ci-perf-eval',
+      label: 'Perf Eval',
+      section: 'vLLM',
+      family: 'ci',
+      description: 'AMD nightly performance + accuracy from the vllm/perf-eval pipeline',
+    },
     { id: 'ci-queue', label: 'Queue Monitor', section: 'vLLM', family: 'ci' },
     { id: 'ci-hotness', label: 'CI Workload Trajectory', section: 'vLLM', family: 'ci' },
     { id: 'ci-omni', label: 'Omni', section: 'vLLM', family: 'ci' },

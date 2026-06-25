@@ -45,6 +45,8 @@ LISTEN_PORT = int(os.getenv("WEBHOOK_PORT", "8080"))
 
 # Only process these pipelines for the heavier CI collection flow.
 WATCHED_PIPELINES = {"amd-ci", "ci"}
+# The AMD perf-eval pipeline drives the separate Perf Eval collection flow.
+PERF_EVAL_PIPELINE = "perf-eval"
 QUEUE_EVENT_TYPES = {
     "job.scheduled",
     "job.started",
@@ -129,6 +131,24 @@ class WebhookHandler(BaseHTTPRequestHandler):
         job = event.get("job", {}) or {}
         pipeline_slug = pipeline.get("slug", "")
         build_number = build.get("number", 0)
+
+        if event_type == "build.finished" and pipeline_slug == PERF_EVAL_PIPELINE:
+            # Perf-eval nightlies feed the Perf Eval tab. Dispatch a dedicated
+            # event so the collector reprocesses the webhook event log promptly
+            # instead of waiting for the next cron tick.
+            log.info("Received perf-eval build.finished #%d: %s", build_number, build.get("state"))
+            success = trigger_github_dispatch(
+                "perf_eval_build_finished",
+                {
+                    "pipeline": pipeline_slug,
+                    "build_number": build_number,
+                    "state": build.get("state", ""),
+                },
+            )
+            self.send_response(200 if success else 500)
+            self.end_headers()
+            self.wfile.write(b"Triggered perf-eval collection" if success else b"Failed to trigger")
+            return
 
         if event_type == "build.finished":
             if pipeline_slug not in WATCHED_PIPELINES:
