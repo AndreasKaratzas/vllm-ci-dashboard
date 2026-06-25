@@ -1,7 +1,7 @@
 """Tests for the perf-eval aggregation (scripts/vllm/collect_perf_eval.py).
 
 The collector turns a flat webhook event log into the per-model, per-metric
-time series the executive view renders. These tests pin the behaviour that
+time series the executive view renders. These tests pin the behavior that
 matters: AMD/nightly filtering, dynamic model/workload discovery, history
 ordering, latest-vs-previous deltas, and the red/green status thresholds.
 """
@@ -109,9 +109,9 @@ def test_aggregate_filters_non_nightly_and_nvidia():
 
 def test_aggregate_orders_series_and_computes_latest_vs_previous():
     events = [
-        _perf_event("commitc3", 120.0, date="2026-06-25 02:00:00"),
-        _perf_event("commitc1", 100.0, date="2026-06-23 02:00:00"),
-        _perf_event("commitc2", 110.0, date="2026-06-24 02:00:00"),
+        _perf_event("deadbeef3", 120.0, date="2026-06-25 02:00:00"),
+        _perf_event("deadbeef1", 100.0, date="2026-06-23 02:00:00"),
+        _perf_event("deadbeef2", 110.0, date="2026-06-24 02:00:00"),
     ]
     out = collect.aggregate(events)
     block = out["models"][0]["perf_configs"][0]["metrics"]["tput_per_gpu"]
@@ -121,7 +121,7 @@ def test_aggregate_orders_series_and_computes_latest_vs_previous():
     assert block["previous"] == 110.0
     assert block["status"] == "good"
     # provenance is preserved on every point
-    assert block["series"][-1]["vllm_commit"] == "commitc3"
+    assert block["series"][-1]["vllm_commit"] == "deadbeef3"
     assert block["series"][-1]["build_url"].endswith("/builds/3")
 
 
@@ -149,8 +149,8 @@ def test_aggregate_dedupes_same_nightly_keeping_last():
 
 def test_aggregate_accuracy_regression_flagged():
     events = [
-        _acc_event("commitc1", 0.905),
-        _acc_event("commitc2", 0.873),
+        _acc_event("deadbeef1", 0.905),
+        _acc_event("deadbeef2", 0.873),
     ]
     out = collect.aggregate(events)
     task = out["models"][0]["accuracy_tasks"][0]

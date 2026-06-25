@@ -115,18 +115,18 @@ def build_events() -> list[dict]:
         ts = f"{night['date']} 02:0{i}:00"
         for wl in WORKLOADS:
             base = wl["base"]
-            tmul = wl["tput_trend"][i]
-            lmul = wl["ttft_trend"][i]
+            throughput_mult = wl["tput_trend"][i]
+            latency_mult = wl["ttft_trend"][i]
             metrics = {
-                "tput_per_gpu": _round(base["tput_per_gpu"] * tmul),
-                "output_tput_per_gpu": _round(base["output_tput_per_gpu"] * tmul),
+                "tput_per_gpu": _round(base["tput_per_gpu"] * throughput_mult),
+                "output_tput_per_gpu": _round(base["output_tput_per_gpu"] * throughput_mult),
                 "input_tput_per_gpu": _round(
-                    (base["tput_per_gpu"] - base["output_tput_per_gpu"]) * tmul
+                    (base["tput_per_gpu"] - base["output_tput_per_gpu"]) * throughput_mult
                 ),
-                "mean_ttft": _round(base["mean_ttft"] * lmul),
-                "p99_ttft": _round(base["p99_ttft"] * lmul),
-                "mean_tpot": _round(base["mean_tpot"] * lmul),
-                "mean_intvty": _round(1000.0 / (base["mean_tpot"] * lmul * 1000.0)),
+                "mean_ttft": _round(base["mean_ttft"] * latency_mult),
+                "p99_ttft": _round(base["p99_ttft"] * latency_mult),
+                "mean_tpot": _round(base["mean_tpot"] * latency_mult),
+                "mean_intvty": _round(1000.0 / (base["mean_tpot"] * latency_mult * 1000.0)),
             }
             # Drop any metric not in the shared registry (defensive).
             metrics = {k: v for k, v in metrics.items() if k in METRIC_META}
