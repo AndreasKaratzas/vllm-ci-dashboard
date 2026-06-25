@@ -5,9 +5,9 @@
     "matched": 117,
     "amd_only": 8,
     "nvidia_only": 60,
-    "mirrors": 52,
+    "mirrors": 54,
     "match_rate_pct": 93.6,
-    "avg_command_similarity_pct": 93.1
+    "avg_command_similarity_pct": 93.0
   },
   "matches": [
     {
@@ -461,12 +461,12 @@
       "nvidia_label": "Distributed Model Tests (2 GPUs)",
       "normalized": "distributed model tests (2 gpus)",
       "identity_key": "distributed model tests (2 gpus)",
-      "command_similarity": 0.8794,
+      "command_similarity": 0.874,
       "color": "yellow",
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/models_distributed.yaml",
       "amd_commands": [
-        "TARGET_TEST_SUITE=L4 pytest basic_correctness/ -v -s -m 'distributed(num_gpus=2)'",
+        "TARGET_TEST_SUITE=MI250 pytest basic_correctness/ -v -s -m 'distributed(num_gpus=2)'",
         "CUDA_VISIBLE_DEVICES=0,1 pytest -v -s model_executor/model_loader/test_sharded_state_loader.py -m '(not slow_test)'",
         "pytest models/test_transformers.py -v -s -m 'distributed(num_gpus=2)'",
         "pytest models/language -v -s -m 'distributed(num_gpus=2)'",
@@ -564,6 +564,28 @@
         "pytest -v -s models/multimodal/generation/test_vit_cudagraph.py -m core_model",
         "pytest models/multimodal/generation/test_memory_leak.py -m core_model",
         "cd .. && VLLM_WORKER_MULTIPROC_METHOD=spawn pytest -v -s tests/models/multimodal/generation/test_whisper.py -m core_model"
+      ]
+    },
+    {
+      "amd_label": "Basic Correctness",
+      "nvidia_label": "Basic Correctness",
+      "normalized": "basic correctness",
+      "identity_key": "basic correctness",
+      "command_similarity": 0.9119,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/basic_correctness.yaml",
+      "amd_commands": [
+        "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
+        "pytest -v -s basic_correctness/test_mem.py",
+        "VLLM_TARGET_TEST_SUITE=MI300 pytest -v -s basic_correctness/test_basic_correctness.py",
+        "pytest -v -s basic_correctness/test_cpu_offload.py"
+      ],
+      "nvidia_commands": [
+        "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
+        "pytest -v -s basic_correctness/test_mem.py",
+        "pytest -v -s basic_correctness/test_basic_correctness.py",
+        "pytest -v -s basic_correctness/test_cpu_offload.py"
       ]
     },
     {
@@ -779,6 +801,28 @@
       ]
     },
     {
+      "amd_label": "Distributed Tests (4xA100-4xMI300)",
+      "nvidia_label": "Distributed Tests (4 GPUs)(A100)",
+      "normalized": "distributed tests (4xa100-4xmi300)",
+      "identity_key": "distributed tests (4 gpus)",
+      "command_similarity": 0.9895,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/distributed.yaml",
+      "amd_commands": [
+        "pytest -v -s distributed/test_custom_all_reduce.py",
+        "torchrun --nproc_per_node=2 distributed/test_ca_buffer_sharing.py",
+        "TARGET_TEST_SUITE=MI300 pytest basic_correctness/ -v -s -m 'distributed(num_gpus=2)'",
+        "pytest -v -s -x lora/test_mixtral.py"
+      ],
+      "nvidia_commands": [
+        "pytest -v -s distributed/test_custom_all_reduce.py",
+        "torchrun --nproc_per_node=2 distributed/test_ca_buffer_sharing.py",
+        "TARGET_TEST_SUITE=A100 pytest basic_correctness/ -v -s -m 'distributed(num_gpus=2)'",
+        "pytest -v -s -x lora/test_mixtral.py"
+      ]
+    },
+    {
       "amd_label": "Examples",
       "nvidia_label": "Examples",
       "normalized": "examples",
@@ -869,16 +913,6 @@
       "nvidia_label": "Distributed Comm Ops",
       "normalized": "distributed comm ops",
       "identity_key": "distributed comm ops (2 gpus)",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/distributed.yaml"
-    },
-    {
-      "amd_label": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
-      "nvidia_label": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
-      "normalized": "distributed torchrun + shutdown tests (2 gpus)",
-      "identity_key": "distributed torchrun + shutdown tests (2 gpus)",
       "command_similarity": 1.0,
       "color": "green",
       "amd_source": "test-amd.yaml",
@@ -1045,16 +1079,6 @@
       "nvidia_source": ".buildkite/test_areas/engine.yaml"
     },
     {
-      "amd_label": "Basic Correctness",
-      "nvidia_label": "Basic Correctness",
-      "normalized": "basic correctness",
-      "identity_key": "basic correctness",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/basic_correctness.yaml"
-    },
-    {
       "amd_label": "Benchmarks CLI Test",
       "nvidia_label": "Benchmarks CLI Test",
       "normalized": "benchmarks cli test",
@@ -1133,16 +1157,6 @@
       "color": "green",
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/expert_parallelism.yaml"
-    },
-    {
-      "amd_label": "Distributed Tests (4xA100-4xMI300)",
-      "nvidia_label": "Distributed Tests (4 GPUs)(A100)",
-      "normalized": "distributed tests (4xa100-4xmi300)",
-      "identity_key": "distributed tests (4 gpus)",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/distributed.yaml"
     },
     {
       "amd_label": "Elastic EP Scaling Test",
@@ -1583,6 +1597,16 @@
       "color": "green",
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/engine.yaml"
+    },
+    {
+      "amd_label": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
+      "nvidia_label": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
+      "normalized": "distributed torchrun + shutdown tests (2 gpus)",
+      "identity_key": "distributed torchrun + shutdown tests (2 gpus)",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/distributed.yaml"
     },
     {
       "amd_label": "Distributed Compile + Comm (4 GPUs)",
@@ -2331,6 +2355,14 @@
       "source_file": ".buildkite/test_areas/model_executor.yaml"
     },
     {
+      "nvidia_label": "Basic Models Tests (Other)",
+      "identity_key": "basic models tests (other)",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/models_basic.yaml"
+    },
+    {
       "nvidia_label": "Language Models Tests (Standard)",
       "identity_key": "language models tests (standard)",
       "commands_overridden": false,
@@ -2473,6 +2505,14 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/spec_decode.yaml"
+    },
+    {
+      "nvidia_label": "Weight Loading Multiple GPU",
+      "identity_key": "weight loading multiple gpu (2 gpus)",
+      "commands_overridden": true,
+      "command_similarity": 0.9759,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/weight_loading.yaml"
     }
   ]
 }

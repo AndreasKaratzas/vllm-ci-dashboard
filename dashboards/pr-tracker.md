@@ -3,11 +3,11 @@
 All tracked PRs across projects, grouped by project.
 
 ## vllm (Upstream Watch)
-Repo: `vllm-project/vllm` | Last collected: 2026-06-24T06:44:30Z
+Repo: `vllm-project/vllm` | Last collected: 2026-06-25T17:16:58Z
 
 | # | Title | Author | Status | Created | Updated |
 |---|-------|--------|--------|---------|---------|
-| [#41290](https://github.com/vllm-project/vllm/pull/41290) | [Bugfix][CI][Hardware][AMD] Fix various e4m3fn -> e4m3fnuz n... | @mawong-amd | closed | 2026-04-29 | 2026-06-21 |
+| [#41290](https://github.com/vllm-project/vllm/pull/41290) | [Bugfix][CI][Hardware][AMD] Fix various e4m3fn -> e4m3fnuz n... | @mawong-amd | closed | 2026-04-29 | 2026-06-24 |
 | [#41532](https://github.com/vllm-project/vllm/pull/41532) | [ROCm][CI] Gate incompatible HF references on Transformers v... | @AndreasKaratzas | merged | 2026-05-03 | 2026-06-16 |
 | [#41294](https://github.com/vllm-project/vllm/pull/41294) | [ROCm][CI] Fix and stabilize EAGLE3 acceptance tests | @AndreasKaratzas | merged | 2026-04-29 | 2026-06-01 |
 | [#43120](https://github.com/vllm-project/vllm/pull/43120) | [AMD][CI][BugFix] Fix  Distributed Compile Unit Tests (2xH10... | @rasmith | merged | 2026-05-19 | 2026-05-28 |

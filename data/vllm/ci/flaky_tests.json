@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-06-24T06:33:30Z",
+  "generated_at": "2026-06-25T17:11:01Z",
   "window_builds": 10,
-  "total_flaky": 4,
+  "total_flaky": 5,
   "tests": [
     {
       "test_id": "mi300_1: Multi-Modal Models (Extended Generation 3)::__job_level__",
@@ -40,18 +40,18 @@
     {
       "test_id": "mi355_2: Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (B200-MI355)::__job_level__",
       "label": "flaky",
-      "pass_rate": 0.5,
-      "appearances": 24,
-      "last_seen": "2026-06-23",
+      "pass_rate": 0.3,
+      "appearances": 26,
+      "last_seen": "2026-06-25",
       "first_failure": "2026-06-20",
-      "failure_streak": 4,
+      "failure_streak": 6,
       "history": [
-        "P",
-        "P",
         "P",
         "F",
         "P",
         "P",
+        "F",
+        "F",
         "F",
         "F",
         "F",
@@ -61,26 +61,49 @@
       "mean_duration": 0.0
     },
     {
-      "test_id": "mi355_2: Attention Benchmarks Smoke Test (B200-MI355)::__job_level__",
+      "test_id": "mi300_1: Examples::__job_level__",
       "label": "flaky",
       "pass_rate": 0.7,
-      "appearances": 29,
-      "last_seen": "2026-06-23",
-      "first_failure": null,
-      "failure_streak": 0,
+      "appearances": 31,
+      "last_seen": "2026-06-25",
+      "first_failure": "2026-06-23",
+      "failure_streak": 3,
       "history": [
+        "P",
+        "P",
+        "P",
+        "P",
+        "P",
+        "P",
+        "P",
         "F",
         "F",
-        "F",
-        "P",
-        "P",
-        "P",
-        "P",
-        "P",
-        "P",
-        "P"
+        "F"
       ],
-      "module": "mi355_2: Attention Benchmarks Smoke Test (B200-MI355)",
+      "module": "mi300_1: Examples",
+      "mean_duration": 0.0
+    },
+    {
+      "test_id": "mi355_1: Examples::__job_level__",
+      "label": "flaky",
+      "pass_rate": 0.7,
+      "appearances": 31,
+      "last_seen": "2026-06-25",
+      "first_failure": "2026-06-23",
+      "failure_streak": 3,
+      "history": [
+        "P",
+        "P",
+        "P",
+        "P",
+        "P",
+        "P",
+        "P",
+        "F",
+        "F",
+        "F"
+      ],
+      "module": "mi355_1: Examples",
       "mean_duration": 0.0
     }
   ]
