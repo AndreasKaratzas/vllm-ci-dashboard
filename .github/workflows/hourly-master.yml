@@ -8,7 +8,7 @@ on:
   schedule:
     - cron: '13,43 * * * *'  # Every 30 min at :13,:43
   repository_dispatch:
-    types: [buildkite_build_finished]
+    types: [buildkite_build_finished, perf_eval_build_finished]
   workflow_dispatch:
     inputs:
       ci_days:
@@ -152,6 +152,25 @@ jobs:
 
       - name: Collect AMD gating target candidate audit
         run: python scripts/vllm/collect_gating_target_candidates.py --output data/vllm/ci/
+
+      # ── Perf Eval (AMD nightly perf + accuracy, webhook-fed) ──
+      # The durable event log lives on gh-pages and grows as the perf-eval
+      # webhook receiver appends nightly results. Pull the latest copy so
+      # history survives across cron runs, then regenerate perf_eval.json.
+      - name: Sync perf-eval event log from gh-pages
+        run: |
+          mkdir -p data/vllm/perf_eval
+          LIVE=$(git show origin/gh-pages:data/vllm/perf_eval/events.jsonl 2>/dev/null || true)
+          if [ -n "$LIVE" ]; then
+            LIVE_LINES=$(echo "$LIVE" | wc -l)
+            LOCAL_LINES=$(wc -l < data/vllm/perf_eval/events.jsonl 2>/dev/null || echo 0)
+            if [ "$LIVE_LINES" -ge "$LOCAL_LINES" ]; then
+              echo "$LIVE" > data/vllm/perf_eval/events.jsonl
+            fi
+          fi
+
+      - name: Collect perf-eval (AMD nightly perf + accuracy)
+        run: python scripts/vllm/collect_perf_eval.py
 
       - name: Sync test-build registry from gh-pages
         run: |

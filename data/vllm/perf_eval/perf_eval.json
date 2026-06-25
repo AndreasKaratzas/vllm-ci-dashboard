@@ -1,0 +1,1463 @@
+{
+  "generated_at": "2026-06-25T19:46:02Z",
+  "pipeline": {
+    "org": "vllm",
+    "slug": "perf-eval",
+    "url": "https://buildkite.com/vllm/perf-eval"
+  },
+  "metric_meta": {
+    "tput_per_gpu": {
+      "label": "Total throughput / GPU",
+      "unit": "tok/s",
+      "direction": "higher"
+    },
+    "output_tput_per_gpu": {
+      "label": "Output throughput / GPU",
+      "unit": "tok/s",
+      "direction": "higher"
+    },
+    "input_tput_per_gpu": {
+      "label": "Input throughput / GPU",
+      "unit": "tok/s",
+      "direction": "higher"
+    },
+    "mean_ttft": {
+      "label": "Mean TTFT",
+      "unit": "s",
+      "direction": "lower"
+    },
+    "median_ttft": {
+      "label": "Median TTFT",
+      "unit": "s",
+      "direction": "lower"
+    },
+    "p99_ttft": {
+      "label": "P99 TTFT",
+      "unit": "s",
+      "direction": "lower"
+    },
+    "mean_tpot": {
+      "label": "Mean TPOT",
+      "unit": "s",
+      "direction": "lower"
+    },
+    "median_tpot": {
+      "label": "Median TPOT",
+      "unit": "s",
+      "direction": "lower"
+    },
+    "p99_tpot": {
+      "label": "P99 TPOT",
+      "unit": "s",
+      "direction": "lower"
+    },
+    "mean_itl": {
+      "label": "Mean ITL",
+      "unit": "s",
+      "direction": "lower"
+    },
+    "mean_e2el": {
+      "label": "Mean end-to-end latency",
+      "unit": "s",
+      "direction": "lower"
+    },
+    "mean_intvty": {
+      "label": "Mean interactivity",
+      "unit": "tok/s",
+      "direction": "higher"
+    },
+    "accuracy": {
+      "label": "Accuracy",
+      "unit": "",
+      "direction": "higher"
+    }
+  },
+  "thresholds": {
+    "perf_rel": 0.02,
+    "accuracy_abs": 0.005
+  },
+  "models": [
+    {
+      "model": "MiniMaxAI/MiniMax-M2.5",
+      "devices": [
+        "mi355x"
+      ],
+      "latest": {
+        "date": "2026-06-25T02:40:00Z",
+        "vllm_commit": "c3d4e5f6a7b8",
+        "build_commit": "c3d4e5f6a7b8",
+        "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+        "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+        "build_number": 496
+      },
+      "nightly_count": 3,
+      "perf_configs": [
+        {
+          "device": "mi355x",
+          "isl": 8192,
+          "osl": 1024,
+          "conc": 128,
+          "tp": 8,
+          "precision": "bf16",
+          "label": "8K in / 1K out @ conc 128 (MI355X)",
+          "metrics": {
+            "input_tput_per_gpu": {
+              "latest": 1122.43,
+              "previous": 1080.47,
+              "direction": "higher",
+              "delta": 41.960000000000036,
+              "delta_pct": 3.883495145631071,
+              "status": "good",
+              "label": "Input throughput / GPU",
+              "unit": "tok/s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 1049.0,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 1080.47,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 1122.43,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "mean_intvty": {
+              "latest": 57.5043,
+              "previous": 55.7258,
+              "direction": "higher",
+              "delta": 1.778500000000001,
+              "delta_pct": 3.1915199063988333,
+              "status": "good",
+              "label": "Mean interactivity",
+              "unit": "tok/s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 54.0541,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 55.7258,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 57.5043,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "mean_tpot": {
+              "latest": 0.0174,
+              "previous": 0.0179,
+              "direction": "lower",
+              "delta": -0.0005000000000000004,
+              "delta_pct": -2.7932960893854775,
+              "status": "good",
+              "label": "Mean TPOT",
+              "unit": "s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 0.0185,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 0.0179,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 0.0174,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "mean_ttft": {
+              "latest": 0.3948,
+              "previous": 0.4074,
+              "direction": "lower",
+              "delta": -0.0126,
+              "delta_pct": -3.0927835051546393,
+              "status": "good",
+              "label": "Mean TTFT",
+              "unit": "s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 0.42,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 0.4074,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 0.3948,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "output_tput_per_gpu": {
+              "latest": 140.17,
+              "previous": 134.93,
+              "direction": "higher",
+              "delta": 5.239999999999981,
+              "delta_pct": 3.883495145631054,
+              "status": "good",
+              "label": "Output throughput / GPU",
+              "unit": "tok/s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 131.0,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 134.93,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 140.17,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "p99_ttft": {
+              "latest": 0.8554,
+              "previous": 0.8827,
+              "direction": "lower",
+              "delta": -0.02729999999999999,
+              "delta_pct": -3.092783505154638,
+              "status": "good",
+              "label": "P99 TTFT",
+              "unit": "s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 0.91,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 0.8827,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 0.8554,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "tput_per_gpu": {
+              "latest": 1262.6,
+              "previous": 1215.4,
+              "direction": "higher",
+              "delta": 47.19999999999982,
+              "delta_pct": 3.8834951456310525,
+              "status": "good",
+              "label": "Total throughput / GPU",
+              "unit": "tok/s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 1180.0,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 1215.4,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 1262.6,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "accuracy_tasks": [
+        {
+          "task": "gsm8k",
+          "metric": "exact_match,strict-match",
+          "primary": true,
+          "latest": 0.849,
+          "previous": 0.846,
+          "direction": "higher",
+          "delta": 0.0030000000000000027,
+          "delta_pct": 0.35460992907801453,
+          "status": "neutral",
+          "series": [
+            {
+              "date": "2026-06-23T02:40:00Z",
+              "value": 0.842,
+              "vllm_commit": "a1b2c3d4e5f6",
+              "build_commit": "a1b2c3d4e5f6",
+              "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+              "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+              "build_number": 482
+            },
+            {
+              "date": "2026-06-24T02:40:00Z",
+              "value": 0.846,
+              "vllm_commit": "b2c3d4e5f6a7",
+              "build_commit": "b2c3d4e5f6a7",
+              "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+              "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+              "build_number": 489
+            },
+            {
+              "date": "2026-06-25T02:40:00Z",
+              "value": 0.849,
+              "vllm_commit": "c3d4e5f6a7b8",
+              "build_commit": "c3d4e5f6a7b8",
+              "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+              "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+              "build_number": 496
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "model": "deepseek-ai/DeepSeek-V4-Pro",
+      "devices": [
+        "mi355x"
+      ],
+      "latest": {
+        "date": "2026-06-25T02:40:00Z",
+        "vllm_commit": "c3d4e5f6a7b8",
+        "build_commit": "c3d4e5f6a7b8",
+        "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+        "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+        "build_number": 496
+      },
+      "nightly_count": 3,
+      "perf_configs": [
+        {
+          "device": "mi355x",
+          "isl": 8192,
+          "osl": 1024,
+          "conc": 128,
+          "tp": 8,
+          "precision": "fp8",
+          "label": "8K in / 1K out @ conc 128 (MI355X)",
+          "metrics": {
+            "input_tput_per_gpu": {
+              "latest": 1355.94,
+              "previous": 1472.58,
+              "direction": "higher",
+              "delta": -116.63999999999987,
+              "delta_pct": -7.920792079207913,
+              "status": "bad",
+              "label": "Input throughput / GPU",
+              "unit": "tok/s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 1458.0,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 1472.58,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 1355.94,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "mean_intvty": {
+              "latest": 66.4364,
+              "previous": 70.4225,
+              "direction": "higher",
+              "delta": -3.9860999999999933,
+              "delta_pct": -5.660264830132405,
+              "status": "bad",
+              "label": "Mean interactivity",
+              "unit": "tok/s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 70.4225,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 70.4225,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 66.4364,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "mean_tpot": {
+              "latest": 0.0151,
+              "previous": 0.0142,
+              "direction": "lower",
+              "delta": 0.0008999999999999998,
+              "delta_pct": 6.338028169014083,
+              "status": "bad",
+              "label": "Mean TPOT",
+              "unit": "s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 0.0142,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 0.0142,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 0.0151,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "mean_ttft": {
+              "latest": 0.3763,
+              "previous": 0.355,
+              "direction": "lower",
+              "delta": 0.02130000000000004,
+              "delta_pct": 6.0000000000000115,
+              "status": "bad",
+              "label": "Mean TTFT",
+              "unit": "s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 0.355,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 0.355,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 0.3763,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "output_tput_per_gpu": {
+              "latest": 169.26,
+              "previous": 183.82,
+              "direction": "higher",
+              "delta": -14.560000000000002,
+              "delta_pct": -7.9207920792079225,
+              "status": "bad",
+              "label": "Output throughput / GPU",
+              "unit": "tok/s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 182.0,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 183.82,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 169.26,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "p99_ttft": {
+              "latest": 0.8162,
+              "previous": 0.77,
+              "direction": "lower",
+              "delta": 0.04620000000000002,
+              "delta_pct": 6.000000000000003,
+              "status": "bad",
+              "label": "P99 TTFT",
+              "unit": "s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 0.77,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 0.77,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 0.8162,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "tput_per_gpu": {
+              "latest": 1525.2,
+              "previous": 1656.4,
+              "direction": "higher",
+              "delta": -131.20000000000005,
+              "delta_pct": -7.920792079207923,
+              "status": "bad",
+              "label": "Total throughput / GPU",
+              "unit": "tok/s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 1640.0,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 1656.4,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 1525.2,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "accuracy_tasks": [
+        {
+          "task": "gsm8k",
+          "metric": "exact_match,strict-match",
+          "primary": true,
+          "latest": 0.873,
+          "previous": 0.906,
+          "direction": "higher",
+          "delta": -0.03300000000000003,
+          "delta_pct": -3.6423841059602684,
+          "status": "bad",
+          "series": [
+            {
+              "date": "2026-06-23T02:40:00Z",
+              "value": 0.905,
+              "vllm_commit": "a1b2c3d4e5f6",
+              "build_commit": "a1b2c3d4e5f6",
+              "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+              "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+              "build_number": 482
+            },
+            {
+              "date": "2026-06-24T02:40:00Z",
+              "value": 0.906,
+              "vllm_commit": "b2c3d4e5f6a7",
+              "build_commit": "b2c3d4e5f6a7",
+              "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+              "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+              "build_number": 489
+            },
+            {
+              "date": "2026-06-25T02:40:00Z",
+              "value": 0.873,
+              "vllm_commit": "c3d4e5f6a7b8",
+              "build_commit": "c3d4e5f6a7b8",
+              "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+              "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+              "build_number": 496
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "model": "moonshotai/Kimi-K2.5",
+      "devices": [
+        "mi300x"
+      ],
+      "latest": {
+        "date": "2026-06-25T02:40:00Z",
+        "vllm_commit": "c3d4e5f6a7b8",
+        "build_commit": "c3d4e5f6a7b8",
+        "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+        "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+        "build_number": 496
+      },
+      "nightly_count": 3,
+      "perf_configs": [
+        {
+          "device": "mi300x",
+          "isl": 8192,
+          "osl": 1024,
+          "conc": 128,
+          "tp": 8,
+          "precision": "bf16",
+          "label": "8K in / 1K out @ conc 128 (MI300X)",
+          "metrics": {
+            "input_tput_per_gpu": {
+              "latest": 897.99,
+              "previous": 857.54,
+              "direction": "higher",
+              "delta": 40.450000000000045,
+              "delta_pct": 4.716981132075477,
+              "status": "good",
+              "label": "Input throughput / GPU",
+              "unit": "tok/s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 809.0,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 857.54,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 897.99,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "mean_intvty": {
+              "latest": 47.0544,
+              "previous": 45.5685,
+              "direction": "higher",
+              "delta": 1.4859000000000009,
+              "delta_pct": 3.2608051614602207,
+              "status": "good",
+              "label": "Mean interactivity",
+              "unit": "tok/s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 43.29,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 45.5685,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 47.0544,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "mean_tpot": {
+              "latest": 0.0213,
+              "previous": 0.0219,
+              "direction": "lower",
+              "delta": -0.0005999999999999998,
+              "delta_pct": -2.7397260273972597,
+              "status": "good",
+              "label": "Mean TPOT",
+              "unit": "s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 0.0231,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 0.0219,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 0.0213,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "mean_ttft": {
+              "latest": 0.5152,
+              "previous": 0.532,
+              "direction": "lower",
+              "delta": -0.016800000000000037,
+              "delta_pct": -3.1578947368421124,
+              "status": "good",
+              "label": "Mean TTFT",
+              "unit": "s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 0.56,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 0.532,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 0.5152,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "output_tput_per_gpu": {
+              "latest": 112.11,
+              "previous": 107.06,
+              "direction": "higher",
+              "delta": 5.049999999999997,
+              "delta_pct": 4.716981132075469,
+              "status": "good",
+              "label": "Output throughput / GPU",
+              "unit": "tok/s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 101.0,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 107.06,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 112.11,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "p99_ttft": {
+              "latest": 1.0856,
+              "previous": 1.121,
+              "direction": "lower",
+              "delta": -0.0354000000000001,
+              "delta_pct": -3.1578947368421137,
+              "status": "good",
+              "label": "P99 TTFT",
+              "unit": "s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 1.18,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 1.121,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 1.0856,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "tput_per_gpu": {
+              "latest": 1010.1,
+              "previous": 964.6,
+              "direction": "higher",
+              "delta": 45.5,
+              "delta_pct": 4.716981132075471,
+              "status": "good",
+              "label": "Total throughput / GPU",
+              "unit": "tok/s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 910.0,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 964.6,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 1010.1,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "accuracy_tasks": [
+        {
+          "task": "gsm8k",
+          "metric": "exact_match,strict-match",
+          "primary": true,
+          "latest": 0.821,
+          "previous": 0.818,
+          "direction": "higher",
+          "delta": 0.0030000000000000027,
+          "delta_pct": 0.36674816625916906,
+          "status": "neutral",
+          "series": [
+            {
+              "date": "2026-06-23T02:40:00Z",
+              "value": 0.812,
+              "vllm_commit": "a1b2c3d4e5f6",
+              "build_commit": "a1b2c3d4e5f6",
+              "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+              "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+              "build_number": 482
+            },
+            {
+              "date": "2026-06-24T02:40:00Z",
+              "value": 0.818,
+              "vllm_commit": "b2c3d4e5f6a7",
+              "build_commit": "b2c3d4e5f6a7",
+              "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+              "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+              "build_number": 489
+            },
+            {
+              "date": "2026-06-25T02:40:00Z",
+              "value": 0.821,
+              "vllm_commit": "c3d4e5f6a7b8",
+              "build_commit": "c3d4e5f6a7b8",
+              "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+              "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+              "build_number": 496
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "model": "openai/gpt-oss-120b",
+      "devices": [
+        "mi355x"
+      ],
+      "latest": {
+        "date": "2026-06-25T02:40:00Z",
+        "vllm_commit": "c3d4e5f6a7b8",
+        "build_commit": "c3d4e5f6a7b8",
+        "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+        "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+        "build_number": 496
+      },
+      "nightly_count": 3,
+      "perf_configs": [
+        {
+          "device": "mi355x",
+          "isl": 8192,
+          "osl": 1024,
+          "conc": 128,
+          "tp": 1,
+          "precision": "fp8",
+          "label": "8K in / 1K out @ conc 128 (MI355X)",
+          "metrics": {
+            "input_tput_per_gpu": {
+              "latest": 4819.2,
+              "previous": 4824.0,
+              "direction": "higher",
+              "delta": -4.800000000000182,
+              "delta_pct": -0.09950248756219282,
+              "status": "neutral",
+              "label": "Input throughput / GPU",
+              "unit": "tok/s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 4800.0,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 4824.0,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 4819.2,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "mean_intvty": {
+              "latest": 102.0408,
+              "previous": 103.0715,
+              "direction": "higher",
+              "delta": -1.030699999999996,
+              "delta_pct": -0.9999854469955284,
+              "status": "neutral",
+              "label": "Mean interactivity",
+              "unit": "tok/s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 102.0408,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 103.0715,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 102.0408,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "mean_tpot": {
+              "latest": 0.0098,
+              "previous": 0.0097,
+              "direction": "lower",
+              "delta": 9.99999999999994e-05,
+              "delta_pct": 1.03092783505154,
+              "status": "neutral",
+              "label": "Mean TPOT",
+              "unit": "s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 0.0098,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 0.0097,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 0.0098,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "mean_ttft": {
+              "latest": 0.18,
+              "previous": 0.1782,
+              "direction": "lower",
+              "delta": 0.001799999999999996,
+              "delta_pct": 1.010101010101008,
+              "status": "neutral",
+              "label": "Mean TTFT",
+              "unit": "s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 0.18,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 0.1782,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 0.18,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "output_tput_per_gpu": {
+              "latest": 602.4,
+              "previous": 603.0,
+              "direction": "higher",
+              "delta": -0.6000000000000227,
+              "delta_pct": -0.09950248756219282,
+              "status": "neutral",
+              "label": "Output throughput / GPU",
+              "unit": "tok/s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 600.0,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 603.0,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 602.4,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "p99_ttft": {
+              "latest": 0.41,
+              "previous": 0.4059,
+              "direction": "lower",
+              "delta": 0.0040999999999999925,
+              "delta_pct": 1.0101010101010082,
+              "status": "neutral",
+              "label": "P99 TTFT",
+              "unit": "s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 0.41,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 0.4059,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 0.41,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            },
+            "tput_per_gpu": {
+              "latest": 5421.6,
+              "previous": 5427.0,
+              "direction": "higher",
+              "delta": -5.399999999999636,
+              "delta_pct": -0.09950248756218234,
+              "status": "neutral",
+              "label": "Total throughput / GPU",
+              "unit": "tok/s",
+              "series": [
+                {
+                  "date": "2026-06-23 02:00:00",
+                  "value": 5400.0,
+                  "vllm_commit": "a1b2c3d4e5f6",
+                  "build_commit": "a1b2c3d4e5f6",
+                  "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+                  "build_number": 482
+                },
+                {
+                  "date": "2026-06-24 02:01:00",
+                  "value": 5427.0,
+                  "vllm_commit": "b2c3d4e5f6a7",
+                  "build_commit": "b2c3d4e5f6a7",
+                  "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+                  "build_number": 489
+                },
+                {
+                  "date": "2026-06-25 02:02:00",
+                  "value": 5421.6,
+                  "vllm_commit": "c3d4e5f6a7b8",
+                  "build_commit": "c3d4e5f6a7b8",
+                  "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+                  "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+                  "build_number": 496
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "accuracy_tasks": [
+        {
+          "task": "gsm8k",
+          "metric": "exact_match,strict-match",
+          "primary": true,
+          "latest": 0.782,
+          "previous": 0.783,
+          "direction": "higher",
+          "delta": -0.0010000000000000009,
+          "delta_pct": -0.1277139208173692,
+          "status": "neutral",
+          "series": [
+            {
+              "date": "2026-06-23T02:40:00Z",
+              "value": 0.781,
+              "vllm_commit": "a1b2c3d4e5f6",
+              "build_commit": "a1b2c3d4e5f6",
+              "image": "vllm/vllm-openai-rocm:nightly-a1b2c3d4e5f6",
+              "build_url": "https://buildkite.com/vllm/perf-eval/builds/482",
+              "build_number": 482
+            },
+            {
+              "date": "2026-06-24T02:40:00Z",
+              "value": 0.783,
+              "vllm_commit": "b2c3d4e5f6a7",
+              "build_commit": "b2c3d4e5f6a7",
+              "image": "vllm/vllm-openai-rocm:nightly-b2c3d4e5f6a7",
+              "build_url": "https://buildkite.com/vllm/perf-eval/builds/489",
+              "build_number": 489
+            },
+            {
+              "date": "2026-06-25T02:40:00Z",
+              "value": 0.782,
+              "vllm_commit": "c3d4e5f6a7b8",
+              "build_commit": "c3d4e5f6a7b8",
+              "image": "vllm/vllm-openai-rocm:nightly-c3d4e5f6a7b8",
+              "build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
+              "build_number": 496
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "models": 4,
+    "amd_devices": [
+      "mi300x",
+      "mi355x"
+    ],
+    "nightlies": 3,
+    "perf_points": 84,
+    "accuracy_points": 12
+  }
+}
