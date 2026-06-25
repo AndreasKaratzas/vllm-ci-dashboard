@@ -3,12 +3,12 @@
     "pipeline": "amd-ci",
     "display_name": "AMD CI",
     "days": 30,
-    "generated_at": "2026-06-25T18:30:15Z",
+    "generated_at": "2026-06-25T19:26:33Z",
     "summary": {
       "total_builds": 30,
-      "passed": 29,
+      "passed": 30,
       "failed": 0,
-      "pass_rate": 96.7,
+      "pass_rate": 100.0,
       "total_jobs_tracked": 165,
       "jobs_with_failures": 132,
       "jobs_with_hard_failures": 11,
@@ -191,7 +191,7 @@
       },
       {
         "date": "2026-06-25",
-        "passed": 0,
+        "passed": 1,
         "failed": 0,
         "total": 1
       }
@@ -199,17 +199,17 @@
     "builds": [
       {
         "number": 9968,
-        "state": "running",
+        "state": "passed",
         "created_at": "2026-06-25T09:00:01.914Z",
         "date": "2026-06-25",
         "message": "AMD Full CI Run - nightly",
         "author": "",
-        "wall_mins": null,
+        "wall_mins": 592.4,
         "passed": 151,
         "failed": 0,
-        "soft_failed": 50,
+        "soft_failed": 51,
         "skipped": 0,
-        "total_jobs": 201,
+        "total_jobs": 202,
         "jobs": [
           {
             "name": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
@@ -823,6 +823,21 @@
             "url": "https://buildkite.com/vllm/amd-ci/builds/9968/steps/canvas?sid=019efe02-3ce1-4dac-b885-d96901266d95&tab=output",
             "job_id": "019efe02-3db0-40ba-ad82-a01badab5e7c",
             "step_id": "019efe02-3ce1-4dac-b885-d96901266d95",
+            "q": "amd_mi300_1",
+            "wait": 0.1
+          },
+          {
+            "name": "Entrypoints Integration (LLM)",
+            "raw_name": "mi300_1: Entrypoints Integration (LLM)",
+            "state": "soft_fail",
+            "dur": 180.4,
+            "tests": 1,
+            "passed_tests": 0,
+            "failed_tests": 1,
+            "skipped_tests": 0,
+            "url": "https://buildkite.com/vllm/amd-ci/builds/9968/steps/canvas?sid=019efe02-3ce1-47ff-9fef-a32569d7f1a3&tab=output",
+            "job_id": "019eff7b-0a15-4408-9b22-68681ceeff26",
+            "step_id": "019efe02-3ce1-47ff-9fef-a32569d7f1a3",
             "q": "amd_mi300_1",
             "wait": 0.1
           },
@@ -93021,17 +93036,17 @@
     "nightly_builds": [
       {
         "number": 9968,
-        "state": "running",
+        "state": "passed",
         "created_at": "2026-06-25T09:00:01.914Z",
         "date": "2026-06-25",
         "message": "AMD Full CI Run - nightly",
         "author": "",
-        "wall_mins": null,
+        "wall_mins": 592.4,
         "passed": 151,
         "failed": 0,
-        "soft_failed": 50,
+        "soft_failed": 51,
         "skipped": 0,
-        "total_jobs": 201,
+        "total_jobs": 202,
         "web_url": "https://buildkite.com/vllm/amd-ci/builds/9968",
         "source": "test_results"
       },
@@ -95763,6 +95778,26 @@
         ]
       },
       {
+        "name": "Entrypoints Integration (LLM)",
+        "runs": 30,
+        "passed": 28,
+        "failed": 0,
+        "soft_failed": 2,
+        "fail_rate": 6.7,
+        "is_soft_fail": true,
+        "median_dur": 2.3,
+        "p90_dur": 10.9,
+        "avg_dur": 9.5,
+        "max_dur": 180.4,
+        "median_wait": 0.1,
+        "p90_wait": 0.3,
+        "avg_wait": 4.6,
+        "max_wait": 128.5,
+        "queues": [
+          "amd_mi300_1"
+        ]
+      },
+      {
         "name": "GPQA Eval (GPT-OSS) (2xH100-2xMI300)",
         "runs": 30,
         "passed": 28,
@@ -95860,26 +95895,6 @@
         "max_wait": 0.1,
         "queues": [
           "amd_mi300_4"
-        ]
-      },
-      {
-        "name": "Entrypoints Integration (LLM)",
-        "runs": 29,
-        "passed": 28,
-        "failed": 0,
-        "soft_failed": 1,
-        "fail_rate": 3.4,
-        "is_soft_fail": true,
-        "median_dur": 2.3,
-        "p90_dur": 8.0,
-        "avg_dur": 3.6,
-        "max_dur": 21.0,
-        "median_wait": 0.1,
-        "p90_wait": 0.3,
-        "avg_wait": 4.7,
-        "max_wait": 128.5,
-        "queues": [
-          "amd_mi300_1"
         ]
       },
       {
@@ -99201,19 +99216,19 @@
       },
       {
         "name": "Entrypoints Integration (LLM)",
-        "runs": 29,
+        "runs": 30,
         "passed": 28,
         "failed": 0,
-        "soft_failed": 1,
-        "fail_rate": 3.4,
+        "soft_failed": 2,
+        "fail_rate": 6.7,
         "is_soft_fail": true,
         "median_dur": 2.3,
-        "p90_dur": 8.0,
-        "avg_dur": 3.6,
-        "max_dur": 21.0,
+        "p90_dur": 10.9,
+        "avg_dur": 9.5,
+        "max_dur": 180.4,
         "median_wait": 0.1,
         "p90_wait": 0.3,
-        "avg_wait": 4.7,
+        "avg_wait": 4.6,
         "max_wait": 128.5,
         "queues": [
           "amd_mi300_1"
@@ -99589,7 +99604,7 @@
     "queue_stats": [
       {
         "queue": "amd_mi300_1",
-        "jobs": 3602,
+        "jobs": 3603,
         "median_wait": 0.2,
         "p90_wait": 0.3,
         "avg_wait": 0.2,
@@ -99707,18 +99722,18 @@
         "build_count": 1,
         "summary": {
           "total_builds": 1,
-          "passed": 0,
+          "passed": 1,
           "failed": 0,
-          "pass_rate": 0.0,
-          "total_jobs_tracked": 156,
-          "jobs_with_failures": 43,
+          "pass_rate": 100.0,
+          "total_jobs_tracked": 157,
+          "jobs_with_failures": 44,
           "jobs_with_hard_failures": 0,
-          "jobs_with_soft_failures": 43
+          "jobs_with_soft_failures": 44
         },
         "daily_stats": [
           {
             "date": "2026-06-25",
-            "passed": 0,
+            "passed": 1,
             "failed": 0,
             "total": 1
           }
@@ -99726,17 +99741,17 @@
         "builds": [
           {
             "number": 9968,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-06-25T09:00:01.914Z",
             "date": "2026-06-25",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 592.4,
             "passed": 151,
             "failed": 0,
-            "soft_failed": 50,
+            "soft_failed": 51,
             "skipped": 0,
-            "total_jobs": 201,
+            "total_jobs": 202,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/9968",
             "source": "test_results"
           }
@@ -99744,17 +99759,17 @@
         "nightly_builds": [
           {
             "number": 9968,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-06-25T09:00:01.914Z",
             "date": "2026-06-25",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 592.4,
             "passed": 151,
             "failed": 0,
-            "soft_failed": 50,
+            "soft_failed": 51,
             "skipped": 0,
-            "total_jobs": 201,
+            "total_jobs": 202,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/9968",
             "source": "test_results"
           }
@@ -99979,6 +99994,26 @@
             "max_wait": 0.2,
             "queues": [
               "amd_mi300_4"
+            ]
+          },
+          {
+            "name": "Entrypoints Integration (LLM)",
+            "runs": 1,
+            "passed": 0,
+            "failed": 0,
+            "soft_failed": 1,
+            "fail_rate": 100.0,
+            "is_soft_fail": true,
+            "median_dur": 180.4,
+            "p90_dur": 180.4,
+            "avg_dur": 180.4,
+            "max_dur": 180.4,
+            "median_wait": 0.1,
+            "p90_wait": 0.1,
+            "avg_wait": 0.1,
+            "max_wait": 0.1,
+            "queues": [
+              "amd_mi300_1"
             ]
           },
           {
@@ -100642,6 +100677,26 @@
           }
         ],
         "duration_ranking": [
+          {
+            "name": "Entrypoints Integration (LLM)",
+            "runs": 1,
+            "passed": 0,
+            "failed": 0,
+            "soft_failed": 1,
+            "fail_rate": 100.0,
+            "is_soft_fail": true,
+            "median_dur": 180.4,
+            "p90_dur": 180.4,
+            "avg_dur": 180.4,
+            "max_dur": 180.4,
+            "median_wait": 0.1,
+            "p90_wait": 0.1,
+            "avg_wait": 0.1,
+            "max_wait": 0.1,
+            "queues": [
+              "amd_mi300_1"
+            ]
+          },
           {
             "name": "Multi-Modal Models (Extended Generation 1)",
             "runs": 2,
@@ -103835,7 +103890,7 @@
           },
           {
             "queue": "amd_mi300_1",
-            "jobs": 118,
+            "jobs": 119,
             "median_wait": 0.2,
             "p90_wait": 3.8,
             "avg_wait": 0.7,
@@ -103928,9 +103983,9 @@
         "build_count": 3,
         "summary": {
           "total_builds": 3,
-          "passed": 2,
+          "passed": 3,
           "failed": 0,
-          "pass_rate": 66.7,
+          "pass_rate": 100.0,
           "total_jobs_tracked": 158,
           "jobs_with_failures": 69,
           "jobs_with_hard_failures": 3,
@@ -103951,7 +104006,7 @@
           },
           {
             "date": "2026-06-25",
-            "passed": 0,
+            "passed": 1,
             "failed": 0,
             "total": 1
           }
@@ -103959,17 +104014,17 @@
         "builds": [
           {
             "number": 9968,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-06-25T09:00:01.914Z",
             "date": "2026-06-25",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 592.4,
             "passed": 151,
             "failed": 0,
-            "soft_failed": 50,
+            "soft_failed": 51,
             "skipped": 0,
-            "total_jobs": 201,
+            "total_jobs": 202,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/9968",
             "source": "test_results"
           },
@@ -104009,17 +104064,17 @@
         "nightly_builds": [
           {
             "number": 9968,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-06-25T09:00:01.914Z",
             "date": "2026-06-25",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 592.4,
             "passed": 151,
             "failed": 0,
-            "soft_failed": 50,
+            "soft_failed": 51,
             "skipped": 0,
-            "total_jobs": 201,
+            "total_jobs": 202,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/9968",
             "source": "test_results"
           },
@@ -104644,6 +104699,26 @@
             ]
           },
           {
+            "name": "Entrypoints Integration (LLM)",
+            "runs": 3,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 2,
+            "fail_rate": 66.7,
+            "is_soft_fail": true,
+            "median_dur": 21.0,
+            "p90_dur": 180.4,
+            "avg_dur": 67.9,
+            "max_dur": 180.4,
+            "median_wait": 0.1,
+            "p90_wait": 0.1,
+            "avg_wait": 0.1,
+            "max_wait": 0.1,
+            "queues": [
+              "amd_mi300_1"
+            ]
+          },
+          {
             "name": "Kernels MoE Test 3",
             "runs": 6,
             "passed": 2,
@@ -104803,26 +104878,6 @@
             "queues": [
               "amd_mi300_2",
               "amd_mi355_2"
-            ]
-          },
-          {
-            "name": "Entrypoints Integration (LLM)",
-            "runs": 2,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 1,
-            "fail_rate": 50.0,
-            "is_soft_fail": true,
-            "median_dur": 11.7,
-            "p90_dur": 21.0,
-            "avg_dur": 11.7,
-            "max_dur": 21.0,
-            "median_wait": 0.1,
-            "p90_wait": 0.1,
-            "avg_wait": 0.1,
-            "max_wait": 0.1,
-            "queues": [
-              "amd_mi300_1"
             ]
           },
           {
@@ -106487,6 +106542,26 @@
             ]
           },
           {
+            "name": "Entrypoints Integration (LLM)",
+            "runs": 3,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 2,
+            "fail_rate": 66.7,
+            "is_soft_fail": true,
+            "median_dur": 21.0,
+            "p90_dur": 180.4,
+            "avg_dur": 67.9,
+            "max_dur": 180.4,
+            "median_wait": 0.1,
+            "p90_wait": 0.1,
+            "avg_wait": 0.1,
+            "max_wait": 0.1,
+            "queues": [
+              "amd_mi300_1"
+            ]
+          },
+          {
             "name": "Distributed Tests (4xA100-4xMI300)",
             "runs": 3,
             "passed": 1,
@@ -107310,26 +107385,6 @@
             "p90_wait": 0.3,
             "avg_wait": 0.2,
             "max_wait": 0.3,
-            "queues": [
-              "amd_mi300_1"
-            ]
-          },
-          {
-            "name": "Entrypoints Integration (LLM)",
-            "runs": 2,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 1,
-            "fail_rate": 50.0,
-            "is_soft_fail": true,
-            "median_dur": 11.7,
-            "p90_dur": 21.0,
-            "avg_dur": 11.7,
-            "max_dur": 21.0,
-            "median_wait": 0.1,
-            "p90_wait": 0.1,
-            "avg_wait": 0.1,
-            "max_wait": 0.1,
             "queues": [
               "amd_mi300_1"
             ]
@@ -108690,7 +108745,7 @@
           },
           {
             "queue": "amd_mi300_1",
-            "jobs": 356,
+            "jobs": 357,
             "median_wait": 0.2,
             "p90_wait": 0.6,
             "avg_wait": 0.4,
@@ -108791,9 +108846,9 @@
         "build_count": 7,
         "summary": {
           "total_builds": 7,
-          "passed": 6,
+          "passed": 7,
           "failed": 0,
-          "pass_rate": 85.7,
+          "pass_rate": 100.0,
           "total_jobs_tracked": 158,
           "jobs_with_failures": 90,
           "jobs_with_hard_failures": 3,
@@ -108838,7 +108893,7 @@
           },
           {
             "date": "2026-06-25",
-            "passed": 0,
+            "passed": 1,
             "failed": 0,
             "total": 1
           }
@@ -108846,17 +108901,17 @@
         "builds": [
           {
             "number": 9968,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-06-25T09:00:01.914Z",
             "date": "2026-06-25",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 592.4,
             "passed": 151,
             "failed": 0,
-            "soft_failed": 50,
+            "soft_failed": 51,
             "skipped": 0,
-            "total_jobs": 201,
+            "total_jobs": 202,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/9968",
             "source": "test_results"
           },
@@ -108960,17 +109015,17 @@
         "nightly_builds": [
           {
             "number": 9968,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-06-25T09:00:01.914Z",
             "date": "2026-06-25",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 592.4,
             "passed": 151,
             "failed": 0,
-            "soft_failed": 50,
+            "soft_failed": 51,
             "skipped": 0,
-            "total_jobs": 201,
+            "total_jobs": 202,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/9968",
             "source": "test_results"
           },
@@ -110411,6 +110466,26 @@
             ]
           },
           {
+            "name": "Entrypoints Integration (LLM)",
+            "runs": 7,
+            "passed": 5,
+            "failed": 0,
+            "soft_failed": 2,
+            "fail_rate": 28.6,
+            "is_soft_fail": true,
+            "median_dur": 2.3,
+            "p90_dur": 180.4,
+            "avg_dur": 30.4,
+            "max_dur": 180.4,
+            "median_wait": 0.1,
+            "p90_wait": 0.2,
+            "avg_wait": 0.1,
+            "max_wait": 0.2,
+            "queues": [
+              "amd_mi300_1"
+            ]
+          },
+          {
             "name": "Multi-Modal Accuracy Eval (Small Models)",
             "runs": 7,
             "passed": 5,
@@ -110574,26 +110649,6 @@
               "amd_mi250_1",
               "amd_mi325_1",
               "amd_mi355_1"
-            ]
-          },
-          {
-            "name": "Entrypoints Integration (LLM)",
-            "runs": 6,
-            "passed": 5,
-            "failed": 0,
-            "soft_failed": 1,
-            "fail_rate": 16.7,
-            "is_soft_fail": true,
-            "median_dur": 2.2,
-            "p90_dur": 21.0,
-            "avg_dur": 5.4,
-            "max_dur": 21.0,
-            "median_wait": 0.1,
-            "p90_wait": 0.2,
-            "avg_wait": 0.1,
-            "max_wait": 0.2,
-            "queues": [
-              "amd_mi300_1"
             ]
           },
           {
@@ -113765,16 +113820,16 @@
           },
           {
             "name": "Entrypoints Integration (LLM)",
-            "runs": 6,
+            "runs": 7,
             "passed": 5,
             "failed": 0,
-            "soft_failed": 1,
-            "fail_rate": 16.7,
+            "soft_failed": 2,
+            "fail_rate": 28.6,
             "is_soft_fail": true,
-            "median_dur": 2.2,
-            "p90_dur": 21.0,
-            "avg_dur": 5.4,
-            "max_dur": 21.0,
+            "median_dur": 2.3,
+            "p90_dur": 180.4,
+            "avg_dur": 30.4,
+            "max_dur": 180.4,
             "median_wait": 0.1,
             "p90_wait": 0.2,
             "avg_wait": 0.1,
@@ -114161,7 +114216,7 @@
           },
           {
             "queue": "amd_mi300_1",
-            "jobs": 846,
+            "jobs": 847,
             "median_wait": 0.2,
             "p90_wait": 0.3,
             "avg_wait": 0.2,
@@ -114270,9 +114325,9 @@
         "build_count": 14,
         "summary": {
           "total_builds": 14,
-          "passed": 13,
+          "passed": 14,
           "failed": 0,
-          "pass_rate": 92.9,
+          "pass_rate": 100.0,
           "total_jobs_tracked": 158,
           "jobs_with_failures": 98,
           "jobs_with_hard_failures": 3,
@@ -114359,7 +114414,7 @@
           },
           {
             "date": "2026-06-25",
-            "passed": 0,
+            "passed": 1,
             "failed": 0,
             "total": 1
           }
@@ -114367,17 +114422,17 @@
         "builds": [
           {
             "number": 9968,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-06-25T09:00:01.914Z",
             "date": "2026-06-25",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 592.4,
             "passed": 151,
             "failed": 0,
-            "soft_failed": 50,
+            "soft_failed": 51,
             "skipped": 0,
-            "total_jobs": 201,
+            "total_jobs": 202,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/9968",
             "source": "test_results"
           },
@@ -114593,17 +114648,17 @@
         "nightly_builds": [
           {
             "number": 9968,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-06-25T09:00:01.914Z",
             "date": "2026-06-25",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 592.4,
             "passed": 151,
             "failed": 0,
-            "soft_failed": 50,
+            "soft_failed": 51,
             "skipped": 0,
-            "total_jobs": 201,
+            "total_jobs": 202,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/9968",
             "source": "test_results"
           },
@@ -116406,6 +116461,26 @@
             ]
           },
           {
+            "name": "Entrypoints Integration (LLM)",
+            "runs": 14,
+            "passed": 12,
+            "failed": 0,
+            "soft_failed": 2,
+            "fail_rate": 14.3,
+            "is_soft_fail": true,
+            "median_dur": 2.2,
+            "p90_dur": 21.0,
+            "avg_dur": 16.3,
+            "max_dur": 180.4,
+            "median_wait": 0.1,
+            "p90_wait": 0.1,
+            "avg_wait": 0.1,
+            "max_wait": 0.2,
+            "queues": [
+              "amd_mi300_1"
+            ]
+          },
+          {
             "name": "Entrypoints Integration (Multimodal)",
             "runs": 28,
             "passed": 24,
@@ -116526,26 +116601,6 @@
             "queues": [
               "amd_mi300_1",
               "amd_mi355_1"
-            ]
-          },
-          {
-            "name": "Entrypoints Integration (LLM)",
-            "runs": 13,
-            "passed": 12,
-            "failed": 0,
-            "soft_failed": 1,
-            "fail_rate": 7.7,
-            "is_soft_fail": true,
-            "median_dur": 2.2,
-            "p90_dur": 2.5,
-            "avg_dur": 3.7,
-            "max_dur": 21.0,
-            "median_wait": 0.1,
-            "p90_wait": 0.1,
-            "avg_wait": 0.1,
-            "max_wait": 0.2,
-            "queues": [
-              "amd_mi300_1"
             ]
           },
           {
@@ -119638,16 +119693,16 @@
           },
           {
             "name": "Entrypoints Integration (LLM)",
-            "runs": 13,
+            "runs": 14,
             "passed": 12,
             "failed": 0,
-            "soft_failed": 1,
-            "fail_rate": 7.7,
+            "soft_failed": 2,
+            "fail_rate": 14.3,
             "is_soft_fail": true,
             "median_dur": 2.2,
-            "p90_dur": 2.5,
-            "avg_dur": 3.7,
-            "max_dur": 21.0,
+            "p90_dur": 21.0,
+            "avg_dur": 16.3,
+            "max_dur": 180.4,
             "median_wait": 0.1,
             "p90_wait": 0.1,
             "avg_wait": 0.1,
@@ -120066,7 +120121,7 @@
         "queue_stats": [
           {
             "queue": "amd_mi300_1",
-            "jobs": 1700,
+            "jobs": 1701,
             "median_wait": 0.2,
             "p90_wait": 0.3,
             "avg_wait": 0.2,
@@ -120183,9 +120238,9 @@
         "build_count": 29,
         "summary": {
           "total_builds": 29,
-          "passed": 28,
+          "passed": 29,
           "failed": 0,
-          "pass_rate": 96.6,
+          "pass_rate": 100.0,
           "total_jobs_tracked": 165,
           "jobs_with_failures": 130,
           "jobs_with_hard_failures": 11,
@@ -120362,7 +120417,7 @@
           },
           {
             "date": "2026-06-25",
-            "passed": 0,
+            "passed": 1,
             "failed": 0,
             "total": 1
           }
@@ -120370,17 +120425,17 @@
         "builds": [
           {
             "number": 9968,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-06-25T09:00:01.914Z",
             "date": "2026-06-25",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 592.4,
             "passed": 151,
             "failed": 0,
-            "soft_failed": 50,
+            "soft_failed": 51,
             "skipped": 0,
-            "total_jobs": 201,
+            "total_jobs": 202,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/9968",
             "source": "test_results"
           },
@@ -120836,17 +120891,17 @@
         "nightly_builds": [
           {
             "number": 9968,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-06-25T09:00:01.914Z",
             "date": "2026-06-25",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 592.4,
             "passed": 151,
             "failed": 0,
-            "soft_failed": 50,
+            "soft_failed": 51,
             "skipped": 0,
-            "total_jobs": 201,
+            "total_jobs": 202,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/9968",
             "source": "test_results"
           },
@@ -123481,6 +123536,26 @@
             ]
           },
           {
+            "name": "Entrypoints Integration (LLM)",
+            "runs": 29,
+            "passed": 27,
+            "failed": 0,
+            "soft_failed": 2,
+            "fail_rate": 6.9,
+            "is_soft_fail": true,
+            "median_dur": 2.3,
+            "p90_dur": 8.0,
+            "avg_dur": 9.4,
+            "max_dur": 180.4,
+            "median_wait": 0.1,
+            "p90_wait": 0.2,
+            "avg_wait": 4.5,
+            "max_wait": 128.5,
+            "queues": [
+              "amd_mi300_1"
+            ]
+          },
+          {
             "name": "Entrypoints Integration (Responses API)",
             "runs": 29,
             "passed": 27,
@@ -123639,26 +123714,6 @@
             "max_wait": 0.1,
             "queues": [
               "amd_mi300_4"
-            ]
-          },
-          {
-            "name": "Entrypoints Integration (LLM)",
-            "runs": 28,
-            "passed": 27,
-            "failed": 0,
-            "soft_failed": 1,
-            "fail_rate": 3.6,
-            "is_soft_fail": true,
-            "median_dur": 2.2,
-            "p90_dur": 7.4,
-            "avg_dur": 3.3,
-            "max_dur": 21.0,
-            "median_wait": 0.1,
-            "p90_wait": 0.2,
-            "avg_wait": 4.7,
-            "max_wait": 128.5,
-            "queues": [
-              "amd_mi300_1"
             ]
           },
           {
@@ -126899,19 +126954,19 @@
           },
           {
             "name": "Entrypoints Integration (LLM)",
-            "runs": 28,
+            "runs": 29,
             "passed": 27,
             "failed": 0,
-            "soft_failed": 1,
-            "fail_rate": 3.6,
+            "soft_failed": 2,
+            "fail_rate": 6.9,
             "is_soft_fail": true,
-            "median_dur": 2.2,
-            "p90_dur": 7.4,
-            "avg_dur": 3.3,
-            "max_dur": 21.0,
+            "median_dur": 2.3,
+            "p90_dur": 8.0,
+            "avg_dur": 9.4,
+            "max_dur": 180.4,
             "median_wait": 0.1,
             "p90_wait": 0.2,
-            "avg_wait": 4.7,
+            "avg_wait": 4.5,
             "max_wait": 128.5,
             "queues": [
               "amd_mi300_1"
@@ -127348,7 +127403,7 @@
         "queue_stats": [
           {
             "queue": "amd_mi300_1",
-            "jobs": 3484,
+            "jobs": 3485,
             "median_wait": 0.2,
             "p90_wait": 0.3,
             "avg_wait": 0.2,
@@ -127466,7 +127521,7 @@
     "pipeline": "ci",
     "display_name": "Upstream CI",
     "days": 30,
-    "generated_at": "2026-06-25T18:30:15Z",
+    "generated_at": "2026-06-25T19:26:33Z",
     "summary": {
       "total_builds": 31,
       "passed": 3,

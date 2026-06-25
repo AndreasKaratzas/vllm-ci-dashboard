@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-25T18:35:31Z",
+  "generated_at": "2026-06-25T19:31:12Z",
   "source": {
     "yaml_url": "https://raw.githubusercontent.com/vllm-project/vllm/refs/heads/main/.buildkite/test-amd.yaml",
     "latest_build_number": 9968,
@@ -11,11 +11,11 @@
     "unique_groups": 140,
     "architecture_count": 4,
     "hardware_cells": 174,
-    "latest_matched_cells": 173,
+    "latest_matched_cells": 174,
     "passing_cells": 132,
-    "failing_cells": 41,
+    "failing_cells": 42,
     "waiting_cells": 0,
-    "unknown_cells": 1,
+    "unknown_cells": 0,
     "fully_shared_groups": 0,
     "single_arch_groups": 108,
     "multi_variant_cells": 0
@@ -31,7 +31,7 @@
       "id": "mi300",
       "label": "MI300",
       "group_count": 100,
-      "nightly_match_count": 99
+      "nightly_match_count": 100
     },
     {
       "id": "mi325",
@@ -3464,10 +3464,10 @@
               "agent_pool": "mi300_1",
               "optional": true,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/9968/steps/canvas?sid=019efe02-3ce1-47ff-9fef-a32569d7f1a3&tab=output",
               "aliases": [
                 "Entrypoints Integration (LLM)"
               ],
@@ -3478,10 +3478,10 @@
                   "agent_pool": "mi300_1",
                   "optional": true,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/9968/steps/canvas?sid=019efe02-3ce1-47ff-9fef-a32569d7f1a3&tab=output",
                   "aliases": [
                     "Entrypoints Integration (LLM)"
                   ],
@@ -3490,12 +3490,12 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 9968,
           "primary_label": "Entrypoints Integration (LLM)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/9968/steps/canvas?sid=019efe02-3ce1-47ff-9fef-a32569d7f1a3&tab=output"
         },
         "mi325": {
           "exists": false
@@ -3505,7 +3505,7 @@
         }
       },
       "coverage_count": 1,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 1,
       "architectures_present": [
         "mi300"
       ],

@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-06-25T18:30:13Z",
+  "generated_at": "2026-06-25T19:26:31Z",
   "amd_date": "2026-06-25",
   "upstream_date": "2026-06-25",
   "parity_pct": 0.0,
-  "total_tests": 717,
+  "total_tests": 718,
   "summary": {
     "upstream_only": 389,
-    "amd_only": 328
+    "amd_only": 329
   },
   "by_module": {
     "2 Node Test (4 GPUs)": {
@@ -1298,6 +1298,10 @@
       "amd_only": 1
     },
     "mi300_1: Entrypoints Integration (API Server)": {
+      "parity_pct": 100.0,
+      "amd_only": 1
+    },
+    "mi300_1: Entrypoints Integration (LLM)": {
       "parity_pct": 100.0,
       "amd_only": 1
     },
@@ -4289,6 +4293,64 @@
       "backfilled": false
     },
     {
+      "name": "entrypoints integration (llm)",
+      "family_key": "entrypoints integration (llm)",
+      "family_name": "entrypoints integration (llm)",
+      "amd_job_name": "mi300_1: Entrypoints Integration (LLM)",
+      "upstream_job_name": "Entrypoints Integration (LLM)",
+      "amd": {
+        "total": 1,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 1,
+        "duration": 0.0
+      },
+      "upstream": {
+        "total": 2,
+        "passed": 2,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 167.74
+      },
+      "hardware": [
+        "h100",
+        "mi300"
+      ],
+      "hw_failures": {
+        "mi300": 1
+      },
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "mi300",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/9968/steps/canvas?sid=019efe02-3ce1-47ff-9fef-a32569d7f1a3&tab=output",
+          "job_name": "mi300_1: Entrypoints Integration (LLM)",
+          "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/74248/steps/canvas?jid=019efd5e-591d-440f-baea-dde86f20813e&tab=output",
+          "job_name": "Entrypoints Integration (LLM)",
+          "side": "upstream"
+        }
+      ],
+      "delta": {
+        "total": -1,
+        "passed": -2,
+        "failed": 0,
+        "skipped": 0
+      },
+      "status": "both",
+      "backfilled": false
+    },
+    {
       "name": "entrypoints integration (multimodal)",
       "family_key": "entrypoints integration (multimodal)",
       "family_name": "entrypoints integration (multimodal)",
@@ -5168,7 +5230,7 @@
       "name": "kernels attention test",
       "family_key": "kernels attention test",
       "family_name": "kernels attention test",
-      "amd_job_name": "mi300_1: Kernels Attention Test 1",
+      "amd_job_name": "mi300_1: Kernels Attention Test 2",
       "upstream_job_name": "Kernels Attention Test 1",
       "amd": {
         "total": 10436,
@@ -5204,7 +5266,7 @@
         {
           "hw": "mi300",
           "url": "https://buildkite.com/vllm/amd-ci/builds/9968/steps/canvas?sid=019efe02-3cf3-46f8-bd38-93edb68d2fbd&tab=output",
-          "job_name": "mi300_1: Kernels Attention Test 1",
+          "job_name": "mi300_1: Kernels Attention Test 2",
           "side": "amd"
         },
         {
@@ -5519,7 +5581,7 @@
       "name": "kernels moe test",
       "family_key": "kernels moe test",
       "family_name": "kernels moe test",
-      "amd_job_name": "mi300_1: Kernels MoE Test 1",
+      "amd_job_name": "mi300_1: Kernels MoE Test 4",
       "upstream_job_name": "Kernels MoE Test 2",
       "amd": {
         "total": 13959,
@@ -5556,7 +5618,7 @@
         {
           "hw": "mi300",
           "url": "https://buildkite.com/vllm/amd-ci/builds/9968/steps/canvas?sid=019efe02-3cf5-45e3-b9bd-13872c218e89&tab=output",
-          "job_name": "mi300_1: Kernels MoE Test 1",
+          "job_name": "mi300_1: Kernels MoE Test 4",
           "side": "amd"
         },
         {
@@ -5627,7 +5689,7 @@
         {
           "hw": "mi355",
           "url": "https://buildkite.com/vllm/amd-ci/builds/9968/steps/canvas?sid=019efe02-3d3b-460b-b726-d567c075b0dd&tab=output",
-          "job_name": "mi355_1: Kernels Quantization Test 1",
+          "job_name": "mi355_1: Kernels Quantization Test 2",
           "side": "amd"
         },
         {
@@ -5951,7 +6013,7 @@
       "name": "language models tests (hybrid)",
       "family_key": "language models tests (hybrid)",
       "family_name": "language models tests (hybrid)",
-      "amd_job_name": "mi325_1: Language Models Tests (Hybrid) 2",
+      "amd_job_name": "mi325_1: Language Models Tests (Hybrid) 1",
       "upstream_job_name": "Language Models Tests (Hybrid) 1",
       "amd": {
         "total": 41,
@@ -5984,7 +6046,7 @@
         {
           "hw": "mi325",
           "url": "https://buildkite.com/vllm/amd-ci/builds/9968/steps/canvas?sid=019efe02-3d29-427f-bfeb-c43fcde3002a&tab=output",
-          "job_name": "mi325_1: Language Models Tests (Hybrid) 2",
+          "job_name": "mi325_1: Language Models Tests (Hybrid) 1",
           "side": "amd"
         },
         {
@@ -8959,7 +9021,7 @@
       "name": "transformers nightly models (shardable)",
       "family_key": "transformers nightly models (shardable)",
       "family_name": "transformers nightly models (shardable)",
-      "amd_job_name": "mi300_1: Transformers Nightly Models (Shardable) 3",
+      "amd_job_name": "mi300_1: Transformers Nightly Models (Shardable) 2",
       "upstream_job_name": null,
       "amd": {
         "total": 592,
@@ -8984,7 +9046,7 @@
         {
           "hw": "mi300",
           "url": "https://buildkite.com/vllm/amd-ci/builds/9968/steps/canvas?sid=019efe02-3d06-4a73-868a-25dca54e89af&tab=output",
-          "job_name": "mi300_1: Transformers Nightly Models (Shardable) 3",
+          "job_name": "mi300_1: Transformers Nightly Models (Shardable) 2",
           "side": "amd"
         }
       ],
@@ -10038,44 +10100,6 @@
       ],
       "status": "upstream_only",
       "backfilled": false
-    },
-    {
-      "name": "entrypoints integration (llm)",
-      "family_key": "entrypoints integration (llm)",
-      "family_name": "entrypoints integration (llm)",
-      "amd_job_name": null,
-      "upstream_job_name": "Entrypoints Integration (LLM)",
-      "amd": null,
-      "upstream": {
-        "total": 2,
-        "passed": 2,
-        "failed": 0,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0,
-        "error": 0,
-        "duration": 167.74
-      },
-      "hardware": [
-        "h100",
-        "mi300"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [
-        {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/74248/steps/canvas?jid=019efd5e-591d-440f-baea-dde86f20813e&tab=output",
-          "job_name": "Entrypoints Integration (LLM)",
-          "side": "upstream"
-        }
-      ],
-      "status": "upstream_only",
-      "backfilled": true,
-      "hw_backfilled": {
-        "mi300": true
-      }
     },
     {
       "name": "extract hidden states integration (2 gpus)",
@@ -14942,6 +14966,12 @@
     {
       "test_id": "mi300_1: Entrypoints Integration (API Server)::__passed__",
       "amd_status": "passed",
+      "upstream_status": "missing",
+      "category": "amd_only"
+    },
+    {
+      "test_id": "mi300_1: Entrypoints Integration (LLM)::__job_level__",
+      "amd_status": "error",
       "upstream_status": "missing",
       "category": "amd_only"
     },
