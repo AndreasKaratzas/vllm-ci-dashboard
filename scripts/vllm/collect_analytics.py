@@ -7,7 +7,7 @@ Produces:
 
 Usage:
     export BUILDKITE_TOKEN="bkua_..."
-    python scripts/vllm/collect_analytics.py --days 90
+    python scripts/vllm/collect_analytics.py --days 30
 """
 
 import argparse
@@ -39,10 +39,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 PIPELINES = {"amd-ci": "AMD CI", "ci": "Upstream CI"}
-ANALYTICS_WINDOWS_DAYS = (1, 3, 7, 14, 30, 90)
+ANALYTICS_WINDOWS_DAYS = (1, 3, 7, 14, 30)
 DEFAULT_ANALYTICS_WINDOW_DAYS = 30
 ANALYTICS_BUILD_LIMIT = 120
-ANALYTICS_NIGHTLY_LIMIT = 90
+ANALYTICS_NIGHTLY_LIMIT = 30
 ANALYTICS_WINDOW_BUILD_LIMIT = 50
 ANALYTICS_WINDOW_NIGHTLY_LIMIT = 30
 GATING_NIGHTLY_LIMIT = 30

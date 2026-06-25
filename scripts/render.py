@@ -131,7 +131,7 @@ def render_readme(config, data):
         "pip install requests pyyaml",
         "python scripts/collect.py",
         "python scripts/collect_ci.py --days 8 --pipeline both --output data/vllm/ci/",
-        "python scripts/vllm/collect_analytics.py --days 90 --output data/vllm/ci/",
+        "python scripts/vllm/collect_analytics.py --days 30 --output data/vllm/ci/",
         "python scripts/vllm/collect_amd_test_matrix.py --output data/vllm/ci/",
         "python scripts/vllm/collect_gating_proposals.py --output data/vllm/ci/",
         "python scripts/vllm/collect_gating_target_candidates.py --output data/vllm/ci/",

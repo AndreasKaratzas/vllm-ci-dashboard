@@ -10,14 +10,13 @@
   const J = async u => { try { const r = await fetch(u + _cb()); return r.ok ? r.json() : null } catch { return null } };
 
   const h = el;  // shared element factory defined in utils.js
-  const ANALYTICS_WINDOW_ORDER = ['1d', '3d', '7d', '14d', '30d', '90d'];
+  const ANALYTICS_WINDOW_ORDER = ['1d', '3d', '7d', '14d', '30d'];
   const ANALYTICS_WINDOW_LABEL = {
     '1d': 'Last 24h',
     '3d': 'Last 3d',
     '7d': 'Last 7d',
     '14d': 'Last 14d',
     '30d': 'Last 1m',
-    '90d': 'Last 3m',
   };
 
   function fmtDur(mins) {

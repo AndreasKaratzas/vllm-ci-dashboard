@@ -87,15 +87,14 @@ class TestWindowedAnalytics:
             _build(4, 10.0, [_job("Old", 70)]),
         ]
 
-        windows = ca.compute_window_blocks(builds, 90, now=NOW)
+        windows = ca.compute_window_blocks(builds, 30, now=NOW)
 
-        assert set(windows) == {"1d", "3d", "7d", "14d", "30d", "90d"}
+        assert set(windows) == {"1d", "3d", "7d", "14d", "30d"}
         assert windows["1d"]["build_count"] == 1
         assert windows["3d"]["build_count"] == 2
         assert windows["7d"]["build_count"] == 3
         assert windows["14d"]["build_count"] == 4
         assert windows["30d"]["build_count"] == 4
-        assert windows["90d"]["build_count"] == 4
         assert "jobs" not in windows["30d"]["builds"][0]
 
     def test_shorter_windows_forget_older_jobs(self):

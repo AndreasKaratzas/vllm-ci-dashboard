@@ -477,7 +477,7 @@ class TestFrontendFiles:
         assert "Comparison window:" in js or "ANALYTICS_WINDOW_LABEL" in js, (
             "ci-analytics.js Pipeline Comparison must expose a window selector"
         )
-        for label in ["1d", "3d", "7d", "14d", "30d", "90d"]:
+        for label in ["1d", "3d", "7d", "14d", "30d"]:
             assert f"'{label}'" in js or f'"{label}"' in js, (
                 f"ci-analytics.js missing analytics window: {label}"
             )

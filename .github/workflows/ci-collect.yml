@@ -50,7 +50,7 @@ jobs:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
 
       - name: Collect CI analytics
-        run: python scripts/vllm/collect_analytics.py --days 90 --output data/vllm/ci/
+        run: python scripts/vllm/collect_analytics.py --days 30 --output data/vllm/ci/
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
 

@@ -593,7 +593,7 @@ class DashboardAudit:
                     f"{slug} default_window={default_window!r} is absent from windows",
                     "data/vllm/ci/analytics.json",
                 )
-            for key in ("1d", "3d", "7d", "14d", "30d", "90d"):
+            for key in ("1d", "3d", "7d", "14d", "30d"):
                 if key not in windows:
                     self.error(
                         "analytics-window-missing",
