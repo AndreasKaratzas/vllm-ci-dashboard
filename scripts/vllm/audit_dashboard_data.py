@@ -813,11 +813,21 @@ class DashboardAudit:
                 .get("groups")
             )
             if health_groups is not None and health_groups != arch_stats["total"]:
-                self.error(
-                    "matrix-health-hardware-count",
-                    f"{arch} matrix groups={arch_stats['total']} but ci_health by_hardware groups={health_groups}",
-                    "data/vllm/ci/amd_test_matrix.json",
-                )
+                terminal_total = arch_stats["total"] - arch_stats["waiting"]
+                if terminal_total <= health_groups <= arch_stats["total"]:
+                    self.warning(
+                        "matrix-health-hardware-count-in-progress",
+                        f"{arch} matrix groups={arch_stats['total']} including "
+                        f"{arch_stats['waiting']} waiting cells; ci_health by_hardware "
+                        f"currently reports {health_groups} terminal groups",
+                        "data/vllm/ci/amd_test_matrix.json",
+                    )
+                else:
+                    self.error(
+                        "matrix-health-hardware-count",
+                        f"{arch} matrix groups={arch_stats['total']} but ci_health by_hardware groups={health_groups}",
+                        "data/vllm/ci/amd_test_matrix.json",
+                    )
 
         latest_url_build_re = re.compile(r"/builds/(\d+)")
         stale_urls: list[str] = []
@@ -888,12 +898,23 @@ class DashboardAudit:
                     f"{arch} parity hardware total={pstats.get('total')} but AMD matrix total={mstats['total']}",
                     "data/vllm/ci/parity_report.json",
                 )
-            if pstats.get("failing") != mstats["failing"]:
-                self.error(
-                    "parity-matrix-hardware-failing",
-                    f"{arch} parity failing groups={pstats.get('failing')} but AMD matrix failing cells={mstats['failing']}",
-                    "data/vllm/ci/parity_report.json",
-                )
+            parity_failing = pstats.get("failing")
+            if parity_failing != mstats["failing"]:
+                diff = abs((parity_failing or 0) - mstats["failing"])
+                if mstats.get("waiting", 0) and diff <= mstats["waiting"]:
+                    self.warning(
+                        "parity-matrix-hardware-failing-in-progress",
+                        f"{arch} parity failing groups={parity_failing} and AMD matrix "
+                        f"failing cells={mstats['failing']} differ by {diff} while "
+                        f"{mstats['waiting']} matrix cells are still waiting",
+                        "data/vllm/ci/parity_report.json",
+                    )
+                else:
+                    self.error(
+                        "parity-matrix-hardware-failing",
+                        f"{arch} parity failing groups={parity_failing} but AMD matrix failing cells={mstats['failing']}",
+                        "data/vllm/ci/parity_report.json",
+                    )
         self.report.metrics["parity_hardware"] = parity_stats
 
     def audit_queue_data(self) -> None:

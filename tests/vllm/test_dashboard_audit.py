@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from vllm.audit_dashboard_data import DATA_SPECS, ROOT, run_audit
+from vllm.audit_dashboard_data import DATA_SPECS, ROOT, DashboardAudit, run_audit
 
 
 def test_dashboard_audit_current_data_has_no_errors():
@@ -42,6 +42,91 @@ def test_dashboard_audit_json_cli_is_parseable():
     payload = json.loads(result.stdout)
     assert payload["errors"] == []
     assert "amd_matrix" in payload["metrics"]
+
+
+def test_dashboard_audit_allows_in_progress_hardware_count_drift(tmp_path):
+    ci = tmp_path / "data/vllm/ci"
+    ci.mkdir(parents=True)
+
+    (ci / "analytics.json").write_text(
+        json.dumps({"amd-ci": {"builds": [{"number": 123}]}})
+    )
+    (ci / "ci_health.json").write_text(
+        json.dumps(
+            {
+                "amd": {
+                    "latest_build": {
+                        "build_number": 123,
+                        "by_hardware": {"mi300": {"groups": 1}},
+                    }
+                }
+            }
+        )
+    )
+    (ci / "parity_report.json").write_text(
+        json.dumps(
+            {
+                "job_groups": [
+                    {
+                        "name": "passing",
+                        "hardware": ["mi300"],
+                        "amd": {"total": 1},
+                        "hw_failures": {},
+                    },
+                    {
+                        "name": "waiting",
+                        "hardware": ["mi300"],
+                        "amd": {"total": 1},
+                        "hw_failures": {"mi300": 1},
+                    },
+                ]
+            }
+        )
+    )
+    (ci / "amd_test_matrix.json").write_text(
+        json.dumps(
+            {
+                "source": {"latest_build_number": 123},
+                "summary": {
+                    "unique_groups": 2,
+                    "architecture_count": 1,
+                    "hardware_cells": 2,
+                    "latest_matched_cells": 2,
+                    "passing_cells": 1,
+                    "failing_cells": 0,
+                    "waiting_cells": 1,
+                    "unknown_cells": 0,
+                    "fully_shared_groups": 2,
+                    "single_arch_groups": 2,
+                    "multi_variant_cells": 0,
+                },
+                "architectures": [
+                    {"id": "mi300", "label": "MI300", "group_count": 2, "nightly_match_count": 2}
+                ],
+                "rows": [
+                    {
+                        "title": "passing",
+                        "coverage_count": 1,
+                        "nightly_coverage_count": 1,
+                        "cells": {"mi300": {"exists": True, "latest_matched": True, "latest_state": "passed"}},
+                    },
+                    {
+                        "title": "waiting",
+                        "coverage_count": 1,
+                        "nightly_coverage_count": 1,
+                        "cells": {"mi300": {"exists": True, "latest_matched": True, "latest_state": "running"}},
+                    },
+                ],
+            }
+        )
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_amd_matrix()
+    assert not audit.report.errors
+    warning_codes = {finding.code for finding in audit.report.warnings}
+    assert "matrix-health-hardware-count-in-progress" in warning_codes
+    assert "parity-matrix-hardware-failing-in-progress" in warning_codes
 
 
 def test_hourly_workflow_runs_dashboard_audit_before_deploy():
