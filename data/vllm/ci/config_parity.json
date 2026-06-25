@@ -7,7 +7,7 @@
     "nvidia_only": 60,
     "mirrors": 54,
     "match_rate_pct": 93.6,
-    "avg_command_similarity_pct": 93.0
+    "avg_command_similarity_pct": 93.1
   },
   "matches": [
     {
@@ -144,47 +144,6 @@
       ]
     },
     {
-      "amd_label": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
-      "nvidia_label": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
-      "normalized": "async engine, inputs, utils, worker, config (cpu)",
-      "identity_key": "async engine, inputs, utils, worker, config (cpu)",
-      "command_similarity": 0.6571,
-      "color": "orange",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/misc.yaml",
-      "amd_commands": [
-        "python3 standalone_tests/lazy_imports.py",
-        "pytest -v -s test_inputs.py",
-        "pytest -v -s test_outputs.py",
-        "pytest -v -s test_pooling_params.py",
-        "pytest -v -s test_ray_env.py",
-        "pytest -v -s -m 'cpu_test' multimodal",
-        "pytest -v -s renderers",
-        "pytest -v -s tokenizers_",
-        "pytest -v -s reasoning --ignore=reasoning/test_seedoss_reasoning_parser.py --ignore=reasoning/test_glm4_moe_reasoning_parser.py",
-        "pytest -v -s tool_parsers",
-        "pytest -v -s parser",
-        "pytest -v -s transformers_utils",
-        "pytest -v -s config"
-      ],
-      "nvidia_commands": [
-        "python3 standalone_tests/lazy_imports.py",
-        "pytest -v -s test_envs.py",
-        "pytest -v -s test_inputs.py",
-        "pytest -v -s test_outputs.py",
-        "pytest -v -s test_pooling_params.py",
-        "pytest -v -s test_ray_env.py",
-        "pytest -v -s -m 'cpu_test' multimodal",
-        "pytest -v -s renderers",
-        "pytest -v -s reasoning --ignore=reasoning/test_seedoss_reasoning_parser.py --ignore=reasoning/test_glm4_moe_reasoning_parser.py",
-        "pytest -v -s tool_parsers",
-        "pytest -v -s tokenizers_",
-        "pytest -v -s parser",
-        "pytest -v -s transformers_utils",
-        "pytest -v -s config"
-      ]
-    },
-    {
       "amd_label": "Batch Invariance (H100-MI250)",
       "nvidia_label": "Batch Invariance (A100)",
       "normalized": "batch invariance (h100-mi250)",
@@ -240,6 +199,47 @@
       "nvidia_commands": [
         "bash /vllm-workspace/.buildkite/scripts/install-kv-connectors.sh",
         "bash v1/kv_connector/nixl_integration/config_sweep_spec_decode_test.sh"
+      ]
+    },
+    {
+      "amd_label": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
+      "nvidia_label": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
+      "normalized": "async engine, inputs, utils, worker, config (cpu)",
+      "identity_key": "async engine, inputs, utils, worker, config (cpu)",
+      "command_similarity": 0.6885,
+      "color": "orange",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/misc.yaml",
+      "amd_commands": [
+        "python3 standalone_tests/lazy_imports.py",
+        "pytest -v -s test_inputs.py",
+        "pytest -v -s test_outputs.py",
+        "pytest -v -s test_pooling_params.py",
+        "pytest -v -s test_ray_env.py",
+        "pytest -v -s -m 'cpu_test' multimodal",
+        "pytest -v -s renderers",
+        "pytest -v -s tokenizers_",
+        "pytest -v -s reasoning",
+        "pytest -v -s tool_parsers",
+        "pytest -v -s parser",
+        "pytest -v -s transformers_utils",
+        "pytest -v -s config"
+      ],
+      "nvidia_commands": [
+        "python3 standalone_tests/lazy_imports.py",
+        "pytest -v -s test_envs.py",
+        "pytest -v -s test_inputs.py",
+        "pytest -v -s test_outputs.py",
+        "pytest -v -s test_pooling_params.py",
+        "pytest -v -s test_ray_env.py",
+        "pytest -v -s -m 'cpu_test' multimodal",
+        "pytest -v -s renderers",
+        "pytest -v -s reasoning",
+        "pytest -v -s tool_parsers",
+        "pytest -v -s tokenizers_",
+        "pytest -v -s parser",
+        "pytest -v -s transformers_utils",
+        "pytest -v -s config"
       ]
     },
     {
