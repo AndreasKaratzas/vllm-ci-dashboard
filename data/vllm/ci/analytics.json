@@ -3,7 +3,7 @@
     "pipeline": "amd-ci",
     "display_name": "AMD CI",
     "days": 30,
-    "generated_at": "2026-06-26T12:30:54Z",
+    "generated_at": "2026-06-26T13:28:03Z",
     "summary": {
       "total_builds": 30,
       "passed": 30,
@@ -127520,7 +127520,7 @@
     "pipeline": "ci",
     "display_name": "Upstream CI",
     "days": 30,
-    "generated_at": "2026-06-26T12:30:54Z",
+    "generated_at": "2026-06-26T13:28:03Z",
     "summary": {
       "total_builds": 31,
       "passed": 3,
@@ -127728,11 +127728,11 @@
         "message": "Full CI run - nightly",
         "author": "",
         "wall_mins": null,
-        "passed": 282,
+        "passed": 283,
         "failed": 1,
         "soft_failed": 0,
         "skipped": 0,
-        "total_jobs": 283,
+        "total_jobs": 284,
         "jobs": [
           {
             "name": "2 Node Test (4 GPUs)",
@@ -128107,6 +128107,21 @@
             "job_id": "019f0284-d82f-4ffb-9d9a-568187c96fe9",
             "step_id": "019f0284-d5f3-4925-9e43-c11e2eab4ea6",
             "wait": 2.6,
+            "q": "amd_mi325_1"
+          },
+          {
+            "name": "AMD: Kernels Quantization Test 2 (mi325_1)",
+            "raw_name": "AMD: Kernels Quantization Test 2 (mi325_1)",
+            "state": "passed",
+            "dur": 23.2,
+            "tests": 6579,
+            "passed_tests": 1685,
+            "failed_tests": 0,
+            "skipped_tests": 4894,
+            "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f03e8-23b7-451c-8f16-bf48f01e3c8b&tab=output",
+            "job_id": "019f03e8-23b7-451c-8f16-bf48f01e3c8b",
+            "step_id": "019f0284-d5f4-4d0b-aeef-efc80364d971",
+            "wait": 0.1,
             "q": "amd_mi325_1"
           },
           {
@@ -236510,11 +236525,11 @@
         "message": "Full CI run - nightly",
         "author": "",
         "wall_mins": null,
-        "passed": 282,
+        "passed": 283,
         "failed": 1,
         "soft_failed": 0,
         "skipped": 0,
-        "total_jobs": 283,
+        "total_jobs": 284,
         "web_url": "https://buildkite.com/vllm/ci/builds/74562",
         "source": "test_results"
       },
@@ -238306,15 +238321,15 @@
       },
       {
         "name": "AMD: Kernels Quantization Test 2 (mi325_1)",
-        "runs": 24,
-        "passed": 23,
+        "runs": 25,
+        "passed": 24,
         "failed": 1,
         "soft_failed": 0,
-        "fail_rate": 4.2,
+        "fail_rate": 4.0,
         "is_soft_fail": false,
-        "median_dur": 21.4,
+        "median_dur": 21.5,
         "p90_dur": 23.3,
-        "avg_dur": 20.9,
+        "avg_dur": 21.0,
         "max_dur": 24.3,
         "median_wait": 0.1,
         "p90_wait": 1.1,
@@ -240707,6 +240722,26 @@
         ]
       },
       {
+        "name": "AMD: Kernels Quantization Test 2 (mi325_1)",
+        "runs": 25,
+        "passed": 24,
+        "failed": 1,
+        "soft_failed": 0,
+        "fail_rate": 4.0,
+        "is_soft_fail": false,
+        "median_dur": 21.5,
+        "p90_dur": 23.3,
+        "avg_dur": 21.0,
+        "max_dur": 24.3,
+        "median_wait": 0.1,
+        "p90_wait": 1.1,
+        "avg_wait": 0.5,
+        "max_wait": 7.0,
+        "queues": [
+          "amd_mi325_1"
+        ]
+      },
+      {
         "name": "AMD: Entrypoints Integration (API Server openai - Part 3) (mi325_1)",
         "runs": 11,
         "passed": 9,
@@ -240722,26 +240757,6 @@
         "p90_wait": 0.2,
         "avg_wait": 0.3,
         "max_wait": 1.7,
-        "queues": [
-          "amd_mi325_1"
-        ]
-      },
-      {
-        "name": "AMD: Kernels Quantization Test 2 (mi325_1)",
-        "runs": 24,
-        "passed": 23,
-        "failed": 1,
-        "soft_failed": 0,
-        "fail_rate": 4.2,
-        "is_soft_fail": false,
-        "median_dur": 21.4,
-        "p90_dur": 23.3,
-        "avg_dur": 20.9,
-        "max_dur": 24.3,
-        "median_wait": 0.1,
-        "p90_wait": 1.1,
-        "avg_wait": 0.5,
-        "max_wait": 7.0,
         "queues": [
           "amd_mi325_1"
         ]
@@ -246098,7 +246113,7 @@
       },
       {
         "queue": "amd_mi325_1",
-        "jobs": 626,
+        "jobs": 627,
         "median_wait": 0.1,
         "p90_wait": 0.1,
         "avg_wait": 0.2,
@@ -246171,7 +246186,7 @@
           "passed": 0,
           "failed": 1,
           "pass_rate": 0.0,
-          "total_jobs_tracked": 283,
+          "total_jobs_tracked": 284,
           "jobs_with_failures": 1,
           "jobs_with_hard_failures": 1,
           "jobs_with_soft_failures": 0
@@ -246193,11 +246208,11 @@
             "message": "Full CI run - nightly",
             "author": "",
             "wall_mins": null,
-            "passed": 282,
+            "passed": 283,
             "failed": 1,
             "soft_failed": 0,
             "skipped": 0,
-            "total_jobs": 283,
+            "total_jobs": 284,
             "web_url": "https://buildkite.com/vllm/ci/builds/74562",
             "source": "test_results"
           }
@@ -246211,11 +246226,11 @@
             "message": "Full CI run - nightly",
             "author": "",
             "wall_mins": null,
-            "passed": 282,
+            "passed": 283,
             "failed": 1,
             "soft_failed": 0,
             "skipped": 0,
-            "total_jobs": 283,
+            "total_jobs": 284,
             "web_url": "https://buildkite.com/vllm/ci/builds/74562",
             "source": "test_results"
           }
@@ -247559,6 +247574,26 @@
             "p90_wait": 5.5,
             "avg_wait": 5.5,
             "max_wait": 5.5,
+            "queues": [
+              "amd_mi325_1"
+            ]
+          },
+          {
+            "name": "AMD: Kernels Quantization Test 2 (mi325_1)",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 23.2,
+            "p90_dur": 23.2,
+            "avg_dur": 23.2,
+            "max_dur": 23.2,
+            "median_wait": 0.1,
+            "p90_wait": 0.1,
+            "avg_wait": 0.1,
+            "max_wait": 0.1,
             "queues": [
               "amd_mi325_1"
             ]
@@ -251979,7 +252014,7 @@
           },
           {
             "queue": "amd_mi325_1",
-            "jobs": 39,
+            "jobs": 40,
             "median_wait": 2.9,
             "p90_wait": 7.4,
             "avg_wait": 3.5,
@@ -252141,11 +252176,11 @@
             "message": "Full CI run - nightly",
             "author": "",
             "wall_mins": null,
-            "passed": 282,
+            "passed": 283,
             "failed": 1,
             "soft_failed": 0,
             "skipped": 0,
-            "total_jobs": 283,
+            "total_jobs": 284,
             "web_url": "https://buildkite.com/vllm/ci/builds/74562",
             "source": "test_results"
           },
@@ -252191,11 +252226,11 @@
             "message": "Full CI run - nightly",
             "author": "",
             "wall_mins": null,
-            "passed": 282,
+            "passed": 283,
             "failed": 1,
             "soft_failed": 0,
             "skipped": 0,
-            "total_jobs": 283,
+            "total_jobs": 284,
             "web_url": "https://buildkite.com/vllm/ci/builds/74562",
             "source": "test_results"
           },
@@ -253776,6 +253811,26 @@
             ]
           },
           {
+            "name": "AMD: Kernels Quantization Test 2 (mi325_1)",
+            "runs": 3,
+            "passed": 3,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 21.6,
+            "p90_dur": 23.2,
+            "avg_dur": 20.7,
+            "max_dur": 23.2,
+            "median_wait": 0.1,
+            "p90_wait": 1.1,
+            "avg_wait": 0.4,
+            "max_wait": 1.1,
+            "queues": [
+              "amd_mi325_1"
+            ]
+          },
+          {
             "name": "GH200 Test",
             "runs": 3,
             "passed": 3,
@@ -254051,26 +254106,6 @@
             "p90_wait": 3.4,
             "avg_wait": 1.7,
             "max_wait": 3.4,
-            "queues": [
-              "amd_mi325_1"
-            ]
-          },
-          {
-            "name": "AMD: Kernels Quantization Test 2 (mi325_1)",
-            "runs": 2,
-            "passed": 2,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 19.4,
-            "p90_dur": 21.6,
-            "avg_dur": 19.4,
-            "max_dur": 21.6,
-            "median_wait": 0.6,
-            "p90_wait": 1.1,
-            "avg_wait": 0.6,
-            "max_wait": 1.1,
             "queues": [
               "amd_mi325_1"
             ]
@@ -258411,10 +258446,10 @@
           },
           {
             "queue": "amd_mi325_1",
-            "jobs": 106,
+            "jobs": 107,
             "median_wait": 1.9,
             "p90_wait": 5.7,
-            "avg_wait": 2.5,
+            "avg_wait": 2.4,
             "max_wait": 6.5
           },
           {
@@ -258597,11 +258632,11 @@
             "message": "Full CI run - nightly",
             "author": "",
             "wall_mins": null,
-            "passed": 282,
+            "passed": 283,
             "failed": 1,
             "soft_failed": 0,
             "skipped": 0,
-            "total_jobs": 283,
+            "total_jobs": 284,
             "web_url": "https://buildkite.com/vllm/ci/builds/74562",
             "source": "test_results"
           },
@@ -258711,11 +258746,11 @@
             "message": "Full CI run - nightly",
             "author": "",
             "wall_mins": null,
-            "passed": 282,
+            "passed": 283,
             "failed": 1,
             "soft_failed": 0,
             "skipped": 0,
-            "total_jobs": 283,
+            "total_jobs": 284,
             "web_url": "https://buildkite.com/vllm/ci/builds/74562",
             "source": "test_results"
           },
@@ -260701,16 +260736,16 @@
           },
           {
             "name": "AMD: Kernels Quantization Test 2 (mi325_1)",
-            "runs": 6,
-            "passed": 6,
+            "runs": 7,
+            "passed": 7,
             "failed": 0,
             "soft_failed": 0,
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 21.0,
-            "p90_dur": 21.6,
-            "avg_dur": 18.3,
-            "max_dur": 21.6,
+            "p90_dur": 23.2,
+            "avg_dur": 19.0,
+            "max_dur": 23.2,
             "median_wait": 0.1,
             "p90_wait": 1.1,
             "avg_wait": 0.3,
@@ -265531,7 +265566,7 @@
           },
           {
             "queue": "amd_mi325_1",
-            "jobs": 240,
+            "jobs": 241,
             "median_wait": 0.1,
             "p90_wait": 1.1,
             "avg_wait": 0.3,
@@ -265703,11 +265738,11 @@
             "message": "Full CI run - nightly",
             "author": "",
             "wall_mins": null,
-            "passed": 282,
+            "passed": 283,
             "failed": 1,
             "soft_failed": 0,
             "skipped": 0,
-            "total_jobs": 283,
+            "total_jobs": 284,
             "web_url": "https://buildkite.com/vllm/ci/builds/74562",
             "source": "test_results"
           },
@@ -265929,11 +265964,11 @@
             "message": "Full CI run - nightly",
             "author": "",
             "wall_mins": null,
-            "passed": 282,
+            "passed": 283,
             "failed": 1,
             "soft_failed": 0,
             "skipped": 0,
-            "total_jobs": 283,
+            "total_jobs": 284,
             "web_url": "https://buildkite.com/vllm/ci/builds/74562",
             "source": "test_results"
           },
@@ -266828,26 +266863,6 @@
             ]
           },
           {
-            "name": "AMD: Kernels Quantization Test 2 (mi325_1)",
-            "runs": 13,
-            "passed": 12,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 7.7,
-            "is_soft_fail": false,
-            "median_dur": 21.0,
-            "p90_dur": 22.5,
-            "avg_dur": 19.8,
-            "max_dur": 22.7,
-            "median_wait": 0.1,
-            "p90_wait": 1.1,
-            "avg_wait": 0.7,
-            "max_wait": 7.0,
-            "queues": [
-              "amd_mi325_1"
-            ]
-          },
-          {
             "name": "AsyncTP Correctness Tests (B200)",
             "runs": 13,
             "passed": 12,
@@ -267203,6 +267218,26 @@
             "p90_wait": 2.4,
             "avg_wait": 0.7,
             "max_wait": 5.1,
+            "queues": [
+              "amd_mi325_1"
+            ]
+          },
+          {
+            "name": "AMD: Kernels Quantization Test 2 (mi325_1)",
+            "runs": 14,
+            "passed": 13,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 7.1,
+            "is_soft_fail": false,
+            "median_dur": 21.1,
+            "p90_dur": 22.7,
+            "avg_dur": 20.1,
+            "max_dur": 23.2,
+            "median_wait": 0.1,
+            "p90_wait": 1.1,
+            "avg_wait": 0.7,
+            "max_wait": 7.0,
             "queues": [
               "amd_mi325_1"
             ]
@@ -268691,16 +268726,16 @@
           },
           {
             "name": "AMD: Kernels Quantization Test 2 (mi325_1)",
-            "runs": 13,
-            "passed": 12,
+            "runs": 14,
+            "passed": 13,
             "failed": 1,
             "soft_failed": 0,
-            "fail_rate": 7.7,
+            "fail_rate": 7.1,
             "is_soft_fail": false,
-            "median_dur": 21.0,
-            "p90_dur": 22.5,
-            "avg_dur": 19.8,
-            "max_dur": 22.7,
+            "median_dur": 21.1,
+            "p90_dur": 22.7,
+            "avg_dur": 20.1,
+            "max_dur": 23.2,
             "median_wait": 0.1,
             "p90_wait": 1.1,
             "avg_wait": 0.7,
@@ -273461,7 +273496,7 @@
           },
           {
             "queue": "amd_mi325_1",
-            "jobs": 414,
+            "jobs": 415,
             "median_wait": 0.1,
             "p90_wait": 0.2,
             "avg_wait": 0.2,
@@ -273729,11 +273764,11 @@
             "message": "Full CI run - nightly",
             "author": "",
             "wall_mins": null,
-            "passed": 282,
+            "passed": 283,
             "failed": 1,
             "soft_failed": 0,
             "skipped": 0,
-            "total_jobs": 283,
+            "total_jobs": 284,
             "web_url": "https://buildkite.com/vllm/ci/builds/74562",
             "source": "test_results"
           },
@@ -274211,11 +274246,11 @@
             "message": "Full CI run - nightly",
             "author": "",
             "wall_mins": null,
-            "passed": 282,
+            "passed": 283,
             "failed": 1,
             "soft_failed": 0,
             "skipped": 0,
-            "total_jobs": 283,
+            "total_jobs": 284,
             "web_url": "https://buildkite.com/vllm/ci/builds/74562",
             "source": "test_results"
           },
@@ -275907,15 +275942,15 @@
           },
           {
             "name": "AMD: Kernels Quantization Test 2 (mi325_1)",
-            "runs": 24,
-            "passed": 23,
+            "runs": 25,
+            "passed": 24,
             "failed": 1,
             "soft_failed": 0,
-            "fail_rate": 4.2,
+            "fail_rate": 4.0,
             "is_soft_fail": false,
-            "median_dur": 21.4,
+            "median_dur": 21.5,
             "p90_dur": 23.3,
-            "avg_dur": 20.9,
+            "avg_dur": 21.0,
             "max_dur": 24.3,
             "median_wait": 0.1,
             "p90_wait": 1.1,
@@ -278128,6 +278163,26 @@
             ]
           },
           {
+            "name": "AMD: Kernels Quantization Test 2 (mi325_1)",
+            "runs": 25,
+            "passed": 24,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 4.0,
+            "is_soft_fail": false,
+            "median_dur": 21.5,
+            "p90_dur": 23.3,
+            "avg_dur": 21.0,
+            "max_dur": 24.3,
+            "median_wait": 0.1,
+            "p90_wait": 1.1,
+            "avg_wait": 0.5,
+            "max_wait": 7.0,
+            "queues": [
+              "amd_mi325_1"
+            ]
+          },
+          {
             "name": "AMD: Entrypoints Integration (API Server openai - Part 3) (mi325_1)",
             "runs": 11,
             "passed": 9,
@@ -278143,26 +278198,6 @@
             "p90_wait": 0.2,
             "avg_wait": 0.3,
             "max_wait": 1.7,
-            "queues": [
-              "amd_mi325_1"
-            ]
-          },
-          {
-            "name": "AMD: Kernels Quantization Test 2 (mi325_1)",
-            "runs": 24,
-            "passed": 23,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 4.2,
-            "is_soft_fail": false,
-            "median_dur": 21.4,
-            "p90_dur": 23.3,
-            "avg_dur": 20.9,
-            "max_dur": 24.3,
-            "median_wait": 0.1,
-            "p90_wait": 1.1,
-            "avg_wait": 0.5,
-            "max_wait": 7.0,
             "queues": [
               "amd_mi325_1"
             ]
@@ -283479,7 +283514,7 @@
           },
           {
             "queue": "amd_mi325_1",
-            "jobs": 626,
+            "jobs": 627,
             "median_wait": 0.1,
             "p90_wait": 0.1,
             "avg_wait": 0.2,

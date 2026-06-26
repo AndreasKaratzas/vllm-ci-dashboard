@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-06-26T12:30:51Z",
+  "generated_at": "2026-06-26T13:28:01Z",
   "amd_date": "2026-06-26",
   "upstream_date": "2026-06-26",
   "parity_pct": 0.0,
-  "total_tests": 713,
+  "total_tests": 715,
   "summary": {
-    "upstream_only": 390,
+    "upstream_only": 392,
     "amd_only": 323
   },
   "by_module": {
@@ -106,6 +106,10 @@
       "upstream_only": 2
     },
     "AMD: Kernels MoE Test 5 (mi325_1)": {
+      "parity_pct": 100.0,
+      "upstream_only": 2
+    },
+    "AMD: Kernels Quantization Test 2 (mi325_1)": {
       "parity_pct": 100.0,
       "upstream_only": 2
     },
@@ -5517,7 +5521,7 @@
       "family_key": "kernels moe test",
       "family_name": "kernels moe test",
       "amd_job_name": "mi300_1: Kernels MoE Test 1",
-      "upstream_job_name": "Kernels MoE Test 2",
+      "upstream_job_name": "Kernels MoE Test 3",
       "amd": {
         "total": 14213,
         "passed": 8231,
@@ -5563,8 +5567,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d863-473a-8421-024ceacbfea7&tab=output",
-          "job_name": "Kernels MoE Test 2",
+          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d863-45c9-8041-a9abc1300bc5&tab=output",
+          "job_name": "Kernels MoE Test 3",
           "side": "upstream"
         }
       ],
@@ -9327,7 +9331,7 @@
       "family_key": "v1 e2e (4 gpus)",
       "family_name": "v1 e2e (4 gpus)",
       "amd_job_name": "mi300_4: V1 e2e (4 GPUs)",
-      "upstream_job_name": "V1 e2e (4xH100)",
+      "upstream_job_name": "V1 e2e (4 GPUs)",
       "amd": {
         "total": 6,
         "passed": 6,
@@ -9364,8 +9368,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d7e1-4423-be36-b8745cf15534&tab=output",
-          "job_name": "V1 e2e (4xH100)",
+          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d7e1-4fd4-8693-d083b8df3f9a&tab=output",
+          "job_name": "V1 e2e (4 GPUs)",
           "side": "upstream"
         }
       ],
@@ -9383,7 +9387,7 @@
       "family_key": "v1 e2e (4 gpus)",
       "family_name": "v1 e2e (4 gpus)",
       "amd_job_name": "mi300_4: V1 e2e (4xH100-4xMI300)",
-      "upstream_job_name": "V1 e2e (4xH100)",
+      "upstream_job_name": "V1 e2e (4 GPUs)",
       "amd": {
         "total": 4,
         "passed": 2,
@@ -9420,8 +9424,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d7e1-4423-be36-b8745cf15534&tab=output",
-          "job_name": "V1 e2e (4xH100)",
+          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d7e1-4fd4-8693-d083b8df3f9a&tab=output",
+          "job_name": "V1 e2e (4 GPUs)",
           "side": "upstream"
         }
       ],
@@ -12355,6 +12359,18 @@
     },
     {
       "test_id": "AMD: Kernels MoE Test 5 (mi325_1)::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "AMD: Kernels Quantization Test 2 (mi325_1)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "AMD: Kernels Quantization Test 2 (mi325_1)::__skipped__",
       "amd_status": "missing",
       "upstream_status": "skipped",
       "category": "upstream_only"

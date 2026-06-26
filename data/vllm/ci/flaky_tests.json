@@ -1,64 +1,13 @@
 {
-  "generated_at": "2026-06-26T12:30:51Z",
+  "generated_at": "2026-06-26T13:28:01Z",
   "window_builds": 10,
-  "total_flaky": 10,
+  "total_flaky": 9,
   "tests": [
-    {
-      "test_id": "mi300_1: Multi-Modal Models (Extended Generation 3)::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.25,
-      "appearances": 4,
-      "last_seen": "2026-06-10",
-      "first_failure": "2026-06-10",
-      "failure_streak": 1,
-      "history": [
-        "F",
-        "F",
-        "P",
-        "F"
-      ],
-      "module": "mi300_1: Multi-Modal Models (Extended Generation 3)",
-      "mean_duration": 0.0
-    },
-    {
-      "test_id": "mi300_1: Multi-Modal Processor::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.25,
-      "appearances": 4,
-      "last_seen": "2026-06-09",
-      "first_failure": null,
-      "failure_streak": 0,
-      "history": [
-        "F",
-        "F",
-        "F",
-        "P"
-      ],
-      "module": "mi300_1: Multi-Modal Processor",
-      "mean_duration": 0.0
-    },
-    {
-      "test_id": "mi300_4: Qwen3-30B-A3B-FP8-block Accuracy (4xH100-4xMI300)::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.25,
-      "appearances": 4,
-      "last_seen": "2026-05-29",
-      "first_failure": null,
-      "failure_streak": 0,
-      "history": [
-        "F",
-        "F",
-        "F",
-        "P"
-      ],
-      "module": "mi300_4: Qwen3-30B-A3B-FP8-block Accuracy (4xH100-4xMI300)",
-      "mean_duration": 0.0
-    },
     {
       "test_id": "mi300_1: Python-only Installation::__job_level__",
       "label": "flaky",
       "pass_rate": 0.3,
-      "appearances": 31,
+      "appearances": 30,
       "last_seen": "2026-06-26",
       "first_failure": null,
       "failure_streak": 0,
@@ -101,6 +50,38 @@
       "mean_duration": 0.0
     },
     {
+      "test_id": "mi300_1: Multi-Modal Models (Extended Generation 3)::__job_level__",
+      "label": "flaky",
+      "pass_rate": 0.3333,
+      "appearances": 3,
+      "last_seen": "2026-06-10",
+      "first_failure": "2026-06-10",
+      "failure_streak": 1,
+      "history": [
+        "F",
+        "P",
+        "F"
+      ],
+      "module": "mi300_1: Multi-Modal Models (Extended Generation 3)",
+      "mean_duration": 0.0
+    },
+    {
+      "test_id": "mi300_1: Multi-Modal Processor::__job_level__",
+      "label": "flaky",
+      "pass_rate": 0.3333,
+      "appearances": 3,
+      "last_seen": "2026-06-09",
+      "first_failure": null,
+      "failure_streak": 0,
+      "history": [
+        "F",
+        "F",
+        "P"
+      ],
+      "module": "mi300_1: Multi-Modal Processor",
+      "mean_duration": 0.0
+    },
+    {
       "test_id": "mi300_2: LM Eval Small Models (2xB200-2xMI300)::__job_level__",
       "label": "flaky",
       "pass_rate": 0.3333,
@@ -117,10 +98,26 @@
       "mean_duration": 0.0
     },
     {
+      "test_id": "mi300_4: Qwen3-30B-A3B-FP8-block Accuracy (4xH100-4xMI300)::__job_level__",
+      "label": "flaky",
+      "pass_rate": 0.3333,
+      "appearances": 3,
+      "last_seen": "2026-05-29",
+      "first_failure": null,
+      "failure_streak": 0,
+      "history": [
+        "F",
+        "F",
+        "P"
+      ],
+      "module": "mi300_4: Qwen3-30B-A3B-FP8-block Accuracy (4xH100-4xMI300)",
+      "mean_duration": 0.0
+    },
+    {
       "test_id": "mi300_1: Examples::__job_level__",
       "label": "flaky",
       "pass_rate": 0.6,
-      "appearances": 31,
+      "appearances": 30,
       "last_seen": "2026-06-26",
       "first_failure": "2026-06-23",
       "failure_streak": 4,
@@ -143,7 +140,7 @@
       "test_id": "mi355_1: Examples::__job_level__",
       "label": "flaky",
       "pass_rate": 0.6,
-      "appearances": 31,
+      "appearances": 30,
       "last_seen": "2026-06-26",
       "first_failure": "2026-06-23",
       "failure_streak": 4,
@@ -163,32 +160,14 @@
       "mean_duration": 0.0
     },
     {
-      "test_id": "mi300_4: DeepSeek V2-Lite Accuracy (4xH100-4xMI300)::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.75,
-      "appearances": 4,
-      "last_seen": "2026-05-29",
-      "first_failure": null,
-      "failure_streak": 0,
-      "history": [
-        "F",
-        "P",
-        "P",
-        "P"
-      ],
-      "module": "mi300_4: DeepSeek V2-Lite Accuracy (4xH100-4xMI300)",
-      "mean_duration": 0.0
-    },
-    {
       "test_id": "mi355_2: Qwen3-30B-A3B-FP8-block Accuracy (B200-MI355)::__job_level__",
       "label": "flaky",
-      "pass_rate": 0.75,
-      "appearances": 4,
+      "pass_rate": 0.6667,
+      "appearances": 3,
       "last_seen": "2026-05-29",
       "first_failure": "2026-05-29",
       "failure_streak": 1,
       "history": [
-        "P",
         "P",
         "P",
         "F"
