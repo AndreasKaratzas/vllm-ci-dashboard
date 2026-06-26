@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-06-26T17:21:35Z",
+  "generated_at": "2026-06-26T18:19:03Z",
   "amd_date": "2026-06-26",
   "upstream_date": "2026-06-26",
   "parity_pct": 0.0,
-  "total_tests": 715,
+  "total_tests": 716,
   "summary": {
-    "upstream_only": 392,
+    "upstream_only": 393,
     "amd_only": 323
   },
   "by_module": {
@@ -108,6 +108,10 @@
     "AMD: Kernels MoE Test 5 (mi325_1)": {
       "parity_pct": 100.0,
       "upstream_only": 2
+    },
+    "AMD: Kernels Quantization Test 1 (mi325_1)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
     },
     "AMD: Kernels Quantization Test 2 (mi325_1)": {
       "parity_pct": 100.0,
@@ -4929,7 +4933,7 @@
       "family_key": "gpqa eval (gpt-oss) (2 gpus)",
       "family_name": "gpqa eval (gpt-oss) (2 gpus)",
       "amd_job_name": "mi355_2: GPQA Eval (GPT-OSS) (2xB200-2xMI355)",
-      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xB200)",
+      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xH100)",
       "amd": {
         "total": 4,
         "passed": 4,
@@ -4966,15 +4970,15 @@
           "side": "amd"
         },
         {
-          "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d86a-45bc-9abf-01aef111f349&tab=output",
-          "job_name": "GPQA Eval (GPT-OSS) (2xB200)",
-          "side": "upstream"
-        },
-        {
           "hw": "h100",
           "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d86b-4646-8899-e444f1c1f8bb&tab=output",
           "job_name": "GPQA Eval (GPT-OSS) (2xH100)",
+          "side": "upstream"
+        },
+        {
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d86a-45bc-9abf-01aef111f349&tab=output",
+          "job_name": "GPQA Eval (GPT-OSS) (2xB200)",
           "side": "upstream"
         }
       ],
@@ -4992,7 +4996,7 @@
       "family_key": "gpqa eval (gpt-oss) (2 gpus)",
       "family_name": "gpqa eval (gpt-oss) (2 gpus)",
       "amd_job_name": "mi300_2: GPQA Eval (GPT-OSS) (2xH100-2xMI300)",
-      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xB200)",
+      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xH100)",
       "amd": {
         "total": 1,
         "passed": 1,
@@ -5029,15 +5033,15 @@
           "side": "amd"
         },
         {
-          "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d86a-45bc-9abf-01aef111f349&tab=output",
-          "job_name": "GPQA Eval (GPT-OSS) (2xB200)",
-          "side": "upstream"
-        },
-        {
           "hw": "h100",
           "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d86b-4646-8899-e444f1c1f8bb&tab=output",
           "job_name": "GPQA Eval (GPT-OSS) (2xH100)",
+          "side": "upstream"
+        },
+        {
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d86a-45bc-9abf-01aef111f349&tab=output",
+          "job_name": "GPQA Eval (GPT-OSS) (2xB200)",
           "side": "upstream"
         }
       ],
@@ -5521,7 +5525,7 @@
       "family_key": "kernels moe test",
       "family_name": "kernels moe test",
       "amd_job_name": "mi300_1: Kernels MoE Test 1",
-      "upstream_job_name": "Kernels MoE Test 1",
+      "upstream_job_name": "Kernels MoE Test 2",
       "amd": {
         "total": 14213,
         "passed": 8231,
@@ -5540,7 +5544,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 84.7
+        "duration": 84.69999999999999
       },
       "hardware": [
         "h100",
@@ -5567,8 +5571,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d862-4e8a-96e4-1b183e76456e&tab=output",
-          "job_name": "Kernels MoE Test 1",
+          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d863-473a-8421-024ceacbfea7&tab=output",
+          "job_name": "Kernels MoE Test 2",
           "side": "upstream"
         }
       ],
@@ -9331,7 +9335,7 @@
       "family_key": "v1 e2e (4 gpus)",
       "family_name": "v1 e2e (4 gpus)",
       "amd_job_name": "mi300_4: V1 e2e (4 GPUs)",
-      "upstream_job_name": "V1 e2e (4xH100)",
+      "upstream_job_name": "V1 e2e (4 GPUs)",
       "amd": {
         "total": 6,
         "passed": 6,
@@ -9368,8 +9372,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d7e1-4423-be36-b8745cf15534&tab=output",
-          "job_name": "V1 e2e (4xH100)",
+          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d7e1-4fd4-8693-d083b8df3f9a&tab=output",
+          "job_name": "V1 e2e (4 GPUs)",
           "side": "upstream"
         }
       ],
@@ -9387,7 +9391,7 @@
       "family_key": "v1 e2e (4 gpus)",
       "family_name": "v1 e2e (4 gpus)",
       "amd_job_name": "mi300_4: V1 e2e (4xH100-4xMI300)",
-      "upstream_job_name": "V1 e2e (4xH100)",
+      "upstream_job_name": "V1 e2e (4 GPUs)",
       "amd": {
         "total": 4,
         "passed": 2,
@@ -9424,8 +9428,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d7e1-4423-be36-b8745cf15534&tab=output",
-          "job_name": "V1 e2e (4xH100)",
+          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d7e1-4fd4-8693-d083b8df3f9a&tab=output",
+          "job_name": "V1 e2e (4 GPUs)",
           "side": "upstream"
         }
       ],
@@ -12361,6 +12365,12 @@
       "test_id": "AMD: Kernels MoE Test 5 (mi325_1)::__skipped__",
       "amd_status": "missing",
       "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "AMD: Kernels Quantization Test 1 (mi325_1)::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "canceled",
       "category": "upstream_only"
     },
     {
