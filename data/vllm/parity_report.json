@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-06-26T15:34:23Z",
+  "generated_at": "2026-06-26T16:31:50Z",
   "amd_date": "2026-06-26",
   "upstream_date": "2026-06-26",
   "parity_pct": 0.0,
-  "total_tests": 712,
+  "total_tests": 715,
   "summary": {
-    "upstream_only": 389,
+    "upstream_only": 392,
     "amd_only": 323
   },
   "by_module": {
@@ -307,7 +307,7 @@
     },
     "Basic Models Test (Other CPU)": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 2
     },
     "Basic Models Tests (Extra Initialization) 1": {
       "parity_pct": 100.0,
@@ -831,7 +831,7 @@
     },
     "Model Runner V2 Spec Decode": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 2
     },
     "Multi-Modal Accuracy Eval (Small Models)": {
       "parity_pct": 100.0,
@@ -1095,7 +1095,7 @@
     },
     "V1 Spec Decode": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 2
     },
     "V1 attention (B200)": {
       "parity_pct": 100.0,
@@ -2232,14 +2232,14 @@
         "duration": 5.81
       },
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 24,
+        "passed": 15,
         "failed": 0,
-        "skipped": 0,
+        "skipped": 9,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 7.66
       },
       "hardware": [
         "h100",
@@ -2263,10 +2263,10 @@
         }
       ],
       "delta": {
-        "total": 23,
-        "passed": 14,
+        "total": 0,
+        "passed": 0,
         "failed": 0,
-        "skipped": 9
+        "skipped": 0
       },
       "status": "both",
       "backfilled": false
@@ -2276,7 +2276,7 @@
       "family_key": "basic models tests (extra initialization)",
       "family_name": "basic models tests (extra initialization)",
       "amd_job_name": "mi300_1: Basic Models Tests (Extra Initialization) 2",
-      "upstream_job_name": "Basic Models Tests (Extra Initialization) 1",
+      "upstream_job_name": "Basic Models Tests (Extra Initialization) 2",
       "amd": {
         "total": 350,
         "passed": 342,
@@ -2288,14 +2288,14 @@
         "duration": 10620.23
       },
       "upstream": {
-        "total": 2,
-        "passed": 2,
+        "total": 352,
+        "passed": 352,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 9875.3
       },
       "hardware": [
         "h100",
@@ -2315,14 +2315,14 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d8aa-489e-86b3-dbc3e7575d9b&tab=output",
-          "job_name": "Basic Models Tests (Extra Initialization) 1",
+          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d8ab-4202-b944-1753f55d187a&tab=output",
+          "job_name": "Basic Models Tests (Extra Initialization) 2",
           "side": "upstream"
         }
       ],
       "delta": {
-        "total": 348,
-        "passed": 340,
+        "total": -2,
+        "passed": -10,
         "failed": 8,
         "skipped": 0
       },
@@ -5521,7 +5521,7 @@
       "family_key": "kernels moe test",
       "family_name": "kernels moe test",
       "amd_job_name": "mi300_1: Kernels MoE Test 1",
-      "upstream_job_name": "Kernels MoE Test 2",
+      "upstream_job_name": "Kernels MoE Test 3",
       "amd": {
         "total": 14213,
         "passed": 8231,
@@ -5567,8 +5567,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d863-473a-8421-024ceacbfea7&tab=output",
-          "job_name": "Kernels MoE Test 2",
+          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d863-45c9-8041-a9abc1300bc5&tab=output",
+          "job_name": "Kernels MoE Test 3",
           "side": "upstream"
         }
       ],
@@ -5897,7 +5897,7 @@
       "family_key": "language models tests (extra standard)",
       "family_name": "language models tests (extra standard)",
       "amd_job_name": "mi300_1: Language Models Tests (Extra Standard) 1",
-      "upstream_job_name": "Language Models Tests (Extra Standard) 1",
+      "upstream_job_name": "Language Models Tests (Extra Standard) 2",
       "amd": {
         "total": 19,
         "passed": 13,
@@ -5934,8 +5934,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d8bd-4355-87cf-196b03d20287&tab=output",
-          "job_name": "Language Models Tests (Extra Standard) 1",
+          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d8bd-4519-bbab-3c610c69a839&tab=output",
+          "job_name": "Language Models Tests (Extra Standard) 2",
           "side": "upstream"
         }
       ],
@@ -5953,7 +5953,7 @@
       "family_key": "language models tests (hybrid)",
       "family_name": "language models tests (hybrid)",
       "amd_job_name": "mi325_1: Language Models Tests (Hybrid) 1",
-      "upstream_job_name": "Language Models Tests (Hybrid) 2",
+      "upstream_job_name": "Language Models Tests (Hybrid) 1",
       "amd": {
         "total": 41,
         "passed": 37,
@@ -5990,8 +5990,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d8bf-48a5-8ec7-9aae1194bdeb&tab=output",
-          "job_name": "Language Models Tests (Hybrid) 2",
+          "url": "https://buildkite.com/vllm/ci/builds/74562/steps/canvas?jid=019f0284-d8be-4381-869e-c988877b6355&tab=output",
+          "job_name": "Language Models Tests (Hybrid) 1",
           "side": "upstream"
         }
       ],
@@ -6771,7 +6771,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 119.46
       },
       "hardware": [
         "h100",
@@ -9583,14 +9583,14 @@
         "duration": 2025.72
       },
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 152,
+        "passed": 137,
         "failed": 0,
-        "skipped": 0,
+        "skipped": 15,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 1205.38
       },
       "hardware": [
         "h100",
@@ -9621,10 +9621,10 @@
         }
       ],
       "delta": {
-        "total": 293,
-        "passed": 291,
+        "total": 142,
+        "passed": 155,
         "failed": 0,
-        "skipped": 2
+        "skipped": -13
       },
       "status": "both",
       "backfilled": false
@@ -10833,14 +10833,14 @@
       "upstream_job_name": "Model Runner V2 Core Tests",
       "amd": null,
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 8,
+        "passed": 8,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 274.65
       },
       "hardware": [
         "h100"
@@ -10874,7 +10874,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 89.56
       },
       "hardware": [
         "h100"
@@ -10935,14 +10935,14 @@
       "upstream_job_name": "Model Runner V2 Pipeline Parallelism (4 GPUs)",
       "amd": null,
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 6,
+        "passed": 6,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 232.8
       },
       "hardware": [
         "h100"
@@ -10969,14 +10969,14 @@
       "upstream_job_name": "Model Runner V2 Spec Decode",
       "amd": null,
       "upstream": {
-        "total": 1,
+        "total": 24,
         "passed": 1,
         "failed": 0,
-        "skipped": 0,
+        "skipped": 23,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 529.92
       },
       "hardware": [
         "h100"
@@ -12808,19 +12808,25 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "Basic Models Test (Other CPU)::__job_level__",
+      "test_id": "Basic Models Test (Other CPU)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Basic Models Tests (Extra Initialization) 1::__job_level__",
+      "test_id": "Basic Models Test (Other CPU)::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Basic Models Tests (Extra Initialization) 1::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Basic Models Tests (Extra Initialization) 2::__job_level__",
+      "test_id": "Basic Models Tests (Extra Initialization) 2::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
@@ -13822,19 +13828,19 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "Model Executor::__job_level__",
+      "test_id": "Model Executor::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Model Runner V2 Core Tests::__job_level__",
+      "test_id": "Model Runner V2 Core Tests::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Model Runner V2 Distributed (2 GPUs)::__job_level__",
+      "test_id": "Model Runner V2 Distributed (2 GPUs)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
@@ -13846,15 +13852,21 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "Model Runner V2 Pipeline Parallelism (4 GPUs)::__job_level__",
+      "test_id": "Model Runner V2 Pipeline Parallelism (4 GPUs)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Model Runner V2 Spec Decode::__job_level__",
+      "test_id": "Model Runner V2 Spec Decode::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Model Runner V2 Spec Decode::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
       "category": "upstream_only"
     },
     {
@@ -14374,9 +14386,15 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "V1 Spec Decode::__job_level__",
+      "test_id": "V1 Spec Decode::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "V1 Spec Decode::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
       "category": "upstream_only"
     },
     {
