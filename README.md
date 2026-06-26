@@ -1,6 +1,6 @@
 # Project Dashboard
 
-Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-06-25 19:31 UTC**
+Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-06-26 12:37 UTC**
 
 ## Overview
 
@@ -27,7 +27,6 @@ Hosted on GitHub Pages — deployed automatically on every push to main.
 | **Home** | PRs, project #39 issues, and ROCm vs upstream test parity |
 | **CI Health** | Latest Buildkite nightly health, parity details, failures, flakes, and links |
 | **CI Analytics** | Nightly build comparison, recent builds, group trends, AMD hardware matrix, queue comparison |
-| **Perf Eval** | AMD-only nightly performance + accuracy from the [`vllm/perf-eval`](https://buildkite.com/vllm/perf-eval) pipeline, fed by Buildkite/result webhooks. Per-model throughput/latency/accuracy trends with red/green regression flags and higher/lower-is-better hints, each traceable to the vLLM commit/image that produced it. |
 | **Queue Monitor** | Buildkite queue workload, wait-time charts, active job overlays, admin triage, and AMD capacity projections |
 | **Hotness / Omni / Ready / Admin** | Focused operational views for workload spikes, Omni queues, ready tickets, and dashboard admin tasks |
 
@@ -47,9 +46,6 @@ The main data path is `.github/workflows/hourly-master.yml`, which runs every 30
 | `scripts/collect_ci.py` | Buildkite nightly test results, CI health, parity, flaky/failure data |
 | `scripts/vllm/collect_analytics.py` | Windowed CI analytics from parsed test-result JSONL plus Buildkite metadata |
 | `scripts/vllm/collect_amd_test_matrix.py` | AMD hardware matrix from upstream `test-amd.yaml`, matched against the latest AMD nightly |
-| `scripts/vllm/collect_perf_eval.py` | Folds the webhook-fed `data/vllm/perf_eval/events.jsonl` log into `perf_eval.json` — AMD-only, nightly-only, per-model perf + accuracy trends |
-| `scripts/vllm/ci/perf_eval_webhook.py` | Receiver/normalizer for `vllm/perf-eval` webhooks (Buildkite build events + perf/accuracy result pushes); appends canonical events to the durable log |
-| `scripts/vllm/seed_perf_eval_events.py` | Writes a representative sample event log so the Perf Eval tab renders before live webhooks have accumulated history |
 | `scripts/vllm/collect_gating_proposals.py` | Open vLLM PRs from tracked AMD engineers that add new `.buildkite/test_areas` AMD mirrors |
 | `scripts/vllm/collect_gating_target_candidates.py` | Review-only audit of upstream nightly GPU jobs against the canonical AMD gating target list |
 | `scripts/vllm/collect_queue_snapshot.py` | Queue timeseries and active job overlays |

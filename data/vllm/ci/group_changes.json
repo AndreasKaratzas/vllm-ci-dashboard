@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-06-25T19:31:12Z",
+  "generated_at": "2026-06-26T12:36:43Z",
   "days": 30,
-  "total_changes": 65,
+  "total_changes": 66,
   "changes": [
     {
       "date": "2026-03-10",
@@ -2121,6 +2121,98 @@
         "url": "https://github.com/vllm-project/vllm/pull/45998",
         "author": "micah-wil"
       }
+    },
+    {
+      "date": "2026-06-25",
+      "sha": "2a6f8f0c05ab",
+      "message": "[ROCm][CI] Fine-tuning queues and test names (#39238)",
+      "author": "Andreas Karatzas",
+      "added": [
+        "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100)",
+        "Distributed Tests (2xB200)",
+        "Distributed Tests (4xA100)",
+        "Distributed Tests (8xH100)",
+        "GPQA Eval (GPT-OSS) (2xB200)",
+        "GPQA Eval (GPT-OSS) (2xH100)",
+        "Kernels FP8 MoE Test (1xH100)",
+        "Kernels FP8 MoE Test (2xH100)",
+        "LM Eval Large Models (4xH100)",
+        "LM Eval Large Models (8xH200)",
+        "LM Eval Large Models EP (2xB200)",
+        "LM Eval Qwen3.5 Models (2xB200)",
+        "LM Eval Small Models (2xB200)",
+        "Platform Tests",
+        "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (2xB200)",
+        "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100)"
+      ],
+      "removed": [
+        "DeepSeek V2-Lite Sync EPLB Accuracy",
+        "Distributed Tests (2 GPUs)(B200)",
+        "Distributed Tests (2xH100-2xMI250)",
+        "Distributed Tests (4 GPUs)(A100)",
+        "Distributed Tests (8 GPUs)(H100)",
+        "GPQA Eval (GPT-OSS) (B200)",
+        "GPQA Eval (GPT-OSS) (H100)",
+        "Kernels FP8 MoE Test (1 H100)",
+        "Kernels FP8 MoE Test (2 H100s)",
+        "LM Eval Large Models (4 GPUs)(H100)",
+        "LM Eval Large Models (B200, EP)",
+        "LM Eval Large Models (H200)",
+        "LM Eval Qwen3.5 Models (B200)",
+        "LM Eval Small Models (B200)",
+        "Platform Tests (CUDA)",
+        "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy",
+        "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (B200)"
+      ],
+      "amd_added": [
+        "Platform Tests"
+      ],
+      "amd_removed": [
+        "Distributed Tests (2xH100-2xMI250)",
+        "Platform Tests (CUDA)"
+      ],
+      "upstream_added": [
+        "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100)",
+        "Distributed Tests (2xB200)",
+        "Distributed Tests (4xA100)",
+        "Distributed Tests (8xH100)",
+        "GPQA Eval (GPT-OSS) (2xB200)",
+        "GPQA Eval (GPT-OSS) (2xH100)",
+        "Kernels FP8 MoE Test (1xH100)",
+        "Kernels FP8 MoE Test (2xH100)",
+        "LM Eval Large Models (4xH100)",
+        "LM Eval Large Models (8xH200)",
+        "LM Eval Large Models EP (2xB200)",
+        "LM Eval Qwen3.5 Models (2xB200)",
+        "LM Eval Small Models (2xB200)",
+        "Platform Tests",
+        "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (2xB200)",
+        "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100)"
+      ],
+      "upstream_removed": [
+        "DeepSeek V2-Lite Sync EPLB Accuracy",
+        "Distributed Tests (2 GPUs)(B200)",
+        "Distributed Tests (4 GPUs)(A100)",
+        "Distributed Tests (8 GPUs)(H100)",
+        "GPQA Eval (GPT-OSS) (B200)",
+        "GPQA Eval (GPT-OSS) (H100)",
+        "Kernels FP8 MoE Test (1 H100)",
+        "Kernels FP8 MoE Test (2 H100s)",
+        "LM Eval Large Models (4 GPUs)(H100)",
+        "LM Eval Large Models (B200, EP)",
+        "LM Eval Large Models (H200)",
+        "LM Eval Qwen3.5 Models (B200)",
+        "LM Eval Small Models (B200)",
+        "Platform Tests (CUDA)",
+        "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy",
+        "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (B200)"
+      ],
+      "pr": {
+        "number": 39238,
+        "title": "[ROCm][CI] Fine-tuning queues and test names",
+        "url": "https://github.com/vllm-project/vllm/pull/39238",
+        "author": "AndreasKaratzas"
+      }
     }
   ],
   "_no_change_shas": [
@@ -2152,6 +2244,7 @@
     "2365b7a8e7c0f6c55eeb820fba43416f880d3a51",
     "24337fb860a89f2087df27b02b7c9620a7fd0093",
     "25bc3be49cc7ce8e7b185ca7da11b2fc9778832c",
+    "27da2a2ac4776faa4265cba38ba86dd3a7119c4f",
     "2ad10292339c045db0cb3998a76240a459cc83a7",
     "2ad7c0335f3a3a7e726d0431bb2c26401c9a6b40",
     "2ec6594db9c2397cc3c315ff3ce3b38e0d40e176",
@@ -2212,6 +2305,7 @@
     "8bc6b5cdb080e8392075f83cdbc46dde90e49617",
     "8d8062d0a7014b4cde064024ae5d5a8715a833b3",
     "8fbe3f303fbf995afe4c409309aa8e889235339e",
+    "915e99ec6701b64af2c37c2172b151bf6b04ebbc",
     "91740ca5eaedbcdd960c3629206087d20fb43a00",
     "9556af87d5d5a38128db0d09eeb7f2fe16f16589",
     "9570654c6d41ffff922cd15d57added9557eb272",
@@ -2221,6 +2315,7 @@
     "9ce74042d368d6f985741d048ad53d6d66cace6d",
     "9cfd4ebb5eaac58724652517e316302e8fd597e6",
     "a19ff2218a79a99fcd9ebf3a2cf202c9f7eeb9f9",
+    "a2e8ec3d52ab4e163501c8c7bee8c03ca8359a7a",
     "a346d589f5932d4234bf5bf8718f10e26d187021",
     "a65093c1a39a8ddd8455365128ecbe259350e22c",
     "a8208e6a81befd781b2a9a8b6b29fd61f5333c66",

@@ -2,12 +2,12 @@
   "summary": {
     "total_amd_steps": 125,
     "total_nvidia_steps": 173,
-    "matched": 117,
-    "amd_only": 8,
-    "nvidia_only": 60,
+    "matched": 116,
+    "amd_only": 9,
+    "nvidia_only": 61,
     "mirrors": 54,
-    "match_rate_pct": 93.6,
-    "avg_command_similarity_pct": 93.1
+    "match_rate_pct": 92.8,
+    "avg_command_similarity_pct": 93.5
   },
   "matches": [
     {
@@ -88,28 +88,6 @@
       ]
     },
     {
-      "amd_label": "Distributed Tests (2xH100-2xMI250)",
-      "nvidia_label": "Distributed Tests (2xH100-2xMI300)",
-      "normalized": "distributed tests (2xh100-2xmi250)",
-      "identity_key": "distributed tests (2 gpus)",
-      "command_similarity": 0.5549,
-      "color": "orange",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/distributed.yaml",
-      "amd_commands": [
-        "pytest -v -s tests/distributed/test_context_parallel.py",
-        "VLLM_LOGGING_LEVEL=DEBUG python3 examples/features/data_parallel/data_parallel_offline.py --model=Qwen/Qwen1.5-MoE-A2.7B -tp=1 -dp=2 --max-model-len=2048 --all2all-backend=allgather_reducescatter --disable-nccl-for-dp-synchronization"
-      ],
-      "nvidia_commands": [
-        "pytest -v -s tests/distributed/test_context_parallel.py",
-        "VLLM_ALLOW_INSECURE_SERIALIZATION=1 python3 examples/rl/rlhf_async_new_apis.py",
-        "VLLM_USE_DEEP_GEMM=1 VLLM_LOGGING_LEVEL=DEBUG python3 examples/features/data_parallel/data_parallel_offline.py --model=Qwen/Qwen1.5-MoE-A2.7B -tp=1 -dp=2 --max-model-len=2048 --all2all-backend=deepep_high_throughput",
-        "pytest -v -s tests/v1/distributed/test_dbo.py",
-        "VLLM_ALLOW_INSECURE_SERIALIZATION=1 pytest -v -s tests/distributed/test_weight_transfer.py",
-        "pytest -v -s tests/distributed/test_packed_tensor.py"
-      ]
-    },
-    {
       "amd_label": "OpenAI API correctness",
       "nvidia_label": "OpenAI API Correctness",
       "normalized": "openai api correctness",
@@ -128,7 +106,7 @@
     },
     {
       "amd_label": "Kernels FP8 MoE Test (2xH100-2xMI300)",
-      "nvidia_label": "Kernels FP8 MoE Test (2 H100s)",
+      "nvidia_label": "Kernels FP8 MoE Test (2xH100)",
       "normalized": "kernels fp8 moe test (2xh100-2xmi300)",
       "identity_key": "kernels fp8 moe test (2 gpus)",
       "command_similarity": 0.6187,
@@ -332,35 +310,30 @@
       ]
     },
     {
-      "amd_label": "LM Eval Small Models (MI300)",
-      "nvidia_label": "LM Eval Small Models (B200)",
-      "normalized": "lm eval small models (mi300)",
-      "identity_key": "lm eval small models (hardware variants)",
-      "command_similarity": 0.8128,
+      "amd_label": "Distributed Tests (2xH100-2xMI300)",
+      "nvidia_label": "Distributed Tests (2xH100-2xMI300)",
+      "normalized": "distributed tests (2xh100-2xmi300)",
+      "identity_key": "distributed tests (2 gpus)",
+      "command_similarity": 0.8028,
       "color": "yellow",
       "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/lm_eval.yaml",
+      "nvidia_source": ".buildkite/test_areas/distributed.yaml",
       "amd_commands": [
-        "pytest -s -v test_lm_eval_correctness.py --config-list-file=configs/models-small-rocm.txt"
+        "pytest -v -s tests/distributed/test_context_parallel.py",
+        "VLLM_ALLOW_INSECURE_SERIALIZATION=1 python3 examples/rl/rlhf_async_new_apis.py",
+        "VLLM_LOGGING_LEVEL=DEBUG python3 examples/features/data_parallel/data_parallel_offline.py --model=Qwen/Qwen1.5-MoE-A2.7B -tp=1 -dp=2 --max-model-len=2048 --all2all-backend=deepep_high_throughput",
+        "VLLM_LOGGING_LEVEL=DEBUG python3 examples/features/data_parallel/data_parallel_offline.py --model=Qwen/Qwen1.5-MoE-A2.7B -tp=1 -dp=2 --max-model-len=2048 --all2all-backend=allgather_reducescatter --disable-nccl-for-dp-synchronization",
+        "pytest -v -s tests/v1/distributed/test_dbo.py",
+        "VLLM_ALLOW_INSECURE_SERIALIZATION=1 pytest -v -s tests/distributed/test_weight_transfer.py",
+        "pytest -v -s tests/distributed/test_packed_tensor.py"
       ],
       "nvidia_commands": [
-        "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=configs/models-blackwell.txt"
-      ]
-    },
-    {
-      "amd_label": "LM Eval Qwen3-5 Models (B200-MI355) %N",
-      "nvidia_label": "LM Eval Qwen3.5 Models (B200)",
-      "normalized": "lm eval qwen3-5 models (b200-mi355)",
-      "identity_key": "lm eval qwen3-5 models (2 gpus)",
-      "command_similarity": 0.8205,
-      "color": "yellow",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/lm_eval.yaml",
-      "amd_commands": [
-        "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=configs/models-qwen35-mi355.txt --shard-id=$$BUILDKITE_PARALLEL_JOB --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT"
-      ],
-      "nvidia_commands": [
-        "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=configs/models-qwen35-blackwell.txt"
+        "pytest -v -s tests/distributed/test_context_parallel.py",
+        "VLLM_ALLOW_INSECURE_SERIALIZATION=1 python3 examples/rl/rlhf_async_new_apis.py",
+        "VLLM_USE_DEEP_GEMM=1 VLLM_LOGGING_LEVEL=DEBUG python3 examples/features/data_parallel/data_parallel_offline.py --model=Qwen/Qwen1.5-MoE-A2.7B -tp=1 -dp=2 --max-model-len=2048 --all2all-backend=deepep_high_throughput",
+        "pytest -v -s tests/v1/distributed/test_dbo.py",
+        "VLLM_ALLOW_INSECURE_SERIALIZATION=1 pytest -v -s tests/distributed/test_weight_transfer.py",
+        "pytest -v -s tests/distributed/test_packed_tensor.py"
       ]
     },
     {
@@ -623,6 +596,22 @@
       ]
     },
     {
+      "amd_label": "LM Eval Qwen3-5 Models (B200-MI355)",
+      "nvidia_label": "LM Eval Qwen3.5 Models (2xB200)",
+      "normalized": "lm eval qwen3-5 models (b200-mi355)",
+      "identity_key": "lm eval qwen3-5 models (2 gpus)",
+      "command_similarity": 0.932,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/lm_eval.yaml",
+      "amd_commands": [
+        "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=configs/models-qwen35-mi355.txt"
+      ],
+      "nvidia_commands": [
+        "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=configs/models-qwen35-blackwell.txt"
+      ]
+    },
+    {
       "amd_label": "Fusion E2E Config Sweep (H100-MI300)",
       "nvidia_label": "Fusion E2E Config Sweep (H100)",
       "normalized": "fusion e2e config sweep (h100-mi300)",
@@ -700,7 +689,7 @@
     },
     {
       "amd_label": "LM Eval Large Models (8xH200-8xMI300)",
-      "nvidia_label": "LM Eval Large Models (H200)",
+      "nvidia_label": "LM Eval Large Models (8xH200)",
       "normalized": "lm eval large models (8xh200-8xmi300)",
       "identity_key": "lm eval large models (8 gpus)",
       "command_similarity": 0.9519,
@@ -717,7 +706,7 @@
     },
     {
       "amd_label": "GPQA Eval (GPT-OSS) (2xH100-2xMI300)",
-      "nvidia_label": "GPQA Eval (GPT-OSS) (H100)",
+      "nvidia_label": "GPQA Eval (GPT-OSS) (2xH100)",
       "normalized": "gpqa eval (gpt-oss) (2xh100-2xmi300)",
       "identity_key": "gpqa eval (gpt-oss) (2 gpus)",
       "command_similarity": 0.9648,
@@ -735,7 +724,7 @@
     },
     {
       "amd_label": "LM Eval Large Models (4xA100-4xMI300)",
-      "nvidia_label": "LM Eval Large Models (4 GPUs)(H100)",
+      "nvidia_label": "LM Eval Large Models (4xH100)",
       "normalized": "lm eval large models (4xa100-4xmi300)",
       "identity_key": "lm eval large models (4 gpus)",
       "command_similarity": 0.9648,
@@ -785,49 +774,11 @@
       ]
     },
     {
-      "amd_label": "Weight Loading Multiple GPU",
-      "nvidia_label": "Weight Loading Multiple GPU",
-      "normalized": "weight loading multiple gpu",
-      "identity_key": "weight loading multiple gpu (2 gpus)",
-      "command_similarity": 0.9759,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/weight_loading.yaml",
-      "amd_commands": [
-        "bash weight_loading/run_model_weight_loading_test.sh -c weight_loading/models-amd.txt"
-      ],
-      "nvidia_commands": [
-        "bash weight_loading/run_model_weight_loading_test.sh -c weight_loading/models.txt"
-      ]
-    },
-    {
-      "amd_label": "Distributed Tests (4xA100-4xMI300)",
-      "nvidia_label": "Distributed Tests (4 GPUs)(A100)",
-      "normalized": "distributed tests (4xa100-4xmi300)",
-      "identity_key": "distributed tests (4 gpus)",
-      "command_similarity": 0.9895,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/distributed.yaml",
-      "amd_commands": [
-        "pytest -v -s distributed/test_custom_all_reduce.py",
-        "torchrun --nproc_per_node=2 distributed/test_ca_buffer_sharing.py",
-        "TARGET_TEST_SUITE=MI300 pytest basic_correctness/ -v -s -m 'distributed(num_gpus=2)'",
-        "pytest -v -s -x lora/test_mixtral.py"
-      ],
-      "nvidia_commands": [
-        "pytest -v -s distributed/test_custom_all_reduce.py",
-        "torchrun --nproc_per_node=2 distributed/test_ca_buffer_sharing.py",
-        "TARGET_TEST_SUITE=A100 pytest basic_correctness/ -v -s -m 'distributed(num_gpus=2)'",
-        "pytest -v -s -x lora/test_mixtral.py"
-      ]
-    },
-    {
       "amd_label": "Examples",
       "nvidia_label": "Examples",
       "normalized": "examples",
       "identity_key": "examples",
-      "command_similarity": 0.9901,
+      "command_similarity": 0.971,
       "color": "green",
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/misc.yaml",
@@ -840,8 +791,8 @@
         "python3 basic/offline_inference/embed.py",
         "python3 basic/offline_inference/score.py",
         "python3 generate/multimodal/audio_language_offline.py --seed 0",
-        "python3 generate/multimodal/vision_language_offline.py --seed 0",
-        "python3 generate/multimodal/vision_language_multi_image_offline.py --seed 0",
+        "PYTORCH_NVML_BASED_CUDA_CHECK=1 python3 generate/multimodal/vision_language_offline.py --seed 0",
+        "PYTORCH_NVML_BASED_CUDA_CHECK=1 python3 generate/multimodal/vision_language_multi_image_offline.py --seed 0",
         "python3 generate/multimodal/encoder_decoder_multimodal_offline.py --model-type whisper --seed 0",
         "python3 pooling/embed/vision_embedding_offline.py --seed 0",
         "python3 features/automatic_prefix_caching/prefix_caching_offline.py",
@@ -868,6 +819,44 @@
         "python3 features/tensorize_vllm_model.py --model facebook/opt-125m serialize --serialized-directory /tmp/ --suffix v1 && python3 features/tensorize_vllm_model.py --model facebook/opt-125m deserialize --path-to-tensors /tmp/vllm/facebook/opt-125m/v1/model.tensors",
         "python3 features/speculative_decoding/spec_decode_offline.py --test --method eagle --num_spec_tokens 3 --dataset-name hf --dataset-path philschmid/mt-bench --num-prompts 80 --temp 0 --top-p 1.0 --top-k -1 --tp 1 --enable-chunked-prefill --max-model-len 2048",
         "python3 features/speculative_decoding/spec_decode_offline.py --test --method eagle3 --num_spec_tokens 3 --dataset-name hf --dataset-path philschmid/mt-bench --num-prompts 80 --temp 0 --top-p 1.0 --top-k -1 --tp 1 --enable-chunked-prefill --max-model-len 1536"
+      ]
+    },
+    {
+      "amd_label": "Weight Loading Multiple GPU",
+      "nvidia_label": "Weight Loading Multiple GPU",
+      "normalized": "weight loading multiple gpu",
+      "identity_key": "weight loading multiple gpu (2 gpus)",
+      "command_similarity": 0.9759,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/weight_loading.yaml",
+      "amd_commands": [
+        "bash weight_loading/run_model_weight_loading_test.sh -c weight_loading/models-amd.txt"
+      ],
+      "nvidia_commands": [
+        "bash weight_loading/run_model_weight_loading_test.sh -c weight_loading/models.txt"
+      ]
+    },
+    {
+      "amd_label": "Distributed Tests (4xA100-4xMI300)",
+      "nvidia_label": "Distributed Tests (4xA100)",
+      "normalized": "distributed tests (4xa100-4xmi300)",
+      "identity_key": "distributed tests (4 gpus)",
+      "command_similarity": 0.9895,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/distributed.yaml",
+      "amd_commands": [
+        "pytest -v -s distributed/test_custom_all_reduce.py",
+        "torchrun --nproc_per_node=2 distributed/test_ca_buffer_sharing.py",
+        "TARGET_TEST_SUITE=MI300 pytest basic_correctness/ -v -s -m 'distributed(num_gpus=2)'",
+        "pytest -v -s -x lora/test_mixtral.py"
+      ],
+      "nvidia_commands": [
+        "pytest -v -s distributed/test_custom_all_reduce.py",
+        "torchrun --nproc_per_node=2 distributed/test_ca_buffer_sharing.py",
+        "TARGET_TEST_SUITE=A100 pytest basic_correctness/ -v -s -m 'distributed(num_gpus=2)'",
+        "pytest -v -s -x lora/test_mixtral.py"
       ]
     },
     {
@@ -1119,10 +1108,10 @@
       "nvidia_source": ".buildkite/test_areas/pytorch.yaml"
     },
     {
-      "amd_label": "Platform Tests (CUDA)",
-      "nvidia_label": "Platform Tests (CUDA)",
-      "normalized": "platform tests (cuda)",
-      "identity_key": "platform tests (cuda)",
+      "amd_label": "Platform Tests",
+      "nvidia_label": "Platform Tests",
+      "normalized": "platform tests",
+      "identity_key": "platform tests",
       "command_similarity": 1.0,
       "color": "green",
       "amd_source": "test-amd.yaml",
@@ -1180,7 +1169,7 @@
     },
     {
       "amd_label": "Distributed Tests (8xH100-8xMI300)",
-      "nvidia_label": "Distributed Tests (8 GPUs)(H100)",
+      "nvidia_label": "Distributed Tests (8xH100)",
       "normalized": "distributed tests (8xh100-8xmi300)",
       "identity_key": "distributed tests (8 gpus)",
       "command_similarity": 1.0,
@@ -1310,7 +1299,7 @@
     },
     {
       "amd_label": "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100-4xMI300)",
-      "nvidia_label": "DeepSeek V2-Lite Sync EPLB Accuracy",
+      "nvidia_label": "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100)",
       "normalized": "deepseek v2-lite sync eplb accuracy (4xh100-4xmi300)",
       "identity_key": "deepseek v2-lite sync eplb accuracy (4 gpus)",
       "command_similarity": 1.0,
@@ -1320,7 +1309,7 @@
     },
     {
       "amd_label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100-4xMI300)",
-      "nvidia_label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy",
+      "nvidia_label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100)",
       "normalized": "qwen3-30b-a3b-fp8-block sync eplb accuracy (4xh100-4xmi300)",
       "identity_key": "qwen3-30b-a3b-fp8-block sync eplb accuracy (4 gpus)",
       "command_similarity": 1.0,
@@ -1660,7 +1649,7 @@
     },
     {
       "amd_label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (B200-MI355)",
-      "nvidia_label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (B200)",
+      "nvidia_label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (2xB200)",
       "normalized": "qwen3-30b-a3b-fp8-block sync eplb accuracy (b200-mi355)",
       "identity_key": "qwen3-30b-a3b-fp8-block sync eplb accuracy (2 gpus)",
       "command_similarity": 1.0,
@@ -1670,6 +1659,12 @@
     }
   ],
   "amd_only": [
+    {
+      "label": "LM Eval Small Models (MI300)",
+      "normalized": "lm eval small models (mi300)",
+      "identity_key": "lm eval small models (hardware variants)",
+      "group": "amd"
+    },
     {
       "label": "Qwen3-Next-80B-A3B-Instruct MTP Async EPLB Accuracy",
       "normalized": "qwen3-next-80b-a3b-instruct mtp async eplb accuracy",
@@ -1859,8 +1854,8 @@
       "source": ".buildkite/test_areas/kernels.yaml"
     },
     {
-      "label": "Kernels FP8 MoE Test (1 H100)",
-      "normalized": "kernels fp8 moe test (1 h100)",
+      "label": "Kernels FP8 MoE Test (1xH100)",
+      "normalized": "kernels fp8 moe test (1 gpus)",
       "identity_key": "kernels fp8 moe test (1 gpus)",
       "source": ".buildkite/test_areas/kernels.yaml"
     },
@@ -1883,9 +1878,15 @@
       "source": ".buildkite/test_areas/kernels.yaml"
     },
     {
-      "label": "LM Eval Large Models (B200, EP)",
-      "normalized": "lm eval large models (b200, ep)",
-      "identity_key": "lm eval large models (b200, ep) (2 gpus)",
+      "label": "LM Eval Small Models (2xB200)",
+      "normalized": "lm eval small models (2 gpus)",
+      "identity_key": "lm eval small models (2 gpus)",
+      "source": ".buildkite/test_areas/lm_eval.yaml"
+    },
+    {
+      "label": "LM Eval Large Models EP (2xB200)",
+      "normalized": "lm eval large models ep (2 gpus)",
+      "identity_key": "lm eval large models ep (2 gpus)",
       "source": ".buildkite/test_areas/lm_eval.yaml"
     },
     {
@@ -2291,7 +2292,7 @@
       "source_file": ".buildkite/test_areas/lm_eval.yaml"
     },
     {
-      "nvidia_label": "LM Eval Large Models (H200)",
+      "nvidia_label": "LM Eval Large Models (8xH200)",
       "identity_key": "lm eval large models (8 gpus)",
       "commands_overridden": true,
       "command_similarity": 0.9519,
