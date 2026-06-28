@@ -434,16 +434,17 @@
       "nvidia_label": "Distributed Model Tests (2 GPUs)",
       "normalized": "distributed model tests (2 gpus)",
       "identity_key": "distributed model tests (2 gpus)",
-      "command_similarity": 0.874,
+      "command_similarity": 0.8634,
       "color": "yellow",
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/models_distributed.yaml",
       "amd_commands": [
-        "TARGET_TEST_SUITE=MI250 pytest basic_correctness/ -v -s -m 'distributed(num_gpus=2)'",
+        "TARGET_TEST_SUITE=MI300 pytest basic_correctness/ -v -s -m 'distributed(num_gpus=2)'",
         "CUDA_VISIBLE_DEVICES=0,1 pytest -v -s model_executor/model_loader/test_sharded_state_loader.py -m '(not slow_test)'",
         "pytest models/test_transformers.py -v -s -m 'distributed(num_gpus=2)'",
         "pytest models/language -v -s -m 'distributed(num_gpus=2)'",
-        "pytest models/multimodal -v -s -m 'distributed(num_gpus=2)' --ignore models/multimodal/generation/test_whisper.py",
+        "pytest models/multimodal -v -s -m 'distributed(num_gpus=2)' --ignore models/multimodal/generation/test_whisper.py --ignore models/multimodal/generation/test_phi4siglip.py",
+        "pytest models/multimodal/generation/test_phi4siglip.py -v -s -m 'distributed(num_gpus=2)'",
         "VLLM_WORKER_MULTIPROC_METHOD=spawn pytest models/multimodal/generation/test_whisper.py -v -s -m 'distributed(num_gpus=2)'"
       ],
       "nvidia_commands": [
@@ -774,54 +775,6 @@
       ]
     },
     {
-      "amd_label": "Examples",
-      "nvidia_label": "Examples",
-      "normalized": "examples",
-      "identity_key": "examples",
-      "command_similarity": 0.971,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/misc.yaml",
-      "amd_commands": [
-        "pip install tensorizer",
-        "python3 basic/offline_inference/chat.py --attention-backend TRITON_ATTN",
-        "python3 basic/offline_inference/generate.py --model facebook/opt-125m",
-        "python3 basic/offline_inference/generate.py --model meta-llama/Llama-2-13b-chat-hf --cpu-offload-gb 10",
-        "python3 basic/offline_inference/classify.py",
-        "python3 basic/offline_inference/embed.py",
-        "python3 basic/offline_inference/score.py",
-        "python3 generate/multimodal/audio_language_offline.py --seed 0",
-        "PYTORCH_NVML_BASED_CUDA_CHECK=1 python3 generate/multimodal/vision_language_offline.py --seed 0",
-        "PYTORCH_NVML_BASED_CUDA_CHECK=1 python3 generate/multimodal/vision_language_multi_image_offline.py --seed 0",
-        "python3 generate/multimodal/encoder_decoder_multimodal_offline.py --model-type whisper --seed 0",
-        "python3 pooling/embed/vision_embedding_offline.py --seed 0",
-        "python3 features/automatic_prefix_caching/prefix_caching_offline.py",
-        "python3 deployment/llm_engine_example.py",
-        "python3 features/tensorize_vllm_model.py --model facebook/opt-125m serialize --serialized-directory /tmp/ --suffix v1 && python3 features/tensorize_vllm_model.py --model facebook/opt-125m deserialize --path-to-tensors /tmp/vllm/facebook/opt-125m/v1/model.tensors",
-        "python3 features/speculative_decoding/spec_decode_offline.py --test --method eagle --num_spec_tokens 3 --dataset-name hf --dataset-path philschmid/mt-bench --num-prompts 80 --temp 0 --top-p 1.0 --top-k -1 --tp 1 --enable-chunked-prefill --max-model-len 2048",
-        "python3 features/speculative_decoding/spec_decode_offline.py --test --method eagle3 --num_spec_tokens 3 --dataset-name hf --dataset-path philschmid/mt-bench --num-prompts 80 --temp 0 --top-p 1.0 --top-k -1 --tp 1 --enable-chunked-prefill --max-model-len 1536"
-      ],
-      "nvidia_commands": [
-        "pip install tensorizer",
-        "python3 basic/offline_inference/chat.py",
-        "python3 basic/offline_inference/generate.py --model facebook/opt-125m",
-        "python3 basic/offline_inference/generate.py --model meta-llama/Llama-2-13b-chat-hf --cpu-offload-gb 10",
-        "python3 basic/offline_inference/classify.py",
-        "python3 basic/offline_inference/embed.py",
-        "python3 basic/offline_inference/score.py",
-        "python3 generate/multimodal/audio_language_offline.py --seed 0",
-        "python3 generate/multimodal/vision_language_offline.py --seed 0",
-        "python3 generate/multimodal/vision_language_multi_image_offline.py --seed 0",
-        "python3 generate/multimodal/encoder_decoder_multimodal_offline.py --model-type whisper --seed 0",
-        "python3 pooling/embed/vision_embedding_offline.py --seed 0",
-        "python3 features/automatic_prefix_caching/prefix_caching_offline.py",
-        "python3 deployment/llm_engine_example.py",
-        "python3 features/tensorize_vllm_model.py --model facebook/opt-125m serialize --serialized-directory /tmp/ --suffix v1 && python3 features/tensorize_vllm_model.py --model facebook/opt-125m deserialize --path-to-tensors /tmp/vllm/facebook/opt-125m/v1/model.tensors",
-        "python3 features/speculative_decoding/spec_decode_offline.py --test --method eagle --num_spec_tokens 3 --dataset-name hf --dataset-path philschmid/mt-bench --num-prompts 80 --temp 0 --top-p 1.0 --top-k -1 --tp 1 --enable-chunked-prefill --max-model-len 2048",
-        "python3 features/speculative_decoding/spec_decode_offline.py --test --method eagle3 --num_spec_tokens 3 --dataset-name hf --dataset-path philschmid/mt-bench --num-prompts 80 --temp 0 --top-p 1.0 --top-k -1 --tp 1 --enable-chunked-prefill --max-model-len 1536"
-      ]
-    },
-    {
       "amd_label": "Weight Loading Multiple GPU",
       "nvidia_label": "Weight Loading Multiple GPU",
       "normalized": "weight loading multiple gpu",
@@ -886,26 +839,6 @@
       "color": "green",
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/pytorch.yaml"
-    },
-    {
-      "amd_label": "Distributed Compile + RPC Tests (2 GPUs)",
-      "nvidia_label": "Distributed Compile + RPC Tests (2 GPUs)",
-      "normalized": "distributed compile + rpc tests (2 gpus)",
-      "identity_key": "distributed compile + rpc tests (2 gpus)",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/distributed.yaml"
-    },
-    {
-      "amd_label": "Distributed Comm Ops",
-      "nvidia_label": "Distributed Comm Ops",
-      "normalized": "distributed comm ops",
-      "identity_key": "distributed comm ops (2 gpus)",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/distributed.yaml"
     },
     {
       "amd_label": "Pipeline + Context Parallelism (4 GPUs)",
@@ -1038,26 +971,6 @@
       "nvidia_source": ".buildkite/test_areas/attention.yaml"
     },
     {
-      "amd_label": "Distributed DP Tests (2 GPUs)",
-      "nvidia_label": "Distributed DP Tests (2 GPUs)",
-      "normalized": "distributed dp tests (2 gpus)",
-      "identity_key": "distributed dp tests (2 gpus)",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/distributed.yaml"
-    },
-    {
-      "amd_label": "V1 e2e (2 GPUs)",
-      "nvidia_label": "V1 e2e (2 GPUs)",
-      "normalized": "v1 e2e (2 gpus)",
-      "identity_key": "v1 e2e (2 gpus)",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/engine.yaml"
-    },
-    {
       "amd_label": "Benchmarks CLI Test",
       "nvidia_label": "Benchmarks CLI Test",
       "normalized": "benchmarks cli test",
@@ -1116,6 +1029,16 @@
       "color": "green",
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/misc.yaml"
+    },
+    {
+      "amd_label": "Distributed Comm Ops",
+      "nvidia_label": "Distributed Comm Ops",
+      "normalized": "distributed comm ops",
+      "identity_key": "distributed comm ops (2 gpus)",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/distributed.yaml"
     },
     {
       "amd_label": "EPLB Algorithm",
@@ -1306,6 +1229,16 @@
       "color": "green",
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/e2e_integration.yaml"
+    },
+    {
+      "amd_label": "Examples",
+      "nvidia_label": "Examples",
+      "normalized": "examples",
+      "identity_key": "examples",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/misc.yaml"
     },
     {
       "amd_label": "Kernels Attention Test %N",
@@ -1558,6 +1491,16 @@
       "nvidia_source": ".buildkite/test_areas/misc.yaml"
     },
     {
+      "amd_label": "Distributed DP Tests (2 GPUs)",
+      "nvidia_label": "Distributed DP Tests (2 GPUs)",
+      "normalized": "distributed dp tests (2 gpus)",
+      "identity_key": "distributed dp tests (2 gpus)",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/distributed.yaml"
+    },
+    {
       "amd_label": "Metrics, Tracing (2 GPUs)",
       "nvidia_label": "Metrics, Tracing (2 GPUs)",
       "normalized": "metrics, tracing (2 gpus)",
@@ -1566,6 +1509,16 @@
       "color": "green",
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/misc.yaml"
+    },
+    {
+      "amd_label": "V1 e2e (2 GPUs)",
+      "nvidia_label": "V1 e2e (2 GPUs)",
+      "normalized": "v1 e2e (2 gpus)",
+      "identity_key": "v1 e2e (2 gpus)",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/engine.yaml"
     },
     {
       "amd_label": "Distributed DP Tests (4 GPUs)",
@@ -1586,6 +1539,16 @@
       "color": "green",
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/engine.yaml"
+    },
+    {
+      "amd_label": "Distributed Compile + RPC Tests (2 GPUs)",
+      "nvidia_label": "Distributed Compile + RPC Tests (2 GPUs)",
+      "normalized": "distributed compile + rpc tests (2 gpus)",
+      "identity_key": "distributed compile + rpc tests (2 gpus)",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/distributed.yaml"
     },
     {
       "amd_label": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
@@ -2162,14 +2125,6 @@
       "source_file": ".buildkite/test_areas/distributed.yaml"
     },
     {
-      "nvidia_label": "Distributed Tests (2xH100-2xMI300)",
-      "identity_key": "distributed tests (2 gpus)",
-      "commands_overridden": true,
-      "command_similarity": 0.8773,
-      "color": "yellow",
-      "source_file": ".buildkite/test_areas/distributed.yaml"
-    },
-    {
       "nvidia_label": "Engine",
       "identity_key": "engine",
       "commands_overridden": false,
@@ -2332,6 +2287,14 @@
     {
       "nvidia_label": "V1 Core + KV + Metrics",
       "identity_key": "v1 core + kv + metrics",
+      "commands_overridden": false,
+      "command_similarity": 1.0,
+      "color": "green",
+      "source_file": ".buildkite/test_areas/misc.yaml"
+    },
+    {
+      "nvidia_label": "Examples",
+      "identity_key": "examples",
       "commands_overridden": false,
       "command_similarity": 1.0,
       "color": "green",
