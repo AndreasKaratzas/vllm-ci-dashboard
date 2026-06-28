@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-28T11:04:30Z",
+  "generated_at": "2026-06-28T11:58:31Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -23,18 +23,18 @@
     "upstream_build": 74916,
     "amd_ci_build": 10170,
     "canonical_target_count": 125,
-    "row_count": 226,
-    "canonical_match_count": 103,
+    "row_count": 228,
+    "canonical_match_count": 107,
     "likely_duplicate_count": 18,
-    "new_candidate_count": 53,
+    "new_candidate_count": 54,
     "excluded_count": 39,
-    "missing_from_upstream_count": 13,
+    "missing_from_upstream_count": 10,
     "by_decision": {
-      "canonical": 103,
+      "canonical": 107,
       "excluded": 39,
       "likely_duplicate": 18,
-      "missing_from_upstream": 13,
-      "new_candidate": 53
+      "missing_from_upstream": 10,
+      "new_candidate": 54
     }
   },
   "rows": [
@@ -554,6 +554,31 @@
       "proposal_matches": []
     },
     {
+      "label": "Entrypoints Integration (Multimodal)",
+      "canonical_key": "entrypoints integration (multimodal)",
+      "state": "passed",
+      "queue": "h200_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/74916/steps/canvas?jid=019f0cd1-9238-421c-8840-dfbb6524533d&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 90,
+      "canonical_label": "Entrypoints Integration (Multimodal)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": [
+        {
+          "pr": 44969,
+          "url": "https://github.com/vllm-project/vllm/pull/44969",
+          "title": "[ROCm][CI] Gating more ROCm tests",
+          "author": "AndreasKaratzas",
+          "label": "Entrypoints Integration (Multimodal)",
+          "device": "mi300_1",
+          "yaml_file": ".buildkite/test_areas/entrypoints.yaml"
+        }
+      ]
+    },
+    {
       "label": "Entrypoints Integration (Pooling)",
       "canonical_key": "entrypoints integration (pooling)",
       "state": "passed",
@@ -894,6 +919,31 @@
       ]
     },
     {
+      "label": "Language Models Test (Extended Generation)",
+      "canonical_key": "language models test (extended generation)",
+      "state": "passed",
+      "queue": "h200_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/74916/steps/canvas?jid=019f0cd1-94ad-464a-92eb-5c3dd5cbafc3&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 73,
+      "canonical_label": "Language Models Test (Extended Generation)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": [
+        {
+          "pr": 44969,
+          "url": "https://github.com/vllm-project/vllm/pull/44969",
+          "title": "[ROCm][CI] Gating more ROCm tests",
+          "author": "AndreasKaratzas",
+          "label": "Language Models Test (Extended Generation)",
+          "device": "mi325_1",
+          "yaml_file": ".buildkite/test_areas/models_language.yaml"
+        }
+      ]
+    },
+    {
       "label": "Language Models Test (Extended Pooling)",
       "canonical_key": "language models test (extended pooling)",
       "state": "passed",
@@ -1113,6 +1163,31 @@
           "title": "[ROCm][CI] Gating more ROCm tests",
           "author": "AndreasKaratzas",
           "label": "Multi-Modal Models (Extended Generation 2)",
+          "device": "mi300_1",
+          "yaml_file": ".buildkite/test_areas/models_multimodal.yaml"
+        }
+      ]
+    },
+    {
+      "label": "Multi-Modal Models (Extended Generation 3)",
+      "canonical_key": "multi-modal models (extended generation 3)",
+      "state": "passed",
+      "queue": "h200_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/74916/steps/canvas?jid=019f0cd1-94c9-4792-afaf-c0b754ad4b57&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 99,
+      "canonical_label": "Multi-Modal Models (Extended Generation 3)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": [
+        {
+          "pr": 44969,
+          "url": "https://github.com/vllm-project/vllm/pull/44969",
+          "title": "[ROCm][CI] Gating more ROCm tests",
+          "author": "AndreasKaratzas",
+          "label": "Multi-Modal Models (Extended Generation 3)",
           "device": "mi300_1",
           "yaml_file": ".buildkite/test_areas/models_multimodal.yaml"
         }
@@ -1345,6 +1420,21 @@
       "canonical_label": "PyTorch Compilation Passes Unit Tests",
       "source_signal": "red",
       "readiness_signal": "red",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "PyTorch Compilation Unit Tests",
+      "canonical_key": "pytorch compilation unit test",
+      "state": "passed",
+      "queue": "h200_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/74916/steps/canvas?jid=019f0cd1-94f0-4610-b3f4-9361acf94c6b&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 76,
+      "canonical_label": "PyTorch Compilation Unit Tests",
+      "source_signal": "red",
+      "readiness_signal": "green",
       "target_signal": "green",
       "proposal_matches": []
     },
@@ -2601,6 +2691,30 @@
       "proposal_matches": []
     },
     {
+      "label": "LoRA 4",
+      "canonical_key": "lora 4",
+      "state": "passed",
+      "queue": "h200_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/74916/steps/canvas?jid=019f0cd1-9439-416a-901e-488b47f043c5&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "passed",
+        "jobs": [
+          {
+            "label": "LoRA 4",
+            "state": "passed",
+            "queue": "amd_mi300_1",
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10170/steps/canvas?jid=019f0d75-3877-4d6a-bd09-5ebebe4cab04&tab=output"
+          }
+        ]
+      },
+      "proposal_matches": []
+    },
+    {
       "label": "Quantized MoE Test (B200)",
       "canonical_key": "quantized moe test",
       "state": "passed",
@@ -3564,33 +3678,6 @@
       "label": "GPQA Eval (GPT-OSS) (H100)",
       "canonical_key": "gpqa eval (gpt-oss)",
       "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green"
-    },
-    {
-      "decision": "missing_from_upstream",
-      "target_id": 73,
-      "label": "Language Models Test (Extended Generation)",
-      "canonical_key": "language models test (extended generation)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green"
-    },
-    {
-      "decision": "missing_from_upstream",
-      "target_id": 90,
-      "label": "Entrypoints Integration (Multimodal)",
-      "canonical_key": "entrypoints integration (multimodal)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green"
-    },
-    {
-      "decision": "missing_from_upstream",
-      "target_id": 99,
-      "label": "Multi-Modal Models (Extended Generation 3)",
-      "canonical_key": "multi-modal models (extended generation 3)",
-      "source_signal": "green",
       "readiness_signal": "green",
       "target_signal": "green"
     },

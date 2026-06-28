@@ -3,7 +3,7 @@
     "pipeline": "amd-ci",
     "display_name": "AMD CI",
     "days": 30,
-    "generated_at": "2026-06-28T10:59:05Z",
+    "generated_at": "2026-06-28T11:53:52Z",
     "summary": {
       "total_builds": 30,
       "passed": 29,
@@ -126559,7 +126559,7 @@
     "pipeline": "ci",
     "display_name": "Upstream CI",
     "days": 30,
-    "generated_at": "2026-06-28T10:59:05Z",
+    "generated_at": "2026-06-28T11:53:52Z",
     "summary": {
       "total_builds": 31,
       "passed": 3,
@@ -126761,17 +126761,17 @@
     "builds": [
       {
         "number": 74916,
-        "state": "failing",
+        "state": "failed",
         "created_at": "2026-06-28T06:00:08.367Z",
         "date": "2026-06-28",
         "message": "Full CI run - nightly",
         "author": "",
-        "wall_mins": null,
-        "passed": 266,
+        "wall_mins": 341.7,
+        "passed": 271,
         "failed": 12,
         "soft_failed": 3,
         "skipped": 0,
-        "total_jobs": 281,
+        "total_jobs": 286,
         "jobs": [
           {
             "name": "2 Node Test (4 GPUs)",
@@ -128664,6 +128664,21 @@
             "q": "gpu_1_queue"
           },
           {
+            "name": "Entrypoints Integration (Multimodal)",
+            "raw_name": "Entrypoints Integration (Multimodal)",
+            "state": "passed",
+            "dur": 25.8,
+            "tests": 123,
+            "passed_tests": 122,
+            "failed_tests": 0,
+            "skipped_tests": 1,
+            "url": "https://buildkite.com/vllm/ci/builds/74916/steps/canvas?jid=019f0cd1-9238-421c-8840-dfbb6524533d&tab=output",
+            "job_id": "019f0cd1-9238-421c-8840-dfbb6524533d",
+            "step_id": "019f0cd1-8f86-439c-82af-44be03f2c714",
+            "wait": 0.0,
+            "q": "h200_35gb"
+          },
+          {
             "name": "Entrypoints Integration (Pooling)",
             "raw_name": "Entrypoints Integration (Pooling)",
             "state": "passed",
@@ -129504,6 +129519,21 @@
             "q": "h200_18gb"
           },
           {
+            "name": "Language Models Test (Extended Generation)",
+            "raw_name": "Language Models Test (Extended Generation)",
+            "state": "passed",
+            "dur": 32.7,
+            "tests": 35,
+            "passed_tests": 30,
+            "failed_tests": 0,
+            "skipped_tests": 5,
+            "url": "https://buildkite.com/vllm/ci/builds/74916/steps/canvas?jid=019f0cd1-94ad-464a-92eb-5c3dd5cbafc3&tab=output",
+            "job_id": "019f0cd1-94ad-464a-92eb-5c3dd5cbafc3",
+            "step_id": "019f0cd1-901f-4e9e-a7f5-ce2fdd650d06",
+            "wait": 0.0,
+            "q": "h200_35gb"
+          },
+          {
             "name": "Language Models Test (Extended Pooling)",
             "raw_name": "Language Models Test (Extended Pooling)",
             "state": "passed",
@@ -129664,6 +129694,21 @@
             "skipped_tests": 19,
             "url": "https://buildkite.com/vllm/ci/builds/74916/steps/canvas?jid=019f0cd1-9437-4280-b6d8-4b55cbad4006&tab=output",
             "job_id": "019f0cd1-9437-4280-b6d8-4b55cbad4006",
+            "step_id": "019f0cd1-9002-4345-8046-08d2eba46972",
+            "wait": 0.0,
+            "q": "h200_35gb"
+          },
+          {
+            "name": "LoRA 4",
+            "raw_name": "LoRA 4",
+            "state": "passed",
+            "dur": 24.1,
+            "tests": 1730,
+            "passed_tests": 1702,
+            "failed_tests": 0,
+            "skipped_tests": 28,
+            "url": "https://buildkite.com/vllm/ci/builds/74916/steps/canvas?jid=019f0cd1-9439-416a-901e-488b47f043c5&tab=output",
+            "job_id": "019f0cd1-9439-416a-901e-488b47f043c5",
             "step_id": "019f0cd1-9002-4345-8046-08d2eba46972",
             "wait": 0.0,
             "q": "h200_35gb"
@@ -129894,6 +129939,21 @@
             "q": "h200_35gb"
           },
           {
+            "name": "Multi-Modal Models (Extended Generation 3)",
+            "raw_name": "Multi-Modal Models (Extended Generation 3)",
+            "state": "passed",
+            "dur": 44.0,
+            "tests": 116,
+            "passed_tests": 27,
+            "failed_tests": 0,
+            "skipped_tests": 89,
+            "url": "https://buildkite.com/vllm/ci/builds/74916/steps/canvas?jid=019f0cd1-94c9-4792-afaf-c0b754ad4b57&tab=output",
+            "job_id": "019f0cd1-94c9-4792-afaf-c0b754ad4b57",
+            "step_id": "019f0cd1-902c-48cd-a8a5-1c55463453d5",
+            "wait": 0.0,
+            "q": "h200_35gb"
+          },
+          {
             "name": "Multi-Modal Models (Extended Pooling)",
             "raw_name": "Multi-Modal Models (Extended Pooling)",
             "state": "passed",
@@ -130117,6 +130177,21 @@
             "step_id": "019f0cd1-9037-47b3-97c5-47fe018182ef",
             "wait": 3.1,
             "q": "gpu_1_queue"
+          },
+          {
+            "name": "PyTorch Compilation Unit Tests",
+            "raw_name": "PyTorch Compilation Unit Tests",
+            "state": "passed",
+            "dur": 0.3,
+            "tests": 2,
+            "passed_tests": 2,
+            "failed_tests": 0,
+            "skipped_tests": 0,
+            "url": "https://buildkite.com/vllm/ci/builds/74916/steps/canvas?jid=019f0cd1-94f0-4610-b3f4-9361acf94c6b&tab=output",
+            "job_id": "019f0cd1-94f0-4610-b3f4-9361acf94c6b",
+            "step_id": "019f0cd1-9038-4bc7-84c3-3076104056d6",
+            "wait": 0.0,
+            "q": "h200_35gb"
           },
           {
             "name": "PyTorch Compilation Unit Tests (H100)",
@@ -237238,17 +237313,17 @@
     "nightly_builds": [
       {
         "number": 74916,
-        "state": "failing",
+        "state": "failed",
         "created_at": "2026-06-28T06:00:08.367Z",
         "date": "2026-06-28",
         "message": "Full CI run - nightly",
         "author": "",
-        "wall_mins": null,
-        "passed": 266,
+        "wall_mins": 341.7,
+        "passed": 271,
         "failed": 12,
         "soft_failed": 3,
         "skipped": 0,
-        "total_jobs": 281,
+        "total_jobs": 286,
         "web_url": "https://buildkite.com/vllm/ci/builds/74916",
         "source": "test_results"
       },
@@ -238719,26 +238794,6 @@
         ]
       },
       {
-        "name": "PyTorch Compilation Unit Tests",
-        "runs": 29,
-        "passed": 27,
-        "failed": 2,
-        "soft_failed": 0,
-        "fail_rate": 6.9,
-        "is_soft_fail": false,
-        "median_dur": 0.3,
-        "p90_dur": 0.4,
-        "avg_dur": 0.3,
-        "max_dur": 0.4,
-        "median_wait": 0.0,
-        "p90_wait": 45.0,
-        "avg_wait": 9.1,
-        "max_wait": 113.4,
-        "queues": [
-          "h200_35gb"
-        ]
-      },
-      {
         "name": "AsyncTP Correctness Tests (B200)",
         "runs": 30,
         "passed": 28,
@@ -238876,6 +238931,26 @@
         "max_wait": 10.3,
         "queues": [
           "gpu_1_queue"
+        ]
+      },
+      {
+        "name": "PyTorch Compilation Unit Tests",
+        "runs": 30,
+        "passed": 28,
+        "failed": 2,
+        "soft_failed": 0,
+        "fail_rate": 6.7,
+        "is_soft_fail": false,
+        "median_dur": 0.3,
+        "p90_dur": 0.4,
+        "avg_dur": 0.3,
+        "max_dur": 0.4,
+        "median_wait": 0.0,
+        "p90_wait": 45.0,
+        "avg_wait": 8.8,
+        "max_wait": 113.4,
+        "queues": [
+          "h200_35gb"
         ]
       },
       {
@@ -239922,19 +239997,19 @@
       },
       {
         "name": "Multi-Modal Models (Extended Generation 3)",
-        "runs": 29,
-        "passed": 29,
+        "runs": 30,
+        "passed": 30,
         "failed": 0,
         "soft_failed": 0,
         "fail_rate": 0.0,
         "is_soft_fail": false,
-        "median_dur": 54.8,
+        "median_dur": 54.2,
         "p90_dur": 64.1,
-        "avg_dur": 55.6,
+        "avg_dur": 55.2,
         "max_dur": 66.4,
         "median_wait": 0.0,
         "p90_wait": 44.2,
-        "avg_wait": 8.5,
+        "avg_wait": 8.3,
         "max_wait": 113.4,
         "queues": [
           "h200_35gb"
@@ -240462,19 +240537,19 @@
       },
       {
         "name": "Language Models Test (Extended Generation)",
-        "runs": 29,
-        "passed": 29,
+        "runs": 30,
+        "passed": 30,
         "failed": 0,
         "soft_failed": 0,
         "fail_rate": 0.0,
         "is_soft_fail": false,
-        "median_dur": 32.5,
+        "median_dur": 32.6,
         "p90_dur": 42.3,
-        "avg_dur": 34.0,
+        "avg_dur": 33.9,
         "max_dur": 45.2,
         "median_wait": 0.0,
         "p90_wait": 42.0,
-        "avg_wait": 7.9,
+        "avg_wait": 7.7,
         "max_wait": 113.0,
         "queues": [
           "h200_35gb"
@@ -240982,8 +241057,8 @@
       },
       {
         "name": "LoRA 4",
-        "runs": 29,
-        "passed": 29,
+        "runs": 30,
+        "passed": 30,
         "failed": 0,
         "soft_failed": 0,
         "fail_rate": 0.0,
@@ -240994,7 +241069,7 @@
         "max_dur": 27.4,
         "median_wait": 0.0,
         "p90_wait": 38.1,
-        "avg_wait": 7.2,
+        "avg_wait": 6.9,
         "max_wait": 110.4,
         "queues": [
           "h200_35gb"
@@ -241022,19 +241097,19 @@
       },
       {
         "name": "Entrypoints Integration (Multimodal)",
-        "runs": 18,
-        "passed": 18,
+        "runs": 19,
+        "passed": 19,
         "failed": 0,
         "soft_failed": 0,
         "fail_rate": 0.0,
         "is_soft_fail": false,
-        "median_dur": 24.1,
+        "median_dur": 24.2,
         "p90_dur": 28.8,
-        "avg_dur": 24.4,
+        "avg_dur": 24.5,
         "max_dur": 30.8,
         "median_wait": 0.0,
         "p90_wait": 73.1,
-        "avg_wait": 15.0,
+        "avg_wait": 14.2,
         "max_wait": 106.3,
         "queues": [
           "h200_35gb"
@@ -246182,11 +246257,11 @@
       },
       {
         "name": "PyTorch Compilation Unit Tests",
-        "runs": 29,
-        "passed": 27,
+        "runs": 30,
+        "passed": 28,
         "failed": 2,
         "soft_failed": 0,
-        "fail_rate": 6.9,
+        "fail_rate": 6.7,
         "is_soft_fail": false,
         "median_dur": 0.3,
         "p90_dur": 0.4,
@@ -246194,7 +246269,7 @@
         "max_dur": 0.4,
         "median_wait": 0.0,
         "p90_wait": 45.0,
-        "avg_wait": 9.1,
+        "avg_wait": 8.8,
         "max_wait": 113.4,
         "queues": [
           "h200_35gb"
@@ -246660,7 +246735,7 @@
       },
       {
         "queue": "h200_35gb",
-        "jobs": 915,
+        "jobs": 920,
         "median_wait": 0.0,
         "p90_wait": 0.0,
         "avg_wait": 0.0,
@@ -246685,7 +246760,7 @@
           "passed": 0,
           "failed": 1,
           "pass_rate": 0.0,
-          "total_jobs_tracked": 281,
+          "total_jobs_tracked": 286,
           "jobs_with_failures": 15,
           "jobs_with_hard_failures": 12,
           "jobs_with_soft_failures": 3
@@ -246701,17 +246776,17 @@
         "builds": [
           {
             "number": 74916,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-06-28T06:00:08.367Z",
             "date": "2026-06-28",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 266,
+            "wall_mins": 341.7,
+            "passed": 271,
             "failed": 12,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 281,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/74916",
             "source": "test_results"
           }
@@ -246719,17 +246794,17 @@
         "nightly_builds": [
           {
             "number": 74916,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-06-28T06:00:08.367Z",
             "date": "2026-06-28",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 266,
+            "wall_mins": 341.7,
+            "passed": 271,
             "failed": 12,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 281,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/74916",
             "source": "test_results"
           }
@@ -247498,6 +247573,26 @@
             ]
           },
           {
+            "name": "Multi-Modal Models (Extended Generation 3)",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 44.0,
+            "p90_dur": 44.0,
+            "avg_dur": 44.0,
+            "max_dur": 44.0,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_35gb"
+            ]
+          },
+          {
             "name": "AMD: Kernels Attention Test 1 (mi325_1)",
             "runs": 1,
             "passed": 1,
@@ -247635,6 +247730,26 @@
             "max_wait": 3.1,
             "queues": [
               "gpu_4_queue"
+            ]
+          },
+          {
+            "name": "Language Models Test (Extended Generation)",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 32.7,
+            "p90_dur": 32.7,
+            "avg_dur": 32.7,
+            "max_dur": 32.7,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_35gb"
             ]
           },
           {
@@ -247938,6 +248053,26 @@
             ]
           },
           {
+            "name": "Entrypoints Integration (Multimodal)",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 25.8,
+            "p90_dur": 25.8,
+            "avg_dur": 25.8,
+            "max_dur": 25.8,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_35gb"
+            ]
+          },
+          {
             "name": "Language Models Tests (Hybrid) 2",
             "runs": 1,
             "passed": 1,
@@ -248015,6 +248150,26 @@
             "max_wait": 2.2,
             "queues": [
               "gpu_1_queue"
+            ]
+          },
+          {
+            "name": "LoRA 4",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 24.1,
+            "p90_dur": 24.1,
+            "avg_dur": 24.1,
+            "max_dur": 24.1,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_35gb"
             ]
           },
           {
@@ -252458,6 +252613,26 @@
             ]
           },
           {
+            "name": "PyTorch Compilation Unit Tests",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 0.3,
+            "p90_dur": 0.3,
+            "avg_dur": 0.3,
+            "max_dur": 0.3,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_35gb"
+            ]
+          },
+          {
             "name": "CPU-Kernel Tests",
             "runs": 1,
             "passed": 1,
@@ -252829,7 +253004,7 @@
           },
           {
             "queue": "h200_35gb",
-            "jobs": 26,
+            "jobs": 31,
             "median_wait": 0.0,
             "p90_wait": 0.0,
             "avg_wait": 0.0,
@@ -252889,17 +253064,17 @@
         "builds": [
           {
             "number": 74916,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-06-28T06:00:08.367Z",
             "date": "2026-06-28",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 266,
+            "wall_mins": 341.7,
+            "passed": 271,
             "failed": 12,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 281,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/74916",
             "source": "test_results"
           },
@@ -252939,17 +253114,17 @@
         "nightly_builds": [
           {
             "number": 74916,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-06-28T06:00:08.367Z",
             "date": "2026-06-28",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 266,
+            "wall_mins": 341.7,
+            "passed": 271,
             "failed": 12,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 281,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/74916",
             "source": "test_results"
           },
@@ -253791,19 +253966,19 @@
           },
           {
             "name": "Multi-Modal Models (Extended Generation 3)",
-            "runs": 2,
-            "passed": 2,
+            "runs": 3,
+            "passed": 3,
             "failed": 0,
             "soft_failed": 0,
             "fail_rate": 0.0,
             "is_soft_fail": false,
-            "median_dur": 51.5,
+            "median_dur": 50.2,
             "p90_dur": 52.9,
-            "avg_dur": 51.5,
+            "avg_dur": 49.0,
             "max_dur": 52.9,
-            "median_wait": 78.8,
+            "median_wait": 44.2,
             "p90_wait": 113.4,
-            "avg_wait": 78.8,
+            "avg_wait": 52.5,
             "max_wait": 113.4,
             "queues": [
               "h200_35gb"
@@ -254031,19 +254206,19 @@
           },
           {
             "name": "Language Models Test (Extended Generation)",
-            "runs": 2,
-            "passed": 2,
+            "runs": 3,
+            "passed": 3,
             "failed": 0,
             "soft_failed": 0,
             "fail_rate": 0.0,
             "is_soft_fail": false,
-            "median_dur": 36.4,
+            "median_dur": 35.5,
             "p90_dur": 37.2,
-            "avg_dur": 36.4,
+            "avg_dur": 35.1,
             "max_dur": 37.2,
-            "median_wait": 77.5,
+            "median_wait": 42.0,
             "p90_wait": 113.0,
-            "avg_wait": 77.5,
+            "avg_wait": 51.7,
             "max_wait": 113.0,
             "queues": [
               "h200_35gb"
@@ -254310,26 +254485,6 @@
             ]
           },
           {
-            "name": "Entrypoints Integration (Multimodal)",
-            "runs": 2,
-            "passed": 2,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 29.8,
-            "p90_dur": 30.8,
-            "avg_dur": 29.8,
-            "max_dur": 30.8,
-            "median_wait": 71.2,
-            "p90_wait": 106.3,
-            "avg_wait": 71.2,
-            "max_wait": 106.3,
-            "queues": [
-              "h200_35gb"
-            ]
-          },
-          {
             "name": "Entrypoints Integration (Responses API)",
             "runs": 3,
             "passed": 3,
@@ -254385,6 +254540,26 @@
             "p90_wait": 108.9,
             "avg_wait": 48.9,
             "max_wait": 108.9,
+            "queues": [
+              "h200_35gb"
+            ]
+          },
+          {
+            "name": "Entrypoints Integration (Multimodal)",
+            "runs": 3,
+            "passed": 3,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 28.8,
+            "p90_dur": 30.8,
+            "avg_dur": 28.5,
+            "max_dur": 30.8,
+            "median_wait": 36.2,
+            "p90_wait": 106.3,
+            "avg_wait": 47.5,
+            "max_wait": 106.3,
             "queues": [
               "h200_35gb"
             ]
@@ -254491,19 +254666,19 @@
           },
           {
             "name": "LoRA 4",
-            "runs": 2,
-            "passed": 2,
+            "runs": 3,
+            "passed": 3,
             "failed": 0,
             "soft_failed": 0,
             "fail_rate": 0.0,
             "is_soft_fail": false,
-            "median_dur": 26.1,
+            "median_dur": 26.0,
             "p90_dur": 26.3,
-            "avg_dur": 26.1,
+            "avg_dur": 25.5,
             "max_dur": 26.3,
-            "median_wait": 74.2,
+            "median_wait": 38.1,
             "p90_wait": 110.4,
-            "avg_wait": 74.2,
+            "avg_wait": 49.5,
             "max_wait": 110.4,
             "queues": [
               "h200_35gb"
@@ -258951,8 +259126,8 @@
           },
           {
             "name": "PyTorch Compilation Unit Tests",
-            "runs": 2,
-            "passed": 2,
+            "runs": 3,
+            "passed": 3,
             "failed": 0,
             "soft_failed": 0,
             "fail_rate": 0.0,
@@ -258961,9 +259136,9 @@
             "p90_dur": 0.4,
             "avg_dur": 0.3,
             "max_dur": 0.4,
-            "median_wait": 79.2,
+            "median_wait": 45.0,
             "p90_wait": 113.4,
-            "avg_wait": 79.2,
+            "avg_wait": 52.8,
             "max_wait": 113.4,
             "queues": [
               "h200_35gb"
@@ -259189,11 +259364,11 @@
           },
           {
             "queue": "h200_35gb",
-            "jobs": 86,
-            "median_wait": 40.2,
-            "p90_wait": 71.2,
-            "avg_wait": 43.2,
-            "max_wait": 79.2
+            "jobs": 91,
+            "median_wait": 39.6,
+            "p90_wait": 45.0,
+            "avg_wait": 39.3,
+            "max_wait": 46.0
           },
           {
             "queue": "gpu_4_queue",
@@ -259425,17 +259600,17 @@
         "builds": [
           {
             "number": 74916,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-06-28T06:00:08.367Z",
             "date": "2026-06-28",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 266,
+            "wall_mins": 341.7,
+            "passed": 271,
             "failed": 12,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 281,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/74916",
             "source": "test_results"
           },
@@ -259539,17 +259714,17 @@
         "nightly_builds": [
           {
             "number": 74916,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-06-28T06:00:08.367Z",
             "date": "2026-06-28",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 266,
+            "wall_mins": 341.7,
+            "passed": 271,
             "failed": 12,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 281,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/74916",
             "source": "test_results"
           },
@@ -260555,19 +260730,19 @@
           },
           {
             "name": "Multi-Modal Models (Extended Generation 3)",
-            "runs": 5,
-            "passed": 5,
+            "runs": 6,
+            "passed": 6,
             "failed": 0,
             "soft_failed": 0,
             "fail_rate": 0.0,
             "is_soft_fail": false,
-            "median_dur": 52.9,
+            "median_dur": 51.5,
             "p90_dur": 55.8,
-            "avg_dur": 52.0,
+            "avg_dur": 50.7,
             "max_dur": 55.8,
             "median_wait": 0.0,
             "p90_wait": 113.4,
-            "avg_wait": 31.5,
+            "avg_wait": 26.3,
             "max_wait": 113.4,
             "queues": [
               "h200_35gb"
@@ -260814,26 +260989,6 @@
             ]
           },
           {
-            "name": "Language Models Test (Extended Generation)",
-            "runs": 5,
-            "passed": 5,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 35.5,
-            "p90_dur": 43.1,
-            "avg_dur": 35.1,
-            "max_dur": 43.1,
-            "median_wait": 0.0,
-            "p90_wait": 113.0,
-            "avg_wait": 31.0,
-            "max_wait": 113.0,
-            "queues": [
-              "h200_35gb"
-            ]
-          },
-          {
             "name": "LM Eval Large Models (H200)",
             "runs": 3,
             "passed": 3,
@@ -260871,6 +261026,26 @@
             "max_wait": 7.8,
             "queues": [
               "h200_18gb"
+            ]
+          },
+          {
+            "name": "Language Models Test (Extended Generation)",
+            "runs": 6,
+            "passed": 6,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 34.1,
+            "p90_dur": 43.1,
+            "avg_dur": 34.7,
+            "max_dur": 43.1,
+            "median_wait": 0.0,
+            "p90_wait": 113.0,
+            "avg_wait": 25.8,
+            "max_wait": 113.0,
+            "queues": [
+              "h200_35gb"
             ]
           },
           {
@@ -261214,26 +261389,6 @@
             ]
           },
           {
-            "name": "Entrypoints Integration (Multimodal)",
-            "runs": 5,
-            "passed": 5,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 26.8,
-            "p90_dur": 30.8,
-            "avg_dur": 27.0,
-            "max_dur": 30.8,
-            "median_wait": 0.0,
-            "p90_wait": 106.3,
-            "avg_wait": 28.5,
-            "max_wait": 106.3,
-            "queues": [
-              "h200_35gb"
-            ]
-          },
-          {
             "name": "Entrypoints Integration (Speech to Text)",
             "runs": 6,
             "passed": 6,
@@ -261294,6 +261449,26 @@
             ]
           },
           {
+            "name": "Entrypoints Integration (Multimodal)",
+            "runs": 6,
+            "passed": 6,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 26.3,
+            "p90_dur": 30.8,
+            "avg_dur": 26.8,
+            "max_dur": 30.8,
+            "median_wait": 0.0,
+            "p90_wait": 106.3,
+            "avg_wait": 23.8,
+            "max_wait": 106.3,
+            "queues": [
+              "h200_35gb"
+            ]
+          },
+          {
             "name": "Language Models Test (MTEB)",
             "runs": 6,
             "passed": 6,
@@ -261334,26 +261509,6 @@
             ]
           },
           {
-            "name": "LoRA 4",
-            "runs": 5,
-            "passed": 5,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 26.0,
-            "p90_dur": 27.0,
-            "avg_dur": 25.5,
-            "max_dur": 27.0,
-            "median_wait": 0.0,
-            "p90_wait": 110.4,
-            "avg_wait": 29.7,
-            "max_wait": 110.4,
-            "queues": [
-              "h200_35gb"
-            ]
-          },
-          {
             "name": "Entrypoints Integration (API Server OpenAI - Part 1)",
             "runs": 6,
             "passed": 6,
@@ -261371,6 +261526,26 @@
             "max_wait": 9.6,
             "queues": [
               "gpu_1_queue"
+            ]
+          },
+          {
+            "name": "LoRA 4",
+            "runs": 6,
+            "passed": 6,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 25.8,
+            "p90_dur": 27.0,
+            "avg_dur": 25.3,
+            "max_dur": 27.0,
+            "median_wait": 0.0,
+            "p90_wait": 110.4,
+            "avg_wait": 24.8,
+            "max_wait": 110.4,
+            "queues": [
+              "h200_35gb"
             ]
           },
           {
@@ -266075,8 +266250,8 @@
           },
           {
             "name": "PyTorch Compilation Unit Tests",
-            "runs": 5,
-            "passed": 5,
+            "runs": 6,
+            "passed": 6,
             "failed": 0,
             "soft_failed": 0,
             "fail_rate": 0.0,
@@ -266087,7 +266262,7 @@
             "max_dur": 0.4,
             "median_wait": 0.0,
             "p90_wait": 113.4,
-            "avg_wait": 31.7,
+            "avg_wait": 26.4,
             "max_wait": 113.4,
             "queues": [
               "h200_35gb"
@@ -266533,7 +266708,7 @@
           },
           {
             "queue": "h200_35gb",
-            "jobs": 182,
+            "jobs": 187,
             "median_wait": 0.0,
             "p90_wait": 0.0,
             "avg_wait": 0.0,
@@ -266651,17 +266826,17 @@
         "builds": [
           {
             "number": 74916,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-06-28T06:00:08.367Z",
             "date": "2026-06-28",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 266,
+            "wall_mins": 341.7,
+            "passed": 271,
             "failed": 12,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 281,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/74916",
             "source": "test_results"
           },
@@ -266877,17 +267052,17 @@
         "nightly_builds": [
           {
             "number": 74916,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-06-28T06:00:08.367Z",
             "date": "2026-06-28",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 266,
+            "wall_mins": 341.7,
+            "passed": 271,
             "failed": 12,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 281,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/74916",
             "source": "test_results"
           },
@@ -267502,26 +267677,6 @@
             ]
           },
           {
-            "name": "PyTorch Compilation Unit Tests",
-            "runs": 12,
-            "passed": 10,
-            "failed": 2,
-            "soft_failed": 0,
-            "fail_rate": 16.7,
-            "is_soft_fail": false,
-            "median_dur": 0.3,
-            "p90_dur": 0.4,
-            "avg_dur": 0.3,
-            "max_dur": 0.4,
-            "median_wait": 0.0,
-            "p90_wait": 45.0,
-            "avg_wait": 15.6,
-            "max_wait": 113.4,
-            "queues": [
-              "h200_35gb"
-            ]
-          },
-          {
             "name": "Torch Nightly Basic Models Tests (Extra Initialization) 1",
             "runs": 12,
             "passed": 10,
@@ -267659,6 +267814,26 @@
             "max_wait": 10.3,
             "queues": [
               "gpu_1_queue"
+            ]
+          },
+          {
+            "name": "PyTorch Compilation Unit Tests",
+            "runs": 13,
+            "passed": 11,
+            "failed": 2,
+            "soft_failed": 0,
+            "fail_rate": 15.4,
+            "is_soft_fail": false,
+            "median_dur": 0.3,
+            "p90_dur": 0.4,
+            "avg_dur": 0.3,
+            "max_dur": 0.4,
+            "median_wait": 0.0,
+            "p90_wait": 45.0,
+            "avg_wait": 14.4,
+            "max_wait": 113.4,
+            "queues": [
+              "h200_35gb"
             ]
           },
           {
@@ -268625,19 +268800,19 @@
           },
           {
             "name": "Multi-Modal Models (Extended Generation 3)",
-            "runs": 12,
-            "passed": 12,
+            "runs": 13,
+            "passed": 13,
             "failed": 0,
             "soft_failed": 0,
             "fail_rate": 0.0,
             "is_soft_fail": false,
-            "median_dur": 55.3,
+            "median_dur": 54.8,
             "p90_dur": 64.1,
-            "avg_dur": 56.1,
+            "avg_dur": 55.2,
             "max_dur": 66.4,
             "median_wait": 0.0,
             "p90_wait": 44.2,
-            "avg_wait": 14.6,
+            "avg_wait": 13.5,
             "max_wait": 113.4,
             "queues": [
               "h200_35gb"
@@ -269025,19 +269200,19 @@
           },
           {
             "name": "Language Models Test (Extended Generation)",
-            "runs": 12,
-            "passed": 12,
+            "runs": 13,
+            "passed": 13,
             "failed": 0,
             "soft_failed": 0,
             "fail_rate": 0.0,
             "is_soft_fail": false,
-            "median_dur": 32.6,
+            "median_dur": 32.7,
             "p90_dur": 37.2,
-            "avg_dur": 33.9,
+            "avg_dur": 33.8,
             "max_dur": 43.1,
             "median_wait": 0.0,
             "p90_wait": 42.0,
-            "avg_wait": 13.9,
+            "avg_wait": 12.8,
             "max_wait": 113.0,
             "queues": [
               "h200_35gb"
@@ -269445,8 +269620,8 @@
           },
           {
             "name": "LoRA 4",
-            "runs": 12,
-            "passed": 12,
+            "runs": 13,
+            "passed": 13,
             "failed": 0,
             "soft_failed": 0,
             "fail_rate": 0.0,
@@ -269457,7 +269632,7 @@
             "max_dur": 27.0,
             "median_wait": 0.0,
             "p90_wait": 38.1,
-            "avg_wait": 12.5,
+            "avg_wait": 11.5,
             "max_wait": 110.4,
             "queues": [
               "h200_35gb"
@@ -269545,19 +269720,19 @@
           },
           {
             "name": "Entrypoints Integration (Multimodal)",
-            "runs": 12,
-            "passed": 12,
+            "runs": 13,
+            "passed": 13,
             "failed": 0,
             "soft_failed": 0,
             "fail_rate": 0.0,
             "is_soft_fail": false,
-            "median_dur": 24.3,
+            "median_dur": 24.4,
             "p90_dur": 28.8,
-            "avg_dur": 25.0,
+            "avg_dur": 25.1,
             "max_dur": 30.8,
             "median_wait": 0.0,
             "p90_wait": 73.1,
-            "avg_wait": 18.0,
+            "avg_wait": 16.6,
             "max_wait": 106.3,
             "queues": [
               "h200_35gb"
@@ -274225,11 +274400,11 @@
           },
           {
             "name": "PyTorch Compilation Unit Tests",
-            "runs": 12,
-            "passed": 10,
+            "runs": 13,
+            "passed": 11,
             "failed": 2,
             "soft_failed": 0,
-            "fail_rate": 16.7,
+            "fail_rate": 15.4,
             "is_soft_fail": false,
             "median_dur": 0.3,
             "p90_dur": 0.4,
@@ -274237,7 +274412,7 @@
             "max_dur": 0.4,
             "median_wait": 0.0,
             "p90_wait": 45.0,
-            "avg_wait": 15.6,
+            "avg_wait": 14.4,
             "max_wait": 113.4,
             "queues": [
               "h200_35gb"
@@ -274703,7 +274878,7 @@
           },
           {
             "queue": "h200_35gb",
-            "jobs": 399,
+            "jobs": 404,
             "median_wait": 0.0,
             "p90_wait": 0.0,
             "avg_wait": 0.0,
@@ -274917,17 +275092,17 @@
         "builds": [
           {
             "number": 74916,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-06-28T06:00:08.367Z",
             "date": "2026-06-28",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 266,
+            "wall_mins": 341.7,
+            "passed": 271,
             "failed": 12,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 281,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/74916",
             "source": "test_results"
           },
@@ -275399,17 +275574,17 @@
         "nightly_builds": [
           {
             "number": 74916,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-06-28T06:00:08.367Z",
             "date": "2026-06-28",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 266,
+            "wall_mins": 341.7,
+            "passed": 271,
             "failed": 12,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 281,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/74916",
             "source": "test_results"
           },
@@ -276880,26 +277055,6 @@
             ]
           },
           {
-            "name": "PyTorch Compilation Unit Tests",
-            "runs": 28,
-            "passed": 26,
-            "failed": 2,
-            "soft_failed": 0,
-            "fail_rate": 7.1,
-            "is_soft_fail": false,
-            "median_dur": 0.3,
-            "p90_dur": 0.4,
-            "avg_dur": 0.3,
-            "max_dur": 0.4,
-            "median_wait": 0.0,
-            "p90_wait": 45.0,
-            "avg_wait": 9.4,
-            "max_wait": 113.4,
-            "queues": [
-              "h200_35gb"
-            ]
-          },
-          {
             "name": "AsyncTP Correctness Tests (B200)",
             "runs": 29,
             "passed": 27,
@@ -277037,6 +277192,26 @@
             "max_wait": 10.3,
             "queues": [
               "gpu_1_queue"
+            ]
+          },
+          {
+            "name": "PyTorch Compilation Unit Tests",
+            "runs": 29,
+            "passed": 27,
+            "failed": 2,
+            "soft_failed": 0,
+            "fail_rate": 6.9,
+            "is_soft_fail": false,
+            "median_dur": 0.3,
+            "p90_dur": 0.4,
+            "avg_dur": 0.3,
+            "max_dur": 0.4,
+            "median_wait": 0.0,
+            "p90_wait": 45.0,
+            "avg_wait": 9.1,
+            "max_wait": 113.4,
+            "queues": [
+              "h200_35gb"
             ]
           },
           {
@@ -278043,19 +278218,19 @@
           },
           {
             "name": "Multi-Modal Models (Extended Generation 3)",
-            "runs": 28,
-            "passed": 28,
+            "runs": 29,
+            "passed": 29,
             "failed": 0,
             "soft_failed": 0,
             "fail_rate": 0.0,
             "is_soft_fail": false,
-            "median_dur": 55.3,
+            "median_dur": 54.8,
             "p90_dur": 64.1,
-            "avg_dur": 55.7,
+            "avg_dur": 55.3,
             "max_dur": 66.4,
             "median_wait": 0.0,
             "p90_wait": 44.2,
-            "avg_wait": 8.9,
+            "avg_wait": 8.5,
             "max_wait": 113.4,
             "queues": [
               "h200_35gb"
@@ -278583,19 +278758,19 @@
           },
           {
             "name": "Language Models Test (Extended Generation)",
-            "runs": 28,
-            "passed": 28,
+            "runs": 29,
+            "passed": 29,
             "failed": 0,
             "soft_failed": 0,
             "fail_rate": 0.0,
             "is_soft_fail": false,
-            "median_dur": 32.6,
+            "median_dur": 32.7,
             "p90_dur": 42.3,
             "avg_dur": 34.0,
             "max_dur": 45.2,
             "median_wait": 0.0,
             "p90_wait": 42.0,
-            "avg_wait": 8.2,
+            "avg_wait": 7.9,
             "max_wait": 113.0,
             "queues": [
               "h200_35gb"
@@ -279103,19 +279278,19 @@
           },
           {
             "name": "LoRA 4",
-            "runs": 28,
-            "passed": 28,
+            "runs": 29,
+            "passed": 29,
             "failed": 0,
             "soft_failed": 0,
             "fail_rate": 0.0,
             "is_soft_fail": false,
-            "median_dur": 24.6,
+            "median_dur": 24.3,
             "p90_dur": 27.0,
             "avg_dur": 24.6,
             "max_dur": 27.4,
             "median_wait": 0.0,
             "p90_wait": 38.1,
-            "avg_wait": 7.4,
+            "avg_wait": 7.2,
             "max_wait": 110.4,
             "queues": [
               "h200_35gb"
@@ -279143,19 +279318,19 @@
           },
           {
             "name": "Entrypoints Integration (Multimodal)",
-            "runs": 18,
-            "passed": 18,
+            "runs": 19,
+            "passed": 19,
             "failed": 0,
             "soft_failed": 0,
             "fail_rate": 0.0,
             "is_soft_fail": false,
-            "median_dur": 24.1,
+            "median_dur": 24.2,
             "p90_dur": 28.8,
-            "avg_dur": 24.4,
+            "avg_dur": 24.5,
             "max_dur": 30.8,
             "median_wait": 0.0,
             "p90_wait": 73.1,
-            "avg_wait": 15.0,
+            "avg_wait": 14.2,
             "max_wait": 106.3,
             "queues": [
               "h200_35gb"
@@ -284243,11 +284418,11 @@
           },
           {
             "name": "PyTorch Compilation Unit Tests",
-            "runs": 28,
-            "passed": 26,
+            "runs": 29,
+            "passed": 27,
             "failed": 2,
             "soft_failed": 0,
-            "fail_rate": 7.1,
+            "fail_rate": 6.9,
             "is_soft_fail": false,
             "median_dur": 0.3,
             "p90_dur": 0.4,
@@ -284255,7 +284430,7 @@
             "max_dur": 0.4,
             "median_wait": 0.0,
             "p90_wait": 45.0,
-            "avg_wait": 9.4,
+            "avg_wait": 9.1,
             "max_wait": 113.4,
             "queues": [
               "h200_35gb"
@@ -284721,7 +284896,7 @@
           },
           {
             "queue": "h200_35gb",
-            "jobs": 885,
+            "jobs": 890,
             "median_wait": 0.0,
             "p90_wait": 0.0,
             "avg_wait": 0.0,
