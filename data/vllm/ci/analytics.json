@@ -3,12 +3,12 @@
     "pipeline": "amd-ci",
     "display_name": "AMD CI",
     "days": 30,
-    "generated_at": "2026-06-28T11:53:52Z",
+    "generated_at": "2026-06-28T12:46:33Z",
     "summary": {
       "total_builds": 30,
-      "passed": 29,
+      "passed": 30,
       "failed": 0,
-      "pass_rate": 96.7,
+      "pass_rate": 100.0,
       "total_jobs_tracked": 166,
       "jobs_with_failures": 130,
       "jobs_with_hard_failures": 13,
@@ -191,7 +191,7 @@
       },
       {
         "date": "2026-06-28",
-        "passed": 0,
+        "passed": 1,
         "failed": 0,
         "total": 1
       }
@@ -199,17 +199,17 @@
     "builds": [
       {
         "number": 10170,
-        "state": "running",
+        "state": "passed",
         "created_at": "2026-06-28T09:00:01.278Z",
         "date": "2026-06-28",
         "message": "AMD Full CI Run - nightly",
         "author": "",
-        "wall_mins": null,
+        "wall_mins": 193.2,
         "passed": 153,
         "failed": 0,
-        "soft_failed": 38,
+        "soft_failed": 39,
         "skipped": 0,
-        "total_jobs": 191,
+        "total_jobs": 192,
         "jobs": [
           {
             "name": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
@@ -2758,6 +2758,21 @@
             "url": "https://buildkite.com/vllm/amd-ci/builds/10170/steps/canvas?sid=019f0d75-37d9-456c-9d14-6e61a15f889a&tab=output",
             "job_id": "019f0d75-38ca-488b-ae4a-984b7c8e985f",
             "step_id": "019f0d75-37d9-456c-9d14-6e61a15f889a",
+            "q": "amd_mi355_1",
+            "wait": 0.2
+          },
+          {
+            "name": "Multi-Modal Models (Extended Generation 1)",
+            "raw_name": "mi355_1: Multi-Modal Models (Extended Generation 1)",
+            "state": "soft_fail",
+            "dur": 181.0,
+            "tests": 1,
+            "passed_tests": 0,
+            "failed_tests": 1,
+            "skipped_tests": 0,
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10170/steps/canvas?sid=019f0d75-37da-4ffd-8f03-c36a050a2e08&tab=output",
+            "job_id": "019f0d75-38cb-479a-a25c-50f14cff6939",
+            "step_id": "019f0d75-37da-4ffd-8f03-c36a050a2e08",
             "q": "amd_mi355_1",
             "wait": 0.2
           },
@@ -92616,17 +92631,17 @@
     "nightly_builds": [
       {
         "number": 10170,
-        "state": "running",
+        "state": "passed",
         "created_at": "2026-06-28T09:00:01.278Z",
         "date": "2026-06-28",
         "message": "AMD Full CI Run - nightly",
         "author": "",
-        "wall_mins": null,
+        "wall_mins": 193.2,
         "passed": 153,
         "failed": 0,
-        "soft_failed": 38,
+        "soft_failed": 39,
         "skipped": 0,
-        "total_jobs": 191,
+        "total_jobs": 192,
         "web_url": "https://buildkite.com/vllm/amd-ci/builds/10170",
         "source": "test_results"
       },
@@ -93794,6 +93809,27 @@
         ]
       },
       {
+        "name": "Multi-Modal Models (Extended Generation 1)",
+        "runs": 60,
+        "passed": 11,
+        "failed": 0,
+        "soft_failed": 49,
+        "fail_rate": 81.7,
+        "is_soft_fail": true,
+        "median_dur": 40.0,
+        "p90_dur": 181.0,
+        "avg_dur": 60.1,
+        "max_dur": 181.2,
+        "median_wait": 0.2,
+        "p90_wait": 8.3,
+        "avg_wait": 1.9,
+        "max_wait": 29.3,
+        "queues": [
+          "amd_mi300_1",
+          "amd_mi355_1"
+        ]
+      },
+      {
         "name": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
         "runs": 54,
         "passed": 10,
@@ -93813,27 +93849,6 @@
           "amd_mi250_2",
           "amd_mi300_2",
           "amd_mi355_2"
-        ]
-      },
-      {
-        "name": "Multi-Modal Models (Extended Generation 1)",
-        "runs": 59,
-        "passed": 11,
-        "failed": 0,
-        "soft_failed": 48,
-        "fail_rate": 81.4,
-        "is_soft_fail": true,
-        "median_dur": 38.6,
-        "p90_dur": 180.9,
-        "avg_dur": 58.0,
-        "max_dur": 181.2,
-        "median_wait": 0.2,
-        "p90_wait": 8.3,
-        "avg_wait": 1.9,
-        "max_wait": 29.3,
-        "queues": [
-          "amd_mi300_1",
-          "amd_mi355_1"
         ]
       },
       {
@@ -96259,15 +96274,15 @@
       },
       {
         "name": "Multi-Modal Models (Extended Generation 1)",
-        "runs": 59,
+        "runs": 60,
         "passed": 11,
         "failed": 0,
-        "soft_failed": 48,
-        "fail_rate": 81.4,
+        "soft_failed": 49,
+        "fail_rate": 81.7,
         "is_soft_fail": true,
-        "median_dur": 38.6,
-        "p90_dur": 180.9,
-        "avg_dur": 58.0,
+        "median_dur": 40.0,
+        "p90_dur": 181.0,
+        "avg_dur": 60.1,
         "max_dur": 181.2,
         "median_wait": 0.2,
         "p90_wait": 8.3,
@@ -99167,7 +99182,7 @@
     "queue_stats": [
       {
         "queue": "amd_mi300_1",
-        "jobs": 3606,
+        "jobs": 3607,
         "median_wait": 0.2,
         "p90_wait": 0.3,
         "avg_wait": 0.2,
@@ -99191,7 +99206,7 @@
       },
       {
         "queue": "amd_mi355_1",
-        "jobs": 1989,
+        "jobs": 1990,
         "median_wait": 0.2,
         "p90_wait": 0.3,
         "avg_wait": 0.3,
@@ -99285,18 +99300,18 @@
         "build_count": 1,
         "summary": {
           "total_builds": 1,
-          "passed": 0,
+          "passed": 1,
           "failed": 0,
-          "pass_rate": 0.0,
+          "pass_rate": 100.0,
           "total_jobs_tracked": 153,
-          "jobs_with_failures": 35,
+          "jobs_with_failures": 36,
           "jobs_with_hard_failures": 0,
-          "jobs_with_soft_failures": 35
+          "jobs_with_soft_failures": 36
         },
         "daily_stats": [
           {
             "date": "2026-06-28",
-            "passed": 0,
+            "passed": 1,
             "failed": 0,
             "total": 1
           }
@@ -99304,17 +99319,17 @@
         "builds": [
           {
             "number": 10170,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-06-28T09:00:01.278Z",
             "date": "2026-06-28",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 193.2,
             "passed": 153,
             "failed": 0,
-            "soft_failed": 38,
+            "soft_failed": 39,
             "skipped": 0,
-            "total_jobs": 191,
+            "total_jobs": 192,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10170",
             "source": "test_results"
           }
@@ -99322,17 +99337,17 @@
         "nightly_builds": [
           {
             "number": 10170,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-06-28T09:00:01.278Z",
             "date": "2026-06-28",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 193.2,
             "passed": 153,
             "failed": 0,
-            "soft_failed": 38,
+            "soft_failed": 39,
             "skipped": 0,
-            "total_jobs": 191,
+            "total_jobs": 192,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10170",
             "source": "test_results"
           }
@@ -99953,6 +99968,27 @@
             ]
           },
           {
+            "name": "Multi-Modal Models (Extended Generation 1)",
+            "runs": 2,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 1,
+            "fail_rate": 50.0,
+            "is_soft_fail": true,
+            "median_dur": 115.7,
+            "p90_dur": 181.0,
+            "avg_dur": 115.7,
+            "max_dur": 181.0,
+            "median_wait": 0.2,
+            "p90_wait": 0.3,
+            "avg_wait": 0.2,
+            "max_wait": 0.3,
+            "queues": [
+              "amd_mi300_1",
+              "amd_mi355_1"
+            ]
+          },
+          {
             "name": "Multi-Modal Models (Standard) 1: qwen2",
             "runs": 2,
             "passed": 1,
@@ -100059,6 +100095,27 @@
           }
         ],
         "duration_ranking": [
+          {
+            "name": "Multi-Modal Models (Extended Generation 1)",
+            "runs": 2,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 1,
+            "fail_rate": 50.0,
+            "is_soft_fail": true,
+            "median_dur": 115.7,
+            "p90_dur": 181.0,
+            "avg_dur": 115.7,
+            "max_dur": 181.0,
+            "median_wait": 0.2,
+            "p90_wait": 0.3,
+            "avg_wait": 0.2,
+            "max_wait": 0.3,
+            "queues": [
+              "amd_mi300_1",
+              "amd_mi355_1"
+            ]
+          },
           {
             "name": "Basic Models Tests (Extra Initialization) 1",
             "runs": 1,
@@ -100333,26 +100390,6 @@
             "p90_dur": 50.8,
             "avg_dur": 50.8,
             "max_dur": 50.8,
-            "median_wait": 0.3,
-            "p90_wait": 0.3,
-            "avg_wait": 0.3,
-            "max_wait": 0.3,
-            "queues": [
-              "amd_mi300_1"
-            ]
-          },
-          {
-            "name": "Multi-Modal Models (Extended Generation 1)",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 50.4,
-            "p90_dur": 50.4,
-            "avg_dur": 50.4,
-            "max_dur": 50.4,
             "median_wait": 0.3,
             "p90_wait": 0.3,
             "avg_wait": 0.3,
@@ -103177,7 +103214,7 @@
           },
           {
             "queue": "amd_mi300_1",
-            "jobs": 117,
+            "jobs": 118,
             "median_wait": 0.2,
             "p90_wait": 0.3,
             "avg_wait": 0.2,
@@ -103209,7 +103246,7 @@
           },
           {
             "queue": "amd_mi355_1",
-            "jobs": 64,
+            "jobs": 66,
             "median_wait": 0.2,
             "p90_wait": 0.3,
             "avg_wait": 0.2,
@@ -103270,9 +103307,9 @@
         "build_count": 3,
         "summary": {
           "total_builds": 3,
-          "passed": 2,
+          "passed": 3,
           "failed": 0,
-          "pass_rate": 66.7,
+          "pass_rate": 100.0,
           "total_jobs_tracked": 153,
           "jobs_with_failures": 57,
           "jobs_with_hard_failures": 0,
@@ -103293,7 +103330,7 @@
           },
           {
             "date": "2026-06-28",
-            "passed": 0,
+            "passed": 1,
             "failed": 0,
             "total": 1
           }
@@ -103301,17 +103338,17 @@
         "builds": [
           {
             "number": 10170,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-06-28T09:00:01.278Z",
             "date": "2026-06-28",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 193.2,
             "passed": 153,
             "failed": 0,
-            "soft_failed": 38,
+            "soft_failed": 39,
             "skipped": 0,
-            "total_jobs": 191,
+            "total_jobs": 192,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10170",
             "source": "test_results"
           },
@@ -103351,17 +103388,17 @@
         "nightly_builds": [
           {
             "number": 10170,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-06-28T09:00:01.278Z",
             "date": "2026-06-28",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 193.2,
             "passed": 153,
             "failed": 0,
-            "soft_failed": 38,
+            "soft_failed": 39,
             "skipped": 0,
-            "total_jobs": 191,
+            "total_jobs": 192,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10170",
             "source": "test_results"
           },
@@ -103866,15 +103903,15 @@
           },
           {
             "name": "Multi-Modal Models (Extended Generation 1)",
-            "runs": 5,
+            "runs": 6,
             "passed": 2,
             "failed": 0,
-            "soft_failed": 3,
-            "fail_rate": 60.0,
+            "soft_failed": 4,
+            "fail_rate": 66.7,
             "is_soft_fail": true,
-            "median_dur": 50.4,
+            "median_dur": 115.7,
             "p90_dur": 181.1,
-            "avg_dur": 97.6,
+            "avg_dur": 111.5,
             "max_dur": 181.1,
             "median_wait": 0.2,
             "p90_wait": 0.3,
@@ -104570,6 +104607,27 @@
         ],
         "duration_ranking": [
           {
+            "name": "Multi-Modal Models (Extended Generation 1)",
+            "runs": 6,
+            "passed": 2,
+            "failed": 0,
+            "soft_failed": 4,
+            "fail_rate": 66.7,
+            "is_soft_fail": true,
+            "median_dur": 115.7,
+            "p90_dur": 181.1,
+            "avg_dur": 111.5,
+            "max_dur": 181.1,
+            "median_wait": 0.2,
+            "p90_wait": 0.3,
+            "avg_wait": 0.2,
+            "max_wait": 0.3,
+            "queues": [
+              "amd_mi300_1",
+              "amd_mi355_1"
+            ]
+          },
+          {
             "name": "Basic Models Tests (Extra Initialization) 1",
             "runs": 3,
             "passed": 0,
@@ -104890,27 +104948,6 @@
             "max_wait": 0.3,
             "queues": [
               "amd_mi300_1"
-            ]
-          },
-          {
-            "name": "Multi-Modal Models (Extended Generation 1)",
-            "runs": 5,
-            "passed": 2,
-            "failed": 0,
-            "soft_failed": 3,
-            "fail_rate": 60.0,
-            "is_soft_fail": true,
-            "median_dur": 50.4,
-            "p90_dur": 181.1,
-            "avg_dur": 97.6,
-            "max_dur": 181.1,
-            "median_wait": 0.2,
-            "p90_wait": 0.3,
-            "avg_wait": 0.2,
-            "max_wait": 0.3,
-            "queues": [
-              "amd_mi300_1",
-              "amd_mi355_1"
             ]
           },
           {
@@ -107695,7 +107732,7 @@
           },
           {
             "queue": "amd_mi300_1",
-            "jobs": 354,
+            "jobs": 355,
             "median_wait": 0.2,
             "p90_wait": 0.3,
             "avg_wait": 0.2,
@@ -107711,7 +107748,7 @@
           },
           {
             "queue": "amd_mi355_1",
-            "jobs": 198,
+            "jobs": 199,
             "median_wait": 0.2,
             "p90_wait": 0.3,
             "avg_wait": 0.2,
@@ -107796,9 +107833,9 @@
         "build_count": 7,
         "summary": {
           "total_builds": 7,
-          "passed": 6,
+          "passed": 7,
           "failed": 0,
-          "pass_rate": 85.7,
+          "pass_rate": 100.0,
           "total_jobs_tracked": 159,
           "jobs_with_failures": 95,
           "jobs_with_hard_failures": 6,
@@ -107843,7 +107880,7 @@
           },
           {
             "date": "2026-06-28",
-            "passed": 0,
+            "passed": 1,
             "failed": 0,
             "total": 1
           }
@@ -107851,17 +107888,17 @@
         "builds": [
           {
             "number": 10170,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-06-28T09:00:01.278Z",
             "date": "2026-06-28",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 193.2,
             "passed": 153,
             "failed": 0,
-            "soft_failed": 38,
+            "soft_failed": 39,
             "skipped": 0,
-            "total_jobs": 191,
+            "total_jobs": 192,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10170",
             "source": "test_results"
           },
@@ -107965,17 +108002,17 @@
         "nightly_builds": [
           {
             "number": 10170,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-06-28T09:00:01.278Z",
             "date": "2026-06-28",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 193.2,
             "passed": 153,
             "failed": 0,
-            "soft_failed": 38,
+            "soft_failed": 39,
             "skipped": 0,
-            "total_jobs": 191,
+            "total_jobs": 192,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10170",
             "source": "test_results"
           },
@@ -108632,6 +108669,27 @@
             ]
           },
           {
+            "name": "Multi-Modal Models (Extended Generation 1)",
+            "runs": 14,
+            "passed": 6,
+            "failed": 0,
+            "soft_failed": 8,
+            "fail_rate": 57.1,
+            "is_soft_fail": true,
+            "median_dur": 49.0,
+            "p90_dur": 181.1,
+            "avg_dur": 87.7,
+            "max_dur": 181.1,
+            "median_wait": 0.2,
+            "p90_wait": 0.8,
+            "avg_wait": 0.9,
+            "max_wait": 9.7,
+            "queues": [
+              "amd_mi300_1",
+              "amd_mi355_1"
+            ]
+          },
+          {
             "name": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (B200-MI355)",
             "runs": 7,
             "passed": 3,
@@ -108690,27 +108748,6 @@
             "queues": [
               "amd_mi250_2",
               "amd_mi300_2"
-            ]
-          },
-          {
-            "name": "Multi-Modal Models (Extended Generation 1)",
-            "runs": 13,
-            "passed": 6,
-            "failed": 0,
-            "soft_failed": 7,
-            "fail_rate": 53.8,
-            "is_soft_fail": true,
-            "median_dur": 48.0,
-            "p90_dur": 181.1,
-            "avg_dur": 80.5,
-            "max_dur": 181.1,
-            "median_wait": 0.2,
-            "p90_wait": 0.8,
-            "avg_wait": 1.0,
-            "max_wait": 9.7,
-            "queues": [
-              "amd_mi300_1",
-              "amd_mi355_1"
             ]
           },
           {
@@ -110401,6 +110438,27 @@
             ]
           },
           {
+            "name": "Multi-Modal Models (Extended Generation 1)",
+            "runs": 14,
+            "passed": 6,
+            "failed": 0,
+            "soft_failed": 8,
+            "fail_rate": 57.1,
+            "is_soft_fail": true,
+            "median_dur": 49.0,
+            "p90_dur": 181.1,
+            "avg_dur": 87.7,
+            "max_dur": 181.1,
+            "median_wait": 0.2,
+            "p90_wait": 0.8,
+            "avg_wait": 0.9,
+            "max_wait": 9.7,
+            "queues": [
+              "amd_mi300_1",
+              "amd_mi355_1"
+            ]
+          },
+          {
             "name": "V1 attention (B200-MI355)",
             "runs": 7,
             "passed": 7,
@@ -110417,27 +110475,6 @@
             "avg_wait": 6.3,
             "max_wait": 17.7,
             "queues": [
-              "amd_mi355_1"
-            ]
-          },
-          {
-            "name": "Multi-Modal Models (Extended Generation 1)",
-            "runs": 13,
-            "passed": 6,
-            "failed": 0,
-            "soft_failed": 7,
-            "fail_rate": 53.8,
-            "is_soft_fail": true,
-            "median_dur": 48.0,
-            "p90_dur": 181.1,
-            "avg_dur": 80.5,
-            "max_dur": 181.1,
-            "median_wait": 0.2,
-            "p90_wait": 0.8,
-            "avg_wait": 1.0,
-            "max_wait": 9.7,
-            "queues": [
-              "amd_mi300_1",
               "amd_mi355_1"
             ]
           },
@@ -113298,7 +113335,7 @@
           },
           {
             "queue": "amd_mi300_1",
-            "jobs": 833,
+            "jobs": 834,
             "median_wait": 0.2,
             "p90_wait": 0.3,
             "avg_wait": 0.2,
@@ -113314,7 +113351,7 @@
           },
           {
             "queue": "amd_mi355_1",
-            "jobs": 468,
+            "jobs": 469,
             "median_wait": 0.2,
             "p90_wait": 0.3,
             "avg_wait": 0.3,
@@ -113399,9 +113436,9 @@
         "build_count": 14,
         "summary": {
           "total_builds": 14,
-          "passed": 13,
+          "passed": 14,
           "failed": 0,
-          "pass_rate": 92.9,
+          "pass_rate": 100.0,
           "total_jobs_tracked": 159,
           "jobs_with_failures": 103,
           "jobs_with_hard_failures": 6,
@@ -113488,7 +113525,7 @@
           },
           {
             "date": "2026-06-28",
-            "passed": 0,
+            "passed": 1,
             "failed": 0,
             "total": 1
           }
@@ -113496,17 +113533,17 @@
         "builds": [
           {
             "number": 10170,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-06-28T09:00:01.278Z",
             "date": "2026-06-28",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 193.2,
             "passed": 153,
             "failed": 0,
-            "soft_failed": 38,
+            "soft_failed": 39,
             "skipped": 0,
-            "total_jobs": 191,
+            "total_jobs": 192,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10170",
             "source": "test_results"
           },
@@ -113722,17 +113759,17 @@
         "nightly_builds": [
           {
             "number": 10170,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-06-28T09:00:01.278Z",
             "date": "2026-06-28",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 193.2,
             "passed": 153,
             "failed": 0,
-            "soft_failed": 38,
+            "soft_failed": 39,
             "skipped": 0,
-            "total_jobs": 191,
+            "total_jobs": 192,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10170",
             "source": "test_results"
           },
@@ -114729,19 +114766,19 @@
           },
           {
             "name": "Multi-Modal Models (Extended Generation 1)",
-            "runs": 27,
+            "runs": 28,
             "passed": 11,
             "failed": 0,
-            "soft_failed": 16,
-            "fail_rate": 59.3,
+            "soft_failed": 17,
+            "fail_rate": 60.7,
             "is_soft_fail": true,
             "median_dur": 47.7,
             "p90_dur": 181.1,
-            "avg_dur": 70.7,
+            "avg_dur": 74.6,
             "max_dur": 181.2,
             "median_wait": 0.2,
             "p90_wait": 8.8,
-            "avg_wait": 1.4,
+            "avg_wait": 1.3,
             "max_wait": 9.8,
             "queues": [
               "amd_mi300_1",
@@ -116475,19 +116512,19 @@
           },
           {
             "name": "Multi-Modal Models (Extended Generation 1)",
-            "runs": 27,
+            "runs": 28,
             "passed": 11,
             "failed": 0,
-            "soft_failed": 16,
-            "fail_rate": 59.3,
+            "soft_failed": 17,
+            "fail_rate": 60.7,
             "is_soft_fail": true,
             "median_dur": 47.7,
             "p90_dur": 181.1,
-            "avg_dur": 70.7,
+            "avg_dur": 74.6,
             "max_dur": 181.2,
             "median_wait": 0.2,
             "p90_wait": 8.8,
-            "avg_wait": 1.4,
+            "avg_wait": 1.3,
             "max_wait": 9.8,
             "queues": [
               "amd_mi300_1",
@@ -119328,7 +119365,7 @@
           },
           {
             "queue": "amd_mi300_1",
-            "jobs": 1692,
+            "jobs": 1693,
             "median_wait": 0.2,
             "p90_wait": 0.3,
             "avg_wait": 0.2,
@@ -119352,7 +119389,7 @@
           },
           {
             "queue": "amd_mi355_1",
-            "jobs": 937,
+            "jobs": 938,
             "median_wait": 0.2,
             "p90_wait": 0.3,
             "avg_wait": 0.3,
@@ -119437,9 +119474,9 @@
         "build_count": 29,
         "summary": {
           "total_builds": 29,
-          "passed": 28,
+          "passed": 29,
           "failed": 0,
-          "pass_rate": 96.6,
+          "pass_rate": 100.0,
           "total_jobs_tracked": 163,
           "jobs_with_failures": 124,
           "jobs_with_hard_failures": 13,
@@ -119616,7 +119653,7 @@
           },
           {
             "date": "2026-06-28",
-            "passed": 0,
+            "passed": 1,
             "failed": 0,
             "total": 1
           }
@@ -119624,17 +119661,17 @@
         "builds": [
           {
             "number": 10170,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-06-28T09:00:01.278Z",
             "date": "2026-06-28",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 193.2,
             "passed": 153,
             "failed": 0,
-            "soft_failed": 38,
+            "soft_failed": 39,
             "skipped": 0,
-            "total_jobs": 191,
+            "total_jobs": 192,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10170",
             "source": "test_results"
           },
@@ -120090,17 +120127,17 @@
         "nightly_builds": [
           {
             "number": 10170,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-06-28T09:00:01.278Z",
             "date": "2026-06-28",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 193.2,
             "passed": 153,
             "failed": 0,
-            "soft_failed": 38,
+            "soft_failed": 39,
             "skipped": 0,
-            "total_jobs": 191,
+            "total_jobs": 192,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10170",
             "source": "test_results"
           },
@@ -121232,6 +121269,27 @@
             ]
           },
           {
+            "name": "Multi-Modal Models (Extended Generation 1)",
+            "runs": 58,
+            "passed": 11,
+            "failed": 0,
+            "soft_failed": 47,
+            "fail_rate": 81.0,
+            "is_soft_fail": true,
+            "median_dur": 41.8,
+            "p90_dur": 181.0,
+            "avg_dur": 61.6,
+            "max_dur": 181.2,
+            "median_wait": 0.2,
+            "p90_wait": 8.3,
+            "avg_wait": 1.9,
+            "max_wait": 29.3,
+            "queues": [
+              "amd_mi300_1",
+              "amd_mi355_1"
+            ]
+          },
+          {
             "name": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
             "runs": 52,
             "passed": 10,
@@ -121251,27 +121309,6 @@
               "amd_mi250_2",
               "amd_mi300_2",
               "amd_mi355_2"
-            ]
-          },
-          {
-            "name": "Multi-Modal Models (Extended Generation 1)",
-            "runs": 57,
-            "passed": 11,
-            "failed": 0,
-            "soft_failed": 46,
-            "fail_rate": 80.7,
-            "is_soft_fail": true,
-            "median_dur": 41.3,
-            "p90_dur": 180.9,
-            "avg_dur": 59.5,
-            "max_dur": 181.2,
-            "median_wait": 0.2,
-            "p90_wait": 8.3,
-            "avg_wait": 1.9,
-            "max_wait": 29.3,
-            "queues": [
-              "amd_mi300_1",
-              "amd_mi355_1"
             ]
           },
           {
@@ -123572,15 +123609,15 @@
           },
           {
             "name": "Multi-Modal Models (Extended Generation 1)",
-            "runs": 57,
+            "runs": 58,
             "passed": 11,
             "failed": 0,
-            "soft_failed": 46,
-            "fail_rate": 80.7,
+            "soft_failed": 47,
+            "fail_rate": 81.0,
             "is_soft_fail": true,
-            "median_dur": 41.3,
-            "p90_dur": 180.9,
-            "avg_dur": 59.5,
+            "median_dur": 41.8,
+            "p90_dur": 181.0,
+            "avg_dur": 61.6,
             "max_dur": 181.2,
             "median_wait": 0.2,
             "p90_wait": 8.3,
@@ -126441,7 +126478,7 @@
         "queue_stats": [
           {
             "queue": "amd_mi300_1",
-            "jobs": 3488,
+            "jobs": 3489,
             "median_wait": 0.2,
             "p90_wait": 0.3,
             "avg_wait": 0.2,
@@ -126465,7 +126502,7 @@
           },
           {
             "queue": "amd_mi355_1",
-            "jobs": 1924,
+            "jobs": 1925,
             "median_wait": 0.2,
             "p90_wait": 0.3,
             "avg_wait": 0.3,
@@ -126559,7 +126596,7 @@
     "pipeline": "ci",
     "display_name": "Upstream CI",
     "days": 30,
-    "generated_at": "2026-06-28T11:53:52Z",
+    "generated_at": "2026-06-28T12:46:33Z",
     "summary": {
       "total_builds": 31,
       "passed": 3,
