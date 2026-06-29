@@ -1,5 +1,5 @@
 {
-  "collected_at": "2026-06-28T23:44:48Z",
+  "collected_at": "2026-06-29T00:15:43Z",
   "prs": [
     {
       "number": 41290,
@@ -18,13 +18,10 @@
       ],
       "draft": false,
       "body_head": "## Purpose\r\nThis PR fixes various issues in e4m3fnuz handling encountered by various quantization code paths (ModelOpt, online). In particular, on `e4m3fnuz` platforms, `normalize_e4m3fn_to_e4m3fnuz` should be called exactly once on a given FP8 linear layer after weights are loaded.\r\nHowever,\r\n- Some PyTorch linear kernel-based code paths used during ModelOpt quantization were not calling this function.\r\n- Some code paths used in online quantization methods were trying to call this function twice, once in the linear layer and once more in the linear layer's kernel implementation.\r\n\r\nThe end result is that the Quantization test group should now be passing on ROCm.\r\n\r\nThis PR also removes a Quark mxfp4 model that was causing failures in the Kernels MoE test group because it is incompatible with HF Transformers v5.\r\n## Test Plan\r\n`VLLM_TEST_FORCE_LOAD_FORMAT=auto pytest -v -s quantization/ --ignore quantization/test_blackwell_moe.py`\r\n`pytest -v -s kernels/moe --ignore=kernels/moe/test_modular_oai_triton_moe.py`\r\nThese tests should be run as part of the Quantization and Kernels MoE test groups in vLLM AMD CI.\r\n\r\n## Test Result\r\nThe above test groups pass, and there are no regressions.\r\n\r\ncc @kenroche and @AndreasKaratzas\r\n\r\n---\r\n<details>\r\n<summary> Essential Elements of an Effective PR Description Checklist </summary>\r\n\r\n- [ ] The purpose of the PR, such as \"Fix some issue (link existing issues this PR will resolve)\".\r\n- [ ] The test plan, such as providing test command.\r\n- [ ] The test results, such as pasting the results comparison before and after, or e2e results\r\n- [ ] (Optional) The necessary documentation update, such as updating `supported_models.md` and `examples` for a new model.\r\n</details>",
-      "is_ci_pr": true,
+      "is_ci_pr": false,
       "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        40728
-      ],
+      "ci_issue_numbers": [],
       "custom_tags": [
-        "CI",
         "ROCm"
       ],
       "other_tags": [
@@ -50,228 +47,16 @@
       ],
       "draft": false,
       "body_head": "This updates generation-test metadata for models whose HF reference path is incompatible with the installed Transformers v5 runtime.\r\n\r\nTest groups fixed:\r\n- `mi355_1: Language Models Tests (Standard)` for MiniCPM4.\r\n- `mi355_1: Language Models Test (Extended Generation)` for HyperCLOVAX.\r\n\r\nMiniCPM4:\r\n- Fails in HF remote code because it imports `is_torch_fx_available`, removed from the installed Transformers v5 runtime.\r\n- Links the upstream compatibility request, which is closed as not planned: https://github.com/huggingface/transformers/issues/44561\r\n\r\nHyperCLOVAX:\r\n- The model's remote code imports `ROPE_INIT_FUNCTIONS` and unconditionally indexes `ROPE_INIT_FUNCTIONS[self.rope_type]`; for the default case, `self.rope_type` is `\"default\"`: https://huggingface.co/naver-hyperclovax/HyperCLOVAX-SEED-Think-14B/blob/main/modeling_hyperclovax.py\r\n- Transformers v5 docs still list `\"default\"` as a valid RoPE type. The incompatibility is narrower: v5 no longer exposes a `\"default\"` entry in `ROPE_INIT_FUNCTIONS`, while v4.57 did. In v5's own Llama code, default RoPE is handled by `compute_default_rope_parameters`; `ROPE_INIT_FUNCTIONS` is consulted only when `rope_type != \"default\"`.\r\n- The v5 migration guide also notes that rotary embedding configuration now lives under `config.rope_parameters`, which matches the new v5 model path.\r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
+      "is_ci_pr": false,
       "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        40645,
-        41584
-      ],
+      "ci_issue_numbers": [],
       "custom_tags": [
-        "CI",
         "ROCm"
       ],
       "other_tags": [
         "ready",
         "ci/build",
         "multi-modality"
-      ]
-    },
-    {
-      "number": 41294,
-      "title": "[ROCm][CI] Fix and stabilize EAGLE3 acceptance tests",
-      "author": "AndreasKaratzas",
-      "state": "closed",
-      "merged": true,
-      "created_at": "2026-04-29T22:04:11Z",
-      "updated_at": "2026-06-01T17:40:07Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41294",
-      "labels": [
-        "rocm",
-        "speculative-decoding",
-        "ready",
-        "v1"
-      ],
-      "draft": false,
-      "body_head": "This updates the EAGLE3 acceptance length regression test to use ROCm backend auto-selection instead of hard-selecting attention backends. It adds ROCm-specific expected per-position acceptance values for gpt-oss without widening the default tolerance. The Qwen3-VL FP8 MoE case is limited to ROCm TP4 and enables expert parallelism to avoid the unsupported block-FP8 TP shard shape. The per-position check now treats lower-than-baseline acceptance as the regression signal, so improvements do not fail the test. \r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        41321
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "speculative-decoding",
-        "ready",
-        "v1"
-      ]
-    },
-    {
-      "number": 43120,
-      "title": "[AMD][CI][BugFix] Fix  Distributed Compile Unit Tests (2xH100-2xMI300) group",
-      "author": "rasmith",
-      "state": "closed",
-      "merged": true,
-      "created_at": "2026-05-19T17:01:46Z",
-      "updated_at": "2026-05-28T21:39:02Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/43120",
-      "labels": [
-        "bug",
-        "rocm",
-        "ready"
-      ],
-      "draft": false,
-      "body_head": "\r\n## Purpose\r\nMultiple problems were encountered with the `Distributed Compile Unit Tests (2xH100-2xMI300)` tests.\r\n\r\nFor `test_tp2_ar_rms.py:`\r\n* `disable_custom_all_reduce=False`  needed to be set for the fusion passes to initalize on ROCm. Leaving this disabled causes the tests to fail since the custom all-reduce setup will be skipped during initalization.\r\n* On ROCm, `RocmAiterAllReduceFusionPass`  is used, so this test also needs to check patterns for `aiter_ar_rms_fusion` instead of `ar_rms_fusion`\r\n    - added patterns to `FUSION_LOG_PATTERNS` in ` tests/compile/fusions_e2e/common.py`\r\n    - update counts in `tests/compile/fusions_e2e/models.py` \r\n        + `llama3_8b`: `n_layers * 2` (dense MLP, all-reduce after both attn and MLP)\r\n        + `qwen3_a3b`: `n_layers * 2`\r\n        + `gpt_oss_20b`:` n_layers + 1` (MoE MLP has no all-reduce, only attn `o_proj`)\r\n* Swap out the `ar_rms_fusion` pattern for `aiter_ar_rms_fusion` on ROCm in `test_tp2_ar_rms.py::test_tp2_ar_rms_fusion`\r\n* Skip `openai/gpt-oss-20b` with `ROCM_ATTN` backend due to the following error:\r\n` ValueError: Selected backend AttentionBackendEnum.ROCM_ATTN is not valid for this configuration. Reason: ['attention sinks not supported]`\r\n\r\nFor `test_async_tp.py`:\r\n* ` async_tp_pass_on_test_model ` tries to use port 12345, but on some systems `alloy `will be running which will use the same port\r\n     - find an open port and use that instead\r\n * `AsyncTPPass `does not check if CUTLASS is available before registering the `CutlassScaledMMReduceScatterPattern` and `AllGatherCutlassScaledMMPattern `patterns\r\n     - check if `cutlass_scaled_mm `is available in `torch.ops._C` before registering\r\n  * `test_async_tp_pass_replace` tests the `TestCutlassScaledMMRSModel` and `TestAGCutlassScaledMMModel` models but also does not check if `cutlass_scaled_mm `is available\r\n      - wrap these parameters using `param `and `skipif` `cutlass_scaled_mm` is not available.\r\n\r\n## Test Plan\r\n1) `pytest -sv compile/fusions_e",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        42184
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "bug",
-        "ready"
-      ]
-    },
-    {
-      "number": 41577,
-      "title": "[ROCm][CI] Fix ROCm LoRA Transformers fallback with full CUDA graphs",
-      "author": "AndreasKaratzas",
-      "state": "closed",
-      "merged": true,
-      "created_at": "2026-05-03T22:59:53Z",
-      "updated_at": "2026-05-23T04:58:52Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41577",
-      "labels": [
-        "rocm",
-        "ready",
-        "nvidia"
-      ],
-      "draft": false,
-      "body_head": "Fixes `LoRA %N`\r\n\r\n- Restrict the gfx950 `wvSplitKrc` skinny GEMM path to 2D activations.\r\n- Make the vLLM C RMSNorm provider flatten N-D activations by token row and reshape back.\r\n- Initialize torch-compile support on the actual HF decoder instance for dynamic remote-code classes.\r\n\r\nThe original failure was `Unsupported N value: 512,2048,1` in `wvSplitKrc`. The selector counted flattened tokens from a 3D Transformers activation, but `wvSplitKrc` reads `size(0)` and is only correct for 2D row-major inputs. After fixing that selector bug, full decode graph capture exposed the same N-D activation mismatch in the `vllm_c` RMSNorm provider. Flattening RMSNorm inputs matches its row-wise kernel contract and preserves the public tensor shape.\r\n\r\n- Known-good commit: `0e39202ca911319c7747a2f9d5a0c162fdff4fd9`.\r\n- Failing commit observed in CI: `7845379230c48c9103ab71682ee05977dfbbdfce`.\r\n- The likely trigger is the update to transformers v5\r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        41578
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "ready",
-        "nvidia"
-      ]
-    },
-    {
-      "number": 42459,
-      "title": "[CI][AMD][BugFix] Set num_gpus=2 for trainer for distributed RL example",
-      "author": "rasmith",
-      "state": "open",
-      "merged": false,
-      "created_at": "2026-05-12T21:12:02Z",
-      "updated_at": "2026-05-19T19:29:39Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/42459",
-      "labels": [
-        "bug",
-        "documentation",
-        "rocm",
-        "ready"
-      ],
-      "draft": false,
-      "body_head": "\r\n## Purpose\r\nThe distributed RL example at `examples/rl/rlhf_nccl.py` sets `num_gpus=1`, but` CUDA_VISIBLE_DEVICES=0,1`.  This results in an error when calling `ncclCommInitRank`, with `rank = 1`.  Setting `num_gpus=2 `fixes this issue.\r\n## Test Plan\r\n`VLLM_ALLOW_INSECURE_SERIALIZATION=1 python3 ../examples/rl/rlhf_nccl.py`\r\n## Test Result\r\nNo crash occurs.\r\n\r\n`Processed prompts: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 4/4 [00:00<00:00, 11.86it/s, est. speed input: 77.17 toks/s, output: 189.93 toks/s]`\r\n\r\n---\r\n<details>\r\n<summary> Essential Elements of an Effective PR Description Checklist </summary>\r\n\r\n- [X ] The purpose of the PR, such as \"Fix some issue (link existing issues this PR will resolve)\".\r\n- [ X] The test plan, such as providing test command.\r\n- [ X] The test results, such as pasting the results comparison before and after, or e2e results\r\n- [ ] (Optional) The necessary documentation update, such as updating `supported_models.md` and `examples` for a new model.\r\n</details>\r\n\r\n",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        42183
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "bug",
-        "documentation",
-        "ready"
-      ]
-    },
-    {
-      "number": 42126,
-      "title": "[CI][AMD] Skip tests where models have problems or fails on both HW types",
-      "author": "rasmith",
-      "state": "closed",
-      "merged": true,
-      "created_at": "2026-05-09T01:55:03Z",
-      "updated_at": "2026-05-14T08:21:06Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/42126",
-      "labels": [
-        "rocm",
-        "ready",
-        "multi-modality"
-      ],
-      "draft": false,
-      "body_head": "<!-- markdownlint-disable -->\r\n## Purpose\r\nTwo of the models in tests/models/multimodal/generation/test_common.py have bugs:\r\n* `rhymes-ai/Aria`:needs to update their model code for the latest version of transformers: [issue](https://huggingface.co/rhymes-ai/Aria/discussions/23)\r\n* `zai-org/glm-4v-9b`:needs to update for compatibility: [issue](https://huggingface.co/zai-org/glm-4v-9b/discussions/46)\r\n* `zai-org/GLM-OCR`: Is failing on both h100 and mi300 and produces gibberish on both hardwares when asking for it to complete a prompt. I've opened an [issue](https://github.com/vllm-project/vllm/issues/42016) for this.\r\n## Test Plan\r\n` pytest -v -s models/language/generation -m '(not core_model) and (not hybrid_model)'`\r\n## Test Result\r\n`== 47 passed, 66 skipped, 179 deselected, 126 warnings in 4564.32s (1:16:04) ==`\r\n\r\n---\r\n<details>\r\n<summary> Essential Elements of an Effective PR Description Checklist </summary>\r\n\r\n- [ X] The purpose of the PR, such as \"Fix some issue (link existing issues this PR will resolve)\".\r\n- [ X] The test plan, such as providing test command.\r\n- [X ] The test results, such as pasting the results comparison before and after, or e2e results\r\n- [ ] (Optional) The necessary documentation update, such as updating `supported_models.md` and `examples` for a new model.\r\n</details>\r\n\r\n**BEFORE SUBMITTING, PLEASE READ <https://docs.vllm.ai/en/latest/contributing>** (anything written below this line will be removed by GitHub Actions)\r\n",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        41854
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "ready",
-        "multi-modality"
-      ]
-    },
-    {
-      "number": 42104,
-      "title": "[CI] set max transformers version for skywork model",
-      "author": "divakar-amd",
-      "state": "closed",
-      "merged": true,
-      "created_at": "2026-05-08T18:16:02Z",
-      "updated_at": "2026-05-13T23:53:50Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/42104",
-      "labels": [
-        "ready"
-      ],
-      "draft": false,
-      "body_head": "This PR resolves the following error:\r\n```\r\nAttributeError: 'SkyworkChatModel' object has no attribute 'all_tied_weights_keys'.\r\nDid you mean: '_tied_weights_keys'?\r\n```\r\nThe failure occurs because of change in `transformers 5.x` APIs which introduced `all_tied_weights_keys`\r\n\r\nIn transformers 5.x post_init() now sets an instance attribute all_tied_weights_keys (a dict):\r\n\r\nThis PR resolves the following tests as shown in this [AMD CI run](https://buildkite.com/vllm/amd-ci/builds/8323/summary?sid=019e062c-1021-4484-918f-af6e7efe7df4&tab=output) \r\n```\r\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[skywork_r1v-test_case57]\r\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[skywork_r1v-test_case58]\r\nFAILED models/multimodal/generation/test_common.py::test_single_image_models[skywork_r1v-test_case59]\r\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[skywork_r1v-test_case53]\r\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[skywork_r1v-test_case54]\r\nFAILED models/multimodal/generation/test_common.py::test_multi_image_models[skywork_r1v-test_case55]\r\n```\r\nRelated AMD CI issue: https://github.com/vllm-project/vllm/issues/42020#issuecomment-4403177094",
-      "is_ci_pr": true,
-      "is_rocm_pr": false,
-      "ci_issue_numbers": [
-        42020
-      ],
-      "custom_tags": [
-        "CI"
-      ],
-      "other_tags": [
-        "ready"
-      ]
-    },
-    {
-      "number": 41572,
-      "title": "[ROCm][CI] Skip ROCm batch invalid-input test pending torch fix",
-      "author": "AndreasKaratzas",
-      "state": "closed",
-      "merged": true,
-      "created_at": "2026-05-03T21:14:15Z",
-      "updated_at": "2026-05-13T16:53:23Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41572",
-      "labels": [
-        "rocm",
-        "ready"
-      ],
-      "draft": false,
-      "body_head": "- Reject empty `bad_words` in `SamplingParams` so stateless generate returns 400 instead of 500.\r\n- Skip `test_completions_invalid_input` only on ROCm while the base image has the old torch/Kineto exit behavior.\r\n- Add a TODO to re-enable after the ROCm base image includes https://github.com/pytorch/pytorch/pull/179579.\r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        41582
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "ready"
       ]
     },
     {
