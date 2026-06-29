@@ -1,13 +1,13 @@
 {
   "summary": {
     "total_amd_steps": 125,
-    "total_nvidia_steps": 173,
-    "matched": 116,
-    "amd_only": 9,
-    "nvidia_only": 62,
+    "total_nvidia_steps": 163,
+    "matched": 113,
+    "amd_only": 12,
+    "nvidia_only": 53,
     "mirrors": 54,
-    "match_rate_pct": 92.8,
-    "avg_command_similarity_pct": 93.5
+    "match_rate_pct": 90.4,
+    "avg_command_similarity_pct": 94.0
   },
   "matches": [
     {
@@ -66,25 +66,6 @@
       "nvidia_commands": [
         "VLLM_USE_FLASHINFER_SAMPLER=0 pytest -v -s samplers",
         "VLLM_USE_FLASHINFER_SAMPLER=1 pytest -v -s samplers"
-      ]
-    },
-    {
-      "amd_label": "Distributed Compile Unit Tests (2xH100-2xMI300)",
-      "nvidia_label": "Distributed Compile Unit Tests (2xH100)",
-      "normalized": "distributed compile unit tests (2xh100-2xmi300)",
-      "identity_key": "distributed compile unit tests (2 gpus)",
-      "command_similarity": 0.3927,
-      "color": "red",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/compile.yaml",
-      "amd_commands": [
-        "export VLLM_TEST_CLEAN_GPU_MEMORY=1",
-        "VLLM_TEST_CLEAN_GPU_MEMORY=1 pytest -v -s tests/compile/passes/distributed/test_async_tp.py",
-        "pytest -v -s tests/compile/fusions_e2e/test_tp2_ar_rms.py::test_tp2_ar_rms_fusions"
-      ],
-      "nvidia_commands": [
-        "export VLLM_TEST_CLEAN_GPU_MEMORY=1",
-        "pytest -s -v tests/compile/passes/distributed"
       ]
     },
     {
@@ -360,26 +341,6 @@
       ]
     },
     {
-      "amd_label": "Fusion E2E Quick (H100-MI300)",
-      "nvidia_label": "Fusion E2E Quick (H100)",
-      "normalized": "fusion e2e quick (h100-mi300)",
-      "identity_key": "fusion e2e quick (1 gpus)",
-      "command_similarity": 0.8438,
-      "color": "yellow",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/compile.yaml",
-      "amd_commands": [
-        "rocm-smi",
-        "pytest -v -s tests/compile/fusions_e2e/test_tp1_quant.py -k 'inductor_partition and not +rms_norm and not +quant_fp8'",
-        "pytest -v -s tests/compile/fusions_e2e/test_tp1_quant.py -k 'inductor_partition and +rms_norm and +quant_fp8 and qwen3'"
-      ],
-      "nvidia_commands": [
-        "nvidia-smi",
-        "pytest -v -s tests/compile/fusions_e2e/test_tp1_quant.py -k \"inductor_partition and not +rms_norm and not +quant_fp8\"",
-        "pytest -v -s tests/compile/fusions_e2e/test_tp1_quant.py -k \"inductor_partition and not +rms_norm and +quant_fp8 and (qwen3 or deepseek)\""
-      ]
-    },
-    {
       "amd_label": "PyTorch Fullgraph Smoke Test",
       "nvidia_label": "PyTorch Fullgraph Smoke Test",
       "normalized": "pytorch fullgraph smoke test",
@@ -610,24 +571,6 @@
       ],
       "nvidia_commands": [
         "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=configs/models-qwen35-blackwell.txt"
-      ]
-    },
-    {
-      "amd_label": "Fusion E2E Config Sweep (H100-MI300)",
-      "nvidia_label": "Fusion E2E Config Sweep (H100)",
-      "normalized": "fusion e2e config sweep (h100-mi300)",
-      "identity_key": "fusion e2e config sweep (1 gpus)",
-      "command_similarity": 0.9367,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/compile.yaml",
-      "amd_commands": [
-        "rocm-smi",
-        "pytest -v -s tests/compile/fusions_e2e/test_tp1_quant.py -k \"llama-3\""
-      ],
-      "nvidia_commands": [
-        "nvidia-smi",
-        "pytest -v -s tests/compile/fusions_e2e/test_tp1_quant.py -k \"llama-3\""
       ]
     },
     {
@@ -1623,6 +1566,24 @@
   ],
   "amd_only": [
     {
+      "label": "Fusion E2E Config Sweep (H100-MI300)",
+      "normalized": "fusion e2e config sweep (h100-mi300)",
+      "identity_key": "fusion e2e config sweep (1 gpus)",
+      "group": "amd"
+    },
+    {
+      "label": "Fusion E2E Quick (H100-MI300)",
+      "normalized": "fusion e2e quick (h100-mi300)",
+      "identity_key": "fusion e2e quick (1 gpus)",
+      "group": "amd"
+    },
+    {
+      "label": "Distributed Compile Unit Tests (2xH100-2xMI300)",
+      "normalized": "distributed compile unit tests (2xh100-2xmi300)",
+      "identity_key": "distributed compile unit tests (2 gpus)",
+      "group": "amd"
+    },
+    {
       "label": "LM Eval Small Models (MI300)",
       "normalized": "lm eval small models (mi300)",
       "identity_key": "lm eval small models (hardware variants)",
@@ -1678,60 +1639,6 @@
     }
   ],
   "nvidia_only": [
-    {
-      "label": "Sequence Parallel Correctness Tests (2 GPUs)",
-      "normalized": "sequence parallel correctness tests (2 gpus)",
-      "identity_key": "sequence parallel correctness tests (2 gpus)",
-      "source": ".buildkite/test_areas/compile.yaml"
-    },
-    {
-      "label": "Sequence Parallel Correctness Tests (2xH100)",
-      "normalized": "sequence parallel correctness tests (2 gpus)",
-      "identity_key": "sequence parallel correctness tests (2 gpus)",
-      "source": ".buildkite/test_areas/compile.yaml"
-    },
-    {
-      "label": "AsyncTP Correctness Tests (2xH100)",
-      "normalized": "asynctp correctness tests (2 gpus)",
-      "identity_key": "asynctp correctness tests (2 gpus)",
-      "source": ".buildkite/test_areas/compile.yaml"
-    },
-    {
-      "label": "AsyncTP Correctness Tests (B200)",
-      "normalized": "asynctp correctness tests (b200)",
-      "identity_key": "asynctp correctness tests (2 gpus)",
-      "source": ".buildkite/test_areas/compile.yaml"
-    },
-    {
-      "label": "Fusion and Compile Unit Tests (2xB200)",
-      "normalized": "fusion and compile unit tests (2 gpus)",
-      "identity_key": "fusion and compile unit tests (2 gpus)",
-      "source": ".buildkite/test_areas/compile.yaml"
-    },
-    {
-      "label": "Fusion E2E TP2 Quick (H100)",
-      "normalized": "fusion e2e tp2 quick (h100)",
-      "identity_key": "fusion e2e tp2 quick (2 gpus)",
-      "source": ".buildkite/test_areas/compile.yaml"
-    },
-    {
-      "label": "Fusion E2E TP2 AR-RMS Config Sweep (H100)",
-      "normalized": "fusion e2e tp2 ar-rms config sweep (h100)",
-      "identity_key": "fusion e2e tp2 ar-rms config sweep (2 gpus)",
-      "source": ".buildkite/test_areas/compile.yaml"
-    },
-    {
-      "label": "Fusion E2E TP2 AsyncTP Config Sweep (H100)",
-      "normalized": "fusion e2e tp2 asynctp config sweep (h100)",
-      "identity_key": "fusion e2e tp2 asynctp config sweep (2 gpus)",
-      "source": ".buildkite/test_areas/compile.yaml"
-    },
-    {
-      "label": "Fusion E2E TP2 (B200)",
-      "normalized": "fusion e2e tp2 (b200)",
-      "identity_key": "fusion e2e tp2 (2 gpus)",
-      "source": ".buildkite/test_areas/compile.yaml"
-    },
     {
       "label": "Distributed FlashInfer NixlConnector PD accuracy (4 GPUs)",
       "normalized": "distributed flashinfer nixlconnector pd accuracy (4 gpus)",
