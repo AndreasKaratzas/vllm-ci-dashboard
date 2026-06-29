@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-29T19:03:51Z",
+  "generated_at": "2026-06-29T20:00:36Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -23,16 +23,16 @@
     "upstream_build": 75033,
     "amd_ci_build": 10203,
     "canonical_target_count": 125,
-    "row_count": 227,
+    "row_count": 228,
     "canonical_match_count": 107,
-    "likely_duplicate_count": 17,
+    "likely_duplicate_count": 18,
     "new_candidate_count": 54,
     "excluded_count": 39,
     "missing_from_upstream_count": 10,
     "by_decision": {
       "canonical": 107,
       "excluded": 39,
-      "likely_duplicate": 17,
+      "likely_duplicate": 18,
       "missing_from_upstream": 10,
       "new_candidate": 54
     }
@@ -3001,6 +3001,18 @@
       "state": "passed",
       "queue": "b200-k8s",
       "url": "https://buildkite.com/vllm/ci/builds/75033/steps/canvas?jid=019f11f7-e3f9-4426-832b-51a06e61d66b&tab=output",
+      "exclusion_reasons": [],
+      "decision": "likely_duplicate",
+      "duplicate_of": "Distributed Tests (2 GPUs)(H100)",
+      "target_id": 87,
+      "proposal_matches": []
+    },
+    {
+      "label": "Distributed Tests (2xH100-2xMI300)",
+      "canonical_key": "distributed test (2 gpus)",
+      "state": "passed",
+      "queue": "mithril-h100-pool",
+      "url": "https://buildkite.com/vllm/ci/builds/75033/steps/canvas?jid=019f149a-86ee-4bf7-a41e-cf378ab2376c&tab=output",
       "exclusion_reasons": [],
       "decision": "likely_duplicate",
       "duplicate_of": "Distributed Tests (2 GPUs)(H100)",
