@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-29T12:00:55Z",
+  "generated_at": "2026-06-29T13:50:17Z",
   "source": {
     "yaml_url": "https://raw.githubusercontent.com/vllm-project/vllm/refs/heads/main/.buildkite/test-amd.yaml",
     "latest_build_number": 10203,
@@ -11,11 +11,11 @@
     "unique_groups": 138,
     "architecture_count": 4,
     "hardware_cells": 168,
-    "latest_matched_cells": 166,
+    "latest_matched_cells": 167,
     "passing_cells": 126,
-    "failing_cells": 40,
+    "failing_cells": 41,
     "waiting_cells": 0,
-    "unknown_cells": 2,
+    "unknown_cells": 1,
     "fully_shared_groups": 0,
     "single_arch_groups": 109,
     "multi_variant_cells": 0
@@ -43,7 +43,7 @@
       "id": "mi355",
       "label": "MI355",
       "group_count": 38,
-      "nightly_match_count": 37
+      "nightly_match_count": 38
     }
   ],
   "areas": [
@@ -5859,10 +5859,10 @@
               "agent_pool": "mi355_1",
               "optional": true,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10203/steps/canvas?sid=019f129b-d711-4068-a3bb-0cbffe26a634&tab=output",
               "aliases": [
                 "Multi-Modal Models (Extended Generation 1)"
               ],
@@ -5873,10 +5873,10 @@
                   "agent_pool": "mi355_1",
                   "optional": true,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10203/steps/canvas?sid=019f129b-d711-4068-a3bb-0cbffe26a634&tab=output",
                   "aliases": [
                     "Multi-Modal Models (Extended Generation 1)"
                   ],
@@ -5885,16 +5885,16 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 10203,
           "primary_label": "Multi-Modal Models (Extended Generation 1)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10203/steps/canvas?sid=019f129b-d711-4068-a3bb-0cbffe26a634&tab=output"
         }
       },
       "coverage_count": 2,
-      "nightly_coverage_count": 1,
+      "nightly_coverage_count": 2,
       "architectures_present": [
         "mi300",
         "mi355"

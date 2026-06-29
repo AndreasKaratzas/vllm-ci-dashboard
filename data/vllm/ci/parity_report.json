@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-06-29T11:55:59Z",
+  "generated_at": "2026-06-29T13:48:58Z",
   "amd_date": "2026-06-29",
   "upstream_date": "2026-06-29",
   "parity_pct": 0.0,
-  "total_tests": 728,
+  "total_tests": 729,
   "summary": {
     "upstream_only": 409,
-    "amd_only": 319
+    "amd_only": 320
   },
   "by_module": {
     "2 Node Test (4 GPUs)": {
@@ -1820,6 +1820,10 @@
     "mi355_1: Language Models Tests (Standard)": {
       "parity_pct": 100.0,
       "amd_only": 2
+    },
+    "mi355_1: Multi-Modal Models (Extended Generation 1)": {
+      "parity_pct": 100.0,
+      "amd_only": 1
     },
     "mi355_1: Multi-Modal Models (Extended Generation 3)": {
       "parity_pct": 100.0,
@@ -4778,8 +4782,8 @@
     },
     {
       "name": "fusion e2e config sweep (h100-mi300)",
-      "family_key": "fusion e2e config sweep",
-      "family_name": "fusion e2e config sweep",
+      "family_key": "fusion e2e config sweep (1 gpus)",
+      "family_name": "fusion e2e config sweep (1 gpus)",
       "amd_job_name": "mi300_1: Fusion E2E Config Sweep (H100-MI300)",
       "upstream_job_name": "Fusion E2E Config Sweep (B200)",
       "amd": {
@@ -4834,8 +4838,8 @@
     },
     {
       "name": "fusion e2e quick (h100-mi300)",
-      "family_key": "fusion e2e quick",
-      "family_name": "fusion e2e quick",
+      "family_key": "fusion e2e quick (1 gpus)",
+      "family_name": "fusion e2e quick (1 gpus)",
       "amd_job_name": "mi300_1: Fusion E2E Quick (H100-MI300)",
       "upstream_job_name": "Fusion E2E Quick (H100)",
       "amd": {
@@ -5172,7 +5176,7 @@
         {
           "hw": "mi355",
           "url": "https://buildkite.com/vllm/amd-ci/builds/10203/steps/canvas?sid=019f129b-d709-4114-81d0-f7c426990958&tab=output",
-          "job_name": "mi355_1: Kernels Attention Test 2",
+          "job_name": "mi355_1: Kernels Attention Test 1",
           "side": "amd"
         },
         {
@@ -5487,7 +5491,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 9793.909999999998
+        "duration": 9793.910000000002
       },
       "upstream": {
         "total": 20,
@@ -5519,7 +5523,7 @@
         {
           "hw": "mi355",
           "url": "https://buildkite.com/vllm/amd-ci/builds/10203/steps/canvas?sid=019f129b-d709-43ba-a0a3-af35ae5c8600&tab=output",
-          "job_name": "mi355_1: Kernels MoE Test 3",
+          "job_name": "mi355_1: Kernels MoE Test 2",
           "side": "amd"
         },
         {
@@ -5584,7 +5588,7 @@
         {
           "hw": "mi355",
           "url": "https://buildkite.com/vllm/amd-ci/builds/10203/steps/canvas?sid=019f129b-d70a-4695-a720-6d95537a93b3&tab=output",
-          "job_name": "mi355_1: Kernels Quantization Test 2",
+          "job_name": "mi355_1: Kernels Quantization Test 1",
           "side": "amd"
         },
         {
@@ -6854,13 +6858,13 @@
       "amd_job_name": "mi300_1: Multi-Modal Models (Extended Generation 1)",
       "upstream_job_name": "Multi-Modal Models (Extended Generation 1)",
       "amd": {
-        "total": 2,
+        "total": 3,
         "passed": 1,
         "failed": 0,
         "skipped": 1,
         "xfailed": 0,
         "xpassed": 0,
-        "error": 0,
+        "error": 1,
         "duration": 2.04
       },
       "upstream": {
@@ -6879,6 +6883,7 @@
         "mi355"
       ],
       "hw_failures": {
+        "mi355": 1,
         "h100": 1
       },
       "hw_canceled": null,
@@ -6891,6 +6896,12 @@
           "side": "amd"
         },
         {
+          "hw": "mi355",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/10203/steps/canvas?sid=019f129b-d711-4068-a3bb-0cbffe26a634&tab=output",
+          "job_name": "mi355_1: Multi-Modal Models (Extended Generation 1)",
+          "side": "amd"
+        },
+        {
           "hw": "h100",
           "url": "https://buildkite.com/vllm/ci/builds/75033/steps/canvas?jid=019f11f7-e4c6-4be7-b80c-cefefd8aa17c&tab=output",
           "job_name": "Multi-Modal Models (Extended Generation 1)",
@@ -6898,16 +6909,13 @@
         }
       ],
       "delta": {
-        "total": -1,
+        "total": 0,
         "passed": 0,
         "failed": -1,
         "skipped": 0
       },
       "status": "both",
-      "backfilled": false,
-      "hw_backfilled": {
-        "mi355": true
-      }
+      "backfilled": false
     },
     {
       "name": "multi-modal models (extended generation 2)",
@@ -7414,7 +7422,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 7919.929999999999
+        "duration": 7919.93
       },
       "upstream": {
         "total": 1089,
@@ -10050,8 +10058,8 @@
     },
     {
       "name": "fusion e2e config sweep (h100)",
-      "family_key": "fusion e2e config sweep",
-      "family_name": "fusion e2e config sweep",
+      "family_key": "fusion e2e config sweep (1 gpus)",
+      "family_name": "fusion e2e config sweep (1 gpus)",
       "amd_job_name": null,
       "upstream_job_name": "Fusion E2E Config Sweep (H100)",
       "amd": null,
@@ -16255,6 +16263,12 @@
     {
       "test_id": "mi355_1: Language Models Tests (Standard)::__unidentified_failures__",
       "amd_status": "failed",
+      "upstream_status": "missing",
+      "category": "amd_only"
+    },
+    {
+      "test_id": "mi355_1: Multi-Modal Models (Extended Generation 1)::__job_level__",
+      "amd_status": "error",
       "upstream_status": "missing",
       "category": "amd_only"
     },
