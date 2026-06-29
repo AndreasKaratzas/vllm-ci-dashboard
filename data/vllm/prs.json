@@ -1,64 +1,6 @@
 {
-  "collected_at": "2026-06-29T15:32:54Z",
+  "collected_at": "2026-06-29T16:54:59Z",
   "prs": [
-    {
-      "number": 41290,
-      "title": "[Bugfix][CI][Hardware][AMD] Fix various e4m3fn -> e4m3fnuz normalization issues",
-      "author": "mawong-amd",
-      "state": "closed",
-      "merged": false,
-      "created_at": "2026-04-29T21:04:34Z",
-      "updated_at": "2026-06-24T09:34:01Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41290",
-      "labels": [
-        "bug",
-        "rocm",
-        "needs-rebase",
-        "nvidia"
-      ],
-      "draft": false,
-      "body_head": "## Purpose\r\nThis PR fixes various issues in e4m3fnuz handling encountered by various quantization code paths (ModelOpt, online). In particular, on `e4m3fnuz` platforms, `normalize_e4m3fn_to_e4m3fnuz` should be called exactly once on a given FP8 linear layer after weights are loaded.\r\nHowever,\r\n- Some PyTorch linear kernel-based code paths used during ModelOpt quantization were not calling this function.\r\n- Some code paths used in online quantization methods were trying to call this function twice, once in the linear layer and once more in the linear layer's kernel implementation.\r\n\r\nThe end result is that the Quantization test group should now be passing on ROCm.\r\n\r\nThis PR also removes a Quark mxfp4 model that was causing failures in the Kernels MoE test group because it is incompatible with HF Transformers v5.\r\n## Test Plan\r\n`VLLM_TEST_FORCE_LOAD_FORMAT=auto pytest -v -s quantization/ --ignore quantization/test_blackwell_moe.py`\r\n`pytest -v -s kernels/moe --ignore=kernels/moe/test_modular_oai_triton_moe.py`\r\nThese tests should be run as part of the Quantization and Kernels MoE test groups in vLLM AMD CI.\r\n\r\n## Test Result\r\nThe above test groups pass, and there are no regressions.\r\n\r\ncc @kenroche and @AndreasKaratzas\r\n\r\n---\r\n<details>\r\n<summary> Essential Elements of an Effective PR Description Checklist </summary>\r\n\r\n- [ ] The purpose of the PR, such as \"Fix some issue (link existing issues this PR will resolve)\".\r\n- [ ] The test plan, such as providing test command.\r\n- [ ] The test results, such as pasting the results comparison before and after, or e2e results\r\n- [ ] (Optional) The necessary documentation update, such as updating `supported_models.md` and `examples` for a new model.\r\n</details>",
-      "is_ci_pr": false,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [],
-      "custom_tags": [
-        "ROCm"
-      ],
-      "other_tags": [
-        "bug",
-        "needs-rebase",
-        "nvidia"
-      ]
-    },
-    {
-      "number": 41532,
-      "title": "[ROCm][CI] Gate incompatible HF references on Transformers v5",
-      "author": "AndreasKaratzas",
-      "state": "closed",
-      "merged": true,
-      "created_at": "2026-05-03T04:14:56Z",
-      "updated_at": "2026-06-16T15:53:09Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/41532",
-      "labels": [
-        "rocm",
-        "ready",
-        "ci/build",
-        "multi-modality"
-      ],
-      "draft": false,
-      "body_head": "This updates generation-test metadata for models whose HF reference path is incompatible with the installed Transformers v5 runtime.\r\n\r\nTest groups fixed:\r\n- `mi355_1: Language Models Tests (Standard)` for MiniCPM4.\r\n- `mi355_1: Language Models Test (Extended Generation)` for HyperCLOVAX.\r\n\r\nMiniCPM4:\r\n- Fails in HF remote code because it imports `is_torch_fx_available`, removed from the installed Transformers v5 runtime.\r\n- Links the upstream compatibility request, which is closed as not planned: https://github.com/huggingface/transformers/issues/44561\r\n\r\nHyperCLOVAX:\r\n- The model's remote code imports `ROPE_INIT_FUNCTIONS` and unconditionally indexes `ROPE_INIT_FUNCTIONS[self.rope_type]`; for the default case, `self.rope_type` is `\"default\"`: https://huggingface.co/naver-hyperclovax/HyperCLOVAX-SEED-Think-14B/blob/main/modeling_hyperclovax.py\r\n- Transformers v5 docs still list `\"default\"` as a valid RoPE type. The incompatibility is narrower: v5 no longer exposes a `\"default\"` entry in `ROPE_INIT_FUNCTIONS`, while v4.57 did. In v5's own Llama code, default RoPE is handled by `compute_default_rope_parameters`; `ROPE_INIT_FUNCTIONS` is consulted only when `rope_type != \"default\"`.\r\n- The v5 migration guide also notes that rotary embedding configuration now lives under `config.rope_parameters`, which matches the new v5 model path.\r\n\r\ncc @kenroche ",
-      "is_ci_pr": false,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [],
-      "custom_tags": [
-        "ROCm"
-      ],
-      "other_tags": [
-        "ready",
-        "ci/build",
-        "multi-modality"
-      ]
-    },
     {
       "number": 37717,
       "title": "[ROCm][CI] Add large_gpu_mark to test_max_tokens_none for ROCm",
