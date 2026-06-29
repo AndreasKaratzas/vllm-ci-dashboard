@@ -3,7 +3,7 @@
     "pipeline": "amd-ci",
     "display_name": "AMD CI",
     "days": 30,
-    "generated_at": "2026-06-29T18:02:46Z",
+    "generated_at": "2026-06-29T18:57:49Z",
     "summary": {
       "total_builds": 30,
       "passed": 29,
@@ -126614,15 +126614,15 @@
     "pipeline": "ci",
     "display_name": "Upstream CI",
     "days": 30,
-    "generated_at": "2026-06-29T18:02:46Z",
+    "generated_at": "2026-06-29T18:57:49Z",
     "summary": {
       "total_builds": 31,
       "passed": 3,
       "failed": 28,
       "pass_rate": 9.7,
       "total_jobs_tracked": 337,
-      "jobs_with_failures": 102,
-      "jobs_with_hard_failures": 93,
+      "jobs_with_failures": 101,
+      "jobs_with_hard_failures": 92,
       "jobs_with_soft_failures": 9
     },
     "daily_stats": [
@@ -126816,17 +126816,17 @@
     "builds": [
       {
         "number": 75033,
-        "state": "failed",
+        "state": "failing",
         "created_at": "2026-06-29T06:00:08.622Z",
         "date": "2026-06-29",
         "message": "Full CI run - nightly",
         "author": "",
-        "wall_mins": 128.8,
+        "wall_mins": null,
         "passed": 266,
-        "failed": 15,
+        "failed": 14,
         "soft_failed": 5,
         "skipped": 0,
-        "total_jobs": 286,
+        "total_jobs": 285,
         "jobs": [
           {
             "name": "2 Node Test (4 GPUs)",
@@ -128492,21 +128492,6 @@
             "step_id": "019f11f7-e246-4084-870a-cb40310ceb61",
             "wait": 0.7,
             "q": "b200-k8s"
-          },
-          {
-            "name": "Distributed Tests (2xH100-2xMI300)",
-            "raw_name": "Distributed Tests (2xH100-2xMI300)",
-            "state": "failed",
-            "dur": 1.0,
-            "tests": 29,
-            "passed_tests": 28,
-            "failed_tests": 1,
-            "skipped_tests": 0,
-            "url": "https://buildkite.com/vllm/ci/builds/75033/steps/canvas?jid=019f11f7-e3f9-4a7a-a838-9cdaf645732b&tab=output",
-            "job_id": "019f11f7-e3f9-4a7a-a838-9cdaf645732b",
-            "step_id": "019f11f7-e248-45b5-a4c3-526cd5c8e6f6",
-            "wait": 3.2,
-            "q": "mithril-h100-pool"
           },
           {
             "name": "Distributed Tests (4xA100)",
@@ -238281,17 +238266,17 @@
     "nightly_builds": [
       {
         "number": 75033,
-        "state": "failed",
+        "state": "failing",
         "created_at": "2026-06-29T06:00:08.622Z",
         "date": "2026-06-29",
         "message": "Full CI run - nightly",
         "author": "",
-        "wall_mins": 128.8,
+        "wall_mins": null,
         "passed": 266,
-        "failed": 15,
+        "failed": 14,
         "soft_failed": 5,
         "skipped": 0,
-        "total_jobs": 286,
+        "total_jobs": 285,
         "web_url": "https://buildkite.com/vllm/ci/builds/75033",
         "source": "test_results"
       },
@@ -239099,26 +239084,6 @@
         "max_wait": 7.5,
         "queues": [
           "b200-k8s"
-        ]
-      },
-      {
-        "name": "Distributed Tests (2xH100-2xMI300)",
-        "runs": 5,
-        "passed": 4,
-        "failed": 1,
-        "soft_failed": 0,
-        "fail_rate": 20.0,
-        "is_soft_fail": false,
-        "median_dur": 1.0,
-        "p90_dur": 1.0,
-        "avg_dur": 1.0,
-        "max_dur": 1.0,
-        "median_wait": 3.2,
-        "p90_wait": 67.4,
-        "avg_wait": 22.0,
-        "max_wait": 67.4,
-        "queues": [
-          "mithril-h100-pool"
         ]
       },
       {
@@ -246724,26 +246689,6 @@
         ]
       },
       {
-        "name": "Distributed Tests (2xH100-2xMI300)",
-        "runs": 5,
-        "passed": 4,
-        "failed": 1,
-        "soft_failed": 0,
-        "fail_rate": 20.0,
-        "is_soft_fail": false,
-        "median_dur": 1.0,
-        "p90_dur": 1.0,
-        "avg_dur": 1.0,
-        "max_dur": 1.0,
-        "median_wait": 3.2,
-        "p90_wait": 67.4,
-        "avg_wait": 22.0,
-        "max_wait": 67.4,
-        "queues": [
-          "mithril-h100-pool"
-        ]
-      },
-      {
         "name": "Entrypoints Integration (API Server Generate)",
         "runs": 19,
         "passed": 19,
@@ -246859,6 +246804,26 @@
         "p90_wait": 25.9,
         "avg_wait": 7.3,
         "max_wait": 59.8,
+        "queues": [
+          "mithril-h100-pool"
+        ]
+      },
+      {
+        "name": "Distributed Tests (2xH100-2xMI300)",
+        "runs": 4,
+        "passed": 4,
+        "failed": 0,
+        "soft_failed": 0,
+        "fail_rate": 0.0,
+        "is_soft_fail": false,
+        "median_dur": 0.9,
+        "p90_dur": 1.0,
+        "avg_dur": 0.9,
+        "max_dur": 1.0,
+        "median_wait": 19.2,
+        "p90_wait": 67.4,
+        "avg_wait": 26.7,
+        "max_wait": 67.4,
         "queues": [
           "mithril-h100-pool"
         ]
@@ -247587,9 +247552,9 @@
       },
       {
         "queue": "mithril-h100-pool",
-        "jobs": 930,
+        "jobs": 929,
         "median_wait": 1.1,
-        "p90_wait": 5.8,
+        "p90_wait": 6.5,
         "avg_wait": 3.4,
         "max_wait": 32.8
       },
@@ -247748,9 +247713,9 @@
           "passed": 0,
           "failed": 1,
           "pass_rate": 0.0,
-          "total_jobs_tracked": 286,
-          "jobs_with_failures": 20,
-          "jobs_with_hard_failures": 15,
+          "total_jobs_tracked": 285,
+          "jobs_with_failures": 19,
+          "jobs_with_hard_failures": 14,
           "jobs_with_soft_failures": 5
         },
         "daily_stats": [
@@ -247764,17 +247729,17 @@
         "builds": [
           {
             "number": 75033,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-06-29T06:00:08.622Z",
             "date": "2026-06-29",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 128.8,
+            "wall_mins": null,
             "passed": 266,
-            "failed": 15,
+            "failed": 14,
             "soft_failed": 5,
             "skipped": 0,
-            "total_jobs": 286,
+            "total_jobs": 285,
             "web_url": "https://buildkite.com/vllm/ci/builds/75033",
             "source": "test_results"
           }
@@ -247782,17 +247747,17 @@
         "nightly_builds": [
           {
             "number": 75033,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-06-29T06:00:08.622Z",
             "date": "2026-06-29",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 128.8,
+            "wall_mins": null,
             "passed": 266,
-            "failed": 15,
+            "failed": 14,
             "soft_failed": 5,
             "skipped": 0,
-            "total_jobs": 286,
+            "total_jobs": 285,
             "web_url": "https://buildkite.com/vllm/ci/builds/75033",
             "source": "test_results"
           }
@@ -247874,26 +247839,6 @@
             "p90_wait": 4.1,
             "avg_wait": 4.1,
             "max_wait": 4.1,
-            "queues": [
-              "mithril-h100-pool"
-            ]
-          },
-          {
-            "name": "Distributed Tests (2xH100-2xMI300)",
-            "runs": 1,
-            "passed": 0,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 100.0,
-            "is_soft_fail": false,
-            "median_dur": 1.0,
-            "p90_dur": 1.0,
-            "avg_dur": 1.0,
-            "max_dur": 1.0,
-            "median_wait": 3.2,
-            "p90_wait": 3.2,
-            "avg_wait": 3.2,
-            "max_wait": 3.2,
             "queues": [
               "mithril-h100-pool"
             ]
@@ -253201,26 +253146,6 @@
             ]
           },
           {
-            "name": "Distributed Tests (2xH100-2xMI300)",
-            "runs": 1,
-            "passed": 0,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 100.0,
-            "is_soft_fail": false,
-            "median_dur": 1.0,
-            "p90_dur": 1.0,
-            "avg_dur": 1.0,
-            "max_dur": 1.0,
-            "median_wait": 3.2,
-            "p90_wait": 3.2,
-            "avg_wait": 3.2,
-            "max_wait": 3.2,
-            "queues": [
-              "mithril-h100-pool"
-            ]
-          },
-          {
             "name": "Entrypoints Integration (API Server Generate)",
             "runs": 1,
             "passed": 1,
@@ -253932,10 +253857,10 @@
           },
           {
             "queue": "mithril-h100-pool",
-            "jobs": 32,
-            "median_wait": 9.6,
+            "jobs": 31,
+            "median_wait": 9.7,
             "p90_wait": 14.9,
-            "avg_wait": 8.7,
+            "avg_wait": 8.9,
             "max_wait": 25.9
           },
           {
@@ -254125,8 +254050,8 @@
           "failed": 3,
           "pass_rate": 0.0,
           "total_jobs_tracked": 287,
-          "jobs_with_failures": 32,
-          "jobs_with_hard_failures": 26,
+          "jobs_with_failures": 31,
+          "jobs_with_hard_failures": 25,
           "jobs_with_soft_failures": 6
         },
         "daily_stats": [
@@ -254152,17 +254077,17 @@
         "builds": [
           {
             "number": 75033,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-06-29T06:00:08.622Z",
             "date": "2026-06-29",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 128.8,
+            "wall_mins": null,
             "passed": 266,
-            "failed": 15,
+            "failed": 14,
             "soft_failed": 5,
             "skipped": 0,
-            "total_jobs": 286,
+            "total_jobs": 285,
             "web_url": "https://buildkite.com/vllm/ci/builds/75033",
             "source": "test_results"
           },
@@ -254202,17 +254127,17 @@
         "nightly_builds": [
           {
             "number": 75033,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-06-29T06:00:08.622Z",
             "date": "2026-06-29",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 128.8,
+            "wall_mins": null,
             "passed": 266,
-            "failed": 15,
+            "failed": 14,
             "soft_failed": 5,
             "skipped": 0,
-            "total_jobs": 286,
+            "total_jobs": 285,
             "web_url": "https://buildkite.com/vllm/ci/builds/75033",
             "source": "test_results"
           },
@@ -254588,26 +254513,6 @@
             "max_wait": 54.9,
             "queues": [
               "gpu_4_queue"
-            ]
-          },
-          {
-            "name": "Distributed Tests (2xH100-2xMI300)",
-            "runs": 3,
-            "passed": 2,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 33.3,
-            "is_soft_fail": false,
-            "median_dur": 1.0,
-            "p90_dur": 1.0,
-            "avg_dur": 1.0,
-            "max_dur": 1.0,
-            "median_wait": 3.2,
-            "p90_wait": 67.4,
-            "avg_wait": 23.8,
-            "max_wait": 67.4,
-            "queues": [
-              "mithril-h100-pool"
             ]
           },
           {
@@ -259934,19 +259839,19 @@
           },
           {
             "name": "Distributed Tests (2xH100-2xMI300)",
-            "runs": 3,
+            "runs": 2,
             "passed": 2,
-            "failed": 1,
+            "failed": 0,
             "soft_failed": 0,
-            "fail_rate": 33.3,
+            "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 1.0,
             "p90_dur": 1.0,
             "avg_dur": 1.0,
             "max_dur": 1.0,
-            "median_wait": 3.2,
+            "median_wait": 34.1,
             "p90_wait": 67.4,
-            "avg_wait": 23.8,
+            "avg_wait": 34.1,
             "max_wait": 67.4,
             "queues": [
               "mithril-h100-pool"
@@ -260644,11 +260549,11 @@
           },
           {
             "queue": "mithril-h100-pool",
-            "jobs": 95,
-            "median_wait": 9.4,
-            "p90_wait": 14.9,
-            "avg_wait": 8.5,
-            "max_wait": 25.9
+            "jobs": 94,
+            "median_wait": 9.6,
+            "p90_wait": 15.8,
+            "avg_wait": 9.3,
+            "max_wait": 34.1
           },
           {
             "queue": "gpu_4_queue",
@@ -260837,8 +260742,8 @@
           "failed": 4,
           "pass_rate": 42.9,
           "total_jobs_tracked": 306,
-          "jobs_with_failures": 35,
-          "jobs_with_hard_failures": 29,
+          "jobs_with_failures": 34,
+          "jobs_with_hard_failures": 28,
           "jobs_with_soft_failures": 6
         },
         "daily_stats": [
@@ -260888,17 +260793,17 @@
         "builds": [
           {
             "number": 75033,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-06-29T06:00:08.622Z",
             "date": "2026-06-29",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 128.8,
+            "wall_mins": null,
             "passed": 266,
-            "failed": 15,
+            "failed": 14,
             "soft_failed": 5,
             "skipped": 0,
-            "total_jobs": 286,
+            "total_jobs": 285,
             "web_url": "https://buildkite.com/vllm/ci/builds/75033",
             "source": "test_results"
           },
@@ -261002,17 +260907,17 @@
         "nightly_builds": [
           {
             "number": 75033,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-06-29T06:00:08.622Z",
             "date": "2026-06-29",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 128.8,
+            "wall_mins": null,
             "passed": 266,
-            "failed": 15,
+            "failed": 14,
             "soft_failed": 5,
             "skipped": 0,
-            "total_jobs": 286,
+            "total_jobs": 285,
             "web_url": "https://buildkite.com/vllm/ci/builds/75033",
             "source": "test_results"
           },
@@ -261352,26 +261257,6 @@
             "max_wait": 32.7,
             "queues": [
               "b200-k8s"
-            ]
-          },
-          {
-            "name": "Distributed Tests (2xH100-2xMI300)",
-            "runs": 5,
-            "passed": 4,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 20.0,
-            "is_soft_fail": false,
-            "median_dur": 1.0,
-            "p90_dur": 1.0,
-            "avg_dur": 1.0,
-            "max_dur": 1.0,
-            "median_wait": 3.2,
-            "p90_wait": 67.4,
-            "avg_wait": 22.0,
-            "max_wait": 67.4,
-            "queues": [
-              "mithril-h100-pool"
             ]
           },
           {
@@ -267177,26 +267062,6 @@
             ]
           },
           {
-            "name": "Distributed Tests (2xH100-2xMI300)",
-            "runs": 5,
-            "passed": 4,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 20.0,
-            "is_soft_fail": false,
-            "median_dur": 1.0,
-            "p90_dur": 1.0,
-            "avg_dur": 1.0,
-            "max_dur": 1.0,
-            "median_wait": 3.2,
-            "p90_wait": 67.4,
-            "avg_wait": 22.0,
-            "max_wait": 67.4,
-            "queues": [
-              "mithril-h100-pool"
-            ]
-          },
-          {
             "name": "Entrypoints Integration (API Server Generate)",
             "runs": 6,
             "passed": 6,
@@ -267312,6 +267177,26 @@
             "p90_wait": 1.0,
             "avg_wait": 1.0,
             "max_wait": 1.0,
+            "queues": [
+              "mithril-h100-pool"
+            ]
+          },
+          {
+            "name": "Distributed Tests (2xH100-2xMI300)",
+            "runs": 4,
+            "passed": 4,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 0.9,
+            "p90_dur": 1.0,
+            "avg_dur": 0.9,
+            "max_dur": 1.0,
+            "median_wait": 19.2,
+            "p90_wait": 67.4,
+            "avg_wait": 26.7,
+            "max_wait": 67.4,
             "queues": [
               "mithril-h100-pool"
             ]
@@ -267948,10 +267833,10 @@
           },
           {
             "queue": "mithril-h100-pool",
-            "jobs": 199,
-            "median_wait": 5.0,
+            "jobs": 198,
+            "median_wait": 5.3,
             "p90_wait": 27.2,
-            "avg_wait": 8.1,
+            "avg_wait": 8.4,
             "max_wait": 32.8
           },
           {
@@ -268141,8 +268026,8 @@
           "failed": 11,
           "pass_rate": 21.4,
           "total_jobs_tracked": 306,
-          "jobs_with_failures": 70,
-          "jobs_with_hard_failures": 63,
+          "jobs_with_failures": 69,
+          "jobs_with_hard_failures": 62,
           "jobs_with_soft_failures": 7
         },
         "daily_stats": [
@@ -268234,17 +268119,17 @@
         "builds": [
           {
             "number": 75033,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-06-29T06:00:08.622Z",
             "date": "2026-06-29",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 128.8,
+            "wall_mins": null,
             "passed": 266,
-            "failed": 15,
+            "failed": 14,
             "soft_failed": 5,
             "skipped": 0,
-            "total_jobs": 286,
+            "total_jobs": 285,
             "web_url": "https://buildkite.com/vllm/ci/builds/75033",
             "source": "test_results"
           },
@@ -268460,17 +268345,17 @@
         "nightly_builds": [
           {
             "number": 75033,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-06-29T06:00:08.622Z",
             "date": "2026-06-29",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 128.8,
+            "wall_mins": null,
             "passed": 266,
-            "failed": 15,
+            "failed": 14,
             "soft_failed": 5,
             "skipped": 0,
-            "total_jobs": 286,
+            "total_jobs": 285,
             "web_url": "https://buildkite.com/vllm/ci/builds/75033",
             "source": "test_results"
           },
@@ -269062,26 +268947,6 @@
             "max_wait": 14.6,
             "queues": [
               "gpu_4_queue"
-            ]
-          },
-          {
-            "name": "Distributed Tests (2xH100-2xMI300)",
-            "runs": 5,
-            "passed": 4,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 20.0,
-            "is_soft_fail": false,
-            "median_dur": 1.0,
-            "p90_dur": 1.0,
-            "avg_dur": 1.0,
-            "max_dur": 1.0,
-            "median_wait": 3.2,
-            "p90_wait": 67.4,
-            "avg_wait": 22.0,
-            "max_wait": 67.4,
-            "queues": [
-              "mithril-h100-pool"
             ]
           },
           {
@@ -275427,26 +275292,6 @@
             ]
           },
           {
-            "name": "Distributed Tests (2xH100-2xMI300)",
-            "runs": 5,
-            "passed": 4,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 20.0,
-            "is_soft_fail": false,
-            "median_dur": 1.0,
-            "p90_dur": 1.0,
-            "avg_dur": 1.0,
-            "max_dur": 1.0,
-            "median_wait": 3.2,
-            "p90_wait": 67.4,
-            "avg_wait": 22.0,
-            "max_wait": 67.4,
-            "queues": [
-              "mithril-h100-pool"
-            ]
-          },
-          {
             "name": "Entrypoints Integration (API Server Generate)",
             "runs": 13,
             "passed": 13,
@@ -275522,6 +275367,26 @@
             "p90_wait": 4.8,
             "avg_wait": 1.7,
             "max_wait": 4.8,
+            "queues": [
+              "mithril-h100-pool"
+            ]
+          },
+          {
+            "name": "Distributed Tests (2xH100-2xMI300)",
+            "runs": 4,
+            "passed": 4,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 0.9,
+            "p90_dur": 1.0,
+            "avg_dur": 0.9,
+            "max_dur": 1.0,
+            "median_wait": 19.2,
+            "p90_wait": 67.4,
+            "avg_wait": 26.7,
+            "max_wait": 67.4,
             "queues": [
               "mithril-h100-pool"
             ]
@@ -276250,10 +276115,10 @@
           },
           {
             "queue": "mithril-h100-pool",
-            "jobs": 416,
+            "jobs": 415,
             "median_wait": 1.1,
             "p90_wait": 8.6,
-            "avg_wait": 4.0,
+            "avg_wait": 4.1,
             "max_wait": 32.8
           },
           {
@@ -276411,8 +276276,8 @@
           "failed": 27,
           "pass_rate": 10.0,
           "total_jobs_tracked": 337,
-          "jobs_with_failures": 99,
-          "jobs_with_hard_failures": 91,
+          "jobs_with_failures": 98,
+          "jobs_with_hard_failures": 90,
           "jobs_with_soft_failures": 8
         },
         "daily_stats": [
@@ -276600,17 +276465,17 @@
         "builds": [
           {
             "number": 75033,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-06-29T06:00:08.622Z",
             "date": "2026-06-29",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 128.8,
+            "wall_mins": null,
             "passed": 266,
-            "failed": 15,
+            "failed": 14,
             "soft_failed": 5,
             "skipped": 0,
-            "total_jobs": 286,
+            "total_jobs": 285,
             "web_url": "https://buildkite.com/vllm/ci/builds/75033",
             "source": "test_results"
           },
@@ -277082,17 +276947,17 @@
         "nightly_builds": [
           {
             "number": 75033,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-06-29T06:00:08.622Z",
             "date": "2026-06-29",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 128.8,
+            "wall_mins": null,
             "passed": 266,
-            "failed": 15,
+            "failed": 14,
             "soft_failed": 5,
             "skipped": 0,
-            "total_jobs": 286,
+            "total_jobs": 285,
             "web_url": "https://buildkite.com/vllm/ci/builds/75033",
             "source": "test_results"
           },
@@ -277920,26 +277785,6 @@
             "max_wait": 5.4,
             "queues": [
               "gpu_1_queue"
-            ]
-          },
-          {
-            "name": "Distributed Tests (2xH100-2xMI300)",
-            "runs": 5,
-            "passed": 4,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 20.0,
-            "is_soft_fail": false,
-            "median_dur": 1.0,
-            "p90_dur": 1.0,
-            "avg_dur": 1.0,
-            "max_dur": 1.0,
-            "median_wait": 3.2,
-            "p90_wait": 67.4,
-            "avg_wait": 22.0,
-            "max_wait": 67.4,
-            "queues": [
-              "mithril-h100-pool"
             ]
           },
           {
@@ -285445,26 +285290,6 @@
             ]
           },
           {
-            "name": "Distributed Tests (2xH100-2xMI300)",
-            "runs": 5,
-            "passed": 4,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 20.0,
-            "is_soft_fail": false,
-            "median_dur": 1.0,
-            "p90_dur": 1.0,
-            "avg_dur": 1.0,
-            "max_dur": 1.0,
-            "median_wait": 3.2,
-            "p90_wait": 67.4,
-            "avg_wait": 22.0,
-            "max_wait": 67.4,
-            "queues": [
-              "mithril-h100-pool"
-            ]
-          },
-          {
             "name": "Entrypoints Integration (API Server Generate)",
             "runs": 19,
             "passed": 19,
@@ -285580,6 +285405,26 @@
             "p90_wait": 25.9,
             "avg_wait": 7.6,
             "max_wait": 59.8,
+            "queues": [
+              "mithril-h100-pool"
+            ]
+          },
+          {
+            "name": "Distributed Tests (2xH100-2xMI300)",
+            "runs": 4,
+            "passed": 4,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 0.9,
+            "p90_dur": 1.0,
+            "avg_dur": 0.9,
+            "max_dur": 1.0,
+            "median_wait": 19.2,
+            "p90_wait": 67.4,
+            "avg_wait": 26.7,
+            "max_wait": 67.4,
             "queues": [
               "mithril-h100-pool"
             ]
@@ -286328,9 +286173,9 @@
           },
           {
             "queue": "mithril-h100-pool",
-            "jobs": 900,
+            "jobs": 899,
             "median_wait": 1.1,
-            "p90_wait": 6.2,
+            "p90_wait": 6.8,
             "avg_wait": 3.5,
             "max_wait": 32.8
           },
