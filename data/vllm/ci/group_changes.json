@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-06-30T17:32:27Z",
+  "generated_at": "2026-06-30T18:24:49Z",
   "days": 30,
-  "total_changes": 67,
+  "total_changes": 68,
   "changes": [
     {
       "date": "2026-03-10",
@@ -2234,6 +2234,36 @@
         "title": "[Bugfix][Model] Support tensor parallelism for DiffusionGemma (#45719)",
         "url": "https://github.com/vllm-project/vllm/pull/46177",
         "author": "calvarado2004"
+      }
+    },
+    {
+      "date": "2026-06-30",
+      "sha": "27d5f78b638d",
+      "message": "[CI] Move distributed small LM eval to B200 (#47048)",
+      "author": "Lucas Wilkinson",
+      "added": [
+        "LM Eval Small Models (1xB200)",
+        "LM Eval Small Models Distributed (2xB200)"
+      ],
+      "removed": [
+        "LM Eval Small Models (2xB200)",
+        "LM Eval Small Models (2xL4)"
+      ],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "LM Eval Small Models (1xB200)",
+        "LM Eval Small Models Distributed (2xB200)"
+      ],
+      "upstream_removed": [
+        "LM Eval Small Models (2xB200)",
+        "LM Eval Small Models (2xL4)"
+      ],
+      "pr": {
+        "number": 47048,
+        "title": "[CI] Move distributed small LM eval to B200",
+        "url": "https://github.com/vllm-project/vllm/pull/47048",
+        "author": "LucasWilkinson"
       }
     }
   ],

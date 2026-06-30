@@ -1,7 +1,7 @@
 {
   "summary": {
     "total_amd_steps": 125,
-    "total_nvidia_steps": 173,
+    "total_nvidia_steps": 174,
     "matched": 116,
     "amd_only": 9,
     "nvidia_only": 62,
@@ -1842,15 +1842,15 @@
       "source": ".buildkite/test_areas/kernels.yaml"
     },
     {
-      "label": "LM Eval Small Models (2xB200)",
-      "normalized": "lm eval small models (2 gpus)",
-      "identity_key": "lm eval small models (2 gpus)",
+      "label": "LM Eval Small Models (1xB200)",
+      "normalized": "lm eval small models (1 gpus)",
+      "identity_key": "lm eval small models (1 gpus)",
       "source": ".buildkite/test_areas/lm_eval.yaml"
     },
     {
-      "label": "LM Eval Small Models (2xL4)",
-      "normalized": "lm eval small models (2 gpus)",
-      "identity_key": "lm eval small models (2 gpus)",
+      "label": "LM Eval Small Models Distributed (2xB200)",
+      "normalized": "lm eval small models distributed (2 gpus)",
+      "identity_key": "lm eval small models distributed (2 gpus)",
       "source": ".buildkite/test_areas/lm_eval.yaml"
     },
     {
