@@ -3,16 +3,16 @@
     "pipeline": "amd-ci",
     "display_name": "AMD CI",
     "days": 30,
-    "generated_at": "2026-06-30T01:19:35Z",
+    "generated_at": "2026-06-30T02:41:02Z",
     "summary": {
       "total_builds": 29,
-      "passed": 29,
+      "passed": 28,
       "failed": 0,
-      "pass_rate": 100.0,
+      "pass_rate": 96.6,
       "total_jobs_tracked": 163,
       "jobs_with_failures": 128,
-      "jobs_with_hard_failures": 13,
-      "jobs_with_soft_failures": 115
+      "jobs_with_hard_failures": 14,
+      "jobs_with_soft_failures": 114
     },
     "daily_stats": [
       {
@@ -185,7 +185,7 @@
       },
       {
         "date": "2026-06-29",
-        "passed": 1,
+        "passed": 0,
         "failed": 0,
         "total": 1
       }
@@ -193,15 +193,15 @@
     "builds": [
       {
         "number": 10203,
-        "state": "passed",
+        "state": "running",
         "created_at": "2026-06-29T09:00:00.784Z",
         "date": "2026-06-29",
         "message": "AMD Full CI Run - nightly",
         "author": "",
-        "wall_mins": 606.3,
+        "wall_mins": null,
         "passed": 140,
-        "failed": 0,
-        "soft_failed": 51,
+        "failed": 1,
+        "soft_failed": 50,
         "skipped": 0,
         "total_jobs": 191,
         "jobs": [
@@ -2128,8 +2128,8 @@
           {
             "name": "LoRA TP (Distributed)",
             "raw_name": "mi300_4: LoRA TP (Distributed)",
-            "state": "soft_fail",
-            "dur": 16.7,
+            "state": "failed",
+            "dur": 0.0,
             "tests": 3,
             "passed_tests": 0,
             "failed_tests": 1,
@@ -2138,7 +2138,7 @@
             "job_id": "019f129b-d7a7-4b7a-98ed-64614aa148a9",
             "step_id": "019f129b-d6b4-4028-9975-5803c19f8760",
             "q": "amd_mi300_4",
-            "wait": 0.3
+            "wait": 0.1
           },
           {
             "name": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100-4xMI300)",
@@ -89352,15 +89352,15 @@
     "nightly_builds": [
       {
         "number": 10203,
-        "state": "passed",
+        "state": "running",
         "created_at": "2026-06-29T09:00:00.784Z",
         "date": "2026-06-29",
         "message": "AMD Full CI Run - nightly",
         "author": "",
-        "wall_mins": 606.3,
+        "wall_mins": null,
         "passed": 140,
-        "failed": 0,
-        "soft_failed": 51,
+        "failed": 1,
+        "soft_failed": 50,
         "skipped": 0,
         "total_jobs": 191,
         "web_url": "https://buildkite.com/vllm/amd-ci/builds/10203",
@@ -89985,18 +89985,18 @@
         "name": "LoRA TP (Distributed)",
         "runs": 29,
         "passed": 0,
-        "failed": 0,
-        "soft_failed": 29,
+        "failed": 1,
+        "soft_failed": 28,
         "fail_rate": 100.0,
-        "is_soft_fail": true,
+        "is_soft_fail": false,
         "median_dur": 25.9,
         "p90_dur": 31.2,
-        "avg_dur": 30.0,
+        "avg_dur": 29.4,
         "max_dur": 180.7,
         "median_wait": 0.1,
-        "p90_wait": 0.2,
+        "p90_wait": 0.1,
         "avg_wait": 0.1,
-        "max_wait": 0.3,
+        "max_wait": 0.2,
         "queues": [
           "amd_mi300_4"
         ]
@@ -93335,18 +93335,18 @@
         "name": "LoRA TP (Distributed)",
         "runs": 29,
         "passed": 0,
-        "failed": 0,
-        "soft_failed": 29,
+        "failed": 1,
+        "soft_failed": 28,
         "fail_rate": 100.0,
-        "is_soft_fail": true,
+        "is_soft_fail": false,
         "median_dur": 25.9,
         "p90_dur": 31.2,
-        "avg_dur": 30.0,
+        "avg_dur": 29.4,
         "max_dur": 180.7,
         "median_wait": 0.1,
-        "p90_wait": 0.2,
+        "p90_wait": 0.1,
         "avg_wait": 0.1,
-        "max_wait": 0.3,
+        "max_wait": 0.2,
         "queues": [
           "amd_mi300_4"
         ]
@@ -95902,18 +95902,18 @@
         "build_count": 1,
         "summary": {
           "total_builds": 1,
-          "passed": 1,
+          "passed": 0,
           "failed": 0,
-          "pass_rate": 100.0,
+          "pass_rate": 0.0,
           "total_jobs_tracked": 152,
           "jobs_with_failures": 48,
-          "jobs_with_hard_failures": 0,
-          "jobs_with_soft_failures": 48
+          "jobs_with_hard_failures": 1,
+          "jobs_with_soft_failures": 47
         },
         "daily_stats": [
           {
             "date": "2026-06-29",
-            "passed": 1,
+            "passed": 0,
             "failed": 0,
             "total": 1
           }
@@ -95921,15 +95921,15 @@
         "builds": [
           {
             "number": 10203,
-            "state": "passed",
+            "state": "running",
             "created_at": "2026-06-29T09:00:00.784Z",
             "date": "2026-06-29",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": 606.3,
+            "wall_mins": null,
             "passed": 140,
-            "failed": 0,
-            "soft_failed": 51,
+            "failed": 1,
+            "soft_failed": 50,
             "skipped": 0,
             "total_jobs": 191,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10203",
@@ -95939,15 +95939,15 @@
         "nightly_builds": [
           {
             "number": 10203,
-            "state": "passed",
+            "state": "running",
             "created_at": "2026-06-29T09:00:00.784Z",
             "date": "2026-06-29",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": 606.3,
+            "wall_mins": null,
             "passed": 140,
-            "failed": 0,
-            "soft_failed": 51,
+            "failed": 1,
+            "soft_failed": 50,
             "skipped": 0,
             "total_jobs": 191,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10203",
@@ -96340,18 +96340,18 @@
             "name": "LoRA TP (Distributed)",
             "runs": 1,
             "passed": 0,
-            "failed": 0,
-            "soft_failed": 1,
+            "failed": 1,
+            "soft_failed": 0,
             "fail_rate": 100.0,
-            "is_soft_fail": true,
-            "median_dur": 16.7,
-            "p90_dur": 16.7,
-            "avg_dur": 16.7,
-            "max_dur": 16.7,
-            "median_wait": 0.3,
-            "p90_wait": 0.3,
-            "avg_wait": 0.3,
-            "max_wait": 0.3,
+            "is_soft_fail": false,
+            "median_dur": 0.0,
+            "p90_dur": 0.0,
+            "avg_dur": 0.0,
+            "max_dur": 0.0,
+            "median_wait": 0.1,
+            "p90_wait": 0.1,
+            "avg_wait": 0.1,
+            "max_wait": 0.1,
             "queues": [
               "amd_mi300_4"
             ]
@@ -98219,26 +98219,6 @@
             ]
           },
           {
-            "name": "LoRA TP (Distributed)",
-            "runs": 1,
-            "passed": 0,
-            "failed": 0,
-            "soft_failed": 1,
-            "fail_rate": 100.0,
-            "is_soft_fail": true,
-            "median_dur": 16.7,
-            "p90_dur": 16.7,
-            "avg_dur": 16.7,
-            "max_dur": 16.7,
-            "median_wait": 0.3,
-            "p90_wait": 0.3,
-            "avg_wait": 0.3,
-            "max_wait": 0.3,
-            "queues": [
-              "amd_mi300_4"
-            ]
-          },
-          {
             "name": "LoRA 2",
             "runs": 1,
             "passed": 1,
@@ -100016,6 +99996,26 @@
             "queues": [
               "amd_mi300_1"
             ]
+          },
+          {
+            "name": "LoRA TP (Distributed)",
+            "runs": 1,
+            "passed": 0,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 100.0,
+            "is_soft_fail": false,
+            "median_dur": 0.0,
+            "p90_dur": 0.0,
+            "avg_dur": 0.0,
+            "max_dur": 0.0,
+            "median_wait": 0.1,
+            "p90_wait": 0.1,
+            "avg_wait": 0.1,
+            "max_wait": 0.1,
+            "queues": [
+              "amd_mi300_4"
+            ]
           }
         ],
         "queue_stats": [
@@ -100104,7 +100104,7 @@
             "jobs": 17,
             "median_wait": 0.1,
             "p90_wait": 0.3,
-            "avg_wait": 0.4,
+            "avg_wait": 0.3,
             "max_wait": 3.3
           },
           {
@@ -100122,13 +100122,13 @@
         "build_count": 3,
         "summary": {
           "total_builds": 3,
-          "passed": 3,
+          "passed": 2,
           "failed": 0,
-          "pass_rate": 100.0,
+          "pass_rate": 66.7,
           "total_jobs_tracked": 153,
           "jobs_with_failures": 59,
-          "jobs_with_hard_failures": 0,
-          "jobs_with_soft_failures": 59
+          "jobs_with_hard_failures": 1,
+          "jobs_with_soft_failures": 58
         },
         "daily_stats": [
           {
@@ -100145,7 +100145,7 @@
           },
           {
             "date": "2026-06-29",
-            "passed": 1,
+            "passed": 0,
             "failed": 0,
             "total": 1
           }
@@ -100153,15 +100153,15 @@
         "builds": [
           {
             "number": 10203,
-            "state": "passed",
+            "state": "running",
             "created_at": "2026-06-29T09:00:00.784Z",
             "date": "2026-06-29",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": 606.3,
+            "wall_mins": null,
             "passed": 140,
-            "failed": 0,
-            "soft_failed": 51,
+            "failed": 1,
+            "soft_failed": 50,
             "skipped": 0,
             "total_jobs": 191,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10203",
@@ -100203,15 +100203,15 @@
         "nightly_builds": [
           {
             "number": 10203,
-            "state": "passed",
+            "state": "running",
             "created_at": "2026-06-29T09:00:00.784Z",
             "date": "2026-06-29",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": 606.3,
+            "wall_mins": null,
             "passed": 140,
-            "failed": 0,
-            "soft_failed": 51,
+            "failed": 1,
+            "soft_failed": 50,
             "skipped": 0,
             "total_jobs": 191,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10203",
@@ -100456,18 +100456,18 @@
             "name": "LoRA TP (Distributed)",
             "runs": 3,
             "passed": 0,
-            "failed": 0,
-            "soft_failed": 3,
+            "failed": 1,
+            "soft_failed": 2,
             "fail_rate": 100.0,
-            "is_soft_fail": true,
-            "median_dur": 15.4,
-            "p90_dur": 16.7,
-            "avg_dur": 15.7,
-            "max_dur": 16.7,
+            "is_soft_fail": false,
+            "median_dur": 15.1,
+            "p90_dur": 15.4,
+            "avg_dur": 10.2,
+            "max_dur": 15.4,
             "median_wait": 0.1,
-            "p90_wait": 0.3,
-            "avg_wait": 0.2,
-            "max_wait": 0.3,
+            "p90_wait": 0.1,
+            "avg_wait": 0.1,
+            "max_wait": 0.1,
             "queues": [
               "amd_mi300_4"
             ]
@@ -102909,26 +102909,6 @@
             ]
           },
           {
-            "name": "LoRA TP (Distributed)",
-            "runs": 3,
-            "passed": 0,
-            "failed": 0,
-            "soft_failed": 3,
-            "fail_rate": 100.0,
-            "is_soft_fail": true,
-            "median_dur": 15.4,
-            "p90_dur": 16.7,
-            "avg_dur": 15.7,
-            "max_dur": 16.7,
-            "median_wait": 0.1,
-            "p90_wait": 0.3,
-            "avg_wait": 0.2,
-            "max_wait": 0.3,
-            "queues": [
-              "amd_mi300_4"
-            ]
-          },
-          {
             "name": "Distributed Tests (8xH100-8xMI300)",
             "runs": 3,
             "passed": 3,
@@ -102966,6 +102946,26 @@
             "max_wait": 0.3,
             "queues": [
               "amd_mi325_4"
+            ]
+          },
+          {
+            "name": "LoRA TP (Distributed)",
+            "runs": 3,
+            "passed": 0,
+            "failed": 1,
+            "soft_failed": 2,
+            "fail_rate": 100.0,
+            "is_soft_fail": false,
+            "median_dur": 15.1,
+            "p90_dur": 15.4,
+            "avg_dur": 10.2,
+            "max_dur": 15.4,
+            "median_wait": 0.1,
+            "p90_wait": 0.1,
+            "avg_wait": 0.1,
+            "max_wait": 0.1,
+            "queues": [
+              "amd_mi300_4"
             ]
           },
           {
@@ -104686,13 +104686,13 @@
         "build_count": 7,
         "summary": {
           "total_builds": 7,
-          "passed": 7,
+          "passed": 6,
           "failed": 0,
-          "pass_rate": 100.0,
+          "pass_rate": 85.7,
           "total_jobs_tracked": 159,
           "jobs_with_failures": 92,
-          "jobs_with_hard_failures": 6,
-          "jobs_with_soft_failures": 86
+          "jobs_with_hard_failures": 7,
+          "jobs_with_soft_failures": 85
         },
         "daily_stats": [
           {
@@ -104733,7 +104733,7 @@
           },
           {
             "date": "2026-06-29",
-            "passed": 1,
+            "passed": 0,
             "failed": 0,
             "total": 1
           }
@@ -104741,15 +104741,15 @@
         "builds": [
           {
             "number": 10203,
-            "state": "passed",
+            "state": "running",
             "created_at": "2026-06-29T09:00:00.784Z",
             "date": "2026-06-29",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": 606.3,
+            "wall_mins": null,
             "passed": 140,
-            "failed": 0,
-            "soft_failed": 51,
+            "failed": 1,
+            "soft_failed": 50,
             "skipped": 0,
             "total_jobs": 191,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10203",
@@ -104855,15 +104855,15 @@
         "nightly_builds": [
           {
             "number": 10203,
-            "state": "passed",
+            "state": "running",
             "created_at": "2026-06-29T09:00:00.784Z",
             "date": "2026-06-29",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": 606.3,
+            "wall_mins": null,
             "passed": 140,
-            "failed": 0,
-            "soft_failed": 51,
+            "failed": 1,
+            "soft_failed": 50,
             "skipped": 0,
             "total_jobs": 191,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10203",
@@ -105153,18 +105153,18 @@
             "name": "LoRA TP (Distributed)",
             "runs": 7,
             "passed": 0,
-            "failed": 0,
-            "soft_failed": 7,
+            "failed": 1,
+            "soft_failed": 6,
             "fail_rate": 100.0,
-            "is_soft_fail": true,
-            "median_dur": 16.7,
+            "is_soft_fail": false,
+            "median_dur": 15.4,
             "p90_dur": 32.0,
-            "avg_dur": 22.2,
+            "avg_dur": 19.8,
             "max_dur": 32.0,
             "median_wait": 0.1,
-            "p90_wait": 0.3,
+            "p90_wait": 0.1,
             "avg_wait": 0.1,
-            "max_wait": 0.3,
+            "max_wait": 0.1,
             "queues": [
               "amd_mi300_4"
             ]
@@ -108151,26 +108151,6 @@
             ]
           },
           {
-            "name": "LoRA TP (Distributed)",
-            "runs": 7,
-            "passed": 0,
-            "failed": 0,
-            "soft_failed": 7,
-            "fail_rate": 100.0,
-            "is_soft_fail": true,
-            "median_dur": 16.7,
-            "p90_dur": 32.0,
-            "avg_dur": 22.2,
-            "max_dur": 32.0,
-            "median_wait": 0.1,
-            "p90_wait": 0.3,
-            "avg_wait": 0.1,
-            "max_wait": 0.3,
-            "queues": [
-              "amd_mi300_4"
-            ]
-          },
-          {
             "name": "Basic Models Tests (Other)",
             "runs": 7,
             "passed": 5,
@@ -108309,6 +108289,26 @@
             "max_wait": 9.4,
             "queues": [
               "amd_mi325_4"
+            ]
+          },
+          {
+            "name": "LoRA TP (Distributed)",
+            "runs": 7,
+            "passed": 0,
+            "failed": 1,
+            "soft_failed": 6,
+            "fail_rate": 100.0,
+            "is_soft_fail": false,
+            "median_dur": 15.4,
+            "p90_dur": 32.0,
+            "avg_dur": 19.8,
+            "max_dur": 32.0,
+            "median_wait": 0.1,
+            "p90_wait": 0.1,
+            "avg_wait": 0.1,
+            "max_wait": 0.1,
+            "queues": [
+              "amd_mi300_4"
             ]
           },
           {
@@ -110192,13 +110192,13 @@
         "build_count": 14,
         "summary": {
           "total_builds": 14,
-          "passed": 14,
+          "passed": 13,
           "failed": 0,
-          "pass_rate": 100.0,
+          "pass_rate": 92.9,
           "total_jobs_tracked": 159,
           "jobs_with_failures": 107,
-          "jobs_with_hard_failures": 6,
-          "jobs_with_soft_failures": 101
+          "jobs_with_hard_failures": 7,
+          "jobs_with_soft_failures": 100
         },
         "daily_stats": [
           {
@@ -110281,7 +110281,7 @@
           },
           {
             "date": "2026-06-29",
-            "passed": 1,
+            "passed": 0,
             "failed": 0,
             "total": 1
           }
@@ -110289,15 +110289,15 @@
         "builds": [
           {
             "number": 10203,
-            "state": "passed",
+            "state": "running",
             "created_at": "2026-06-29T09:00:00.784Z",
             "date": "2026-06-29",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": 606.3,
+            "wall_mins": null,
             "passed": 140,
-            "failed": 0,
-            "soft_failed": 51,
+            "failed": 1,
+            "soft_failed": 50,
             "skipped": 0,
             "total_jobs": 191,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10203",
@@ -110515,15 +110515,15 @@
         "nightly_builds": [
           {
             "number": 10203,
-            "state": "passed",
+            "state": "running",
             "created_at": "2026-06-29T09:00:00.784Z",
             "date": "2026-06-29",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": 606.3,
+            "wall_mins": null,
             "passed": 140,
-            "failed": 0,
-            "soft_failed": 51,
+            "failed": 1,
+            "soft_failed": 50,
             "skipped": 0,
             "total_jobs": 191,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10203",
@@ -110908,18 +110908,18 @@
             "name": "LoRA TP (Distributed)",
             "runs": 14,
             "passed": 0,
-            "failed": 0,
-            "soft_failed": 14,
+            "failed": 1,
+            "soft_failed": 13,
             "fail_rate": 100.0,
-            "is_soft_fail": true,
+            "is_soft_fail": false,
             "median_dur": 26.9,
             "p90_dur": 31.2,
-            "avg_dur": 25.2,
+            "avg_dur": 24.1,
             "max_dur": 32.0,
             "median_wait": 0.1,
             "p90_wait": 0.2,
             "avg_wait": 0.1,
-            "max_wait": 0.3,
+            "max_wait": 0.2,
             "queues": [
               "amd_mi300_4"
             ]
@@ -113706,18 +113706,18 @@
             "name": "LoRA TP (Distributed)",
             "runs": 14,
             "passed": 0,
-            "failed": 0,
-            "soft_failed": 14,
+            "failed": 1,
+            "soft_failed": 13,
             "fail_rate": 100.0,
-            "is_soft_fail": true,
+            "is_soft_fail": false,
             "median_dur": 26.9,
             "p90_dur": 31.2,
-            "avg_dur": 25.2,
+            "avg_dur": 24.1,
             "max_dur": 32.0,
             "median_wait": 0.1,
             "p90_wait": 0.2,
             "avg_wait": 0.1,
-            "max_wait": 0.3,
+            "max_wait": 0.2,
             "queues": [
               "amd_mi300_4"
             ]
@@ -116311,13 +116311,13 @@
         "build_count": 29,
         "summary": {
           "total_builds": 29,
-          "passed": 29,
+          "passed": 28,
           "failed": 0,
-          "pass_rate": 100.0,
+          "pass_rate": 96.6,
           "total_jobs_tracked": 163,
           "jobs_with_failures": 128,
-          "jobs_with_hard_failures": 13,
-          "jobs_with_soft_failures": 115
+          "jobs_with_hard_failures": 14,
+          "jobs_with_soft_failures": 114
         },
         "daily_stats": [
           {
@@ -116490,7 +116490,7 @@
           },
           {
             "date": "2026-06-29",
-            "passed": 1,
+            "passed": 0,
             "failed": 0,
             "total": 1
           }
@@ -116498,15 +116498,15 @@
         "builds": [
           {
             "number": 10203,
-            "state": "passed",
+            "state": "running",
             "created_at": "2026-06-29T09:00:00.784Z",
             "date": "2026-06-29",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": 606.3,
+            "wall_mins": null,
             "passed": 140,
-            "failed": 0,
-            "soft_failed": 51,
+            "failed": 1,
+            "soft_failed": 50,
             "skipped": 0,
             "total_jobs": 191,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10203",
@@ -116964,15 +116964,15 @@
         "nightly_builds": [
           {
             "number": 10203,
-            "state": "passed",
+            "state": "running",
             "created_at": "2026-06-29T09:00:00.784Z",
             "date": "2026-06-29",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": 606.3,
+            "wall_mins": null,
             "passed": 140,
-            "failed": 0,
-            "soft_failed": 51,
+            "failed": 1,
+            "soft_failed": 50,
             "skipped": 0,
             "total_jobs": 191,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10203",
@@ -117597,18 +117597,18 @@
             "name": "LoRA TP (Distributed)",
             "runs": 29,
             "passed": 0,
-            "failed": 0,
-            "soft_failed": 29,
+            "failed": 1,
+            "soft_failed": 28,
             "fail_rate": 100.0,
-            "is_soft_fail": true,
+            "is_soft_fail": false,
             "median_dur": 25.9,
             "p90_dur": 31.2,
-            "avg_dur": 30.0,
+            "avg_dur": 29.4,
             "max_dur": 180.7,
             "median_wait": 0.1,
-            "p90_wait": 0.2,
+            "p90_wait": 0.1,
             "avg_wait": 0.1,
-            "max_wait": 0.3,
+            "max_wait": 0.2,
             "queues": [
               "amd_mi300_4"
             ]
@@ -120947,18 +120947,18 @@
             "name": "LoRA TP (Distributed)",
             "runs": 29,
             "passed": 0,
-            "failed": 0,
-            "soft_failed": 29,
+            "failed": 1,
+            "soft_failed": 28,
             "fail_rate": 100.0,
-            "is_soft_fail": true,
+            "is_soft_fail": false,
             "median_dur": 25.9,
             "p90_dur": 31.2,
-            "avg_dur": 30.0,
+            "avg_dur": 29.4,
             "max_dur": 180.7,
             "median_wait": 0.1,
-            "p90_wait": 0.2,
+            "p90_wait": 0.1,
             "avg_wait": 0.1,
-            "max_wait": 0.3,
+            "max_wait": 0.2,
             "queues": [
               "amd_mi300_4"
             ]
@@ -123514,7 +123514,7 @@
     "pipeline": "ci",
     "display_name": "Upstream CI",
     "days": 30,
-    "generated_at": "2026-06-30T01:19:35Z",
+    "generated_at": "2026-06-30T02:41:02Z",
     "summary": {
       "total_builds": 30,
       "passed": 3,
