@@ -15,14 +15,15 @@
       "nvidia_label": "Kernels (B200)",
       "normalized": "kernels (b200-mi355)",
       "identity_key": "kernels",
-      "command_similarity": 0.0721,
+      "command_similarity": 0.0786,
       "color": "red",
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/kernels.yaml",
       "amd_commands": [
         "rocm-smi",
         "python3 examples/basic/offline_inference/chat.py --attention-backend TRITON_ATTN",
-        "pytest -v -s tests/kernels/attention/test_attention_selector.py"
+        "pytest -v -s tests/kernels/attention/test_attention_selector.py",
+        "pytest -v -s tests/kernels/attention/test_rocm_aiter_mla_decode_metadata.py"
       ],
       "nvidia_commands": [
         "nvidia-smi",
