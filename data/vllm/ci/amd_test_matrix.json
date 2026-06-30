@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-30T15:44:34Z",
+  "generated_at": "2026-06-30T17:32:27Z",
   "source": {
     "yaml_url": "https://raw.githubusercontent.com/vllm-project/vllm/refs/heads/main/.buildkite/test-amd.yaml",
     "latest_build_number": 10250,
@@ -11,11 +11,11 @@
     "unique_groups": 138,
     "architecture_count": 4,
     "hardware_cells": 168,
-    "latest_matched_cells": 168,
-    "passing_cells": 122,
+    "latest_matched_cells": 167,
+    "passing_cells": 121,
     "failing_cells": 46,
     "waiting_cells": 0,
-    "unknown_cells": 0,
+    "unknown_cells": 1,
     "fully_shared_groups": 0,
     "single_arch_groups": 109,
     "multi_variant_cells": 0
@@ -24,13 +24,13 @@
     {
       "id": "mi250",
       "label": "MI250",
-      "group_count": 18,
-      "nightly_match_count": 18
+      "group_count": 17,
+      "nightly_match_count": 17
     },
     {
       "id": "mi300",
       "label": "MI300",
-      "group_count": 102,
+      "group_count": 103,
       "nightly_match_count": 102
     },
     {
@@ -66,76 +66,10 @@
   ],
   "rows": [
     {
-      "title": "PyTorch Compilation Unit Tests",
-      "canonical_title": "PyTorch Compilation Unit Tests",
-      "area": "Compile",
-      "yaml_order": 0,
-      "cells": {
-        "mi250": {
-          "exists": true,
-          "optional": true,
-          "variant_count": 1,
-          "variants": [
-            {
-              "label": "PyTorch Compilation Unit Tests",
-              "agent_pool": "mi250_1",
-              "optional": true,
-              "parallelism": 1,
-              "latest_matched": true,
-              "latest_match_count": 1,
-              "latest_state": "passed",
-              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10250/steps/canvas?sid=019f17c1-f228-4ef8-8354-8e9eb66d0418&tab=output",
-              "aliases": [
-                "PyTorch Compilation Unit Tests"
-              ],
-              "raw_variant_count": 1,
-              "entries": [
-                {
-                  "label": "PyTorch Compilation Unit Tests",
-                  "agent_pool": "mi250_1",
-                  "optional": true,
-                  "parallelism": 1,
-                  "latest_matched": true,
-                  "latest_match_count": 1,
-                  "latest_state": "passed",
-                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10250/steps/canvas?sid=019f17c1-f228-4ef8-8354-8e9eb66d0418&tab=output",
-                  "aliases": [
-                    "PyTorch Compilation Unit Tests"
-                  ],
-                  "raw_variant_count": 1
-                }
-              ]
-            }
-          ],
-          "latest_matched": true,
-          "latest_state": "passed",
-          "latest_build_number": 10250,
-          "primary_label": "PyTorch Compilation Unit Tests",
-          "raw_variant_count": 1,
-          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10250/steps/canvas?sid=019f17c1-f228-4ef8-8354-8e9eb66d0418&tab=output"
-        },
-        "mi300": {
-          "exists": false
-        },
-        "mi325": {
-          "exists": false
-        },
-        "mi355": {
-          "exists": false
-        }
-      },
-      "coverage_count": 1,
-      "nightly_coverage_count": 1,
-      "architectures_present": [
-        "mi250"
-      ],
-      "signature": "MI250"
-    },
-    {
       "title": "PyTorch Fullgraph Smoke Test",
       "canonical_title": "PyTorch Fullgraph Smoke Test",
       "area": "Compile",
-      "yaml_order": 1,
+      "yaml_order": 0,
       "cells": {
         "mi250": {
           "exists": true,
@@ -201,7 +135,7 @@
       "title": "Pipeline + Context Parallelism (4 GPUs)",
       "canonical_title": "Pipeline + Context Parallelism (4 GPUs)",
       "area": "Other",
-      "yaml_order": 2,
+      "yaml_order": 1,
       "cells": {
         "mi250": {
           "exists": true,
@@ -267,7 +201,7 @@
       "title": "Kernels Helion Test",
       "canonical_title": "Kernels Helion Test",
       "area": "Kernels",
-      "yaml_order": 3,
+      "yaml_order": 2,
       "cells": {
         "mi250": {
           "exists": true,
@@ -333,7 +267,7 @@
       "title": "Kernels Mamba Test",
       "canonical_title": "Kernels Mamba Test",
       "area": "Kernels",
-      "yaml_order": 4,
+      "yaml_order": 3,
       "cells": {
         "mi250": {
           "exists": true,
@@ -399,7 +333,7 @@
       "title": "Basic Models Test (Other CPU)",
       "canonical_title": "Basic Models Test (Other CPU)",
       "area": "Models",
-      "yaml_order": 5,
+      "yaml_order": 4,
       "cells": {
         "mi250": {
           "exists": true,
@@ -465,7 +399,7 @@
       "title": "Language Models Test (MTEB)",
       "canonical_title": "Language Models Test (MTEB)",
       "area": "Models",
-      "yaml_order": 6,
+      "yaml_order": 5,
       "cells": {
         "mi250": {
           "exists": true,
@@ -531,7 +465,7 @@
       "title": "Language Models Test (PPL)",
       "canonical_title": "Language Models Test (PPL)",
       "area": "Models",
-      "yaml_order": 7,
+      "yaml_order": 6,
       "cells": {
         "mi250": {
           "exists": true,
@@ -597,7 +531,7 @@
       "title": "Multi-Modal Models (Standard) 3: llava + qwen2_vl",
       "canonical_title": "Multi-Modal Models (Standard) 3: llava + qwen2_vl",
       "area": "Multi-Modal",
-      "yaml_order": 8,
+      "yaml_order": 7,
       "cells": {
         "mi250": {
           "exists": true,
@@ -663,7 +597,7 @@
       "title": "Batch Invariance",
       "canonical_title": "Batch Invariance",
       "area": "Other",
-      "yaml_order": 9,
+      "yaml_order": 8,
       "cells": {
         "mi250": {
           "exists": true,
@@ -729,7 +663,7 @@
       "title": "Cudagraph",
       "canonical_title": "Cudagraph",
       "area": "Other",
-      "yaml_order": 10,
+      "yaml_order": 9,
       "cells": {
         "mi250": {
           "exists": true,
@@ -795,7 +729,7 @@
       "title": "e2e Core (1 GPU)",
       "canonical_title": "e2e Core (1 GPU)",
       "area": "Other",
-      "yaml_order": 11,
+      "yaml_order": 10,
       "cells": {
         "mi250": {
           "exists": true,
@@ -861,7 +795,7 @@
       "title": "e2e Scheduling (1 GPU)",
       "canonical_title": "e2e Scheduling (1 GPU)",
       "area": "Other",
-      "yaml_order": 12,
+      "yaml_order": 11,
       "cells": {
         "mi250": {
           "exists": true,
@@ -968,7 +902,7 @@
       "title": "Engine (1 GPU)",
       "canonical_title": "Engine (1 GPU)",
       "area": "Engine",
-      "yaml_order": 13,
+      "yaml_order": 12,
       "cells": {
         "mi250": {
           "exists": true,
@@ -1034,7 +968,7 @@
       "title": "Spec Decode Draft Model",
       "canonical_title": "Spec Decode Draft Model",
       "area": "Spec Decode",
-      "yaml_order": 14,
+      "yaml_order": 13,
       "cells": {
         "mi250": {
           "exists": true,
@@ -1141,7 +1075,7 @@
       "title": "Spec Decode Speculators + MTP",
       "canonical_title": "Spec Decode Speculators + MTP",
       "area": "Spec Decode",
-      "yaml_order": 15,
+      "yaml_order": 14,
       "cells": {
         "mi250": {
           "exists": true,
@@ -1248,7 +1182,7 @@
       "title": "V1 attention",
       "canonical_title": "V1 attention",
       "area": "Attention",
-      "yaml_order": 16,
+      "yaml_order": 15,
       "cells": {
         "mi250": {
           "exists": true,
@@ -1396,7 +1330,7 @@
       "title": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
       "canonical_title": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
       "area": "Engine",
-      "yaml_order": 17,
+      "yaml_order": 16,
       "cells": {
         "mi250": {
           "exists": true,
@@ -1462,7 +1396,7 @@
       "title": "Basic Correctness",
       "canonical_title": "Basic Correctness",
       "area": "Other",
-      "yaml_order": 18,
+      "yaml_order": 17,
       "cells": {
         "mi250": {
           "exists": false
@@ -1528,7 +1462,7 @@
       "title": "Distributed Model Tests (2 GPUs)",
       "canonical_title": "Distributed Model Tests (2 GPUs)",
       "area": "Distributed",
-      "yaml_order": 19,
+      "yaml_order": 18,
       "cells": {
         "mi250": {
           "exists": false
@@ -1594,7 +1528,7 @@
       "title": "Benchmarks CLI Test",
       "canonical_title": "Benchmarks CLI Test",
       "area": "Benchmarks",
-      "yaml_order": 20,
+      "yaml_order": 19,
       "cells": {
         "mi250": {
           "exists": false
@@ -1651,6 +1585,72 @@
       },
       "coverage_count": 1,
       "nightly_coverage_count": 1,
+      "architectures_present": [
+        "mi300"
+      ],
+      "signature": "MI300"
+    },
+    {
+      "title": "PyTorch Compilation Unit Tests",
+      "canonical_title": "PyTorch Compilation Unit Tests",
+      "area": "Compile",
+      "yaml_order": 20,
+      "cells": {
+        "mi250": {
+          "exists": false
+        },
+        "mi300": {
+          "exists": true,
+          "optional": true,
+          "variant_count": 1,
+          "variants": [
+            {
+              "label": "PyTorch Compilation Unit Tests",
+              "agent_pool": "mi300_1",
+              "optional": true,
+              "parallelism": 1,
+              "latest_matched": false,
+              "latest_match_count": 0,
+              "latest_state": null,
+              "latest_url": null,
+              "aliases": [
+                "PyTorch Compilation Unit Tests"
+              ],
+              "raw_variant_count": 1,
+              "entries": [
+                {
+                  "label": "PyTorch Compilation Unit Tests",
+                  "agent_pool": "mi300_1",
+                  "optional": true,
+                  "parallelism": 1,
+                  "latest_matched": false,
+                  "latest_match_count": 0,
+                  "latest_state": null,
+                  "latest_url": null,
+                  "aliases": [
+                    "PyTorch Compilation Unit Tests"
+                  ],
+                  "raw_variant_count": 1
+                }
+              ]
+            }
+          ],
+          "latest_matched": false,
+          "latest_state": null,
+          "latest_build_number": 10250,
+          "primary_label": "PyTorch Compilation Unit Tests",
+          "raw_variant_count": 1,
+          "latest_url": null
+        },
+        "mi325": {
+          "exists": false
+        },
+        "mi355": {
+          "exists": false
+        }
+      },
+      "coverage_count": 1,
+      "nightly_coverage_count": 0,
       "architectures_present": [
         "mi300"
       ],

@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-06-30T15:39:22Z",
+  "generated_at": "2026-06-30T17:26:57Z",
   "amd_date": "2026-06-30",
   "upstream_date": "2026-06-30",
   "parity_pct": 0.0,
-  "total_tests": 732,
+  "total_tests": 735,
   "summary": {
-    "upstream_only": 421,
+    "upstream_only": 424,
     "amd_only": 311
   },
   "by_module": {
@@ -1120,6 +1120,10 @@
     "Weight Loading Multiple GPU": {
       "parity_pct": 100.0,
       "upstream_only": 1
+    },
+    "XPU V1 test": {
+      "parity_pct": 100.0,
+      "upstream_only": 3
     },
     "XPU example Test": {
       "parity_pct": 100.0,
@@ -2280,7 +2284,7 @@
       "family_key": "basic models tests (extra initialization)",
       "family_name": "basic models tests (extra initialization)",
       "amd_job_name": "mi300_1: Basic Models Tests (Extra Initialization) 2",
-      "upstream_job_name": "Basic Models Tests (Extra Initialization) 2",
+      "upstream_job_name": "Basic Models Tests (Extra Initialization) 1",
       "amd": {
         "total": 352,
         "passed": 343,
@@ -2319,8 +2323,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/75329/steps/canvas?jid=019f171e-3d28-4e76-85ff-ada4c162791d&tab=output",
-          "job_name": "Basic Models Tests (Extra Initialization) 2",
+          "url": "https://buildkite.com/vllm/ci/builds/75329/steps/canvas?jid=019f171e-3d28-4bfd-b4ee-bfc1bf78205b&tab=output",
+          "job_name": "Basic Models Tests (Extra Initialization) 1",
           "side": "upstream"
         }
       ],
@@ -5875,7 +5879,7 @@
       "family_key": "language models tests (extra standard)",
       "family_name": "language models tests (extra standard)",
       "amd_job_name": "mi300_1: Language Models Tests (Extra Standard) 1",
-      "upstream_job_name": "Language Models Tests (Extra Standard) 1",
+      "upstream_job_name": "Language Models Tests (Extra Standard) 2",
       "amd": {
         "total": 19,
         "passed": 13,
@@ -5912,8 +5916,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/75329/steps/canvas?jid=019f171e-3d39-441f-b976-b9b382424f97&tab=output",
-          "job_name": "Language Models Tests (Extra Standard) 1",
+          "url": "https://buildkite.com/vllm/ci/builds/75329/steps/canvas?jid=019f171e-3d39-485d-8b37-5c1cb5acc13d&tab=output",
+          "job_name": "Language Models Tests (Extra Standard) 2",
           "side": "upstream"
         }
       ],
@@ -5931,7 +5935,7 @@
       "family_key": "language models tests (hybrid)",
       "family_name": "language models tests (hybrid)",
       "amd_job_name": "mi325_1: Language Models Tests (Hybrid) 1",
-      "upstream_job_name": "Language Models Tests (Hybrid) 2",
+      "upstream_job_name": "Language Models Tests (Hybrid) 1",
       "amd": {
         "total": 41,
         "passed": 37,
@@ -5968,8 +5972,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/75329/steps/canvas?jid=019f171e-3d3a-43a5-b7bb-665e8d4acb41&tab=output",
-          "job_name": "Language Models Tests (Hybrid) 2",
+          "url": "https://buildkite.com/vllm/ci/builds/75329/steps/canvas?jid=019f171e-3d3a-4eeb-8b88-f89afbb7f464&tab=output",
+          "job_name": "Language Models Tests (Hybrid) 1",
           "side": "upstream"
         }
       ],
@@ -6577,7 +6581,7 @@
       "family_key": "lora",
       "family_name": "lora",
       "amd_job_name": "mi300_1: LoRA 2",
-      "upstream_job_name": "LoRA 3",
+      "upstream_job_name": "LoRA 1",
       "amd": {
         "total": 6910,
         "passed": 6811,
@@ -6616,8 +6620,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/75329/steps/canvas?jid=019f171e-3ce7-4488-91be-1c9c6cd57457&tab=output",
-          "job_name": "LoRA 3",
+          "url": "https://buildkite.com/vllm/ci/builds/75329/steps/canvas?jid=019f171e-3ce6-44ae-8fac-c8b6ccebb546&tab=output",
+          "job_name": "LoRA 1",
           "side": "upstream"
         }
       ],
@@ -9327,7 +9331,7 @@
       "family_key": "v1 e2e (4 gpus)",
       "family_name": "v1 e2e (4 gpus)",
       "amd_job_name": "mi300_4: V1 e2e (4 GPUs)",
-      "upstream_job_name": "V1 e2e (4 GPUs)",
+      "upstream_job_name": "V1 e2e (4xH100)",
       "amd": {
         "total": 6,
         "passed": 4,
@@ -9366,8 +9370,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/75329/steps/canvas?jid=019f171e-3c43-4626-a96a-acf9d457d12b&tab=output",
-          "job_name": "V1 e2e (4 GPUs)",
+          "url": "https://buildkite.com/vllm/ci/builds/75329/steps/canvas?jid=019f171e-3c43-4ba7-8513-8cda0459490c&tab=output",
+          "job_name": "V1 e2e (4xH100)",
           "side": "upstream"
         }
       ],
@@ -9385,7 +9389,7 @@
       "family_key": "v1 e2e (4 gpus)",
       "family_name": "v1 e2e (4 gpus)",
       "amd_job_name": "mi300_4: V1 e2e (4xH100-4xMI300)",
-      "upstream_job_name": "V1 e2e (4 GPUs)",
+      "upstream_job_name": "V1 e2e (4xH100)",
       "amd": {
         "total": 4,
         "passed": 2,
@@ -9424,8 +9428,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/75329/steps/canvas?jid=019f171e-3c43-4626-a96a-acf9d457d12b&tab=output",
-          "job_name": "V1 e2e (4 GPUs)",
+          "url": "https://buildkite.com/vllm/ci/builds/75329/steps/canvas?jid=019f171e-3c43-4ba7-8513-8cda0459490c&tab=output",
+          "job_name": "V1 e2e (4xH100)",
           "side": "upstream"
         }
       ],
@@ -11581,7 +11585,7 @@
       "family_key": "sequence parallel correctness tests (2 gpus)",
       "family_name": "sequence parallel correctness tests (2 gpus)",
       "amd_job_name": null,
-      "upstream_job_name": "Sequence Parallel Correctness Tests (2 GPUs)",
+      "upstream_job_name": "Sequence Parallel Correctness Tests (2xH100)",
       "amd": null,
       "upstream": {
         "total": 90,
@@ -11602,8 +11606,8 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/75329/steps/canvas?jid=019f171e-3c13-40c5-9313-02ea5616b694&tab=output",
-          "job_name": "Sequence Parallel Correctness Tests (2 GPUs)",
+          "url": "https://buildkite.com/vllm/ci/builds/75329/steps/canvas?jid=019f171e-3c17-475d-a307-d50445c717a3&tab=output",
+          "job_name": "Sequence Parallel Correctness Tests (2xH100)",
           "side": "upstream"
         }
       ],
@@ -12131,19 +12135,36 @@
       "family_key": "xpu v1 test",
       "family_name": "xpu v1 test",
       "amd_job_name": null,
-      "upstream_job_name": null,
+      "upstream_job_name": "XPU V1 test",
       "amd": null,
-      "upstream": null,
+      "upstream": {
+        "total": 112,
+        "passed": 104,
+        "failed": 1,
+        "skipped": 7,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 221.49
+      },
       "hardware": [
         "h100"
       ],
-      "hw_failures": null,
+      "hw_failures": {
+        "h100": 1
+      },
       "hw_canceled": null,
       "failure_tests": [],
-      "job_links": [],
-      "delta": null,
+      "job_links": [
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/75329/steps/canvas?jid=019f171e-3cb5-4a62-97c9-ca1dd1c4927d&tab=output",
+          "job_name": "XPU V1 test",
+          "side": "upstream"
+        }
+      ],
       "status": "upstream_only",
-      "backfilled": true
+      "backfilled": false
     }
   ],
   "details": [
@@ -14533,6 +14554,24 @@
       "test_id": "Weight Loading Multiple GPU::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "XPU V1 test::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "XPU V1 test::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "XPU V1 test::__unidentified_failures__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
       "category": "upstream_only"
     },
     {

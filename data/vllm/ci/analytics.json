@@ -3,7 +3,7 @@
     "pipeline": "amd-ci",
     "display_name": "AMD CI",
     "days": 30,
-    "generated_at": "2026-06-30T15:39:24Z",
+    "generated_at": "2026-06-30T17:27:00Z",
     "summary": {
       "total_builds": 30,
       "passed": 30,
@@ -126720,7 +126720,7 @@
     "pipeline": "ci",
     "display_name": "Upstream CI",
     "days": 30,
-    "generated_at": "2026-06-30T15:39:24Z",
+    "generated_at": "2026-06-30T17:27:00Z",
     "summary": {
       "total_builds": 31,
       "passed": 3,
@@ -126922,17 +126922,17 @@
     "builds": [
       {
         "number": 75329,
-        "state": "failing",
+        "state": "failed",
         "created_at": "2026-06-30T06:00:07.912Z",
         "date": "2026-06-30",
         "message": "Full CI run - nightly",
         "author": "",
-        "wall_mins": null,
+        "wall_mins": 603.2,
         "passed": 265,
-        "failed": 14,
+        "failed": 15,
         "soft_failed": 6,
         "skipped": 0,
-        "total_jobs": 285,
+        "total_jobs": 286,
         "jobs": [
           {
             "name": "2 Node Test (4 GPUs)",
@@ -131132,6 +131132,21 @@
             "step_id": "019f171e-3b2d-42d0-81df-621289f634bf",
             "wait": 5.9,
             "q": "gpu_4_queue"
+          },
+          {
+            "name": "XPU V1 test",
+            "raw_name": "XPU V1 test",
+            "state": "failed",
+            "dur": 3.7,
+            "tests": 112,
+            "passed_tests": 104,
+            "failed_tests": 1,
+            "skipped_tests": 7,
+            "url": "https://buildkite.com/vllm/ci/builds/75329/steps/canvas?jid=019f171e-3cb5-4a62-97c9-ca1dd1c4927d&tab=output",
+            "job_id": "019f171e-3cb5-4a62-97c9-ca1dd1c4927d",
+            "step_id": "019f171e-3ac1-490a-92de-ea762b0a7276",
+            "wait": 0.0,
+            "q": "intel-gpu"
           },
           {
             "name": "XPU example Test",
@@ -239286,17 +239301,17 @@
     "nightly_builds": [
       {
         "number": 75329,
-        "state": "failing",
+        "state": "failed",
         "created_at": "2026-06-30T06:00:07.912Z",
         "date": "2026-06-30",
         "message": "Full CI run - nightly",
         "author": "",
-        "wall_mins": null,
+        "wall_mins": 603.2,
         "passed": 265,
-        "failed": 14,
+        "failed": 15,
         "soft_failed": 6,
         "skipped": 0,
-        "total_jobs": 285,
+        "total_jobs": 286,
         "web_url": "https://buildkite.com/vllm/ci/builds/75329",
         "source": "test_results"
       },
@@ -240047,6 +240062,26 @@
         ]
       },
       {
+        "name": "XPU V1 test",
+        "runs": 12,
+        "passed": 9,
+        "failed": 3,
+        "soft_failed": 0,
+        "fail_rate": 25.0,
+        "is_soft_fail": false,
+        "median_dur": 7.8,
+        "p90_dur": 10.0,
+        "avg_dur": 57.0,
+        "max_dur": 600.7,
+        "median_wait": 0.0,
+        "p90_wait": 41.6,
+        "avg_wait": 16.0,
+        "max_wait": 92.5,
+        "queues": [
+          "intel-gpu"
+        ]
+      },
+      {
         "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
         "runs": 30,
         "passed": 23,
@@ -240244,26 +240279,6 @@
         "max_wait": 21.8,
         "queues": [
           "b200-k8s"
-        ]
-      },
-      {
-        "name": "XPU V1 test",
-        "runs": 11,
-        "passed": 9,
-        "failed": 2,
-        "soft_failed": 0,
-        "fail_rate": 18.2,
-        "is_soft_fail": false,
-        "median_dur": 7.9,
-        "p90_dur": 10.0,
-        "avg_dur": 61.9,
-        "max_dur": 600.7,
-        "median_wait": 0.0,
-        "p90_wait": 41.6,
-        "avg_wait": 17.4,
-        "max_wait": 92.5,
-        "queues": [
-          "intel-gpu"
         ]
       },
       {
@@ -245329,26 +245344,6 @@
         ]
       },
       {
-        "name": "XPU V1 test",
-        "runs": 11,
-        "passed": 9,
-        "failed": 2,
-        "soft_failed": 0,
-        "fail_rate": 18.2,
-        "is_soft_fail": false,
-        "median_dur": 7.9,
-        "p90_dur": 10.0,
-        "avg_dur": 61.9,
-        "max_dur": 600.7,
-        "median_wait": 0.0,
-        "p90_wait": 41.6,
-        "avg_wait": 17.4,
-        "max_wait": 92.5,
-        "queues": [
-          "intel-gpu"
-        ]
-      },
-      {
         "name": "Spec Decode Speculators + MTP Nightly B200",
         "runs": 31,
         "passed": 27,
@@ -245366,6 +245361,26 @@
         "max_wait": 39.8,
         "queues": [
           "b200-k8s"
+        ]
+      },
+      {
+        "name": "XPU V1 test",
+        "runs": 12,
+        "passed": 9,
+        "failed": 3,
+        "soft_failed": 0,
+        "fail_rate": 25.0,
+        "is_soft_fail": false,
+        "median_dur": 7.8,
+        "p90_dur": 10.0,
+        "avg_dur": 57.0,
+        "max_dur": 600.7,
+        "median_wait": 0.0,
+        "p90_wait": 41.6,
+        "avg_wait": 16.0,
+        "max_wait": 92.5,
+        "queues": [
+          "intel-gpu"
         ]
       },
       {
@@ -248796,7 +248811,7 @@
       },
       {
         "queue": "intel-gpu",
-        "jobs": 38,
+        "jobs": 39,
         "median_wait": 0.0,
         "p90_wait": 0.0,
         "avg_wait": 0.0,
@@ -248813,9 +248828,9 @@
           "passed": 0,
           "failed": 1,
           "pass_rate": 0.0,
-          "total_jobs_tracked": 285,
-          "jobs_with_failures": 20,
-          "jobs_with_hard_failures": 14,
+          "total_jobs_tracked": 286,
+          "jobs_with_failures": 21,
+          "jobs_with_hard_failures": 15,
           "jobs_with_soft_failures": 6
         },
         "daily_stats": [
@@ -248829,17 +248844,17 @@
         "builds": [
           {
             "number": 75329,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-06-30T06:00:07.912Z",
             "date": "2026-06-30",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 603.2,
             "passed": 265,
-            "failed": 14,
+            "failed": 15,
             "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 285,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/75329",
             "source": "test_results"
           }
@@ -248847,17 +248862,17 @@
         "nightly_builds": [
           {
             "number": 75329,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-06-30T06:00:07.912Z",
             "date": "2026-06-30",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 603.2,
             "passed": 265,
-            "failed": 14,
+            "failed": 15,
             "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 285,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/75329",
             "source": "test_results"
           }
@@ -249261,6 +249276,26 @@
             "max_wait": 0.2,
             "queues": [
               "h200_18gb"
+            ]
+          },
+          {
+            "name": "XPU V1 test",
+            "runs": 1,
+            "passed": 0,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 100.0,
+            "is_soft_fail": false,
+            "median_dur": 3.7,
+            "p90_dur": 3.7,
+            "avg_dur": 3.7,
+            "max_dur": 3.7,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "intel-gpu"
             ]
           }
         ],
@@ -253246,6 +253281,26 @@
             ]
           },
           {
+            "name": "XPU V1 test",
+            "runs": 1,
+            "passed": 0,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 100.0,
+            "is_soft_fail": false,
+            "median_dur": 3.7,
+            "p90_dur": 3.7,
+            "avg_dur": 3.7,
+            "max_dur": 3.7,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "intel-gpu"
+            ]
+          },
+          {
             "name": "Spec Decode MTP hybrid (B200)",
             "runs": 1,
             "passed": 1,
@@ -255145,7 +255200,7 @@
           },
           {
             "queue": "intel-gpu",
-            "jobs": 2,
+            "jobs": 3,
             "median_wait": 0.0,
             "p90_wait": 0.0,
             "avg_wait": 0.0,
@@ -255170,8 +255225,8 @@
           "failed": 3,
           "pass_rate": 0.0,
           "total_jobs_tracked": 287,
-          "jobs_with_failures": 35,
-          "jobs_with_hard_failures": 28,
+          "jobs_with_failures": 36,
+          "jobs_with_hard_failures": 29,
           "jobs_with_soft_failures": 7
         },
         "daily_stats": [
@@ -255197,17 +255252,17 @@
         "builds": [
           {
             "number": 75329,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-06-30T06:00:07.912Z",
             "date": "2026-06-30",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 603.2,
             "passed": 265,
-            "failed": 14,
+            "failed": 15,
             "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 285,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/75329",
             "source": "test_results"
           },
@@ -255247,17 +255302,17 @@
         "nightly_builds": [
           {
             "number": 75329,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-06-30T06:00:07.912Z",
             "date": "2026-06-30",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 603.2,
             "passed": 265,
-            "failed": 14,
+            "failed": 15,
             "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 285,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/75329",
             "source": "test_results"
           },
@@ -255993,6 +256048,26 @@
             "max_wait": 0.0,
             "queues": [
               "h200_35gb"
+            ]
+          },
+          {
+            "name": "XPU V1 test",
+            "runs": 3,
+            "passed": 2,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 33.3,
+            "is_soft_fail": false,
+            "median_dur": 6.8,
+            "p90_dur": 7.6,
+            "avg_dur": 6.0,
+            "max_dur": 7.6,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "intel-gpu"
             ]
           }
         ],
@@ -259078,26 +259153,6 @@
             ]
           },
           {
-            "name": "XPU V1 test",
-            "runs": 2,
-            "passed": 2,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 7.2,
-            "p90_dur": 7.6,
-            "avg_dur": 7.2,
-            "max_dur": 7.6,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
-            "queues": [
-              "intel-gpu"
-            ]
-          },
-          {
             "name": "LM Eval Humming (A100 - TEMPORARY)",
             "runs": 3,
             "passed": 3,
@@ -259155,6 +259210,26 @@
             "max_wait": 14.3,
             "queues": [
               "mithril-h100-pool"
+            ]
+          },
+          {
+            "name": "XPU V1 test",
+            "runs": 3,
+            "passed": 2,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 33.3,
+            "is_soft_fail": false,
+            "median_dur": 6.8,
+            "p90_dur": 7.6,
+            "avg_dur": 6.0,
+            "max_dur": 7.6,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "intel-gpu"
             ]
           },
           {
@@ -261925,7 +262000,7 @@
           },
           {
             "queue": "intel-gpu",
-            "jobs": 8,
+            "jobs": 9,
             "median_wait": 0.0,
             "p90_wait": 0.0,
             "avg_wait": 0.0,
@@ -261942,8 +262017,8 @@
           "failed": 5,
           "pass_rate": 28.6,
           "total_jobs_tracked": 305,
-          "jobs_with_failures": 43,
-          "jobs_with_hard_failures": 36,
+          "jobs_with_failures": 44,
+          "jobs_with_hard_failures": 37,
           "jobs_with_soft_failures": 7
         },
         "daily_stats": [
@@ -261993,17 +262068,17 @@
         "builds": [
           {
             "number": 75329,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-06-30T06:00:07.912Z",
             "date": "2026-06-30",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 603.2,
             "passed": 265,
-            "failed": 14,
+            "failed": 15,
             "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 285,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/75329",
             "source": "test_results"
           },
@@ -262107,17 +262182,17 @@
         "nightly_builds": [
           {
             "number": 75329,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-06-30T06:00:07.912Z",
             "date": "2026-06-30",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 603.2,
             "passed": 265,
-            "failed": 14,
+            "failed": 15,
             "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 285,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/75329",
             "source": "test_results"
           },
@@ -262937,6 +263012,26 @@
             "max_wait": 111.7,
             "queues": [
               "h200_35gb"
+            ]
+          },
+          {
+            "name": "XPU V1 test",
+            "runs": 6,
+            "passed": 5,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 16.7,
+            "is_soft_fail": false,
+            "median_dur": 8.2,
+            "p90_dur": 10.0,
+            "avg_dur": 7.7,
+            "max_dur": 10.0,
+            "median_wait": 0.0,
+            "p90_wait": 30.1,
+            "avg_wait": 5.2,
+            "max_wait": 30.1,
+            "queues": [
+              "intel-gpu"
             ]
           },
           {
@@ -266082,26 +266177,6 @@
             ]
           },
           {
-            "name": "XPU V1 test",
-            "runs": 5,
-            "passed": 5,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 8.8,
-            "p90_dur": 10.0,
-            "avg_dur": 8.4,
-            "max_dur": 10.0,
-            "median_wait": 0.0,
-            "p90_wait": 30.1,
-            "avg_wait": 6.3,
-            "max_wait": 30.1,
-            "queues": [
-              "intel-gpu"
-            ]
-          },
-          {
             "name": "AMD: Samplers Test (mi250_1)",
             "runs": 7,
             "passed": 7,
@@ -266199,6 +266274,26 @@
             "max_wait": 7.0,
             "queues": [
               "amd_mi325_1"
+            ]
+          },
+          {
+            "name": "XPU V1 test",
+            "runs": 6,
+            "passed": 5,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 16.7,
+            "is_soft_fail": false,
+            "median_dur": 8.2,
+            "p90_dur": 10.0,
+            "avg_dur": 7.7,
+            "max_dur": 10.0,
+            "median_wait": 0.0,
+            "p90_wait": 30.1,
+            "avg_wait": 5.2,
+            "max_wait": 30.1,
+            "queues": [
+              "intel-gpu"
             ]
           },
           {
@@ -269369,7 +269464,7 @@
           },
           {
             "queue": "intel-gpu",
-            "jobs": 18,
+            "jobs": 19,
             "median_wait": 0.0,
             "p90_wait": 0.0,
             "avg_wait": 0.0,
@@ -269479,17 +269574,17 @@
         "builds": [
           {
             "number": 75329,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-06-30T06:00:07.912Z",
             "date": "2026-06-30",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 603.2,
             "passed": 265,
-            "failed": 14,
+            "failed": 15,
             "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 285,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/75329",
             "source": "test_results"
           },
@@ -269705,17 +269800,17 @@
         "nightly_builds": [
           {
             "number": 75329,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-06-30T06:00:07.912Z",
             "date": "2026-06-30",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 603.2,
             "passed": 265,
-            "failed": 14,
+            "failed": 15,
             "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 285,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/75329",
             "source": "test_results"
           },
@@ -270250,6 +270345,26 @@
             ]
           },
           {
+            "name": "XPU V1 test",
+            "runs": 12,
+            "passed": 9,
+            "failed": 3,
+            "soft_failed": 0,
+            "fail_rate": 25.0,
+            "is_soft_fail": false,
+            "median_dur": 7.8,
+            "p90_dur": 10.0,
+            "avg_dur": 57.0,
+            "max_dur": 600.7,
+            "median_wait": 0.0,
+            "p90_wait": 41.6,
+            "avg_wait": 16.0,
+            "max_wait": 92.5,
+            "queues": [
+              "intel-gpu"
+            ]
+          },
+          {
             "name": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
             "runs": 13,
             "passed": 10,
@@ -270347,26 +270462,6 @@
             "max_wait": 32.7,
             "queues": [
               "b200-k8s"
-            ]
-          },
-          {
-            "name": "XPU V1 test",
-            "runs": 11,
-            "passed": 9,
-            "failed": 2,
-            "soft_failed": 0,
-            "fail_rate": 18.2,
-            "is_soft_fail": false,
-            "median_dur": 7.9,
-            "p90_dur": 10.0,
-            "avg_dur": 61.9,
-            "max_dur": 600.7,
-            "median_wait": 0.0,
-            "p90_wait": 41.6,
-            "avg_wait": 17.4,
-            "max_wait": 92.5,
-            "queues": [
-              "intel-gpu"
             ]
           },
           {
@@ -274292,26 +274387,6 @@
             ]
           },
           {
-            "name": "XPU V1 test",
-            "runs": 11,
-            "passed": 9,
-            "failed": 2,
-            "soft_failed": 0,
-            "fail_rate": 18.2,
-            "is_soft_fail": false,
-            "median_dur": 7.9,
-            "p90_dur": 10.0,
-            "avg_dur": 61.9,
-            "max_dur": 600.7,
-            "median_wait": 0.0,
-            "p90_wait": 41.6,
-            "avg_wait": 17.4,
-            "max_wait": 92.5,
-            "queues": [
-              "intel-gpu"
-            ]
-          },
-          {
             "name": "Spec Decode Speculators + MTP Nightly B200",
             "runs": 14,
             "passed": 14,
@@ -274329,6 +274404,26 @@
             "max_wait": 39.8,
             "queues": [
               "b200-k8s"
+            ]
+          },
+          {
+            "name": "XPU V1 test",
+            "runs": 12,
+            "passed": 9,
+            "failed": 3,
+            "soft_failed": 0,
+            "fail_rate": 25.0,
+            "is_soft_fail": false,
+            "median_dur": 7.8,
+            "p90_dur": 10.0,
+            "avg_dur": 57.0,
+            "max_dur": 600.7,
+            "median_wait": 0.0,
+            "p90_wait": 41.6,
+            "avg_wait": 16.0,
+            "max_wait": 92.5,
+            "queues": [
+              "intel-gpu"
             ]
           },
           {
@@ -277539,7 +277634,7 @@
           },
           {
             "queue": "intel-gpu",
-            "jobs": 38,
+            "jobs": 39,
             "median_wait": 0.0,
             "p90_wait": 0.0,
             "avg_wait": 0.0,
@@ -277745,17 +277840,17 @@
         "builds": [
           {
             "number": 75329,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-06-30T06:00:07.912Z",
             "date": "2026-06-30",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 603.2,
             "passed": 265,
-            "failed": 14,
+            "failed": 15,
             "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 285,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/75329",
             "source": "test_results"
           },
@@ -278227,17 +278322,17 @@
         "nightly_builds": [
           {
             "number": 75329,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-06-30T06:00:07.912Z",
             "date": "2026-06-30",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 603.2,
             "passed": 265,
-            "failed": 14,
+            "failed": 15,
             "soft_failed": 6,
             "skipped": 0,
-            "total_jobs": 285,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/75329",
             "source": "test_results"
           },
@@ -278968,6 +279063,26 @@
             ]
           },
           {
+            "name": "XPU V1 test",
+            "runs": 12,
+            "passed": 9,
+            "failed": 3,
+            "soft_failed": 0,
+            "fail_rate": 25.0,
+            "is_soft_fail": false,
+            "median_dur": 7.8,
+            "p90_dur": 10.0,
+            "avg_dur": 57.0,
+            "max_dur": 600.7,
+            "median_wait": 0.0,
+            "p90_wait": 41.6,
+            "avg_wait": 16.0,
+            "max_wait": 92.5,
+            "queues": [
+              "intel-gpu"
+            ]
+          },
+          {
             "name": "Spec Decode Draft Model Nightly B200",
             "runs": 29,
             "passed": 22,
@@ -279165,26 +279280,6 @@
             "max_wait": 32.7,
             "queues": [
               "b200-k8s"
-            ]
-          },
-          {
-            "name": "XPU V1 test",
-            "runs": 11,
-            "passed": 9,
-            "failed": 2,
-            "soft_failed": 0,
-            "fail_rate": 18.2,
-            "is_soft_fail": false,
-            "median_dur": 7.9,
-            "p90_dur": 10.0,
-            "avg_dur": 61.9,
-            "max_dur": 600.7,
-            "median_wait": 0.0,
-            "p90_wait": 41.6,
-            "avg_wait": 17.4,
-            "max_wait": 92.5,
-            "queues": [
-              "intel-gpu"
             ]
           },
           {
@@ -284130,26 +284225,6 @@
             ]
           },
           {
-            "name": "XPU V1 test",
-            "runs": 11,
-            "passed": 9,
-            "failed": 2,
-            "soft_failed": 0,
-            "fail_rate": 18.2,
-            "is_soft_fail": false,
-            "median_dur": 7.9,
-            "p90_dur": 10.0,
-            "avg_dur": 61.9,
-            "max_dur": 600.7,
-            "median_wait": 0.0,
-            "p90_wait": 41.6,
-            "avg_wait": 17.4,
-            "max_wait": 92.5,
-            "queues": [
-              "intel-gpu"
-            ]
-          },
-          {
             "name": "Spec Decode Speculators + MTP Nightly B200",
             "runs": 30,
             "passed": 27,
@@ -284167,6 +284242,26 @@
             "max_wait": 39.8,
             "queues": [
               "b200-k8s"
+            ]
+          },
+          {
+            "name": "XPU V1 test",
+            "runs": 12,
+            "passed": 9,
+            "failed": 3,
+            "soft_failed": 0,
+            "fail_rate": 25.0,
+            "is_soft_fail": false,
+            "median_dur": 7.8,
+            "p90_dur": 10.0,
+            "avg_dur": 57.0,
+            "max_dur": 600.7,
+            "median_wait": 0.0,
+            "p90_wait": 41.6,
+            "avg_wait": 16.0,
+            "max_wait": 92.5,
+            "queues": [
+              "intel-gpu"
             ]
           },
           {
@@ -287617,7 +287712,7 @@
           },
           {
             "queue": "intel-gpu",
-            "jobs": 38,
+            "jobs": 39,
             "median_wait": 0.0,
             "p90_wait": 0.0,
             "avg_wait": 0.0,
