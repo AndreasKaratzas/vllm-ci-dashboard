@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-07-01T07:53:19Z",
+  "generated_at": "2026-07-01T09:27:34Z",
   "amd_date": "2026-06-30",
   "upstream_date": "2026-07-01",
   "parity_pct": 0.0,
-  "total_tests": 737,
+  "total_tests": 739,
   "summary": {
-    "upstream_only": 426,
+    "upstream_only": 428,
     "amd_only": 311
   },
   "by_module": {
@@ -709,6 +709,10 @@
       "parity_pct": 100.0,
       "upstream_only": 1
     },
+    "LM Eval Large Models (8xH200)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
     "LM Eval Large Models EP (2xB200)": {
       "parity_pct": 100.0,
       "upstream_only": 2
@@ -794,6 +798,10 @@
       "upstream_only": 1
     },
     "Metrics, Tracing (2 GPUs)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "MoE Refactor Integration Test (B200 - TEMPORARY)": {
       "parity_pct": 100.0,
       "upstream_only": 1
     },
@@ -5153,7 +5161,7 @@
       "family_key": "kernels attention test",
       "family_name": "kernels attention test",
       "amd_job_name": "mi300_1: Kernels Attention Test 1",
-      "upstream_job_name": "Kernels Attention Test 2",
+      "upstream_job_name": "Kernels Attention Test 1",
       "amd": {
         "total": 6997,
         "passed": 3276,
@@ -5199,8 +5207,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-904d-45e7-932a-b4a562a4c63e&tab=output",
-          "job_name": "Kernels Attention Test 2",
+          "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-904d-4b1c-8147-c26ed5eb2e46&tab=output",
+          "job_name": "Kernels Attention Test 1",
           "side": "upstream"
         }
       ],
@@ -5500,7 +5508,7 @@
       "family_key": "kernels moe test",
       "family_name": "kernels moe test",
       "amd_job_name": "mi300_1: Kernels MoE Test 1",
-      "upstream_job_name": "Kernels MoE Test 1",
+      "upstream_job_name": "Kernels MoE Test 3",
       "amd": {
         "total": 14233,
         "passed": 8251,
@@ -5546,8 +5554,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-9058-4181-8008-5108a83fa147&tab=output",
-          "job_name": "Kernels MoE Test 1",
+          "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-9059-4eeb-93e7-cdcfefb3f3e7&tab=output",
+          "job_name": "Kernels MoE Test 3",
           "side": "upstream"
         }
       ],
@@ -5877,7 +5885,7 @@
       "family_key": "language models tests (extra standard)",
       "family_name": "language models tests (extra standard)",
       "amd_job_name": "mi300_1: Language Models Tests (Extra Standard) 1",
-      "upstream_job_name": "Language Models Tests (Extra Standard) 1",
+      "upstream_job_name": "Language Models Tests (Extra Standard) 2",
       "amd": {
         "total": 19,
         "passed": 13,
@@ -5914,8 +5922,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-90b7-4e46-adfe-8f17b89434b6&tab=output",
-          "job_name": "Language Models Tests (Extra Standard) 1",
+          "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-90b8-446a-ac52-3db3b031079a&tab=output",
+          "job_name": "Language Models Tests (Extra Standard) 2",
           "side": "upstream"
         }
       ],
@@ -6228,7 +6236,7 @@
       "family_key": "lm eval large models (8 gpus)",
       "family_name": "lm eval large models (8 gpus)",
       "amd_job_name": "mi300_8: LM Eval Large Models (8xH200-8xMI300)",
-      "upstream_job_name": null,
+      "upstream_job_name": "LM Eval Large Models (8xH200)",
       "amd": {
         "total": 7,
         "passed": 1,
@@ -6239,8 +6247,18 @@
         "error": 0,
         "duration": 222.6
       },
-      "upstream": null,
+      "upstream": {
+        "total": 6,
+        "passed": 6,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 2285.48
+      },
       "hardware": [
+        "h200",
         "mi300"
       ],
       "hw_failures": null,
@@ -6252,9 +6270,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/10250/steps/canvas?sid=019f17c1-f26b-4b3d-9e57-e20435f13711&tab=output",
           "job_name": "mi300_8: LM Eval Large Models (8xH200-8xMI300)",
           "side": "amd"
+        },
+        {
+          "hw": "h200",
+          "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-906b-44ef-bc76-e5ec0643d6b6&tab=output",
+          "job_name": "LM Eval Large Models (8xH200)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 1,
+        "passed": -5,
+        "failed": 0,
+        "skipped": 6
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -10990,6 +11020,40 @@
       "backfilled": false
     },
     {
+      "name": "moe refactor integration test (b200 - temporary)",
+      "family_key": "moe refactor integration test (b200 - temporary)",
+      "family_name": "moe refactor integration test (b200 - temporary)",
+      "amd_job_name": null,
+      "upstream_job_name": "MoE Refactor Integration Test (B200 - TEMPORARY)",
+      "amd": null,
+      "upstream": {
+        "total": 19,
+        "passed": 19,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 11193.18
+      },
+      "hardware": [
+        "b200"
+      ],
+      "hw_failures": null,
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-9076-4bfe-9fcf-69809535daad&tab=output",
+          "job_name": "MoE Refactor Integration Test (B200 - TEMPORARY)",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
       "name": "moe refactor integration test (b200 dp - temporary)",
       "family_key": "moe refactor integration test (b200 dp - temporary)",
       "family_name": "moe refactor integration test (b200 dp - temporary)",
@@ -11538,7 +11602,7 @@
       "family_key": "sequence parallel correctness tests (2 gpus)",
       "family_name": "sequence parallel correctness tests (2 gpus)",
       "amd_job_name": null,
-      "upstream_job_name": "Sequence Parallel Correctness Tests (2xH100)",
+      "upstream_job_name": "Sequence Parallel Correctness Tests (2 GPUs)",
       "amd": null,
       "upstream": {
         "total": 90,
@@ -11559,8 +11623,8 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-8f80-45ca-8d91-1e5e492fa9fd&tab=output",
-          "job_name": "Sequence Parallel Correctness Tests (2xH100)",
+          "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-8f7c-492c-9504-3123febe0dc6&tab=output",
+          "job_name": "Sequence Parallel Correctness Tests (2 GPUs)",
           "side": "upstream"
         }
       ],
@@ -12116,25 +12180,6 @@
       ],
       "status": "upstream_only",
       "backfilled": false
-    },
-    {
-      "name": "moe refactor integration test (b200 - temporary)",
-      "family_key": "moe refactor integration test (b200 - temporary)",
-      "family_name": "moe refactor integration test (b200 - temporary)",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "b200"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
     }
   ],
   "details": [
@@ -13669,6 +13714,12 @@
       "category": "upstream_only"
     },
     {
+      "test_id": "LM Eval Large Models (8xH200)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
       "test_id": "LM Eval Large Models EP (2xB200)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -13874,6 +13925,12 @@
     },
     {
       "test_id": "Metrics, Tracing (2 GPUs)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "MoE Refactor Integration Test (B200 - TEMPORARY)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
