@@ -118,9 +118,12 @@ class TestPerfEvalDataContract:
                     # every point must carry provenance for traceability
                     assert "vllm_commit" in block["series"][-1]
 
-    def test_seed_has_expected_amd_models(self):
+    def test_no_nvidia_models_present(self):
+        # Whether the log is empty (fresh cutover) or populated with real
+        # nightlies, NVIDIA workloads must never surface in the AMD-only view.
         d = self._load()
-        models = {m["model"] for m in d["models"]}
-        # The seed models are AMD-only; H200/B200 workloads must never appear.
-        assert "MiniMaxAI/MiniMax-M2.5" in models
-        assert not any("h200" in m.lower() or "b200" in m.lower() for m in models)
+        for m in d["models"]:
+            name = m["model"].lower()
+            assert not any(gpu in name for gpu in ("h200", "b200", "a100")), (
+                f"NVIDIA model {m['model']!r} must be excluded"
+            )

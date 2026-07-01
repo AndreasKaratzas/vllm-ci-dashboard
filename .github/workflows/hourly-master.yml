@@ -19,6 +19,10 @@ on:
         description: 'Skip pytest run'
         required: false
         default: 'false'
+      reset_perf_eval:
+        description: 'One-time: wipe the perf-eval event log and backfill from Buildkite artifacts'
+        required: false
+        default: 'false'
 
 concurrency:
   group: gh-pages-deploy
@@ -153,11 +157,17 @@ jobs:
       - name: Collect AMD gating target candidate audit
         run: python scripts/vllm/collect_gating_target_candidates.py --output data/vllm/ci/
 
-      # ── Perf Eval (AMD nightly perf + accuracy, webhook-fed) ──
-      # The durable event log lives on gh-pages and grows as the perf-eval
-      # webhook receiver appends nightly results. Pull the latest copy so
-      # history survives across cron runs, then regenerate perf_eval.json.
-      - name: Sync perf-eval event log from gh-pages
+      # ── Perf Eval (AMD nightly perf + accuracy) ──
+      # Perf-eval nightlies run once a day, so this data does NOT need the
+      # 30-min cadence. Every run mirrors the live event log + aggregated JSON
+      # from gh-pages so the full-site deploy always re-publishes the current
+      # versions unchanged, but the (re)generation itself is gated to a few
+      # times a day (every 8h) or on demand when a perf-eval build finishes.
+      # Normal runs mirror the live event log from gh-pages so nothing is
+      # clobbered. Skipped on a one-time reset so the old (seed) log is NOT
+      # pulled back in — the backfill step below rebuilds it from scratch.
+      - name: Sync perf-eval data from gh-pages
+        if: github.event.inputs.reset_perf_eval != 'true'
         run: |
           mkdir -p data/vllm/perf_eval
           LIVE=$(git show origin/gh-pages:data/vllm/perf_eval/events.jsonl 2>/dev/null || true)
@@ -168,8 +178,53 @@ jobs:
               echo "$LIVE" > data/vllm/perf_eval/events.jsonl
             fi
           fi
+          LIVE_JSON=$(git show origin/gh-pages:data/vllm/perf_eval/perf_eval.json 2>/dev/null || true)
+          if [ -n "$LIVE_JSON" ]; then
+            echo "$LIVE_JSON" > data/vllm/perf_eval/perf_eval.json
+          fi
+
+      # One-time cutover: wipe the durable event log so the backfill below
+      # replaces any seed/synthetic data with real Buildkite results. The
+      # subsequent commit + full-site deploy overwrites the gh-pages copy.
+      - name: Reset perf-eval event log (one-time backfill)
+        if: github.event.inputs.reset_perf_eval == 'true'
+        run: |
+          mkdir -p data/vllm/perf_eval
+          : > data/vllm/perf_eval/events.jsonl
+          echo "Wiped perf-eval event log for a clean backfill."
+
+      # Regenerate at most a few times a day. A non-scheduled run (manual
+      # dispatch or the perf-eval build.finished dispatch) always regenerates;
+      # a scheduled run only regenerates in the 00/08/16 UTC hour windows.
+      - name: Decide whether to regenerate perf-eval
+        id: perf_decide
+        run: |
+          RUN=false
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            RUN=true
+          else
+            case "$(date -u +%H)" in 00|08|16) RUN=true ;; esac
+          fi
+          echo "run_perf=$RUN" >> "$GITHUB_OUTPUT"
+          echo "perf-eval regeneration: run=$RUN (event=${{ github.event_name }})"
+
+      # Pull real AMD nightly results from the perf-eval pipeline's Buildkite
+      # artifacts and append any new ones to the durable event log. Read-only:
+      # BUILDKITE_TOKEN needs Read Builds + Read Artifacts; GITHUB_TOKEN reads
+      # the public workload recipes for per-GPU throughput derivation. A reset
+      # uses a wider window to backfill several past nightlies at once.
+      - name: Ingest perf-eval artifacts from Buildkite
+        if: steps.perf_decide.outputs.run_perf == 'true'
+        env:
+          BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DAYS=14
+          if [ "${{ github.event.inputs.reset_perf_eval }}" = "true" ]; then DAYS=30; fi
+          python scripts/vllm/collect_perf_eval_artifacts.py --days "$DAYS"
 
       - name: Collect perf-eval (AMD nightly perf + accuracy)
+        if: steps.perf_decide.outputs.run_perf == 'true'
         run: python scripts/vllm/collect_perf_eval.py
 
       - name: Sync test-build registry from gh-pages
