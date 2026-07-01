@@ -3,7 +3,7 @@
     "pipeline": "amd-ci",
     "display_name": "AMD CI",
     "days": 30,
-    "generated_at": "2026-07-01T12:20:13Z",
+    "generated_at": "2026-07-01T13:41:04Z",
     "summary": {
       "total_builds": 30,
       "passed": 30,
@@ -126384,7 +126384,7 @@
     "pipeline": "ci",
     "display_name": "Upstream CI",
     "days": 30,
-    "generated_at": "2026-07-01T12:20:13Z",
+    "generated_at": "2026-07-01T13:41:04Z",
     "summary": {
       "total_builds": 31,
       "passed": 3,
@@ -126586,17 +126586,17 @@
     "builds": [
       {
         "number": 75663,
-        "state": "failing",
+        "state": "failed",
         "created_at": "2026-07-01T06:00:03.864Z",
         "date": "2026-07-01",
         "message": "Full CI run - nightly",
         "author": "",
-        "wall_mins": null,
-        "passed": 266,
+        "wall_mins": 419.0,
+        "passed": 267,
         "failed": 12,
         "soft_failed": 7,
         "skipped": 0,
-        "total_jobs": 285,
+        "total_jobs": 286,
         "jobs": [
           {
             "name": "2 Node Test (4 GPUs)",
@@ -127466,6 +127466,21 @@
             "job_id": "019f1c44-9034-411d-a3c4-a96562cece26",
             "step_id": "019f1c44-8dd1-40b9-9e3b-19f464cf8f9a",
             "wait": 3.9,
+            "q": "amd_mi325_1"
+          },
+          {
+            "name": "AMD: V1 Core + KV + Metrics (mi325_1)",
+            "raw_name": "AMD: V1 Core + KV + Metrics (mi325_1)",
+            "state": "passed",
+            "dur": 2.2,
+            "tests": 1,
+            "passed_tests": 1,
+            "failed_tests": 0,
+            "skipped_tests": 0,
+            "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1d99-2c12-4a64-92f8-d392ccc5a0d6&tab=output",
+            "job_id": "019f1d99-2c12-4a64-92f8-d392ccc5a0d6",
+            "step_id": "019f1c44-8dbd-43c9-9c27-b98405f4cb2a",
+            "wait": 0.1,
             "q": "amd_mi325_1"
           },
           {
@@ -130307,9 +130322,9 @@
             "name": "Rust Frontend Serve/Admin Coverage",
             "raw_name": "Rust Frontend Serve/Admin Coverage",
             "state": "passed",
-            "dur": 1.4,
-            "tests": 2,
-            "passed_tests": 2,
+            "dur": 7.0,
+            "tests": 1,
+            "passed_tests": 1,
             "failed_tests": 0,
             "skipped_tests": 0,
             "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-90fc-45b5-afbc-7ac2ff36f9b8&tab=output",
@@ -130322,11 +130337,11 @@
             "name": "Rust Frontend Tool Use",
             "raw_name": "Rust Frontend Tool Use",
             "state": "passed",
-            "dur": 2.1,
-            "tests": 252,
-            "passed_tests": 200,
+            "dur": 5.9,
+            "tests": 1,
+            "passed_tests": 1,
             "failed_tests": 0,
-            "skipped_tests": 52,
+            "skipped_tests": 0,
             "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-90fd-4d9a-ae21-a53a205628a8&tab=output",
             "job_id": "019f1c44-90fd-4d9a-ae21-a53a205628a8",
             "step_id": "019f1c44-8e42-4859-b64b-02c0f1ef164b",
@@ -130337,9 +130352,9 @@
             "name": "Samplers Test",
             "raw_name": "Samplers Test",
             "state": "passed",
-            "dur": 8.9,
-            "tests": 24,
-            "passed_tests": 24,
+            "dur": 20.2,
+            "tests": 1,
+            "passed_tests": 1,
             "failed_tests": 0,
             "skipped_tests": 0,
             "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-9101-4a00-b94f-07c45f5f77dd&tab=output",
@@ -130382,11 +130397,11 @@
             "name": "Spec Decode Draft Model",
             "raw_name": "Spec Decode Draft Model",
             "state": "passed",
-            "dur": 28.9,
-            "tests": 20,
-            "passed_tests": 8,
+            "dur": 30.8,
+            "tests": 1,
+            "passed_tests": 1,
             "failed_tests": 0,
-            "skipped_tests": 12,
+            "skipped_tests": 0,
             "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-9106-480d-b054-2cea8f442cc1&tab=output",
             "job_id": "019f1c44-9106-480d-b054-2cea8f442cc1",
             "step_id": "019f1c44-8e45-4090-bb12-53e0fa0af3e5",
@@ -130397,11 +130412,11 @@
             "name": "Spec Decode Draft Model Nightly B200",
             "raw_name": "Spec Decode Draft Model Nightly B200",
             "state": "passed",
-            "dur": 19.6,
-            "tests": 20,
-            "passed_tests": 8,
+            "dur": 20.1,
+            "tests": 1,
+            "passed_tests": 1,
             "failed_tests": 0,
-            "skipped_tests": 12,
+            "skipped_tests": 0,
             "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-9107-45f1-a089-0d03850d176e&tab=output",
             "job_id": "019f1c44-9107-45f1-a089-0d03850d176e",
             "step_id": "019f1c44-8e45-4252-8b8e-2e1e36e930eb",
@@ -130412,11 +130427,11 @@
             "name": "Spec Decode Eagle",
             "raw_name": "Spec Decode Eagle",
             "state": "passed",
-            "dur": 6.9,
-            "tests": 18,
+            "dur": 8.7,
+            "tests": 1,
             "passed_tests": 1,
             "failed_tests": 0,
-            "skipped_tests": 17,
+            "skipped_tests": 0,
             "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-9108-4864-b961-801157020826&tab=output",
             "job_id": "019f1c44-9108-4864-b961-801157020826",
             "step_id": "019f1c44-8e46-45ac-afe6-9a92182b6ec1",
@@ -130427,11 +130442,11 @@
             "name": "Spec Decode Eagle Nightly B200",
             "raw_name": "Spec Decode Eagle Nightly B200",
             "state": "passed",
-            "dur": 8.2,
-            "tests": 18,
-            "passed_tests": 3,
+            "dur": 8.7,
+            "tests": 1,
+            "passed_tests": 1,
             "failed_tests": 0,
-            "skipped_tests": 15,
+            "skipped_tests": 0,
             "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-9109-4b55-a2a3-4eed849f9ff5&tab=output",
             "job_id": "019f1c44-9109-4b55-a2a3-4eed849f9ff5",
             "step_id": "019f1c44-8e47-4791-bce5-28b62b773e89",
@@ -130442,9 +130457,9 @@
             "name": "Spec Decode MTP hybrid (B200)",
             "raw_name": "Spec Decode MTP hybrid (B200)",
             "state": "passed",
-            "dur": 3.4,
-            "tests": 2,
-            "passed_tests": 2,
+            "dur": 3.9,
+            "tests": 1,
+            "passed_tests": 1,
             "failed_tests": 0,
             "skipped_tests": 0,
             "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-910a-4e1e-84b8-05a46c25fe15&tab=output",
@@ -130487,11 +130502,11 @@
             "name": "Spec Decode Speculators + MTP Nightly B200",
             "raw_name": "Spec Decode Speculators + MTP Nightly B200",
             "state": "passed",
-            "dur": 7.6,
-            "tests": 6,
-            "passed_tests": 4,
+            "dur": 8.2,
+            "tests": 1,
+            "passed_tests": 1,
             "failed_tests": 0,
-            "skipped_tests": 2,
+            "skipped_tests": 0,
             "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-910b-4d37-a769-114c677c8c9d&tab=output",
             "job_id": "019f1c44-910b-4d37-a769-114c677c8c9d",
             "step_id": "019f1c44-8e4b-4c8c-b1df-706107fb884b",
@@ -130502,9 +130517,9 @@
             "name": "Speculators Correctness",
             "raw_name": "Speculators Correctness",
             "state": "passed",
-            "dur": 7.2,
-            "tests": 4,
-            "passed_tests": 4,
+            "dur": 7.9,
+            "tests": 1,
+            "passed_tests": 1,
             "failed_tests": 0,
             "skipped_tests": 0,
             "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-910c-4336-a801-6d45dcd16391&tab=output",
@@ -130517,10 +130532,10 @@
             "name": "Torch Nightly Basic Models Tests (Extra Initialization) 1",
             "raw_name": "Torch Nightly Basic Models Tests (Extra Initialization) 1",
             "state": "soft_fail",
-            "dur": 57.8,
-            "tests": 187,
-            "passed_tests": 33,
-            "failed_tests": 154,
+            "dur": 63.0,
+            "tests": 1,
+            "passed_tests": 0,
+            "failed_tests": 1,
             "skipped_tests": 0,
             "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-9116-4af0-8406-f5d3c5ba7c16&tab=output",
             "job_id": "019f1c44-9116-4af0-8406-f5d3c5ba7c16",
@@ -130532,10 +130547,10 @@
             "name": "Torch Nightly Basic Models Tests (Extra Initialization) 2",
             "raw_name": "Torch Nightly Basic Models Tests (Extra Initialization) 2",
             "state": "soft_fail",
-            "dur": 54.2,
-            "tests": 163,
-            "passed_tests": 27,
-            "failed_tests": 136,
+            "dur": 60.8,
+            "tests": 1,
+            "passed_tests": 0,
+            "failed_tests": 1,
             "skipped_tests": 0,
             "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-9117-4beb-98b3-30c8e7aac7d7&tab=output",
             "job_id": "019f1c44-9117-4beb-98b3-30c8e7aac7d7",
@@ -130547,10 +130562,10 @@
             "name": "Torch Nightly Basic Models Tests (Initialization)",
             "raw_name": "Torch Nightly Basic Models Tests (Initialization)",
             "state": "soft_fail",
-            "dur": 4.9,
-            "tests": 12,
-            "passed_tests": 1,
-            "failed_tests": 11,
+            "dur": 9.2,
+            "tests": 1,
+            "passed_tests": 0,
+            "failed_tests": 1,
             "skipped_tests": 0,
             "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-9117-422e-8d35-520b39230e7a&tab=output",
             "job_id": "019f1c44-9117-422e-8d35-520b39230e7a",
@@ -130562,9 +130577,9 @@
             "name": "Torch Nightly Language Models Tests (Extra Standard) 1",
             "raw_name": "Torch Nightly Language Models Tests (Extra Standard) 1",
             "state": "passed",
-            "dur": 5.0,
-            "tests": 4,
-            "passed_tests": 4,
+            "dur": 9.8,
+            "tests": 1,
+            "passed_tests": 1,
             "failed_tests": 0,
             "skipped_tests": 0,
             "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-9118-4022-b24f-34c940cca422&tab=output",
@@ -130577,9 +130592,9 @@
             "name": "Torch Nightly Language Models Tests (Extra Standard) 2",
             "raw_name": "Torch Nightly Language Models Tests (Extra Standard) 2",
             "state": "passed",
-            "dur": 16.7,
-            "tests": 7,
-            "passed_tests": 7,
+            "dur": 21.5,
+            "tests": 1,
+            "passed_tests": 1,
             "failed_tests": 0,
             "skipped_tests": 0,
             "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-9118-482c-87d3-38e26df03fc6&tab=output",
@@ -130592,11 +130607,11 @@
             "name": "Torch Nightly Language Models Tests (Hybrid) 1",
             "raw_name": "Torch Nightly Language Models Tests (Hybrid) 1",
             "state": "passed",
-            "dur": 18.2,
-            "tests": 18,
-            "passed_tests": 16,
+            "dur": 42.0,
+            "tests": 1,
+            "passed_tests": 1,
             "failed_tests": 0,
-            "skipped_tests": 2,
+            "skipped_tests": 0,
             "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-911a-46a9-b559-49e7b37816ec&tab=output",
             "job_id": "019f1c44-911a-46a9-b559-49e7b37816ec",
             "step_id": "019f1c44-8e52-4254-bb86-d5f0d58d6ee5",
@@ -130607,11 +130622,11 @@
             "name": "Torch Nightly Language Models Tests (Hybrid) 2",
             "raw_name": "Torch Nightly Language Models Tests (Hybrid) 2",
             "state": "passed",
-            "dur": 25.3,
-            "tests": 23,
-            "passed_tests": 21,
+            "dur": 49.0,
+            "tests": 1,
+            "passed_tests": 1,
             "failed_tests": 0,
-            "skipped_tests": 2,
+            "skipped_tests": 0,
             "url": "https://buildkite.com/vllm/ci/builds/75663/steps/canvas?jid=019f1c44-911a-41bd-804b-a34de93d4c9e&tab=output",
             "job_id": "019f1c44-911a-41bd-804b-a34de93d4c9e",
             "step_id": "019f1c44-8e52-4254-bb86-d5f0d58d6ee5",
@@ -130772,7 +130787,7 @@
             "name": "Weight Loading Multiple GPU",
             "raw_name": "Weight Loading Multiple GPU",
             "state": "passed",
-            "dur": 1.1,
+            "dur": 30.8,
             "tests": 1,
             "passed_tests": 1,
             "failed_tests": 0,
@@ -239865,17 +239880,17 @@
     "nightly_builds": [
       {
         "number": 75663,
-        "state": "failing",
+        "state": "failed",
         "created_at": "2026-07-01T06:00:03.864Z",
         "date": "2026-07-01",
         "message": "Full CI run - nightly",
         "author": "",
-        "wall_mins": null,
-        "passed": 266,
+        "wall_mins": 419.0,
+        "passed": 267,
         "failed": 12,
         "soft_failed": 7,
         "skipped": 0,
-        "total_jobs": 285,
+        "total_jobs": 286,
         "web_url": "https://buildkite.com/vllm/ci/builds/75663",
         "source": "test_results"
       },
@@ -240475,7 +240490,7 @@
         "is_soft_fail": true,
         "median_dur": 73.3,
         "p90_dur": 86.4,
-        "avg_dur": 72.9,
+        "avg_dur": 73.1,
         "max_dur": 93.3,
         "median_wait": 0.0,
         "p90_wait": 13.5,
@@ -240555,7 +240570,7 @@
         "is_soft_fail": true,
         "median_dur": 66.4,
         "p90_dur": 77.6,
-        "avg_dur": 65.9,
+        "avg_dur": 66.1,
         "max_dur": 86.1,
         "median_wait": 0.0,
         "p90_wait": 3.8,
@@ -240654,7 +240669,7 @@
         "fail_rate": 23.3,
         "is_soft_fail": false,
         "median_dur": 18.1,
-        "p90_dur": 19.6,
+        "p90_dur": 20.1,
         "avg_dur": 16.8,
         "max_dur": 23.8,
         "median_wait": 1.9,
@@ -240775,8 +240790,8 @@
         "is_soft_fail": false,
         "median_dur": 27.9,
         "p90_dur": 28.5,
-        "avg_dur": 24.2,
-        "max_dur": 28.8,
+        "avg_dur": 25.0,
+        "max_dur": 42.0,
         "median_wait": 2.5,
         "p90_wait": 3.2,
         "avg_wait": 2.5,
@@ -240794,9 +240809,9 @@
         "fail_rate": 20.0,
         "is_soft_fail": false,
         "median_dur": 40.0,
-        "p90_dur": 41.1,
-        "avg_dur": 34.5,
-        "max_dur": 41.4,
+        "p90_dur": 41.4,
+        "avg_dur": 35.3,
+        "max_dur": 49.0,
         "median_wait": 2.8,
         "p90_wait": 3.7,
         "avg_wait": 2.7,
@@ -241013,9 +241028,9 @@
         "soft_failed": 4,
         "fail_rate": 13.3,
         "is_soft_fail": true,
-        "median_dur": 6.2,
-        "p90_dur": 8.6,
-        "avg_dur": 6.6,
+        "median_dur": 6.3,
+        "p90_dur": 9.2,
+        "avg_dur": 6.7,
         "max_dur": 11.6,
         "median_wait": 0.0,
         "p90_wait": 0.2,
@@ -241054,7 +241069,7 @@
         "fail_rate": 12.9,
         "is_soft_fail": false,
         "median_dur": 3.4,
-        "p90_dur": 3.7,
+        "p90_dur": 3.9,
         "avg_dur": 3.2,
         "max_dur": 5.8,
         "median_wait": 2.4,
@@ -241083,26 +241098,6 @@
         "max_wait": 16.2,
         "queues": [
           "b200-k8s"
-        ]
-      },
-      {
-        "name": "AMD: V1 Core + KV + Metrics (mi325_1)",
-        "runs": 9,
-        "passed": 8,
-        "failed": 1,
-        "soft_failed": 0,
-        "fail_rate": 11.1,
-        "is_soft_fail": false,
-        "median_dur": 1.4,
-        "p90_dur": 3.3,
-        "avg_dur": 1.6,
-        "max_dur": 3.3,
-        "median_wait": 0.2,
-        "p90_wait": 3.4,
-        "avg_wait": 0.6,
-        "max_wait": 3.4,
-        "queues": [
-          "amd_mi325_1"
         ]
       },
       {
@@ -241166,6 +241161,26 @@
         ]
       },
       {
+        "name": "AMD: V1 Core + KV + Metrics (mi325_1)",
+        "runs": 10,
+        "passed": 9,
+        "failed": 1,
+        "soft_failed": 0,
+        "fail_rate": 10.0,
+        "is_soft_fail": false,
+        "median_dur": 1.4,
+        "p90_dur": 3.3,
+        "avg_dur": 1.6,
+        "max_dur": 3.3,
+        "median_wait": 0.2,
+        "p90_wait": 3.4,
+        "avg_wait": 0.6,
+        "max_wait": 3.4,
+        "queues": [
+          "amd_mi325_1"
+        ]
+      },
+      {
         "name": "Multi-Modal Models (Standard) 2: qwen3 + gemma",
         "runs": 30,
         "passed": 27,
@@ -241213,9 +241228,9 @@
         "soft_failed": 0,
         "fail_rate": 9.7,
         "is_soft_fail": false,
-        "median_dur": 7.8,
+        "median_dur": 7.9,
         "p90_dur": 9.3,
-        "avg_dur": 19.0,
+        "avg_dur": 19.1,
         "max_dur": 357.5,
         "median_wait": 1.4,
         "p90_wait": 16.2,
@@ -241674,8 +241689,8 @@
         "fail_rate": 6.7,
         "is_soft_fail": false,
         "median_dur": 24.4,
-        "p90_dur": 30.4,
-        "avg_dur": 25.3,
+        "p90_dur": 30.8,
+        "avg_dur": 25.4,
         "max_dur": 33.4,
         "median_wait": 0.0,
         "p90_wait": 0.3,
@@ -241734,7 +241749,7 @@
         "fail_rate": 6.5,
         "is_soft_fail": false,
         "median_dur": 8.1,
-        "p90_dur": 8.3,
+        "p90_dur": 8.4,
         "avg_dur": 7.7,
         "max_dur": 11.1,
         "median_wait": 1.4,
@@ -242537,7 +242552,7 @@
         "is_soft_fail": true,
         "median_dur": 73.3,
         "p90_dur": 86.4,
-        "avg_dur": 72.9,
+        "avg_dur": 73.1,
         "max_dur": 93.3,
         "median_wait": 0.0,
         "p90_wait": 13.5,
@@ -242577,7 +242592,7 @@
         "is_soft_fail": true,
         "median_dur": 66.4,
         "p90_dur": 77.6,
-        "avg_dur": 65.9,
+        "avg_dur": 66.1,
         "max_dur": 86.1,
         "median_wait": 0.0,
         "p90_wait": 3.8,
@@ -242916,9 +242931,9 @@
         "fail_rate": 20.0,
         "is_soft_fail": false,
         "median_dur": 40.0,
-        "p90_dur": 41.1,
-        "avg_dur": 34.5,
-        "max_dur": 41.4,
+        "p90_dur": 41.4,
+        "avg_dur": 35.3,
+        "max_dur": 49.0,
         "median_wait": 2.8,
         "p90_wait": 3.7,
         "avg_wait": 2.7,
@@ -243517,8 +243532,8 @@
         "is_soft_fail": false,
         "median_dur": 27.9,
         "p90_dur": 28.5,
-        "avg_dur": 24.2,
-        "max_dur": 28.8,
+        "avg_dur": 25.0,
+        "max_dur": 42.0,
         "median_wait": 2.5,
         "p90_wait": 3.2,
         "avg_wait": 2.5,
@@ -243776,8 +243791,8 @@
         "fail_rate": 6.7,
         "is_soft_fail": false,
         "median_dur": 24.4,
-        "p90_dur": 30.4,
-        "avg_dur": 25.3,
+        "p90_dur": 30.8,
+        "avg_dur": 25.4,
         "max_dur": 33.4,
         "median_wait": 0.0,
         "p90_wait": 0.3,
@@ -244376,7 +244391,7 @@
         "fail_rate": 23.3,
         "is_soft_fail": false,
         "median_dur": 18.1,
-        "p90_dur": 19.6,
+        "p90_dur": 20.1,
         "avg_dur": 16.8,
         "max_dur": 23.8,
         "median_wait": 1.9,
@@ -244836,8 +244851,8 @@
         "fail_rate": 0.0,
         "is_soft_fail": false,
         "median_dur": 15.4,
-        "p90_dur": 20.8,
-        "avg_dur": 16.9,
+        "p90_dur": 21.5,
+        "avg_dur": 17.1,
         "max_dur": 33.6,
         "median_wait": 2.4,
         "p90_wait": 2.9,
@@ -245836,9 +245851,9 @@
         "fail_rate": 0.0,
         "is_soft_fail": false,
         "median_dur": 8.6,
-        "p90_dur": 9.7,
-        "avg_dur": 8.7,
-        "max_dur": 11.6,
+        "p90_dur": 11.5,
+        "avg_dur": 9.0,
+        "max_dur": 20.2,
         "median_wait": 0.0,
         "p90_wait": 45.1,
         "avg_wait": 8.9,
@@ -245936,13 +245951,33 @@
         "fail_rate": 6.5,
         "is_soft_fail": false,
         "median_dur": 8.1,
-        "p90_dur": 8.3,
+        "p90_dur": 8.4,
         "avg_dur": 7.7,
         "max_dur": 11.1,
         "median_wait": 1.4,
         "p90_wait": 16.0,
         "avg_wait": 4.6,
         "max_wait": 35.7,
+        "queues": [
+          "b200-k8s"
+        ]
+      },
+      {
+        "name": "Spec Decode Speculators + MTP Nightly B200",
+        "runs": 31,
+        "passed": 28,
+        "failed": 3,
+        "soft_failed": 0,
+        "fail_rate": 9.7,
+        "is_soft_fail": false,
+        "median_dur": 7.9,
+        "p90_dur": 9.3,
+        "avg_dur": 19.1,
+        "max_dur": 357.5,
+        "median_wait": 1.4,
+        "p90_wait": 16.2,
+        "avg_wait": 4.9,
+        "max_wait": 39.8,
         "queues": [
           "b200-k8s"
         ]
@@ -245965,26 +246000,6 @@
         "max_wait": 92.5,
         "queues": [
           "intel-gpu"
-        ]
-      },
-      {
-        "name": "Spec Decode Speculators + MTP Nightly B200",
-        "runs": 31,
-        "passed": 28,
-        "failed": 3,
-        "soft_failed": 0,
-        "fail_rate": 9.7,
-        "is_soft_fail": false,
-        "median_dur": 7.8,
-        "p90_dur": 9.3,
-        "avg_dur": 19.0,
-        "max_dur": 357.5,
-        "median_wait": 1.4,
-        "p90_wait": 16.2,
-        "avg_wait": 4.9,
-        "max_wait": 39.8,
-        "queues": [
-          "b200-k8s"
         ]
       },
       {
@@ -246328,6 +246343,26 @@
         ]
       },
       {
+        "name": "Torch Nightly Basic Models Tests (Initialization)",
+        "runs": 30,
+        "passed": 26,
+        "failed": 0,
+        "soft_failed": 4,
+        "fail_rate": 13.3,
+        "is_soft_fail": true,
+        "median_dur": 6.3,
+        "p90_dur": 9.2,
+        "avg_dur": 6.7,
+        "max_dur": 11.6,
+        "median_wait": 0.0,
+        "p90_wait": 0.2,
+        "avg_wait": 0.0,
+        "max_wait": 0.3,
+        "queues": [
+          "h200_18gb"
+        ]
+      },
+      {
         "name": "AMD: Language Models Tests (Extra Standard) 1 (mi300_1)",
         "runs": 7,
         "passed": 7,
@@ -246368,26 +246403,6 @@
         ]
       },
       {
-        "name": "Torch Nightly Basic Models Tests (Initialization)",
-        "runs": 30,
-        "passed": 26,
-        "failed": 0,
-        "soft_failed": 4,
-        "fail_rate": 13.3,
-        "is_soft_fail": true,
-        "median_dur": 6.2,
-        "p90_dur": 8.6,
-        "avg_dur": 6.6,
-        "max_dur": 11.6,
-        "median_wait": 0.0,
-        "p90_wait": 0.2,
-        "avg_wait": 0.0,
-        "max_wait": 0.3,
-        "queues": [
-          "h200_18gb"
-        ]
-      },
-      {
         "name": "AMD: Engine (mi300_1)",
         "runs": 3,
         "passed": 3,
@@ -246417,8 +246432,8 @@
         "is_soft_fail": false,
         "median_dur": 6.0,
         "p90_dur": 6.9,
-        "avg_dur": 6.0,
-        "max_dur": 7.1,
+        "avg_dur": 6.1,
+        "max_dur": 8.7,
         "median_wait": 0.0,
         "p90_wait": 0.2,
         "avg_wait": 0.4,
@@ -246676,9 +246691,9 @@
         "fail_rate": 0.0,
         "is_soft_fail": false,
         "median_dur": 4.8,
-        "p90_dur": 5.6,
-        "avg_dur": 5.0,
-        "max_dur": 7.5,
+        "p90_dur": 6.6,
+        "avg_dur": 5.2,
+        "max_dur": 9.8,
         "median_wait": 2.3,
         "p90_wait": 2.6,
         "avg_wait": 1.9,
@@ -247156,7 +247171,7 @@
         "fail_rate": 12.9,
         "is_soft_fail": false,
         "median_dur": 3.4,
-        "p90_dur": 3.7,
+        "p90_dur": 3.9,
         "avg_dur": 3.2,
         "max_dur": 5.8,
         "median_wait": 2.4,
@@ -247797,8 +247812,8 @@
         "is_soft_fail": false,
         "median_dur": 2.0,
         "p90_dur": 2.1,
-        "avg_dur": 2.0,
-        "max_dur": 2.1,
+        "avg_dur": 2.1,
+        "max_dur": 5.9,
         "median_wait": 3.7,
         "p90_wait": 6.1,
         "avg_wait": 4.6,
@@ -248089,11 +248104,11 @@
       },
       {
         "name": "AMD: V1 Core + KV + Metrics (mi325_1)",
-        "runs": 9,
-        "passed": 8,
+        "runs": 10,
+        "passed": 9,
         "failed": 1,
         "soft_failed": 0,
-        "fail_rate": 11.1,
+        "fail_rate": 10.0,
         "is_soft_fail": false,
         "median_dur": 1.4,
         "p90_dur": 3.3,
@@ -248136,9 +248151,9 @@
         "fail_rate": 0.0,
         "is_soft_fail": false,
         "median_dur": 1.4,
-        "p90_dur": 1.5,
-        "avg_dur": 1.4,
-        "max_dur": 1.6,
+        "p90_dur": 1.6,
+        "avg_dur": 1.5,
+        "max_dur": 7.0,
         "median_wait": 0.0,
         "p90_wait": 0.2,
         "avg_wait": 0.4,
@@ -248417,8 +248432,8 @@
         "is_soft_fail": false,
         "median_dur": 1.0,
         "p90_dur": 1.1,
-        "avg_dur": 1.0,
-        "max_dur": 1.1,
+        "avg_dur": 2.0,
+        "max_dur": 30.8,
         "median_wait": 5.7,
         "p90_wait": 29.0,
         "avg_wait": 10.2,
@@ -249359,7 +249374,7 @@
       },
       {
         "queue": "amd_mi325_1",
-        "jobs": 787,
+        "jobs": 788,
         "median_wait": 0.1,
         "p90_wait": 0.2,
         "avg_wait": 0.1,
@@ -249432,7 +249447,7 @@
           "passed": 0,
           "failed": 1,
           "pass_rate": 0.0,
-          "total_jobs_tracked": 285,
+          "total_jobs_tracked": 286,
           "jobs_with_failures": 19,
           "jobs_with_hard_failures": 12,
           "jobs_with_soft_failures": 7
@@ -249448,17 +249463,17 @@
         "builds": [
           {
             "number": 75663,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-01T06:00:03.864Z",
             "date": "2026-07-01",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 266,
+            "wall_mins": 419.0,
+            "passed": 267,
             "failed": 12,
             "soft_failed": 7,
             "skipped": 0,
-            "total_jobs": 285,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/75663",
             "source": "test_results"
           }
@@ -249466,17 +249481,17 @@
         "nightly_builds": [
           {
             "number": 75663,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-01T06:00:03.864Z",
             "date": "2026-07-01",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 266,
+            "wall_mins": 419.0,
+            "passed": 267,
             "failed": 12,
             "soft_failed": 7,
             "skipped": 0,
-            "total_jobs": 285,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/75663",
             "source": "test_results"
           }
@@ -249790,10 +249805,10 @@
             "soft_failed": 1,
             "fail_rate": 100.0,
             "is_soft_fail": true,
-            "median_dur": 57.8,
-            "p90_dur": 57.8,
-            "avg_dur": 57.8,
-            "max_dur": 57.8,
+            "median_dur": 63.0,
+            "p90_dur": 63.0,
+            "avg_dur": 63.0,
+            "max_dur": 63.0,
             "median_wait": 0.0,
             "p90_wait": 0.0,
             "avg_wait": 0.0,
@@ -249810,10 +249825,10 @@
             "soft_failed": 1,
             "fail_rate": 100.0,
             "is_soft_fail": true,
-            "median_dur": 54.2,
-            "p90_dur": 54.2,
-            "avg_dur": 54.2,
-            "max_dur": 54.2,
+            "median_dur": 60.8,
+            "p90_dur": 60.8,
+            "avg_dur": 60.8,
+            "max_dur": 60.8,
             "median_wait": 0.0,
             "p90_wait": 0.0,
             "avg_wait": 0.0,
@@ -249830,10 +249845,10 @@
             "soft_failed": 1,
             "fail_rate": 100.0,
             "is_soft_fail": true,
-            "median_dur": 4.9,
-            "p90_dur": 4.9,
-            "avg_dur": 4.9,
-            "max_dur": 4.9,
+            "median_dur": 9.2,
+            "p90_dur": 9.2,
+            "avg_dur": 9.2,
+            "max_dur": 9.2,
             "median_wait": 0.1,
             "p90_wait": 0.1,
             "avg_wait": 0.1,
@@ -250112,10 +250127,30 @@
             "soft_failed": 1,
             "fail_rate": 100.0,
             "is_soft_fail": true,
-            "median_dur": 57.8,
-            "p90_dur": 57.8,
-            "avg_dur": 57.8,
-            "max_dur": 57.8,
+            "median_dur": 63.0,
+            "p90_dur": 63.0,
+            "avg_dur": 63.0,
+            "max_dur": 63.0,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_35gb"
+            ]
+          },
+          {
+            "name": "Torch Nightly Basic Models Tests (Extra Initialization) 2",
+            "runs": 1,
+            "passed": 0,
+            "failed": 0,
+            "soft_failed": 1,
+            "fail_rate": 100.0,
+            "is_soft_fail": true,
+            "median_dur": 60.8,
+            "p90_dur": 60.8,
+            "avg_dur": 60.8,
+            "max_dur": 60.8,
             "median_wait": 0.0,
             "p90_wait": 0.0,
             "avg_wait": 0.0,
@@ -250142,26 +250177,6 @@
             "max_wait": 3.9,
             "queues": [
               "gpu_4_queue"
-            ]
-          },
-          {
-            "name": "Torch Nightly Basic Models Tests (Extra Initialization) 2",
-            "runs": 1,
-            "passed": 0,
-            "failed": 0,
-            "soft_failed": 1,
-            "fail_rate": 100.0,
-            "is_soft_fail": true,
-            "median_dur": 54.2,
-            "p90_dur": 54.2,
-            "avg_dur": 54.2,
-            "max_dur": 54.2,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
-            "queues": [
-              "h200_35gb"
             ]
           },
           {
@@ -250222,6 +250237,26 @@
             "max_wait": 0.0,
             "queues": [
               "h200_35gb"
+            ]
+          },
+          {
+            "name": "Torch Nightly Language Models Tests (Hybrid) 2",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 49.0,
+            "p90_dur": 49.0,
+            "avg_dur": 49.0,
+            "max_dur": 49.0,
+            "median_wait": 2.5,
+            "p90_wait": 2.5,
+            "avg_wait": 2.5,
+            "max_wait": 2.5,
+            "queues": [
+              "gpu_1_queue"
             ]
           },
           {
@@ -250422,6 +250457,26 @@
             "max_wait": 0.7,
             "queues": [
               "amd_mi325_1"
+            ]
+          },
+          {
+            "name": "Torch Nightly Language Models Tests (Hybrid) 1",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 42.0,
+            "p90_dur": 42.0,
+            "avg_dur": 42.0,
+            "max_dur": 42.0,
+            "median_wait": 2.1,
+            "p90_wait": 2.1,
+            "avg_wait": 2.1,
+            "max_wait": 2.1,
+            "queues": [
+              "gpu_1_queue"
             ]
           },
           {
@@ -250725,6 +250780,46 @@
             ]
           },
           {
+            "name": "Spec Decode Draft Model",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 30.8,
+            "p90_dur": 30.8,
+            "avg_dur": 30.8,
+            "max_dur": 30.8,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_18gb"
+            ]
+          },
+          {
+            "name": "Weight Loading Multiple GPU",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 30.8,
+            "p90_dur": 30.8,
+            "avg_dur": 30.8,
+            "max_dur": 30.8,
+            "median_wait": 18.1,
+            "p90_wait": 18.1,
+            "avg_wait": 18.1,
+            "max_wait": 18.1,
+            "queues": [
+              "gpu_4_queue"
+            ]
+          },
+          {
             "name": "V1 Sample + Logits",
             "runs": 1,
             "passed": 1,
@@ -250802,26 +250897,6 @@
             "max_wait": 4.4,
             "queues": [
               "gpu_1_queue"
-            ]
-          },
-          {
-            "name": "Spec Decode Draft Model",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 28.9,
-            "p90_dur": 28.9,
-            "avg_dur": 28.9,
-            "max_dur": 28.9,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
-            "queues": [
-              "h200_18gb"
             ]
           },
           {
@@ -251105,26 +251180,6 @@
             ]
           },
           {
-            "name": "Torch Nightly Language Models Tests (Hybrid) 2",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 25.3,
-            "p90_dur": 25.3,
-            "avg_dur": 25.3,
-            "max_dur": 25.3,
-            "median_wait": 2.5,
-            "p90_wait": 2.5,
-            "avg_wait": 2.5,
-            "max_wait": 2.5,
-            "queues": [
-              "gpu_1_queue"
-            ]
-          },
-          {
             "name": "AMD: Spec Decode Eagle (mi325_1)",
             "runs": 1,
             "passed": 1,
@@ -251305,6 +251360,26 @@
             ]
           },
           {
+            "name": "Torch Nightly Language Models Tests (Extra Standard) 2",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 21.5,
+            "p90_dur": 21.5,
+            "avg_dur": 21.5,
+            "max_dur": 21.5,
+            "median_wait": 2.1,
+            "p90_wait": 2.1,
+            "avg_wait": 2.1,
+            "max_wait": 2.1,
+            "queues": [
+              "gpu_1_queue"
+            ]
+          },
+          {
             "name": "AMD: Kernels Quantization Test 2 (mi325_1)",
             "runs": 1,
             "passed": 1,
@@ -251445,6 +251520,26 @@
             ]
           },
           {
+            "name": "Samplers Test",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 20.2,
+            "p90_dur": 20.2,
+            "avg_dur": 20.2,
+            "max_dur": 20.2,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_35gb"
+            ]
+          },
+          {
             "name": "Spec Decode Draft Model Nightly B200",
             "runs": 1,
             "passed": 1,
@@ -251452,10 +251547,10 @@
             "soft_failed": 0,
             "fail_rate": 0.0,
             "is_soft_fail": false,
-            "median_dur": 19.6,
-            "p90_dur": 19.6,
-            "avg_dur": 19.6,
-            "max_dur": 19.6,
+            "median_dur": 20.1,
+            "p90_dur": 20.1,
+            "avg_dur": 20.1,
+            "max_dur": 20.1,
             "median_wait": 10.0,
             "p90_wait": 10.0,
             "avg_wait": 10.0,
@@ -251542,26 +251637,6 @@
             "max_wait": 0.0,
             "queues": [
               "h200_35gb"
-            ]
-          },
-          {
-            "name": "Torch Nightly Language Models Tests (Hybrid) 1",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 18.2,
-            "p90_dur": 18.2,
-            "avg_dur": 18.2,
-            "max_dur": 18.2,
-            "median_wait": 2.1,
-            "p90_wait": 2.1,
-            "avg_wait": 2.1,
-            "max_wait": 2.1,
-            "queues": [
-              "gpu_1_queue"
             ]
           },
           {
@@ -251702,26 +251777,6 @@
             "max_wait": 0.1,
             "queues": [
               "h200_18gb"
-            ]
-          },
-          {
-            "name": "Torch Nightly Language Models Tests (Extra Standard) 2",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 16.7,
-            "p90_dur": 16.7,
-            "avg_dur": 16.7,
-            "max_dur": 16.7,
-            "median_wait": 2.1,
-            "p90_wait": 2.1,
-            "avg_wait": 2.1,
-            "max_wait": 2.1,
-            "queues": [
-              "gpu_1_queue"
             ]
           },
           {
@@ -252485,6 +252540,26 @@
             ]
           },
           {
+            "name": "Torch Nightly Language Models Tests (Extra Standard) 1",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 9.8,
+            "p90_dur": 9.8,
+            "avg_dur": 9.8,
+            "max_dur": 9.8,
+            "median_wait": 0.3,
+            "p90_wait": 0.3,
+            "avg_wait": 0.3,
+            "max_wait": 0.3,
+            "queues": [
+              "gpu_1_queue"
+            ]
+          },
+          {
             "name": "AMD: Pytorch Nightly Dependency Override Check (mi300_1)",
             "runs": 1,
             "passed": 1,
@@ -252600,6 +252675,26 @@
             "p90_wait": 0.0,
             "avg_wait": 0.0,
             "max_wait": 0.0,
+            "queues": [
+              "h200_18gb"
+            ]
+          },
+          {
+            "name": "Torch Nightly Basic Models Tests (Initialization)",
+            "runs": 1,
+            "passed": 0,
+            "failed": 0,
+            "soft_failed": 1,
+            "fail_rate": 100.0,
+            "is_soft_fail": true,
+            "median_dur": 9.2,
+            "p90_dur": 9.2,
+            "avg_dur": 9.2,
+            "max_dur": 9.2,
+            "median_wait": 0.1,
+            "p90_wait": 0.1,
+            "avg_wait": 0.1,
+            "max_wait": 0.1,
             "queues": [
               "h200_18gb"
             ]
@@ -252725,26 +252820,6 @@
             ]
           },
           {
-            "name": "Samplers Test",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 8.9,
-            "p90_dur": 8.9,
-            "avg_dur": 8.9,
-            "max_dur": 8.9,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
-            "queues": [
-              "h200_35gb"
-            ]
-          },
-          {
             "name": "AMD: Engine (1 GPU) (mi325_1)",
             "runs": 1,
             "passed": 1,
@@ -252802,6 +252877,46 @@
             "max_wait": 0.1,
             "queues": [
               "h200_18gb"
+            ]
+          },
+          {
+            "name": "Spec Decode Eagle",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 8.7,
+            "p90_dur": 8.7,
+            "avg_dur": 8.7,
+            "max_dur": 8.7,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_18gb"
+            ]
+          },
+          {
+            "name": "Spec Decode Eagle Nightly B200",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 8.7,
+            "p90_dur": 8.7,
+            "avg_dur": 8.7,
+            "max_dur": 8.7,
+            "median_wait": 10.1,
+            "p90_wait": 10.1,
+            "avg_wait": 10.1,
+            "max_wait": 10.1,
+            "queues": [
+              "b200-k8s"
             ]
           },
           {
@@ -252925,7 +253040,7 @@
             ]
           },
           {
-            "name": "Spec Decode Eagle Nightly B200",
+            "name": "Spec Decode Speculators + MTP Nightly B200",
             "runs": 1,
             "passed": 1,
             "failed": 0,
@@ -252936,10 +253051,10 @@
             "p90_dur": 8.2,
             "avg_dur": 8.2,
             "max_dur": 8.2,
-            "median_wait": 10.1,
-            "p90_wait": 10.1,
-            "avg_wait": 10.1,
-            "max_wait": 10.1,
+            "median_wait": 10.4,
+            "p90_wait": 10.4,
+            "avg_wait": 10.4,
+            "max_wait": 10.4,
             "queues": [
               "b200-k8s"
             ]
@@ -252985,6 +253100,26 @@
             ]
           },
           {
+            "name": "Speculators Correctness",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 7.9,
+            "p90_dur": 7.9,
+            "avg_dur": 7.9,
+            "max_dur": 7.9,
+            "median_wait": 6.3,
+            "p90_wait": 6.3,
+            "avg_wait": 6.3,
+            "max_wait": 6.3,
+            "queues": [
+              "mithril-h100-pool"
+            ]
+          },
+          {
             "name": "AMD: Engine (mi325_1)",
             "runs": 1,
             "passed": 1,
@@ -253022,26 +253157,6 @@
             "max_wait": 2.8,
             "queues": [
               "amd_mi325_1"
-            ]
-          },
-          {
-            "name": "Spec Decode Speculators + MTP Nightly B200",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 7.6,
-            "p90_dur": 7.6,
-            "avg_dur": 7.6,
-            "max_dur": 7.6,
-            "median_wait": 10.4,
-            "p90_wait": 10.4,
-            "avg_wait": 10.4,
-            "max_wait": 10.4,
-            "queues": [
-              "b200-k8s"
             ]
           },
           {
@@ -253085,26 +253200,6 @@
             ]
           },
           {
-            "name": "Speculators Correctness",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 7.2,
-            "p90_dur": 7.2,
-            "avg_dur": 7.2,
-            "max_dur": 7.2,
-            "median_wait": 6.3,
-            "p90_wait": 6.3,
-            "avg_wait": 6.3,
-            "max_wait": 6.3,
-            "queues": [
-              "mithril-h100-pool"
-            ]
-          },
-          {
             "name": "LM Eval Humming (A100 - TEMPORARY)",
             "runs": 1,
             "passed": 1,
@@ -253125,6 +253220,26 @@
             ]
           },
           {
+            "name": "Rust Frontend Serve/Admin Coverage",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 7.0,
+            "p90_dur": 7.0,
+            "avg_dur": 7.0,
+            "max_dur": 7.0,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_18gb"
+            ]
+          },
+          {
             "name": "Basic Models Tests (Initialization)",
             "runs": 1,
             "passed": 1,
@@ -253140,26 +253255,6 @@
             "p90_wait": 0.2,
             "avg_wait": 0.2,
             "max_wait": 0.2,
-            "queues": [
-              "h200_18gb"
-            ]
-          },
-          {
-            "name": "Spec Decode Eagle",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 6.9,
-            "p90_dur": 6.9,
-            "avg_dur": 6.9,
-            "max_dur": 6.9,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
             "queues": [
               "h200_18gb"
             ]
@@ -253262,6 +253357,26 @@
             "max_wait": 0.0,
             "queues": [
               "h200_18gb"
+            ]
+          },
+          {
+            "name": "Rust Frontend Tool Use",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 5.9,
+            "p90_dur": 5.9,
+            "avg_dur": 5.9,
+            "max_dur": 5.9,
+            "median_wait": 4.4,
+            "p90_wait": 4.4,
+            "avg_wait": 4.4,
+            "max_wait": 4.4,
+            "queues": [
+              "gpu_1_queue"
             ]
           },
           {
@@ -253445,26 +253560,6 @@
             ]
           },
           {
-            "name": "Torch Nightly Language Models Tests (Extra Standard) 1",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 5.0,
-            "p90_dur": 5.0,
-            "avg_dur": 5.0,
-            "max_dur": 5.0,
-            "median_wait": 0.3,
-            "p90_wait": 0.3,
-            "avg_wait": 0.3,
-            "max_wait": 0.3,
-            "queues": [
-              "gpu_1_queue"
-            ]
-          },
-          {
             "name": "V1 Core + KV + Metrics",
             "runs": 1,
             "passed": 1,
@@ -253482,26 +253577,6 @@
             "max_wait": 3.4,
             "queues": [
               "gpu_1_queue"
-            ]
-          },
-          {
-            "name": "Torch Nightly Basic Models Tests (Initialization)",
-            "runs": 1,
-            "passed": 0,
-            "failed": 0,
-            "soft_failed": 1,
-            "fail_rate": 100.0,
-            "is_soft_fail": true,
-            "median_dur": 4.9,
-            "p90_dur": 4.9,
-            "avg_dur": 4.9,
-            "max_dur": 4.9,
-            "median_wait": 0.1,
-            "p90_wait": 0.1,
-            "avg_wait": 0.1,
-            "max_wait": 0.1,
-            "queues": [
-              "h200_18gb"
             ]
           },
           {
@@ -253825,6 +253900,26 @@
             ]
           },
           {
+            "name": "Spec Decode MTP hybrid (B200)",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 3.9,
+            "p90_dur": 3.9,
+            "avg_dur": 3.9,
+            "max_dur": 3.9,
+            "median_wait": 10.1,
+            "p90_wait": 10.1,
+            "avg_wait": 10.1,
+            "max_wait": 10.1,
+            "queues": [
+              "b200-k8s"
+            ]
+          },
+          {
             "name": "LoRA TP (Distributed)",
             "runs": 1,
             "passed": 1,
@@ -253942,26 +254037,6 @@
             "max_wait": 0.8,
             "queues": [
               "medium_cpu_queue_premerge"
-            ]
-          },
-          {
-            "name": "Spec Decode MTP hybrid (B200)",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 3.4,
-            "p90_dur": 3.4,
-            "avg_dur": 3.4,
-            "max_dur": 3.4,
-            "median_wait": 10.1,
-            "p90_wait": 10.1,
-            "avg_wait": 10.1,
-            "max_wait": 10.1,
-            "queues": [
-              "b200-k8s"
             ]
           },
           {
@@ -254365,6 +254440,26 @@
             ]
           },
           {
+            "name": "AMD: V1 Core + KV + Metrics (mi325_1)",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 2.2,
+            "p90_dur": 2.2,
+            "avg_dur": 2.2,
+            "max_dur": 2.2,
+            "median_wait": 0.1,
+            "p90_wait": 0.1,
+            "avg_wait": 0.1,
+            "max_wait": 0.1,
+            "queues": [
+              "amd_mi325_1"
+            ]
+          },
+          {
             "name": "AMD: Weight Loading Multiple GPU (mi300_2)",
             "runs": 1,
             "passed": 1,
@@ -254422,26 +254517,6 @@
             "max_wait": 1.5,
             "queues": [
               "a100_queue"
-            ]
-          },
-          {
-            "name": "Rust Frontend Tool Use",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 2.1,
-            "p90_dur": 2.1,
-            "avg_dur": 2.1,
-            "max_dur": 2.1,
-            "median_wait": 4.4,
-            "p90_wait": 4.4,
-            "avg_wait": 4.4,
-            "max_wait": 4.4,
-            "queues": [
-              "gpu_1_queue"
             ]
           },
           {
@@ -254645,26 +254720,6 @@
             ]
           },
           {
-            "name": "Rust Frontend Serve/Admin Coverage",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 1.4,
-            "p90_dur": 1.4,
-            "avg_dur": 1.4,
-            "max_dur": 1.4,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
-            "queues": [
-              "h200_18gb"
-            ]
-          },
-          {
             "name": "AMD: OpenAI API Correctness (mi325_1)",
             "runs": 1,
             "passed": 1,
@@ -254860,26 +254915,6 @@
             "p90_wait": 16.0,
             "avg_wait": 16.0,
             "max_wait": 16.0,
-            "queues": [
-              "gpu_4_queue"
-            ]
-          },
-          {
-            "name": "Weight Loading Multiple GPU",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 1.1,
-            "p90_dur": 1.1,
-            "avg_dur": 1.1,
-            "max_dur": 1.1,
-            "median_wait": 18.1,
-            "p90_wait": 18.1,
-            "avg_wait": 18.1,
-            "max_wait": 18.1,
             "queues": [
               "gpu_4_queue"
             ]
@@ -255592,10 +255627,10 @@
           },
           {
             "queue": "amd_mi325_1",
-            "jobs": 41,
-            "median_wait": 3.9,
+            "jobs": 42,
+            "median_wait": 3.6,
             "p90_wait": 8.0,
-            "avg_wait": 4.2,
+            "avg_wait": 4.1,
             "max_wait": 9.6
           },
           {
@@ -255796,17 +255831,17 @@
         "builds": [
           {
             "number": 75663,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-01T06:00:03.864Z",
             "date": "2026-07-01",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 266,
+            "wall_mins": 419.0,
+            "passed": 267,
             "failed": 12,
             "soft_failed": 7,
             "skipped": 0,
-            "total_jobs": 285,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/75663",
             "source": "test_results"
           },
@@ -255846,17 +255881,17 @@
         "nightly_builds": [
           {
             "number": 75663,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-01T06:00:03.864Z",
             "date": "2026-07-01",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 266,
+            "wall_mins": 419.0,
+            "passed": 267,
             "failed": 12,
             "soft_failed": 7,
             "skipped": 0,
-            "total_jobs": 285,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/75663",
             "source": "test_results"
           },
@@ -256023,9 +256058,9 @@
             "fail_rate": 100.0,
             "is_soft_fail": true,
             "median_dur": 53.0,
-            "p90_dur": 57.8,
-            "avg_dur": 53.5,
-            "max_dur": 57.8,
+            "p90_dur": 63.0,
+            "avg_dur": 55.2,
+            "max_dur": 63.0,
             "median_wait": 0.0,
             "p90_wait": 0.0,
             "avg_wait": 0.0,
@@ -256043,9 +256078,9 @@
             "fail_rate": 100.0,
             "is_soft_fail": true,
             "median_dur": 53.0,
-            "p90_dur": 54.2,
-            "avg_dur": 51.8,
-            "max_dur": 54.2,
+            "p90_dur": 60.8,
+            "avg_dur": 54.0,
+            "max_dur": 60.8,
             "median_wait": 0.0,
             "p90_wait": 0.0,
             "avg_wait": 0.0,
@@ -256062,10 +256097,10 @@
             "soft_failed": 3,
             "fail_rate": 100.0,
             "is_soft_fail": true,
-            "median_dur": 4.9,
-            "p90_dur": 5.7,
-            "avg_dur": 5.0,
-            "max_dur": 5.7,
+            "median_dur": 5.7,
+            "p90_dur": 9.2,
+            "avg_dur": 6.5,
+            "max_dur": 9.2,
             "median_wait": 0.1,
             "p90_wait": 0.2,
             "avg_wait": 0.1,
@@ -256175,26 +256210,6 @@
             ]
           },
           {
-            "name": "AMD: V1 Core + KV + Metrics (mi325_1)",
-            "runs": 2,
-            "passed": 1,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 50.0,
-            "is_soft_fail": false,
-            "median_dur": 2.3,
-            "p90_dur": 3.3,
-            "avg_dur": 2.3,
-            "max_dur": 3.3,
-            "median_wait": 0.2,
-            "p90_wait": 0.3,
-            "avg_wait": 0.2,
-            "max_wait": 0.3,
-            "queues": [
-              "amd_mi325_1"
-            ]
-          },
-          {
             "name": "LM Eval Small Models (2xB200)",
             "runs": 2,
             "passed": 1,
@@ -256230,6 +256245,26 @@
             "p90_wait": 3.0,
             "avg_wait": 1.1,
             "max_wait": 3.0,
+            "queues": [
+              "amd_mi325_1"
+            ]
+          },
+          {
+            "name": "AMD: V1 Core + KV + Metrics (mi325_1)",
+            "runs": 3,
+            "passed": 2,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 33.3,
+            "is_soft_fail": false,
+            "median_dur": 2.2,
+            "p90_dur": 3.3,
+            "avg_dur": 2.3,
+            "max_dur": 3.3,
+            "median_wait": 0.2,
+            "p90_wait": 0.3,
+            "avg_wait": 0.2,
+            "max_wait": 0.3,
             "queues": [
               "amd_mi325_1"
             ]
@@ -256583,9 +256618,9 @@
             "fail_rate": 33.3,
             "is_soft_fail": false,
             "median_dur": 18.5,
-            "p90_dur": 19.6,
-            "avg_dur": 18.7,
-            "max_dur": 19.6,
+            "p90_dur": 20.1,
+            "avg_dur": 18.9,
+            "max_dur": 20.1,
             "median_wait": 5.8,
             "p90_wait": 10.0,
             "avg_wait": 5.9,
@@ -256905,9 +256940,9 @@
             "fail_rate": 100.0,
             "is_soft_fail": true,
             "median_dur": 53.0,
-            "p90_dur": 57.8,
-            "avg_dur": 53.5,
-            "max_dur": 57.8,
+            "p90_dur": 63.0,
+            "avg_dur": 55.2,
+            "max_dur": 63.0,
             "median_wait": 0.0,
             "p90_wait": 0.0,
             "avg_wait": 0.0,
@@ -256925,9 +256960,9 @@
             "fail_rate": 100.0,
             "is_soft_fail": true,
             "median_dur": 53.0,
-            "p90_dur": 54.2,
-            "avg_dur": 51.8,
-            "max_dur": 54.2,
+            "p90_dur": 60.8,
+            "avg_dur": 54.0,
+            "max_dur": 60.8,
             "median_wait": 0.0,
             "p90_wait": 0.0,
             "avg_wait": 0.0,
@@ -257477,6 +257512,26 @@
             ]
           },
           {
+            "name": "Torch Nightly Language Models Tests (Hybrid) 2",
+            "runs": 3,
+            "passed": 3,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 28.9,
+            "p90_dur": 49.0,
+            "avg_dur": 34.4,
+            "max_dur": 49.0,
+            "median_wait": 2.5,
+            "p90_wait": 2.5,
+            "avg_wait": 1.9,
+            "max_wait": 2.5,
+            "queues": [
+              "gpu_1_queue"
+            ]
+          },
+          {
             "name": "AMD: Basic Models Tests (Other) (mi325_1)",
             "runs": 3,
             "passed": 3,
@@ -257705,9 +257760,9 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 26.8,
-            "p90_dur": 28.9,
-            "avg_dur": 27.3,
-            "max_dur": 28.9,
+            "p90_dur": 30.8,
+            "avg_dur": 27.9,
+            "max_dur": 30.8,
             "median_wait": 0.0,
             "p90_wait": 0.3,
             "avg_wait": 0.1,
@@ -257812,26 +257867,6 @@
             "p90_wait": 3.7,
             "avg_wait": 3.3,
             "max_wait": 3.7,
-            "queues": [
-              "gpu_1_queue"
-            ]
-          },
-          {
-            "name": "Torch Nightly Language Models Tests (Hybrid) 2",
-            "runs": 3,
-            "passed": 3,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 25.4,
-            "p90_dur": 28.9,
-            "avg_dur": 26.5,
-            "max_dur": 28.9,
-            "median_wait": 2.5,
-            "p90_wait": 2.5,
-            "avg_wait": 1.9,
-            "max_wait": 2.5,
             "queues": [
               "gpu_1_queue"
             ]
@@ -258037,6 +258072,26 @@
             ]
           },
           {
+            "name": "Torch Nightly Language Models Tests (Extra Standard) 2",
+            "runs": 3,
+            "passed": 3,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 21.5,
+            "p90_dur": 28.6,
+            "avg_dur": 21.8,
+            "max_dur": 28.6,
+            "median_wait": 2.1,
+            "p90_wait": 2.4,
+            "avg_wait": 1.8,
+            "max_wait": 2.4,
+            "queues": [
+              "gpu_1_queue"
+            ]
+          },
+          {
             "name": "AMD: Kernels Quantization Test 2 (mi325_1)",
             "runs": 3,
             "passed": 3,
@@ -258197,6 +258252,26 @@
             ]
           },
           {
+            "name": "Torch Nightly Language Models Tests (Hybrid) 1",
+            "runs": 3,
+            "passed": 3,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 19.7,
+            "p90_dur": 42.0,
+            "avg_dur": 26.4,
+            "max_dur": 42.0,
+            "median_wait": 2.1,
+            "p90_wait": 2.5,
+            "avg_wait": 1.8,
+            "max_wait": 2.5,
+            "queues": [
+              "gpu_1_queue"
+            ]
+          },
+          {
             "name": "CPU-Multi-Modal Model Tests 4",
             "runs": 3,
             "passed": 3,
@@ -258285,35 +258360,15 @@
             "fail_rate": 33.3,
             "is_soft_fail": false,
             "median_dur": 18.5,
-            "p90_dur": 19.6,
-            "avg_dur": 18.7,
-            "max_dur": 19.6,
+            "p90_dur": 20.1,
+            "avg_dur": 18.9,
+            "max_dur": 20.1,
             "median_wait": 5.8,
             "p90_wait": 10.0,
             "avg_wait": 5.9,
             "max_wait": 10.0,
             "queues": [
               "b200-k8s"
-            ]
-          },
-          {
-            "name": "Torch Nightly Language Models Tests (Hybrid) 1",
-            "runs": 3,
-            "passed": 3,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 18.2,
-            "p90_dur": 19.7,
-            "avg_dur": 18.5,
-            "max_dur": 19.7,
-            "median_wait": 2.1,
-            "p90_wait": 2.5,
-            "avg_wait": 1.8,
-            "max_wait": 2.5,
-            "queues": [
-              "gpu_1_queue"
             ]
           },
           {
@@ -258474,26 +258529,6 @@
             "max_wait": 0.3,
             "queues": [
               "amd_mi250_1"
-            ]
-          },
-          {
-            "name": "Torch Nightly Language Models Tests (Extra Standard) 2",
-            "runs": 3,
-            "passed": 3,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 16.7,
-            "p90_dur": 28.6,
-            "avg_dur": 20.2,
-            "max_dur": 28.6,
-            "median_wait": 2.1,
-            "p90_wait": 2.4,
-            "avg_wait": 1.8,
-            "max_wait": 2.4,
-            "queues": [
-              "gpu_1_queue"
             ]
           },
           {
@@ -259437,6 +259472,26 @@
             ]
           },
           {
+            "name": "Samplers Test",
+            "runs": 3,
+            "passed": 3,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 9.0,
+            "p90_dur": 20.2,
+            "avg_dur": 12.4,
+            "max_dur": 20.2,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_35gb"
+            ]
+          },
+          {
             "name": "Distributed Comm Ops",
             "runs": 3,
             "passed": 3,
@@ -259494,26 +259549,6 @@
             "max_wait": 15.8,
             "queues": [
               "mithril-h100-pool"
-            ]
-          },
-          {
-            "name": "Samplers Test",
-            "runs": 3,
-            "passed": 3,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 8.9,
-            "p90_dur": 9.0,
-            "avg_dur": 8.7,
-            "max_dur": 9.0,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
-            "queues": [
-              "h200_35gb"
             ]
           },
           {
@@ -259604,10 +259639,10 @@
             "soft_failed": 0,
             "fail_rate": 0.0,
             "is_soft_fail": false,
-            "median_dur": 8.2,
-            "p90_dur": 8.3,
-            "avg_dur": 8.2,
-            "max_dur": 8.3,
+            "median_dur": 8.3,
+            "p90_dur": 8.7,
+            "avg_dur": 8.4,
+            "max_dur": 8.7,
             "median_wait": 5.8,
             "p90_wait": 10.1,
             "avg_wait": 6.5,
@@ -259677,6 +259712,26 @@
             ]
           },
           {
+            "name": "Spec Decode Speculators + MTP Nightly B200",
+            "runs": 3,
+            "passed": 3,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 8.0,
+            "p90_dur": 8.2,
+            "avg_dur": 8.0,
+            "max_dur": 8.2,
+            "median_wait": 8.5,
+            "p90_wait": 10.4,
+            "avg_wait": 8.1,
+            "max_wait": 10.4,
+            "queues": [
+              "b200-k8s"
+            ]
+          },
+          {
             "name": "Entrypoints Integration (API Server OpenAI - Part 2)",
             "runs": 3,
             "passed": 3,
@@ -259694,26 +259749,6 @@
             "max_wait": 2.5,
             "queues": [
               "gpu_1_queue"
-            ]
-          },
-          {
-            "name": "Spec Decode Speculators + MTP Nightly B200",
-            "runs": 3,
-            "passed": 3,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 7.8,
-            "p90_dur": 8.0,
-            "avg_dur": 7.8,
-            "max_dur": 8.0,
-            "median_wait": 8.5,
-            "p90_wait": 10.4,
-            "avg_wait": 8.1,
-            "max_wait": 10.4,
-            "queues": [
-              "b200-k8s"
             ]
           },
           {
@@ -259737,6 +259772,26 @@
             ]
           },
           {
+            "name": "Speculators Correctness",
+            "runs": 3,
+            "passed": 3,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 7.6,
+            "p90_dur": 7.9,
+            "avg_dur": 7.6,
+            "max_dur": 7.9,
+            "median_wait": 8.7,
+            "p90_wait": 16.3,
+            "avg_wait": 10.4,
+            "max_wait": 16.3,
+            "queues": [
+              "mithril-h100-pool"
+            ]
+          },
+          {
             "name": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
             "runs": 3,
             "passed": 3,
@@ -259754,26 +259809,6 @@
             "max_wait": 9.4,
             "queues": [
               "a100_queue"
-            ]
-          },
-          {
-            "name": "Speculators Correctness",
-            "runs": 3,
-            "passed": 3,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 7.4,
-            "p90_dur": 7.6,
-            "avg_dur": 7.4,
-            "max_dur": 7.6,
-            "median_wait": 8.7,
-            "p90_wait": 16.3,
-            "avg_wait": 10.4,
-            "max_wait": 16.3,
-            "queues": [
-              "mithril-h100-pool"
             ]
           },
           {
@@ -260025,9 +260060,9 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 6.0,
-            "p90_dur": 6.9,
-            "avg_dur": 6.3,
-            "max_dur": 6.9,
+            "p90_dur": 8.7,
+            "avg_dur": 6.9,
+            "max_dur": 8.7,
             "median_wait": 0.0,
             "p90_wait": 0.2,
             "avg_wait": 0.1,
@@ -260092,6 +260127,26 @@
             "p90_wait": 0.1,
             "avg_wait": 0.0,
             "max_wait": 0.1,
+            "queues": [
+              "h200_18gb"
+            ]
+          },
+          {
+            "name": "Torch Nightly Basic Models Tests (Initialization)",
+            "runs": 3,
+            "passed": 0,
+            "failed": 0,
+            "soft_failed": 3,
+            "fail_rate": 100.0,
+            "is_soft_fail": true,
+            "median_dur": 5.7,
+            "p90_dur": 9.2,
+            "avg_dur": 6.5,
+            "max_dur": 9.2,
+            "median_wait": 0.1,
+            "p90_wait": 0.2,
+            "avg_wait": 0.1,
+            "max_wait": 0.2,
             "queues": [
               "h200_18gb"
             ]
@@ -260245,9 +260300,9 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 5.0,
-            "p90_dur": 5.0,
-            "avg_dur": 5.0,
-            "max_dur": 5.0,
+            "p90_dur": 9.8,
+            "avg_dur": 6.6,
+            "max_dur": 9.8,
             "median_wait": 0.8,
             "p90_wait": 2.4,
             "avg_wait": 1.2,
@@ -260294,26 +260349,6 @@
             "max_wait": 0.2,
             "queues": [
               "amd_mi300_2"
-            ]
-          },
-          {
-            "name": "Torch Nightly Basic Models Tests (Initialization)",
-            "runs": 3,
-            "passed": 0,
-            "failed": 0,
-            "soft_failed": 3,
-            "fail_rate": 100.0,
-            "is_soft_fail": true,
-            "median_dur": 4.9,
-            "p90_dur": 5.7,
-            "avg_dur": 5.0,
-            "max_dur": 5.7,
-            "median_wait": 0.1,
-            "p90_wait": 0.2,
-            "avg_wait": 0.1,
-            "max_wait": 0.2,
-            "queues": [
-              "h200_18gb"
             ]
           },
           {
@@ -260737,6 +260772,26 @@
             ]
           },
           {
+            "name": "Spec Decode MTP hybrid (B200)",
+            "runs": 3,
+            "passed": 3,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 3.5,
+            "p90_dur": 3.9,
+            "avg_dur": 3.6,
+            "max_dur": 3.9,
+            "median_wait": 7.0,
+            "p90_wait": 10.1,
+            "avg_wait": 7.4,
+            "max_wait": 10.1,
+            "queues": [
+              "b200-k8s"
+            ]
+          },
+          {
             "name": "AMD: Multi-Modal Models (Standard) 1: qwen2 (mi325_1)",
             "runs": 3,
             "passed": 3,
@@ -260754,26 +260809,6 @@
             "max_wait": 9.6,
             "queues": [
               "amd_mi325_1"
-            ]
-          },
-          {
-            "name": "Spec Decode MTP hybrid (B200)",
-            "runs": 3,
-            "passed": 3,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 3.4,
-            "p90_dur": 3.5,
-            "avg_dur": 3.4,
-            "max_dur": 3.5,
-            "median_wait": 7.0,
-            "p90_wait": 10.1,
-            "avg_wait": 7.4,
-            "max_wait": 10.1,
-            "queues": [
-              "b200-k8s"
             ]
           },
           {
@@ -261157,26 +261192,6 @@
             ]
           },
           {
-            "name": "AMD: V1 Core + KV + Metrics (mi325_1)",
-            "runs": 2,
-            "passed": 1,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 50.0,
-            "is_soft_fail": false,
-            "median_dur": 2.3,
-            "p90_dur": 3.3,
-            "avg_dur": 2.3,
-            "max_dur": 3.3,
-            "median_wait": 0.2,
-            "p90_wait": 0.3,
-            "avg_wait": 0.2,
-            "max_wait": 0.3,
-            "queues": [
-              "amd_mi325_1"
-            ]
-          },
-          {
             "name": "Distributed Tests (8xH100)",
             "runs": 3,
             "passed": 3,
@@ -261194,6 +261209,26 @@
             "max_wait": 25.9,
             "queues": [
               "mithril-h100-pool"
+            ]
+          },
+          {
+            "name": "AMD: V1 Core + KV + Metrics (mi325_1)",
+            "runs": 3,
+            "passed": 2,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 33.3,
+            "is_soft_fail": false,
+            "median_dur": 2.2,
+            "p90_dur": 3.3,
+            "avg_dur": 2.3,
+            "max_dur": 3.3,
+            "median_wait": 0.2,
+            "p90_wait": 0.3,
+            "avg_wait": 0.2,
+            "max_wait": 0.3,
+            "queues": [
+              "amd_mi325_1"
             ]
           },
           {
@@ -261285,9 +261320,9 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 2.1,
-            "p90_dur": 2.1,
-            "avg_dur": 2.1,
-            "max_dur": 2.1,
+            "p90_dur": 5.9,
+            "avg_dur": 3.4,
+            "max_dur": 5.9,
             "median_wait": 3.8,
             "p90_wait": 4.4,
             "avg_wait": 4.0,
@@ -261605,9 +261640,9 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 1.2,
-            "p90_dur": 1.4,
-            "avg_dur": 1.3,
-            "max_dur": 1.4,
+            "p90_dur": 7.0,
+            "avg_dur": 3.1,
+            "max_dur": 7.0,
             "median_wait": 0.0,
             "p90_wait": 0.2,
             "avg_wait": 0.1,
@@ -261765,9 +261800,9 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 1.1,
-            "p90_dur": 1.1,
-            "avg_dur": 1.1,
-            "max_dur": 1.1,
+            "p90_dur": 30.8,
+            "avg_dur": 11.0,
+            "max_dur": 30.8,
             "median_wait": 5.9,
             "p90_wait": 18.1,
             "avg_wait": 9.3,
@@ -262496,7 +262531,7 @@
           },
           {
             "queue": "amd_mi325_1",
-            "jobs": 125,
+            "jobs": 126,
             "median_wait": 0.2,
             "p90_wait": 0.9,
             "avg_wait": 0.4,
@@ -262652,17 +262687,17 @@
         "builds": [
           {
             "number": 75663,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-01T06:00:03.864Z",
             "date": "2026-07-01",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 266,
+            "wall_mins": 419.0,
+            "passed": 267,
             "failed": 12,
             "soft_failed": 7,
             "skipped": 0,
-            "total_jobs": 285,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/75663",
             "source": "test_results"
           },
@@ -262766,17 +262801,17 @@
         "nightly_builds": [
           {
             "number": 75663,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-01T06:00:03.864Z",
             "date": "2026-07-01",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 266,
+            "wall_mins": 419.0,
+            "passed": 267,
             "failed": 12,
             "soft_failed": 7,
             "skipped": 0,
-            "total_jobs": 285,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/75663",
             "source": "test_results"
           },
@@ -263046,9 +263081,9 @@
             "soft_failed": 3,
             "fail_rate": 50.0,
             "is_soft_fail": true,
-            "median_dur": 67.4,
+            "median_dur": 70.0,
             "p90_dur": 93.3,
-            "avg_dur": 69.1,
+            "avg_dur": 70.0,
             "max_dur": 93.3,
             "median_wait": 0.0,
             "p90_wait": 90.4,
@@ -263066,9 +263101,9 @@
             "soft_failed": 3,
             "fail_rate": 50.0,
             "is_soft_fail": true,
-            "median_dur": 62.0,
+            "median_dur": 65.2,
             "p90_dur": 86.1,
-            "avg_dur": 65.5,
+            "avg_dur": 66.6,
             "max_dur": 86.1,
             "median_wait": 0.0,
             "p90_wait": 92.0,
@@ -263146,9 +263181,9 @@
             "soft_failed": 3,
             "fail_rate": 42.9,
             "is_soft_fail": true,
-            "median_dur": 6.2,
+            "median_dur": 8.1,
             "p90_dur": 10.7,
-            "avg_dur": 7.0,
+            "avg_dur": 7.6,
             "max_dur": 10.7,
             "median_wait": 0.0,
             "p90_wait": 0.2,
@@ -263259,26 +263294,6 @@
             ]
           },
           {
-            "name": "AMD: V1 Core + KV + Metrics (mi325_1)",
-            "runs": 6,
-            "passed": 5,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 16.7,
-            "is_soft_fail": false,
-            "median_dur": 1.4,
-            "p90_dur": 3.3,
-            "avg_dur": 1.7,
-            "max_dur": 3.3,
-            "median_wait": 0.3,
-            "p90_wait": 3.4,
-            "avg_wait": 0.9,
-            "max_wait": 3.4,
-            "queues": [
-              "amd_mi325_1"
-            ]
-          },
-          {
             "name": "LM Eval Large Models (4xH100)",
             "runs": 6,
             "passed": 5,
@@ -263374,6 +263389,26 @@
             "p90_wait": 6.5,
             "avg_wait": 1.9,
             "max_wait": 6.5,
+            "queues": [
+              "amd_mi325_1"
+            ]
+          },
+          {
+            "name": "AMD: V1 Core + KV + Metrics (mi325_1)",
+            "runs": 7,
+            "passed": 6,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 14.3,
+            "is_soft_fail": false,
+            "median_dur": 1.4,
+            "p90_dur": 3.3,
+            "avg_dur": 1.8,
+            "max_dur": 3.3,
+            "median_wait": 0.3,
+            "p90_wait": 3.4,
+            "avg_wait": 0.8,
+            "max_wait": 3.4,
             "queues": [
               "amd_mi325_1"
             ]
@@ -263768,7 +263803,7 @@
             "is_soft_fail": false,
             "median_dur": 18.7,
             "p90_dur": 23.2,
-            "avg_dur": 19.2,
+            "avg_dur": 19.3,
             "max_dur": 23.2,
             "median_wait": 5.8,
             "p90_wait": 35.3,
@@ -263787,9 +263822,9 @@
             "fail_rate": 14.3,
             "is_soft_fail": false,
             "median_dur": 18.1,
-            "p90_dur": 24.2,
-            "avg_dur": 18.9,
-            "max_dur": 24.2,
+            "p90_dur": 42.0,
+            "avg_dur": 22.3,
+            "max_dur": 42.0,
             "median_wait": 2.5,
             "p90_wait": 2.9,
             "avg_wait": 2.3,
@@ -263806,10 +263841,10 @@
             "soft_failed": 0,
             "fail_rate": 14.3,
             "is_soft_fail": false,
-            "median_dur": 25.4,
-            "p90_dur": 32.2,
-            "avg_dur": 26.5,
-            "max_dur": 32.2,
+            "median_dur": 25.5,
+            "p90_dur": 49.0,
+            "avg_dur": 29.9,
+            "max_dur": 49.0,
             "median_wait": 2.8,
             "p90_wait": 3.7,
             "avg_wait": 2.6,
@@ -264048,9 +264083,9 @@
             "soft_failed": 3,
             "fail_rate": 50.0,
             "is_soft_fail": true,
-            "median_dur": 67.4,
+            "median_dur": 70.0,
             "p90_dur": 93.3,
-            "avg_dur": 69.1,
+            "avg_dur": 70.0,
             "max_dur": 93.3,
             "median_wait": 0.0,
             "p90_wait": 90.4,
@@ -264078,6 +264113,26 @@
             "max_wait": 21.3,
             "queues": [
               "b200-k8s"
+            ]
+          },
+          {
+            "name": "Torch Nightly Basic Models Tests (Extra Initialization) 2",
+            "runs": 6,
+            "passed": 3,
+            "failed": 0,
+            "soft_failed": 3,
+            "fail_rate": 50.0,
+            "is_soft_fail": true,
+            "median_dur": 65.2,
+            "p90_dur": 86.1,
+            "avg_dur": 66.6,
+            "max_dur": 86.1,
+            "median_wait": 0.0,
+            "p90_wait": 92.0,
+            "avg_wait": 16.0,
+            "max_wait": 92.0,
+            "queues": [
+              "h200_35gb"
             ]
           },
           {
@@ -264118,26 +264173,6 @@
             "max_wait": 45.3,
             "queues": [
               "mithril-h100-pool"
-            ]
-          },
-          {
-            "name": "Torch Nightly Basic Models Tests (Extra Initialization) 2",
-            "runs": 6,
-            "passed": 3,
-            "failed": 0,
-            "soft_failed": 3,
-            "fail_rate": 50.0,
-            "is_soft_fail": true,
-            "median_dur": 62.0,
-            "p90_dur": 86.1,
-            "avg_dur": 65.5,
-            "max_dur": 86.1,
-            "median_wait": 0.0,
-            "p90_wait": 92.0,
-            "avg_wait": 16.0,
-            "max_wait": 92.0,
-            "queues": [
-              "h200_35gb"
             ]
           },
           {
@@ -264910,7 +264945,7 @@
             "is_soft_fail": false,
             "median_dur": 28.2,
             "p90_dur": 33.4,
-            "avg_dur": 28.4,
+            "avg_dur": 28.7,
             "max_dur": 33.4,
             "median_wait": 0.2,
             "p90_wait": 9.5,
@@ -265081,6 +265116,26 @@
             ]
           },
           {
+            "name": "Torch Nightly Language Models Tests (Hybrid) 2",
+            "runs": 7,
+            "passed": 6,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 14.3,
+            "is_soft_fail": false,
+            "median_dur": 25.5,
+            "p90_dur": 49.0,
+            "avg_dur": 29.9,
+            "max_dur": 49.0,
+            "median_wait": 2.8,
+            "p90_wait": 3.7,
+            "avg_wait": 2.6,
+            "max_wait": 3.7,
+            "queues": [
+              "gpu_1_queue"
+            ]
+          },
+          {
             "name": "LM Eval Small Models",
             "runs": 7,
             "passed": 7,
@@ -265098,26 +265153,6 @@
             "max_wait": 107.9,
             "queues": [
               "h200_35gb"
-            ]
-          },
-          {
-            "name": "Torch Nightly Language Models Tests (Hybrid) 2",
-            "runs": 7,
-            "passed": 6,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 14.3,
-            "is_soft_fail": false,
-            "median_dur": 25.4,
-            "p90_dur": 32.2,
-            "avg_dur": 26.5,
-            "max_dur": 32.2,
-            "median_wait": 2.8,
-            "p90_wait": 3.7,
-            "avg_wait": 2.6,
-            "max_wait": 3.7,
-            "queues": [
-              "gpu_1_queue"
             ]
           },
           {
@@ -265610,7 +265645,7 @@
             "is_soft_fail": false,
             "median_dur": 18.7,
             "p90_dur": 23.2,
-            "avg_dur": 19.2,
+            "avg_dur": 19.3,
             "max_dur": 23.2,
             "median_wait": 5.8,
             "p90_wait": 35.3,
@@ -265701,6 +265736,26 @@
             ]
           },
           {
+            "name": "Torch Nightly Language Models Tests (Extra Standard) 2",
+            "runs": 7,
+            "passed": 7,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 18.2,
+            "p90_dur": 33.6,
+            "avg_dur": 20.9,
+            "max_dur": 33.6,
+            "median_wait": 2.4,
+            "p90_wait": 2.8,
+            "avg_wait": 2.2,
+            "max_wait": 2.8,
+            "queues": [
+              "gpu_1_queue"
+            ]
+          },
+          {
             "name": "Torch Nightly Language Models Tests (Hybrid) 1",
             "runs": 7,
             "passed": 6,
@@ -265709,9 +265764,9 @@
             "fail_rate": 14.3,
             "is_soft_fail": false,
             "median_dur": 18.1,
-            "p90_dur": 24.2,
-            "avg_dur": 18.9,
-            "max_dur": 24.2,
+            "p90_dur": 42.0,
+            "avg_dur": 22.3,
+            "max_dur": 42.0,
             "median_wait": 2.5,
             "p90_wait": 2.9,
             "avg_wait": 2.3,
@@ -265838,26 +265893,6 @@
             "max_wait": 112.8,
             "queues": [
               "h200_35gb"
-            ]
-          },
-          {
-            "name": "Torch Nightly Language Models Tests (Extra Standard) 2",
-            "runs": 7,
-            "passed": 7,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 16.7,
-            "p90_dur": 33.6,
-            "avg_dur": 20.2,
-            "max_dur": 33.6,
-            "median_wait": 2.4,
-            "p90_wait": 2.8,
-            "avg_wait": 2.2,
-            "max_wait": 2.8,
-            "queues": [
-              "gpu_1_queue"
             ]
           },
           {
@@ -266781,6 +266816,26 @@
             ]
           },
           {
+            "name": "Samplers Test",
+            "runs": 7,
+            "passed": 7,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 9.2,
+            "p90_dur": 20.2,
+            "avg_dur": 11.0,
+            "max_dur": 20.2,
+            "median_wait": 0.0,
+            "p90_wait": 113.6,
+            "avg_wait": 22.7,
+            "max_wait": 113.6,
+            "queues": [
+              "h200_35gb"
+            ]
+          },
+          {
             "name": "AMD: Language Models Tests (Extra Standard) 2 (mi300_1)",
             "runs": 7,
             "passed": 7,
@@ -266878,26 +266933,6 @@
             "max_wait": 0.0,
             "queues": [
               "dgx-spark"
-            ]
-          },
-          {
-            "name": "Samplers Test",
-            "runs": 7,
-            "passed": 7,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 9.0,
-            "p90_dur": 11.5,
-            "avg_dur": 9.3,
-            "max_dur": 11.5,
-            "median_wait": 0.0,
-            "p90_wait": 113.6,
-            "avg_wait": 22.7,
-            "max_wait": 113.6,
-            "queues": [
-              "h200_35gb"
             ]
           },
           {
@@ -267090,7 +267125,7 @@
             "is_soft_fail": false,
             "median_dur": 8.2,
             "p90_dur": 11.1,
-            "avg_dur": 8.6,
+            "avg_dur": 8.7,
             "max_dur": 11.1,
             "median_wait": 5.8,
             "p90_wait": 35.7,
@@ -267098,6 +267133,26 @@
             "max_wait": 35.7,
             "queues": [
               "b200-k8s"
+            ]
+          },
+          {
+            "name": "Torch Nightly Basic Models Tests (Initialization)",
+            "runs": 7,
+            "passed": 4,
+            "failed": 0,
+            "soft_failed": 3,
+            "fail_rate": 42.9,
+            "is_soft_fail": true,
+            "median_dur": 8.1,
+            "p90_dur": 10.7,
+            "avg_dur": 7.6,
+            "max_dur": 10.7,
+            "median_wait": 0.0,
+            "p90_wait": 0.2,
+            "avg_wait": 0.1,
+            "max_wait": 0.2,
+            "queues": [
+              "h200_18gb"
             ]
           },
           {
@@ -267168,7 +267223,7 @@
             "soft_failed": 0,
             "fail_rate": 0.0,
             "is_soft_fail": false,
-            "median_dur": 7.8,
+            "median_dur": 7.9,
             "p90_dur": 10.5,
             "avg_dur": 8.2,
             "max_dur": 10.5,
@@ -267178,6 +267233,26 @@
             "max_wait": 39.8,
             "queues": [
               "b200-k8s"
+            ]
+          },
+          {
+            "name": "Speculators Correctness",
+            "runs": 7,
+            "passed": 7,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 7.8,
+            "p90_dur": 8.4,
+            "avg_dur": 7.8,
+            "max_dur": 8.4,
+            "median_wait": 8.7,
+            "p90_wait": 75.7,
+            "avg_wait": 24.0,
+            "max_wait": 75.7,
+            "queues": [
+              "mithril-h100-pool"
             ]
           },
           {
@@ -267196,26 +267271,6 @@
             "p90_wait": 72.6,
             "avg_wait": 21.5,
             "max_wait": 72.6,
-            "queues": [
-              "mithril-h100-pool"
-            ]
-          },
-          {
-            "name": "Speculators Correctness",
-            "runs": 7,
-            "passed": 7,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 7.6,
-            "p90_dur": 8.4,
-            "avg_dur": 7.7,
-            "max_dur": 8.4,
-            "median_wait": 8.7,
-            "p90_wait": 75.7,
-            "avg_wait": 24.0,
-            "max_wait": 75.7,
             "queues": [
               "mithril-h100-pool"
             ]
@@ -267489,33 +267544,13 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 6.2,
-            "p90_dur": 6.9,
-            "avg_dur": 6.3,
-            "max_dur": 6.9,
+            "p90_dur": 8.7,
+            "avg_dur": 6.5,
+            "max_dur": 8.7,
             "median_wait": 0.1,
             "p90_wait": 9.6,
             "avg_wait": 1.5,
             "max_wait": 9.6,
-            "queues": [
-              "h200_18gb"
-            ]
-          },
-          {
-            "name": "Torch Nightly Basic Models Tests (Initialization)",
-            "runs": 7,
-            "passed": 4,
-            "failed": 0,
-            "soft_failed": 3,
-            "fail_rate": 42.9,
-            "is_soft_fail": true,
-            "median_dur": 6.2,
-            "p90_dur": 10.7,
-            "avg_dur": 7.0,
-            "max_dur": 10.7,
-            "median_wait": 0.0,
-            "p90_wait": 0.2,
-            "avg_wait": 0.1,
-            "max_wait": 0.2,
             "queues": [
               "h200_18gb"
             ]
@@ -267721,6 +267756,26 @@
             ]
           },
           {
+            "name": "Torch Nightly Language Models Tests (Extra Standard) 1",
+            "runs": 7,
+            "passed": 7,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 5.1,
+            "p90_dur": 9.8,
+            "avg_dur": 6.1,
+            "max_dur": 9.8,
+            "median_wait": 2.4,
+            "p90_wait": 2.6,
+            "avg_wait": 1.9,
+            "max_wait": 2.6,
+            "queues": [
+              "gpu_1_queue"
+            ]
+          },
+          {
             "name": "CPU-Language Generation and Pooling Model Tests",
             "runs": 7,
             "passed": 7,
@@ -267738,26 +267793,6 @@
             "max_wait": 43.9,
             "queues": [
               "intel-cpu"
-            ]
-          },
-          {
-            "name": "Torch Nightly Language Models Tests (Extra Standard) 1",
-            "runs": 7,
-            "passed": 7,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 5.0,
-            "p90_dur": 7.5,
-            "avg_dur": 5.4,
-            "max_dur": 7.5,
-            "median_wait": 2.4,
-            "p90_wait": 2.6,
-            "avg_wait": 1.9,
-            "max_wait": 2.6,
-            "queues": [
-              "gpu_1_queue"
             ]
           },
           {
@@ -268221,6 +268256,26 @@
             ]
           },
           {
+            "name": "Spec Decode MTP hybrid (B200)",
+            "runs": 7,
+            "passed": 7,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 3.5,
+            "p90_dur": 5.0,
+            "avg_dur": 3.7,
+            "max_dur": 5.0,
+            "median_wait": 7.0,
+            "p90_wait": 36.5,
+            "avg_wait": 12.2,
+            "max_wait": 36.5,
+            "queues": [
+              "b200-k8s"
+            ]
+          },
+          {
             "name": "AMD: Multi-Modal Models (Standard) 4: other + whisper (mi325_1)",
             "runs": 7,
             "passed": 7,
@@ -268238,26 +268293,6 @@
             "max_wait": 7.2,
             "queues": [
               "amd_mi325_1"
-            ]
-          },
-          {
-            "name": "Spec Decode MTP hybrid (B200)",
-            "runs": 7,
-            "passed": 7,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 3.4,
-            "p90_dur": 5.0,
-            "avg_dur": 3.7,
-            "max_dur": 5.0,
-            "median_wait": 7.0,
-            "p90_wait": 36.5,
-            "avg_wait": 12.2,
-            "max_wait": 36.5,
-            "queues": [
-              "b200-k8s"
             ]
           },
           {
@@ -268769,9 +268804,9 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 2.1,
-            "p90_dur": 2.1,
-            "avg_dur": 2.1,
-            "max_dur": 2.1,
+            "p90_dur": 5.9,
+            "avg_dur": 2.6,
+            "max_dur": 5.9,
             "median_wait": 4.4,
             "p90_wait": 10.6,
             "avg_wait": 6.4,
@@ -269042,19 +269077,19 @@
           },
           {
             "name": "AMD: V1 Core + KV + Metrics (mi325_1)",
-            "runs": 6,
-            "passed": 5,
+            "runs": 7,
+            "passed": 6,
             "failed": 1,
             "soft_failed": 0,
-            "fail_rate": 16.7,
+            "fail_rate": 14.3,
             "is_soft_fail": false,
             "median_dur": 1.4,
             "p90_dur": 3.3,
-            "avg_dur": 1.7,
+            "avg_dur": 1.8,
             "max_dur": 3.3,
             "median_wait": 0.3,
             "p90_wait": 3.4,
-            "avg_wait": 0.9,
+            "avg_wait": 0.8,
             "max_wait": 3.4,
             "queues": [
               "amd_mi325_1"
@@ -269069,9 +269104,9 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 1.4,
-            "p90_dur": 1.6,
-            "avg_dur": 1.4,
-            "max_dur": 1.6,
+            "p90_dur": 7.0,
+            "avg_dur": 2.2,
+            "max_dur": 7.0,
             "median_wait": 0.0,
             "p90_wait": 9.4,
             "avg_wait": 1.4,
@@ -269369,9 +269404,9 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 1.0,
-            "p90_dur": 1.1,
-            "avg_dur": 1.0,
-            "max_dur": 1.1,
+            "p90_dur": 30.8,
+            "avg_dur": 5.3,
+            "max_dur": 30.8,
             "median_wait": 9.6,
             "p90_wait": 60.4,
             "avg_wait": 18.7,
@@ -270104,7 +270139,7 @@
           },
           {
             "queue": "amd_mi325_1",
-            "jobs": 288,
+            "jobs": 289,
             "median_wait": 0.2,
             "p90_wait": 1.1,
             "avg_wait": 0.4,
@@ -270318,17 +270353,17 @@
         "builds": [
           {
             "number": 75663,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-01T06:00:03.864Z",
             "date": "2026-07-01",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 266,
+            "wall_mins": 419.0,
+            "passed": 267,
             "failed": 12,
             "soft_failed": 7,
             "skipped": 0,
-            "total_jobs": 285,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/75663",
             "source": "test_results"
           },
@@ -270544,17 +270579,17 @@
         "nightly_builds": [
           {
             "number": 75663,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-01T06:00:03.864Z",
             "date": "2026-07-01",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 266,
+            "wall_mins": 419.0,
+            "passed": 267,
             "failed": 12,
             "soft_failed": 7,
             "skipped": 0,
-            "total_jobs": 285,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/75663",
             "source": "test_results"
           },
@@ -270898,7 +270933,7 @@
             "is_soft_fail": true,
             "median_dur": 68.8,
             "p90_dur": 83.8,
-            "avg_dur": 69.1,
+            "avg_dur": 69.6,
             "max_dur": 93.3,
             "median_wait": 0.0,
             "p90_wait": 13.5,
@@ -270918,7 +270953,7 @@
             "is_soft_fail": true,
             "median_dur": 63.1,
             "p90_dur": 81.8,
-            "avg_dur": 64.3,
+            "avg_dur": 64.9,
             "max_dur": 86.1,
             "median_wait": 0.0,
             "p90_wait": 3.8,
@@ -271037,9 +271072,9 @@
             "fail_rate": 30.8,
             "is_soft_fail": false,
             "median_dur": 17.3,
-            "p90_dur": 24.2,
-            "avg_dur": 18.9,
-            "max_dur": 27.8,
+            "p90_dur": 27.8,
+            "avg_dur": 20.8,
+            "max_dur": 42.0,
             "median_wait": 2.5,
             "p90_wait": 2.8,
             "avg_wait": 2.4,
@@ -271057,9 +271092,9 @@
             "fail_rate": 30.8,
             "is_soft_fail": false,
             "median_dur": 24.7,
-            "p90_dur": 32.2,
-            "avg_dur": 26.7,
-            "max_dur": 40.0,
+            "p90_dur": 40.0,
+            "avg_dur": 28.5,
+            "max_dur": 49.0,
             "median_wait": 2.6,
             "p90_wait": 3.1,
             "avg_wait": 2.6,
@@ -271176,9 +271211,9 @@
             "soft_failed": 3,
             "fail_rate": 23.1,
             "is_soft_fail": true,
-            "median_dur": 5.8,
-            "p90_dur": 8.6,
-            "avg_dur": 6.5,
+            "median_dur": 6.2,
+            "p90_dur": 9.2,
+            "avg_dur": 6.8,
             "max_dur": 10.7,
             "median_wait": 0.0,
             "p90_wait": 0.1,
@@ -271457,7 +271492,7 @@
             "fail_rate": 15.4,
             "is_soft_fail": false,
             "median_dur": 18.2,
-            "p90_dur": 19.6,
+            "p90_dur": 20.1,
             "avg_dur": 17.3,
             "max_dur": 23.2,
             "median_wait": 0.9,
@@ -271510,11 +271545,11 @@
           },
           {
             "name": "AMD: V1 Core + KV + Metrics (mi325_1)",
-            "runs": 9,
-            "passed": 8,
+            "runs": 10,
+            "passed": 9,
             "failed": 1,
             "soft_failed": 0,
-            "fail_rate": 11.1,
+            "fail_rate": 10.0,
             "is_soft_fail": false,
             "median_dur": 1.4,
             "p90_dur": 3.3,
@@ -272057,7 +272092,7 @@
             "fail_rate": 7.1,
             "is_soft_fail": false,
             "median_dur": 3.4,
-            "p90_dur": 3.7,
+            "p90_dur": 3.9,
             "avg_dur": 3.3,
             "max_dur": 5.0,
             "median_wait": 0.9,
@@ -272200,7 +272235,7 @@
             "is_soft_fail": true,
             "median_dur": 68.8,
             "p90_dur": 83.8,
-            "avg_dur": 69.1,
+            "avg_dur": 69.6,
             "max_dur": 93.3,
             "median_wait": 0.0,
             "p90_wait": 13.5,
@@ -272280,7 +272315,7 @@
             "is_soft_fail": true,
             "median_dur": 63.1,
             "p90_dur": 81.8,
-            "avg_dur": 64.3,
+            "avg_dur": 64.9,
             "max_dur": 86.1,
             "median_wait": 0.0,
             "p90_wait": 3.8,
@@ -273059,8 +273094,8 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 26.1,
-            "p90_dur": 30.4,
-            "avg_dur": 26.2,
+            "p90_dur": 30.8,
+            "avg_dur": 26.4,
             "max_dur": 33.4,
             "median_wait": 0.1,
             "p90_wait": 0.3,
@@ -273219,9 +273254,9 @@
             "fail_rate": 30.8,
             "is_soft_fail": false,
             "median_dur": 24.7,
-            "p90_dur": 32.2,
-            "avg_dur": 26.7,
-            "max_dur": 40.0,
+            "p90_dur": 40.0,
+            "avg_dur": 28.5,
+            "max_dur": 49.0,
             "median_wait": 2.6,
             "p90_wait": 3.1,
             "avg_wait": 2.6,
@@ -273759,7 +273794,7 @@
             "fail_rate": 15.4,
             "is_soft_fail": false,
             "median_dur": 18.2,
-            "p90_dur": 19.6,
+            "p90_dur": 20.1,
             "avg_dur": 17.3,
             "max_dur": 23.2,
             "median_wait": 0.9,
@@ -273939,9 +273974,9 @@
             "fail_rate": 30.8,
             "is_soft_fail": false,
             "median_dur": 17.3,
-            "p90_dur": 24.2,
-            "avg_dur": 18.9,
-            "max_dur": 27.8,
+            "p90_dur": 27.8,
+            "avg_dur": 20.8,
+            "max_dur": 42.0,
             "median_wait": 2.5,
             "p90_wait": 2.8,
             "avg_wait": 2.4,
@@ -274240,7 +274275,7 @@
             "is_soft_fail": false,
             "median_dur": 15.5,
             "p90_dur": 28.6,
-            "avg_dur": 17.9,
+            "avg_dur": 18.2,
             "max_dur": 33.6,
             "median_wait": 2.4,
             "p90_wait": 2.6,
@@ -274991,6 +275026,26 @@
             ]
           },
           {
+            "name": "Samplers Test",
+            "runs": 13,
+            "passed": 13,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 9.0,
+            "p90_dur": 11.5,
+            "avg_dur": 9.7,
+            "max_dur": 20.2,
+            "median_wait": 0.0,
+            "p90_wait": 45.1,
+            "avg_wait": 13.0,
+            "max_wait": 113.6,
+            "queues": [
+              "h200_35gb"
+            ]
+          },
+          {
             "name": "Distributed Comm Ops",
             "runs": 14,
             "passed": 14,
@@ -275048,26 +275103,6 @@
             "max_wait": 51.7,
             "queues": [
               "mithril-h100-pool"
-            ]
-          },
-          {
-            "name": "Samplers Test",
-            "runs": 13,
-            "passed": 13,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 8.9,
-            "p90_dur": 9.7,
-            "avg_dur": 8.8,
-            "max_dur": 11.5,
-            "median_wait": 0.0,
-            "p90_wait": 45.1,
-            "avg_wait": 13.0,
-            "max_wait": 113.6,
-            "queues": [
-              "h200_35gb"
             ]
           },
           {
@@ -275219,8 +275254,8 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 8.1,
-            "p90_dur": 8.3,
-            "avg_dur": 8.3,
+            "p90_dur": 8.7,
+            "avg_dur": 8.4,
             "max_dur": 11.1,
             "median_wait": 0.9,
             "p90_wait": 24.2,
@@ -275279,8 +275314,8 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 7.8,
-            "p90_dur": 8.0,
-            "avg_dur": 7.9,
+            "p90_dur": 8.2,
+            "avg_dur": 8.0,
             "max_dur": 10.5,
             "median_wait": 0.9,
             "p90_wait": 25.7,
@@ -275358,9 +275393,9 @@
             "soft_failed": 0,
             "fail_rate": 0.0,
             "is_soft_fail": false,
-            "median_dur": 7.5,
+            "median_dur": 7.6,
             "p90_dur": 8.4,
-            "avg_dur": 6.7,
+            "avg_dur": 6.8,
             "max_dur": 8.5,
             "median_wait": 6.8,
             "p90_wait": 52.7,
@@ -275611,6 +275646,26 @@
             ]
           },
           {
+            "name": "Torch Nightly Basic Models Tests (Initialization)",
+            "runs": 13,
+            "passed": 10,
+            "failed": 0,
+            "soft_failed": 3,
+            "fail_rate": 23.1,
+            "is_soft_fail": true,
+            "median_dur": 6.2,
+            "p90_dur": 9.2,
+            "avg_dur": 6.8,
+            "max_dur": 10.7,
+            "median_wait": 0.0,
+            "p90_wait": 0.1,
+            "avg_wait": 0.0,
+            "max_wait": 0.2,
+            "queues": [
+              "h200_18gb"
+            ]
+          },
+          {
             "name": "AMD: Spec Decode Ngram + Suffix (mi325_1)",
             "runs": 14,
             "passed": 14,
@@ -275640,32 +275695,12 @@
             "is_soft_fail": false,
             "median_dur": 6.0,
             "p90_dur": 6.9,
-            "avg_dur": 6.0,
-            "max_dur": 6.9,
+            "avg_dur": 6.2,
+            "max_dur": 8.7,
             "median_wait": 0.1,
             "p90_wait": 0.3,
             "avg_wait": 0.8,
             "max_wait": 9.6,
-            "queues": [
-              "h200_18gb"
-            ]
-          },
-          {
-            "name": "Torch Nightly Basic Models Tests (Initialization)",
-            "runs": 13,
-            "passed": 10,
-            "failed": 0,
-            "soft_failed": 3,
-            "fail_rate": 23.1,
-            "is_soft_fail": true,
-            "median_dur": 5.8,
-            "p90_dur": 8.6,
-            "avg_dur": 6.5,
-            "max_dur": 10.7,
-            "median_wait": 0.0,
-            "p90_wait": 0.1,
-            "avg_wait": 0.0,
-            "max_wait": 0.2,
             "queues": [
               "h200_18gb"
             ]
@@ -275899,9 +275934,9 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 4.9,
-            "p90_dur": 5.6,
-            "avg_dur": 5.1,
-            "max_dur": 7.5,
+            "p90_dur": 7.5,
+            "avg_dur": 5.5,
+            "max_dur": 9.8,
             "median_wait": 2.1,
             "p90_wait": 2.6,
             "avg_wait": 1.7,
@@ -276359,7 +276394,7 @@
             "fail_rate": 7.1,
             "is_soft_fail": false,
             "median_dur": 3.4,
-            "p90_dur": 3.7,
+            "p90_dur": 3.9,
             "avg_dur": 3.3,
             "max_dur": 5.0,
             "median_wait": 0.9,
@@ -276980,8 +277015,8 @@
             "is_soft_fail": false,
             "median_dur": 2.0,
             "p90_dur": 2.1,
-            "avg_dur": 2.0,
-            "max_dur": 2.1,
+            "avg_dur": 2.3,
+            "max_dur": 5.9,
             "median_wait": 3.7,
             "p90_wait": 9.4,
             "avg_wait": 5.1,
@@ -277212,11 +277247,11 @@
           },
           {
             "name": "AMD: V1 Core + KV + Metrics (mi325_1)",
-            "runs": 9,
-            "passed": 8,
+            "runs": 10,
+            "passed": 9,
             "failed": 1,
             "soft_failed": 0,
-            "fail_rate": 11.1,
+            "fail_rate": 10.0,
             "is_soft_fail": false,
             "median_dur": 1.4,
             "p90_dur": 3.3,
@@ -277259,9 +277294,9 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 1.3,
-            "p90_dur": 1.5,
-            "avg_dur": 1.3,
-            "max_dur": 1.6,
+            "p90_dur": 1.6,
+            "avg_dur": 1.7,
+            "max_dur": 7.0,
             "median_wait": 0.0,
             "p90_wait": 0.2,
             "avg_wait": 0.7,
@@ -277500,8 +277535,8 @@
             "is_soft_fail": false,
             "median_dur": 1.0,
             "p90_dur": 1.1,
-            "avg_dur": 1.0,
-            "max_dur": 1.1,
+            "avg_dur": 3.3,
+            "max_dur": 30.8,
             "median_wait": 5.5,
             "p90_wait": 29.0,
             "avg_wait": 12.6,
@@ -278362,7 +278397,7 @@
           },
           {
             "queue": "amd_mi325_1",
-            "jobs": 503,
+            "jobs": 504,
             "median_wait": 0.1,
             "p90_wait": 0.2,
             "avg_wait": 0.2,
@@ -278624,17 +278659,17 @@
         "builds": [
           {
             "number": 75663,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-01T06:00:03.864Z",
             "date": "2026-07-01",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 266,
+            "wall_mins": 419.0,
+            "passed": 267,
             "failed": 12,
             "soft_failed": 7,
             "skipped": 0,
-            "total_jobs": 285,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/75663",
             "source": "test_results"
           },
@@ -279106,17 +279141,17 @@
         "nightly_builds": [
           {
             "number": 75663,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-01T06:00:03.864Z",
             "date": "2026-07-01",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 266,
+            "wall_mins": 419.0,
+            "passed": 267,
             "failed": 12,
             "soft_failed": 7,
             "skipped": 0,
-            "total_jobs": 285,
+            "total_jobs": 286,
             "web_url": "https://buildkite.com/vllm/ci/builds/75663",
             "source": "test_results"
           },
@@ -279716,7 +279751,7 @@
             "is_soft_fail": true,
             "median_dur": 73.0,
             "p90_dur": 83.8,
-            "avg_dur": 72.4,
+            "avg_dur": 72.5,
             "max_dur": 93.3,
             "median_wait": 0.0,
             "p90_wait": 13.5,
@@ -279796,7 +279831,7 @@
             "is_soft_fail": true,
             "median_dur": 65.8,
             "p90_dur": 77.6,
-            "avg_dur": 65.6,
+            "avg_dur": 65.8,
             "max_dur": 86.1,
             "median_wait": 0.0,
             "p90_wait": 3.8,
@@ -279895,7 +279930,7 @@
             "fail_rate": 24.1,
             "is_soft_fail": false,
             "median_dur": 18.1,
-            "p90_dur": 19.6,
+            "p90_dur": 20.1,
             "avg_dur": 16.7,
             "max_dur": 23.8,
             "median_wait": 2.0,
@@ -279994,10 +280029,10 @@
             "soft_failed": 5,
             "fail_rate": 20.7,
             "is_soft_fail": false,
-            "median_dur": 27.8,
+            "median_dur": 27.9,
             "p90_dur": 28.5,
-            "avg_dur": 24.0,
-            "max_dur": 28.8,
+            "avg_dur": 24.9,
+            "max_dur": 42.0,
             "median_wait": 2.5,
             "p90_wait": 3.2,
             "avg_wait": 2.5,
@@ -280015,9 +280050,9 @@
             "fail_rate": 20.7,
             "is_soft_fail": false,
             "median_dur": 40.0,
-            "p90_dur": 41.1,
-            "avg_dur": 34.3,
-            "max_dur": 41.4,
+            "p90_dur": 41.4,
+            "avg_dur": 35.2,
+            "max_dur": 49.0,
             "median_wait": 2.8,
             "p90_wait": 3.7,
             "avg_wait": 2.7,
@@ -280235,8 +280270,8 @@
             "fail_rate": 13.8,
             "is_soft_fail": true,
             "median_dur": 6.3,
-            "p90_dur": 8.6,
-            "avg_dur": 6.6,
+            "p90_dur": 9.2,
+            "avg_dur": 6.7,
             "max_dur": 11.6,
             "median_wait": 0.0,
             "p90_wait": 0.2,
@@ -280327,26 +280362,6 @@
             ]
           },
           {
-            "name": "AMD: V1 Core + KV + Metrics (mi325_1)",
-            "runs": 9,
-            "passed": 8,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 11.1,
-            "is_soft_fail": false,
-            "median_dur": 1.4,
-            "p90_dur": 3.3,
-            "avg_dur": 1.6,
-            "max_dur": 3.3,
-            "median_wait": 0.2,
-            "p90_wait": 3.4,
-            "avg_wait": 0.6,
-            "max_wait": 3.4,
-            "queues": [
-              "amd_mi325_1"
-            ]
-          },
-          {
             "name": "AMD: V1 Sample + Logits (mi325_1)",
             "runs": 28,
             "passed": 25,
@@ -280384,6 +280399,26 @@
             "max_wait": 7.8,
             "queues": [
               "h200_18gb"
+            ]
+          },
+          {
+            "name": "AMD: V1 Core + KV + Metrics (mi325_1)",
+            "runs": 10,
+            "passed": 9,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 10.0,
+            "is_soft_fail": false,
+            "median_dur": 1.4,
+            "p90_dur": 3.3,
+            "avg_dur": 1.6,
+            "max_dur": 3.3,
+            "median_wait": 0.2,
+            "p90_wait": 3.4,
+            "avg_wait": 0.6,
+            "max_wait": 3.4,
+            "queues": [
+              "amd_mi325_1"
             ]
           },
           {
@@ -280436,7 +280471,7 @@
             "is_soft_fail": false,
             "median_dur": 3.4,
             "p90_dur": 4.0,
-            "avg_dur": 3.2,
+            "avg_dur": 3.3,
             "max_dur": 5.8,
             "median_wait": 2.2,
             "p90_wait": 16.0,
@@ -280815,8 +280850,8 @@
             "fail_rate": 6.9,
             "is_soft_fail": false,
             "median_dur": 24.5,
-            "p90_dur": 30.4,
-            "avg_dur": 25.4,
+            "p90_dur": 30.8,
+            "avg_dur": 25.5,
             "max_dur": 33.4,
             "median_wait": 0.0,
             "p90_wait": 0.3,
@@ -280855,7 +280890,7 @@
             "fail_rate": 6.7,
             "is_soft_fail": false,
             "median_dur": 8.1,
-            "p90_dur": 8.4,
+            "p90_dur": 8.7,
             "avg_dur": 7.7,
             "max_dur": 11.1,
             "median_wait": 1.8,
@@ -281778,7 +281813,7 @@
             "is_soft_fail": true,
             "median_dur": 73.0,
             "p90_dur": 83.8,
-            "avg_dur": 72.4,
+            "avg_dur": 72.5,
             "max_dur": 93.3,
             "median_wait": 0.0,
             "p90_wait": 13.5,
@@ -281838,7 +281873,7 @@
             "is_soft_fail": true,
             "median_dur": 65.8,
             "p90_dur": 77.6,
-            "avg_dur": 65.6,
+            "avg_dur": 65.8,
             "max_dur": 86.1,
             "median_wait": 0.0,
             "p90_wait": 3.8,
@@ -282157,9 +282192,9 @@
             "fail_rate": 20.7,
             "is_soft_fail": false,
             "median_dur": 40.0,
-            "p90_dur": 41.1,
-            "avg_dur": 34.3,
-            "max_dur": 41.4,
+            "p90_dur": 41.4,
+            "avg_dur": 35.2,
+            "max_dur": 49.0,
             "median_wait": 2.8,
             "p90_wait": 3.7,
             "avg_wait": 2.7,
@@ -282736,10 +282771,10 @@
             "soft_failed": 5,
             "fail_rate": 20.7,
             "is_soft_fail": false,
-            "median_dur": 27.8,
+            "median_dur": 27.9,
             "p90_dur": 28.5,
-            "avg_dur": 24.0,
-            "max_dur": 28.8,
+            "avg_dur": 24.9,
+            "max_dur": 42.0,
             "median_wait": 2.5,
             "p90_wait": 3.2,
             "avg_wait": 2.5,
@@ -283017,8 +283052,8 @@
             "fail_rate": 6.9,
             "is_soft_fail": false,
             "median_dur": 24.5,
-            "p90_dur": 30.4,
-            "avg_dur": 25.4,
+            "p90_dur": 30.8,
+            "avg_dur": 25.5,
             "max_dur": 33.4,
             "median_wait": 0.0,
             "p90_wait": 0.3,
@@ -283617,7 +283652,7 @@
             "fail_rate": 24.1,
             "is_soft_fail": false,
             "median_dur": 18.1,
-            "p90_dur": 19.6,
+            "p90_dur": 20.1,
             "avg_dur": 16.7,
             "max_dur": 23.8,
             "median_wait": 2.0,
@@ -284077,8 +284112,8 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 15.3,
-            "p90_dur": 20.8,
-            "avg_dur": 16.9,
+            "p90_dur": 21.5,
+            "avg_dur": 17.1,
             "max_dur": 33.6,
             "median_wait": 2.4,
             "p90_wait": 2.9,
@@ -285077,9 +285112,9 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 8.6,
-            "p90_dur": 9.7,
-            "avg_dur": 8.7,
-            "max_dur": 11.6,
+            "p90_dur": 11.5,
+            "avg_dur": 9.1,
+            "max_dur": 20.2,
             "median_wait": 0.0,
             "p90_wait": 45.1,
             "avg_wait": 9.2,
@@ -285177,7 +285212,7 @@
             "fail_rate": 6.7,
             "is_soft_fail": false,
             "median_dur": 8.1,
-            "p90_dur": 8.4,
+            "p90_dur": 8.7,
             "avg_dur": 7.7,
             "max_dur": 11.1,
             "median_wait": 1.8,
@@ -285577,8 +285612,8 @@
             "fail_rate": 13.8,
             "is_soft_fail": true,
             "median_dur": 6.3,
-            "p90_dur": 8.6,
-            "avg_dur": 6.6,
+            "p90_dur": 9.2,
+            "avg_dur": 6.7,
             "max_dur": 11.6,
             "median_wait": 0.0,
             "p90_wait": 0.2,
@@ -285658,8 +285693,8 @@
             "is_soft_fail": false,
             "median_dur": 6.0,
             "p90_dur": 6.9,
-            "avg_dur": 6.0,
-            "max_dur": 7.1,
+            "avg_dur": 6.1,
+            "max_dur": 8.7,
             "median_wait": 0.0,
             "p90_wait": 0.2,
             "avg_wait": 0.4,
@@ -285917,9 +285952,9 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 4.8,
-            "p90_dur": 5.6,
-            "avg_dur": 5.0,
-            "max_dur": 7.5,
+            "p90_dur": 6.6,
+            "avg_dur": 5.2,
+            "max_dur": 9.8,
             "median_wait": 2.3,
             "p90_wait": 2.6,
             "avg_wait": 1.9,
@@ -286398,7 +286433,7 @@
             "is_soft_fail": false,
             "median_dur": 3.4,
             "p90_dur": 4.0,
-            "avg_dur": 3.2,
+            "avg_dur": 3.3,
             "max_dur": 5.8,
             "median_wait": 2.2,
             "p90_wait": 16.0,
@@ -287098,8 +287133,8 @@
             "is_soft_fail": false,
             "median_dur": 1.9,
             "p90_dur": 2.1,
-            "avg_dur": 2.0,
-            "max_dur": 2.1,
+            "avg_dur": 2.1,
+            "max_dur": 5.9,
             "median_wait": 3.7,
             "p90_wait": 9.4,
             "avg_wait": 4.6,
@@ -287330,11 +287365,11 @@
           },
           {
             "name": "AMD: V1 Core + KV + Metrics (mi325_1)",
-            "runs": 9,
-            "passed": 8,
+            "runs": 10,
+            "passed": 9,
             "failed": 1,
             "soft_failed": 0,
-            "fail_rate": 11.1,
+            "fail_rate": 10.0,
             "is_soft_fail": false,
             "median_dur": 1.4,
             "p90_dur": 3.3,
@@ -287378,8 +287413,8 @@
             "is_soft_fail": false,
             "median_dur": 1.4,
             "p90_dur": 1.6,
-            "avg_dur": 1.4,
-            "max_dur": 1.6,
+            "avg_dur": 1.6,
+            "max_dur": 7.0,
             "median_wait": 0.0,
             "p90_wait": 0.2,
             "avg_wait": 0.4,
@@ -287658,8 +287693,8 @@
             "is_soft_fail": false,
             "median_dur": 1.0,
             "p90_dur": 1.1,
-            "avg_dur": 1.0,
-            "max_dur": 1.1,
+            "avg_dur": 2.0,
+            "max_dur": 30.8,
             "median_wait": 5.9,
             "p90_wait": 29.0,
             "avg_wait": 10.4,
@@ -288600,7 +288635,7 @@
           },
           {
             "queue": "amd_mi325_1",
-            "jobs": 771,
+            "jobs": 772,
             "median_wait": 0.1,
             "p90_wait": 0.2,
             "avg_wait": 0.1,
