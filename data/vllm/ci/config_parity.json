@@ -7,7 +7,7 @@
     "nvidia_only": 62,
     "mirrors": 54,
     "match_rate_pct": 92.8,
-    "avg_command_similarity_pct": 93.5
+    "avg_command_similarity_pct": 93.4
   },
   "matches": [
     {
@@ -459,6 +459,22 @@
       ]
     },
     {
+      "amd_label": "Multi-Modal Processor (CPU) %N",
+      "nvidia_label": "Multi-Modal Processor (CPU)",
+      "normalized": "multi-modal processor (cpu)",
+      "identity_key": "multi-modal processor (cpu)",
+      "command_similarity": 0.8783,
+      "color": "yellow",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/models_multimodal.yaml",
+      "amd_commands": [
+        "pytest -v -s models/multimodal/processing --ignore models/multimodal/processing/test_tensor_schema.py --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT --shard-id=$$BUILDKITE_PARALLEL_JOB"
+      ],
+      "nvidia_commands": [
+        "pytest -v -s models/multimodal/processing --ignore models/multimodal/processing/test_tensor_schema.py"
+      ]
+    },
+    {
       "amd_label": "Quantization",
       "nvidia_label": "Quantization",
       "normalized": "quantization",
@@ -523,18 +539,16 @@
       "nvidia_label": "Multi-Modal Models (Standard) 4: other + whisper",
       "normalized": "multi-modal models (standard) 4: other + whisper",
       "identity_key": "multi-modal models (standard) 4: other + whisper",
-      "command_similarity": 0.9106,
+      "command_similarity": 0.9028,
       "color": "green",
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/models_multimodal.yaml",
       "amd_commands": [
-        "pip install git+https://github.com/TIGER-AI-Lab/Mantis.git",
         "pytest -v -s models/multimodal -m core_model --ignore models/multimodal/generation/test_common.py --ignore models/multimodal/generation/test_ultravox.py --ignore models/multimodal/generation/test_qwen2_5_vl.py --ignore models/multimodal/generation/test_qwen2_vl.py --ignore models/multimodal/generation/test_whisper.py  --ignore models/multimodal/generation/test_memory_leak.py --ignore models/multimodal/processing",
         "pytest -v -s models/multimodal/generation/test_memory_leak.py -m core_model",
         "cd .. && VLLM_WORKER_MULTIPROC_METHOD=spawn pytest -v -s tests/models/multimodal/generation/test_whisper.py -m core_model"
       ],
       "nvidia_commands": [
-        "pip install git+https://github.com/TIGER-AI-Lab/Mantis.git",
         "pytest -v -s models/multimodal -m core_model --ignore models/multimodal/generation/test_common.py --ignore models/multimodal/generation/test_ultravox.py --ignore models/multimodal/generation/test_qwen2_5_vl.py --ignore models/multimodal/generation/test_qwen2_vl.py --ignore models/multimodal/generation/test_whisper.py  --ignore models/multimodal/generation/test_memory_leak.py --ignore models/multimodal/generation/test_vit_cudagraph.py --ignore models/multimodal/processing",
         "pytest -v -s models/multimodal/generation/test_vit_cudagraph.py -m core_model",
         "pytest models/multimodal/generation/test_memory_leak.py -m core_model",
@@ -561,24 +575,6 @@
         "pytest -v -s basic_correctness/test_mem.py",
         "pytest -v -s basic_correctness/test_basic_correctness.py",
         "pytest -v -s basic_correctness/test_cpu_offload.py"
-      ]
-    },
-    {
-      "amd_label": "Multi-Modal Processor (CPU) %N",
-      "nvidia_label": "Multi-Modal Processor (CPU)",
-      "normalized": "multi-modal processor (cpu)",
-      "identity_key": "multi-modal processor (cpu)",
-      "command_similarity": 0.9195,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/models_multimodal.yaml",
-      "amd_commands": [
-        "pip install git+https://github.com/TIGER-AI-Lab/Mantis.git",
-        "pytest -v -s models/multimodal/processing --ignore models/multimodal/processing/test_tensor_schema.py --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT --shard-id=$$BUILDKITE_PARALLEL_JOB"
-      ],
-      "nvidia_commands": [
-        "pip install git+https://github.com/TIGER-AI-Lab/Mantis.git",
-        "pytest -v -s models/multimodal/processing --ignore models/multimodal/processing/test_tensor_schema.py"
       ]
     },
     {
