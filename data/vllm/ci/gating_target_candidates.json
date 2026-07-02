@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-02T13:34:51Z",
+  "generated_at": "2026-07-02T16:05:02Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -1839,11 +1839,11 @@
       "readiness_signal": "red",
       "target_signal": "unknown",
       "internal_signal": {
-        "state": "failed",
+        "state": "soft_fail",
         "jobs": [
           {
             "label": "Basic Models Tests (Extra Initialization) 1",
-            "state": "failed",
+            "state": "soft_fail",
             "queue": "amd_mi300_1",
             "url": "https://buildkite.com/vllm/amd-ci/builds/10399/steps/canvas?jid=019f220e-b86d-4848-9b1a-91dfe9da5d97&tab=output"
           }
@@ -1863,11 +1863,11 @@
       "readiness_signal": "red",
       "target_signal": "unknown",
       "internal_signal": {
-        "state": "failed",
+        "state": "soft_fail",
         "jobs": [
           {
             "label": "Basic Models Tests (Extra Initialization) 2",
-            "state": "failed",
+            "state": "soft_fail",
             "queue": "amd_mi300_1",
             "url": "https://buildkite.com/vllm/amd-ci/builds/10399/steps/canvas?jid=019f220e-b86d-441c-8c9f-13e7042980c6&tab=output"
           }
@@ -2084,11 +2084,11 @@
       "readiness_signal": "red",
       "target_signal": "unknown",
       "internal_signal": {
-        "state": "failed",
+        "state": "soft_fail",
         "jobs": [
           {
             "label": "Kernels (B200-MI355)",
-            "state": "failed",
+            "state": "soft_fail",
             "queue": "amd_mi355_1",
             "url": "https://buildkite.com/vllm/amd-ci/builds/10399/steps/canvas?jid=019f220e-b8e7-4500-a032-12a9a86a95b6&tab=output"
           }
@@ -2138,7 +2138,7 @@
       "readiness_signal": "red",
       "target_signal": "unknown",
       "internal_signal": {
-        "state": "failed",
+        "state": "soft_fail",
         "jobs": [
           {
             "label": "Kernels Attention Test 2",
@@ -2148,7 +2148,7 @@
           },
           {
             "label": "Kernels Attention Test 2",
-            "state": "failed",
+            "state": "soft_fail",
             "queue": "amd_mi355_1",
             "url": "https://buildkite.com/vllm/amd-ci/builds/10399/steps/canvas?jid=019f220e-b8e9-4fec-bc33-a359b457d867&tab=output"
           }
@@ -2219,7 +2219,7 @@
       "readiness_signal": "red",
       "target_signal": "unknown",
       "internal_signal": {
-        "state": "failed",
+        "state": "soft_fail",
         "jobs": [
           {
             "label": "Kernels MoE Test 1",
@@ -2229,7 +2229,7 @@
           },
           {
             "label": "Kernels MoE Test 1",
-            "state": "failed",
+            "state": "soft_fail",
             "queue": "amd_mi355_1",
             "url": "https://buildkite.com/vllm/amd-ci/builds/10399/steps/canvas?jid=019f220e-b8e9-42de-86a7-8172fb8f3aed&tab=output"
           }
@@ -2249,7 +2249,7 @@
       "readiness_signal": "red",
       "target_signal": "unknown",
       "internal_signal": {
-        "state": "failed",
+        "state": "soft_fail",
         "jobs": [
           {
             "label": "Kernels MoE Test 2",
@@ -2259,7 +2259,7 @@
           },
           {
             "label": "Kernels MoE Test 2",
-            "state": "failed",
+            "state": "soft_fail",
             "queue": "amd_mi355_1",
             "url": "https://buildkite.com/vllm/amd-ci/builds/10399/steps/canvas?jid=019f220e-b8ea-4cb7-9197-4c59da9d7b96&tab=output"
           }
@@ -2279,7 +2279,7 @@
       "readiness_signal": "red",
       "target_signal": "unknown",
       "internal_signal": {
-        "state": "failed",
+        "state": "soft_fail",
         "jobs": [
           {
             "label": "Kernels MoE Test 3",
@@ -2289,7 +2289,7 @@
           },
           {
             "label": "Kernels MoE Test 3",
-            "state": "failed",
+            "state": "soft_fail",
             "queue": "amd_mi355_1",
             "url": "https://buildkite.com/vllm/amd-ci/builds/10399/steps/canvas?jid=019f220e-b8ec-4144-8ea1-89714d0f48d8&tab=output"
           }
@@ -2309,7 +2309,7 @@
       "readiness_signal": "red",
       "target_signal": "unknown",
       "internal_signal": {
-        "state": "failed",
+        "state": "soft_fail",
         "jobs": [
           {
             "label": "Kernels MoE Test 4",
@@ -2319,7 +2319,7 @@
           },
           {
             "label": "Kernels MoE Test 4",
-            "state": "failed",
+            "state": "soft_fail",
             "queue": "amd_mi355_1",
             "url": "https://buildkite.com/vllm/amd-ci/builds/10399/steps/canvas?jid=019f220e-b8ec-4b34-91ab-16dfbda15cf7&tab=output"
           }
@@ -2339,7 +2339,7 @@
       "readiness_signal": "red",
       "target_signal": "unknown",
       "internal_signal": {
-        "state": "failed",
+        "state": "soft_fail",
         "jobs": [
           {
             "label": "Kernels MoE Test 5",
@@ -2349,7 +2349,7 @@
           },
           {
             "label": "Kernels MoE Test 5",
-            "state": "failed",
+            "state": "soft_fail",
             "queue": "amd_mi355_1",
             "url": "https://buildkite.com/vllm/amd-ci/builds/10399/steps/canvas?jid=019f220e-b8ed-4ce0-8cc9-c952b169f8da&tab=output"
           }
@@ -2369,7 +2369,7 @@
       "readiness_signal": "red",
       "target_signal": "unknown",
       "internal_signal": {
-        "state": "failed",
+        "state": "soft_fail",
         "jobs": [
           {
             "label": "Kernels Quantization Test 1",
@@ -2379,7 +2379,7 @@
           },
           {
             "label": "Kernels Quantization Test 1",
-            "state": "failed",
+            "state": "soft_fail",
             "queue": "amd_mi355_1",
             "url": "https://buildkite.com/vllm/amd-ci/builds/10399/steps/canvas?jid=019f220e-b8ee-442c-aeab-66a7a40ffe72&tab=output"
           }
@@ -2399,7 +2399,7 @@
       "readiness_signal": "red",
       "target_signal": "unknown",
       "internal_signal": {
-        "state": "failed",
+        "state": "soft_fail",
         "jobs": [
           {
             "label": "Kernels Quantization Test 2",
@@ -2409,7 +2409,7 @@
           },
           {
             "label": "Kernels Quantization Test 2",
-            "state": "failed",
+            "state": "soft_fail",
             "queue": "amd_mi355_1",
             "url": "https://buildkite.com/vllm/amd-ci/builds/10399/steps/canvas?jid=019f220e-b8ee-434f-a32d-99ba96476ab1&tab=output"
           }

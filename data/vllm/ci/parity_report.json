@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-02T13:27:19Z",
+  "generated_at": "2026-07-02T15:59:03Z",
   "amd_date": "2026-07-02",
   "upstream_date": "2026-07-02",
   "parity_pct": 0.0,
@@ -2087,8 +2087,8 @@
     },
     {
       "name": "attention benchmarks smoke test (b200-mi355)",
-      "family_key": "attention benchmarks smoke test",
-      "family_name": "attention benchmarks smoke test",
+      "family_key": "attention benchmarks smoke test (2 gpus)",
+      "family_name": "attention benchmarks smoke test (2 gpus)",
       "amd_job_name": "mi355_2: Attention Benchmarks Smoke Test (B200-MI355)",
       "upstream_job_name": "Attention Benchmarks Smoke Test (B200)",
       "amd": {
@@ -2651,8 +2651,8 @@
     },
     {
       "name": "deepseek v2-lite prefetch offload accuracy (h100-mi300)",
-      "family_key": "deepseek v2-lite prefetch offload accuracy",
-      "family_name": "deepseek v2-lite prefetch offload accuracy",
+      "family_key": "deepseek v2-lite prefetch offload accuracy (1 gpus)",
+      "family_name": "deepseek v2-lite prefetch offload accuracy (1 gpus)",
       "amd_job_name": "mi300_1: DeepSeek V2-Lite Prefetch Offload Accuracy (H100-MI300)",
       "upstream_job_name": "DeepSeek V2-Lite Prefetch Offload Accuracy (H100)",
       "amd": {
@@ -2763,8 +2763,8 @@
     },
     {
       "name": "distributed comm ops",
-      "family_key": "distributed comm ops",
-      "family_name": "distributed comm ops",
+      "family_key": "distributed comm ops (2 gpus)",
+      "family_name": "distributed comm ops (2 gpus)",
       "amd_job_name": "mi300_2: Distributed Comm Ops",
       "upstream_job_name": "Distributed Comm Ops",
       "amd": {
@@ -3736,8 +3736,8 @@
     },
     {
       "name": "elastic ep scaling test",
-      "family_key": "elastic ep scaling test",
-      "family_name": "elastic ep scaling test",
+      "family_key": "elastic ep scaling test (4 gpus)",
+      "family_name": "elastic ep scaling test (4 gpus)",
       "amd_job_name": "mi300_4: Elastic EP Scaling Test",
       "upstream_job_name": "Elastic EP Scaling Test",
       "amd": {
@@ -4590,8 +4590,8 @@
     },
     {
       "name": "eplb execution",
-      "family_key": "eplb execution",
-      "family_name": "eplb execution",
+      "family_key": "eplb execution (4 gpus)",
+      "family_name": "eplb execution (4 gpus)",
       "amd_job_name": "mi300_4: EPLB Execution",
       "upstream_job_name": "EPLB Execution",
       "amd": {
@@ -4767,8 +4767,8 @@
     },
     {
       "name": "fusion e2e config sweep (h100-mi300)",
-      "family_key": "fusion e2e config sweep",
-      "family_name": "fusion e2e config sweep",
+      "family_key": "fusion e2e config sweep (1 gpus)",
+      "family_name": "fusion e2e config sweep (1 gpus)",
       "amd_job_name": "mi300_1: Fusion E2E Config Sweep (H100-MI300)",
       "upstream_job_name": "Fusion E2E Config Sweep (B200)",
       "amd": {
@@ -4823,8 +4823,8 @@
     },
     {
       "name": "fusion e2e quick (h100-mi300)",
-      "family_key": "fusion e2e quick",
-      "family_name": "fusion e2e quick",
+      "family_key": "fusion e2e quick (1 gpus)",
+      "family_name": "fusion e2e quick (1 gpus)",
       "amd_job_name": "mi300_1: Fusion E2E Quick (H100-MI300)",
       "upstream_job_name": "Fusion E2E Quick (H100)",
       "amd": {
@@ -6248,10 +6248,10 @@
     },
     {
       "name": "lm eval qwen3-5 models (b200-mi355)",
-      "family_key": "lm eval qwen3-5 models",
-      "family_name": "lm eval qwen3-5 models",
+      "family_key": "lm eval qwen3-5 models (2 gpus)",
+      "family_name": "lm eval qwen3-5 models (2 gpus)",
       "amd_job_name": "mi355_2: LM Eval Qwen3-5 Models (B200-MI355)",
-      "upstream_job_name": null,
+      "upstream_job_name": "LM Eval Qwen3.5 Models (2xB200)",
       "amd": {
         "total": 3,
         "passed": 0,
@@ -6262,8 +6262,18 @@
         "error": 0,
         "duration": 0.0
       },
-      "upstream": null,
+      "upstream": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 1797.08
+      },
       "hardware": [
+        "b200",
         "mi355"
       ],
       "hw_failures": {
@@ -6277,9 +6287,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/10399/steps/canvas?sid=019f220e-b758-4ee6-ba83-2ce8747da9b1&tab=output",
           "job_name": "mi355_2: LM Eval Qwen3-5 Models (B200-MI355)",
           "side": "amd"
+        },
+        {
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d2c7-4eac-804b-e4a16a59b812&tab=output",
+          "job_name": "LM Eval Qwen3.5 Models (2xB200)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": -1,
+        "passed": -4,
+        "failed": 1,
+        "skipped": 2
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -6520,8 +6542,8 @@
     },
     {
       "name": "lora tp (distributed)",
-      "family_key": "lora tp (distributed)",
-      "family_name": "lora tp (distributed)",
+      "family_key": "lora tp (distributed) (4 gpus)",
+      "family_name": "lora tp (distributed) (4 gpus)",
       "amd_job_name": "mi300_4: LoRA TP (Distributed)",
       "upstream_job_name": "LoRA TP (Distributed)",
       "amd": {
@@ -8160,10 +8182,10 @@
     },
     {
       "name": "qwen3-30b-a3b-fp8-block sync eplb accuracy (b200-mi355)",
-      "family_key": "qwen3-30b-a3b-fp8-block sync eplb accuracy",
-      "family_name": "qwen3-30b-a3b-fp8-block sync eplb accuracy",
+      "family_key": "qwen3-30b-a3b-fp8-block sync eplb accuracy (2 gpus)",
+      "family_name": "qwen3-30b-a3b-fp8-block sync eplb accuracy (2 gpus)",
       "amd_job_name": "mi355_2: Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (B200-MI355)",
-      "upstream_job_name": null,
+      "upstream_job_name": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (2xB200)",
       "amd": {
         "total": 1,
         "passed": 1,
@@ -8174,8 +8196,18 @@
         "error": 0,
         "duration": 0.0
       },
-      "upstream": null,
+      "upstream": {
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 0.0
+      },
       "hardware": [
+        "b200",
         "mi355"
       ],
       "hw_failures": null,
@@ -8187,9 +8219,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/10399/steps/canvas?sid=019f220e-b75a-4717-9bd8-2430cc428720&tab=output",
           "job_name": "mi355_2: Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (B200-MI355)",
           "side": "amd"
+        },
+        {
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d220-4b5e-a3f9-2b6df038608d&tab=output",
+          "job_name": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (2xB200)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -9484,8 +9528,8 @@
     },
     {
       "name": "weight loading multiple gpu",
-      "family_key": "weight loading multiple gpu",
-      "family_name": "weight loading multiple gpu",
+      "family_key": "weight loading multiple gpu (2 gpus)",
+      "family_name": "weight loading multiple gpu (2 gpus)",
       "amd_job_name": "mi300_2: Weight Loading Multiple GPU",
       "upstream_job_name": "Weight Loading Multiple GPU",
       "amd": {
@@ -9964,8 +10008,8 @@
     },
     {
       "name": "fusion e2e config sweep (h100)",
-      "family_key": "fusion e2e config sweep",
-      "family_name": "fusion e2e config sweep",
+      "family_key": "fusion e2e config sweep (1 gpus)",
+      "family_name": "fusion e2e config sweep (1 gpus)",
       "amd_job_name": null,
       "upstream_job_name": "Fusion E2E Config Sweep (H100)",
       "amd": null,
@@ -10649,40 +10693,6 @@
       "backfilled": false
     },
     {
-      "name": "lm eval qwen3-5 models (2 gpus)",
-      "family_key": "lm eval qwen3-5 models (2 gpus)",
-      "family_name": "lm eval qwen3-5 models (2 gpus)",
-      "amd_job_name": null,
-      "upstream_job_name": "LM Eval Qwen3.5 Models (2xB200)",
-      "amd": null,
-      "upstream": {
-        "total": 4,
-        "passed": 4,
-        "failed": 0,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0,
-        "error": 0,
-        "duration": 1797.08
-      },
-      "hardware": [
-        "b200"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [
-        {
-          "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d2c7-4eac-804b-e4a16a59b812&tab=output",
-          "job_name": "LM Eval Qwen3.5 Models (2xB200)",
-          "side": "upstream"
-        }
-      ],
-      "status": "upstream_only",
-      "backfilled": false
-    },
-    {
       "name": "lm eval small models (1 gpus)",
       "family_key": "lm eval small models (1 gpus)",
       "family_name": "lm eval small models (1 gpus)",
@@ -11290,40 +11300,6 @@
           "hw": "h100",
           "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d21f-45bc-beec-1ef322036b79&tab=output",
           "job_name": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy",
-          "side": "upstream"
-        }
-      ],
-      "status": "upstream_only",
-      "backfilled": false
-    },
-    {
-      "name": "qwen3-30b-a3b-fp8-block sync eplb accuracy (2 gpus)",
-      "family_key": "qwen3-30b-a3b-fp8-block sync eplb accuracy (2 gpus)",
-      "family_name": "qwen3-30b-a3b-fp8-block sync eplb accuracy (2 gpus)",
-      "amd_job_name": null,
-      "upstream_job_name": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (2xB200)",
-      "amd": null,
-      "upstream": {
-        "total": 1,
-        "passed": 1,
-        "failed": 0,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0,
-        "error": 0,
-        "duration": 0.0
-      },
-      "hardware": [
-        "b200"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [
-        {
-          "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d220-4b5e-a3f9-2b6df038608d&tab=output",
-          "job_name": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (2xB200)",
           "side": "upstream"
         }
       ],
