@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-02T20:00:33Z",
+  "generated_at": "2026-07-02T21:41:30Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -23,15 +23,15 @@
     "upstream_build": 75919,
     "amd_ci_build": 10399,
     "canonical_target_count": 125,
-    "row_count": 219,
+    "row_count": 220,
     "canonical_match_count": 107,
     "likely_duplicate_count": 18,
     "new_candidate_count": 46,
-    "excluded_count": 38,
+    "excluded_count": 39,
     "missing_from_upstream_count": 10,
     "by_decision": {
       "canonical": 107,
-      "excluded": 38,
+      "excluded": 39,
       "likely_duplicate": 18,
       "missing_from_upstream": 10,
       "new_candidate": 46
@@ -1356,9 +1356,9 @@
     {
       "label": "Pipeline + Context Parallelism (4 GPUs)",
       "canonical_key": "pipeline + context parallelism (4 gpus)",
-      "state": "failed",
+      "state": "passed",
       "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d211-4ac3-a4f6-8cedecd14f1c&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f2482-5061-48d7-8aaf-5c589fed9dbe&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 4,
@@ -3296,6 +3296,18 @@
       "state": "passed",
       "queue": "b200-k8s",
       "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d2ca-45c3-92c4-26de7f736e20&tab=output",
+      "exclusion_reasons": [
+        "temporary",
+        "moe_refactor_temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
+      "canonical_key": "moe refactor integration test (b200 dp - temporary)",
+      "state": "passed",
+      "queue": "b200-k8s",
+      "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f243e-8b01-427e-8a11-68b4a19f454d&tab=output",
       "exclusion_reasons": [
         "temporary",
         "moe_refactor_temporary"

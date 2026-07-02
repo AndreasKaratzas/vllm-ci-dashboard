@@ -3,7 +3,7 @@
     "pipeline": "amd-ci",
     "display_name": "AMD CI",
     "days": 30,
-    "generated_at": "2026-07-02T19:54:16Z",
+    "generated_at": "2026-07-02T21:34:58Z",
     "summary": {
       "total_builds": 30,
       "passed": 30,
@@ -125732,15 +125732,15 @@
     "pipeline": "ci",
     "display_name": "Upstream CI",
     "days": 30,
-    "generated_at": "2026-07-02T19:54:16Z",
+    "generated_at": "2026-07-02T21:34:58Z",
     "summary": {
       "total_builds": 31,
       "passed": 3,
       "failed": 28,
       "pass_rate": 9.7,
       "total_jobs_tracked": 339,
-      "jobs_with_failures": 107,
-      "jobs_with_hard_failures": 98,
+      "jobs_with_failures": 106,
+      "jobs_with_hard_failures": 97,
       "jobs_with_soft_failures": 9
     },
     "daily_stats": [
@@ -125934,17 +125934,17 @@
     "builds": [
       {
         "number": 75919,
-        "state": "failing",
+        "state": "failed",
         "created_at": "2026-07-02T06:00:03.391Z",
         "date": "2026-07-02",
         "message": "Full CI run - nightly",
         "author": "",
-        "wall_mins": null,
-        "passed": 265,
-        "failed": 9,
+        "wall_mins": 906.6,
+        "passed": 267,
+        "failed": 8,
         "soft_failed": 3,
         "skipped": 0,
-        "total_jobs": 277,
+        "total_jobs": 278,
         "jobs": [
           {
             "name": "2 Node Test (4 GPUs)",
@@ -128947,6 +128947,21 @@
             "q": "b200-k8s"
           },
           {
+            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
+            "raw_name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
+            "state": "passed",
+            "dur": 80.3,
+            "tests": 12,
+            "passed_tests": 12,
+            "failed_tests": 0,
+            "skipped_tests": 0,
+            "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f243e-8b01-427e-8a11-68b4a19f454d&tab=output",
+            "job_id": "019f243e-8b01-427e-8a11-68b4a19f454d",
+            "step_id": "019f216a-d0c7-4774-9acf-5940f9f1354e",
+            "wait": 0.1,
+            "q": "b200-k8s"
+          },
+          {
             "name": "MoE Refactor Integration Test (H100 - TEMPORARY)",
             "raw_name": "MoE Refactor Integration Test (H100 - TEMPORARY)",
             "state": "passed",
@@ -129279,16 +129294,16 @@
           {
             "name": "Pipeline + Context Parallelism (4 GPUs)",
             "raw_name": "Pipeline + Context Parallelism (4 GPUs)",
-            "state": "failed",
-            "dur": 31.6,
+            "state": "passed",
+            "dur": 33.6,
             "tests": 29,
-            "passed_tests": 28,
-            "failed_tests": 1,
+            "passed_tests": 29,
+            "failed_tests": 0,
             "skipped_tests": 0,
-            "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d211-4ac3-a4f6-8cedecd14f1c&tab=output",
-            "job_id": "019f216a-d211-4ac3-a4f6-8cedecd14f1c",
+            "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f2482-5061-48d7-8aaf-5c589fed9dbe&tab=output",
+            "job_id": "019f2482-5061-48d7-8aaf-5c589fed9dbe",
             "step_id": "019f216a-d052-43bc-ba0b-b267c34600c6",
-            "wait": 5.9,
+            "wait": 0.1,
             "q": "gpu_4_queue"
           },
           {
@@ -240008,17 +240023,17 @@
     "nightly_builds": [
       {
         "number": 75919,
-        "state": "failing",
+        "state": "failed",
         "created_at": "2026-07-02T06:00:03.391Z",
         "date": "2026-07-02",
         "message": "Full CI run - nightly",
         "author": "",
-        "wall_mins": null,
-        "passed": 265,
-        "failed": 9,
+        "wall_mins": 906.6,
+        "passed": 267,
+        "failed": 8,
         "soft_failed": 3,
         "skipped": 0,
-        "total_jobs": 277,
+        "total_jobs": 278,
         "web_url": "https://buildkite.com/vllm/ci/builds/75919",
         "source": "test_results"
       },
@@ -240869,26 +240884,6 @@
         ]
       },
       {
-        "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-        "runs": 29,
-        "passed": 23,
-        "failed": 6,
-        "soft_failed": 0,
-        "fail_rate": 20.7,
-        "is_soft_fail": false,
-        "median_dur": 34.3,
-        "p90_dur": 78.8,
-        "avg_dur": 42.3,
-        "max_dur": 90.5,
-        "median_wait": 0.9,
-        "p90_wait": 6.8,
-        "avg_wait": 2.9,
-        "max_wait": 19.8,
-        "queues": [
-          "b200-k8s"
-        ]
-      },
-      {
         "name": "Torch Nightly Language Models Tests (Hybrid) 1",
         "runs": 29,
         "passed": 23,
@@ -240986,6 +240981,26 @@
         "max_wait": 0.0,
         "queues": [
           "dgx-spark"
+        ]
+      },
+      {
+        "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
+        "runs": 30,
+        "passed": 24,
+        "failed": 6,
+        "soft_failed": 0,
+        "fail_rate": 20.0,
+        "is_soft_fail": false,
+        "median_dur": 34.3,
+        "p90_dur": 79.6,
+        "avg_dur": 43.6,
+        "max_dur": 90.5,
+        "median_wait": 0.8,
+        "p90_wait": 6.8,
+        "avg_wait": 2.8,
+        "max_wait": 19.8,
+        "queues": [
+          "b200-k8s"
         ]
       },
       {
@@ -242329,26 +242344,6 @@
         ]
       },
       {
-        "name": "Pipeline + Context Parallelism (4 GPUs)",
-        "runs": 30,
-        "passed": 29,
-        "failed": 1,
-        "soft_failed": 0,
-        "fail_rate": 3.3,
-        "is_soft_fail": false,
-        "median_dur": 32.8,
-        "p90_dur": 38.5,
-        "avg_dur": 33.6,
-        "max_dur": 41.4,
-        "median_wait": 4.0,
-        "p90_wait": 24.6,
-        "avg_wait": 8.0,
-        "max_wait": 56.8,
-        "queues": [
-          "gpu_4_queue"
-        ]
-      },
-      {
         "name": "Plugin Tests (2 GPUs)",
         "runs": 30,
         "passed": 29,
@@ -243252,19 +243247,19 @@
       },
       {
         "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-        "runs": 29,
-        "passed": 23,
+        "runs": 30,
+        "passed": 24,
         "failed": 6,
         "soft_failed": 0,
-        "fail_rate": 20.7,
+        "fail_rate": 20.0,
         "is_soft_fail": false,
         "median_dur": 34.3,
-        "p90_dur": 78.8,
-        "avg_dur": 42.3,
+        "p90_dur": 79.6,
+        "avg_dur": 43.6,
         "max_dur": 90.5,
-        "median_wait": 0.9,
+        "median_wait": 0.8,
         "p90_wait": 6.8,
-        "avg_wait": 2.9,
+        "avg_wait": 2.8,
         "max_wait": 19.8,
         "queues": [
           "b200-k8s"
@@ -243393,18 +243388,18 @@
       {
         "name": "Pipeline + Context Parallelism (4 GPUs)",
         "runs": 30,
-        "passed": 29,
-        "failed": 1,
+        "passed": 30,
+        "failed": 0,
         "soft_failed": 0,
-        "fail_rate": 3.3,
+        "fail_rate": 0.0,
         "is_soft_fail": false,
         "median_dur": 32.8,
         "p90_dur": 38.5,
         "avg_dur": 33.6,
         "max_dur": 41.4,
-        "median_wait": 4.0,
+        "median_wait": 3.8,
         "p90_wait": 24.6,
-        "avg_wait": 8.0,
+        "avg_wait": 7.8,
         "max_wait": 56.8,
         "queues": [
           "gpu_4_queue"
@@ -249462,7 +249457,7 @@
       },
       {
         "queue": "b200-k8s",
-        "jobs": 740,
+        "jobs": 741,
         "median_wait": 0.8,
         "p90_wait": 2.2,
         "avg_wait": 1.1,
@@ -249615,9 +249610,9 @@
           "passed": 0,
           "failed": 1,
           "pass_rate": 0.0,
-          "total_jobs_tracked": 277,
-          "jobs_with_failures": 12,
-          "jobs_with_hard_failures": 9,
+          "total_jobs_tracked": 278,
+          "jobs_with_failures": 11,
+          "jobs_with_hard_failures": 8,
           "jobs_with_soft_failures": 3
         },
         "daily_stats": [
@@ -249631,17 +249626,17 @@
         "builds": [
           {
             "number": 75919,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-02T06:00:03.391Z",
             "date": "2026-07-02",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 265,
-            "failed": 9,
+            "wall_mins": 906.6,
+            "passed": 267,
+            "failed": 8,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 277,
+            "total_jobs": 278,
             "web_url": "https://buildkite.com/vllm/ci/builds/75919",
             "source": "test_results"
           }
@@ -249649,17 +249644,17 @@
         "nightly_builds": [
           {
             "number": 75919,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-02T06:00:03.391Z",
             "date": "2026-07-02",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 265,
-            "failed": 9,
+            "wall_mins": 906.6,
+            "passed": 267,
+            "failed": 8,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 277,
+            "total_jobs": 278,
             "web_url": "https://buildkite.com/vllm/ci/builds/75919",
             "source": "test_results"
           }
@@ -249866,26 +249861,6 @@
             ]
           },
           {
-            "name": "Pipeline + Context Parallelism (4 GPUs)",
-            "runs": 1,
-            "passed": 0,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 100.0,
-            "is_soft_fail": false,
-            "median_dur": 31.6,
-            "p90_dur": 31.6,
-            "avg_dur": 31.6,
-            "max_dur": 31.6,
-            "median_wait": 5.9,
-            "p90_wait": 5.9,
-            "avg_wait": 5.9,
-            "max_wait": 5.9,
-            "queues": [
-              "gpu_4_queue"
-            ]
-          },
-          {
             "name": "Regression",
             "runs": 1,
             "passed": 0,
@@ -249985,6 +249960,26 @@
             "max_wait": 0.7,
             "queues": [
               "medium_cpu_queue_premerge"
+            ]
+          },
+          {
+            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 80.3,
+            "p90_dur": 80.3,
+            "avg_dur": 80.3,
+            "max_dur": 80.3,
+            "median_wait": 0.1,
+            "p90_wait": 0.1,
+            "avg_wait": 0.1,
+            "max_wait": 0.1,
+            "queues": [
+              "b200-k8s"
             ]
           },
           {
@@ -250528,6 +250523,26 @@
             ]
           },
           {
+            "name": "Pipeline + Context Parallelism (4 GPUs)",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 33.6,
+            "p90_dur": 33.6,
+            "avg_dur": 33.6,
+            "max_dur": 33.6,
+            "median_wait": 0.1,
+            "p90_wait": 0.1,
+            "avg_wait": 0.1,
+            "max_wait": 0.1,
+            "queues": [
+              "gpu_4_queue"
+            ]
+          },
+          {
             "name": "CPU-Multi-Modal Model Tests 2",
             "runs": 1,
             "passed": 1,
@@ -250605,26 +250620,6 @@
             "max_wait": 5.2,
             "queues": [
               "gpu_1_queue"
-            ]
-          },
-          {
-            "name": "Pipeline + Context Parallelism (4 GPUs)",
-            "runs": 1,
-            "passed": 0,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 100.0,
-            "is_soft_fail": false,
-            "median_dur": 31.6,
-            "p90_dur": 31.6,
-            "avg_dur": 31.6,
-            "max_dur": 31.6,
-            "median_wait": 5.9,
-            "p90_wait": 5.9,
-            "avg_wait": 5.9,
-            "max_wait": 5.9,
-            "queues": [
-              "gpu_4_queue"
             ]
           },
           {
@@ -255467,10 +255462,10 @@
           },
           {
             "queue": "b200-k8s",
-            "jobs": 25,
-            "median_wait": 9.6,
+            "jobs": 26,
+            "median_wait": 8.2,
             "p90_wait": 16.6,
-            "avg_wait": 8.4,
+            "avg_wait": 8.1,
             "max_wait": 19.3
           },
           {
@@ -255492,9 +255487,9 @@
           {
             "queue": "gpu_4_queue",
             "jobs": 31,
-            "median_wait": 5.1,
+            "median_wait": 4.6,
             "p90_wait": 8.5,
-            "avg_wait": 5.4,
+            "avg_wait": 5.2,
             "max_wait": 8.7
           },
           {
@@ -255652,8 +255647,8 @@
           "failed": 3,
           "pass_rate": 0.0,
           "total_jobs_tracked": 288,
-          "jobs_with_failures": 30,
-          "jobs_with_hard_failures": 23,
+          "jobs_with_failures": 29,
+          "jobs_with_hard_failures": 22,
           "jobs_with_soft_failures": 7
         },
         "daily_stats": [
@@ -255679,17 +255674,17 @@
         "builds": [
           {
             "number": 75919,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-02T06:00:03.391Z",
             "date": "2026-07-02",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 265,
-            "failed": 9,
+            "wall_mins": 906.6,
+            "passed": 267,
+            "failed": 8,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 277,
+            "total_jobs": 278,
             "web_url": "https://buildkite.com/vllm/ci/builds/75919",
             "source": "test_results"
           },
@@ -255729,17 +255724,17 @@
         "nightly_builds": [
           {
             "number": 75919,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-02T06:00:03.391Z",
             "date": "2026-07-02",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 265,
-            "failed": 9,
+            "wall_mins": 906.6,
+            "passed": 267,
+            "failed": 8,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 277,
+            "total_jobs": 278,
             "web_url": "https://buildkite.com/vllm/ci/builds/75919",
             "source": "test_results"
           },
@@ -256278,26 +256273,6 @@
             ]
           },
           {
-            "name": "Pipeline + Context Parallelism (4 GPUs)",
-            "runs": 3,
-            "passed": 2,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 33.3,
-            "is_soft_fail": false,
-            "median_dur": 33.0,
-            "p90_dur": 33.0,
-            "avg_dur": 32.5,
-            "max_dur": 33.0,
-            "median_wait": 5.9,
-            "p90_wait": 9.2,
-            "avg_wait": 6.8,
-            "max_wait": 9.2,
-            "queues": [
-              "gpu_4_queue"
-            ]
-          },
-          {
             "name": "Quantized Models Test",
             "runs": 3,
             "passed": 2,
@@ -256461,19 +256436,19 @@
           },
           {
             "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-            "runs": 2,
-            "passed": 2,
+            "runs": 3,
+            "passed": 3,
             "failed": 0,
             "soft_failed": 0,
             "fail_rate": 0.0,
             "is_soft_fail": false,
-            "median_dur": 79.2,
-            "p90_dur": 79.6,
-            "avg_dur": 79.2,
-            "max_dur": 79.6,
-            "median_wait": 4.0,
+            "median_dur": 79.6,
+            "p90_dur": 80.3,
+            "avg_dur": 79.6,
+            "max_dur": 80.3,
+            "median_wait": 1.1,
             "p90_wait": 6.8,
-            "avg_wait": 4.0,
+            "avg_wait": 2.7,
             "max_wait": 6.8,
             "queues": [
               "b200-k8s"
@@ -257042,18 +257017,18 @@
           {
             "name": "Pipeline + Context Parallelism (4 GPUs)",
             "runs": 3,
-            "passed": 2,
-            "failed": 1,
+            "passed": 3,
+            "failed": 0,
             "soft_failed": 0,
-            "fail_rate": 33.3,
+            "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 33.0,
-            "p90_dur": 33.0,
-            "avg_dur": 32.5,
-            "max_dur": 33.0,
-            "median_wait": 5.9,
+            "p90_dur": 33.6,
+            "avg_dur": 33.2,
+            "max_dur": 33.6,
+            "median_wait": 5.3,
             "p90_wait": 9.2,
-            "avg_wait": 6.8,
+            "avg_wait": 4.9,
             "max_wait": 9.2,
             "queues": [
               "gpu_4_queue"
@@ -262215,10 +262190,10 @@
           },
           {
             "queue": "b200-k8s",
-            "jobs": 76,
+            "jobs": 77,
             "median_wait": 0.7,
             "p90_wait": 10.1,
-            "avg_wait": 4.1,
+            "avg_wait": 4.0,
             "max_wait": 13.3
           },
           {
@@ -262344,8 +262319,8 @@
           "failed": 7,
           "pass_rate": 0.0,
           "total_jobs_tracked": 289,
-          "jobs_with_failures": 53,
-          "jobs_with_hard_failures": 45,
+          "jobs_with_failures": 52,
+          "jobs_with_hard_failures": 44,
           "jobs_with_soft_failures": 8
         },
         "daily_stats": [
@@ -262395,17 +262370,17 @@
         "builds": [
           {
             "number": 75919,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-02T06:00:03.391Z",
             "date": "2026-07-02",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 265,
-            "failed": 9,
+            "wall_mins": 906.6,
+            "passed": 267,
+            "failed": 8,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 277,
+            "total_jobs": 278,
             "web_url": "https://buildkite.com/vllm/ci/builds/75919",
             "source": "test_results"
           },
@@ -262509,17 +262484,17 @@
         "nightly_builds": [
           {
             "number": 75919,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-02T06:00:03.391Z",
             "date": "2026-07-02",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 265,
-            "failed": 9,
+            "wall_mins": 906.6,
+            "passed": 267,
+            "failed": 8,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 277,
+            "total_jobs": 278,
             "web_url": "https://buildkite.com/vllm/ci/builds/75919",
             "source": "test_results"
           },
@@ -262822,26 +262797,6 @@
             ]
           },
           {
-            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-            "runs": 6,
-            "passed": 3,
-            "failed": 3,
-            "soft_failed": 0,
-            "fail_rate": 50.0,
-            "is_soft_fail": false,
-            "median_dur": 76.4,
-            "p90_dur": 90.5,
-            "avg_dur": 65.7,
-            "max_dur": 90.5,
-            "median_wait": 1.1,
-            "p90_wait": 19.8,
-            "avg_wait": 5.7,
-            "max_wait": 19.8,
-            "queues": [
-              "b200-k8s"
-            ]
-          },
-          {
             "name": "Torch Nightly Basic Models Tests (Initialization)",
             "runs": 6,
             "passed": 3,
@@ -262919,6 +262874,26 @@
             "max_wait": 9.8,
             "queues": [
               "gpu_1_queue"
+            ]
+          },
+          {
+            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
+            "runs": 7,
+            "passed": 4,
+            "failed": 3,
+            "soft_failed": 0,
+            "fail_rate": 42.9,
+            "is_soft_fail": false,
+            "median_dur": 78.8,
+            "p90_dur": 90.5,
+            "avg_dur": 67.8,
+            "max_dur": 90.5,
+            "median_wait": 0.9,
+            "p90_wait": 19.8,
+            "avg_wait": 4.8,
+            "max_wait": 19.8,
+            "queues": [
+              "b200-k8s"
             ]
           },
           {
@@ -263462,26 +263437,6 @@
             ]
           },
           {
-            "name": "Pipeline + Context Parallelism (4 GPUs)",
-            "runs": 7,
-            "passed": 6,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 14.3,
-            "is_soft_fail": false,
-            "median_dur": 33.0,
-            "p90_dur": 41.4,
-            "avg_dur": 34.0,
-            "max_dur": 41.4,
-            "median_wait": 5.9,
-            "p90_wait": 56.8,
-            "avg_wait": 14.1,
-            "max_wait": 56.8,
-            "queues": [
-              "gpu_4_queue"
-            ]
-          },
-          {
             "name": "PyTorch Compilation Unit Tests (H100)",
             "runs": 7,
             "passed": 6,
@@ -263764,6 +263719,26 @@
             ]
           },
           {
+            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
+            "runs": 7,
+            "passed": 4,
+            "failed": 3,
+            "soft_failed": 0,
+            "fail_rate": 42.9,
+            "is_soft_fail": false,
+            "median_dur": 78.8,
+            "p90_dur": 90.5,
+            "avg_dur": 67.8,
+            "max_dur": 90.5,
+            "median_wait": 0.9,
+            "p90_wait": 19.8,
+            "avg_wait": 4.8,
+            "max_wait": 19.8,
+            "queues": [
+              "b200-k8s"
+            ]
+          },
+          {
             "name": "Basic Models Tests (Extra Initialization) 1",
             "runs": 7,
             "passed": 7,
@@ -263781,26 +263756,6 @@
             "max_wait": 113.0,
             "queues": [
               "h200_35gb"
-            ]
-          },
-          {
-            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-            "runs": 6,
-            "passed": 3,
-            "failed": 3,
-            "soft_failed": 0,
-            "fail_rate": 50.0,
-            "is_soft_fail": false,
-            "median_dur": 76.4,
-            "p90_dur": 90.5,
-            "avg_dur": 65.7,
-            "max_dur": 90.5,
-            "median_wait": 1.1,
-            "p90_wait": 19.8,
-            "avg_wait": 5.7,
-            "max_wait": 19.8,
-            "queues": [
-              "b200-k8s"
             ]
           },
           {
@@ -264326,18 +264281,18 @@
           {
             "name": "Pipeline + Context Parallelism (4 GPUs)",
             "runs": 7,
-            "passed": 6,
-            "failed": 1,
+            "passed": 7,
+            "failed": 0,
             "soft_failed": 0,
-            "fail_rate": 14.3,
+            "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 33.0,
             "p90_dur": 41.4,
-            "avg_dur": 34.0,
+            "avg_dur": 34.3,
             "max_dur": 41.4,
-            "median_wait": 5.9,
+            "median_wait": 5.3,
             "p90_wait": 56.8,
-            "avg_wait": 14.1,
+            "avg_wait": 13.3,
             "max_wait": 56.8,
             "queues": [
               "gpu_4_queue"
@@ -269515,7 +269470,7 @@
           },
           {
             "queue": "b200-k8s",
-            "jobs": 175,
+            "jobs": 176,
             "median_wait": 0.8,
             "p90_wait": 10.1,
             "avg_wait": 3.4,
@@ -269668,8 +269623,8 @@
           "failed": 11,
           "pass_rate": 21.4,
           "total_jobs_tracked": 308,
-          "jobs_with_failures": 68,
-          "jobs_with_hard_failures": 60,
+          "jobs_with_failures": 67,
+          "jobs_with_hard_failures": 59,
           "jobs_with_soft_failures": 8
         },
         "daily_stats": [
@@ -269761,17 +269716,17 @@
         "builds": [
           {
             "number": 75919,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-02T06:00:03.391Z",
             "date": "2026-07-02",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 265,
-            "failed": 9,
+            "wall_mins": 906.6,
+            "passed": 267,
+            "failed": 8,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 277,
+            "total_jobs": 278,
             "web_url": "https://buildkite.com/vllm/ci/builds/75919",
             "source": "test_results"
           },
@@ -269987,17 +269942,17 @@
         "nightly_builds": [
           {
             "number": 75919,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-02T06:00:03.391Z",
             "date": "2026-07-02",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 265,
-            "failed": 9,
+            "wall_mins": 906.6,
+            "passed": 267,
+            "failed": 8,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 277,
+            "total_jobs": 278,
             "web_url": "https://buildkite.com/vllm/ci/builds/75919",
             "source": "test_results"
           },
@@ -270413,19 +270368,19 @@
           },
           {
             "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-            "runs": 12,
-            "passed": 8,
+            "runs": 13,
+            "passed": 9,
             "failed": 4,
             "soft_failed": 0,
-            "fail_rate": 33.3,
+            "fail_rate": 30.8,
             "is_soft_fail": false,
-            "median_dur": 71.9,
-            "p90_dur": 79.6,
-            "avg_dur": 59.1,
+            "median_dur": 72.3,
+            "p90_dur": 80.3,
+            "avg_dur": 60.7,
             "max_dur": 90.5,
             "median_wait": 0.8,
             "p90_wait": 6.8,
-            "avg_wait": 2.9,
+            "avg_wait": 2.7,
             "max_wait": 19.8,
             "queues": [
               "b200-k8s"
@@ -271252,26 +271207,6 @@
             ]
           },
           {
-            "name": "Pipeline + Context Parallelism (4 GPUs)",
-            "runs": 13,
-            "passed": 12,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 7.7,
-            "is_soft_fail": false,
-            "median_dur": 32.8,
-            "p90_dur": 38.5,
-            "avg_dur": 33.8,
-            "max_dur": 41.4,
-            "median_wait": 5.3,
-            "p90_wait": 15.5,
-            "avg_wait": 9.5,
-            "max_wait": 56.8,
-            "queues": [
-              "gpu_4_queue"
-            ]
-          },
-          {
             "name": "PyTorch Compilation Unit Tests (H100)",
             "runs": 13,
             "passed": 12,
@@ -271675,19 +271610,19 @@
           },
           {
             "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-            "runs": 12,
-            "passed": 8,
+            "runs": 13,
+            "passed": 9,
             "failed": 4,
             "soft_failed": 0,
-            "fail_rate": 33.3,
+            "fail_rate": 30.8,
             "is_soft_fail": false,
-            "median_dur": 71.9,
-            "p90_dur": 79.6,
-            "avg_dur": 59.1,
+            "median_dur": 72.3,
+            "p90_dur": 80.3,
+            "avg_dur": 60.7,
             "max_dur": 90.5,
             "median_wait": 0.8,
             "p90_wait": 6.8,
-            "avg_wait": 2.9,
+            "avg_wait": 2.7,
             "max_wait": 19.8,
             "queues": [
               "b200-k8s"
@@ -272256,18 +272191,18 @@
           {
             "name": "Pipeline + Context Parallelism (4 GPUs)",
             "runs": 13,
-            "passed": 12,
-            "failed": 1,
+            "passed": 13,
+            "failed": 0,
             "soft_failed": 0,
-            "fail_rate": 7.7,
+            "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 32.8,
             "p90_dur": 38.5,
-            "avg_dur": 33.8,
+            "avg_dur": 33.9,
             "max_dur": 41.4,
-            "median_wait": 5.3,
+            "median_wait": 3.2,
             "p90_wait": 15.5,
-            "avg_wait": 9.5,
+            "avg_wait": 9.1,
             "max_wait": 56.8,
             "queues": [
               "gpu_4_queue"
@@ -277746,9 +277681,9 @@
           {
             "queue": "gpu_4_queue",
             "jobs": 414,
-            "median_wait": 4.7,
+            "median_wait": 4.6,
             "p90_wait": 5.8,
-            "avg_wait": 4.4,
+            "avg_wait": 4.3,
             "max_wait": 5.9
           },
           {
@@ -277793,7 +277728,7 @@
           },
           {
             "queue": "b200-k8s",
-            "jobs": 332,
+            "jobs": 333,
             "median_wait": 0.8,
             "p90_wait": 1.1,
             "avg_wait": 0.9,
@@ -277938,8 +277873,8 @@
           "failed": 27,
           "pass_rate": 10.0,
           "total_jobs_tracked": 339,
-          "jobs_with_failures": 105,
-          "jobs_with_hard_failures": 96,
+          "jobs_with_failures": 104,
+          "jobs_with_hard_failures": 95,
           "jobs_with_soft_failures": 9
         },
         "daily_stats": [
@@ -278127,17 +278062,17 @@
         "builds": [
           {
             "number": 75919,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-02T06:00:03.391Z",
             "date": "2026-07-02",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 265,
-            "failed": 9,
+            "wall_mins": 906.6,
+            "passed": 267,
+            "failed": 8,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 277,
+            "total_jobs": 278,
             "web_url": "https://buildkite.com/vllm/ci/builds/75919",
             "source": "test_results"
           },
@@ -278609,17 +278544,17 @@
         "nightly_builds": [
           {
             "number": 75919,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-02T06:00:03.391Z",
             "date": "2026-07-02",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
-            "passed": 265,
-            "failed": 9,
+            "wall_mins": 906.6,
+            "passed": 267,
+            "failed": 8,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 277,
+            "total_jobs": 278,
             "web_url": "https://buildkite.com/vllm/ci/builds/75919",
             "source": "test_results"
           },
@@ -279470,26 +279405,6 @@
             ]
           },
           {
-            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-            "runs": 28,
-            "passed": 22,
-            "failed": 6,
-            "soft_failed": 0,
-            "fail_rate": 21.4,
-            "is_soft_fail": false,
-            "median_dur": 34.2,
-            "p90_dur": 78.8,
-            "avg_dur": 42.5,
-            "max_dur": 90.5,
-            "median_wait": 0.8,
-            "p90_wait": 5.9,
-            "avg_wait": 2.3,
-            "max_wait": 19.8,
-            "queues": [
-              "b200-k8s"
-            ]
-          },
-          {
             "name": "Torch Nightly Language Models Tests (Hybrid) 1",
             "runs": 28,
             "passed": 22,
@@ -279567,6 +279482,26 @@
             "max_wait": 137.9,
             "queues": [
               "intel-cpu"
+            ]
+          },
+          {
+            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
+            "runs": 29,
+            "passed": 23,
+            "failed": 6,
+            "soft_failed": 0,
+            "fail_rate": 20.7,
+            "is_soft_fail": false,
+            "median_dur": 34.3,
+            "p90_dur": 79.6,
+            "avg_dur": 43.8,
+            "max_dur": 90.5,
+            "median_wait": 0.8,
+            "p90_wait": 5.9,
+            "avg_wait": 2.3,
+            "max_wait": 19.8,
+            "queues": [
+              "b200-k8s"
             ]
           },
           {
@@ -280890,26 +280825,6 @@
             ]
           },
           {
-            "name": "Pipeline + Context Parallelism (4 GPUs)",
-            "runs": 29,
-            "passed": 28,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 3.4,
-            "is_soft_fail": false,
-            "median_dur": 32.8,
-            "p90_dur": 34.5,
-            "avg_dur": 33.3,
-            "max_dur": 41.4,
-            "median_wait": 4.0,
-            "p90_wait": 24.6,
-            "avg_wait": 8.1,
-            "max_wait": 56.8,
-            "queues": [
-              "gpu_4_queue"
-            ]
-          },
-          {
             "name": "Plugin Tests (2 GPUs)",
             "runs": 29,
             "passed": 28,
@@ -281812,6 +281727,26 @@
             ]
           },
           {
+            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
+            "runs": 29,
+            "passed": 23,
+            "failed": 6,
+            "soft_failed": 0,
+            "fail_rate": 20.7,
+            "is_soft_fail": false,
+            "median_dur": 34.3,
+            "p90_dur": 79.6,
+            "avg_dur": 43.8,
+            "max_dur": 90.5,
+            "median_wait": 0.8,
+            "p90_wait": 5.9,
+            "avg_wait": 2.3,
+            "max_wait": 19.8,
+            "queues": [
+              "b200-k8s"
+            ]
+          },
+          {
             "name": "AMD: Entrypoints Integration (API Server OpenAI - Part 1) (mi300_1)",
             "runs": 1,
             "passed": 1,
@@ -281829,26 +281764,6 @@
             "max_wait": 0.1,
             "queues": [
               "amd_mi300_1"
-            ]
-          },
-          {
-            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-            "runs": 28,
-            "passed": 22,
-            "failed": 6,
-            "soft_failed": 0,
-            "fail_rate": 21.4,
-            "is_soft_fail": false,
-            "median_dur": 34.2,
-            "p90_dur": 78.8,
-            "avg_dur": 42.5,
-            "max_dur": 90.5,
-            "median_wait": 0.8,
-            "p90_wait": 5.9,
-            "avg_wait": 2.3,
-            "max_wait": 19.8,
-            "queues": [
-              "b200-k8s"
             ]
           },
           {
@@ -281954,18 +281869,18 @@
           {
             "name": "Pipeline + Context Parallelism (4 GPUs)",
             "runs": 29,
-            "passed": 28,
-            "failed": 1,
+            "passed": 29,
+            "failed": 0,
             "soft_failed": 0,
-            "fail_rate": 3.4,
+            "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 32.8,
             "p90_dur": 34.5,
-            "avg_dur": 33.3,
+            "avg_dur": 33.4,
             "max_dur": 41.4,
-            "median_wait": 4.0,
+            "median_wait": 3.9,
             "p90_wait": 24.6,
-            "avg_wait": 8.1,
+            "avg_wait": 7.9,
             "max_wait": 56.8,
             "queues": [
               "gpu_4_queue"
@@ -288023,7 +287938,7 @@
           },
           {
             "queue": "b200-k8s",
-            "jobs": 716,
+            "jobs": 717,
             "median_wait": 0.8,
             "p90_wait": 2.0,
             "avg_wait": 1.0,
