@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-07-02T18:05:00Z",
+  "generated_at": "2026-07-02T19:54:12Z",
   "amd_date": "2026-07-02",
   "upstream_date": "2026-07-02",
   "parity_pct": 0.0,
-  "total_tests": 720,
+  "total_tests": 718,
   "summary": {
-    "upstream_only": 413,
+    "upstream_only": 411,
     "amd_only": 307
   },
   "by_module": {
@@ -808,10 +808,6 @@
     "MoE Refactor Integration Test (B200 - TEMPORARY)": {
       "parity_pct": 100.0,
       "upstream_only": 1
-    },
-    "MoE Refactor Integration Test (B200 DP - TEMPORARY)": {
-      "parity_pct": 100.0,
-      "upstream_only": 2
     },
     "MoE Refactor Integration Test (H100 - TEMPORARY)": {
       "parity_pct": 100.0,
@@ -3872,7 +3868,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1648.91
+        "duration": 1631.4
       },
       "hardware": [
         "h100",
@@ -3899,7 +3895,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d227-44d0-8800-8c2d7b234ac6&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f243e-3b75-4872-bcf9-2dea256aba63&tab=output",
           "job_name": "Engine (1 GPU)",
           "side": "upstream"
         }
@@ -4433,7 +4429,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1491.2
+        "duration": 1521.89
       },
       "hardware": [
         "h100",
@@ -4462,7 +4458,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d238-4a65-a0c7-66218b67bf53&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f243e-447d-4938-8c50-a67332e960e5&tab=output",
           "job_name": "Entrypoints Integration (Speech to Text)",
           "side": "upstream"
         }
@@ -5900,7 +5896,7 @@
       "family_key": "language models tests (hybrid)",
       "family_name": "language models tests (hybrid)",
       "amd_job_name": "mi325_1: Language Models Tests (Hybrid) 1",
-      "upstream_job_name": "Language Models Tests (Hybrid) 1",
+      "upstream_job_name": "Language Models Tests (Hybrid) 2",
       "amd": {
         "total": 41,
         "passed": 37,
@@ -5937,8 +5933,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d300-4f29-8c1d-952179d96c73&tab=output",
-          "job_name": "Language Models Tests (Hybrid) 1",
+          "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d301-4e62-a287-908490de9735&tab=output",
+          "job_name": "Language Models Tests (Hybrid) 2",
           "side": "upstream"
         }
       ],
@@ -6489,7 +6485,7 @@
       "family_key": "lora",
       "family_name": "lora",
       "amd_job_name": "mi300_1: LoRA 2",
-      "upstream_job_name": "LoRA 1",
+      "upstream_job_name": "LoRA 2",
       "amd": {
         "total": 6910,
         "passed": 6811,
@@ -6526,8 +6522,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d2d1-430b-8a68-bdf630ae489a&tab=output",
-          "job_name": "LoRA 1",
+          "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d2d2-41f4-ba14-fcbc84195335&tab=output",
+          "job_name": "LoRA 2",
           "side": "upstream"
         }
       ],
@@ -6788,7 +6784,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 1,
-        "duration": 2.1
+        "duration": 2.26
       },
       "hardware": [
         "h100",
@@ -6816,7 +6812,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d306-4ebc-a018-075f6a8185fb&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f243e-65d7-456e-822e-c2954c70c547&tab=output",
           "job_name": "Multi-Modal Models (Extended Generation 1)",
           "side": "upstream"
         }
@@ -10999,42 +10995,6 @@
       "backfilled": false
     },
     {
-      "name": "moe refactor integration test (b200 dp - temporary)",
-      "family_key": "moe refactor integration test (b200 dp - temporary)",
-      "family_name": "moe refactor integration test (b200 dp - temporary)",
-      "amd_job_name": null,
-      "upstream_job_name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-      "amd": null,
-      "upstream": {
-        "total": 12,
-        "passed": 8,
-        "failed": 4,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0,
-        "error": 0,
-        "duration": 8236.08
-      },
-      "hardware": [
-        "b200"
-      ],
-      "hw_failures": {
-        "b200": 4
-      },
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [
-        {
-          "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d2cb-447d-a7d6-328ff15cc925&tab=output",
-          "job_name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-          "side": "upstream"
-        }
-      ],
-      "status": "upstream_only",
-      "backfilled": false
-    },
-    {
       "name": "moe refactor integration test (h100 - temporary)",
       "family_key": "moe refactor integration test (h100 - temporary)",
       "family_name": "moe refactor integration test (h100 - temporary)",
@@ -11849,6 +11809,25 @@
       ],
       "status": "upstream_only",
       "backfilled": false
+    },
+    {
+      "name": "moe refactor integration test (b200 dp - temporary)",
+      "family_key": "moe refactor integration test (b200 dp - temporary)",
+      "family_name": "moe refactor integration test (b200 dp - temporary)",
+      "amd_job_name": null,
+      "upstream_job_name": null,
+      "amd": null,
+      "upstream": null,
+      "hardware": [
+        "b200"
+      ],
+      "hw_failures": null,
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [],
+      "delta": null,
+      "status": "upstream_only",
+      "backfilled": true
     }
   ],
   "details": [
@@ -13584,18 +13563,6 @@
       "test_id": "MoE Refactor Integration Test (B200 - TEMPORARY)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "MoE Refactor Integration Test (B200 DP - TEMPORARY)::__passed__",
-      "amd_status": "missing",
-      "upstream_status": "passed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "MoE Refactor Integration Test (B200 DP - TEMPORARY)::__unidentified_failures__",
-      "amd_status": "missing",
-      "upstream_status": "failed",
       "category": "upstream_only"
     },
     {

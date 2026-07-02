@@ -3,7 +3,7 @@
     "pipeline": "amd-ci",
     "display_name": "AMD CI",
     "days": 30,
-    "generated_at": "2026-07-02T18:05:04Z",
+    "generated_at": "2026-07-02T19:54:16Z",
     "summary": {
       "total_builds": 30,
       "passed": 30,
@@ -125732,7 +125732,7 @@
     "pipeline": "ci",
     "display_name": "Upstream CI",
     "days": 30,
-    "generated_at": "2026-07-02T18:05:04Z",
+    "generated_at": "2026-07-02T19:54:16Z",
     "summary": {
       "total_builds": 31,
       "passed": 3,
@@ -125934,17 +125934,17 @@
     "builds": [
       {
         "number": 75919,
-        "state": "failed",
+        "state": "failing",
         "created_at": "2026-07-02T06:00:03.391Z",
         "date": "2026-07-02",
         "message": "Full CI run - nightly",
         "author": "",
-        "wall_mins": 206.0,
+        "wall_mins": null,
         "passed": 265,
-        "failed": 10,
+        "failed": 9,
         "soft_failed": 3,
         "skipped": 0,
-        "total_jobs": 278,
+        "total_jobs": 277,
         "jobs": [
           {
             "name": "2 Node Test (4 GPUs)",
@@ -127750,15 +127750,15 @@
             "name": "Engine (1 GPU)",
             "raw_name": "Engine (1 GPU)",
             "state": "failed",
-            "dur": 27.5,
+            "dur": 27.2,
             "tests": 119,
             "passed_tests": 104,
             "failed_tests": 13,
             "skipped_tests": 2,
-            "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d227-44d0-8800-8c2d7b234ac6&tab=output",
-            "job_id": "019f216a-d227-44d0-8800-8c2d7b234ac6",
+            "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f243e-3b75-4872-bcf9-2dea256aba63&tab=output",
+            "job_id": "019f243e-3b75-4872-bcf9-2dea256aba63",
             "step_id": "019f216a-d05b-4893-a23d-ea640b64bb1c",
-            "wait": 3.0,
+            "wait": 0.0,
             "q": "gpu_1_queue"
           },
           {
@@ -127885,13 +127885,13 @@
             "name": "Entrypoints Integration (Speech to Text)",
             "raw_name": "Entrypoints Integration (Speech to Text)",
             "state": "failed",
-            "dur": 24.9,
+            "dur": 25.4,
             "tests": 83,
             "passed_tests": 81,
             "failed_tests": 1,
             "skipped_tests": 1,
-            "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d238-4a65-a0c7-66218b67bf53&tab=output",
-            "job_id": "019f216a-d238-4a65-a0c7-66218b67bf53",
+            "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f243e-447d-4938-8c50-a67332e960e5&tab=output",
+            "job_id": "019f243e-447d-4938-8c50-a67332e960e5",
             "step_id": "019f216a-d068-485a-a977-b26150615e92",
             "wait": 0.0,
             "q": "h200_35gb"
@@ -128947,21 +128947,6 @@
             "q": "b200-k8s"
           },
           {
-            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-            "raw_name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-            "state": "failed",
-            "dur": 137.3,
-            "tests": 12,
-            "passed_tests": 8,
-            "failed_tests": 4,
-            "skipped_tests": 0,
-            "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d2cb-447d-a7d6-328ff15cc925&tab=output",
-            "job_id": "019f216a-d2cb-447d-a7d6-328ff15cc925",
-            "step_id": "019f216a-d0c7-4774-9acf-5940f9f1354e",
-            "wait": 13.9,
-            "q": "b200-k8s"
-          },
-          {
             "name": "MoE Refactor Integration Test (H100 - TEMPORARY)",
             "raw_name": "MoE Refactor Integration Test (H100 - TEMPORARY)",
             "state": "passed",
@@ -129085,15 +129070,15 @@
             "name": "Multi-Modal Models (Extended Generation 1)",
             "raw_name": "Multi-Modal Models (Extended Generation 1)",
             "state": "failed",
-            "dur": 29.1,
+            "dur": 29.2,
             "tests": 6,
             "passed_tests": 1,
             "failed_tests": 4,
             "skipped_tests": 1,
-            "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d306-4ebc-a018-075f6a8185fb&tab=output",
-            "job_id": "019f216a-d306-4ebc-a018-075f6a8185fb",
+            "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f243e-65d7-456e-822e-c2954c70c547&tab=output",
+            "job_id": "019f243e-65d7-456e-822e-c2954c70c547",
             "step_id": "019f216a-d0eb-46bd-9fbb-7da8b6fe0933",
-            "wait": 5.4,
+            "wait": 0.2,
             "q": "gpu_1_queue"
           },
           {
@@ -240023,17 +240008,17 @@
     "nightly_builds": [
       {
         "number": 75919,
-        "state": "failed",
+        "state": "failing",
         "created_at": "2026-07-02T06:00:03.391Z",
         "date": "2026-07-02",
         "message": "Full CI run - nightly",
         "author": "",
-        "wall_mins": 206.0,
+        "wall_mins": null,
         "passed": 265,
-        "failed": 10,
+        "failed": 9,
         "soft_failed": 3,
         "skipped": 0,
-        "total_jobs": 278,
+        "total_jobs": 277,
         "web_url": "https://buildkite.com/vllm/ci/builds/75919",
         "source": "test_results"
       },
@@ -240775,9 +240760,9 @@
         "p90_dur": 31.5,
         "avg_dur": 29.1,
         "max_dur": 34.6,
-        "median_wait": 3.4,
+        "median_wait": 3.3,
         "p90_wait": 6.6,
-        "avg_wait": 3.9,
+        "avg_wait": 3.7,
         "max_wait": 10.2,
         "queues": [
           "gpu_1_queue"
@@ -240801,26 +240786,6 @@
         "max_wait": 67.4,
         "queues": [
           "mithril-h100-pool"
-        ]
-      },
-      {
-        "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-        "runs": 30,
-        "passed": 23,
-        "failed": 7,
-        "soft_failed": 0,
-        "fail_rate": 23.3,
-        "is_soft_fail": false,
-        "median_dur": 34.3,
-        "p90_dur": 79.6,
-        "avg_dur": 45.5,
-        "max_dur": 137.3,
-        "median_wait": 0.9,
-        "p90_wait": 13.9,
-        "avg_wait": 3.3,
-        "max_wait": 19.8,
-        "queues": [
-          "b200-k8s"
         ]
       },
       {
@@ -240901,6 +240866,26 @@
         "max_wait": 92.5,
         "queues": [
           "intel-gpu"
+        ]
+      },
+      {
+        "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
+        "runs": 29,
+        "passed": 23,
+        "failed": 6,
+        "soft_failed": 0,
+        "fail_rate": 20.7,
+        "is_soft_fail": false,
+        "median_dur": 34.3,
+        "p90_dur": 78.8,
+        "avg_dur": 42.3,
+        "max_dur": 90.5,
+        "median_wait": 0.9,
+        "p90_wait": 6.8,
+        "avg_wait": 2.9,
+        "max_wait": 19.8,
+        "queues": [
+          "b200-k8s"
         ]
       },
       {
@@ -241277,7 +241262,7 @@
         "max_dur": 31.1,
         "median_wait": 2.4,
         "p90_wait": 4.3,
-        "avg_wait": 2.8,
+        "avg_wait": 2.7,
         "max_wait": 9.8,
         "queues": [
           "gpu_1_queue"
@@ -241591,7 +241576,7 @@
         "soft_failed": 0,
         "fail_rate": 6.7,
         "is_soft_fail": false,
-        "median_dur": 25.1,
+        "median_dur": 25.3,
         "p90_dur": 28.3,
         "avg_dur": 25.4,
         "max_dur": 31.8,
@@ -243267,19 +243252,19 @@
       },
       {
         "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-        "runs": 30,
+        "runs": 29,
         "passed": 23,
-        "failed": 7,
+        "failed": 6,
         "soft_failed": 0,
-        "fail_rate": 23.3,
+        "fail_rate": 20.7,
         "is_soft_fail": false,
         "median_dur": 34.3,
-        "p90_dur": 79.6,
-        "avg_dur": 45.5,
-        "max_dur": 137.3,
+        "p90_dur": 78.8,
+        "avg_dur": 42.3,
+        "max_dur": 90.5,
         "median_wait": 0.9,
-        "p90_wait": 13.9,
-        "avg_wait": 3.3,
+        "p90_wait": 6.8,
+        "avg_wait": 2.9,
         "max_wait": 19.8,
         "queues": [
           "b200-k8s"
@@ -243637,9 +243622,9 @@
         "p90_dur": 31.5,
         "avg_dur": 29.1,
         "max_dur": 34.6,
-        "median_wait": 3.4,
+        "median_wait": 3.3,
         "p90_wait": 6.6,
-        "avg_wait": 3.9,
+        "avg_wait": 3.7,
         "max_wait": 10.2,
         "queues": [
           "gpu_1_queue"
@@ -243913,7 +243898,7 @@
         "soft_failed": 0,
         "fail_rate": 6.7,
         "is_soft_fail": false,
-        "median_dur": 25.1,
+        "median_dur": 25.3,
         "p90_dur": 28.3,
         "avg_dur": 25.4,
         "max_dur": 31.8,
@@ -244039,7 +244024,7 @@
         "max_dur": 31.1,
         "median_wait": 2.4,
         "p90_wait": 4.3,
-        "avg_wait": 2.8,
+        "avg_wait": 2.7,
         "max_wait": 9.8,
         "queues": [
           "gpu_1_queue"
@@ -249477,7 +249462,7 @@
       },
       {
         "queue": "b200-k8s",
-        "jobs": 741,
+        "jobs": 740,
         "median_wait": 0.8,
         "p90_wait": 2.2,
         "avg_wait": 1.1,
@@ -249630,9 +249615,9 @@
           "passed": 0,
           "failed": 1,
           "pass_rate": 0.0,
-          "total_jobs_tracked": 278,
-          "jobs_with_failures": 13,
-          "jobs_with_hard_failures": 10,
+          "total_jobs_tracked": 277,
+          "jobs_with_failures": 12,
+          "jobs_with_hard_failures": 9,
           "jobs_with_soft_failures": 3
         },
         "daily_stats": [
@@ -249646,17 +249631,17 @@
         "builds": [
           {
             "number": 75919,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-07-02T06:00:03.391Z",
             "date": "2026-07-02",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 206.0,
+            "wall_mins": null,
             "passed": 265,
-            "failed": 10,
+            "failed": 9,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 278,
+            "total_jobs": 277,
             "web_url": "https://buildkite.com/vllm/ci/builds/75919",
             "source": "test_results"
           }
@@ -249664,17 +249649,17 @@
         "nightly_builds": [
           {
             "number": 75919,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-07-02T06:00:03.391Z",
             "date": "2026-07-02",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 206.0,
+            "wall_mins": null,
             "passed": 265,
-            "failed": 10,
+            "failed": 9,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 278,
+            "total_jobs": 277,
             "web_url": "https://buildkite.com/vllm/ci/builds/75919",
             "source": "test_results"
           }
@@ -249728,14 +249713,14 @@
             "soft_failed": 0,
             "fail_rate": 100.0,
             "is_soft_fail": false,
-            "median_dur": 27.5,
-            "p90_dur": 27.5,
-            "avg_dur": 27.5,
-            "max_dur": 27.5,
-            "median_wait": 3.0,
-            "p90_wait": 3.0,
-            "avg_wait": 3.0,
-            "max_wait": 3.0,
+            "median_dur": 27.2,
+            "p90_dur": 27.2,
+            "avg_dur": 27.2,
+            "max_dur": 27.2,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
             "queues": [
               "gpu_1_queue"
             ]
@@ -249748,10 +249733,10 @@
             "soft_failed": 0,
             "fail_rate": 100.0,
             "is_soft_fail": false,
-            "median_dur": 24.9,
-            "p90_dur": 24.9,
-            "avg_dur": 24.9,
-            "max_dur": 24.9,
+            "median_dur": 25.4,
+            "p90_dur": 25.4,
+            "avg_dur": 25.4,
+            "max_dur": 25.4,
             "median_wait": 0.0,
             "p90_wait": 0.0,
             "avg_wait": 0.0,
@@ -249861,26 +249846,6 @@
             ]
           },
           {
-            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-            "runs": 1,
-            "passed": 0,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 100.0,
-            "is_soft_fail": false,
-            "median_dur": 137.3,
-            "p90_dur": 137.3,
-            "avg_dur": 137.3,
-            "max_dur": 137.3,
-            "median_wait": 13.9,
-            "p90_wait": 13.9,
-            "avg_wait": 13.9,
-            "max_wait": 13.9,
-            "queues": [
-              "b200-k8s"
-            ]
-          },
-          {
             "name": "Multi-Modal Models (Extended Generation 1)",
             "runs": 1,
             "passed": 0,
@@ -249888,14 +249853,14 @@
             "soft_failed": 0,
             "fail_rate": 100.0,
             "is_soft_fail": false,
-            "median_dur": 29.1,
-            "p90_dur": 29.1,
-            "avg_dur": 29.1,
-            "max_dur": 29.1,
-            "median_wait": 5.4,
-            "p90_wait": 5.4,
-            "avg_wait": 5.4,
-            "max_wait": 5.4,
+            "median_dur": 29.2,
+            "p90_dur": 29.2,
+            "avg_dur": 29.2,
+            "max_dur": 29.2,
+            "median_wait": 0.2,
+            "p90_wait": 0.2,
+            "avg_wait": 0.2,
+            "max_wait": 0.2,
             "queues": [
               "gpu_1_queue"
             ]
@@ -249958,26 +249923,6 @@
             "p90_wait": 13.7,
             "avg_wait": 13.7,
             "max_wait": 13.7,
-            "queues": [
-              "b200-k8s"
-            ]
-          },
-          {
-            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-            "runs": 1,
-            "passed": 0,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 100.0,
-            "is_soft_fail": false,
-            "median_dur": 137.3,
-            "p90_dur": 137.3,
-            "avg_dur": 137.3,
-            "max_dur": 137.3,
-            "median_wait": 13.9,
-            "p90_wait": 13.9,
-            "avg_wait": 13.9,
-            "max_wait": 13.9,
             "queues": [
               "b200-k8s"
             ]
@@ -250750,14 +250695,14 @@
             "soft_failed": 0,
             "fail_rate": 100.0,
             "is_soft_fail": false,
-            "median_dur": 29.1,
-            "p90_dur": 29.1,
-            "avg_dur": 29.1,
-            "max_dur": 29.1,
-            "median_wait": 5.4,
-            "p90_wait": 5.4,
-            "avg_wait": 5.4,
-            "max_wait": 5.4,
+            "median_dur": 29.2,
+            "p90_dur": 29.2,
+            "avg_dur": 29.2,
+            "max_dur": 29.2,
+            "median_wait": 0.2,
+            "p90_wait": 0.2,
+            "avg_wait": 0.2,
+            "max_wait": 0.2,
             "queues": [
               "gpu_1_queue"
             ]
@@ -250800,26 +250745,6 @@
             "max_wait": 4.7,
             "queues": [
               "b200-k8s"
-            ]
-          },
-          {
-            "name": "Engine (1 GPU)",
-            "runs": 1,
-            "passed": 0,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 100.0,
-            "is_soft_fail": false,
-            "median_dur": 27.5,
-            "p90_dur": 27.5,
-            "avg_dur": 27.5,
-            "max_dur": 27.5,
-            "median_wait": 3.0,
-            "p90_wait": 3.0,
-            "avg_wait": 3.0,
-            "max_wait": 3.0,
-            "queues": [
-              "gpu_1_queue"
             ]
           },
           {
@@ -250880,6 +250805,26 @@
             "max_wait": 0.1,
             "queues": [
               "h200_18gb"
+            ]
+          },
+          {
+            "name": "Engine (1 GPU)",
+            "runs": 1,
+            "passed": 0,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 100.0,
+            "is_soft_fail": false,
+            "median_dur": 27.2,
+            "p90_dur": 27.2,
+            "avg_dur": 27.2,
+            "max_dur": 27.2,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "gpu_1_queue"
             ]
           },
           {
@@ -250983,6 +250928,26 @@
             ]
           },
           {
+            "name": "Entrypoints Integration (Speech to Text)",
+            "runs": 1,
+            "passed": 0,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 100.0,
+            "is_soft_fail": false,
+            "median_dur": 25.4,
+            "p90_dur": 25.4,
+            "avg_dur": 25.4,
+            "max_dur": 25.4,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_35gb"
+            ]
+          },
+          {
             "name": "LoRA 4",
             "runs": 1,
             "passed": 1,
@@ -251020,26 +250985,6 @@
             "max_wait": 0.0,
             "queues": [
               "h200_18gb"
-            ]
-          },
-          {
-            "name": "Entrypoints Integration (Speech to Text)",
-            "runs": 1,
-            "passed": 0,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 100.0,
-            "is_soft_fail": false,
-            "median_dur": 24.9,
-            "p90_dur": 24.9,
-            "avg_dur": 24.9,
-            "max_dur": 24.9,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
-            "queues": [
-              "h200_35gb"
             ]
           },
           {
@@ -255522,10 +255467,10 @@
           },
           {
             "queue": "b200-k8s",
-            "jobs": 26,
+            "jobs": 25,
             "median_wait": 9.6,
             "p90_wait": 16.6,
-            "avg_wait": 8.6,
+            "avg_wait": 8.4,
             "max_wait": 19.3
           },
           {
@@ -255541,7 +255486,7 @@
             "jobs": 33,
             "median_wait": 5.1,
             "p90_wait": 5.5,
-            "avg_wait": 4.9,
+            "avg_wait": 4.6,
             "max_wait": 5.7
           },
           {
@@ -255707,8 +255652,8 @@
           "failed": 3,
           "pass_rate": 0.0,
           "total_jobs_tracked": 288,
-          "jobs_with_failures": 31,
-          "jobs_with_hard_failures": 24,
+          "jobs_with_failures": 30,
+          "jobs_with_hard_failures": 23,
           "jobs_with_soft_failures": 7
         },
         "daily_stats": [
@@ -255734,17 +255679,17 @@
         "builds": [
           {
             "number": 75919,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-07-02T06:00:03.391Z",
             "date": "2026-07-02",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 206.0,
+            "wall_mins": null,
             "passed": 265,
-            "failed": 10,
+            "failed": 9,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 278,
+            "total_jobs": 277,
             "web_url": "https://buildkite.com/vllm/ci/builds/75919",
             "source": "test_results"
           },
@@ -255784,17 +255729,17 @@
         "nightly_builds": [
           {
             "number": 75919,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-07-02T06:00:03.391Z",
             "date": "2026-07-02",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 206.0,
+            "wall_mins": null,
             "passed": 265,
-            "failed": 10,
+            "failed": 9,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 278,
+            "total_jobs": 277,
             "web_url": "https://buildkite.com/vllm/ci/builds/75919",
             "source": "test_results"
           },
@@ -255862,12 +255807,12 @@
             "is_soft_fail": false,
             "median_dur": 27.6,
             "p90_dur": 29.1,
-            "avg_dur": 28.1,
+            "avg_dur": 28.0,
             "max_dur": 29.1,
-            "median_wait": 2.3,
-            "p90_wait": 3.0,
-            "avg_wait": 1.8,
-            "max_wait": 3.0,
+            "median_wait": 0.1,
+            "p90_wait": 2.3,
+            "avg_wait": 0.8,
+            "max_wait": 2.3,
             "queues": [
               "gpu_1_queue"
             ]
@@ -255944,10 +255889,10 @@
             "p90_dur": 31.5,
             "avg_dur": 30.6,
             "max_dur": 31.5,
-            "median_wait": 3.4,
-            "p90_wait": 5.4,
-            "avg_wait": 3.0,
-            "max_wait": 5.4,
+            "median_wait": 0.2,
+            "p90_wait": 3.4,
+            "avg_wait": 1.3,
+            "max_wait": 3.4,
             "queues": [
               "gpu_1_queue"
             ]
@@ -256240,9 +256185,9 @@
             "soft_failed": 0,
             "fail_rate": 33.3,
             "is_soft_fail": false,
-            "median_dur": 24.9,
+            "median_dur": 25.4,
             "p90_dur": 25.9,
-            "avg_dur": 25.2,
+            "avg_dur": 25.4,
             "max_dur": 25.9,
             "median_wait": 0.0,
             "p90_wait": 0.0,
@@ -256310,26 +256255,6 @@
             "max_wait": 0.2,
             "queues": [
               "h200_18gb"
-            ]
-          },
-          {
-            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-            "runs": 3,
-            "passed": 2,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 33.3,
-            "is_soft_fail": false,
-            "median_dur": 79.6,
-            "p90_dur": 137.3,
-            "avg_dur": 98.6,
-            "max_dur": 137.3,
-            "median_wait": 6.8,
-            "p90_wait": 13.9,
-            "avg_wait": 7.3,
-            "max_wait": 13.9,
-            "queues": [
-              "b200-k8s"
             ]
           },
           {
@@ -256536,20 +256461,20 @@
           },
           {
             "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-            "runs": 3,
+            "runs": 2,
             "passed": 2,
-            "failed": 1,
+            "failed": 0,
             "soft_failed": 0,
-            "fail_rate": 33.3,
+            "fail_rate": 0.0,
             "is_soft_fail": false,
-            "median_dur": 79.6,
-            "p90_dur": 137.3,
-            "avg_dur": 98.6,
-            "max_dur": 137.3,
-            "median_wait": 6.8,
-            "p90_wait": 13.9,
-            "avg_wait": 7.3,
-            "max_wait": 13.9,
+            "median_dur": 79.2,
+            "p90_dur": 79.6,
+            "avg_dur": 79.2,
+            "max_dur": 79.6,
+            "median_wait": 4.0,
+            "p90_wait": 6.8,
+            "avg_wait": 4.0,
+            "max_wait": 6.8,
             "queues": [
               "b200-k8s"
             ]
@@ -257226,10 +257151,10 @@
             "p90_dur": 31.5,
             "avg_dur": 30.6,
             "max_dur": 31.5,
-            "median_wait": 3.4,
-            "p90_wait": 5.4,
-            "avg_wait": 3.0,
-            "max_wait": 5.4,
+            "median_wait": 0.2,
+            "p90_wait": 3.4,
+            "avg_wait": 1.3,
+            "max_wait": 3.4,
             "queues": [
               "gpu_1_queue"
             ]
@@ -257404,12 +257329,12 @@
             "is_soft_fail": false,
             "median_dur": 27.6,
             "p90_dur": 29.1,
-            "avg_dur": 28.1,
+            "avg_dur": 28.0,
             "max_dur": 29.1,
-            "median_wait": 2.3,
-            "p90_wait": 3.0,
-            "avg_wait": 1.8,
-            "max_wait": 3.0,
+            "median_wait": 0.1,
+            "p90_wait": 2.3,
+            "avg_wait": 0.8,
+            "max_wait": 2.3,
             "queues": [
               "gpu_1_queue"
             ]
@@ -257575,6 +257500,26 @@
             ]
           },
           {
+            "name": "Entrypoints Integration (Speech to Text)",
+            "runs": 3,
+            "passed": 2,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 33.3,
+            "is_soft_fail": false,
+            "median_dur": 25.4,
+            "p90_dur": 25.9,
+            "avg_dur": 25.4,
+            "max_dur": 25.9,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_35gb"
+            ]
+          },
+          {
             "name": "LM Eval Small Models",
             "runs": 3,
             "passed": 3,
@@ -257652,26 +257597,6 @@
             "max_wait": 0.2,
             "queues": [
               "h200_18gb"
-            ]
-          },
-          {
-            "name": "Entrypoints Integration (Speech to Text)",
-            "runs": 3,
-            "passed": 2,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 33.3,
-            "is_soft_fail": false,
-            "median_dur": 24.9,
-            "p90_dur": 25.9,
-            "avg_dur": 25.2,
-            "max_dur": 25.9,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
-            "queues": [
-              "h200_35gb"
             ]
           },
           {
@@ -262245,7 +262170,7 @@
             "jobs": 107,
             "median_wait": 3.2,
             "p90_wait": 4.1,
-            "avg_wait": 3.1,
+            "avg_wait": 3.0,
             "max_wait": 4.4
           },
           {
@@ -262290,10 +262215,10 @@
           },
           {
             "queue": "b200-k8s",
-            "jobs": 77,
+            "jobs": 76,
             "median_wait": 0.7,
             "p90_wait": 10.1,
-            "avg_wait": 4.2,
+            "avg_wait": 4.1,
             "max_wait": 13.3
           },
           {
@@ -262470,17 +262395,17 @@
         "builds": [
           {
             "number": 75919,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-07-02T06:00:03.391Z",
             "date": "2026-07-02",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 206.0,
+            "wall_mins": null,
             "passed": 265,
-            "failed": 10,
+            "failed": 9,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 278,
+            "total_jobs": 277,
             "web_url": "https://buildkite.com/vllm/ci/builds/75919",
             "source": "test_results"
           },
@@ -262584,17 +262509,17 @@
         "nightly_builds": [
           {
             "number": 75919,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-07-02T06:00:03.391Z",
             "date": "2026-07-02",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 206.0,
+            "wall_mins": null,
             "passed": 265,
-            "failed": 10,
+            "failed": 9,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 278,
+            "total_jobs": 277,
             "web_url": "https://buildkite.com/vllm/ci/builds/75919",
             "source": "test_results"
           },
@@ -262877,26 +262802,6 @@
             ]
           },
           {
-            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-            "runs": 7,
-            "passed": 3,
-            "failed": 4,
-            "soft_failed": 0,
-            "fail_rate": 57.1,
-            "is_soft_fail": false,
-            "median_dur": 78.8,
-            "p90_dur": 137.3,
-            "avg_dur": 76.0,
-            "max_dur": 137.3,
-            "median_wait": 4.0,
-            "p90_wait": 19.8,
-            "avg_wait": 7.1,
-            "max_wait": 19.8,
-            "queues": [
-              "b200-k8s"
-            ]
-          },
-          {
             "name": "Multi-Modal Models (Extended Generation 1)",
             "runs": 7,
             "passed": 3,
@@ -262908,12 +262813,32 @@
             "p90_dur": 33.6,
             "avg_dur": 31.0,
             "max_dur": 33.6,
-            "median_wait": 3.4,
+            "median_wait": 2.9,
             "p90_wait": 10.2,
-            "avg_wait": 4.7,
+            "avg_wait": 3.9,
             "max_wait": 10.2,
             "queues": [
               "gpu_1_queue"
+            ]
+          },
+          {
+            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
+            "runs": 6,
+            "passed": 3,
+            "failed": 3,
+            "soft_failed": 0,
+            "fail_rate": 50.0,
+            "is_soft_fail": false,
+            "median_dur": 76.4,
+            "p90_dur": 90.5,
+            "avg_dur": 65.7,
+            "max_dur": 90.5,
+            "median_wait": 1.1,
+            "p90_wait": 19.8,
+            "avg_wait": 5.7,
+            "max_wait": 19.8,
+            "queues": [
+              "b200-k8s"
             ]
           },
           {
@@ -262984,13 +262909,13 @@
             "soft_failed": 0,
             "fail_rate": 42.9,
             "is_soft_fail": false,
-            "median_dur": 27.5,
+            "median_dur": 27.2,
             "p90_dur": 31.1,
             "avg_dur": 26.9,
             "max_dur": 31.1,
-            "median_wait": 2.4,
+            "median_wait": 2.3,
             "p90_wait": 9.8,
-            "avg_wait": 3.4,
+            "avg_wait": 2.9,
             "max_wait": 9.8,
             "queues": [
               "gpu_1_queue"
@@ -263386,7 +263311,7 @@
             "is_soft_fail": false,
             "median_dur": 25.9,
             "p90_dur": 31.8,
-            "avg_dur": 26.5,
+            "avg_dur": 26.6,
             "max_dur": 31.8,
             "median_wait": 0.0,
             "p90_wait": 106.8,
@@ -263839,26 +263764,6 @@
             ]
           },
           {
-            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-            "runs": 7,
-            "passed": 3,
-            "failed": 4,
-            "soft_failed": 0,
-            "fail_rate": 57.1,
-            "is_soft_fail": false,
-            "median_dur": 78.8,
-            "p90_dur": 137.3,
-            "avg_dur": 76.0,
-            "max_dur": 137.3,
-            "median_wait": 4.0,
-            "p90_wait": 19.8,
-            "avg_wait": 7.1,
-            "max_wait": 19.8,
-            "queues": [
-              "b200-k8s"
-            ]
-          },
-          {
             "name": "Basic Models Tests (Extra Initialization) 1",
             "runs": 7,
             "passed": 7,
@@ -263876,6 +263781,26 @@
             "max_wait": 113.0,
             "queues": [
               "h200_35gb"
+            ]
+          },
+          {
+            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
+            "runs": 6,
+            "passed": 3,
+            "failed": 3,
+            "soft_failed": 0,
+            "fail_rate": 50.0,
+            "is_soft_fail": false,
+            "median_dur": 76.4,
+            "p90_dur": 90.5,
+            "avg_dur": 65.7,
+            "max_dur": 90.5,
+            "median_wait": 1.1,
+            "p90_wait": 19.8,
+            "avg_wait": 5.7,
+            "max_wait": 19.8,
+            "queues": [
+              "b200-k8s"
             ]
           },
           {
@@ -264510,9 +264435,9 @@
             "p90_dur": 33.6,
             "avg_dur": 31.0,
             "max_dur": 33.6,
-            "median_wait": 3.4,
+            "median_wait": 2.9,
             "p90_wait": 10.2,
-            "avg_wait": 4.7,
+            "avg_wait": 3.9,
             "max_wait": 10.2,
             "queues": [
               "gpu_1_queue"
@@ -264686,13 +264611,13 @@
             "soft_failed": 0,
             "fail_rate": 42.9,
             "is_soft_fail": false,
-            "median_dur": 27.5,
+            "median_dur": 27.2,
             "p90_dur": 31.1,
             "avg_dur": 26.9,
             "max_dur": 31.1,
-            "median_wait": 2.4,
+            "median_wait": 2.3,
             "p90_wait": 9.8,
-            "avg_wait": 3.4,
+            "avg_wait": 2.9,
             "max_wait": 9.8,
             "queues": [
               "gpu_1_queue"
@@ -264808,7 +264733,7 @@
             "is_soft_fail": false,
             "median_dur": 25.9,
             "p90_dur": 31.8,
-            "avg_dur": 26.5,
+            "avg_dur": 26.6,
             "max_dur": 31.8,
             "median_wait": 0.0,
             "p90_wait": 106.8,
@@ -269590,10 +269515,10 @@
           },
           {
             "queue": "b200-k8s",
-            "jobs": 176,
+            "jobs": 175,
             "median_wait": 0.8,
             "p90_wait": 10.1,
-            "avg_wait": 3.5,
+            "avg_wait": 3.4,
             "max_wait": 10.4
           },
           {
@@ -269836,17 +269761,17 @@
         "builds": [
           {
             "number": 75919,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-07-02T06:00:03.391Z",
             "date": "2026-07-02",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 206.0,
+            "wall_mins": null,
             "passed": 265,
-            "failed": 10,
+            "failed": 9,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 278,
+            "total_jobs": 277,
             "web_url": "https://buildkite.com/vllm/ci/builds/75919",
             "source": "test_results"
           },
@@ -270062,17 +269987,17 @@
         "nightly_builds": [
           {
             "number": 75919,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-07-02T06:00:03.391Z",
             "date": "2026-07-02",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 206.0,
+            "wall_mins": null,
             "passed": 265,
-            "failed": 10,
+            "failed": 9,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 278,
+            "total_jobs": 277,
             "web_url": "https://buildkite.com/vllm/ci/builds/75919",
             "source": "test_results"
           },
@@ -270467,26 +270392,6 @@
             ]
           },
           {
-            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-            "runs": 13,
-            "passed": 8,
-            "failed": 5,
-            "soft_failed": 0,
-            "fail_rate": 38.5,
-            "is_soft_fail": false,
-            "median_dur": 72.3,
-            "p90_dur": 90.5,
-            "avg_dur": 65.1,
-            "max_dur": 137.3,
-            "median_wait": 0.8,
-            "p90_wait": 13.9,
-            "avg_wait": 3.9,
-            "max_wait": 19.8,
-            "queues": [
-              "b200-k8s"
-            ]
-          },
-          {
             "name": "MoE Refactor Integration Test (B200 - TEMPORARY)",
             "runs": 12,
             "passed": 8,
@@ -270502,6 +270407,26 @@
             "p90_wait": 13.7,
             "avg_wait": 4.1,
             "max_wait": 18.8,
+            "queues": [
+              "b200-k8s"
+            ]
+          },
+          {
+            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
+            "runs": 12,
+            "passed": 8,
+            "failed": 4,
+            "soft_failed": 0,
+            "fail_rate": 33.3,
+            "is_soft_fail": false,
+            "median_dur": 71.9,
+            "p90_dur": 79.6,
+            "avg_dur": 59.1,
+            "max_dur": 90.5,
+            "median_wait": 0.8,
+            "p90_wait": 6.8,
+            "avg_wait": 2.9,
+            "max_wait": 19.8,
             "queues": [
               "b200-k8s"
             ]
@@ -270538,9 +270463,9 @@
             "p90_dur": 31.5,
             "avg_dur": 30.3,
             "max_dur": 33.6,
-            "median_wait": 3.0,
+            "median_wait": 2.9,
             "p90_wait": 7.8,
-            "avg_wait": 4.1,
+            "avg_wait": 3.7,
             "max_wait": 10.2,
             "queues": [
               "gpu_1_queue"
@@ -270736,11 +270661,11 @@
             "is_soft_fail": false,
             "median_dur": 24.6,
             "p90_dur": 29.1,
-            "avg_dur": 25.9,
+            "avg_dur": 25.8,
             "max_dur": 31.1,
-            "median_wait": 2.3,
+            "median_wait": 2.2,
             "p90_wait": 5.6,
-            "avg_wait": 3.0,
+            "avg_wait": 2.7,
             "max_wait": 9.8,
             "queues": [
               "gpu_1_queue"
@@ -271194,9 +271119,9 @@
             "soft_failed": 0,
             "fail_rate": 7.7,
             "is_soft_fail": false,
-            "median_dur": 25.2,
+            "median_dur": 25.4,
             "p90_dur": 28.3,
-            "avg_dur": 25.8,
+            "avg_dur": 25.9,
             "max_dur": 31.8,
             "median_wait": 0.0,
             "p90_wait": 36.8,
@@ -271750,19 +271675,19 @@
           },
           {
             "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-            "runs": 13,
+            "runs": 12,
             "passed": 8,
-            "failed": 5,
+            "failed": 4,
             "soft_failed": 0,
-            "fail_rate": 38.5,
+            "fail_rate": 33.3,
             "is_soft_fail": false,
-            "median_dur": 72.3,
-            "p90_dur": 90.5,
-            "avg_dur": 65.1,
-            "max_dur": 137.3,
+            "median_dur": 71.9,
+            "p90_dur": 79.6,
+            "avg_dur": 59.1,
+            "max_dur": 90.5,
             "median_wait": 0.8,
-            "p90_wait": 13.9,
-            "avg_wait": 3.9,
+            "p90_wait": 6.8,
+            "avg_wait": 2.9,
             "max_wait": 19.8,
             "queues": [
               "b200-k8s"
@@ -272480,9 +272405,9 @@
             "p90_dur": 31.5,
             "avg_dur": 30.3,
             "max_dur": 33.6,
-            "median_wait": 3.0,
+            "median_wait": 2.9,
             "p90_wait": 7.8,
-            "avg_wait": 4.1,
+            "avg_wait": 3.7,
             "max_wait": 10.2,
             "queues": [
               "gpu_1_queue"
@@ -272716,9 +272641,9 @@
             "soft_failed": 0,
             "fail_rate": 7.7,
             "is_soft_fail": false,
-            "median_dur": 25.2,
+            "median_dur": 25.4,
             "p90_dur": 28.3,
-            "avg_dur": 25.8,
+            "avg_dur": 25.9,
             "max_dur": 31.8,
             "median_wait": 0.0,
             "p90_wait": 36.8,
@@ -272798,11 +272723,11 @@
             "is_soft_fail": false,
             "median_dur": 24.6,
             "p90_dur": 29.1,
-            "avg_dur": 25.9,
+            "avg_dur": 25.8,
             "max_dur": 31.1,
-            "median_wait": 2.3,
+            "median_wait": 2.2,
             "p90_wait": 5.6,
-            "avg_wait": 3.0,
+            "avg_wait": 2.7,
             "max_wait": 9.8,
             "queues": [
               "gpu_1_queue"
@@ -277868,7 +277793,7 @@
           },
           {
             "queue": "b200-k8s",
-            "jobs": 333,
+            "jobs": 332,
             "median_wait": 0.8,
             "p90_wait": 1.1,
             "avg_wait": 0.9,
@@ -278202,17 +278127,17 @@
         "builds": [
           {
             "number": 75919,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-07-02T06:00:03.391Z",
             "date": "2026-07-02",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 206.0,
+            "wall_mins": null,
             "passed": 265,
-            "failed": 10,
+            "failed": 9,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 278,
+            "total_jobs": 277,
             "web_url": "https://buildkite.com/vllm/ci/builds/75919",
             "source": "test_results"
           },
@@ -278684,17 +278609,17 @@
         "nightly_builds": [
           {
             "number": 75919,
-            "state": "failed",
+            "state": "failing",
             "created_at": "2026-07-02T06:00:03.391Z",
             "date": "2026-07-02",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": 206.0,
+            "wall_mins": null,
             "passed": 265,
-            "failed": 10,
+            "failed": 9,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 278,
+            "total_jobs": 277,
             "web_url": "https://buildkite.com/vllm/ci/builds/75919",
             "source": "test_results"
           },
@@ -279436,9 +279361,9 @@
             "p90_dur": 31.5,
             "avg_dur": 28.9,
             "max_dur": 33.6,
-            "median_wait": 3.4,
+            "median_wait": 3.2,
             "p90_wait": 6.6,
-            "avg_wait": 3.9,
+            "avg_wait": 3.7,
             "max_wait": 10.2,
             "queues": [
               "gpu_1_queue"
@@ -279482,26 +279407,6 @@
             "max_wait": 67.4,
             "queues": [
               "mithril-h100-pool"
-            ]
-          },
-          {
-            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-            "runs": 29,
-            "passed": 22,
-            "failed": 7,
-            "soft_failed": 0,
-            "fail_rate": 24.1,
-            "is_soft_fail": false,
-            "median_dur": 34.3,
-            "p90_dur": 79.6,
-            "avg_dur": 45.7,
-            "max_dur": 137.3,
-            "median_wait": 0.9,
-            "p90_wait": 6.8,
-            "avg_wait": 2.8,
-            "max_wait": 19.8,
-            "queues": [
-              "b200-k8s"
             ]
           },
           {
@@ -279562,6 +279467,26 @@
             "max_wait": 72.6,
             "queues": [
               "mithril-h100-pool"
+            ]
+          },
+          {
+            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
+            "runs": 28,
+            "passed": 22,
+            "failed": 6,
+            "soft_failed": 0,
+            "fail_rate": 21.4,
+            "is_soft_fail": false,
+            "median_dur": 34.2,
+            "p90_dur": 78.8,
+            "avg_dur": 42.5,
+            "max_dur": 90.5,
+            "median_wait": 0.8,
+            "p90_wait": 5.9,
+            "avg_wait": 2.3,
+            "max_wait": 19.8,
+            "queues": [
+              "b200-k8s"
             ]
           },
           {
@@ -279918,7 +279843,7 @@
             "max_dur": 31.1,
             "median_wait": 2.4,
             "p90_wait": 4.3,
-            "avg_wait": 2.8,
+            "avg_wait": 2.7,
             "max_wait": 9.8,
             "queues": [
               "gpu_1_queue"
@@ -280232,7 +280157,7 @@
             "soft_failed": 0,
             "fail_rate": 6.9,
             "is_soft_fail": false,
-            "median_dur": 25.0,
+            "median_dur": 25.2,
             "p90_dur": 27.7,
             "avg_dur": 25.2,
             "max_dur": 31.8,
@@ -281887,26 +281812,6 @@
             ]
           },
           {
-            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-            "runs": 29,
-            "passed": 22,
-            "failed": 7,
-            "soft_failed": 0,
-            "fail_rate": 24.1,
-            "is_soft_fail": false,
-            "median_dur": 34.3,
-            "p90_dur": 79.6,
-            "avg_dur": 45.7,
-            "max_dur": 137.3,
-            "median_wait": 0.9,
-            "p90_wait": 6.8,
-            "avg_wait": 2.8,
-            "max_wait": 19.8,
-            "queues": [
-              "b200-k8s"
-            ]
-          },
-          {
             "name": "AMD: Entrypoints Integration (API Server OpenAI - Part 1) (mi300_1)",
             "runs": 1,
             "passed": 1,
@@ -281924,6 +281829,26 @@
             "max_wait": 0.1,
             "queues": [
               "amd_mi300_1"
+            ]
+          },
+          {
+            "name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
+            "runs": 28,
+            "passed": 22,
+            "failed": 6,
+            "soft_failed": 0,
+            "fail_rate": 21.4,
+            "is_soft_fail": false,
+            "median_dur": 34.2,
+            "p90_dur": 78.8,
+            "avg_dur": 42.5,
+            "max_dur": 90.5,
+            "median_wait": 0.8,
+            "p90_wait": 5.9,
+            "avg_wait": 2.3,
+            "max_wait": 19.8,
+            "queues": [
+              "b200-k8s"
             ]
           },
           {
@@ -282258,9 +282183,9 @@
             "p90_dur": 31.5,
             "avg_dur": 28.9,
             "max_dur": 33.6,
-            "median_wait": 3.4,
+            "median_wait": 3.2,
             "p90_wait": 6.6,
-            "avg_wait": 3.9,
+            "avg_wait": 3.7,
             "max_wait": 10.2,
             "queues": [
               "gpu_1_queue"
@@ -282527,6 +282452,26 @@
             ]
           },
           {
+            "name": "Entrypoints Integration (Speech to Text)",
+            "runs": 29,
+            "passed": 27,
+            "failed": 2,
+            "soft_failed": 0,
+            "fail_rate": 6.9,
+            "is_soft_fail": false,
+            "median_dur": 25.2,
+            "p90_dur": 27.7,
+            "avg_dur": 25.2,
+            "max_dur": 31.8,
+            "median_wait": 0.0,
+            "p90_wait": 55.1,
+            "avg_wait": 9.4,
+            "max_wait": 106.8,
+            "queues": [
+              "h200_35gb"
+            ]
+          },
+          {
             "name": "Language Models Test (MTEB)",
             "runs": 29,
             "passed": 28,
@@ -282544,26 +282489,6 @@
             "max_wait": 7.0,
             "queues": [
               "h200_18gb"
-            ]
-          },
-          {
-            "name": "Entrypoints Integration (Speech to Text)",
-            "runs": 29,
-            "passed": 27,
-            "failed": 2,
-            "soft_failed": 0,
-            "fail_rate": 6.9,
-            "is_soft_fail": false,
-            "median_dur": 25.0,
-            "p90_dur": 27.7,
-            "avg_dur": 25.2,
-            "max_dur": 31.8,
-            "median_wait": 0.0,
-            "p90_wait": 55.1,
-            "avg_wait": 9.4,
-            "max_wait": 106.8,
-            "queues": [
-              "h200_35gb"
             ]
           },
           {
@@ -282660,7 +282585,7 @@
             "max_dur": 31.1,
             "median_wait": 2.4,
             "p90_wait": 4.3,
-            "avg_wait": 2.8,
+            "avg_wait": 2.7,
             "max_wait": 9.8,
             "queues": [
               "gpu_1_queue"
@@ -288098,10 +288023,10 @@
           },
           {
             "queue": "b200-k8s",
-            "jobs": 717,
+            "jobs": 716,
             "median_wait": 0.8,
             "p90_wait": 2.0,
-            "avg_wait": 1.1,
+            "avg_wait": 1.0,
             "max_wait": 8.8
           },
           {

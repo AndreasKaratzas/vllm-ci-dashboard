@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-02T18:12:57Z",
+  "generated_at": "2026-07-02T20:00:33Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -23,15 +23,15 @@
     "upstream_build": 75919,
     "amd_ci_build": 10399,
     "canonical_target_count": 125,
-    "row_count": 220,
+    "row_count": 219,
     "canonical_match_count": 107,
     "likely_duplicate_count": 18,
     "new_candidate_count": 46,
-    "excluded_count": 39,
+    "excluded_count": 38,
     "missing_from_upstream_count": 10,
     "by_decision": {
       "canonical": 107,
-      "excluded": 39,
+      "excluded": 38,
       "likely_duplicate": 18,
       "missing_from_upstream": 10,
       "new_candidate": 46
@@ -468,7 +468,7 @@
       "canonical_key": "engine (1 gpu)",
       "state": "failed",
       "queue": "gpu_1_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d227-44d0-8800-8c2d7b234ac6&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f243e-3b75-4872-bcf9-2dea256aba63&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 104,
@@ -623,7 +623,7 @@
       "canonical_key": "entrypoints integration (speech to text)",
       "state": "failed",
       "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d238-4a65-a0c7-66218b67bf53&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f243e-447d-4938-8c50-a67332e960e5&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 15,
@@ -1133,7 +1133,7 @@
       "canonical_key": "multi-modal models (extended generation 1)",
       "state": "failed",
       "queue": "gpu_1_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d306-4ebc-a018-075f6a8185fb&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f243e-65d7-456e-822e-c2954c70c547&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 120,
@@ -3296,18 +3296,6 @@
       "state": "passed",
       "queue": "b200-k8s",
       "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d2ca-45c3-92c4-26de7f736e20&tab=output",
-      "exclusion_reasons": [
-        "temporary",
-        "moe_refactor_temporary"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-      "canonical_key": "moe refactor integration test (b200 dp - temporary)",
-      "state": "failed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/75919/steps/canvas?jid=019f216a-d2cb-447d-a7d6-328ff15cc925&tab=output",
       "exclusion_reasons": [
         "temporary",
         "moe_refactor_temporary"
