@@ -1,6 +1,6 @@
 # Weekly Digest
 
-Week of 2026-06-25 to 2026-07-02
+Week of 2026-06-26 to 2026-07-03
 
 ## New Releases
 
