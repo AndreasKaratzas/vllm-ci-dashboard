@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-03T00:28:51Z",
+  "generated_at": "2026-07-03T04:39:38Z",
   "source": {
     "yaml_url": "https://raw.githubusercontent.com/vllm-project/vllm/refs/heads/main/.buildkite/test-amd.yaml",
     "latest_build_number": 10399,
@@ -8,29 +8,29 @@
     "latest_build_message": "AMD Full CI Run - nightly"
   },
   "summary": {
-    "unique_groups": 138,
+    "unique_groups": 140,
     "architecture_count": 4,
-    "hardware_cells": 168,
+    "hardware_cells": 170,
     "latest_matched_cells": 168,
     "passing_cells": 133,
     "failing_cells": 35,
     "waiting_cells": 0,
-    "unknown_cells": 0,
+    "unknown_cells": 2,
     "fully_shared_groups": 0,
-    "single_arch_groups": 109,
+    "single_arch_groups": 111,
     "multi_variant_cells": 0
   },
   "architectures": [
     {
       "id": "mi250",
       "label": "MI250",
-      "group_count": 17,
+      "group_count": 18,
       "nightly_match_count": 17
     },
     {
       "id": "mi300",
       "label": "MI300",
-      "group_count": 103,
+      "group_count": 104,
       "nightly_match_count": 103
     },
     {
@@ -1393,10 +1393,76 @@
       "signature": "MI250"
     },
     {
+      "title": "Docker Build Metadata (ROCm)",
+      "canonical_title": "Docker Build Metadata (ROCm)",
+      "area": "Other",
+      "yaml_order": 17,
+      "cells": {
+        "mi250": {
+          "exists": true,
+          "optional": false,
+          "variant_count": 1,
+          "variants": [
+            {
+              "label": "Docker Build Metadata (ROCm)",
+              "agent_pool": "mi250_1",
+              "optional": false,
+              "parallelism": 1,
+              "latest_matched": false,
+              "latest_match_count": 0,
+              "latest_state": null,
+              "latest_url": null,
+              "aliases": [
+                "Docker Build Metadata (ROCm)"
+              ],
+              "raw_variant_count": 1,
+              "entries": [
+                {
+                  "label": "Docker Build Metadata (ROCm)",
+                  "agent_pool": "mi250_1",
+                  "optional": false,
+                  "parallelism": 1,
+                  "latest_matched": false,
+                  "latest_match_count": 0,
+                  "latest_state": null,
+                  "latest_url": null,
+                  "aliases": [
+                    "Docker Build Metadata (ROCm)"
+                  ],
+                  "raw_variant_count": 1
+                }
+              ]
+            }
+          ],
+          "latest_matched": false,
+          "latest_state": null,
+          "latest_build_number": 10399,
+          "primary_label": "Docker Build Metadata (ROCm)",
+          "raw_variant_count": 1,
+          "latest_url": null
+        },
+        "mi300": {
+          "exists": false
+        },
+        "mi325": {
+          "exists": false
+        },
+        "mi355": {
+          "exists": false
+        }
+      },
+      "coverage_count": 1,
+      "nightly_coverage_count": 0,
+      "architectures_present": [
+        "mi250"
+      ],
+      "signature": "MI250"
+    },
+    {
       "title": "Basic Correctness",
       "canonical_title": "Basic Correctness",
       "area": "Other",
-      "yaml_order": 17,
+      "yaml_order": 18,
       "cells": {
         "mi250": {
           "exists": false
@@ -1462,7 +1528,7 @@
       "title": "Distributed Model Tests (2 GPUs)",
       "canonical_title": "Distributed Model Tests (2 GPUs)",
       "area": "Distributed",
-      "yaml_order": 18,
+      "yaml_order": 19,
       "cells": {
         "mi250": {
           "exists": false
@@ -1528,7 +1594,7 @@
       "title": "Benchmarks CLI Test",
       "canonical_title": "Benchmarks CLI Test",
       "area": "Benchmarks",
-      "yaml_order": 19,
+      "yaml_order": 20,
       "cells": {
         "mi250": {
           "exists": false
@@ -1594,7 +1660,7 @@
       "title": "PyTorch Compilation Unit Tests",
       "canonical_title": "PyTorch Compilation Unit Tests",
       "area": "Compile",
-      "yaml_order": 20,
+      "yaml_order": 21,
       "cells": {
         "mi250": {
           "exists": false
@@ -1660,7 +1726,7 @@
       "title": "Fusion E2E Config Sweep",
       "canonical_title": "Fusion E2E Config Sweep",
       "area": "Other",
-      "yaml_order": 21,
+      "yaml_order": 22,
       "cells": {
         "mi250": {
           "exists": false
@@ -1726,7 +1792,7 @@
       "title": "Fusion E2E Quick",
       "canonical_title": "Fusion E2E Quick",
       "area": "Other",
-      "yaml_order": 22,
+      "yaml_order": 23,
       "cells": {
         "mi250": {
           "exists": false
@@ -1792,7 +1858,7 @@
       "title": "PyTorch Compilation Passes Unit Tests",
       "canonical_title": "PyTorch Compilation Passes Unit Tests",
       "area": "Compile",
-      "yaml_order": 23,
+      "yaml_order": 24,
       "cells": {
         "mi250": {
           "exists": false
@@ -1858,7 +1924,7 @@
       "title": "PyTorch Fullgraph",
       "canonical_title": "PyTorch Fullgraph",
       "area": "Compile",
-      "yaml_order": 24,
+      "yaml_order": 25,
       "cells": {
         "mi250": {
           "exists": false
@@ -1924,7 +1990,7 @@
       "title": "Pytorch Nightly Dependency Override Check",
       "canonical_title": "Pytorch Nightly Dependency Override Check",
       "area": "Other",
-      "yaml_order": 25,
+      "yaml_order": 26,
       "cells": {
         "mi250": {
           "exists": false
@@ -1990,7 +2056,7 @@
       "title": "Distributed Compile Unit Tests (2xH100-2xMI)",
       "canonical_title": "Distributed Compile Unit Tests (2xH100-2xMI)",
       "area": "Distributed",
-      "yaml_order": 26,
+      "yaml_order": 27,
       "cells": {
         "mi250": {
           "exists": false
@@ -2056,7 +2122,7 @@
       "title": "Platform Tests",
       "canonical_title": "Platform Tests",
       "area": "Other",
-      "yaml_order": 27,
+      "yaml_order": 28,
       "cells": {
         "mi250": {
           "exists": false
@@ -2122,7 +2188,7 @@
       "title": "Async Engine, Inputs, Utils, Worker",
       "canonical_title": "Async Engine, Inputs, Utils, Worker",
       "area": "Engine",
-      "yaml_order": 28,
+      "yaml_order": 29,
       "cells": {
         "mi250": {
           "exists": false
@@ -2188,7 +2254,7 @@
       "title": "Distributed Comm Ops",
       "canonical_title": "Distributed Comm Ops",
       "area": "Distributed",
-      "yaml_order": 29,
+      "yaml_order": 30,
       "cells": {
         "mi250": {
           "exists": false
@@ -2254,7 +2320,7 @@
       "title": "EPLB Algorithm",
       "canonical_title": "EPLB Algorithm",
       "area": "Distributed",
-      "yaml_order": 30,
+      "yaml_order": 31,
       "cells": {
         "mi250": {
           "exists": false
@@ -2320,7 +2386,7 @@
       "title": "EPLB Execution",
       "canonical_title": "EPLB Execution",
       "area": "Distributed",
-      "yaml_order": 31,
+      "yaml_order": 32,
       "cells": {
         "mi250": {
           "exists": false
@@ -2386,7 +2452,7 @@
       "title": "Distributed Tests (2xH100-2xMI300)",
       "canonical_title": "Distributed Tests (2xH100-2xMI)",
       "area": "Distributed",
-      "yaml_order": 32,
+      "yaml_order": 33,
       "cells": {
         "mi250": {
           "exists": false
@@ -2452,7 +2518,7 @@
       "title": "Distributed Tests (4xA100-4xMI)",
       "canonical_title": "Distributed Tests (4xA100-4xMI)",
       "area": "Distributed",
-      "yaml_order": 33,
+      "yaml_order": 34,
       "cells": {
         "mi250": {
           "exists": false
@@ -2518,7 +2584,7 @@
       "title": "Distributed Torchrun + Examples (4 GPUs)",
       "canonical_title": "Distributed Torchrun + Examples (4 GPUs)",
       "area": "Distributed",
-      "yaml_order": 34,
+      "yaml_order": 35,
       "cells": {
         "mi250": {
           "exists": false
@@ -2584,7 +2650,7 @@
       "title": "Elastic EP Scaling Test",
       "canonical_title": "Elastic EP Scaling Test",
       "area": "Distributed",
-      "yaml_order": 35,
+      "yaml_order": 36,
       "cells": {
         "mi250": {
           "exists": false
@@ -2650,7 +2716,7 @@
       "title": "RayExecutorV2 (4 GPUs)",
       "canonical_title": "RayExecutorV2 (4 GPUs)",
       "area": "Other",
-      "yaml_order": 36,
+      "yaml_order": 37,
       "cells": {
         "mi250": {
           "exists": false
@@ -2716,7 +2782,7 @@
       "title": "Distributed Tests (8xH100-8xMI)",
       "canonical_title": "Distributed Tests (8xH100-8xMI)",
       "area": "Distributed",
-      "yaml_order": 37,
+      "yaml_order": 38,
       "cells": {
         "mi250": {
           "exists": false
@@ -2782,7 +2848,7 @@
       "title": "Entrypoints Unit Tests",
       "canonical_title": "Entrypoints Unit Tests",
       "area": "Entrypoints",
-      "yaml_order": 38,
+      "yaml_order": 39,
       "cells": {
         "mi250": {
           "exists": false
@@ -2848,7 +2914,7 @@
       "title": "Entrypoints Integration (LLM)",
       "canonical_title": "Entrypoints Integration (LLM)",
       "area": "Entrypoints",
-      "yaml_order": 39,
+      "yaml_order": 40,
       "cells": {
         "mi250": {
           "exists": false
@@ -2914,7 +2980,7 @@
       "title": "Entrypoints Integration (API Server)",
       "canonical_title": "Entrypoints Integration (API Server)",
       "area": "Entrypoints",
-      "yaml_order": 40,
+      "yaml_order": 41,
       "cells": {
         "mi250": {
           "exists": false
@@ -3021,7 +3087,7 @@
       "title": "Entrypoints Integration (API Server OpenAI - Part 1)",
       "canonical_title": "Entrypoints Integration (API Server OpenAI - Part 1)",
       "area": "Entrypoints",
-      "yaml_order": 41,
+      "yaml_order": 42,
       "cells": {
         "mi250": {
           "exists": false
@@ -3087,7 +3153,7 @@
       "title": "Entrypoints Integration (API Server OpenAI - Part 2)",
       "canonical_title": "Entrypoints Integration (API Server OpenAI - Part 2)",
       "area": "Entrypoints",
-      "yaml_order": 42,
+      "yaml_order": 43,
       "cells": {
         "mi250": {
           "exists": false
@@ -3194,7 +3260,7 @@
       "title": "Entrypoints Integration (API Server Generate)",
       "canonical_title": "Entrypoints Integration (API Server Generate)",
       "area": "Entrypoints",
-      "yaml_order": 43,
+      "yaml_order": 44,
       "cells": {
         "mi250": {
           "exists": false
@@ -3301,7 +3367,7 @@
       "title": "Entrypoints Integration (Responses API)",
       "canonical_title": "Entrypoints Integration (Responses API)",
       "area": "Entrypoints",
-      "yaml_order": 44,
+      "yaml_order": 45,
       "cells": {
         "mi250": {
           "exists": false
@@ -3367,7 +3433,7 @@
       "title": "Entrypoints Integration (Speech to Text)",
       "canonical_title": "Entrypoints Integration (Speech to Text)",
       "area": "Entrypoints",
-      "yaml_order": 45,
+      "yaml_order": 46,
       "cells": {
         "mi250": {
           "exists": false
@@ -3474,7 +3540,7 @@
       "title": "Entrypoints Integration (Multimodal)",
       "canonical_title": "Entrypoints Integration (Multimodal)",
       "area": "Entrypoints",
-      "yaml_order": 46,
+      "yaml_order": 47,
       "cells": {
         "mi250": {
           "exists": false
@@ -3581,7 +3647,7 @@
       "title": "Entrypoints Integration (Pooling)",
       "canonical_title": "Entrypoints Integration (Pooling)",
       "area": "Entrypoints",
-      "yaml_order": 47,
+      "yaml_order": 48,
       "cells": {
         "mi250": {
           "exists": false
@@ -3688,7 +3754,7 @@
       "title": "OpenAI API correctness",
       "canonical_title": "OpenAI API correctness",
       "area": "Entrypoints",
-      "yaml_order": 48,
+      "yaml_order": 49,
       "cells": {
         "mi250": {
           "exists": false
@@ -3754,7 +3820,7 @@
       "title": "DeepSeek V2-Lite Prefetch Offload Accuracy",
       "canonical_title": "DeepSeek V2-Lite Prefetch Offload Accuracy",
       "area": "Other",
-      "yaml_order": 49,
+      "yaml_order": 50,
       "cells": {
         "mi250": {
           "exists": false
@@ -3820,7 +3886,7 @@
       "title": "LM Eval Small Models",
       "canonical_title": "LM Eval Small Models",
       "area": "Evaluations",
-      "yaml_order": 50,
+      "yaml_order": 51,
       "cells": {
         "mi250": {
           "exists": false
@@ -3886,7 +3952,7 @@
       "title": "LM Eval Small Models (MI300)",
       "canonical_title": "LM Eval Small Models",
       "area": "Evaluations",
-      "yaml_order": 51,
+      "yaml_order": 52,
       "cells": {
         "mi250": {
           "exists": false
@@ -3952,7 +4018,7 @@
       "title": "Multi-Modal Accuracy Eval (Small Models)",
       "canonical_title": "Multi-Modal Accuracy Eval (Small Models)",
       "area": "Multi-Modal",
-      "yaml_order": 52,
+      "yaml_order": 53,
       "cells": {
         "mi250": {
           "exists": false
@@ -4018,7 +4084,7 @@
       "title": "GPQA Eval (GPT-OSS) (2xH100-2xMI)",
       "canonical_title": "GPQA Eval (GPT-OSS) (2xH100-2xMI)",
       "area": "Evaluations",
-      "yaml_order": 53,
+      "yaml_order": 54,
       "cells": {
         "mi250": {
           "exists": false
@@ -4084,7 +4150,7 @@
       "title": "LM Eval Small Models (2xB200-2xMI)",
       "canonical_title": "LM Eval Small Models (2xB200-2xMI)",
       "area": "Evaluations",
-      "yaml_order": 54,
+      "yaml_order": 55,
       "cells": {
         "mi250": {
           "exists": false
@@ -4191,7 +4257,7 @@
       "title": "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100-4xMI)",
       "canonical_title": "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100-4xMI)",
       "area": "Distributed",
-      "yaml_order": 55,
+      "yaml_order": 56,
       "cells": {
         "mi250": {
           "exists": false
@@ -4257,7 +4323,7 @@
       "title": "LM Eval Large Models (4xA100-4xMI)",
       "canonical_title": "LM Eval Large Models (4xA100-4xMI)",
       "area": "Evaluations",
-      "yaml_order": 56,
+      "yaml_order": 57,
       "cells": {
         "mi250": {
           "exists": false
@@ -4323,7 +4389,7 @@
       "title": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100-4xMI)",
       "canonical_title": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100-4xMI)",
       "area": "Distributed",
-      "yaml_order": 57,
+      "yaml_order": 58,
       "cells": {
         "mi250": {
           "exists": false
@@ -4386,10 +4452,76 @@
       "signature": "MI300"
     },
     {
+      "title": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy (4xH100-4xMI)",
+      "canonical_title": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy (4xH100-4xMI)",
+      "area": "Distributed",
+      "yaml_order": 59,
+      "cells": {
+        "mi250": {
+          "exists": false
+        },
+        "mi300": {
+          "exists": true,
+          "optional": true,
+          "variant_count": 1,
+          "variants": [
+            {
+              "label": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy (4xH100-4xMI300)",
+              "agent_pool": "mi300_4",
+              "optional": true,
+              "parallelism": 1,
+              "latest_matched": false,
+              "latest_match_count": 0,
+              "latest_state": null,
+              "latest_url": null,
+              "aliases": [
+                "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy (4xH100-4xMI300)"
+              ],
+              "raw_variant_count": 1,
+              "entries": [
+                {
+                  "label": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy (4xH100-4xMI300)",
+                  "agent_pool": "mi300_4",
+                  "optional": true,
+                  "parallelism": 1,
+                  "latest_matched": false,
+                  "latest_match_count": 0,
+                  "latest_state": null,
+                  "latest_url": null,
+                  "aliases": [
+                    "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy (4xH100-4xMI300)"
+                  ],
+                  "raw_variant_count": 1
+                }
+              ]
+            }
+          ],
+          "latest_matched": false,
+          "latest_state": null,
+          "latest_build_number": 10399,
+          "primary_label": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy (4xH100-4xMI300)",
+          "raw_variant_count": 1,
+          "latest_url": null
+        },
+        "mi325": {
+          "exists": false
+        },
+        "mi355": {
+          "exists": false
+        }
+      },
+      "coverage_count": 1,
+      "nightly_coverage_count": 0,
+      "architectures_present": [
+        "mi300"
+      ],
+      "signature": "MI300"
+    },
+    {
       "title": "Qwen3-Next-80B-A3B-Instruct MTP Async EPLB Accuracy",
       "canonical_title": "Qwen3-Next-80B-A3B-Instruct MTP Async EPLB Accuracy",
       "area": "Distributed",
-      "yaml_order": 58,
+      "yaml_order": 60,
       "cells": {
         "mi250": {
           "exists": false
@@ -4455,7 +4587,7 @@
       "title": "LM Eval Large Models (8xH200-8xMI)",
       "canonical_title": "LM Eval Large Models (8xH200-8xMI)",
       "area": "Evaluations",
-      "yaml_order": 59,
+      "yaml_order": 61,
       "cells": {
         "mi250": {
           "exists": false
@@ -4521,7 +4653,7 @@
       "title": "ROCm LM Eval Large Models (8 GPUs)",
       "canonical_title": "ROCm LM Eval Large Models (8 GPUs)",
       "area": "Evaluations",
-      "yaml_order": 60,
+      "yaml_order": 62,
       "cells": {
         "mi250": {
           "exists": false
@@ -4587,7 +4719,7 @@
       "title": "Examples",
       "canonical_title": "Examples",
       "area": "Examples",
-      "yaml_order": 61,
+      "yaml_order": 63,
       "cells": {
         "mi250": {
           "exists": false
@@ -4694,7 +4826,7 @@
       "title": "Kernels Attention Test",
       "canonical_title": "Kernels Attention Test",
       "area": "Kernels",
-      "yaml_order": 62,
+      "yaml_order": 64,
       "cells": {
         "mi250": {
           "exists": false
@@ -4801,7 +4933,7 @@
       "title": "Kernels Core Operation Test",
       "canonical_title": "Kernels Core Operation Test",
       "area": "Kernels",
-      "yaml_order": 63,
+      "yaml_order": 65,
       "cells": {
         "mi250": {
           "exists": false
@@ -4867,7 +4999,7 @@
       "title": "Kernels MoE Test",
       "canonical_title": "Kernels MoE Test",
       "area": "Kernels",
-      "yaml_order": 64,
+      "yaml_order": 66,
       "cells": {
         "mi250": {
           "exists": false
@@ -4974,7 +5106,7 @@
       "title": "Kernels Quantization Test",
       "canonical_title": "Kernels Quantization Test",
       "area": "Kernels",
-      "yaml_order": 65,
+      "yaml_order": 67,
       "cells": {
         "mi250": {
           "exists": false
@@ -5081,7 +5213,7 @@
       "title": "Kernels FP8 MoE Test (2xH100-2xMI)",
       "canonical_title": "Kernels FP8 MoE Test (2xH100-2xMI)",
       "area": "Kernels",
-      "yaml_order": 66,
+      "yaml_order": 68,
       "cells": {
         "mi250": {
           "exists": false
@@ -5188,7 +5320,7 @@
       "title": "LoRA",
       "canonical_title": "LoRA",
       "area": "LoRA",
-      "yaml_order": 67,
+      "yaml_order": 69,
       "cells": {
         "mi250": {
           "exists": false
@@ -5254,7 +5386,7 @@
       "title": "LoRA TP (Distributed)",
       "canonical_title": "LoRA TP (Distributed)",
       "area": "Distributed",
-      "yaml_order": 68,
+      "yaml_order": 70,
       "cells": {
         "mi250": {
           "exists": false
@@ -5320,7 +5452,7 @@
       "title": "Model Executor",
       "canonical_title": "Model Executor",
       "area": "Other",
-      "yaml_order": 69,
+      "yaml_order": 71,
       "cells": {
         "mi250": {
           "exists": false
@@ -5386,7 +5518,7 @@
       "title": "Basic Models Tests (Extra Initialization)",
       "canonical_title": "Basic Models Tests (Extra Initialization)",
       "area": "Models",
-      "yaml_order": 70,
+      "yaml_order": 72,
       "cells": {
         "mi250": {
           "exists": false
@@ -5452,7 +5584,7 @@
       "title": "Basic Models Tests (Initialization)",
       "canonical_title": "Basic Models Tests (Initialization)",
       "area": "Models",
-      "yaml_order": 71,
+      "yaml_order": 73,
       "cells": {
         "mi250": {
           "exists": false
@@ -5518,7 +5650,7 @@
       "title": "Basic Models Tests (Other)",
       "canonical_title": "Basic Models Tests (Other)",
       "area": "Models",
-      "yaml_order": 72,
+      "yaml_order": 74,
       "cells": {
         "mi250": {
           "exists": false
@@ -5584,7 +5716,7 @@
       "title": "Language Models Test (Extended Pooling)",
       "canonical_title": "Language Models Test (Extended Pooling)",
       "area": "Models",
-      "yaml_order": 73,
+      "yaml_order": 75,
       "cells": {
         "mi250": {
           "exists": false
@@ -5691,7 +5823,7 @@
       "title": "Language Models Tests (Standard)",
       "canonical_title": "Language Models Tests (Standard)",
       "area": "Models",
-      "yaml_order": 74,
+      "yaml_order": 76,
       "cells": {
         "mi250": {
           "exists": false
@@ -5798,7 +5930,7 @@
       "title": "Language Models Tests (Extra Standard)",
       "canonical_title": "Language Models Tests (Extra Standard)",
       "area": "Models",
-      "yaml_order": 75,
+      "yaml_order": 77,
       "cells": {
         "mi250": {
           "exists": false
@@ -5864,7 +5996,7 @@
       "title": "Multi-Modal Models (Extended Generation 1)",
       "canonical_title": "Multi-Modal Models (Extended Generation 1)",
       "area": "Multi-Modal",
-      "yaml_order": 76,
+      "yaml_order": 78,
       "cells": {
         "mi250": {
           "exists": false
@@ -5971,7 +6103,7 @@
       "title": "Multi-Modal Models (Extended Generation 2)",
       "canonical_title": "Multi-Modal Models (Extended Generation 2)",
       "area": "Multi-Modal",
-      "yaml_order": 77,
+      "yaml_order": 79,
       "cells": {
         "mi250": {
           "exists": false
@@ -6037,7 +6169,7 @@
       "title": "Multi-Modal Models (Extended Generation 3)",
       "canonical_title": "Multi-Modal Models (Extended Generation 3)",
       "area": "Multi-Modal",
-      "yaml_order": 78,
+      "yaml_order": 80,
       "cells": {
         "mi250": {
           "exists": false
@@ -6144,7 +6276,7 @@
       "title": "Multi-Modal Models (Standard) 1: qwen2",
       "canonical_title": "Multi-Modal Models (Standard) 1: qwen2",
       "area": "Multi-Modal",
-      "yaml_order": 79,
+      "yaml_order": 81,
       "cells": {
         "mi250": {
           "exists": false
@@ -6251,7 +6383,7 @@
       "title": "Multi-Modal Models (Standard) 3: llava + qwen2_vl",
       "canonical_title": "Multi-Modal Models (Standard) 3: llava + qwen2_vl",
       "area": "Multi-Modal",
-      "yaml_order": 80,
+      "yaml_order": 82,
       "cells": {
         "mi250": {
           "exists": false
@@ -6317,7 +6449,7 @@
       "title": "Multi-Modal Models (Standard) 4: other + whisper",
       "canonical_title": "Multi-Modal Models (Standard) 4: other + whisper",
       "area": "Multi-Modal",
-      "yaml_order": 81,
+      "yaml_order": 83,
       "cells": {
         "mi250": {
           "exists": false
@@ -6383,7 +6515,7 @@
       "title": "Multi-Modal Processor",
       "canonical_title": "Multi-Modal Processor",
       "area": "Multi-Modal",
-      "yaml_order": 82,
+      "yaml_order": 84,
       "cells": {
         "mi250": {
           "exists": false
@@ -6449,7 +6581,7 @@
       "title": "Multi-Modal Processor (CPU)",
       "canonical_title": "Multi-Modal Processor (CPU)",
       "area": "Multi-Modal",
-      "yaml_order": 83,
+      "yaml_order": 85,
       "cells": {
         "mi250": {
           "exists": false
@@ -6515,7 +6647,7 @@
       "title": "Quantized Models Test",
       "canonical_title": "Quantized Models Test",
       "area": "Models",
-      "yaml_order": 84,
+      "yaml_order": 86,
       "cells": {
         "mi250": {
           "exists": false
@@ -6581,7 +6713,7 @@
       "title": "Transformers Nightly Models (Shardable)",
       "canonical_title": "Transformers Nightly Models (Shardable)",
       "area": "Other",
-      "yaml_order": 85,
+      "yaml_order": 87,
       "cells": {
         "mi250": {
           "exists": false
@@ -6647,7 +6779,7 @@
       "title": "Transformers Nightly Models (Single)",
       "canonical_title": "Transformers Nightly Models (Single)",
       "area": "Other",
-      "yaml_order": 86,
+      "yaml_order": 88,
       "cells": {
         "mi250": {
           "exists": false
@@ -6713,7 +6845,7 @@
       "title": "Plugin Tests (2 GPUs)",
       "canonical_title": "Plugin Tests (2 GPUs)",
       "area": "Other",
-      "yaml_order": 87,
+      "yaml_order": 89,
       "cells": {
         "mi250": {
           "exists": false
@@ -6779,7 +6911,7 @@
       "title": "Quantization",
       "canonical_title": "Quantization",
       "area": "Quantization",
-      "yaml_order": 88,
+      "yaml_order": 90,
       "cells": {
         "mi250": {
           "exists": false
@@ -6845,7 +6977,7 @@
       "title": "ROCm AITER Ops Test",
       "canonical_title": "ROCm AITER Ops Test",
       "area": "Other",
-      "yaml_order": 89,
+      "yaml_order": 91,
       "cells": {
         "mi250": {
           "exists": false
@@ -6911,7 +7043,7 @@
       "title": "Samplers Test",
       "canonical_title": "Samplers Test",
       "area": "Other",
-      "yaml_order": 90,
+      "yaml_order": 92,
       "cells": {
         "mi250": {
           "exists": false
@@ -6977,7 +7109,7 @@
       "title": "Python-only Installation",
       "canonical_title": "Python-only Installation",
       "area": "Other",
-      "yaml_order": 91,
+      "yaml_order": 93,
       "cells": {
         "mi250": {
           "exists": false
@@ -7043,7 +7175,7 @@
       "title": "Regression",
       "canonical_title": "Regression",
       "area": "Other",
-      "yaml_order": 92,
+      "yaml_order": 94,
       "cells": {
         "mi250": {
           "exists": false
@@ -7150,7 +7282,7 @@
       "title": "Ray Dependency Compatibility Check",
       "canonical_title": "Ray Dependency Compatibility Check",
       "area": "Other",
-      "yaml_order": 93,
+      "yaml_order": 95,
       "cells": {
         "mi250": {
           "exists": false
@@ -7216,7 +7348,7 @@
       "title": "Acceptance Length Test (Large Models)",
       "canonical_title": "Acceptance Length Test (Large Models)",
       "area": "Other",
-      "yaml_order": 94,
+      "yaml_order": 96,
       "cells": {
         "mi250": {
           "exists": false
@@ -7282,7 +7414,7 @@
       "title": "Engine (1 GPU)",
       "canonical_title": "Engine (1 GPU)",
       "area": "Engine",
-      "yaml_order": 96,
+      "yaml_order": 98,
       "cells": {
         "mi250": {
           "exists": false
@@ -7348,7 +7480,7 @@
       "title": "Spec Decode Eagle",
       "canonical_title": "Spec Decode Eagle",
       "area": "Spec Decode",
-      "yaml_order": 98,
+      "yaml_order": 100,
       "cells": {
         "mi250": {
           "exists": false
@@ -7414,7 +7546,7 @@
       "title": "Spec Decode Ngram + Suffix",
       "canonical_title": "Spec Decode Ngram + Suffix",
       "area": "Spec Decode",
-      "yaml_order": 99,
+      "yaml_order": 101,
       "cells": {
         "mi250": {
           "exists": false
@@ -7480,7 +7612,7 @@
       "title": "Speculators Correctness",
       "canonical_title": "Speculators Correctness",
       "area": "Spec Decode",
-      "yaml_order": 101,
+      "yaml_order": 103,
       "cells": {
         "mi250": {
           "exists": false
@@ -7546,7 +7678,7 @@
       "title": "Extract Hidden States Integration",
       "canonical_title": "Extract Hidden States Integration",
       "area": "Other",
-      "yaml_order": 102,
+      "yaml_order": 104,
       "cells": {
         "mi250": {
           "exists": false
@@ -7558,7 +7690,7 @@
           "variants": [
             {
               "label": "Extract Hidden States Integration",
-              "agent_pool": "mi300_1",
+              "agent_pool": "mi300_2",
               "optional": false,
               "parallelism": 1,
               "latest_matched": true,
@@ -7572,7 +7704,7 @@
               "entries": [
                 {
                   "label": "Extract Hidden States Integration",
-                  "agent_pool": "mi300_1",
+                  "agent_pool": "mi300_2",
                   "optional": false,
                   "parallelism": 1,
                   "latest_matched": true,
@@ -7612,7 +7744,7 @@
       "title": "V1 Core + KV + Metrics",
       "canonical_title": "V1 Core + KV + Metrics",
       "area": "V1",
-      "yaml_order": 104,
+      "yaml_order": 106,
       "cells": {
         "mi250": {
           "exists": false
@@ -7719,7 +7851,7 @@
       "title": "V1 others (CPU)",
       "canonical_title": "V1 others (CPU)",
       "area": "V1",
-      "yaml_order": 105,
+      "yaml_order": 107,
       "cells": {
         "mi250": {
           "exists": false
@@ -7785,7 +7917,7 @@
       "title": "V1 Sample + Logits",
       "canonical_title": "V1 Sample + Logits",
       "area": "V1",
-      "yaml_order": 106,
+      "yaml_order": 108,
       "cells": {
         "mi250": {
           "exists": false
@@ -7892,7 +8024,7 @@
       "title": "Distributed DP Tests (2 GPUs)",
       "canonical_title": "Distributed DP Tests (2 GPUs)",
       "area": "Distributed",
-      "yaml_order": 107,
+      "yaml_order": 109,
       "cells": {
         "mi250": {
           "exists": false
@@ -7958,7 +8090,7 @@
       "title": "Metrics, Tracing (2 GPUs)",
       "canonical_title": "Metrics, Tracing (2 GPUs)",
       "area": "Other",
-      "yaml_order": 108,
+      "yaml_order": 110,
       "cells": {
         "mi250": {
           "exists": false
@@ -8024,7 +8156,7 @@
       "title": "V1 e2e (2 GPUs)",
       "canonical_title": "V1 e2e (2 GPUs)",
       "area": "V1",
-      "yaml_order": 109,
+      "yaml_order": 111,
       "cells": {
         "mi250": {
           "exists": false
@@ -8090,7 +8222,7 @@
       "title": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
       "canonical_title": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
       "area": "Spec Decode",
-      "yaml_order": 110,
+      "yaml_order": 112,
       "cells": {
         "mi250": {
           "exists": false
@@ -8156,7 +8288,7 @@
       "title": "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
       "canonical_title": "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
       "area": "Distributed",
-      "yaml_order": 111,
+      "yaml_order": 113,
       "cells": {
         "mi250": {
           "exists": false
@@ -8222,7 +8354,7 @@
       "title": "Distributed DP Tests (4 GPUs)",
       "canonical_title": "Distributed DP Tests (4 GPUs)",
       "area": "Distributed",
-      "yaml_order": 112,
+      "yaml_order": 114,
       "cells": {
         "mi250": {
           "exists": false
@@ -8288,7 +8420,7 @@
       "title": "Distributed NixlConnector PD accuracy (4 GPUs)",
       "canonical_title": "Distributed NixlConnector PD accuracy (4 GPUs)",
       "area": "Distributed",
-      "yaml_order": 113,
+      "yaml_order": 115,
       "cells": {
         "mi250": {
           "exists": false
@@ -8354,7 +8486,7 @@
       "title": "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
       "canonical_title": "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
       "area": "Distributed",
-      "yaml_order": 114,
+      "yaml_order": 116,
       "cells": {
         "mi250": {
           "exists": false
@@ -8420,7 +8552,7 @@
       "title": "Hybrid SSM NixlConnector PD accuracy tests (4 GPUs)",
       "canonical_title": "Hybrid SSM NixlConnector PD accuracy tests (4 GPUs)",
       "area": "Other",
-      "yaml_order": 115,
+      "yaml_order": 117,
       "cells": {
         "mi250": {
           "exists": false
@@ -8486,7 +8618,7 @@
       "title": "V1 e2e (4 GPUs)",
       "canonical_title": "V1 e2e (4 GPUs)",
       "area": "V1",
-      "yaml_order": 116,
+      "yaml_order": 118,
       "cells": {
         "mi250": {
           "exists": false
@@ -8552,7 +8684,7 @@
       "title": "V1 e2e (4xH100-4xMI)",
       "canonical_title": "V1 e2e (4xH100-4xMI)",
       "area": "V1",
-      "yaml_order": 117,
+      "yaml_order": 119,
       "cells": {
         "mi250": {
           "exists": false
@@ -8618,7 +8750,7 @@
       "title": "Weight Loading Multiple GPU",
       "canonical_title": "Weight Loading Multiple GPU",
       "area": "Models",
-      "yaml_order": 118,
+      "yaml_order": 120,
       "cells": {
         "mi250": {
           "exists": false
@@ -8725,7 +8857,7 @@
       "title": "Weight Loading Multiple GPU - Large Models",
       "canonical_title": "Weight Loading Multiple GPU - Large Models",
       "area": "Models",
-      "yaml_order": 119,
+      "yaml_order": 121,
       "cells": {
         "mi250": {
           "exists": false
@@ -8832,7 +8964,7 @@
       "title": "Distributed Compile + RPC Tests (2 GPUs)",
       "canonical_title": "Distributed Compile + RPC Tests (2 GPUs)",
       "area": "Distributed",
-      "yaml_order": 120,
+      "yaml_order": 122,
       "cells": {
         "mi250": {
           "exists": false
@@ -8898,7 +9030,7 @@
       "title": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
       "canonical_title": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
       "area": "Distributed",
-      "yaml_order": 121,
+      "yaml_order": 123,
       "cells": {
         "mi250": {
           "exists": false
@@ -8964,7 +9096,7 @@
       "title": "Distributed Compile + Comm (4 GPUs)",
       "canonical_title": "Distributed Compile + Comm (4 GPUs)",
       "area": "Distributed",
-      "yaml_order": 122,
+      "yaml_order": 124,
       "cells": {
         "mi250": {
           "exists": false
@@ -9030,7 +9162,7 @@
       "title": "Engine",
       "canonical_title": "Engine",
       "area": "Engine",
-      "yaml_order": 123,
+      "yaml_order": 125,
       "cells": {
         "mi250": {
           "exists": false
@@ -9096,7 +9228,7 @@
       "title": "LM Eval Large Models (4xH100-4xMI)",
       "canonical_title": "LM Eval Large Models (4xH100-4xMI)",
       "area": "Evaluations",
-      "yaml_order": 124,
+      "yaml_order": 126,
       "cells": {
         "mi250": {
           "exists": false
@@ -9203,7 +9335,7 @@
       "title": "Language Models Test (Extended Generation)",
       "canonical_title": "Language Models Test (Extended Generation)",
       "area": "Models",
-      "yaml_order": 125,
+      "yaml_order": 127,
       "cells": {
         "mi250": {
           "exists": false
@@ -9269,7 +9401,7 @@
       "title": "Language Models Tests (Hybrid)",
       "canonical_title": "Language Models Tests (Hybrid)",
       "area": "Models",
-      "yaml_order": 126,
+      "yaml_order": 128,
       "cells": {
         "mi250": {
           "exists": false
@@ -9335,7 +9467,7 @@
       "title": "Multi-Modal Models (Extended Pooling)",
       "canonical_title": "Multi-Modal Models (Extended Pooling)",
       "area": "Multi-Modal",
-      "yaml_order": 127,
+      "yaml_order": 129,
       "cells": {
         "mi250": {
           "exists": false
@@ -9442,7 +9574,7 @@
       "title": "Multi-Modal Models (Standard) 2: qwen3 + gemma",
       "canonical_title": "Multi-Modal Models (Standard) 2: qwen3 + gemma",
       "area": "Multi-Modal",
-      "yaml_order": 128,
+      "yaml_order": 130,
       "cells": {
         "mi250": {
           "exists": false
@@ -9508,7 +9640,7 @@
       "title": "V1 Spec Decode",
       "canonical_title": "V1 Spec Decode",
       "area": "Spec Decode",
-      "yaml_order": 129,
+      "yaml_order": 131,
       "cells": {
         "mi250": {
           "exists": false
@@ -9615,7 +9747,7 @@
       "title": "Attention Benchmarks Smoke Test",
       "canonical_title": "Attention Benchmarks Smoke Test",
       "area": "Attention",
-      "yaml_order": 130,
+      "yaml_order": 132,
       "cells": {
         "mi250": {
           "exists": false
@@ -9681,7 +9813,7 @@
       "title": "Distributed Tests (2xH100-2xMI355)",
       "canonical_title": "Distributed Tests (2xH100-2xMI)",
       "area": "Distributed",
-      "yaml_order": 131,
+      "yaml_order": 133,
       "cells": {
         "mi250": {
           "exists": false
@@ -9747,7 +9879,7 @@
       "title": "Entrypoints Integration (API Server OpenAI - Part 1)",
       "canonical_title": "Entrypoints Integration (API Server OpenAI - Part 1)",
       "area": "Entrypoints",
-      "yaml_order": 133,
+      "yaml_order": 135,
       "cells": {
         "mi250": {
           "exists": false
@@ -9813,7 +9945,7 @@
       "title": "GPQA Eval (GPT-OSS) (2xB200-2xMI)",
       "canonical_title": "GPQA Eval (GPT-OSS) (2xB200-2xMI)",
       "area": "Evaluations",
-      "yaml_order": 139,
+      "yaml_order": 141,
       "cells": {
         "mi250": {
           "exists": false
@@ -9879,7 +10011,7 @@
       "title": "LM Eval Qwen3-5 Models",
       "canonical_title": "LM Eval Qwen3-5 Models",
       "area": "Evaluations",
-      "yaml_order": 140,
+      "yaml_order": 142,
       "cells": {
         "mi250": {
           "exists": false
@@ -9945,7 +10077,7 @@
       "title": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy",
       "canonical_title": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy",
       "area": "Distributed",
-      "yaml_order": 142,
+      "yaml_order": 144,
       "cells": {
         "mi250": {
           "exists": false
@@ -10011,7 +10143,7 @@
       "title": "Kernels",
       "canonical_title": "Kernels",
       "area": "Kernels",
-      "yaml_order": 145,
+      "yaml_order": 147,
       "cells": {
         "mi250": {
           "exists": false
@@ -10077,7 +10209,7 @@
       "title": "Language Models Test (Extended Generation)",
       "canonical_title": "Language Models Test (Extended Generation)",
       "area": "Models",
-      "yaml_order": 150,
+      "yaml_order": 152,
       "cells": {
         "mi250": {
           "exists": false
@@ -10143,7 +10275,7 @@
       "title": "Language Models Test (PPL)",
       "canonical_title": "Language Models Test (PPL)",
       "area": "Models",
-      "yaml_order": 152,
+      "yaml_order": 154,
       "cells": {
         "mi250": {
           "exists": false
@@ -10209,7 +10341,7 @@
       "title": "Multi-Modal Models (Standard) 4: other + whisper",
       "canonical_title": "Multi-Modal Models (Standard) 4: other + whisper",
       "area": "Multi-Modal",
-      "yaml_order": 158,
+      "yaml_order": 160,
       "cells": {
         "mi250": {
           "exists": false
@@ -10275,7 +10407,7 @@
       "title": "Quantized Models Test",
       "canonical_title": "Quantized Models Test",
       "area": "Models",
-      "yaml_order": 159,
+      "yaml_order": 161,
       "cells": {
         "mi250": {
           "exists": false
@@ -10341,7 +10473,7 @@
       "title": "Quantization",
       "canonical_title": "Quantization",
       "area": "Quantization",
-      "yaml_order": 160,
+      "yaml_order": 162,
       "cells": {
         "mi250": {
           "exists": false

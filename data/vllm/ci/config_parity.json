@@ -1,12 +1,12 @@
 {
   "summary": {
-    "total_amd_steps": 125,
+    "total_amd_steps": 127,
     "total_nvidia_steps": 174,
-    "matched": 116,
-    "amd_only": 9,
-    "nvidia_only": 62,
+    "matched": 117,
+    "amd_only": 10,
+    "nvidia_only": 61,
     "mirrors": 54,
-    "match_rate_pct": 92.8,
+    "match_rate_pct": 92.1,
     "avg_command_similarity_pct": 93.4
   },
   "matches": [
@@ -472,6 +472,24 @@
       ],
       "nvidia_commands": [
         "pytest -v -s models/multimodal/processing --ignore models/multimodal/processing/test_tensor_schema.py"
+      ]
+    },
+    {
+      "amd_label": "Extract Hidden States Integration",
+      "nvidia_label": "Extract Hidden States Integration (2 GPUs)",
+      "normalized": "extract hidden states integration",
+      "identity_key": "extract hidden states integration (2 gpus)",
+      "command_similarity": 0.8794,
+      "color": "yellow",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/misc.yaml",
+      "amd_commands": [
+        "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
+        "pytest -v -s v1/kv_connector/extract_hidden_states_integration"
+      ],
+      "nvidia_commands": [
+        "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
+        "pytest -v -s -m 'distributed' v1/kv_connector/extract_hidden_states_integration"
       ]
     },
     {
@@ -1228,6 +1246,16 @@
       "nvidia_source": ".buildkite/test_areas/e2e_integration.yaml"
     },
     {
+      "amd_label": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy (4xH100-4xMI300)",
+      "nvidia_label": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy",
+      "normalized": "qwen3-30b-a3b-fp8 dp4 async eplb accuracy (4xh100-4xmi300)",
+      "identity_key": "qwen3-30b-a3b-fp8 dp4 async eplb accuracy (4 gpus)",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/e2e_integration.yaml"
+    },
+    {
       "amd_label": "Examples",
       "nvidia_label": "Examples",
       "normalized": "examples",
@@ -1458,16 +1486,6 @@
       "nvidia_source": ".buildkite/test_areas/spec_decode.yaml"
     },
     {
-      "amd_label": "Extract Hidden States Integration",
-      "nvidia_label": "Extract Hidden States Integration",
-      "normalized": "extract hidden states integration",
-      "identity_key": "extract hidden states integration",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/misc.yaml"
-    },
-    {
       "amd_label": "V1 others (CPU)",
       "nvidia_label": "V1 Others (CPU)",
       "normalized": "v1 others (cpu)",
@@ -1620,6 +1638,12 @@
   ],
   "amd_only": [
     {
+      "label": "Docker Build Metadata (ROCm)",
+      "normalized": "docker build metadata (rocm)",
+      "identity_key": "docker build metadata (rocm)",
+      "group": "amd"
+    },
+    {
       "label": "LM Eval Small Models (MI300)",
       "normalized": "lm eval small models (mi300)",
       "identity_key": "lm eval small models (hardware variants)",
@@ -1766,12 +1790,6 @@
       "source": ".buildkite/test_areas/docker.yaml"
     },
     {
-      "label": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy",
-      "normalized": "qwen3-30b-a3b-fp8 dp4 async eplb accuracy",
-      "identity_key": "qwen3-30b-a3b-fp8 dp4 async eplb accuracy (4 gpus)",
-      "source": ".buildkite/test_areas/e2e_integration.yaml"
-    },
-    {
       "label": "vLLM IR Tests",
       "normalized": "vllm ir tests",
       "identity_key": "vllm ir tests",
@@ -1910,9 +1928,9 @@
       "source": ".buildkite/test_areas/lm_eval.yaml"
     },
     {
-      "label": "Extract Hidden States Integration (2 GPUs)",
-      "normalized": "extract hidden states integration (2 gpus)",
-      "identity_key": "extract hidden states integration (2 gpus)",
+      "label": "Extract Hidden States Integration",
+      "normalized": "extract hidden states integration",
+      "identity_key": "extract hidden states integration",
       "source": ".buildkite/test_areas/misc.yaml"
     },
     {
