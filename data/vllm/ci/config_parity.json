@@ -401,7 +401,7 @@
       "nvidia_label": "V1 Core + KV + Metrics",
       "normalized": "v1 core + kv + metrics",
       "identity_key": "v1 core + kv + metrics",
-      "command_similarity": 0.856,
+      "command_similarity": 0.8539,
       "color": "yellow",
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/misc.yaml",
@@ -413,7 +413,7 @@
         "pytest -v -s v1/worker",
         "pytest -v -s -m 'not cpu_test' v1/kv_connector/unit",
         "pytest -v -s -m 'not cpu_test' v1/metrics",
-        "pip install -U git+https://github.com/robertgshaw2-redhat/lm-evaluation-harness.git@streaming-api",
+        "pip install -U git+https://github.com/vllm-project/lm-evaluation-harness.git@streaming-api",
         "pytest -v -s entrypoints/openai/correctness/test_lmeval.py::test_lm_eval_accuracy_v1_engine"
       ],
       "nvidia_commands": [
@@ -426,7 +426,7 @@
         "pytest -v -s v1/worker",
         "pytest -v -s -m 'not cpu_test' v1/kv_connector/unit",
         "pytest -v -s -m 'not cpu_test' v1/metrics",
-        "pip install -U git+https://github.com/robertgshaw2-redhat/lm-evaluation-harness.git@streaming-api",
+        "pip install -U git+https://github.com/vllm-project/lm-evaluation-harness.git@streaming-api",
         "pytest -v -s entrypoints/openai/correctness/test_lmeval.py::test_lm_eval_accuracy_v1_engine"
       ]
     },
