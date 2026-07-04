@@ -1,13 +1,13 @@
 {
   "summary": {
-    "total_amd_steps": 127,
+    "total_amd_steps": 136,
     "total_nvidia_steps": 174,
-    "matched": 117,
+    "matched": 126,
     "amd_only": 10,
-    "nvidia_only": 61,
+    "nvidia_only": 52,
     "mirrors": 54,
-    "match_rate_pct": 92.1,
-    "avg_command_similarity_pct": 93.4
+    "match_rate_pct": 92.6,
+    "avg_command_similarity_pct": 93.7
   },
   "matches": [
     {
@@ -459,6 +459,29 @@
       ]
     },
     {
+      "amd_label": "Model Runner V2 Pipeline Parallelism (4 GPUs)",
+      "nvidia_label": "Model Runner V2 Pipeline Parallelism (4 GPUs)",
+      "normalized": "model runner v2 pipeline parallelism (4 gpus)",
+      "identity_key": "model runner v2 pipeline parallelism (4 gpus)",
+      "command_similarity": 0.864,
+      "color": "yellow",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/model_runner_v2.yaml",
+      "amd_commands": [
+        "set -x",
+        "export VLLM_USE_V2_MODEL_RUNNER=1",
+        "pytest -v -s distributed/test_pipeline_parallel.py -k \"not ray and not Jamba\"",
+        "pytest -v -s distributed/test_pp_cudagraph.py -k \"not ray\""
+      ],
+      "nvidia_commands": [
+        "set -x",
+        "export VLLM_USE_V2_MODEL_RUNNER=1",
+        "pytest -v -s distributed/test_pipeline_parallel.py -k \"not ray and not Jamba\"",
+        "pytest -v -s distributed/test_pp_cudagraph.py -k \"not ray\"",
+        "pytest -v -s v1/distributed/test_pp_dp_v2.py"
+      ]
+    },
+    {
       "amd_label": "Multi-Modal Processor (CPU) %N",
       "nvidia_label": "Multi-Modal Processor (CPU)",
       "normalized": "multi-modal processor (cpu)",
@@ -803,6 +826,59 @@
       ],
       "nvidia_commands": [
         "bash weight_loading/run_model_weight_loading_test.sh -c weight_loading/models.txt"
+      ]
+    },
+    {
+      "amd_label": "Model Runner V2 Core Tests",
+      "nvidia_label": "Model Runner V2 Core Tests",
+      "normalized": "model runner v2 core tests",
+      "identity_key": "model runner v2 core tests",
+      "command_similarity": 0.9817,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/model_runner_v2.yaml",
+      "amd_commands": [
+        "set -x",
+        "export VLLM_USE_V2_MODEL_RUNNER=1",
+        "pytest -v -s v1/engine/test_llm_engine.py -k \"not test_engine_metrics\"",
+        "ENFORCE_EAGER=1 pytest -v -s v1/e2e/general/test_async_scheduling.py -k \"not ngram\"",
+        "pytest -v -s v1/e2e/general/test_context_length.py",
+        "pytest -v -s v1/e2e/general/test_min_tokens.py",
+        "pytest -v -s entrypoints/llm/test_struct_output_generate.py -k \"xgrammar and not speculative_config6 and not speculative_config7 and not speculative_config8 and not speculative_config0\""
+      ],
+      "nvidia_commands": [
+        "set -x",
+        "export VLLM_USE_V2_MODEL_RUNNER=1",
+        "pytest -v -s v1/engine/test_llm_engine.py -k \"not test_engine_metrics\"",
+        "pytest -v -s v1/e2e/general/test_async_scheduling.py -k \"not ngram\"",
+        "pytest -v -s v1/e2e/general/test_context_length.py",
+        "pytest -v -s v1/e2e/general/test_min_tokens.py",
+        "pytest -v -s entrypoints/llm/test_struct_output_generate.py -k \"xgrammar and not speculative_config6 and not speculative_config7 and not speculative_config8 and not speculative_config0\""
+      ]
+    },
+    {
+      "amd_label": "Model Runner V2 Distributed (2 GPUs)",
+      "nvidia_label": "Model Runner V2 Distributed (2 GPUs)",
+      "normalized": "model runner v2 distributed (2 gpus)",
+      "identity_key": "model runner v2 distributed (2 gpus)",
+      "command_similarity": 0.9878,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/model_runner_v2.yaml",
+      "amd_commands": [
+        "set -x",
+        "export VLLM_USE_V2_MODEL_RUNNER=1",
+        "TARGET_TEST_SUITE=MI300 pytest -v -s basic_correctness/test_basic_correctness.py -m 'distributed(num_gpus=2)' -k \"not ray and not True\"",
+        "TP_SIZE=1 DP_SIZE=2 pytest -v -s v1/distributed/test_async_llm_dp.py -k \"not ray\"",
+        "TP_SIZE=1 DP_SIZE=2 pytest -v -s v1/distributed/test_eagle_dp.py"
+      ],
+      "nvidia_commands": [
+        "set -x",
+        "export VLLM_USE_V2_MODEL_RUNNER=1",
+        "TARGET_TEST_SUITE=L4 pytest -v -s basic_correctness/test_basic_correctness.py -m 'distributed(num_gpus=2)' -k \"not ray and not True\"",
+        "export NCCL_CUMEM_HOST_ENABLE=0",
+        "TP_SIZE=1 DP_SIZE=2 pytest -v -s v1/distributed/test_async_llm_dp.py -k \"not ray\"",
+        "TP_SIZE=1 DP_SIZE=2 pytest -v -s v1/distributed/test_eagle_dp.py"
       ]
     },
     {
@@ -1216,6 +1292,16 @@
       "nvidia_source": ".buildkite/test_areas/lm_eval.yaml"
     },
     {
+      "amd_label": "MRCR Eval Small Models",
+      "nvidia_label": "MRCR Eval Small Models",
+      "normalized": "mrcr eval small models",
+      "identity_key": "mrcr eval small models",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/lm_eval.yaml"
+    },
+    {
       "amd_label": "Multi-Modal Accuracy Eval (Small Models)",
       "nvidia_label": "Multi-Modal Accuracy Eval (Small Models)",
       "normalized": "multi-modal accuracy eval (small models)",
@@ -1266,10 +1352,30 @@
       "nvidia_source": ".buildkite/test_areas/misc.yaml"
     },
     {
+      "amd_label": "vLLM IR Tests",
+      "nvidia_label": "vLLM IR Tests",
+      "normalized": "vllm ir tests",
+      "identity_key": "vllm ir tests",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/kernels.yaml"
+    },
+    {
       "amd_label": "Kernels Attention Test %N",
       "nvidia_label": "Kernels Attention Test %N",
       "normalized": "kernels attention test",
       "identity_key": "kernels attention test",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/kernels.yaml"
+    },
+    {
+      "amd_label": "Kernels KDA Test",
+      "nvidia_label": "Kernels KDA Test",
+      "normalized": "kernels kda test",
+      "identity_key": "kernels kda test",
       "command_similarity": 1.0,
       "color": "green",
       "amd_source": "test-amd.yaml",
@@ -1314,6 +1420,26 @@
       "color": "green",
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/lora.yaml"
+    },
+    {
+      "amd_label": "Model Runner V2 Examples",
+      "nvidia_label": "Model Runner V2 Examples",
+      "normalized": "model runner v2 examples",
+      "identity_key": "model runner v2 examples",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/model_runner_v2.yaml"
+    },
+    {
+      "amd_label": "Model Runner V2 Spec Decode",
+      "nvidia_label": "Model Runner V2 Spec Decode",
+      "normalized": "model runner v2 spec decode",
+      "identity_key": "model runner v2 spec decode",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/model_runner_v2.yaml"
     },
     {
       "amd_label": "Basic Models Tests (Extra Initialization) %N",
@@ -1434,6 +1560,16 @@
       "color": "green",
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/quantization.yaml"
+    },
+    {
+      "amd_label": "GGUF Plugin",
+      "nvidia_label": "GGUF Plugin",
+      "normalized": "gguf plugin",
+      "identity_key": "gguf plugin",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/plugins.yaml"
     },
     {
       "amd_label": "Python-only Installation",
@@ -1790,12 +1926,6 @@
       "source": ".buildkite/test_areas/docker.yaml"
     },
     {
-      "label": "vLLM IR Tests",
-      "normalized": "vllm ir tests",
-      "identity_key": "vllm ir tests",
-      "source": ".buildkite/test_areas/kernels.yaml"
-    },
-    {
       "label": "Kernels MiniMax Reduce RMS Test (2 GPUs)",
       "normalized": "kernels minimax reduce rms test (2 gpus)",
       "identity_key": "kernels minimax reduce rms test (2 gpus)",
@@ -1817,12 +1947,6 @@
       "label": "Kernels Attention DiffKV Test (H100)",
       "normalized": "kernels attention diffkv test (h100)",
       "identity_key": "kernels attention diffkv test (1 gpus)",
-      "source": ".buildkite/test_areas/kernels.yaml"
-    },
-    {
-      "label": "Kernels KDA Test",
-      "normalized": "kernels kda test",
-      "identity_key": "kernels kda test",
       "source": ".buildkite/test_areas/kernels.yaml"
     },
     {
@@ -1922,12 +2046,6 @@
       "source": ".buildkite/test_areas/lm_eval.yaml"
     },
     {
-      "label": "MRCR Eval Small Models",
-      "normalized": "mrcr eval small models",
-      "identity_key": "mrcr eval small models",
-      "source": ".buildkite/test_areas/lm_eval.yaml"
-    },
-    {
       "label": "Extract Hidden States Integration",
       "normalized": "extract hidden states integration",
       "identity_key": "extract hidden states integration",
@@ -1938,42 +2056,6 @@
       "normalized": "acceptance length test (large models)",
       "identity_key": "acceptance length test (large models) (1 gpus)",
       "source": ".buildkite/test_areas/misc.yaml"
-    },
-    {
-      "label": "Model Runner V2 Core Tests",
-      "normalized": "model runner v2 core tests",
-      "identity_key": "model runner v2 core tests",
-      "source": ".buildkite/test_areas/model_runner_v2.yaml"
-    },
-    {
-      "label": "Model Runner V2 Examples",
-      "normalized": "model runner v2 examples",
-      "identity_key": "model runner v2 examples",
-      "source": ".buildkite/test_areas/model_runner_v2.yaml"
-    },
-    {
-      "label": "Model Runner V2 Distributed (2 GPUs)",
-      "normalized": "model runner v2 distributed (2 gpus)",
-      "identity_key": "model runner v2 distributed (2 gpus)",
-      "source": ".buildkite/test_areas/model_runner_v2.yaml"
-    },
-    {
-      "label": "Model Runner V2 Pipeline Parallelism (4 GPUs)",
-      "normalized": "model runner v2 pipeline parallelism (4 gpus)",
-      "identity_key": "model runner v2 pipeline parallelism (4 gpus)",
-      "source": ".buildkite/test_areas/model_runner_v2.yaml"
-    },
-    {
-      "label": "Model Runner V2 Spec Decode",
-      "normalized": "model runner v2 spec decode",
-      "identity_key": "model runner v2 spec decode",
-      "source": ".buildkite/test_areas/model_runner_v2.yaml"
-    },
-    {
-      "label": "GGUF Plugin",
-      "normalized": "gguf plugin",
-      "identity_key": "gguf plugin",
-      "source": ".buildkite/test_areas/plugins.yaml"
     },
     {
       "label": "PyTorch Compilation Unit Tests (H100)",
