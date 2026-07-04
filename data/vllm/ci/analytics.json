@@ -3,7 +3,7 @@
     "pipeline": "amd-ci",
     "display_name": "AMD CI",
     "days": 30,
-    "generated_at": "2026-07-04T15:48:46Z",
+    "generated_at": "2026-07-04T17:20:36Z",
     "summary": {
       "total_builds": 30,
       "passed": 30,
@@ -126552,15 +126552,15 @@
     "pipeline": "ci",
     "display_name": "Upstream CI",
     "days": 30,
-    "generated_at": "2026-07-04T15:48:46Z",
+    "generated_at": "2026-07-04T17:20:36Z",
     "summary": {
       "total_builds": 31,
       "passed": 3,
       "failed": 28,
       "pass_rate": 9.7,
       "total_jobs_tracked": 339,
-      "jobs_with_failures": 102,
-      "jobs_with_hard_failures": 94,
+      "jobs_with_failures": 103,
+      "jobs_with_hard_failures": 95,
       "jobs_with_soft_failures": 8
     },
     "daily_stats": [
@@ -126754,17 +126754,17 @@
     "builds": [
       {
         "number": 76308,
-        "state": "failing",
+        "state": "failed",
         "created_at": "2026-07-04T06:00:04.181Z",
         "date": "2026-07-04",
         "message": "Full CI run - nightly",
         "author": "",
-        "wall_mins": null,
+        "wall_mins": 618.1,
         "passed": 265,
-        "failed": 9,
+        "failed": 10,
         "soft_failed": 3,
         "skipped": 0,
-        "total_jobs": 277,
+        "total_jobs": 278,
         "jobs": [
           {
             "name": "2 Node Test (4 GPUs)",
@@ -127805,11 +127805,11 @@
             "name": "Async Engine, Inputs, Utils, Worker",
             "raw_name": "Async Engine, Inputs, Utils, Worker",
             "state": "passed",
-            "dur": 9.4,
-            "tests": 1,
-            "passed_tests": 1,
+            "dur": 2.3,
+            "tests": 202,
+            "passed_tests": 201,
             "failed_tests": 0,
-            "skipped_tests": 0,
+            "skipped_tests": 1,
             "url": "https://buildkite.com/vllm/ci/builds/76308/steps/canvas?jid=019f2bb7-b7de-4324-87ff-4bf2401e53ce&tab=output",
             "job_id": "019f2bb7-b7de-4324-87ff-4bf2401e53ce",
             "step_id": "019f2bb7-b5f1-4d3c-aef4-18a6c59327eb",
@@ -127820,9 +127820,9 @@
             "name": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
             "raw_name": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
             "state": "passed",
-            "dur": 46.7,
-            "tests": 1,
-            "passed_tests": 1,
+            "dur": 5.1,
+            "tests": 55,
+            "passed_tests": 55,
             "failed_tests": 0,
             "skipped_tests": 0,
             "url": "https://buildkite.com/vllm/ci/builds/76308/steps/canvas?jid=019f2bb7-b7df-425c-9224-fd1b7d6de678&tab=output",
@@ -127970,7 +127970,7 @@
             "name": "Batch Invariance (A100)",
             "raw_name": "Batch Invariance (A100)",
             "state": "passed",
-            "dur": 19.1,
+            "dur": 2.5,
             "tests": 1,
             "passed_tests": 1,
             "failed_tests": 0,
@@ -127986,8 +127986,8 @@
             "raw_name": "Batch Invariance (B200)",
             "state": "passed",
             "dur": 18.5,
-            "tests": 1,
-            "passed_tests": 1,
+            "tests": 14,
+            "passed_tests": 14,
             "failed_tests": 0,
             "skipped_tests": 0,
             "url": "https://buildkite.com/vllm/ci/builds/76308/steps/canvas?jid=019f2bb7-b7e0-42dc-8ef2-fa22bfa21b14&tab=output",
@@ -128000,7 +128000,7 @@
             "name": "Batch Invariance (H100)",
             "raw_name": "Batch Invariance (H100)",
             "state": "passed",
-            "dur": 23.9,
+            "dur": 4.2,
             "tests": 1,
             "passed_tests": 1,
             "failed_tests": 0,
@@ -128750,11 +128750,11 @@
             "name": "Extract Hidden States Integration",
             "raw_name": "Extract Hidden States Integration",
             "state": "passed",
-            "dur": 3.8,
-            "tests": 1,
-            "passed_tests": 1,
+            "dur": 2.0,
+            "tests": 3,
+            "passed_tests": 2,
             "failed_tests": 0,
-            "skipped_tests": 0,
+            "skipped_tests": 1,
             "url": "https://buildkite.com/vllm/ci/builds/76308/steps/canvas?jid=019f2bb7-b7e1-41c1-9448-311e92623fc2&tab=output",
             "job_id": "019f2bb7-b7e1-41c1-9448-311e92623fc2",
             "step_id": "019f2bb7-b5f6-430a-8a04-6e1f492718de",
@@ -128765,7 +128765,7 @@
             "name": "Extract Hidden States Integration (2 GPUs)",
             "raw_name": "Extract Hidden States Integration (2 GPUs)",
             "state": "passed",
-            "dur": 5.5,
+            "dur": 1.0,
             "tests": 1,
             "passed_tests": 1,
             "failed_tests": 0,
@@ -129707,6 +129707,21 @@
             "q": "h200_35gb"
           },
           {
+            "name": "LoRA TP (Distributed)",
+            "raw_name": "LoRA TP (Distributed)",
+            "state": "failed",
+            "dur": 600.7,
+            "tests": 1,
+            "passed_tests": 0,
+            "failed_tests": 1,
+            "skipped_tests": 0,
+            "url": "https://buildkite.com/vllm/ci/builds/76308/steps/canvas?jid=019f2bb7-b7d9-4061-884c-9fc2db473c2c&tab=output",
+            "job_id": "019f2bb7-b7d9-4061-884c-9fc2db473c2c",
+            "step_id": "019f2bb7-b5ef-4fa6-a17f-0970f1affba5",
+            "wait": 14.6,
+            "q": "gpu_4_queue"
+          },
+          {
             "name": "MRCR Eval Small Models",
             "raw_name": "MRCR Eval Small Models",
             "state": "passed",
@@ -129725,7 +129740,7 @@
             "name": "Metrics, Tracing (2 GPUs)",
             "raw_name": "Metrics, Tracing (2 GPUs)",
             "state": "passed",
-            "dur": 5.3,
+            "dur": 0.8,
             "tests": 1,
             "passed_tests": 1,
             "failed_tests": 0,
@@ -242418,17 +242433,17 @@
     "nightly_builds": [
       {
         "number": 76308,
-        "state": "failing",
+        "state": "failed",
         "created_at": "2026-07-04T06:00:04.181Z",
         "date": "2026-07-04",
         "message": "Full CI run - nightly",
         "author": "",
-        "wall_mins": null,
+        "wall_mins": 618.1,
         "passed": 265,
-        "failed": 9,
+        "failed": 10,
         "soft_failed": 3,
         "skipped": 0,
-        "total_jobs": 277,
+        "total_jobs": 278,
         "web_url": "https://buildkite.com/vllm/ci/builds/76308",
         "source": "test_results"
       },
@@ -243527,8 +243542,8 @@
         "fail_rate": 13.3,
         "is_soft_fail": false,
         "median_dur": 5.3,
-        "p90_dur": 45.4,
-        "avg_dur": 9.6,
+        "p90_dur": 8.5,
+        "avg_dur": 8.2,
         "max_dur": 47.7,
         "median_wait": 0.6,
         "p90_wait": 0.8,
@@ -244108,7 +244123,7 @@
         "is_soft_fail": false,
         "median_dur": 0.7,
         "p90_dur": 5.3,
-        "avg_dur": 1.7,
+        "avg_dur": 1.6,
         "max_dur": 10.2,
         "median_wait": 5.0,
         "p90_wait": 22.1,
@@ -244339,6 +244354,26 @@
         ]
       },
       {
+        "name": "LoRA TP (Distributed)",
+        "runs": 29,
+        "passed": 28,
+        "failed": 1,
+        "soft_failed": 0,
+        "fail_rate": 3.4,
+        "is_soft_fail": false,
+        "median_dur": 3.8,
+        "p90_dur": 5.1,
+        "avg_dur": 25.5,
+        "max_dur": 600.7,
+        "median_wait": 4.4,
+        "p90_wait": 20.2,
+        "avg_wait": 8.0,
+        "max_wait": 57.6,
+        "queues": [
+          "gpu_4_queue"
+        ]
+      },
+      {
         "name": "Batch Invariance (H100)",
         "runs": 30,
         "passed": 29,
@@ -244347,9 +244382,9 @@
         "fail_rate": 3.3,
         "is_soft_fail": false,
         "median_dur": 4.0,
-        "p90_dur": 20.7,
-        "avg_dur": 5.9,
-        "max_dur": 23.9,
+        "p90_dur": 6.2,
+        "avg_dur": 5.3,
+        "max_dur": 22.0,
         "median_wait": 6.2,
         "p90_wait": 51.7,
         "avg_wait": 13.5,
@@ -244868,7 +244903,7 @@
         "is_soft_fail": false,
         "median_dur": 2.5,
         "p90_dur": 2.8,
-        "avg_dur": 3.2,
+        "avg_dur": 2.9,
         "max_dur": 9.9,
         "median_wait": 0.0,
         "p90_wait": 2.1,
@@ -249089,8 +249124,8 @@
         "fail_rate": 13.3,
         "is_soft_fail": false,
         "median_dur": 5.3,
-        "p90_dur": 45.4,
-        "avg_dur": 9.6,
+        "p90_dur": 8.5,
+        "avg_dur": 8.2,
         "max_dur": 47.7,
         "median_wait": 0.6,
         "p90_wait": 0.8,
@@ -249449,9 +249484,9 @@
         "fail_rate": 3.3,
         "is_soft_fail": false,
         "median_dur": 4.0,
-        "p90_dur": 20.7,
-        "avg_dur": 5.9,
-        "max_dur": 23.9,
+        "p90_dur": 6.2,
+        "avg_dur": 5.3,
+        "max_dur": 22.0,
         "median_wait": 6.2,
         "p90_wait": 51.7,
         "avg_wait": 13.5,
@@ -249522,19 +249557,19 @@
       },
       {
         "name": "LoRA TP (Distributed)",
-        "runs": 28,
+        "runs": 29,
         "passed": 28,
-        "failed": 0,
+        "failed": 1,
         "soft_failed": 0,
-        "fail_rate": 0.0,
+        "fail_rate": 3.4,
         "is_soft_fail": false,
         "median_dur": 3.8,
-        "p90_dur": 4.0,
-        "avg_dur": 4.9,
-        "max_dur": 34.9,
+        "p90_dur": 5.1,
+        "avg_dur": 25.5,
+        "max_dur": 600.7,
         "median_wait": 4.4,
         "p90_wait": 20.2,
-        "avg_wait": 7.8,
+        "avg_wait": 8.0,
         "max_wait": 57.6,
         "queues": [
           "gpu_4_queue"
@@ -249930,7 +249965,7 @@
         "is_soft_fail": false,
         "median_dur": 2.5,
         "p90_dur": 2.8,
-        "avg_dur": 3.2,
+        "avg_dur": 2.9,
         "max_dur": 9.9,
         "median_wait": 0.0,
         "p90_wait": 2.1,
@@ -249989,9 +250024,9 @@
         "fail_rate": 0.0,
         "is_soft_fail": false,
         "median_dur": 2.4,
-        "p90_dur": 16.0,
-        "avg_dur": 4.0,
-        "max_dur": 19.1,
+        "p90_dur": 3.2,
+        "avg_dur": 3.4,
+        "max_dur": 18.9,
         "median_wait": 1.5,
         "p90_wait": 9.1,
         "avg_wait": 2.3,
@@ -250289,8 +250324,8 @@
         "fail_rate": 0.0,
         "is_soft_fail": false,
         "median_dur": 2.0,
-        "p90_dur": 2.4,
-        "avg_dur": 2.2,
+        "p90_dur": 2.3,
+        "avg_dur": 2.1,
         "max_dur": 4.3,
         "median_wait": 0.0,
         "p90_wait": 0.2,
@@ -250910,7 +250945,7 @@
         "is_soft_fail": false,
         "median_dur": 1.0,
         "p90_dur": 5.5,
-        "avg_dur": 1.7,
+        "avg_dur": 1.5,
         "max_dur": 5.7,
         "median_wait": 5.1,
         "p90_wait": 24.6,
@@ -251170,7 +251205,7 @@
         "is_soft_fail": false,
         "median_dur": 0.7,
         "p90_dur": 5.3,
-        "avg_dur": 1.7,
+        "avg_dur": 1.6,
         "max_dur": 10.2,
         "median_wait": 5.0,
         "p90_wait": 22.1,
@@ -251740,7 +251775,7 @@
       },
       {
         "queue": "gpu_4_queue",
-        "jobs": 922,
+        "jobs": 923,
         "median_wait": 3.9,
         "p90_wait": 5.1,
         "avg_wait": 4.0,
@@ -251925,9 +251960,9 @@
           "passed": 0,
           "failed": 1,
           "pass_rate": 0.0,
-          "total_jobs_tracked": 277,
-          "jobs_with_failures": 12,
-          "jobs_with_hard_failures": 9,
+          "total_jobs_tracked": 278,
+          "jobs_with_failures": 13,
+          "jobs_with_hard_failures": 10,
           "jobs_with_soft_failures": 3
         },
         "daily_stats": [
@@ -251941,17 +251976,17 @@
         "builds": [
           {
             "number": 76308,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-04T06:00:04.181Z",
             "date": "2026-07-04",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 618.1,
             "passed": 265,
-            "failed": 9,
+            "failed": 10,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 277,
+            "total_jobs": 278,
             "web_url": "https://buildkite.com/vllm/ci/builds/76308",
             "source": "test_results"
           }
@@ -251959,17 +251994,17 @@
         "nightly_builds": [
           {
             "number": 76308,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-04T06:00:04.181Z",
             "date": "2026-07-04",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 618.1,
             "passed": 265,
-            "failed": 9,
+            "failed": 10,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 277,
+            "total_jobs": 278,
             "web_url": "https://buildkite.com/vllm/ci/builds/76308",
             "source": "test_results"
           }
@@ -252196,6 +252231,26 @@
             ]
           },
           {
+            "name": "LoRA TP (Distributed)",
+            "runs": 1,
+            "passed": 0,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 100.0,
+            "is_soft_fail": false,
+            "median_dur": 600.7,
+            "p90_dur": 600.7,
+            "avg_dur": 600.7,
+            "max_dur": 600.7,
+            "median_wait": 14.6,
+            "p90_wait": 14.6,
+            "avg_wait": 14.6,
+            "max_wait": 14.6,
+            "queues": [
+              "gpu_4_queue"
+            ]
+          },
+          {
             "name": "MoE Refactor Integration Test (B200 - TEMPORARY)",
             "runs": 1,
             "passed": 0,
@@ -252217,6 +252272,26 @@
           }
         ],
         "duration_ranking": [
+          {
+            "name": "LoRA TP (Distributed)",
+            "runs": 1,
+            "passed": 0,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 100.0,
+            "is_soft_fail": false,
+            "median_dur": 600.7,
+            "p90_dur": 600.7,
+            "avg_dur": 600.7,
+            "max_dur": 600.7,
+            "median_wait": 14.6,
+            "p90_wait": 14.6,
+            "avg_wait": 14.6,
+            "max_wait": 14.6,
+            "queues": [
+              "gpu_4_queue"
+            ]
+          },
           {
             "name": "MoE Refactor Integration Test (B200 - TEMPORARY)",
             "runs": 1,
@@ -252515,26 +252590,6 @@
             "max_wait": 0.1,
             "queues": [
               "amd_mi325_1"
-            ]
-          },
-          {
-            "name": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 46.7,
-            "p90_dur": 46.7,
-            "avg_dur": 46.7,
-            "max_dur": 46.7,
-            "median_wait": 0.7,
-            "p90_wait": 0.7,
-            "avg_wait": 0.7,
-            "max_wait": 0.7,
-            "queues": [
-              "small_cpu_queue_premerge"
             ]
           },
           {
@@ -253378,26 +253433,6 @@
             ]
           },
           {
-            "name": "Batch Invariance (H100)",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 23.9,
-            "p90_dur": 23.9,
-            "avg_dur": 23.9,
-            "max_dur": 23.9,
-            "median_wait": 4.5,
-            "p90_wait": 4.5,
-            "avg_wait": 4.5,
-            "max_wait": 4.5,
-            "queues": [
-              "mithril-h100-pool"
-            ]
-          },
-          {
             "name": "PyTorch Compilation Passes Unit Tests",
             "runs": 1,
             "passed": 1,
@@ -253655,26 +253690,6 @@
             "max_wait": 0.0,
             "queues": [
               "h200_18gb"
-            ]
-          },
-          {
-            "name": "Batch Invariance (A100)",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 19.1,
-            "p90_dur": 19.1,
-            "avg_dur": 19.1,
-            "max_dur": 19.1,
-            "median_wait": 1.3,
-            "p90_wait": 1.3,
-            "avg_wait": 1.3,
-            "max_wait": 1.3,
-            "queues": [
-              "a100_queue"
             ]
           },
           {
@@ -254818,26 +254833,6 @@
             ]
           },
           {
-            "name": "Async Engine, Inputs, Utils, Worker",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 9.4,
-            "p90_dur": 9.4,
-            "avg_dur": 9.4,
-            "max_dur": 9.4,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
-            "queues": [
-              "h200_35gb"
-            ]
-          },
-          {
             "name": "PyTorch Compilation Unit Tests (H100)",
             "runs": 1,
             "passed": 1,
@@ -255598,26 +255593,6 @@
             ]
           },
           {
-            "name": "Extract Hidden States Integration (2 GPUs)",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 5.5,
-            "p90_dur": 5.5,
-            "avg_dur": 5.5,
-            "max_dur": 5.5,
-            "median_wait": 14.6,
-            "p90_wait": 14.6,
-            "avg_wait": 14.6,
-            "max_wait": 14.6,
-            "queues": [
-              "gpu_4_queue"
-            ]
-          },
-          {
             "name": "MRCR Eval Small Models",
             "runs": 1,
             "passed": 1,
@@ -255658,23 +255633,23 @@
             ]
           },
           {
-            "name": "Metrics, Tracing (2 GPUs)",
+            "name": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
             "runs": 1,
             "passed": 1,
             "failed": 0,
             "soft_failed": 0,
             "fail_rate": 0.0,
             "is_soft_fail": false,
-            "median_dur": 5.3,
-            "p90_dur": 5.3,
-            "avg_dur": 5.3,
-            "max_dur": 5.3,
-            "median_wait": 14.8,
-            "p90_wait": 14.8,
-            "avg_wait": 14.8,
-            "max_wait": 14.8,
+            "median_dur": 5.1,
+            "p90_dur": 5.1,
+            "avg_dur": 5.1,
+            "max_dur": 5.1,
+            "median_wait": 0.7,
+            "p90_wait": 0.7,
+            "avg_wait": 0.7,
+            "max_wait": 0.7,
             "queues": [
-              "gpu_4_queue"
+              "small_cpu_queue_premerge"
             ]
           },
           {
@@ -255878,6 +255853,26 @@
             ]
           },
           {
+            "name": "Batch Invariance (H100)",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 4.2,
+            "p90_dur": 4.2,
+            "avg_dur": 4.2,
+            "max_dur": 4.2,
+            "median_wait": 4.5,
+            "p90_wait": 4.5,
+            "avg_wait": 4.5,
+            "max_wait": 4.5,
+            "queues": [
+              "mithril-h100-pool"
+            ]
+          },
+          {
             "name": "LM Eval Humming (B200 - TEMPORARY)",
             "runs": 1,
             "passed": 1,
@@ -255975,26 +255970,6 @@
             "max_wait": 2.4,
             "queues": [
               "intel-cpu"
-            ]
-          },
-          {
-            "name": "Extract Hidden States Integration",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 3.8,
-            "p90_dur": 3.8,
-            "avg_dur": 3.8,
-            "max_dur": 3.8,
-            "median_wait": 0.1,
-            "p90_wait": 0.1,
-            "avg_wait": 0.1,
-            "max_wait": 0.1,
-            "queues": [
-              "h200_18gb"
             ]
           },
           {
@@ -256478,6 +256453,26 @@
             ]
           },
           {
+            "name": "Batch Invariance (A100)",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 2.5,
+            "p90_dur": 2.5,
+            "avg_dur": 2.5,
+            "max_dur": 2.5,
+            "median_wait": 1.3,
+            "p90_wait": 1.3,
+            "avg_wait": 1.3,
+            "max_wait": 1.3,
+            "queues": [
+              "a100_queue"
+            ]
+          },
+          {
             "name": "Distributed NixlConnector PD accuracy (4 GPUs)",
             "runs": 1,
             "passed": 1,
@@ -256575,6 +256570,26 @@
             "max_wait": 0.0,
             "queues": [
               "h200_18gb"
+            ]
+          },
+          {
+            "name": "Async Engine, Inputs, Utils, Worker",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 2.3,
+            "p90_dur": 2.3,
+            "avg_dur": 2.3,
+            "max_dur": 2.3,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_35gb"
             ]
           },
           {
@@ -256735,6 +256750,26 @@
             "max_wait": 0.3,
             "queues": [
               "amd_mi300_4"
+            ]
+          },
+          {
+            "name": "Extract Hidden States Integration",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 2.0,
+            "p90_dur": 2.0,
+            "avg_dur": 2.0,
+            "max_dur": 2.0,
+            "median_wait": 0.1,
+            "p90_wait": 0.1,
+            "avg_wait": 0.1,
+            "max_wait": 0.1,
+            "queues": [
+              "h200_18gb"
             ]
           },
           {
@@ -257238,6 +257273,26 @@
             ]
           },
           {
+            "name": "Extract Hidden States Integration (2 GPUs)",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 1.0,
+            "p90_dur": 1.0,
+            "avg_dur": 1.0,
+            "max_dur": 1.0,
+            "median_wait": 14.6,
+            "p90_wait": 14.6,
+            "avg_wait": 14.6,
+            "max_wait": 14.6,
+            "queues": [
+              "gpu_4_queue"
+            ]
+          },
+          {
             "name": "Weight Loading Multiple GPU",
             "runs": 1,
             "passed": 1,
@@ -257333,6 +257388,26 @@
             "p90_wait": 4.4,
             "avg_wait": 4.4,
             "max_wait": 4.4,
+            "queues": [
+              "gpu_4_queue"
+            ]
+          },
+          {
+            "name": "Metrics, Tracing (2 GPUs)",
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 0.8,
+            "p90_dur": 0.8,
+            "avg_dur": 0.8,
+            "max_dur": 0.8,
+            "median_wait": 14.8,
+            "p90_wait": 14.8,
+            "avg_wait": 14.8,
+            "max_wait": 14.8,
             "queues": [
               "gpu_4_queue"
             ]
@@ -257769,10 +257844,10 @@
           },
           {
             "queue": "gpu_4_queue",
-            "jobs": 30,
-            "median_wait": 10.2,
-            "p90_wait": 15.8,
-            "avg_wait": 9.6,
+            "jobs": 31,
+            "median_wait": 10.3,
+            "p90_wait": 15.5,
+            "avg_wait": 9.8,
             "max_wait": 16.1
           },
           {
@@ -257962,8 +258037,8 @@
           "failed": 3,
           "pass_rate": 0.0,
           "total_jobs_tracked": 278,
-          "jobs_with_failures": 18,
-          "jobs_with_hard_failures": 14,
+          "jobs_with_failures": 19,
+          "jobs_with_hard_failures": 15,
           "jobs_with_soft_failures": 4
         },
         "daily_stats": [
@@ -257989,17 +258064,17 @@
         "builds": [
           {
             "number": 76308,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-04T06:00:04.181Z",
             "date": "2026-07-04",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 618.1,
             "passed": 265,
-            "failed": 9,
+            "failed": 10,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 277,
+            "total_jobs": 278,
             "web_url": "https://buildkite.com/vllm/ci/builds/76308",
             "source": "test_results"
           },
@@ -258039,17 +258114,17 @@
         "nightly_builds": [
           {
             "number": 76308,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-04T06:00:04.181Z",
             "date": "2026-07-04",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 618.1,
             "passed": 265,
-            "failed": 9,
+            "failed": 10,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 277,
+            "total_jobs": 278,
             "web_url": "https://buildkite.com/vllm/ci/builds/76308",
             "source": "test_results"
           },
@@ -258268,6 +258343,26 @@
             ]
           },
           {
+            "name": "LoRA TP (Distributed)",
+            "runs": 2,
+            "passed": 1,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 50.0,
+            "is_soft_fail": false,
+            "median_dur": 302.4,
+            "p90_dur": 600.7,
+            "avg_dur": 302.4,
+            "max_dur": 600.7,
+            "median_wait": 11.1,
+            "p90_wait": 14.6,
+            "avg_wait": 11.1,
+            "max_wait": 14.6,
+            "queues": [
+              "gpu_4_queue"
+            ]
+          },
+          {
             "name": "CPU-ModelRunnerV2 Tests",
             "runs": 3,
             "passed": 2,
@@ -258449,6 +258544,26 @@
           }
         ],
         "duration_ranking": [
+          {
+            "name": "LoRA TP (Distributed)",
+            "runs": 2,
+            "passed": 1,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 50.0,
+            "is_soft_fail": false,
+            "median_dur": 302.4,
+            "p90_dur": 600.7,
+            "avg_dur": 302.4,
+            "max_dur": 600.7,
+            "median_wait": 11.1,
+            "p90_wait": 14.6,
+            "avg_wait": 11.1,
+            "max_wait": 14.6,
+            "queues": [
+              "gpu_4_queue"
+            ]
+          },
           {
             "name": "MoE Refactor Integration Test (B200 - TEMPORARY)",
             "runs": 3,
@@ -261797,10 +261912,10 @@
             "soft_failed": 0,
             "fail_rate": 0.0,
             "is_soft_fail": false,
-            "median_dur": 5.3,
-            "p90_dur": 46.7,
-            "avg_dur": 19.0,
-            "max_dur": 46.7,
+            "median_dur": 5.1,
+            "p90_dur": 5.3,
+            "avg_dur": 5.1,
+            "max_dur": 5.3,
             "median_wait": 0.6,
             "p90_wait": 0.7,
             "avg_wait": 0.6,
@@ -262038,9 +262153,9 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 4.2,
-            "p90_dur": 23.9,
-            "avg_dur": 10.8,
-            "max_dur": 23.9,
+            "p90_dur": 4.2,
+            "avg_dur": 4.2,
+            "max_dur": 4.2,
             "median_wait": 6.7,
             "p90_wait": 7.5,
             "avg_wait": 6.2,
@@ -262087,26 +262202,6 @@
             "max_wait": 9.7,
             "queues": [
               "b200-k8s"
-            ]
-          },
-          {
-            "name": "LoRA TP (Distributed)",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 4.0,
-            "p90_dur": 4.0,
-            "avg_dur": 4.0,
-            "max_dur": 4.0,
-            "median_wait": 7.5,
-            "p90_wait": 7.5,
-            "avg_wait": 7.5,
-            "max_wait": 7.5,
-            "queues": [
-              "gpu_4_queue"
             ]
           },
           {
@@ -262610,26 +262705,6 @@
             ]
           },
           {
-            "name": "Batch Invariance (A100)",
-            "runs": 3,
-            "passed": 3,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 2.6,
-            "p90_dur": 19.1,
-            "avg_dur": 8.1,
-            "max_dur": 19.1,
-            "median_wait": 1.3,
-            "p90_wait": 1.4,
-            "avg_wait": 1.0,
-            "max_wait": 1.4,
-            "queues": [
-              "a100_queue"
-            ]
-          },
-          {
             "name": "Distributed FlashInfer NixlConnector PD accuracy (4 GPUs)",
             "runs": 3,
             "passed": 3,
@@ -262650,7 +262725,7 @@
             ]
           },
           {
-            "name": "Async Engine, Inputs, Utils, Worker",
+            "name": "Batch Invariance (A100)",
             "runs": 3,
             "passed": 3,
             "failed": 0,
@@ -262658,15 +262733,15 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 2.5,
-            "p90_dur": 9.4,
-            "avg_dur": 4.8,
-            "max_dur": 9.4,
-            "median_wait": 0.0,
-            "p90_wait": 0.0,
-            "avg_wait": 0.0,
-            "max_wait": 0.0,
+            "p90_dur": 2.6,
+            "avg_dur": 2.5,
+            "max_dur": 2.6,
+            "median_wait": 1.3,
+            "p90_wait": 1.4,
+            "avg_wait": 1.0,
+            "max_wait": 1.4,
             "queues": [
-              "h200_35gb"
+              "a100_queue"
             ]
           },
           {
@@ -262687,6 +262762,26 @@
             "max_wait": 7.1,
             "queues": [
               "gpu_4_queue"
+            ]
+          },
+          {
+            "name": "Async Engine, Inputs, Utils, Worker",
+            "runs": 3,
+            "passed": 3,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 2.4,
+            "p90_dur": 2.5,
+            "avg_dur": 2.4,
+            "max_dur": 2.5,
+            "median_wait": 0.0,
+            "p90_wait": 0.0,
+            "avg_wait": 0.0,
+            "max_wait": 0.0,
+            "queues": [
+              "h200_35gb"
             ]
           },
           {
@@ -262890,26 +262985,6 @@
             ]
           },
           {
-            "name": "Extract Hidden States Integration",
-            "runs": 3,
-            "passed": 3,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 2.1,
-            "p90_dur": 3.8,
-            "avg_dur": 2.6,
-            "max_dur": 3.8,
-            "median_wait": 0.0,
-            "p90_wait": 0.1,
-            "avg_wait": 0.0,
-            "max_wait": 0.1,
-            "queues": [
-              "h200_18gb"
-            ]
-          },
-          {
             "name": "Rust Frontend Tool Use",
             "runs": 3,
             "passed": 3,
@@ -262947,6 +263022,26 @@
             "max_wait": 0.3,
             "queues": [
               "amd_mi300_4"
+            ]
+          },
+          {
+            "name": "Extract Hidden States Integration",
+            "runs": 3,
+            "passed": 3,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 2.0,
+            "p90_dur": 2.1,
+            "avg_dur": 2.0,
+            "max_dur": 2.1,
+            "median_wait": 0.0,
+            "p90_wait": 0.1,
+            "avg_wait": 0.0,
+            "max_wait": 0.1,
+            "queues": [
+              "h200_18gb"
             ]
           },
           {
@@ -263418,9 +263513,9 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 1.0,
-            "p90_dur": 5.5,
-            "avg_dur": 2.5,
-            "max_dur": 5.5,
+            "p90_dur": 1.0,
+            "avg_dur": 1.0,
+            "max_dur": 1.0,
             "median_wait": 14.6,
             "p90_wait": 22.0,
             "avg_wait": 14.7,
@@ -263538,9 +263633,9 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 0.8,
-            "p90_dur": 5.3,
-            "avg_dur": 2.3,
-            "max_dur": 5.3,
+            "p90_dur": 0.8,
+            "avg_dur": 0.8,
+            "max_dur": 0.8,
             "median_wait": 14.8,
             "p90_wait": 22.1,
             "avg_wait": 14.9,
@@ -264021,8 +264116,8 @@
           },
           {
             "queue": "gpu_4_queue",
-            "jobs": 91,
-            "median_wait": 10.0,
+            "jobs": 92,
+            "median_wait": 10.3,
             "p90_wait": 15.5,
             "avg_wait": 9.6,
             "max_wait": 16.1
@@ -264214,8 +264309,8 @@
           "failed": 7,
           "pass_rate": 0.0,
           "total_jobs_tracked": 289,
-          "jobs_with_failures": 48,
-          "jobs_with_hard_failures": 40,
+          "jobs_with_failures": 49,
+          "jobs_with_hard_failures": 41,
           "jobs_with_soft_failures": 8
         },
         "daily_stats": [
@@ -264265,17 +264360,17 @@
         "builds": [
           {
             "number": 76308,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-04T06:00:04.181Z",
             "date": "2026-07-04",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 618.1,
             "passed": 265,
-            "failed": 9,
+            "failed": 10,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 277,
+            "total_jobs": 278,
             "web_url": "https://buildkite.com/vllm/ci/builds/76308",
             "source": "test_results"
           },
@@ -264379,17 +264474,17 @@
         "nightly_builds": [
           {
             "number": 76308,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-04T06:00:04.181Z",
             "date": "2026-07-04",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 618.1,
             "passed": 265,
-            "failed": 9,
+            "failed": 10,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 277,
+            "total_jobs": 278,
             "web_url": "https://buildkite.com/vllm/ci/builds/76308",
             "source": "test_results"
           },
@@ -264859,9 +264954,9 @@
             "soft_failed": 0,
             "fail_rate": 28.6,
             "is_soft_fail": false,
-            "median_dur": 5.4,
+            "median_dur": 5.3,
             "p90_dur": 47.7,
-            "avg_dur": 17.2,
+            "avg_dur": 11.3,
             "max_dur": 47.7,
             "median_wait": 0.6,
             "p90_wait": 0.9,
@@ -264952,6 +265047,26 @@
             ]
           },
           {
+            "name": "LoRA TP (Distributed)",
+            "runs": 6,
+            "passed": 5,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 16.7,
+            "is_soft_fail": false,
+            "median_dur": 3.8,
+            "p90_dur": 600.7,
+            "avg_dur": 103.3,
+            "max_dur": 600.7,
+            "median_wait": 6.5,
+            "p90_wait": 14.6,
+            "avg_wait": 7.5,
+            "max_wait": 14.6,
+            "queues": [
+              "gpu_4_queue"
+            ]
+          },
+          {
             "name": "AMD: Language Models Test (Extended Pooling) (mi325_1)",
             "runs": 7,
             "passed": 6,
@@ -265021,7 +265136,7 @@
             "is_soft_fail": false,
             "median_dur": 2.5,
             "p90_dur": 9.9,
-            "avg_dur": 4.5,
+            "avg_dur": 3.4,
             "max_dur": 9.9,
             "median_wait": 0.0,
             "p90_wait": 0.0,
@@ -268934,26 +269049,6 @@
             ]
           },
           {
-            "name": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
-            "runs": 7,
-            "passed": 5,
-            "failed": 2,
-            "soft_failed": 0,
-            "fail_rate": 28.6,
-            "is_soft_fail": false,
-            "median_dur": 5.4,
-            "p90_dur": 47.7,
-            "avg_dur": 17.2,
-            "max_dur": 47.7,
-            "median_wait": 0.6,
-            "p90_wait": 0.9,
-            "avg_wait": 0.7,
-            "max_wait": 0.9,
-            "queues": [
-              "small_cpu_queue_premerge"
-            ]
-          },
-          {
             "name": "MRCR Eval Small Models",
             "runs": 7,
             "passed": 7,
@@ -268971,6 +269066,26 @@
             "max_wait": 0.0,
             "queues": [
               "h200_35gb"
+            ]
+          },
+          {
+            "name": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
+            "runs": 7,
+            "passed": 5,
+            "failed": 2,
+            "soft_failed": 0,
+            "fail_rate": 28.6,
+            "is_soft_fail": false,
+            "median_dur": 5.3,
+            "p90_dur": 47.7,
+            "avg_dur": 11.3,
+            "max_dur": 47.7,
+            "median_wait": 0.6,
+            "p90_wait": 0.9,
+            "avg_wait": 0.7,
+            "max_wait": 0.9,
+            "queues": [
+              "small_cpu_queue_premerge"
             ]
           },
           {
@@ -269262,9 +269377,9 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 4.2,
-            "p90_dur": 23.9,
-            "avg_dur": 9.3,
-            "max_dur": 23.9,
+            "p90_dur": 20.7,
+            "avg_dur": 6.5,
+            "max_dur": 20.7,
             "median_wait": 6.6,
             "p90_wait": 14.9,
             "avg_wait": 6.6,
@@ -269395,20 +269510,20 @@
           },
           {
             "name": "LoRA TP (Distributed)",
-            "runs": 5,
+            "runs": 6,
             "passed": 5,
-            "failed": 0,
+            "failed": 1,
             "soft_failed": 0,
-            "fail_rate": 0.0,
+            "fail_rate": 16.7,
             "is_soft_fail": false,
             "median_dur": 3.8,
-            "p90_dur": 4.0,
-            "avg_dur": 3.8,
-            "max_dur": 4.0,
-            "median_wait": 5.5,
-            "p90_wait": 10.9,
-            "avg_wait": 6.1,
-            "max_wait": 10.9,
+            "p90_dur": 600.7,
+            "avg_dur": 103.3,
+            "max_dur": 600.7,
+            "median_wait": 6.5,
+            "p90_wait": 14.6,
+            "avg_wait": 7.5,
+            "max_wait": 14.6,
             "queues": [
               "gpu_4_queue"
             ]
@@ -269823,7 +269938,7 @@
             "is_soft_fail": false,
             "median_dur": 2.5,
             "p90_dur": 9.9,
-            "avg_dur": 4.5,
+            "avg_dur": 3.4,
             "max_dur": 9.9,
             "median_wait": 0.0,
             "p90_wait": 0.0,
@@ -269842,9 +269957,9 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 2.5,
-            "p90_dur": 19.1,
-            "avg_dur": 7.2,
-            "max_dur": 19.1,
+            "p90_dur": 18.9,
+            "avg_dur": 4.8,
+            "max_dur": 18.9,
             "median_wait": 1.4,
             "p90_wait": 1.5,
             "avg_wait": 1.3,
@@ -270063,7 +270178,7 @@
             "is_soft_fail": false,
             "median_dur": 2.1,
             "p90_dur": 4.3,
-            "avg_dur": 2.6,
+            "avg_dur": 2.4,
             "max_dur": 4.3,
             "median_wait": 0.0,
             "p90_wait": 0.1,
@@ -270603,7 +270718,7 @@
             "is_soft_fail": false,
             "median_dur": 1.0,
             "p90_dur": 5.5,
-            "avg_dur": 2.3,
+            "avg_dur": 1.6,
             "max_dur": 5.5,
             "median_wait": 7.6,
             "p90_wait": 22.0,
@@ -270763,7 +270878,7 @@
             "is_soft_fail": false,
             "median_dur": 0.8,
             "p90_dur": 5.3,
-            "avg_dur": 2.0,
+            "avg_dur": 1.4,
             "max_dur": 5.3,
             "median_wait": 7.9,
             "p90_wait": 22.1,
@@ -271245,7 +271360,7 @@
           },
           {
             "queue": "gpu_4_queue",
-            "jobs": 218,
+            "jobs": 219,
             "median_wait": 5.3,
             "p90_wait": 8.5,
             "avg_wait": 5.7,
@@ -271438,8 +271553,8 @@
           "failed": 11,
           "pass_rate": 21.4,
           "total_jobs_tracked": 308,
-          "jobs_with_failures": 60,
-          "jobs_with_hard_failures": 52,
+          "jobs_with_failures": 61,
+          "jobs_with_hard_failures": 53,
           "jobs_with_soft_failures": 8
         },
         "daily_stats": [
@@ -271531,17 +271646,17 @@
         "builds": [
           {
             "number": 76308,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-04T06:00:04.181Z",
             "date": "2026-07-04",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 618.1,
             "passed": 265,
-            "failed": 9,
+            "failed": 10,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 277,
+            "total_jobs": 278,
             "web_url": "https://buildkite.com/vllm/ci/builds/76308",
             "source": "test_results"
           },
@@ -271757,17 +271872,17 @@
         "nightly_builds": [
           {
             "number": 76308,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-04T06:00:04.181Z",
             "date": "2026-07-04",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 618.1,
             "passed": 265,
-            "failed": 9,
+            "failed": 10,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 277,
+            "total_jobs": 278,
             "web_url": "https://buildkite.com/vllm/ci/builds/76308",
             "source": "test_results"
           },
@@ -272349,9 +272464,9 @@
             "soft_failed": 0,
             "fail_rate": 23.1,
             "is_soft_fail": false,
-            "median_dur": 5.3,
-            "p90_dur": 46.7,
-            "avg_dur": 12.0,
+            "median_dur": 5.2,
+            "p90_dur": 8.5,
+            "avg_dur": 8.8,
             "max_dur": 47.7,
             "median_wait": 0.6,
             "p90_wait": 0.8,
@@ -272599,6 +272714,26 @@
             "max_wait": 3.7,
             "queues": [
               "gpu_1_queue"
+            ]
+          },
+          {
+            "name": "LoRA TP (Distributed)",
+            "runs": 12,
+            "passed": 11,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 8.3,
+            "is_soft_fail": false,
+            "median_dur": 3.8,
+            "p90_dur": 5.1,
+            "avg_dur": 53.6,
+            "max_dur": 600.7,
+            "median_wait": 6.1,
+            "p90_wait": 20.2,
+            "avg_wait": 11.6,
+            "max_wait": 57.6,
+            "queues": [
+              "gpu_4_queue"
             ]
           },
           {
@@ -273090,8 +273225,8 @@
             "fail_rate": 7.1,
             "is_soft_fail": false,
             "median_dur": 2.5,
-            "p90_dur": 9.4,
-            "avg_dur": 3.5,
+            "p90_dur": 2.8,
+            "avg_dur": 3.0,
             "max_dur": 9.9,
             "median_wait": 0.0,
             "p90_wait": 38.8,
@@ -276911,9 +277046,9 @@
             "soft_failed": 0,
             "fail_rate": 23.1,
             "is_soft_fail": false,
-            "median_dur": 5.3,
-            "p90_dur": 46.7,
-            "avg_dur": 12.0,
+            "median_dur": 5.2,
+            "p90_dur": 8.5,
+            "avg_dur": 8.8,
             "max_dur": 47.7,
             "median_wait": 0.6,
             "p90_wait": 0.8,
@@ -277252,9 +277387,9 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 4.1,
-            "p90_dur": 22.0,
-            "avg_dur": 8.2,
-            "max_dur": 23.9,
+            "p90_dur": 20.7,
+            "avg_dur": 6.7,
+            "max_dur": 22.0,
             "median_wait": 6.6,
             "p90_wait": 51.7,
             "avg_wait": 15.0,
@@ -277325,19 +277460,19 @@
           },
           {
             "name": "LoRA TP (Distributed)",
-            "runs": 11,
+            "runs": 12,
             "passed": 11,
-            "failed": 0,
+            "failed": 1,
             "soft_failed": 0,
-            "fail_rate": 0.0,
+            "fail_rate": 8.3,
             "is_soft_fail": false,
             "median_dur": 3.8,
-            "p90_dur": 4.0,
-            "avg_dur": 3.9,
-            "max_dur": 5.1,
-            "median_wait": 5.5,
+            "p90_dur": 5.1,
+            "avg_dur": 53.6,
+            "max_dur": 600.7,
+            "median_wait": 6.1,
             "p90_wait": 20.2,
-            "avg_wait": 11.3,
+            "avg_wait": 11.6,
             "max_wait": 57.6,
             "queues": [
               "gpu_4_queue"
@@ -277752,8 +277887,8 @@
             "fail_rate": 7.1,
             "is_soft_fail": false,
             "median_dur": 2.5,
-            "p90_dur": 9.4,
-            "avg_dur": 3.5,
+            "p90_dur": 2.8,
+            "avg_dur": 3.0,
             "max_dur": 9.9,
             "median_wait": 0.0,
             "p90_wait": 38.8,
@@ -277772,9 +277907,9 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 2.5,
-            "p90_dur": 18.9,
-            "avg_dur": 5.1,
-            "max_dur": 19.1,
+            "p90_dur": 3.2,
+            "avg_dur": 3.8,
+            "max_dur": 18.9,
             "median_wait": 1.5,
             "p90_wait": 9.1,
             "avg_wait": 2.5,
@@ -278024,26 +278159,6 @@
             ]
           },
           {
-            "name": "Extract Hidden States Integration",
-            "runs": 14,
-            "passed": 14,
-            "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 2.1,
-            "p90_dur": 3.8,
-            "avg_dur": 2.4,
-            "max_dur": 4.3,
-            "median_wait": 0.0,
-            "p90_wait": 0.1,
-            "avg_wait": 0.5,
-            "max_wait": 6.4,
-            "queues": [
-              "h200_18gb"
-            ]
-          },
-          {
             "name": "Rust Frontend Tool Use",
             "runs": 14,
             "passed": 14,
@@ -278101,6 +278216,26 @@
             "max_wait": 0.3,
             "queues": [
               "amd_mi300_4"
+            ]
+          },
+          {
+            "name": "Extract Hidden States Integration",
+            "runs": 14,
+            "passed": 14,
+            "failed": 0,
+            "soft_failed": 0,
+            "fail_rate": 0.0,
+            "is_soft_fail": false,
+            "median_dur": 2.0,
+            "p90_dur": 3.1,
+            "avg_dur": 2.3,
+            "max_dur": 4.3,
+            "median_wait": 0.0,
+            "p90_wait": 0.1,
+            "avg_wait": 0.5,
+            "max_wait": 6.4,
+            "queues": [
+              "h200_18gb"
             ]
           },
           {
@@ -278613,7 +278748,7 @@
             "is_soft_fail": false,
             "median_dur": 1.0,
             "p90_dur": 5.5,
-            "avg_dur": 2.3,
+            "avg_dur": 1.9,
             "max_dur": 5.7,
             "median_wait": 6.2,
             "p90_wait": 24.6,
@@ -278813,7 +278948,7 @@
             "is_soft_fail": false,
             "median_dur": 0.7,
             "p90_dur": 5.3,
-            "avg_dur": 1.7,
+            "avg_dur": 1.4,
             "max_dur": 5.4,
             "median_wait": 6.2,
             "p90_wait": 24.5,
@@ -279355,7 +279490,7 @@
           },
           {
             "queue": "gpu_4_queue",
-            "jobs": 412,
+            "jobs": 413,
             "median_wait": 5.3,
             "p90_wait": 6.9,
             "avg_wait": 5.2,
@@ -279548,8 +279683,8 @@
           "failed": 27,
           "pass_rate": 10.0,
           "total_jobs_tracked": 338,
-          "jobs_with_failures": 100,
-          "jobs_with_hard_failures": 92,
+          "jobs_with_failures": 101,
+          "jobs_with_hard_failures": 93,
           "jobs_with_soft_failures": 8
         },
         "daily_stats": [
@@ -279737,17 +279872,17 @@
         "builds": [
           {
             "number": 76308,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-04T06:00:04.181Z",
             "date": "2026-07-04",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 618.1,
             "passed": 265,
-            "failed": 9,
+            "failed": 10,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 277,
+            "total_jobs": 278,
             "web_url": "https://buildkite.com/vllm/ci/builds/76308",
             "source": "test_results"
           },
@@ -280219,17 +280354,17 @@
         "nightly_builds": [
           {
             "number": 76308,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-04T06:00:04.181Z",
             "date": "2026-07-04",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 618.1,
             "passed": 265,
-            "failed": 9,
+            "failed": 10,
             "soft_failed": 3,
             "skipped": 0,
-            "total_jobs": 277,
+            "total_jobs": 278,
             "web_url": "https://buildkite.com/vllm/ci/builds/76308",
             "source": "test_results"
           },
@@ -281328,8 +281463,8 @@
             "fail_rate": 13.8,
             "is_soft_fail": false,
             "median_dur": 5.3,
-            "p90_dur": 45.4,
-            "avg_dur": 9.7,
+            "p90_dur": 8.5,
+            "avg_dur": 8.3,
             "max_dur": 47.7,
             "median_wait": 0.6,
             "p90_wait": 0.8,
@@ -281889,7 +282024,7 @@
             "is_soft_fail": false,
             "median_dur": 0.7,
             "p90_dur": 5.4,
-            "avg_dur": 1.8,
+            "avg_dur": 1.6,
             "max_dur": 10.2,
             "median_wait": 5.0,
             "p90_wait": 24.5,
@@ -282100,6 +282235,26 @@
             ]
           },
           {
+            "name": "LoRA TP (Distributed)",
+            "runs": 28,
+            "passed": 27,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 3.6,
+            "is_soft_fail": false,
+            "median_dur": 3.8,
+            "p90_dur": 5.1,
+            "avg_dur": 26.2,
+            "max_dur": 600.7,
+            "median_wait": 4.6,
+            "p90_wait": 20.2,
+            "avg_wait": 8.1,
+            "max_wait": 57.6,
+            "queues": [
+              "gpu_4_queue"
+            ]
+          },
+          {
             "name": "Batch Invariance (H100)",
             "runs": 29,
             "passed": 28,
@@ -282108,9 +282263,9 @@
             "fail_rate": 3.4,
             "is_soft_fail": false,
             "median_dur": 4.0,
-            "p90_dur": 20.7,
-            "avg_dur": 6.0,
-            "max_dur": 23.9,
+            "p90_dur": 6.2,
+            "avg_dur": 5.3,
+            "max_dur": 22.0,
             "median_wait": 6.6,
             "p90_wait": 51.7,
             "avg_wait": 13.8,
@@ -282628,8 +282783,8 @@
             "fail_rate": 3.3,
             "is_soft_fail": false,
             "median_dur": 2.5,
-            "p90_dur": 8.8,
-            "avg_dur": 3.2,
+            "p90_dur": 2.8,
+            "avg_dur": 3.0,
             "max_dur": 9.9,
             "median_wait": 0.0,
             "p90_wait": 38.8,
@@ -286830,8 +286985,8 @@
             "fail_rate": 13.8,
             "is_soft_fail": false,
             "median_dur": 5.3,
-            "p90_dur": 45.4,
-            "avg_dur": 9.7,
+            "p90_dur": 8.5,
+            "avg_dur": 8.3,
             "max_dur": 47.7,
             "median_wait": 0.6,
             "p90_wait": 0.8,
@@ -287190,9 +287345,9 @@
             "fail_rate": 3.4,
             "is_soft_fail": false,
             "median_dur": 4.0,
-            "p90_dur": 20.7,
-            "avg_dur": 6.0,
-            "max_dur": 23.9,
+            "p90_dur": 6.2,
+            "avg_dur": 5.3,
+            "max_dur": 22.0,
             "median_wait": 6.6,
             "p90_wait": 51.7,
             "avg_wait": 13.8,
@@ -287263,19 +287418,19 @@
           },
           {
             "name": "LoRA TP (Distributed)",
-            "runs": 27,
+            "runs": 28,
             "passed": 27,
-            "failed": 0,
+            "failed": 1,
             "soft_failed": 0,
-            "fail_rate": 0.0,
+            "fail_rate": 3.6,
             "is_soft_fail": false,
             "median_dur": 3.8,
-            "p90_dur": 4.0,
-            "avg_dur": 5.0,
-            "max_dur": 34.9,
-            "median_wait": 4.4,
+            "p90_dur": 5.1,
+            "avg_dur": 26.2,
+            "max_dur": 600.7,
+            "median_wait": 4.6,
             "p90_wait": 20.2,
-            "avg_wait": 7.9,
+            "avg_wait": 8.1,
             "max_wait": 57.6,
             "queues": [
               "gpu_4_queue"
@@ -287670,8 +287825,8 @@
             "fail_rate": 3.3,
             "is_soft_fail": false,
             "median_dur": 2.5,
-            "p90_dur": 8.8,
-            "avg_dur": 3.2,
+            "p90_dur": 2.8,
+            "avg_dur": 3.0,
             "max_dur": 9.9,
             "median_wait": 0.0,
             "p90_wait": 38.8,
@@ -287730,9 +287885,9 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 2.4,
-            "p90_dur": 16.0,
-            "avg_dur": 4.0,
-            "max_dur": 19.1,
+            "p90_dur": 3.2,
+            "avg_dur": 3.5,
+            "max_dur": 18.9,
             "median_wait": 1.5,
             "p90_wait": 9.1,
             "avg_wait": 2.2,
@@ -288010,8 +288165,8 @@
             "fail_rate": 0.0,
             "is_soft_fail": false,
             "median_dur": 2.0,
-            "p90_dur": 3.1,
-            "avg_dur": 2.2,
+            "p90_dur": 2.4,
+            "avg_dur": 2.1,
             "max_dur": 4.3,
             "median_wait": 0.0,
             "p90_wait": 0.2,
@@ -288651,7 +288806,7 @@
             "is_soft_fail": false,
             "median_dur": 1.0,
             "p90_dur": 5.5,
-            "avg_dur": 1.7,
+            "avg_dur": 1.5,
             "max_dur": 5.7,
             "median_wait": 5.1,
             "p90_wait": 24.6,
@@ -288911,7 +289066,7 @@
             "is_soft_fail": false,
             "median_dur": 0.7,
             "p90_dur": 5.4,
-            "avg_dur": 1.8,
+            "avg_dur": 1.6,
             "max_dur": 10.2,
             "median_wait": 5.0,
             "p90_wait": 24.5,
@@ -289481,7 +289636,7 @@
           },
           {
             "queue": "gpu_4_queue",
-            "jobs": 893,
+            "jobs": 894,
             "median_wait": 3.9,
             "p90_wait": 5.2,
             "avg_wait": 4.0,

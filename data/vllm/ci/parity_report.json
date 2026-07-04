@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-07-04T15:48:42Z",
+  "generated_at": "2026-07-04T17:20:35Z",
   "amd_date": "2026-07-04",
   "upstream_date": "2026-07-04",
   "parity_pct": 0.0,
-  "total_tests": 711,
+  "total_tests": 714,
   "summary": {
-    "upstream_only": 390,
+    "upstream_only": 393,
     "amd_only": 321
   },
   "by_module": {
@@ -287,7 +287,7 @@
     },
     "Async Engine, Inputs, Utils, Worker": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 2
     },
     "Async Engine, Inputs, Utils, Worker, Config (CPU)": {
       "parity_pct": 100.0,
@@ -539,7 +539,7 @@
     },
     "Extract Hidden States Integration": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 2
     },
     "Extract Hidden States Integration (2 GPUs)": {
       "parity_pct": 100.0,
@@ -792,6 +792,10 @@
     "LoRA 4": {
       "parity_pct": 100.0,
       "upstream_only": 2
+    },
+    "LoRA TP (Distributed)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
     },
     "MRCR Eval Small Models": {
       "parity_pct": 100.0,
@@ -2006,14 +2010,14 @@
         "duration": 161.44
       },
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 202,
+        "passed": 201,
         "failed": 0,
         "skipped": 0,
-        "xfailed": 0,
+        "xfailed": 1,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 139.57
       },
       "hardware": [
         "h100",
@@ -2037,8 +2041,8 @@
         }
       ],
       "delta": {
-        "total": 201,
-        "passed": 200,
+        "total": 0,
+        "passed": 0,
         "failed": 0,
         "skipped": 0
       },
@@ -2062,14 +2066,14 @@
         "duration": 289.22
       },
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 55,
+        "passed": 55,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 304.48
       },
       "hardware": [
         "h100",
@@ -2093,8 +2097,8 @@
         }
       ],
       "delta": {
-        "total": 54,
-        "passed": 54,
+        "total": 0,
+        "passed": 0,
         "failed": 0,
         "skipped": 0
       },
@@ -2446,7 +2450,7 @@
       "family_key": "batch invariance",
       "family_name": "batch invariance",
       "amd_job_name": "mi250_1: Batch Invariance (H100-MI250)",
-      "upstream_job_name": "Batch Invariance (H100)",
+      "upstream_job_name": "Batch Invariance (B200)",
       "amd": {
         "total": 1,
         "passed": 1,
@@ -2458,17 +2462,17 @@
         "duration": 0.0
       },
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 14,
+        "passed": 14,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 2.58
       },
       "hardware": [
-        "h100",
+        "b200",
         "mi250"
       ],
       "hw_failures": null,
@@ -2482,15 +2486,15 @@
           "side": "amd"
         },
         {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/76308/steps/canvas?jid=019f2bb7-b7e0-49a5-a806-8a12aa65da25&tab=output",
-          "job_name": "Batch Invariance (H100)",
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/76308/steps/canvas?jid=019f2bb7-b7e0-42dc-8ef2-fa22bfa21b14&tab=output",
+          "job_name": "Batch Invariance (B200)",
           "side": "upstream"
         }
       ],
       "delta": {
-        "total": 0,
-        "passed": 0,
+        "total": -13,
+        "passed": -13,
         "failed": 0,
         "skipped": 0
       },
@@ -4745,14 +4749,14 @@
         "duration": 227.7
       },
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 3,
+        "passed": 2,
         "failed": 0,
-        "skipped": 0,
+        "skipped": 1,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 117.68
       },
       "hardware": [
         "h100",
@@ -4776,10 +4780,10 @@
         }
       ],
       "delta": {
-        "total": 2,
-        "passed": 2,
+        "total": 0,
+        "passed": 1,
         "failed": 0,
-        "skipped": 0
+        "skipped": -1
       },
       "status": "both",
       "backfilled": false
@@ -6623,7 +6627,7 @@
       "family_key": "lora",
       "family_name": "lora",
       "amd_job_name": "mi300_1: LoRA 2",
-      "upstream_job_name": "LoRA 1",
+      "upstream_job_name": "LoRA 3",
       "amd": {
         "total": 6910,
         "passed": 6811,
@@ -6660,8 +6664,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/76308/steps/canvas?jid=019f2bb7-b7d8-41ac-b062-57f5ae4308e0&tab=output",
-          "job_name": "LoRA 1",
+          "url": "https://buildkite.com/vllm/ci/builds/76308/steps/canvas?jid=019f2bb7-b7d8-4a7c-b833-190f79568775&tab=output",
+          "job_name": "LoRA 3",
           "side": "upstream"
         }
       ],
@@ -6679,7 +6683,7 @@
       "family_key": "lora tp (distributed) (4 gpus)",
       "family_name": "lora tp (distributed) (4 gpus)",
       "amd_job_name": "mi300_4: LoRA TP (Distributed)",
-      "upstream_job_name": null,
+      "upstream_job_name": "LoRA TP (Distributed)",
       "amd": {
         "total": 7,
         "passed": 4,
@@ -6690,12 +6694,23 @@
         "error": 0,
         "duration": 170.67
       },
-      "upstream": null,
+      "upstream": {
+        "total": 1,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 1,
+        "duration": 0.0
+      },
       "hardware": [
         "h100",
         "mi300"
       ],
-      "hw_failures": null,
+      "hw_failures": {
+        "h100": 1
+      },
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
@@ -6704,9 +6719,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/10465/steps/canvas?sid=019f2c5c-3295-4516-a198-9e56bf6cfbaf&tab=output",
           "job_name": "mi300_4: LoRA TP (Distributed)",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/76308/steps/canvas?jid=019f2bb7-b7d9-4061-884c-9fc2db473c2c&tab=output",
+          "job_name": "LoRA TP (Distributed)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 6,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 3
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -6733,7 +6760,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 48.72
       },
       "hardware": [
         "h100",
@@ -9736,7 +9763,7 @@
       "family_key": "v1 e2e (4 gpus)",
       "family_name": "v1 e2e (4 gpus)",
       "amd_job_name": "mi300_4: V1 e2e (4 GPUs)",
-      "upstream_job_name": "V1 e2e (4 GPUs)",
+      "upstream_job_name": "V1 e2e (4xH100)",
       "amd": {
         "total": 6,
         "passed": 4,
@@ -9775,8 +9802,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/76308/steps/canvas?jid=019f2bb7-b741-4ee3-b8f1-5c49b081d9d2&tab=output",
-          "job_name": "V1 e2e (4 GPUs)",
+          "url": "https://buildkite.com/vllm/ci/builds/76308/steps/canvas?jid=019f2bb7-b742-4727-92e7-41295a4188bd&tab=output",
+          "job_name": "V1 e2e (4xH100)",
           "side": "upstream"
         }
       ],
@@ -9794,7 +9821,7 @@
       "family_key": "v1 e2e (4 gpus)",
       "family_name": "v1 e2e (4 gpus)",
       "amd_job_name": "mi300_4: V1 e2e (4xH100-4xMI300)",
-      "upstream_job_name": "V1 e2e (4 GPUs)",
+      "upstream_job_name": "V1 e2e (4xH100)",
       "amd": {
         "total": 4,
         "passed": 2,
@@ -9833,8 +9860,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/76308/steps/canvas?jid=019f2bb7-b741-4ee3-b8f1-5c49b081d9d2&tab=output",
-          "job_name": "V1 e2e (4 GPUs)",
+          "url": "https://buildkite.com/vllm/ci/builds/76308/steps/canvas?jid=019f2bb7-b742-4727-92e7-41295a4188bd&tab=output",
+          "job_name": "V1 e2e (4xH100)",
           "side": "upstream"
         }
       ],
@@ -10310,7 +10337,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 150.15
       },
       "hardware": [
         "a100"
@@ -10330,11 +10357,11 @@
       "backfilled": false
     },
     {
-      "name": "batch invariance (b200)",
+      "name": "batch invariance (h100)",
       "family_key": "batch invariance",
       "family_name": "batch invariance",
       "amd_job_name": null,
-      "upstream_job_name": "Batch Invariance (B200)",
+      "upstream_job_name": "Batch Invariance (H100)",
       "amd": null,
       "upstream": {
         "total": 1,
@@ -10344,19 +10371,19 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 252.92
       },
       "hardware": [
-        "b200"
+        "h100"
       ],
       "hw_failures": null,
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
         {
-          "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/76308/steps/canvas?jid=019f2bb7-b7e0-42dc-8ef2-fa22bfa21b14&tab=output",
-          "job_name": "Batch Invariance (B200)",
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/76308/steps/canvas?jid=019f2bb7-b7e0-49a5-a806-8a12aa65da25&tab=output",
+          "job_name": "Batch Invariance (H100)",
           "side": "upstream"
         }
       ],
@@ -10514,7 +10541,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 60.72
       },
       "hardware": [
         "h100"
@@ -12708,15 +12735,21 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "Async Engine, Inputs, Utils, Worker, Config (CPU)::__job_level__",
+      "test_id": "Async Engine, Inputs, Utils, Worker, Config (CPU)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Async Engine, Inputs, Utils, Worker::__job_level__",
+      "test_id": "Async Engine, Inputs, Utils, Worker::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Async Engine, Inputs, Utils, Worker::__xfailed__",
+      "amd_status": "missing",
+      "upstream_status": "xfailed",
       "category": "upstream_only"
     },
     {
@@ -12786,19 +12819,19 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "Batch Invariance (A100)::__job_level__",
+      "test_id": "Batch Invariance (A100)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Batch Invariance (B200)::__job_level__",
+      "test_id": "Batch Invariance (B200)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Batch Invariance (H100)::__job_level__",
+      "test_id": "Batch Invariance (H100)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
@@ -13188,15 +13221,21 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "Extract Hidden States Integration (2 GPUs)::__job_level__",
+      "test_id": "Extract Hidden States Integration (2 GPUs)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Extract Hidden States Integration::__job_level__",
+      "test_id": "Extract Hidden States Integration::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Extract Hidden States Integration::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
       "category": "upstream_only"
     },
     {
@@ -13758,13 +13797,19 @@
       "category": "upstream_only"
     },
     {
+      "test_id": "LoRA TP (Distributed)::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "error",
+      "category": "upstream_only"
+    },
+    {
       "test_id": "MRCR Eval Small Models::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Metrics, Tracing (2 GPUs)::__job_level__",
+      "test_id": "Metrics, Tracing (2 GPUs)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"

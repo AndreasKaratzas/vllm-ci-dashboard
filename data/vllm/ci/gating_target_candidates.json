@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-04T15:54:06Z",
+  "generated_at": "2026-07-04T17:26:25Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -24,16 +24,16 @@
     "amd_ci_build": 10465,
     "canonical_target_count": 125,
     "row_count": 220,
-    "canonical_match_count": 106,
+    "canonical_match_count": 107,
     "likely_duplicate_count": 18,
     "new_candidate_count": 46,
     "excluded_count": 39,
-    "missing_from_upstream_count": 11,
+    "missing_from_upstream_count": 10,
     "by_decision": {
-      "canonical": 106,
+      "canonical": 107,
       "excluded": 39,
       "likely_duplicate": 18,
-      "missing_from_upstream": 11,
+      "missing_from_upstream": 10,
       "new_candidate": 46
     }
   },
@@ -1051,6 +1051,21 @@
       "source_signal": "red",
       "readiness_signal": "yellow",
       "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "LoRA TP (Distributed)",
+      "canonical_key": "lora tp (distributed)",
+      "state": "failed",
+      "queue": "gpu_4_queue",
+      "url": "https://buildkite.com/vllm/ci/builds/76308/steps/canvas?jid=019f2bb7-b7d9-4061-884c-9fc2db473c2c&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 9,
+      "canonical_label": "LoRA TP (Distributed)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
       "proposal_matches": []
     },
     {
@@ -3451,15 +3466,6 @@
         "cpu_or_non_gpu"
       ],
       "decision": "excluded"
-    },
-    {
-      "decision": "missing_from_upstream",
-      "target_id": 9,
-      "label": "LoRA TP (Distributed)",
-      "canonical_key": "lora tp (distributed)",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "red"
     },
     {
       "decision": "missing_from_upstream",
