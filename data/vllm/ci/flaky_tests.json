@@ -1,27 +1,27 @@
 {
-  "generated_at": "2026-07-05T05:49:34Z",
+  "generated_at": "2026-07-05T12:55:19Z",
   "window_builds": 10,
-  "total_flaky": 5,
+  "total_flaky": 4,
   "tests": [
     {
       "test_id": "mi300_1: DeepSeek V2-Lite Prefetch Offload Accuracy (H100-MI300)::__job_level__",
       "label": "flaky",
       "pass_rate": 0.4,
-      "appearances": 29,
-      "last_seen": "2026-07-04",
-      "first_failure": null,
-      "failure_streak": 0,
+      "appearances": 30,
+      "last_seen": "2026-07-05",
+      "first_failure": "2026-07-05",
+      "failure_streak": 1,
       "history": [
         "F",
         "F",
-        "F",
         "P",
         "F",
         "F",
         "P",
         "P",
         "F",
-        "P"
+        "P",
+        "F"
       ],
       "module": "mi300_1: DeepSeek V2-Lite Prefetch Offload Accuracy (H100-MI300)",
       "mean_duration": 0.0
@@ -29,14 +29,13 @@
     {
       "test_id": "mi355_1: Examples::__job_level__",
       "label": "flaky",
-      "pass_rate": 0.5,
-      "appearances": 29,
-      "last_seen": "2026-07-04",
-      "first_failure": "2026-07-04",
-      "failure_streak": 1,
+      "pass_rate": 0.6,
+      "appearances": 30,
+      "last_seen": "2026-07-05",
+      "first_failure": null,
+      "failure_streak": 0,
       "history": [
         "F",
-        "F",
         "P",
         "P",
         "P",
@@ -44,32 +43,10 @@
         "F",
         "F",
         "P",
-        "F"
+        "F",
+        "P"
       ],
       "module": "mi355_1: Examples",
-      "mean_duration": 0.0
-    },
-    {
-      "test_id": "mi355_2: Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (B200-MI355)::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.6,
-      "appearances": 29,
-      "last_seen": "2026-07-04",
-      "first_failure": "2026-07-04",
-      "failure_streak": 1,
-      "history": [
-        "F",
-        "P",
-        "P",
-        "P",
-        "F",
-        "F",
-        "P",
-        "P",
-        "P",
-        "F"
-      ],
-      "module": "mi355_2: Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (B200-MI355)",
       "mean_duration": 0.0
     },
     {
@@ -89,26 +66,26 @@
       "mean_duration": 0.0
     },
     {
-      "test_id": "mi300_1: Examples::__job_level__",
+      "test_id": "mi355_2: Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (B200-MI355)::__job_level__",
       "label": "flaky",
       "pass_rate": 0.7,
-      "appearances": 29,
-      "last_seen": "2026-07-04",
+      "appearances": 30,
+      "last_seen": "2026-07-05",
       "first_failure": null,
       "failure_streak": 0,
       "history": [
+        "P",
+        "P",
+        "P",
         "F",
         "F",
         "P",
+        "P",
+        "P",
         "F",
-        "P",
-        "P",
-        "P",
-        "P",
-        "P",
         "P"
       ],
-      "module": "mi300_1: Examples",
+      "module": "mi355_2: Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (B200-MI355)",
       "mean_duration": 0.0
     }
   ]
