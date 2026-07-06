@@ -7,7 +7,7 @@
     "nvidia_only": 49,
     "mirrors": 54,
     "match_rate_pct": 92.8,
-    "avg_command_similarity_pct": 93.0
+    "avg_command_similarity_pct": 92.8
   },
   "matches": [
     {
@@ -365,6 +365,22 @@
       ]
     },
     {
+      "amd_label": "Basic Models Test (Other CPU)",
+      "nvidia_label": "Basic Models Test (Other CPU)",
+      "normalized": "basic models test (other cpu)",
+      "identity_key": "basic models test (other cpu)",
+      "command_similarity": 0.7971,
+      "color": "yellow",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/models_basic.yaml",
+      "amd_commands": [
+        "pytest -v -s models/test_utils.py models/test_vision.py"
+      ],
+      "nvidia_commands": [
+        "pytest -v -s models/test_utils.py models/test_vision.py models/transformers/fusers/"
+      ]
+    },
+    {
       "amd_label": "Distributed Tests (2xH100-2xMI300)",
       "nvidia_label": "Distributed Tests (2xH100-2xMI300)",
       "normalized": "distributed tests (2xh100-2xmi300)",
@@ -525,34 +541,6 @@
       ]
     },
     {
-      "amd_label": "Distributed Model Tests (2 GPUs)",
-      "nvidia_label": "Distributed Model Tests (2 GPUs)",
-      "normalized": "distributed model tests (2 gpus)",
-      "identity_key": "distributed model tests (2 gpus)",
-      "command_similarity": 0.8634,
-      "color": "yellow",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/models_distributed.yaml",
-      "amd_commands": [
-        "TARGET_TEST_SUITE=MI300 pytest basic_correctness/ -v -s -m 'distributed(num_gpus=2)'",
-        "CUDA_VISIBLE_DEVICES=0,1 pytest -v -s model_executor/model_loader/test_sharded_state_loader.py -m '(not slow_test)'",
-        "pytest models/test_transformers.py -v -s -m 'distributed(num_gpus=2)'",
-        "pytest models/language -v -s -m 'distributed(num_gpus=2)'",
-        "pytest models/multimodal -v -s -m 'distributed(num_gpus=2)' --ignore models/multimodal/generation/test_whisper.py --ignore models/multimodal/generation/test_phi4siglip.py",
-        "pytest models/multimodal/generation/test_phi4siglip.py -v -s -m 'distributed(num_gpus=2)'",
-        "VLLM_WORKER_MULTIPROC_METHOD=spawn pytest models/multimodal/generation/test_whisper.py -v -s -m 'distributed(num_gpus=2)'"
-      ],
-      "nvidia_commands": [
-        "TARGET_TEST_SUITE=L4 pytest basic_correctness/ -v -s -m 'distributed(num_gpus=2)'",
-        "CUDA_VISIBLE_DEVICES=0,1 pytest -v -s model_executor/model_loader/test_sharded_state_loader.py -m '(not slow_test)'",
-        "pytest models/test_transformers.py -v -s -m 'distributed(num_gpus=2)'",
-        "pytest models/language -v -s -m 'distributed(num_gpus=2)'",
-        "pytest models/multimodal/generation/test_phi4siglip.py -v -s -m 'distributed(num_gpus=2)'",
-        "pytest models/multimodal -v -s -m 'distributed(num_gpus=2)' --ignore models/multimodal/generation/test_whisper.py --ignore models/multimodal/generation/test_phi4siglip.py",
-        "VLLM_WORKER_MULTIPROC_METHOD=spawn pytest models/multimodal/generation/test_whisper.py -v -s -m 'distributed(num_gpus=2)'"
-      ]
-    },
-    {
       "amd_label": "Model Runner V2 Pipeline Parallelism (4 GPUs)",
       "nvidia_label": "Model Runner V2 Pipeline Parallelism (4 GPUs)",
       "normalized": "model runner v2 pipeline parallelism (4 gpus)",
@@ -573,6 +561,34 @@
         "pytest -v -s distributed/test_pipeline_parallel.py -k \"not ray and not Jamba\"",
         "pytest -v -s distributed/test_pp_cudagraph.py -k \"not ray\"",
         "pytest -v -s v1/distributed/test_pp_dp_v2.py"
+      ]
+    },
+    {
+      "amd_label": "Distributed Model Tests (2 GPUs)",
+      "nvidia_label": "Distributed Model Tests (2 GPUs)",
+      "normalized": "distributed model tests (2 gpus)",
+      "identity_key": "distributed model tests (2 gpus)",
+      "command_similarity": 0.865,
+      "color": "yellow",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/models_distributed.yaml",
+      "amd_commands": [
+        "TARGET_TEST_SUITE=MI300 pytest basic_correctness/ -v -s -m 'distributed(num_gpus=2)'",
+        "CUDA_VISIBLE_DEVICES=0,1 pytest -v -s model_executor/model_loader/test_sharded_state_loader.py -m '(not slow_test)'",
+        "pytest models/transformers/test_backend.py -v -s -m 'distributed(num_gpus=2)'",
+        "pytest models/language -v -s -m 'distributed(num_gpus=2)'",
+        "pytest models/multimodal -v -s -m 'distributed(num_gpus=2)' --ignore models/multimodal/generation/test_whisper.py --ignore models/multimodal/generation/test_phi4siglip.py",
+        "pytest models/multimodal/generation/test_phi4siglip.py -v -s -m 'distributed(num_gpus=2)'",
+        "VLLM_WORKER_MULTIPROC_METHOD=spawn pytest models/multimodal/generation/test_whisper.py -v -s -m 'distributed(num_gpus=2)'"
+      ],
+      "nvidia_commands": [
+        "TARGET_TEST_SUITE=L4 pytest basic_correctness/ -v -s -m 'distributed(num_gpus=2)'",
+        "CUDA_VISIBLE_DEVICES=0,1 pytest -v -s model_executor/model_loader/test_sharded_state_loader.py -m '(not slow_test)'",
+        "pytest models/transformers/test_backend.py -v -s -m 'distributed(num_gpus=2)'",
+        "pytest models/language -v -s -m 'distributed(num_gpus=2)'",
+        "pytest models/multimodal/generation/test_phi4siglip.py -v -s -m 'distributed(num_gpus=2)'",
+        "pytest models/multimodal -v -s -m 'distributed(num_gpus=2)' --ignore models/multimodal/generation/test_whisper.py --ignore models/multimodal/generation/test_phi4siglip.py",
+        "VLLM_WORKER_MULTIPROC_METHOD=spawn pytest models/multimodal/generation/test_whisper.py -v -s -m 'distributed(num_gpus=2)'"
       ]
     },
     {
@@ -1023,16 +1039,6 @@
       "color": "green",
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/kernels.yaml"
-    },
-    {
-      "amd_label": "Basic Models Test (Other CPU)",
-      "nvidia_label": "Basic Models Test (Other CPU)",
-      "normalized": "basic models test (other cpu)",
-      "identity_key": "basic models test (other cpu)",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/models_basic.yaml"
     },
     {
       "amd_label": "Language Models Test (MTEB)",

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-06T13:09:09Z",
+  "generated_at": "2026-07-06T16:39:05Z",
   "source": {
     "yaml_url": "https://raw.githubusercontent.com/vllm-project/vllm/refs/heads/main/.buildkite/test-amd.yaml",
     "latest_build_number": 10504,
@@ -11,11 +11,11 @@
     "unique_groups": 152,
     "architecture_count": 4,
     "hardware_cells": 182,
-    "latest_matched_cells": 180,
+    "latest_matched_cells": 181,
     "passing_cells": 134,
-    "failing_cells": 46,
+    "failing_cells": 47,
     "waiting_cells": 0,
-    "unknown_cells": 2,
+    "unknown_cells": 1,
     "fully_shared_groups": 0,
     "single_arch_groups": 123,
     "multi_variant_cells": 0
@@ -37,7 +37,7 @@
       "id": "mi325",
       "label": "MI325",
       "group_count": 10,
-      "nightly_match_count": 9
+      "nightly_match_count": 10
     },
     {
       "id": "mi355",
@@ -9840,10 +9840,10 @@
               "agent_pool": "mi325_2",
               "optional": false,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10504/steps/canvas?sid=019f36a8-f139-46e1-b030-589b975bce31&tab=output",
               "aliases": [
                 "Distributed Torchrun + Shutdown Tests (2 GPUs)"
               ],
@@ -9854,10 +9854,10 @@
                   "agent_pool": "mi325_2",
                   "optional": false,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10504/steps/canvas?sid=019f36a8-f139-46e1-b030-589b975bce31&tab=output",
                   "aliases": [
                     "Distributed Torchrun + Shutdown Tests (2 GPUs)"
                   ],
@@ -9866,19 +9866,19 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 10504,
           "primary_label": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10504/steps/canvas?sid=019f36a8-f139-46e1-b030-589b975bce31&tab=output"
         },
         "mi355": {
           "exists": false
         }
       },
       "coverage_count": 1,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 1,
       "architectures_present": [
         "mi325"
       ],

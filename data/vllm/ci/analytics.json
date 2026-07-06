@@ -3,12 +3,12 @@
     "pipeline": "amd-ci",
     "display_name": "AMD CI",
     "days": 30,
-    "generated_at": "2026-07-06T13:01:00Z",
+    "generated_at": "2026-07-06T16:32:45Z",
     "summary": {
       "total_builds": 31,
-      "passed": 30,
+      "passed": 31,
       "failed": 0,
-      "pass_rate": 96.8,
+      "pass_rate": 100.0,
       "total_jobs_tracked": 180,
       "jobs_with_failures": 133,
       "jobs_with_hard_failures": 13,
@@ -197,7 +197,7 @@
       },
       {
         "date": "2026-07-06",
-        "passed": 0,
+        "passed": 1,
         "failed": 0,
         "total": 1
       }
@@ -205,17 +205,17 @@
     "builds": [
       {
         "number": 10504,
-        "state": "running",
+        "state": "passed",
         "created_at": "2026-07-06T09:00:01.313Z",
         "date": "2026-07-06",
         "message": "AMD Full CI Run - nightly",
         "author": "",
-        "wall_mins": null,
+        "wall_mins": 284.3,
         "passed": 151,
         "failed": 0,
-        "soft_failed": 57,
+        "soft_failed": 58,
         "skipped": 0,
-        "total_jobs": 208,
+        "total_jobs": 209,
         "jobs": [
           {
             "name": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
@@ -2646,6 +2646,21 @@
             "step_id": "019f36a8-f138-4c0d-a0f2-4af3dd10e650",
             "q": "amd_mi325_2",
             "wait": 93.9
+          },
+          {
+            "name": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
+            "raw_name": "mi325_2: Distributed Torchrun + Shutdown Tests (2 GPUs)",
+            "state": "soft_fail",
+            "dur": 180.7,
+            "tests": 1,
+            "passed_tests": 0,
+            "failed_tests": 1,
+            "skipped_tests": 0,
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10504/steps/canvas?sid=019f36a8-f139-46e1-b030-589b975bce31&tab=output",
+            "job_id": "019f36a8-f26a-47cc-9a71-2c341784b1a6",
+            "step_id": "019f36a8-f139-46e1-b030-589b975bce31",
+            "q": "amd_mi325_2",
+            "wait": 96.6
           },
           {
             "name": "Distributed Compile + Comm (4 GPUs)",
@@ -94815,17 +94830,17 @@
     "nightly_builds": [
       {
         "number": 10504,
-        "state": "running",
+        "state": "passed",
         "created_at": "2026-07-06T09:00:01.313Z",
         "date": "2026-07-06",
         "message": "AMD Full CI Run - nightly",
         "author": "",
-        "wall_mins": null,
+        "wall_mins": 284.3,
         "passed": 151,
         "failed": 0,
-        "soft_failed": 57,
+        "soft_failed": 58,
         "skipped": 0,
-        "total_jobs": 208,
+        "total_jobs": 209,
         "web_url": "https://buildkite.com/vllm/amd-ci/builds/10504",
         "source": "test_results"
       },
@@ -96693,6 +96708,27 @@
         ]
       },
       {
+        "name": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
+        "runs": 51,
+        "passed": 26,
+        "failed": 0,
+        "soft_failed": 25,
+        "fail_rate": 49.0,
+        "is_soft_fail": true,
+        "median_dur": 0.7,
+        "p90_dur": 9.4,
+        "avg_dur": 7.5,
+        "max_dur": 180.7,
+        "median_wait": 0.1,
+        "p90_wait": 5.7,
+        "avg_wait": 4.8,
+        "max_wait": 96.6,
+        "queues": [
+          "amd_mi250_2",
+          "amd_mi325_2"
+        ]
+      },
+      {
         "name": "V1 Spec Decode",
         "runs": 62,
         "passed": 32,
@@ -96711,27 +96747,6 @@
         "queues": [
           "amd_mi325_1",
           "amd_mi355_1"
-        ]
-      },
-      {
-        "name": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
-        "runs": 50,
-        "passed": 26,
-        "failed": 0,
-        "soft_failed": 24,
-        "fail_rate": 48.0,
-        "is_soft_fail": true,
-        "median_dur": 0.6,
-        "p90_dur": 9.4,
-        "avg_dur": 4.0,
-        "max_dur": 10.1,
-        "median_wait": 0.1,
-        "p90_wait": 5.7,
-        "avg_wait": 3.0,
-        "max_wait": 75.9,
-        "queues": [
-          "amd_mi250_2",
-          "amd_mi325_2"
         ]
       },
       {
@@ -101382,6 +101397,27 @@
         ]
       },
       {
+        "name": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
+        "runs": 51,
+        "passed": 26,
+        "failed": 0,
+        "soft_failed": 25,
+        "fail_rate": 49.0,
+        "is_soft_fail": true,
+        "median_dur": 0.7,
+        "p90_dur": 9.4,
+        "avg_dur": 7.5,
+        "max_dur": 180.7,
+        "median_wait": 0.1,
+        "p90_wait": 5.7,
+        "avg_wait": 4.8,
+        "max_wait": 96.6,
+        "queues": [
+          "amd_mi250_2",
+          "amd_mi325_2"
+        ]
+      },
+      {
         "name": "Metrics, Tracing (2 GPUs)",
         "runs": 31,
         "passed": 29,
@@ -101439,27 +101475,6 @@
         "max_wait": 0.2,
         "queues": [
           "amd_mi300_2"
-        ]
-      },
-      {
-        "name": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
-        "runs": 50,
-        "passed": 26,
-        "failed": 0,
-        "soft_failed": 24,
-        "fail_rate": 48.0,
-        "is_soft_fail": true,
-        "median_dur": 0.6,
-        "p90_dur": 9.4,
-        "avg_dur": 4.0,
-        "max_dur": 10.1,
-        "median_wait": 0.1,
-        "p90_wait": 5.7,
-        "avg_wait": 3.0,
-        "max_wait": 75.9,
-        "queues": [
-          "amd_mi250_2",
-          "amd_mi325_2"
         ]
       },
       {
@@ -101757,7 +101772,7 @@
       },
       {
         "queue": "amd_mi250_2",
-        "jobs": 372,
+        "jobs": 373,
         "median_wait": 0.1,
         "p90_wait": 0.1,
         "avg_wait": 0.1,
@@ -101805,7 +101820,7 @@
       },
       {
         "queue": "amd_mi325_2",
-        "jobs": 103,
+        "jobs": 104,
         "median_wait": 0.1,
         "p90_wait": 0.1,
         "avg_wait": 0.1,
@@ -101827,18 +101842,18 @@
         "build_count": 1,
         "summary": {
           "total_builds": 1,
-          "passed": 0,
+          "passed": 1,
           "failed": 0,
-          "pass_rate": 0.0,
-          "total_jobs_tracked": 169,
-          "jobs_with_failures": 51,
+          "pass_rate": 100.0,
+          "total_jobs_tracked": 170,
+          "jobs_with_failures": 52,
           "jobs_with_hard_failures": 0,
-          "jobs_with_soft_failures": 51
+          "jobs_with_soft_failures": 52
         },
         "daily_stats": [
           {
             "date": "2026-07-06",
-            "passed": 0,
+            "passed": 1,
             "failed": 0,
             "total": 1
           }
@@ -101846,17 +101861,17 @@
         "builds": [
           {
             "number": 10504,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-07-06T09:00:01.313Z",
             "date": "2026-07-06",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 284.3,
             "passed": 151,
             "failed": 0,
-            "soft_failed": 57,
+            "soft_failed": 58,
             "skipped": 0,
-            "total_jobs": 208,
+            "total_jobs": 209,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10504",
             "source": "test_results"
           }
@@ -101864,17 +101879,17 @@
         "nightly_builds": [
           {
             "number": 10504,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-07-06T09:00:01.313Z",
             "date": "2026-07-06",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 284.3,
             "passed": 151,
             "failed": 0,
-            "soft_failed": 57,
+            "soft_failed": 58,
             "skipped": 0,
-            "total_jobs": 208,
+            "total_jobs": 209,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10504",
             "source": "test_results"
           }
@@ -102058,6 +102073,26 @@
             "max_wait": 0.1,
             "queues": [
               "amd_mi355_2"
+            ]
+          },
+          {
+            "name": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
+            "runs": 1,
+            "passed": 0,
+            "failed": 0,
+            "soft_failed": 1,
+            "fail_rate": 100.0,
+            "is_soft_fail": true,
+            "median_dur": 180.7,
+            "p90_dur": 180.7,
+            "avg_dur": 180.7,
+            "max_dur": 180.7,
+            "median_wait": 96.6,
+            "p90_wait": 96.6,
+            "avg_wait": 96.6,
+            "max_wait": 96.6,
+            "queues": [
+              "amd_mi325_2"
             ]
           },
           {
@@ -102947,6 +102982,26 @@
             "max_wait": 0.4,
             "queues": [
               "amd_mi300_4"
+            ]
+          },
+          {
+            "name": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
+            "runs": 1,
+            "passed": 0,
+            "failed": 0,
+            "soft_failed": 1,
+            "fail_rate": 100.0,
+            "is_soft_fail": true,
+            "median_dur": 180.7,
+            "p90_dur": 180.7,
+            "avg_dur": 180.7,
+            "max_dur": 180.7,
+            "median_wait": 96.6,
+            "p90_wait": 96.6,
+            "avg_wait": 96.6,
+            "max_wait": 96.6,
+            "queues": [
+              "amd_mi325_2"
             ]
           },
           {
@@ -106352,11 +106407,11 @@
         "queue_stats": [
           {
             "queue": "amd_mi325_2",
-            "jobs": 1,
-            "median_wait": 93.9,
-            "p90_wait": null,
-            "avg_wait": 93.9,
-            "max_wait": 93.9
+            "jobs": 2,
+            "median_wait": 95.2,
+            "p90_wait": 96.6,
+            "avg_wait": 95.2,
+            "max_wait": 96.6
           },
           {
             "queue": "amd_mi325_1",
@@ -106453,13 +106508,13 @@
         "build_count": 3,
         "summary": {
           "total_builds": 3,
-          "passed": 2,
+          "passed": 3,
           "failed": 0,
-          "pass_rate": 66.7,
+          "pass_rate": 100.0,
           "total_jobs_tracked": 170,
-          "jobs_with_failures": 60,
+          "jobs_with_failures": 61,
           "jobs_with_hard_failures": 0,
-          "jobs_with_soft_failures": 60
+          "jobs_with_soft_failures": 61
         },
         "daily_stats": [
           {
@@ -106476,7 +106531,7 @@
           },
           {
             "date": "2026-07-06",
-            "passed": 0,
+            "passed": 1,
             "failed": 0,
             "total": 1
           }
@@ -106484,17 +106539,17 @@
         "builds": [
           {
             "number": 10504,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-07-06T09:00:01.313Z",
             "date": "2026-07-06",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 284.3,
             "passed": 151,
             "failed": 0,
-            "soft_failed": 57,
+            "soft_failed": 58,
             "skipped": 0,
-            "total_jobs": 208,
+            "total_jobs": 209,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10504",
             "source": "test_results"
           },
@@ -106534,17 +106589,17 @@
         "nightly_builds": [
           {
             "number": 10504,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-07-06T09:00:01.313Z",
             "date": "2026-07-06",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 284.3,
             "passed": 151,
             "failed": 0,
-            "soft_failed": 57,
+            "soft_failed": 58,
             "skipped": 0,
-            "total_jobs": 208,
+            "total_jobs": 209,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10504",
             "source": "test_results"
           },
@@ -107396,6 +107451,26 @@
             "max_wait": 0.8,
             "queues": [
               "amd_mi300_1"
+            ]
+          },
+          {
+            "name": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
+            "runs": 3,
+            "passed": 2,
+            "failed": 0,
+            "soft_failed": 1,
+            "fail_rate": 33.3,
+            "is_soft_fail": true,
+            "median_dur": 0.6,
+            "p90_dur": 180.7,
+            "avg_dur": 60.6,
+            "max_dur": 180.7,
+            "median_wait": 3.4,
+            "p90_wait": 96.6,
+            "avg_wait": 33.4,
+            "max_wait": 96.6,
+            "queues": [
+              "amd_mi325_2"
             ]
           },
           {
@@ -111034,20 +111109,20 @@
           },
           {
             "name": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
-            "runs": 2,
+            "runs": 3,
             "passed": 2,
             "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
+            "soft_failed": 1,
+            "fail_rate": 33.3,
+            "is_soft_fail": true,
             "median_dur": 0.6,
-            "p90_dur": 0.6,
-            "avg_dur": 0.6,
-            "max_dur": 0.6,
-            "median_wait": 1.8,
-            "p90_wait": 3.4,
-            "avg_wait": 1.8,
-            "max_wait": 3.4,
+            "p90_dur": 180.7,
+            "avg_dur": 60.6,
+            "max_dur": 180.7,
+            "median_wait": 3.4,
+            "p90_wait": 96.6,
+            "avg_wait": 33.4,
+            "max_wait": 96.6,
             "queues": [
               "amd_mi325_2"
             ]
@@ -111255,6 +111330,14 @@
         ],
         "queue_stats": [
           {
+            "queue": "amd_mi325_2",
+            "jobs": 6,
+            "median_wait": 1.9,
+            "p90_wait": 3.4,
+            "avg_wait": 1.9,
+            "max_wait": 3.4
+          },
+          {
             "queue": "amd_mi300_1",
             "jobs": 379,
             "median_wait": 0.8,
@@ -111293,14 +111376,6 @@
             "p90_wait": 0.5,
             "avg_wait": 0.4,
             "max_wait": 0.5
-          },
-          {
-            "queue": "amd_mi325_2",
-            "jobs": 5,
-            "median_wait": 0.4,
-            "p90_wait": 1.8,
-            "avg_wait": 1.0,
-            "max_wait": 1.8
           },
           {
             "queue": "amd_mi325_4",
@@ -111357,13 +111432,13 @@
         "build_count": 7,
         "summary": {
           "total_builds": 7,
-          "passed": 6,
+          "passed": 7,
           "failed": 0,
-          "pass_rate": 85.7,
+          "pass_rate": 100.0,
           "total_jobs_tracked": 170,
-          "jobs_with_failures": 77,
+          "jobs_with_failures": 78,
           "jobs_with_hard_failures": 0,
-          "jobs_with_soft_failures": 77
+          "jobs_with_soft_failures": 78
         },
         "daily_stats": [
           {
@@ -111404,7 +111479,7 @@
           },
           {
             "date": "2026-07-06",
-            "passed": 0,
+            "passed": 1,
             "failed": 0,
             "total": 1
           }
@@ -111412,17 +111487,17 @@
         "builds": [
           {
             "number": 10504,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-07-06T09:00:01.313Z",
             "date": "2026-07-06",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 284.3,
             "passed": 151,
             "failed": 0,
-            "soft_failed": 57,
+            "soft_failed": 58,
             "skipped": 0,
-            "total_jobs": 208,
+            "total_jobs": 209,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10504",
             "source": "test_results"
           },
@@ -111526,17 +111601,17 @@
         "nightly_builds": [
           {
             "number": 10504,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-07-06T09:00:01.313Z",
             "date": "2026-07-06",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 284.3,
             "passed": 151,
             "failed": 0,
-            "soft_failed": 57,
+            "soft_failed": 58,
             "skipped": 0,
-            "total_jobs": 208,
+            "total_jobs": 209,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10504",
             "source": "test_results"
           },
@@ -112881,6 +112956,26 @@
             "max_wait": 0.6,
             "queues": [
               "amd_mi300_2"
+            ]
+          },
+          {
+            "name": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
+            "runs": 7,
+            "passed": 6,
+            "failed": 0,
+            "soft_failed": 1,
+            "fail_rate": 14.3,
+            "is_soft_fail": true,
+            "median_dur": 0.5,
+            "p90_dur": 180.7,
+            "avg_dur": 26.2,
+            "max_dur": 180.7,
+            "median_wait": 5.7,
+            "p90_wait": 96.6,
+            "avg_wait": 27.2,
+            "max_wait": 96.6,
+            "queues": [
+              "amd_mi325_2"
             ]
           },
           {
@@ -116435,20 +116530,20 @@
           },
           {
             "name": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
-            "runs": 6,
+            "runs": 7,
             "passed": 6,
             "failed": 0,
-            "soft_failed": 0,
-            "fail_rate": 0.0,
-            "is_soft_fail": false,
-            "median_dur": 0.4,
-            "p90_dur": 0.6,
-            "avg_dur": 0.4,
-            "max_dur": 0.6,
-            "median_wait": 4.5,
-            "p90_wait": 75.9,
-            "avg_wait": 15.7,
-            "max_wait": 75.9,
+            "soft_failed": 1,
+            "fail_rate": 14.3,
+            "is_soft_fail": true,
+            "median_dur": 0.5,
+            "p90_dur": 180.7,
+            "avg_dur": 26.2,
+            "max_dur": 180.7,
+            "median_wait": 5.7,
+            "p90_wait": 96.6,
+            "avg_wait": 27.2,
+            "max_wait": 96.6,
             "queues": [
               "amd_mi325_2"
             ]
@@ -116658,11 +116753,11 @@
         "queue_stats": [
           {
             "queue": "amd_mi325_2",
-            "jobs": 13,
-            "median_wait": 2.2,
-            "p90_wait": 4.5,
-            "avg_wait": 3.3,
-            "max_wait": 4.5
+            "jobs": 14,
+            "median_wait": 4.0,
+            "p90_wait": 5.7,
+            "avg_wait": 4.0,
+            "max_wait": 5.7
           },
           {
             "queue": "amd_mi325_1",
@@ -116759,9 +116854,9 @@
         "build_count": 14,
         "summary": {
           "total_builds": 14,
-          "passed": 13,
+          "passed": 14,
           "failed": 0,
-          "pass_rate": 92.9,
+          "pass_rate": 100.0,
           "total_jobs_tracked": 176,
           "jobs_with_failures": 111,
           "jobs_with_hard_failures": 6,
@@ -116848,7 +116943,7 @@
           },
           {
             "date": "2026-07-06",
-            "passed": 0,
+            "passed": 1,
             "failed": 0,
             "total": 1
           }
@@ -116856,17 +116951,17 @@
         "builds": [
           {
             "number": 10504,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-07-06T09:00:01.313Z",
             "date": "2026-07-06",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 284.3,
             "passed": 151,
             "failed": 0,
-            "soft_failed": 57,
+            "soft_failed": 58,
             "skipped": 0,
-            "total_jobs": 208,
+            "total_jobs": 209,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10504",
             "source": "test_results"
           },
@@ -117082,17 +117177,17 @@
         "nightly_builds": [
           {
             "number": 10504,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-07-06T09:00:01.313Z",
             "date": "2026-07-06",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 284.3,
             "passed": 151,
             "failed": 0,
-            "soft_failed": 57,
+            "soft_failed": 58,
             "skipped": 0,
-            "total_jobs": 208,
+            "total_jobs": 209,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10504",
             "source": "test_results"
           },
@@ -117771,6 +117866,27 @@
             ]
           },
           {
+            "name": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
+            "runs": 17,
+            "passed": 6,
+            "failed": 0,
+            "soft_failed": 11,
+            "fail_rate": 64.7,
+            "is_soft_fail": true,
+            "median_dur": 6.1,
+            "p90_dur": 9.0,
+            "avg_dur": 14.8,
+            "max_dur": 180.7,
+            "median_wait": 0.2,
+            "p90_wait": 75.9,
+            "avg_wait": 11.7,
+            "max_wait": 96.6,
+            "queues": [
+              "amd_mi250_2",
+              "amd_mi325_2"
+            ]
+          },
+          {
             "name": "DeepSeek V2-Lite Prefetch Offload Accuracy (H100-MI300)",
             "runs": 14,
             "passed": 5,
@@ -117788,27 +117904,6 @@
             "max_wait": 38.8,
             "queues": [
               "amd_mi300_1"
-            ]
-          },
-          {
-            "name": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
-            "runs": 16,
-            "passed": 6,
-            "failed": 0,
-            "soft_failed": 10,
-            "fail_rate": 62.5,
-            "is_soft_fail": true,
-            "median_dur": 5.8,
-            "p90_dur": 8.3,
-            "avg_dur": 4.4,
-            "max_dur": 9.0,
-            "median_wait": 0.2,
-            "p90_wait": 8.7,
-            "avg_wait": 6.4,
-            "max_wait": 75.9,
-            "queues": [
-              "amd_mi250_2",
-              "amd_mi325_2"
             ]
           },
           {
@@ -122004,6 +122099,27 @@
             ]
           },
           {
+            "name": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
+            "runs": 17,
+            "passed": 6,
+            "failed": 0,
+            "soft_failed": 11,
+            "fail_rate": 64.7,
+            "is_soft_fail": true,
+            "median_dur": 6.1,
+            "p90_dur": 9.0,
+            "avg_dur": 14.8,
+            "max_dur": 180.7,
+            "median_wait": 0.2,
+            "p90_wait": 75.9,
+            "avg_wait": 11.7,
+            "max_wait": 96.6,
+            "queues": [
+              "amd_mi250_2",
+              "amd_mi325_2"
+            ]
+          },
+          {
             "name": "LM Eval Qwen3-5 Models (B200-MI355) 3",
             "runs": 2,
             "passed": 2,
@@ -122101,27 +122217,6 @@
             "max_wait": 22.6,
             "queues": [
               "amd_mi300_1"
-            ]
-          },
-          {
-            "name": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
-            "runs": 16,
-            "passed": 6,
-            "failed": 0,
-            "soft_failed": 10,
-            "fail_rate": 62.5,
-            "is_soft_fail": true,
-            "median_dur": 5.8,
-            "p90_dur": 8.3,
-            "avg_dur": 4.4,
-            "max_dur": 9.0,
-            "median_wait": 0.2,
-            "p90_wait": 8.7,
-            "avg_wait": 6.4,
-            "max_wait": 75.9,
-            "queues": [
-              "amd_mi250_2",
-              "amd_mi325_2"
             ]
           },
           {
@@ -123150,7 +123245,7 @@
           },
           {
             "queue": "amd_mi325_2",
-            "jobs": 35,
+            "jobs": 36,
             "median_wait": 0.3,
             "p90_wait": 0.3,
             "avg_wait": 0.3,
@@ -123174,7 +123269,7 @@
           },
           {
             "queue": "amd_mi250_2",
-            "jobs": 120,
+            "jobs": 121,
             "median_wait": 0.2,
             "p90_wait": 0.3,
             "avg_wait": 0.2,
@@ -123259,9 +123354,9 @@
         "build_count": 30,
         "summary": {
           "total_builds": 30,
-          "passed": 29,
+          "passed": 30,
           "failed": 0,
-          "pass_rate": 96.7,
+          "pass_rate": 100.0,
           "total_jobs_tracked": 180,
           "jobs_with_failures": 133,
           "jobs_with_hard_failures": 13,
@@ -123444,7 +123539,7 @@
           },
           {
             "date": "2026-07-06",
-            "passed": 0,
+            "passed": 1,
             "failed": 0,
             "total": 1
           }
@@ -123452,17 +123547,17 @@
         "builds": [
           {
             "number": 10504,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-07-06T09:00:01.313Z",
             "date": "2026-07-06",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 284.3,
             "passed": 151,
             "failed": 0,
-            "soft_failed": 57,
+            "soft_failed": 58,
             "skipped": 0,
-            "total_jobs": 208,
+            "total_jobs": 209,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10504",
             "source": "test_results"
           },
@@ -123934,17 +124029,17 @@
         "nightly_builds": [
           {
             "number": 10504,
-            "state": "running",
+            "state": "passed",
             "created_at": "2026-07-06T09:00:01.313Z",
             "date": "2026-07-06",
             "message": "AMD Full CI Run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 284.3,
             "passed": 151,
             "failed": 0,
-            "soft_failed": 57,
+            "soft_failed": 58,
             "skipped": 0,
-            "total_jobs": 208,
+            "total_jobs": 209,
             "web_url": "https://buildkite.com/vllm/amd-ci/builds/10504",
             "source": "test_results"
           },
@@ -125710,20 +125805,20 @@
           },
           {
             "name": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
-            "runs": 48,
+            "runs": 49,
             "passed": 24,
             "failed": 0,
-            "soft_failed": 24,
-            "fail_rate": 50.0,
+            "soft_failed": 25,
+            "fail_rate": 51.0,
             "is_soft_fail": true,
-            "median_dur": 3.0,
-            "p90_dur": 9.4,
-            "avg_dur": 4.2,
-            "max_dur": 10.1,
+            "median_dur": 5.3,
+            "p90_dur": 9.6,
+            "avg_dur": 7.8,
+            "max_dur": 180.7,
             "median_wait": 0.1,
-            "p90_wait": 3.4,
-            "avg_wait": 2.2,
-            "max_wait": 75.9,
+            "p90_wait": 5.7,
+            "avg_wait": 4.2,
+            "max_wait": 96.6,
             "queues": [
               "amd_mi250_2",
               "amd_mi325_2"
@@ -129991,6 +130086,27 @@
             ]
           },
           {
+            "name": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
+            "runs": 49,
+            "passed": 24,
+            "failed": 0,
+            "soft_failed": 25,
+            "fail_rate": 51.0,
+            "is_soft_fail": true,
+            "median_dur": 5.3,
+            "p90_dur": 9.6,
+            "avg_dur": 7.8,
+            "max_dur": 180.7,
+            "median_wait": 0.1,
+            "p90_wait": 5.7,
+            "avg_wait": 4.2,
+            "max_wait": 96.6,
+            "queues": [
+              "amd_mi250_2",
+              "amd_mi325_2"
+            ]
+          },
+          {
             "name": "Kernels Helion Test",
             "runs": 30,
             "passed": 30,
@@ -130192,27 +130308,6 @@
             "max_wait": 0.9,
             "queues": [
               "amd_mi300_1"
-            ]
-          },
-          {
-            "name": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
-            "runs": 48,
-            "passed": 24,
-            "failed": 0,
-            "soft_failed": 24,
-            "fail_rate": 50.0,
-            "is_soft_fail": true,
-            "median_dur": 3.0,
-            "p90_dur": 9.4,
-            "avg_dur": 4.2,
-            "max_dur": 10.1,
-            "median_wait": 0.1,
-            "p90_wait": 3.4,
-            "avg_wait": 2.2,
-            "max_wait": 75.9,
-            "queues": [
-              "amd_mi250_2",
-              "amd_mi325_2"
             ]
           },
           {
@@ -130876,7 +130971,7 @@
           },
           {
             "queue": "amd_mi250_2",
-            "jobs": 358,
+            "jobs": 359,
             "median_wait": 0.1,
             "p90_wait": 0.1,
             "avg_wait": 0.1,
@@ -130924,7 +131019,7 @@
           },
           {
             "queue": "amd_mi325_2",
-            "jobs": 99,
+            "jobs": 100,
             "median_wait": 0.1,
             "p90_wait": 0.1,
             "avg_wait": 0.1,
@@ -130946,7 +131041,7 @@
     "pipeline": "ci",
     "display_name": "Upstream CI",
     "days": 30,
-    "generated_at": "2026-07-06T13:01:00Z",
+    "generated_at": "2026-07-06T16:32:45Z",
     "summary": {
       "total_builds": 31,
       "passed": 3,
