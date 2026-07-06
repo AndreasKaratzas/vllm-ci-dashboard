@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-07-06T18:38:35Z",
+  "generated_at": "2026-07-06T20:42:24Z",
   "days": 30,
-  "total_changes": 74,
+  "total_changes": 75,
   "changes": [
     {
       "date": "2026-03-10",
@@ -2906,6 +2906,46 @@
         "title": "[ROCm][CI] Adding nixl multiconn",
         "url": "https://github.com/vllm-project/vllm/pull/47481",
         "author": "AndreasKaratzas"
+      }
+    },
+    {
+      "date": "2026-07-06",
+      "sha": "d891b9bd51ce",
+      "message": "[Quantization] add humming moe backend to all dense/moe oracles (#41652)",
+      "author": "Jinzhen Lin",
+      "added": [
+        "LM Eval Humming Act fp8/int8 (B200 - TEMPORARY)",
+        "LM Eval Humming Act fp8/int8 (H100 - TEMPORARY)",
+        "LM Eval Humming Act int8 (A100 - TEMPORARY)",
+        "LM Eval Humming f16 (A100 - TEMPORARY)",
+        "LM Eval Humming f16 (B200 - TEMPORARY)",
+        "LM Eval Humming f16 (H100 - TEMPORARY)"
+      ],
+      "removed": [
+        "LM Eval Humming (A100 - TEMPORARY)",
+        "LM Eval Humming (B200 - TEMPORARY)",
+        "LM Eval Humming (H100 - TEMPORARY)"
+      ],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "LM Eval Humming Act fp8/int8 (B200 - TEMPORARY)",
+        "LM Eval Humming Act fp8/int8 (H100 - TEMPORARY)",
+        "LM Eval Humming Act int8 (A100 - TEMPORARY)",
+        "LM Eval Humming f16 (A100 - TEMPORARY)",
+        "LM Eval Humming f16 (B200 - TEMPORARY)",
+        "LM Eval Humming f16 (H100 - TEMPORARY)"
+      ],
+      "upstream_removed": [
+        "LM Eval Humming (A100 - TEMPORARY)",
+        "LM Eval Humming (B200 - TEMPORARY)",
+        "LM Eval Humming (H100 - TEMPORARY)"
+      ],
+      "pr": {
+        "number": 41652,
+        "title": "[Quantization] add humming moe backend to all dense/moe oracles",
+        "url": "https://github.com/vllm-project/vllm/pull/41652",
+        "author": "jinzhen-lin"
       }
     }
   ],
