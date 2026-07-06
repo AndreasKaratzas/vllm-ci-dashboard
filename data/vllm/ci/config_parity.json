@@ -1,13 +1,13 @@
 {
   "summary": {
-    "total_amd_steps": 136,
+    "total_amd_steps": 139,
     "total_nvidia_steps": 174,
-    "matched": 126,
+    "matched": 129,
     "amd_only": 10,
-    "nvidia_only": 52,
+    "nvidia_only": 49,
     "mirrors": 54,
-    "match_rate_pct": 92.6,
-    "avg_command_similarity_pct": 93.6
+    "match_rate_pct": 92.8,
+    "avg_command_similarity_pct": 93.0
   },
   "matches": [
     {
@@ -163,6 +163,24 @@
       ]
     },
     {
+      "amd_label": "Hybrid SSM NixlConnector PD prefix cache test (2 GPUs)",
+      "nvidia_label": "Hybrid SSM NixlConnector PD prefix cache test (2 GPUs)",
+      "normalized": "hybrid ssm nixlconnector pd prefix cache test (2 gpus)",
+      "identity_key": "hybrid ssm nixlconnector pd prefix cache test (2 gpus)",
+      "command_similarity": 0.6839,
+      "color": "orange",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/disaggregated.yaml",
+      "amd_commands": [
+        "uv pip install --system -r /vllm-workspace/requirements/kv_connectors_rocm.txt",
+        "ATTENTION_BACKEND=TRITON_ATTN bash v1/kv_connector/nixl_integration/run_mamba_prefix_cache_test.sh"
+      ],
+      "nvidia_commands": [
+        "bash /vllm-workspace/.buildkite/scripts/install-kv-connectors.sh",
+        "bash v1/kv_connector/nixl_integration/run_mamba_prefix_cache_test.sh"
+      ]
+    },
+    {
       "amd_label": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
       "nvidia_label": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
       "normalized": "nixlconnector pd + spec decode acceptance (2 gpus)",
@@ -222,6 +240,24 @@
       ]
     },
     {
+      "amd_label": "MultiConnector (Nixl+Offloading) PD accuracy (2 GPUs)",
+      "nvidia_label": "MultiConnector (Nixl+Offloading) PD accuracy (2 GPUs)",
+      "normalized": "multiconnector (nixl+offloading) pd accuracy (2 gpus)",
+      "identity_key": "multiconnector (nixl+offloading) pd accuracy (2 gpus)",
+      "command_similarity": 0.6957,
+      "color": "orange",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/disaggregated.yaml",
+      "amd_commands": [
+        "uv pip install --system -r /vllm-workspace/requirements/kv_connectors_rocm.txt",
+        "ATTENTION_BACKEND=TRITON_ATTN bash v1/kv_connector/nixl_integration/run_multi_connector_accuracy_test.sh"
+      ],
+      "nvidia_commands": [
+        "bash /vllm-workspace/.buildkite/scripts/install-kv-connectors.sh",
+        "bash v1/kv_connector/nixl_integration/run_multi_connector_accuracy_test.sh"
+      ]
+    },
+    {
       "amd_label": "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
       "nvidia_label": "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
       "normalized": "dp ep distributed nixlconnector pd accuracy tests (4 gpus)",
@@ -237,6 +273,24 @@
       "nvidia_commands": [
         "bash /vllm-workspace/.buildkite/scripts/install-kv-connectors.sh",
         "DP_EP=1 bash v1/kv_connector/nixl_integration/config_sweep_accuracy_test.sh"
+      ]
+    },
+    {
+      "amd_label": "MultiConnector (Nixl+Offloading) PD edge cases (2 GPUs)",
+      "nvidia_label": "MultiConnector (Nixl+Offloading) PD edge cases (2 GPUs)",
+      "normalized": "multiconnector (nixl+offloading) pd edge cases (2 gpus)",
+      "identity_key": "multiconnector (nixl+offloading) pd edge cases (2 gpus)",
+      "command_similarity": 0.6975,
+      "color": "orange",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/disaggregated.yaml",
+      "amd_commands": [
+        "uv pip install --system -r /vllm-workspace/requirements/kv_connectors_rocm.txt",
+        "ATTENTION_BACKEND=TRITON_ATTN bash v1/kv_connector/nixl_integration/run_multi_connector_edge_case_test.sh"
+      ],
+      "nvidia_commands": [
+        "bash /vllm-workspace/.buildkite/scripts/install-kv-connectors.sh",
+        "bash v1/kv_connector/nixl_integration/run_multi_connector_edge_case_test.sh"
       ]
     },
     {
@@ -1902,24 +1956,6 @@
       "label": "Distributed FlashInfer NixlConnector PD accuracy (4 GPUs)",
       "normalized": "distributed flashinfer nixlconnector pd accuracy (4 gpus)",
       "identity_key": "distributed flashinfer nixlconnector pd accuracy (4 gpus)",
-      "source": ".buildkite/test_areas/disaggregated.yaml"
-    },
-    {
-      "label": "Hybrid SSM NixlConnector PD prefix cache test (2 GPUs)",
-      "normalized": "hybrid ssm nixlconnector pd prefix cache test (2 gpus)",
-      "identity_key": "hybrid ssm nixlconnector pd prefix cache test (2 gpus)",
-      "source": ".buildkite/test_areas/disaggregated.yaml"
-    },
-    {
-      "label": "MultiConnector (Nixl+Offloading) PD accuracy (2 GPUs)",
-      "normalized": "multiconnector (nixl+offloading) pd accuracy (2 gpus)",
-      "identity_key": "multiconnector (nixl+offloading) pd accuracy (2 gpus)",
-      "source": ".buildkite/test_areas/disaggregated.yaml"
-    },
-    {
-      "label": "MultiConnector (Nixl+Offloading) PD edge cases (2 GPUs)",
-      "normalized": "multiconnector (nixl+offloading) pd edge cases (2 gpus)",
-      "identity_key": "multiconnector (nixl+offloading) pd edge cases (2 gpus)",
       "source": ".buildkite/test_areas/disaggregated.yaml"
     },
     {
