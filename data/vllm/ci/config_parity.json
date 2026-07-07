@@ -1,13 +1,13 @@
 {
   "summary": {
-    "total_amd_steps": 139,
-    "total_nvidia_steps": 174,
-    "matched": 129,
-    "amd_only": 10,
-    "nvidia_only": 49,
+    "total_amd_steps": 146,
+    "total_nvidia_steps": 177,
+    "matched": 135,
+    "amd_only": 11,
+    "nvidia_only": 46,
     "mirrors": 54,
-    "match_rate_pct": 92.8,
-    "avg_command_similarity_pct": 92.8
+    "match_rate_pct": 92.5,
+    "avg_command_similarity_pct": 93.1
   },
   "matches": [
     {
@@ -199,47 +199,6 @@
       ]
     },
     {
-      "amd_label": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
-      "nvidia_label": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
-      "normalized": "async engine, inputs, utils, worker, config (cpu)",
-      "identity_key": "async engine, inputs, utils, worker, config (cpu)",
-      "command_similarity": 0.6885,
-      "color": "orange",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/misc.yaml",
-      "amd_commands": [
-        "python3 standalone_tests/lazy_imports.py",
-        "pytest -v -s test_inputs.py",
-        "pytest -v -s test_outputs.py",
-        "pytest -v -s test_pooling_params.py",
-        "pytest -v -s test_ray_env.py",
-        "pytest -v -s -m 'cpu_test' multimodal",
-        "pytest -v -s renderers",
-        "pytest -v -s tokenizers_",
-        "pytest -v -s reasoning",
-        "pytest -v -s tool_parsers",
-        "pytest -v -s parser",
-        "pytest -v -s transformers_utils",
-        "pytest -v -s config"
-      ],
-      "nvidia_commands": [
-        "python3 standalone_tests/lazy_imports.py",
-        "pytest -v -s test_envs.py",
-        "pytest -v -s test_inputs.py",
-        "pytest -v -s test_outputs.py",
-        "pytest -v -s test_pooling_params.py",
-        "pytest -v -s test_ray_env.py",
-        "pytest -v -s -m 'cpu_test' multimodal",
-        "pytest -v -s renderers",
-        "pytest -v -s reasoning",
-        "pytest -v -s tool_parsers",
-        "pytest -v -s tokenizers_",
-        "pytest -v -s parser",
-        "pytest -v -s transformers_utils",
-        "pytest -v -s config"
-      ]
-    },
-    {
       "amd_label": "MultiConnector (Nixl+Offloading) PD accuracy (2 GPUs)",
       "nvidia_label": "MultiConnector (Nixl+Offloading) PD accuracy (2 GPUs)",
       "normalized": "multiconnector (nixl+offloading) pd accuracy (2 gpus)",
@@ -309,6 +268,49 @@
       "nvidia_commands": [
         "bash /vllm-workspace/.buildkite/scripts/install-kv-connectors.sh",
         "HYBRID_SSM=1 bash v1/kv_connector/nixl_integration/config_sweep_accuracy_test.sh"
+      ]
+    },
+    {
+      "amd_label": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
+      "nvidia_label": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
+      "normalized": "async engine, inputs, utils, worker, config (cpu)",
+      "identity_key": "async engine, inputs, utils, worker, config (cpu)",
+      "command_similarity": 0.716,
+      "color": "yellow",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/misc.yaml",
+      "amd_commands": [
+        "python3 standalone_tests/lazy_imports.py",
+        "pytest -v -s test_inputs.py",
+        "pytest -v -s test_outputs.py",
+        "pytest -v -s test_pooling_params.py",
+        "pytest -v -s test_ray_env.py",
+        "pytest -v -s test_sampling_params.py",
+        "pytest -v -s -m 'cpu_test' multimodal",
+        "pytest -v -s renderers",
+        "pytest -v -s tokenizers_",
+        "pytest -v -s reasoning",
+        "pytest -v -s tool_parsers",
+        "pytest -v -s parser",
+        "pytest -v -s transformers_utils",
+        "pytest -v -s config"
+      ],
+      "nvidia_commands": [
+        "python3 standalone_tests/lazy_imports.py",
+        "pytest -v -s test_envs.py",
+        "pytest -v -s test_inputs.py",
+        "pytest -v -s test_outputs.py",
+        "pytest -v -s test_pooling_params.py",
+        "pytest -v -s test_ray_env.py",
+        "pytest -v -s test_sampling_params.py",
+        "pytest -v -s -m 'cpu_test' multimodal",
+        "pytest -v -s renderers",
+        "pytest -v -s reasoning",
+        "pytest -v -s tool_parsers",
+        "pytest -v -s tokenizers_",
+        "pytest -v -s parser",
+        "pytest -v -s transformers_utils",
+        "pytest -v -s config"
       ]
     },
     {
@@ -830,6 +832,38 @@
       ],
       "nvidia_commands": [
         "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=configs/models-h200.txt"
+      ]
+    },
+    {
+      "amd_label": "Rust Frontend Cargo Tests",
+      "nvidia_label": "Rust Frontend Cargo Tests",
+      "normalized": "rust frontend cargo tests",
+      "identity_key": "rust frontend cargo tests",
+      "command_similarity": 0.955,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/rust_frontend_cargo.yaml",
+      "amd_commands": [
+        "bash .buildkite/scripts/run-rust-frontend-cargo-ci.sh test"
+      ],
+      "nvidia_commands": [
+        ".buildkite/scripts/run-rust-frontend-cargo-ci.sh test"
+      ]
+    },
+    {
+      "amd_label": "Rust Frontend Cargo Style + Clippy",
+      "nvidia_label": "Rust Frontend Cargo Style + Clippy",
+      "normalized": "rust frontend cargo style + clippy",
+      "identity_key": "rust frontend cargo style + clippy",
+      "command_similarity": 0.9606,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/rust_frontend_cargo.yaml",
+      "amd_commands": [
+        "bash .buildkite/scripts/run-rust-frontend-cargo-ci.sh style-clippy"
+      ],
+      "nvidia_commands": [
+        ".buildkite/scripts/run-rust-frontend-cargo-ci.sh style-clippy"
       ]
     },
     {
@@ -1651,6 +1685,46 @@
       "nvidia_source": ".buildkite/test_areas/plugins.yaml"
     },
     {
+      "amd_label": "Rust Frontend OpenAI Coverage",
+      "nvidia_label": "Rust Frontend OpenAI Coverage",
+      "normalized": "rust frontend openai coverage",
+      "identity_key": "rust frontend openai coverage",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/rust_frontend.yaml"
+    },
+    {
+      "amd_label": "Rust Frontend Core Correctness",
+      "nvidia_label": "Rust Frontend Core Correctness",
+      "normalized": "rust frontend core correctness",
+      "identity_key": "rust frontend core correctness",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/rust_frontend.yaml"
+    },
+    {
+      "amd_label": "Rust Frontend Tool Use",
+      "nvidia_label": "Rust Frontend Tool Use",
+      "normalized": "rust frontend tool use",
+      "identity_key": "rust frontend tool use",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/rust_frontend.yaml"
+    },
+    {
+      "amd_label": "Rust Frontend Distributed",
+      "nvidia_label": "Rust Frontend Distributed",
+      "normalized": "rust frontend distributed",
+      "identity_key": "rust frontend distributed (4 gpus)",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/rust_frontend.yaml"
+    },
+    {
       "amd_label": "Python-only Installation",
       "nvidia_label": "Python-only Installation",
       "normalized": "python-only installation",
@@ -1879,6 +1953,12 @@
       "group": "amd"
     },
     {
+      "label": "Rust Frontend Serve Admin Coverage",
+      "normalized": "rust frontend serve admin coverage",
+      "identity_key": "rust frontend serve admin coverage",
+      "group": "amd"
+    },
+    {
       "label": "ROCm AITER Ops Test",
       "normalized": "rocm aiter ops test",
       "identity_key": "rocm aiter ops test",
@@ -2067,21 +2147,39 @@
       "source": ".buildkite/test_areas/lm_eval.yaml"
     },
     {
-      "label": "LM Eval Humming (A100 - TEMPORARY)",
-      "normalized": "lm eval humming (a100 - temporary)",
-      "identity_key": "lm eval humming (a100 - temporary) (1 gpus)",
+      "label": "LM Eval Humming f16 (A100 - TEMPORARY)",
+      "normalized": "lm eval humming f16 (a100 - temporary)",
+      "identity_key": "lm eval humming f16 (a100 - temporary) (1 gpus)",
       "source": ".buildkite/test_areas/lm_eval.yaml"
     },
     {
-      "label": "LM Eval Humming (H100 - TEMPORARY)",
-      "normalized": "lm eval humming (h100 - temporary)",
-      "identity_key": "lm eval humming (h100 - temporary) (1 gpus)",
+      "label": "LM Eval Humming Act int8 (A100 - TEMPORARY)",
+      "normalized": "lm eval humming act int8 (a100 - temporary)",
+      "identity_key": "lm eval humming act int8 (a100 - temporary) (1 gpus)",
       "source": ".buildkite/test_areas/lm_eval.yaml"
     },
     {
-      "label": "LM Eval Humming (B200 - TEMPORARY)",
-      "normalized": "lm eval humming (b200 - temporary)",
-      "identity_key": "lm eval humming (b200 - temporary) (1 gpus)",
+      "label": "LM Eval Humming f16 (H100 - TEMPORARY)",
+      "normalized": "lm eval humming f16 (h100 - temporary)",
+      "identity_key": "lm eval humming f16 (h100 - temporary) (1 gpus)",
+      "source": ".buildkite/test_areas/lm_eval.yaml"
+    },
+    {
+      "label": "LM Eval Humming Act fp8/int8 (H100 - TEMPORARY)",
+      "normalized": "lm eval humming act fp8/int8 (h100 - temporary)",
+      "identity_key": "lm eval humming act fp8/int8 (h100 - temporary) (1 gpus)",
+      "source": ".buildkite/test_areas/lm_eval.yaml"
+    },
+    {
+      "label": "LM Eval Humming f16 (B200 - TEMPORARY)",
+      "normalized": "lm eval humming f16 (b200 - temporary)",
+      "identity_key": "lm eval humming f16 (b200 - temporary) (1 gpus)",
+      "source": ".buildkite/test_areas/lm_eval.yaml"
+    },
+    {
+      "label": "LM Eval Humming Act fp8/int8 (B200 - TEMPORARY)",
+      "normalized": "lm eval humming act fp8/int8 (b200 - temporary)",
+      "identity_key": "lm eval humming act fp8/int8 (b200 - temporary) (1 gpus)",
       "source": ".buildkite/test_areas/lm_eval.yaml"
     },
     {
@@ -2127,46 +2225,10 @@
       "source": ".buildkite/test_areas/quantization.yaml"
     },
     {
-      "label": "Rust Frontend OpenAI Coverage",
-      "normalized": "rust frontend openai coverage",
-      "identity_key": "rust frontend openai coverage",
-      "source": ".buildkite/test_areas/rust_frontend.yaml"
-    },
-    {
       "label": "Rust Frontend Serve/Admin Coverage",
       "normalized": "rust frontend serve/admin coverage",
       "identity_key": "rust frontend serve/admin coverage",
       "source": ".buildkite/test_areas/rust_frontend.yaml"
-    },
-    {
-      "label": "Rust Frontend Core Correctness",
-      "normalized": "rust frontend core correctness",
-      "identity_key": "rust frontend core correctness",
-      "source": ".buildkite/test_areas/rust_frontend.yaml"
-    },
-    {
-      "label": "Rust Frontend Tool Use",
-      "normalized": "rust frontend tool use",
-      "identity_key": "rust frontend tool use",
-      "source": ".buildkite/test_areas/rust_frontend.yaml"
-    },
-    {
-      "label": "Rust Frontend Distributed",
-      "normalized": "rust frontend distributed",
-      "identity_key": "rust frontend distributed (4 gpus)",
-      "source": ".buildkite/test_areas/rust_frontend.yaml"
-    },
-    {
-      "label": "Rust Frontend Cargo Style + Clippy",
-      "normalized": "rust frontend cargo style + clippy",
-      "identity_key": "rust frontend cargo style + clippy",
-      "source": ".buildkite/test_areas/rust_frontend_cargo.yaml"
-    },
-    {
-      "label": "Rust Frontend Cargo Tests",
-      "normalized": "rust frontend cargo tests",
-      "identity_key": "rust frontend cargo tests",
-      "source": ".buildkite/test_areas/rust_frontend_cargo.yaml"
     },
     {
       "label": "Spec Decode Eagle Nightly B200",
