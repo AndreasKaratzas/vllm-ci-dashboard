@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-07-08T21:38:41Z",
+  "generated_at": "2026-07-08T22:52:23Z",
   "days": 30,
-  "total_changes": 76,
+  "total_changes": 77,
   "changes": [
     {
       "date": "2026-03-10",
@@ -2980,6 +2980,36 @@
         "title": "[ROCm][CI] Adding Rust parity",
         "url": "https://github.com/vllm-project/vllm/pull/47478",
         "author": "AndreasKaratzas"
+      }
+    },
+    {
+      "date": "2026-07-08",
+      "sha": "dcdd756d75a9",
+      "message": "[CI] GSM8K eval integration test for KV offloading (#46893)",
+      "author": "Tyler Michael Smith",
+      "added": [
+        "LM Eval KV-Offload (1xH200)",
+        "LM Eval KV-Offload (2xH100)",
+        "LM Eval KV-Offload (4xH100)"
+      ],
+      "removed": [
+        "Ray Dependency Compatibility Check"
+      ],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "LM Eval KV-Offload (1xH200)",
+        "LM Eval KV-Offload (2xH100)",
+        "LM Eval KV-Offload (4xH100)"
+      ],
+      "upstream_removed": [
+        "Ray Dependency Compatibility Check"
+      ],
+      "pr": {
+        "number": 46893,
+        "title": "[CI] GSM8K eval integration test for KV offloading",
+        "url": "https://github.com/vllm-project/vllm/pull/46893",
+        "author": "tlrmchlsmth"
       }
     }
   ],

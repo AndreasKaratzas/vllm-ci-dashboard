@@ -1,10 +1,10 @@
 {
   "summary": {
     "total_amd_steps": 146,
-    "total_nvidia_steps": 177,
+    "total_nvidia_steps": 180,
     "matched": 135,
     "amd_only": 11,
-    "nvidia_only": 46,
+    "nvidia_only": 49,
     "mirrors": 54,
     "match_rate_pct": 92.5,
     "avg_command_similarity_pct": 93.1
@@ -2198,6 +2198,24 @@
       "label": "GPQA Eval (GPT-OSS) (DGX Spark)",
       "normalized": "gpqa eval (gpt-oss) (dgx spark)",
       "identity_key": "gpqa eval (gpt-oss) (dgx spark) (1 gpus)",
+      "source": ".buildkite/test_areas/lm_eval.yaml"
+    },
+    {
+      "label": "LM Eval KV-Offload (1xH200)",
+      "normalized": "lm eval kv-offload (1 gpus)",
+      "identity_key": "lm eval kv-offload (1 gpus)",
+      "source": ".buildkite/test_areas/lm_eval.yaml"
+    },
+    {
+      "label": "LM Eval KV-Offload (2xH100)",
+      "normalized": "lm eval kv-offload (2 gpus)",
+      "identity_key": "lm eval kv-offload (2 gpus)",
+      "source": ".buildkite/test_areas/lm_eval.yaml"
+    },
+    {
+      "label": "LM Eval KV-Offload (4xH100)",
+      "normalized": "lm eval kv-offload (4 gpus)",
+      "identity_key": "lm eval kv-offload (4 gpus)",
       "source": ".buildkite/test_areas/lm_eval.yaml"
     },
     {
