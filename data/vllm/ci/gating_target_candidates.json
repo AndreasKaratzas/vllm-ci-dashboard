@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-08T07:20:32Z",
+  "generated_at": "2026-07-08T20:06:33Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -21,20 +21,20 @@
   },
   "summary": {
     "upstream_build": 77063,
-    "amd_ci_build": 10554,
+    "amd_ci_build": 10617,
     "canonical_target_count": 125,
-    "row_count": 215,
-    "canonical_match_count": 104,
+    "row_count": 223,
+    "canonical_match_count": 107,
     "likely_duplicate_count": 18,
-    "new_candidate_count": 42,
-    "excluded_count": 39,
-    "missing_from_upstream_count": 12,
+    "new_candidate_count": 46,
+    "excluded_count": 42,
+    "missing_from_upstream_count": 10,
     "by_decision": {
-      "canonical": 104,
-      "excluded": 39,
+      "canonical": 107,
+      "excluded": 42,
       "likely_duplicate": 18,
-      "missing_from_upstream": 12,
-      "new_candidate": 42
+      "missing_from_upstream": 10,
+      "new_candidate": 46
     }
   },
   "rows": [
@@ -824,6 +824,21 @@
       "proposal_matches": []
     },
     {
+      "label": "Kernels Core Operation Test",
+      "canonical_key": "kernels core operation test",
+      "state": "passed",
+      "queue": "gpu_1_queue",
+      "url": "https://buildkite.com/vllm/ci/builds/77063/steps/canvas?jid=019f4051-21a8-4190-b40f-2a06800c98ce&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 7,
+      "canonical_label": "Kernels Core Operation Test",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "proposal_matches": []
+    },
+    {
       "label": "Kernels FusedMoE Layer Test (2 H100s)",
       "canonical_key": "kernels fusedmoe layer test (2 gpus)",
       "state": "passed",
@@ -837,6 +852,31 @@
       "readiness_signal": "yellow",
       "target_signal": "green",
       "proposal_matches": []
+    },
+    {
+      "label": "Kernels Helion Test",
+      "canonical_key": "kernels helion test",
+      "state": "passed",
+      "queue": "mithril-h100-pool",
+      "url": "https://buildkite.com/vllm/ci/builds/77063/steps/canvas?jid=019f4051-21ac-4688-a56e-2e33fadaeb00&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 92,
+      "canonical_label": "Kernels Helion Test",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": [
+        {
+          "pr": 44969,
+          "url": "https://github.com/vllm-project/vllm/pull/44969",
+          "title": "[ROCm][CI] Gating more ROCm tests",
+          "author": "AndreasKaratzas",
+          "label": "Kernels Helion Test",
+          "device": "mi300_1",
+          "yaml_file": ".buildkite/test_areas/kernels.yaml"
+        }
+      ]
     },
     {
       "label": "Kernels KDA Test",
@@ -1649,6 +1689,21 @@
       ]
     },
     {
+      "label": "V1 attention (H100-MI300)",
+      "canonical_key": "v1 attention",
+      "state": "passed",
+      "queue": "mithril-h100-pool",
+      "url": "https://buildkite.com/vllm/ci/builds/77063/steps/canvas?jid=019f4051-2003-4a59-af81-c272b16ccca8&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 103,
+      "canonical_label": "V1 attention (H100-MI300)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
       "label": "V1 Core + KV + Metrics",
       "canonical_key": "v1 core + kv + metrics",
       "state": "passed",
@@ -1773,6 +1828,54 @@
       "proposal_matches": []
     },
     {
+      "label": "Basic Models Tests (Extra Initialization) 1",
+      "canonical_key": "basic models test (extra initialization) 1",
+      "state": "passed",
+      "queue": "h200_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/77063/steps/canvas?jid=019f4051-21ec-4bc7-a033-655ded30ab23&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "soft_fail",
+        "jobs": [
+          {
+            "label": "Basic Models Tests (Extra Initialization) 1",
+            "state": "soft_fail",
+            "queue": "amd_mi300_1",
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-ccdc-400d-bca0-b11d611eef02&tab=output"
+          }
+        ]
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Basic Models Tests (Extra Initialization) 2",
+      "canonical_key": "basic models test (extra initialization) 2",
+      "state": "passed",
+      "queue": "h200_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/77063/steps/canvas?jid=019f4051-21ed-4e4d-bc75-8c91eea9116e&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "soft_fail",
+        "jobs": [
+          {
+            "label": "Basic Models Tests (Extra Initialization) 2",
+            "state": "soft_fail",
+            "queue": "amd_mi300_1",
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-ccdc-4f27-b795-18f8d096082a&tab=output"
+          }
+        ]
+      },
+      "proposal_matches": []
+    },
+    {
       "label": "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100)",
       "canonical_key": "deepseek v2-lite sync eplb accuracy (4 gpus)",
       "state": "passed",
@@ -1790,7 +1893,7 @@
             "label": "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100-4xMI300)",
             "state": "passed",
             "queue": "amd_mi300_4",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-7241-46e3-a249-af46b94025f6&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-cccb-4d6e-85a7-b6edeab337df&tab=output"
           }
         ]
       },
@@ -1831,7 +1934,7 @@
             "label": "Engine",
             "state": "passed",
             "queue": "amd_mi325_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-7292-4eb3-83b6-a6e787b08820&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-cd09-49f3-81f6-dc3c510ee438&tab=output"
           }
         ]
       },
@@ -1948,22 +2051,22 @@
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
-      "readiness_signal": "red",
+      "readiness_signal": "green",
       "target_signal": "unknown",
       "internal_signal": {
-        "state": "soft_fail",
+        "state": "passed",
         "jobs": [
           {
             "label": "GPQA Eval (GPT-OSS) (2xH100-2xMI300)",
             "state": "passed",
             "queue": "amd_mi300_2",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-723f-443a-87df-b1f71ecabe33&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-ccca-45f7-bd5c-1909dc9839b5&tab=output"
           },
           {
             "label": "GPQA Eval (GPT-OSS) (2xB200-2xMI355)",
-            "state": "soft_fail",
+            "state": "passed",
             "queue": "amd_mi355_2",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-72ab-4f7b-9fb0-f46106d39fc8&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-cd19-445a-928f-fd342d2debf9&tab=output"
           }
         ]
       },
@@ -1987,7 +2090,7 @@
             "label": "Kernels (B200-MI355)",
             "state": "soft_fail",
             "queue": "amd_mi355_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-72b4-4baf-8735-abfa2eb1e6a7&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-cd1f-4c15-b457-308a63e534ca&tab=output"
           }
         ]
       },
@@ -2011,13 +2114,13 @@
             "label": "Kernels Attention Test 1",
             "state": "passed",
             "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-7247-4077-89ba-97a78aa9f154&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-ccd1-4740-9585-7aa10a8c2d2e&tab=output"
           },
           {
             "label": "Kernels Attention Test 1",
             "state": "passed",
             "queue": "amd_mi355_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-72b5-42ec-a8bd-387bb916a8b4&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-cd20-440e-a147-534ddf5d1f45&tab=output"
           }
         ]
       },
@@ -2041,13 +2144,13 @@
             "label": "Kernels Attention Test 2",
             "state": "passed",
             "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-7248-4303-800a-b09828facaee&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-ccd1-4e40-a6aa-ba6c3217bf6a&tab=output"
           },
           {
             "label": "Kernels Attention Test 2",
             "state": "soft_fail",
             "queue": "amd_mi355_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-72b5-4cfb-af91-18cab0510e15&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-cd20-4fb0-8a88-94d330b97fcb&tab=output"
           }
         ]
       },
@@ -2122,13 +2225,13 @@
             "label": "Kernels MoE Test 1",
             "state": "passed",
             "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-724a-4ce7-8889-29a0cbd2ed0f&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-ccd3-46eb-9434-3253b3eb4431&tab=output"
           },
           {
             "label": "Kernels MoE Test 1",
             "state": "soft_fail",
             "queue": "amd_mi355_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-72b6-4a11-98af-1d60f2f7c4ec&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-cd21-471f-a165-0cb5e30f608e&tab=output"
           }
         ]
       },
@@ -2152,13 +2255,13 @@
             "label": "Kernels MoE Test 2",
             "state": "passed",
             "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-724a-480d-91ba-55c93f05b5fc&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-ccd3-4906-ab7e-85027275433b&tab=output"
           },
           {
             "label": "Kernels MoE Test 2",
             "state": "soft_fail",
             "queue": "amd_mi355_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-72b6-4120-835b-ce71da501ad3&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-cd21-430a-8f74-85d1755ebdad&tab=output"
           }
         ]
       },
@@ -2182,13 +2285,13 @@
             "label": "Kernels MoE Test 3",
             "state": "passed",
             "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-724b-4fae-a235-059dda719122&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-ccd3-4777-b128-e8d80408d484&tab=output"
           },
           {
             "label": "Kernels MoE Test 3",
             "state": "soft_fail",
             "queue": "amd_mi355_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-72b6-453b-95dd-067a1a1e5bd4&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-cd22-4d62-a3ed-24835f442f93&tab=output"
           }
         ]
       },
@@ -2212,13 +2315,13 @@
             "label": "Kernels MoE Test 4",
             "state": "passed",
             "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-724b-4b29-9cb9-61a91ef29fd4&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-ccd4-4bd3-98eb-8727b21c8ce9&tab=output"
           },
           {
             "label": "Kernels MoE Test 4",
             "state": "soft_fail",
             "queue": "amd_mi355_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-72b7-43d4-b69a-371c34c4418f&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-cd22-4ac8-acf2-a08f8c3c1507&tab=output"
           }
         ]
       },
@@ -2242,13 +2345,13 @@
             "label": "Kernels MoE Test 5",
             "state": "passed",
             "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-724c-4150-a05e-c4aa0e827424&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-ccd4-4eb7-96bb-cda3d081ef1d&tab=output"
           },
           {
             "label": "Kernels MoE Test 5",
             "state": "soft_fail",
             "queue": "amd_mi355_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-72b7-4f8a-949c-d273e1ef9daa&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-cd22-4e8d-b8c7-461a446a65ad&tab=output"
           }
         ]
       },
@@ -2272,13 +2375,13 @@
             "label": "Kernels Quantization Test 1",
             "state": "passed",
             "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-724c-4b68-b49a-56b77af9cd20&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-ccd5-4cd3-9050-b7e2f5a6410d&tab=output"
           },
           {
             "label": "Kernels Quantization Test 1",
             "state": "soft_fail",
             "queue": "amd_mi355_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-72b8-4e5f-a0c7-5091e2aa4c26&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-cd23-4624-9ecc-efcd99694357&tab=output"
           }
         ]
       },
@@ -2302,13 +2405,13 @@
             "label": "Kernels Quantization Test 2",
             "state": "passed",
             "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-724d-420a-b93c-7c5c1f2eae3c&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-ccd5-4b00-a7eb-e9f4f9e9404d&tab=output"
           },
           {
             "label": "Kernels Quantization Test 2",
             "state": "soft_fail",
             "queue": "amd_mi355_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-72b8-4235-9a5c-0df6bccb16f0&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-cd23-43e7-994a-73452af88e44&tab=output"
           }
         ]
       },
@@ -2332,7 +2435,7 @@
             "label": "Language Models Tests (Extra Standard) 1",
             "state": "passed",
             "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-725a-4a7d-b091-315cc82b78cf&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-cce0-4283-b13c-c5116f2a7a44&tab=output"
           }
         ]
       },
@@ -2356,7 +2459,7 @@
             "label": "Language Models Tests (Extra Standard) 2",
             "state": "passed",
             "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-725b-424b-bc6f-06d907999a3c&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-cce1-4c80-ae9b-19025ea51421&tab=output"
           }
         ]
       },
@@ -2380,7 +2483,7 @@
             "label": "Language Models Tests (Hybrid) 1",
             "state": "passed",
             "queue": "amd_mi325_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-7298-4299-a06d-d7a78fd28924&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-cd0d-474c-95b3-e92e233ab08c&tab=output"
           }
         ]
       },
@@ -2404,7 +2507,31 @@
             "label": "Language Models Tests (Hybrid) 2",
             "state": "passed",
             "queue": "amd_mi325_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-7299-4687-89ba-a6cbff03f3d1&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-cd0d-4057-b3b8-a36a98cfe83d&tab=output"
+          }
+        ]
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "LM Eval Large Models (8xH200)",
+      "canonical_key": "lm eval large models (8 gpus)",
+      "state": "passed",
+      "queue": "H200",
+      "url": "https://buildkite.com/vllm/ci/builds/77063/steps/canvas?jid=019f4051-21bf-4b2e-b9b9-bf2082bfc614&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "passed",
+        "jobs": [
+          {
+            "label": "LM Eval Large Models (8xH200-8xMI300)",
+            "state": "passed",
+            "queue": "amd_mi300_8",
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-cccf-4e3d-8592-51dc6c8e7d71&tab=output"
           }
         ]
       },
@@ -2496,7 +2623,7 @@
             "label": "LoRA 1",
             "state": "passed",
             "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-724e-482a-84e5-efaf90193b6d&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-ccd6-4783-9e9c-3f6d97e9f5a3&tab=output"
           }
         ]
       },
@@ -2511,16 +2638,16 @@
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
-      "readiness_signal": "red",
+      "readiness_signal": "green",
       "target_signal": "unknown",
       "internal_signal": {
-        "state": "soft_fail",
+        "state": "passed",
         "jobs": [
           {
             "label": "LoRA 2",
-            "state": "soft_fail",
+            "state": "passed",
             "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-724f-4721-9bf2-fac3eba79f31&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-ccd7-4cb9-949d-e0b4aea9eac0&tab=output"
           }
         ]
       },
@@ -2544,7 +2671,7 @@
             "label": "LoRA 3",
             "state": "passed",
             "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-724f-4905-a3dc-82348b2cc834&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-ccd7-4751-8556-71a34c82d203&tab=output"
           }
         ]
       },
@@ -2568,9 +2695,26 @@
             "label": "LoRA 4",
             "state": "passed",
             "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-724f-483c-b80f-5f9908c76c5c&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-ccd7-4a3f-89c6-1405d08a6992&tab=output"
           }
         ]
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Quantized MoE Test (B200)",
+      "canonical_key": "quantized moe test",
+      "state": "passed",
+      "queue": "b200-k8s",
+      "url": "https://buildkite.com/vllm/ci/builds/77063/steps/canvas?jid=019f4051-221e-4df1-b326-072efa5f21f4&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
       },
       "proposal_matches": []
     },
@@ -2609,7 +2753,7 @@
             "label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100-4xMI300)",
             "state": "passed",
             "queue": "amd_mi300_4",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-7243-49c4-954a-0e7e67de3d2e&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-cccc-4477-83fd-0bde080ee7ac&tab=output"
           }
         ]
       },
@@ -2667,7 +2811,7 @@
             "label": "vLLM IR Tests",
             "state": "passed",
             "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10554/steps/canvas?jid=019f3bce-7247-49f6-bb66-2d06b47dc6d3&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10617/steps/canvas?jid=019f40f4-ccd0-4d08-b650-a3c0b25d38af&tab=output"
           }
         ]
       },
@@ -3187,6 +3331,30 @@
       "decision": "excluded"
     },
     {
+      "label": "MoE Refactor Integration Test (B200 - TEMPORARY)",
+      "canonical_key": "moe refactor integration test (b200 - temporary)",
+      "state": "passed",
+      "queue": "b200-k8s",
+      "url": "https://buildkite.com/vllm/ci/builds/77063/steps/canvas?jid=019f4051-21c7-4f14-98f5-f87c6d2ff7ca&tab=output",
+      "exclusion_reasons": [
+        "temporary",
+        "moe_refactor_temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
+      "canonical_key": "moe refactor integration test (b200 dp - temporary)",
+      "state": "passed",
+      "queue": "b200-k8s",
+      "url": "https://buildkite.com/vllm/ci/builds/77063/steps/canvas?jid=019f4051-21c7-43eb-b957-9b9d398a2c4a&tab=output",
+      "exclusion_reasons": [
+        "temporary",
+        "moe_refactor_temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
       "label": "MoE Refactor Integration Test (H100 - TEMPORARY)",
       "canonical_key": "moe refactor integration test (h100 - temporary)",
       "state": "passed",
@@ -3195,6 +3363,17 @@
       "exclusion_reasons": [
         "temporary",
         "moe_refactor_temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Multi-Modal Processor (CPU)",
+      "canonical_key": "multi-modal processor (cpu)",
+      "state": "passed",
+      "queue": "medium_cpu_queue_premerge",
+      "url": "https://buildkite.com/vllm/ci/builds/77063/steps/canvas?jid=019f4051-2206-4304-a03e-7c7edeb90e9c&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
       ],
       "decision": "excluded"
     },
@@ -3323,15 +3502,6 @@
     },
     {
       "decision": "missing_from_upstream",
-      "target_id": 7,
-      "label": "Kernels Core Operation Test",
-      "canonical_key": "kernels core operation test",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "red"
-    },
-    {
-      "decision": "missing_from_upstream",
       "target_id": 13,
       "label": "Language Models Tests (Extra Standard) %N",
       "canonical_key": "language models test (extra standard) %N",
@@ -3399,15 +3569,6 @@
       "label": "GPQA Eval (GPT-OSS) (H100)",
       "canonical_key": "gpqa eval (gpt-oss)",
       "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green"
-    },
-    {
-      "decision": "missing_from_upstream",
-      "target_id": 92,
-      "label": "Kernels Helion Test",
-      "canonical_key": "kernels helion test",
-      "source_signal": "green",
       "readiness_signal": "green",
       "target_signal": "green"
     },
