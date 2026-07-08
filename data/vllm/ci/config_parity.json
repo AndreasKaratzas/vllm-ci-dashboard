@@ -1,10 +1,10 @@
 {
   "summary": {
     "total_amd_steps": 146,
-    "total_nvidia_steps": 180,
+    "total_nvidia_steps": 181,
     "matched": 135,
     "amd_only": 11,
-    "nvidia_only": 49,
+    "nvidia_only": 50,
     "mirrors": 54,
     "match_rate_pct": 92.5,
     "avg_command_similarity_pct": 93.1
@@ -2048,6 +2048,12 @@
       "label": "Distributed FlashInfer NixlConnector PD accuracy (4 GPUs)",
       "normalized": "distributed flashinfer nixlconnector pd accuracy (4 gpus)",
       "identity_key": "distributed flashinfer nixlconnector pd accuracy (4 gpus)",
+      "source": ".buildkite/test_areas/disaggregated.yaml"
+    },
+    {
+      "label": "Push NixlConnector PP prefill PD accuracy (4 GPUs)",
+      "normalized": "push nixlconnector pp prefill pd accuracy (4 gpus)",
+      "identity_key": "push nixlconnector pp prefill pd accuracy (4 gpus)",
       "source": ".buildkite/test_areas/disaggregated.yaml"
     },
     {
