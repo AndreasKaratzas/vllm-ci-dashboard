@@ -563,6 +563,13 @@ class TestFrontendFiles:
             "not only the rows that are already green"
         )
 
+    def test_gating_links_use_closest_hardware_label_match(self):
+        js = (DOCS / "assets" / "js" / "ci-health.js").read_text()
+        assert "function closestLabelMatches" in js
+        assert "labelMatchScore(label, job)" in js
+        assert "return closestLabelMatches(label, matches)" in js
+        assert "return closestLabelMatches(label, filtered)" in js
+
     def test_queue_stats_computable_from_builds(self):
         """Queue stats must be recomputable from per-build job data and duration_ranking.
 

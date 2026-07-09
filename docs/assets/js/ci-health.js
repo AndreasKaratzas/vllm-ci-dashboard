@@ -264,6 +264,37 @@
     return out;
   }
 
+  function hasCommonHint(a, b) {
+    return [...a].some(hint => b.has(hint));
+  }
+
+  function labelMatchScore(label, job) {
+    const raw = job?.raw_name || job?.name || String(job || '');
+    const labelKey = sourceKey(label);
+    const rawKey = sourceKey(raw);
+    if (rawKey === labelKey) return 100;
+    if (normalizeHardwareDecoratedName(raw) === normalizeHardwareDecoratedName(label)) return 95;
+
+    const labelHints = cudaHardwareHints(label);
+    const rawHints = cudaHardwareHints(raw);
+    if (labelHints.size && rawHints.size) {
+      return hasCommonHint(labelHints, rawHints) ? 80 : -1;
+    }
+    if (!labelHints.size && !rawHints.size) return 60;
+    return 40;
+  }
+
+  function closestLabelMatches(label, jobs) {
+    if (!jobs || jobs.length <= 1) return jobs || [];
+    let best = -Infinity;
+    const scored = jobs.map(job => {
+      const score = labelMatchScore(label, job);
+      best = Math.max(best, score);
+      return {job, score};
+    });
+    return scored.filter(row => row.score === best).map(row => row.job);
+  }
+
   function buildUpstreamAmdIndex(build) {
     if (!build) return {};
     if (_upstreamAmdIndexCache.has(build)) return _upstreamAmdIndexCache.get(build);
@@ -297,7 +328,8 @@
         }
       }
     }
-    return matches.sort((a,b) => String(a.raw_name || a.name || '').localeCompare(String(b.raw_name || b.name || '')));
+    return closestLabelMatches(group.label, matches)
+      .sort((a,b) => String(a.raw_name || a.name || '').localeCompare(String(b.raw_name || b.name || '')));
   }
 
 
@@ -406,7 +438,7 @@
         }
       }
     }
-    return matches.sort((a,b) =>
+    return closestLabelMatches(label, matches).sort((a,b) =>
       sourceDevice(a).localeCompare(sourceDevice(b)) ||
       String(a.raw_name || a.name || '').localeCompare(String(b.raw_name || b.name || ''))
     );
@@ -521,7 +553,8 @@
         }
       }
     }
-    return matches.sort((a,b) => String(a.raw_name || a.name || '').localeCompare(String(b.raw_name || b.name || '')));
+    return closestLabelMatches(label, matches)
+      .sort((a,b) => String(a.raw_name || a.name || '').localeCompare(String(b.raw_name || b.name || '')));
   }
 
   function buildProposedRows(proposals, sourceBuild, currentRows) {
@@ -608,11 +641,12 @@
 
   function targetRuntimeJobs(label, jobs) {
     const allowCpu = /(^|[^a-z0-9])cpu(?=$|[^a-z0-9])/i.test(String(label || ''));
-    if (allowCpu) return jobs || [];
-    return (jobs || []).filter(job => {
+    if (allowCpu) return closestLabelMatches(label, jobs || []);
+    const filtered = (jobs || []).filter(job => {
       const raw = String(job?.raw_name || job?.name || '');
       return !/(^|[^a-z0-9])cpu(?=$|[^a-z0-9])/i.test(raw) && matchesTargetHardwareHint(label, job);
     });
+    return closestLabelMatches(label, filtered);
   }
 
   function targetRuntimeStatus(label, jobs) {

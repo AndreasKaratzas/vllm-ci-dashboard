@@ -346,7 +346,7 @@ global.LinkRegistry = {
   aTag(_url, label) { return label; },
 };
 const source = fs.readFileSync(process.argv[1], 'utf8')
-  .replace(/\}\)\(\);\s*$/, "globalThis.__ciHealthTest = {sourceAliases, buildInternalAmdIndex, matchingInternalAmdJobs, targetRuntimeJobs, canonicalStatusForTarget, jobBuildkiteUrl, internalJobBuildkiteUrl};})();");
+  .replace(/\}\)\(\);\s*$/, "globalThis.__ciHealthTest = {sourceAliases, buildInternalAmdIndex, matchingInternalAmdJobs, buildUpstreamCudaIndex, matchingUpstreamJobsForLabel, targetRuntimeJobs, canonicalStatusForTarget, jobBuildkiteUrl, internalJobBuildkiteUrl};})();");
 eval(source);
 const h = globalThis.__ciHealthTest;
 const h100Job = {
@@ -378,6 +378,54 @@ const b200Matches = h.targetRuntimeJobs(
 );
 if (b200Matches.length !== 1 || b200Matches[0].raw_name !== b200Job.raw_name) {
   throw new Error(`expected only B200/MI355 job, got ${b200Matches.map(j => j.raw_name).join('|')}`);
+}
+const genericV1 = {
+  raw_name: 'V1 e2e (4 GPUs)',
+  name: 'V1 e2e (4 GPUs)',
+  q: 'gpu_4_queue',
+  state: 'passed',
+};
+const explicitV1 = {
+  raw_name: 'V1 e2e (4xH100)',
+  name: 'V1 e2e (4xH100)',
+  q: 'mithril-h100-pool',
+  state: 'passed',
+};
+const upstreamBuild = {jobs: [genericV1, explicitV1]};
+const explicitSource = h.matchingUpstreamJobsForLabel('V1 e2e (4xH100)', upstreamBuild);
+if (explicitSource.length !== 1 || explicitSource[0].raw_name !== explicitV1.raw_name) {
+  throw new Error(`4xH100 target should only link 4xH100 source, got ${explicitSource.map(j => j.raw_name).join('|')}`);
+}
+const genericSource = h.matchingUpstreamJobsForLabel('V1 e2e (4 GPUs)', upstreamBuild);
+if (genericSource.length !== 1 || genericSource[0].raw_name !== genericV1.raw_name) {
+  throw new Error(`4 GPUs target should only link generic source, got ${genericSource.map(j => j.raw_name).join('|')}`);
+}
+const genericAmd = {
+  raw_name: 'mi300_4: V1 e2e (4 GPUs)',
+  name: 'V1 e2e (4 GPUs)',
+  q: 'amd_mi300_4',
+  state: 'soft_fail',
+};
+const pairedAmd = {
+  raw_name: 'mi300_4: V1 e2e (4xH100-4xMI300)',
+  name: 'V1 e2e (4xH100-4xMI300)',
+  q: 'amd_mi300_4',
+  state: 'passed',
+};
+const v1Internal = h.buildInternalAmdIndex({jobs: [genericAmd, pairedAmd]});
+const explicitInternal = h.targetRuntimeJobs(
+  'V1 e2e (4xH100)',
+  h.matchingInternalAmdJobs('V1 e2e (4xH100)', v1Internal),
+);
+if (explicitInternal.length !== 1 || explicitInternal[0].raw_name !== pairedAmd.raw_name) {
+  throw new Error(`4xH100 target should only link paired AMD job, got ${explicitInternal.map(j => j.raw_name).join('|')}`);
+}
+const genericInternal = h.targetRuntimeJobs(
+  'V1 e2e (4 GPUs)',
+  h.matchingInternalAmdJobs('V1 e2e (4 GPUs)', v1Internal),
+);
+if (genericInternal.length !== 1 || genericInternal[0].raw_name !== genericAmd.raw_name) {
+  throw new Error(`4 GPUs target should only link generic AMD job, got ${genericInternal.map(j => j.raw_name).join('|')}`);
 }
 const canonicalStatus = h.canonicalStatusForTarget(
   {gating_signal: 'red', pf_signal: 'red'},
