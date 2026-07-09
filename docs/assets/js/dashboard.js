@@ -492,6 +492,34 @@ function _isAmdHwKey(hw) {
   return /^mi\d+/i.test(String(hw || ''));
 }
 
+function _parityHardFailCount(group, side) {
+  var data = (group && group[side]) || {};
+  return (data.failed || 0) + (data.error || 0);
+}
+
+function _paritySideForHw(group, hw) {
+  var links = (group && group.job_links) || [];
+  for (var i = 0; i < links.length; i++) {
+    var link = links[i] || {};
+    if (link.hw === hw && (link.side === 'amd' || link.side === 'upstream')) return link.side;
+  }
+  return _isAmdHwKey(hw) ? 'amd' : 'upstream';
+}
+
+function _parityHwFailureCount(group, hw) {
+  var count = ((group && group.hw_failures) || {})[hw] || 0;
+  if (!count) return 0;
+  return _parityHardFailCount(group, _paritySideForHw(group, hw)) > 0 ? count : 0;
+}
+
+function _parityHwCanceledCount(group, hw) {
+  var count = ((group && group.hw_canceled) || {})[hw] || 0;
+  if (!count || _parityHwFailureCount(group, hw) > 0) return 0;
+  var side = _paritySideForHw(group, hw);
+  var data = (group && group[side]) || {};
+  return (data.canceled || 0) > 0 ? count : 0;
+}
+
 function _parityHwGroupMap(parity) {
   var merged = parity && parity.job_groups
     ? (typeof mergeShardedGroups === 'function' ? mergeShardedGroups(parity.job_groups) : parity.job_groups)
@@ -510,8 +538,8 @@ function _parityHwGroupMap(parity) {
         map[hw].pending.push(g);
         continue;
       }
-      var failed = !!(g.hw_failures && g.hw_failures[hw] > 0);
-      var canceled = !!(g.hw_canceled && g.hw_canceled[hw] > 0 && !failed);
+      var failed = _parityHwFailureCount(g, hw) > 0;
+      var canceled = _parityHwCanceledCount(g, hw) > 0;
       if (failed) map[hw].failing.push(g);
       else if (canceled) map[hw].canceled.push(g);
       else map[hw].passing.push(g);

@@ -111,6 +111,83 @@ def test_aggregate_state_prioritizes_failures():
     assert aggregate_state(["scheduled", "passed"]) == "scheduled"
 
 
+def test_build_matrix_trusts_passed_buildkite_state_over_stale_hw_failures():
+    steps, architectures = parse_steps("""
+steps:
+  - label: V1 e2e (4xH100-4xMI300)
+    agent_pool: mi300_4
+""")
+    analytics = {
+        "amd-ci": {
+            "builds": [
+                {
+                    "number": 10649,
+                    "date": "2026-07-09",
+                    "web_url": "https://buildkite.com/vllm/amd-ci/builds/10649",
+                    "message": "AMD Full CI Run - nightly",
+                    "jobs": [
+                        {
+                            "name": "V1 e2e (4xH100-4xMI300)",
+                            "state": "passed",
+                            "q": "amd_mi300_4",
+                        }
+                    ],
+                }
+            ]
+        }
+    }
+    parity = {
+        "job_groups": [
+            {
+                "amd_job_name": "mi300_4: V1 e2e (4xH100-4xMI300)",
+                "amd": {
+                    "total": 4,
+                    "passed": 4,
+                    "failed": 0,
+                    "skipped": 0,
+                    "xfailed": 0,
+                    "xpassed": 0,
+                    "error": 0,
+                    "duration": 1.0,
+                },
+                "upstream": None,
+                "hardware": ["mi300"],
+                "hw_failures": {"mi300": 2},
+                "hw_canceled": None,
+                "job_links": [
+                    {
+                        "hw": "mi300",
+                        "url": "https://buildkite.com/vllm/amd-ci/builds/10649/steps/canvas?sid=v1-e2e&tab=output",
+                        "job_name": "mi300_4: V1 e2e (4xH100-4xMI300)",
+                        "side": "amd",
+                    }
+                ],
+                "status": "both",
+                "backfilled": False,
+                "hw_backfilled": {},
+            }
+        ]
+    }
+    latest_job_index, latest_build = build_latest_job_index(analytics, [])
+    parity_exact_index, parity_norm_index = build_parity_amd_index(parity, [])
+
+    matrix = build_matrix(
+        steps=steps,
+        architectures=architectures,
+        latest_job_index=latest_job_index,
+        latest_build=latest_build,
+        parity_exact_index=parity_exact_index,
+        parity_norm_index=parity_norm_index,
+        shard_bases=[],
+        yaml_url="https://example.invalid/test-amd.yaml",
+    )
+
+    row = matrix["rows"][0]
+    assert row["cells"]["mi300"]["latest_state"] == "passed"
+    assert matrix["summary"]["passing_cells"] == 1
+    assert matrix["summary"]["failing_cells"] == 0
+
+
 def test_latest_build_metadata_falls_back_to_ci_health_and_parity():
     meta = latest_build_metadata(
         None,

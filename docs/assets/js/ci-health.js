@@ -121,6 +121,33 @@
     return `<span style="display:inline-flex;align-items:center;gap:5px;padding:2px 7px;border-radius:4px;border:1px solid ${color}66;background:${color}18;color:${color};font-weight:700;font-size:12px">${escapeHtml(text)}</span>`;
   }
 
+  function parityHardFailCount(group, side) {
+    const data = group?.[side] || {};
+    return (data.failed || 0) + (data.error || 0);
+  }
+
+  function paritySideForHw(group, hw) {
+    const links = group?.job_links || [];
+    const exact = links.find(link => link?.hw === hw);
+    if (exact?.side === 'amd' || exact?.side === 'upstream') return exact.side;
+    return /^mi/i.test(String(hw || '')) ? 'amd' : 'upstream';
+  }
+
+  function parityHwFailureCount(group, hw) {
+    const count = ((group?.hw_failures || {})[hw]) || 0;
+    if (!count) return 0;
+    const side = paritySideForHw(group, hw);
+    return parityHardFailCount(group, side) > 0 ? count : 0;
+  }
+
+  function parityHwCanceledCount(group, hw) {
+    const count = ((group?.hw_canceled || {})[hw]) || 0;
+    if (!count || parityHwFailureCount(group, hw) > 0) return 0;
+    const side = paritySideForHw(group, hw);
+    const data = group?.[side] || {};
+    return (data.canceled || 0) > 0 ? count : 0;
+  }
+
   function gatingStatus(cell) {
     if (!cell || !cell.exists || !cell.latest_matched) {
       return {key:'not_observed', label:'Not observed', color:C.m, rank:2};
@@ -699,7 +726,7 @@
     );
     const includeInternal = opts.includeInternalSignal || sorted.some(row => row.internalSignal);
     const colCount = includeInternal ? 8 : 7;
-    let html = opts.includeSource === false ? '' : `<p style="color:${C.m};font-size:13px;margin:0 0 12px">Source: ${build ? LinkRegistry.aTag(upstreamBuildUrl(build), sourceBuildLabel(build)) : 'no upstream nightly source'} on main. Target line is configured at 125 groups.</p>`;
+    let html = opts.includeSource === false ? '' : `<p style="color:${C.m};font-size:13px;margin:0 0 12px">Source: ${build ? LinkRegistry.aTag(upstreamBuildUrl(build), sourceBuildLabel(build)) : 'no upstream nightly source'} on main.</p>`;
     html += '<table style="width:100%;border-collapse:collapse;font-size:13px">';
     html += '<thead><tr>';
     const heads = includeInternal ? ['#','Status','Test Group','Arch','Area','Upstream','amd-ci nightly','YAML'] : ['#','Status','Test Group','Arch','Area','Buildkite','YAML'];
@@ -850,7 +877,8 @@
       return ma.rank - mb.rank || String(a.label || '').localeCompare(String(b.label || ''));
     });
     const source = candidates?.source || {};
-    let html = `<p style="color:${C.m};font-size:13px;margin:0 0 12px">Review-only daily audit. It folds obvious hardware-only suffix differences while preserving GPU counts, then compares upstream nightly GPU jobs with the canonical 125-row target list.</p>`;
+    const canonicalCount = summary.canonical_target_count || 0;
+    let html = `<p style="color:${C.m};font-size:13px;margin:0 0 12px">Review-only daily audit. It folds obvious hardware-only suffix differences while preserving GPU counts, then compares upstream nightly GPU jobs with the canonical ${fmtInt(canonicalCount)}-row target list.</p>`;
     html += `<p style="color:${C.m};font-size:12px;margin:0 0 12px">${fmtInt(summary.new_candidate_count || 0)} new candidates, ${fmtInt(summary.likely_duplicate_count || 0)} likely duplicates, ${fmtInt(summary.excluded_count || 0)} exclusions, ${fmtInt(summary.missing_from_upstream_count || 0)} missing canonical rows. Source: ${escapeHtml(source.nightly_signal || 'gating_nightlies.json')}.</p>`;
     html += '<table style="width:100%;border-collapse:collapse;font-size:13px">';
     html += '<thead><tr>';
@@ -1405,7 +1433,7 @@
         onClick: () => showGatingSourceOverlay('Green AMD labels', greenRows, sourceBuild),
       }),
       renderMiniMetric('Green of target', `${fmtInt(greenReady)} / ${fmtInt(target)}`, hasCanonicalTargets ? `${fmtInt(canonicalGatedGreenRows.length + extraGatedRows.filter(r => r.isGreen).length)} gated/proposed green + ${fmtInt(canonicalReadyRows.length)} passing ready to gate` : `${fmtInt(green)} gated + ${fmtInt(internalGreenStillToGate)} not gated yet green in ${internalBuildLabel(internalBuild)}`, '#2dd4bf', {
-        onClick: () => showGatingPathOverlay('Green AMD coverage', effectiveGreenRows, sourceBuild),
+        onClick: () => showGatingPathOverlay('AMD target coverage', hasCanonicalTargets ? pathRows : effectiveGreenRows, sourceBuild),
       }),
       renderMiniMetric('Failing target gaps', fmtInt(hasCanonicalTargets ? canonicalFailingRows.length : internalFailingStillToGate), hasCanonicalTargets ? `${fmtInt(canonicalFailingRows.length)} failing in the canonical target list` : `${fmtInt(internalHardFailStillToGate)} hard fail + ${fmtInt(internalSoftFailStillToGate)} soft-fail in ${internalBuildLabel(internalBuild)}`, C.r, {
         onClick: () => showGatingPathOverlay('Failing AMD target gaps', hasCanonicalTargets ? canonicalFailingRows : internalFailingRows, sourceBuild),
@@ -1725,8 +1753,8 @@
         if(hwPending){
           hwGroupMap[hw].pending.push(g);
         } else {
-          const hwFail=(g.hw_failures&&g.hw_failures[hw]>0)||false;
-          const hwCancel=(g.hw_canceled&&g.hw_canceled[hw]>0)&&!(g.hw_failures&&g.hw_failures[hw]>0);
+          const hwFail=parityHwFailureCount(g, hw)>0;
+          const hwCancel=parityHwCanceledCount(g, hw)>0;
           if(hwFail) hwGroupMap[hw].failing.push(g);
           else if(hwCancel) hwGroupMap[hw].canceled.push(g);
           else hwGroupMap[hw].passing.push(g);
@@ -1829,7 +1857,7 @@
       const isGroupPending=pending.includes(g);
       const isGroupCanceled=canceled.includes(g);
       const isFail=!isGroupPending&&!isGroupCanceled&&groups.failing.includes(g);
-      const hwFails=isGroupPending?0:((g.hw_failures&&g.hw_failures[hw])||0);
+      const hwFails=isGroupPending?0:parityHwFailureCount(g, hw);
       // For AMD hardware, show AMD test counts. For upstream hardware (h100, b200, etc.), show upstream counts.
       const isAmdHw=hw.startsWith('mi')||hw==='cpu';
       const a=isGroupPending?{}:(isAmdHw?(g.amd||g.upstream||{}):(g.upstream||g.amd||{}));
@@ -2051,9 +2079,8 @@
 
         // Hardware column — show all hardware this TG runs on
         const hwList = g.hardware || [];
-        const hwf = g.hw_failures || {};
         const hwHtml = hwList.length ? hwList.map(hw => {
-          const failCnt = hwf[hw];
+          const failCnt = parityHwFailureCount(g, hw);
           if (failCnt) return `<span style="background:${C.r}22;color:${C.r};padding:3px 8px;border-radius:3px;font-size:13px;margin:1px;font-weight:600">${hw}: ${failCnt}f</span>`;
           return `<span style="color:${C.g};font-size:13px;margin:1px">${hw}</span>`;
         }).join(' ') : '<span style="color:'+C.m+'">—</span>';
@@ -2087,7 +2114,7 @@
           }
 
           // Job links — only for AMD hardware that has failures
-          const amdLinks = (g.job_links||[]).filter(jl=>jl&&jl.side==='amd'&&(hwf[jl.hw]>0));
+          const amdLinks = (g.job_links||[]).filter(jl=>jl&&jl.side==='amd'&&parityHwFailureCount(g, jl.hw)>0);
           if (amdLinks.length) {
             dc.append(h('div',{text:'View logs on Buildkite:',style:{color:C.m,fontWeight:'600',marginBottom:'6px'}}));
             const linkRow = h('div',{style:{display:'flex',gap:'8px',flexWrap:'wrap'}});

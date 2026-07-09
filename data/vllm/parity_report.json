@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-09T17:08:14Z",
+  "generated_at": "2026-07-09T17:40:21Z",
   "amd_date": "2026-07-09",
   "upstream_date": "2026-07-09",
   "parity_pct": 0.0,
@@ -3391,7 +3391,6 @@
       },
       "hardware": [
         "h100",
-        "mi300",
         "mi355"
       ],
       "hw_failures": {
@@ -10461,9 +10460,7 @@
         "h100",
         "mi300"
       ],
-      "hw_failures": {
-        "mi300": 2
-      },
+      "hw_failures": null,
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
@@ -11165,7 +11162,9 @@
         "h100": 1
       },
       "hw_canceled": null,
-      "failure_tests": [],
+      "failure_tests": [
+        "test_extract_hidden_states_tp2"
+      ],
       "job_links": [
         {
           "hw": "h100",

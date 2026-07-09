@@ -609,25 +609,33 @@ def _compute_job_group_parity(
     amd_groups = _group_counts(amd_results)
     upstream_groups = _group_counts(upstream_results)
 
-    # Build per-hardware details for AMD results
-    hw_failures: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-    hw_canceled: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-    hw_all: dict[str, set] = defaultdict(set)  # all hardware a TG runs on
-    failure_names: dict[str, list[str]] = defaultdict(list)
+    # Build per-hardware details. Keep AMD and upstream side data separate:
+    # parity matching can pair an AMD hardware-specific variant with an
+    # upstream sibling whose normalized name is also used by a different AMD
+    # variant. A shared map would leak those sibling failures into the wrong
+    # hardware row.
+    amd_hw_failures: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    amd_hw_canceled: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    amd_hw_all: dict[str, set] = defaultdict(set)
+    upstream_hw_failures: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    upstream_hw_canceled: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    upstream_hw_all: dict[str, set] = defaultdict(set)
+    amd_failure_names: dict[str, list[str]] = defaultdict(list)
+    upstream_failure_names: dict[str, list[str]] = defaultdict(list)
     job_links: dict[str, list[dict]] = defaultdict(list)  # Buildkite job URLs
     amd_seen_hw: dict[str, set] = defaultdict(set)  # track which hw already has a link
     for r in amd_results:
         hw = _extract_hardware(r.job_name)
         norm = _normalize_job_name(r.job_name).strip()
-        hw_all[norm].add(hw)
+        amd_hw_all[norm].add(hw)
         if r.status in ("failed", "error"):
             count = _extract_count(r.name) if "__unidentified" in r.name else 1
-            hw_failures[norm][hw] += count
+            amd_hw_failures[norm][hw] += count
             # Track individual failure names (not summary entries)
             if not r.name.startswith("__"):
-                failure_names[norm].append(r.name)
+                amd_failure_names[norm].append(r.name)
         elif r.status == "canceled":
-            hw_canceled[norm][hw] += 1
+            amd_hw_canceled[norm][hw] += 1
         # Track job links for all AMD jobs (one per hw). AMD matrix/table
         # navigation should land on the exact Buildkite step output, which is
         # keyed by ``step_id``. Fall back to the older job URL only if the
@@ -652,10 +660,14 @@ def _compute_job_group_parity(
     for r in upstream_results:
         hw = _extract_hardware(r.job_name)
         norm = _normalize_job_name(r.job_name).strip()
-        hw_all[norm].add(hw)
+        upstream_hw_all[norm].add(hw)
         if r.status in ("failed", "error"):
             count = _extract_count(r.name) if "__unidentified" in r.name else 1
-            hw_failures[norm][hw] += count
+            upstream_hw_failures[norm][hw] += count
+            if not r.name.startswith("__"):
+                upstream_failure_names[norm].append(r.name)
+        elif r.status == "canceled":
+            upstream_hw_canceled[norm][hw] += 1
         if r.job_id and hw not in upstream_seen_hw[norm]:
             bk_url = f"https://buildkite.com/vllm/{r.pipeline}/builds/{r.build_number}/steps/canvas?jid={r.job_id}&tab=output"
             job_links[norm].append({"hw": hw, "url": bk_url, "job_name": r.job_name, "side": "upstream"})
@@ -758,16 +770,23 @@ def _compute_job_group_parity(
         family_key = _parity_key(up_orig or amd_orig or norm_name)
         family_name = _parity_family_name(up_orig or amd_orig or norm_name)
 
-        # Merge hardware/failures/links from both AMD and upstream norm keys
-        # (they may differ when multi-HW tags are stripped for upstream)
-        merged_hw = hw_all.get(amd_key, set())
-        merged_hwf = dict(hw_failures.get(amd_key, {}))
-        merged_hwc = dict(hw_canceled.get(amd_key, {}))
-        if up_key != amd_key:
-            merged_hw = merged_hw | hw_all.get(up_key, set())
-            for hw, c in hw_failures.get(up_key, {}).items():
+        # Merge display hardware from the matching AMD/upstream sides, but keep
+        # failure and cancellation counts side-scoped. This prevents a failing
+        # AMD sibling such as "V1 e2e (4 GPUs)" from making the passed
+        # "V1 e2e (4xH100-4xMI300)" row look failed merely because both match
+        # the same upstream parity key.
+        merged_hw = set()
+        merged_hwf: dict[str, int] = {}
+        merged_hwc: dict[str, int] = {}
+        if amd_orig:
+            merged_hw |= amd_hw_all.get(amd_key, set())
+            merged_hwf.update(amd_hw_failures.get(amd_key, {}))
+            merged_hwc.update(amd_hw_canceled.get(amd_key, {}))
+        if up_orig:
+            merged_hw |= upstream_hw_all.get(up_key, set())
+            for hw, c in upstream_hw_failures.get(up_key, {}).items():
                 merged_hwf[hw] = merged_hwf.get(hw, 0) + c
-            for hw, c in hw_canceled.get(up_key, {}).items():
+            for hw, c in upstream_hw_canceled.get(up_key, {}).items():
                 merged_hwc[hw] = merged_hwc.get(hw, 0) + c
         merged_links = job_links.get(amd_key, [])
         if up_key != amd_key:
@@ -785,9 +804,11 @@ def _compute_job_group_parity(
             _seen_link_cells.add(_k)
             _deduped_links.append(_l)
         merged_links = _deduped_links
-        merged_failures = failure_names.get(amd_key, [])
-        if up_key != amd_key:
-            merged_failures = merged_failures + failure_names.get(up_key, [])
+        merged_failures = []
+        if amd_orig:
+            merged_failures += amd_failure_names.get(amd_key, [])
+        if up_orig:
+            merged_failures += upstream_failure_names.get(up_key, [])
 
         entry = {
             "name": norm_name,

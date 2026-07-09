@@ -429,6 +429,51 @@ class TestJobLinkGeneration:
         assert "mi250" in hw_set, f"Missing mi250 link: {amd_links}"
         assert "mi325" in hw_set, f"Missing mi325 link: {amd_links}"
 
+    def test_matched_amd_variant_does_not_inherit_sibling_hardware_failures(self):
+        """A passed hardware-specific variant must not inherit failures from
+        another AMD row that shares the same upstream parity key."""
+        amd = [
+            make_result(
+                "mi300_4: V1 e2e (4 GPUs)",
+                status="failed",
+                name="__unidentified_failures__ (2)",
+                pipeline="amd-ci",
+                build_number=100,
+                job_id="aaaa-0001-0000-0000-000000000001",
+                step_id="ssss-0001-0000-0000-000000000001",
+            ),
+            make_result(
+                "mi300_4: V1 e2e (4xH100-4xMI300)",
+                status="passed",
+                name="__passed__ (4)",
+                pipeline="amd-ci",
+                build_number=100,
+                job_id="aaaa-0002-0000-0000-000000000002",
+                step_id="ssss-0002-0000-0000-000000000002",
+            ),
+        ]
+        upstream = [
+            make_result(
+                "V1 e2e (4 GPUs)",
+                status="passed",
+                name="__passed__ (5)",
+                pipeline="ci",
+                build_number=200,
+                job_id="bbbb-0001-0000-0000-000000000001",
+            )
+        ]
+
+        groups = _compute_job_group_parity(amd, upstream)
+        by_name = {g["name"]: g for g in groups}
+
+        plain = by_name["v1 e2e (4 gpus)"]
+        paired = by_name["v1 e2e (4xh100-4xmi300)"]
+
+        assert plain["hw_failures"] == {"mi300": 2}
+        assert plain["amd"]["failed"] == 2
+        assert paired["amd"]["failed"] == 0
+        assert paired.get("hw_failures") is None
+
     def test_no_link_without_ids(self):
         """Results with neither step_id nor job_id must not generate links."""
         amd = [make_result("mi325_1: No ID Test", pipeline="amd-ci",

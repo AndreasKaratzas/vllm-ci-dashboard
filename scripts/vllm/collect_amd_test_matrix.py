@@ -209,6 +209,8 @@ def _parity_state_for_arch(
 ) -> str | None:
     if _parity_row_backfilled_for_arch(row, arch):
         return analytics_state
+    if analytics_state == "passed":
+        return "passed"
     hw_failures = row.get("hw_failures") or {}
     hw_canceled = row.get("hw_canceled") or {}
     if hw_failures.get(arch, 0) > 0:

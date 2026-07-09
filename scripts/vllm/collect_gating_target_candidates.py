@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Build a reviewable AMD gating target candidate audit.
 
-This collector intentionally does not rewrite the canonical 125-row target
-list. It scans the latest upstream nightly signal, folds obvious hardware
+This collector intentionally does not rewrite the canonical target list. It
+scans the latest upstream nightly signal, folds obvious hardware
 duplicates, compares the result with the reviewed target list, and writes a
 daily artifact that humans can use to keep the canonical list fresh.
 """

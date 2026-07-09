@@ -556,6 +556,13 @@ class TestFrontendFiles:
             "AMD current group card should explain the matrix-derived hardware-job count"
         )
 
+    def test_green_of_target_opens_full_target_coverage(self):
+        js = (DOCS / "assets" / "js" / "ci-health.js").read_text()
+        assert "AMD target coverage" in js and "hasCanonicalTargets ? pathRows : effectiveGreenRows" in js, (
+            "Green of target should drill into the full active target denominator, "
+            "not only the rows that are already green"
+        )
+
     def test_queue_stats_computable_from_builds(self):
         """Queue stats must be recomputable from per-build job data and duration_ranking.
 
