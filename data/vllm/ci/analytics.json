@@ -3,7 +3,7 @@
     "pipeline": "amd-ci",
     "display_name": "AMD CI",
     "days": 30,
-    "generated_at": "2026-07-10T16:09:33Z",
+    "generated_at": "2026-07-10T18:04:02Z",
     "summary": {
       "total_builds": 31,
       "passed": 31,
@@ -132245,7 +132245,7 @@
     "pipeline": "ci",
     "display_name": "Upstream CI",
     "days": 30,
-    "generated_at": "2026-07-10T16:09:33Z",
+    "generated_at": "2026-07-10T18:04:02Z",
     "summary": {
       "total_builds": 31,
       "passed": 3,
@@ -132447,17 +132447,17 @@
     "builds": [
       {
         "number": 77439,
-        "state": "failing",
+        "state": "failed",
         "created_at": "2026-07-10T06:00:07.508Z",
         "date": "2026-07-10",
         "message": "Full CI run - nightly",
         "author": "",
-        "wall_mins": null,
+        "wall_mins": 716.6,
         "passed": 276,
-        "failed": 4,
+        "failed": 5,
         "soft_failed": 4,
         "skipped": 0,
-        "total_jobs": 284,
+        "total_jobs": 285,
         "jobs": [
           {
             "name": "2 Node Test (4 GPUs)",
@@ -132892,6 +132892,21 @@
             "job_id": "019f4aaf-5e04-4695-81e8-a9ef2a74337c",
             "step_id": "019f4a9d-d856-4f56-9542-1764cf6c68e0",
             "wait": 18.5,
+            "q": "amd_mi325_1"
+          },
+          {
+            "name": "AMD: Language Models Test (Extended Pooling) (mi325_1)",
+            "raw_name": "AMD: Language Models Test (Extended Pooling) (mi325_1)",
+            "state": "failed",
+            "dur": 68.4,
+            "tests": 101,
+            "passed_tests": 100,
+            "failed_tests": 1,
+            "skipped_tests": 0,
+            "url": "https://buildkite.com/vllm/ci/builds/77439/steps/canvas?jid=019f4c9f-b52c-4a54-909d-dd546fd5ad19&tab=output",
+            "job_id": "019f4c9f-b52c-4a54-909d-dd546fd5ad19",
+            "step_id": "019f4a9d-d860-4de1-ac50-89daed892959",
+            "wait": 77.8,
             "q": "amd_mi325_1"
           },
           {
@@ -253267,17 +253282,17 @@
     "nightly_builds": [
       {
         "number": 77439,
-        "state": "failing",
+        "state": "failed",
         "created_at": "2026-07-10T06:00:07.508Z",
         "date": "2026-07-10",
         "message": "Full CI run - nightly",
         "author": "",
-        "wall_mins": null,
+        "wall_mins": 716.6,
         "passed": 276,
-        "failed": 4,
+        "failed": 5,
         "soft_failed": 4,
         "skipped": 0,
-        "total_jobs": 284,
+        "total_jobs": 285,
         "web_url": "https://buildkite.com/vllm/ci/builds/77439",
         "source": "test_results"
       },
@@ -254488,6 +254503,26 @@
         ]
       },
       {
+        "name": "AMD: Language Models Test (Extended Pooling) (mi325_1)",
+        "runs": 30,
+        "passed": 27,
+        "failed": 3,
+        "soft_failed": 0,
+        "fail_rate": 10.0,
+        "is_soft_fail": false,
+        "median_dur": 40.8,
+        "p90_dur": 68.4,
+        "avg_dur": 44.4,
+        "max_dur": 70.5,
+        "median_wait": 0.2,
+        "p90_wait": 8.8,
+        "avg_wait": 5.2,
+        "max_wait": 77.8,
+        "queues": [
+          "amd_mi325_1"
+        ]
+      },
+      {
         "name": "AMD: V1 Sample + Logits (mi325_1)",
         "runs": 30,
         "passed": 27,
@@ -254605,26 +254640,6 @@
         "max_wait": 57.8,
         "queues": [
           "gpu_4_queue"
-        ]
-      },
-      {
-        "name": "AMD: Language Models Test (Extended Pooling) (mi325_1)",
-        "runs": 29,
-        "passed": 27,
-        "failed": 2,
-        "soft_failed": 0,
-        "fail_rate": 6.9,
-        "is_soft_fail": false,
-        "median_dur": 40.7,
-        "p90_dur": 54.4,
-        "avg_dur": 43.6,
-        "max_dur": 70.5,
-        "median_wait": 0.1,
-        "p90_wait": 4.9,
-        "avg_wait": 2.7,
-        "max_wait": 46.8,
-        "queues": [
-          "amd_mi325_1"
         ]
       },
       {
@@ -256611,20 +256626,20 @@
       },
       {
         "name": "AMD: Language Models Test (Extended Pooling) (mi325_1)",
-        "runs": 29,
+        "runs": 30,
         "passed": 27,
-        "failed": 2,
+        "failed": 3,
         "soft_failed": 0,
-        "fail_rate": 6.9,
+        "fail_rate": 10.0,
         "is_soft_fail": false,
-        "median_dur": 40.7,
-        "p90_dur": 54.4,
-        "avg_dur": 43.6,
+        "median_dur": 40.8,
+        "p90_dur": 68.4,
+        "avg_dur": 44.4,
         "max_dur": 70.5,
-        "median_wait": 0.1,
-        "p90_wait": 4.9,
-        "avg_wait": 2.7,
-        "max_wait": 46.8,
+        "median_wait": 0.2,
+        "p90_wait": 8.8,
+        "avg_wait": 5.2,
+        "max_wait": 77.8,
         "queues": [
           "amd_mi325_1"
         ]
@@ -262929,7 +262944,7 @@
       },
       {
         "queue": "amd_mi325_1",
-        "jobs": 1058,
+        "jobs": 1059,
         "median_wait": 0.2,
         "p90_wait": 0.3,
         "avg_wait": 0.4,
@@ -263034,9 +263049,9 @@
           "passed": 0,
           "failed": 1,
           "pass_rate": 0.0,
-          "total_jobs_tracked": 284,
-          "jobs_with_failures": 8,
-          "jobs_with_hard_failures": 4,
+          "total_jobs_tracked": 285,
+          "jobs_with_failures": 9,
+          "jobs_with_hard_failures": 5,
           "jobs_with_soft_failures": 4
         },
         "daily_stats": [
@@ -263050,17 +263065,17 @@
         "builds": [
           {
             "number": 77439,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-10T06:00:07.508Z",
             "date": "2026-07-10",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 716.6,
             "passed": 276,
-            "failed": 4,
+            "failed": 5,
             "soft_failed": 4,
             "skipped": 0,
-            "total_jobs": 284,
+            "total_jobs": 285,
             "web_url": "https://buildkite.com/vllm/ci/builds/77439",
             "source": "test_results"
           }
@@ -263068,22 +263083,42 @@
         "nightly_builds": [
           {
             "number": 77439,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-10T06:00:07.508Z",
             "date": "2026-07-10",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 716.6,
             "passed": 276,
-            "failed": 4,
+            "failed": 5,
             "soft_failed": 4,
             "skipped": 0,
-            "total_jobs": 284,
+            "total_jobs": 285,
             "web_url": "https://buildkite.com/vllm/ci/builds/77439",
             "source": "test_results"
           }
         ],
         "failure_ranking": [
+          {
+            "name": "AMD: Language Models Test (Extended Pooling) (mi325_1)",
+            "runs": 1,
+            "passed": 0,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 100.0,
+            "is_soft_fail": false,
+            "median_dur": 68.4,
+            "p90_dur": 68.4,
+            "avg_dur": 68.4,
+            "max_dur": 68.4,
+            "median_wait": 77.8,
+            "p90_wait": 77.8,
+            "avg_wait": 77.8,
+            "max_wait": 77.8,
+            "queues": [
+              "amd_mi325_1"
+            ]
+          },
           {
             "name": "AMD: Multi-Modal Models (Standard) 3: llava + qwen2_vl (mi325_1)",
             "runs": 1,
@@ -263404,6 +263439,26 @@
             "max_wait": 1.0,
             "queues": [
               "mithril-h100-pool"
+            ]
+          },
+          {
+            "name": "AMD: Language Models Test (Extended Pooling) (mi325_1)",
+            "runs": 1,
+            "passed": 0,
+            "failed": 1,
+            "soft_failed": 0,
+            "fail_rate": 100.0,
+            "is_soft_fail": false,
+            "median_dur": 68.4,
+            "p90_dur": 68.4,
+            "avg_dur": 68.4,
+            "max_dur": 68.4,
+            "median_wait": 77.8,
+            "p90_wait": 77.8,
+            "avg_wait": 77.8,
+            "max_wait": 77.8,
+            "queues": [
+              "amd_mi325_1"
             ]
           },
           {
@@ -268946,10 +269001,10 @@
           },
           {
             "queue": "amd_mi325_1",
-            "jobs": 44,
-            "median_wait": 18.1,
-            "p90_wait": 221.5,
-            "avg_wait": 68.8,
+            "jobs": 45,
+            "median_wait": 18.4,
+            "p90_wait": 205.4,
+            "avg_wait": 69.0,
             "max_wait": 277.4
           },
           {
@@ -269150,17 +269205,17 @@
         "builds": [
           {
             "number": 77439,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-10T06:00:07.508Z",
             "date": "2026-07-10",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 716.6,
             "passed": 276,
-            "failed": 4,
+            "failed": 5,
             "soft_failed": 4,
             "skipped": 0,
-            "total_jobs": 284,
+            "total_jobs": 285,
             "web_url": "https://buildkite.com/vllm/ci/builds/77439",
             "source": "test_results"
           },
@@ -269200,17 +269255,17 @@
         "nightly_builds": [
           {
             "number": 77439,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-10T06:00:07.508Z",
             "date": "2026-07-10",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 716.6,
             "passed": 276,
-            "failed": 4,
+            "failed": 5,
             "soft_failed": 4,
             "skipped": 0,
-            "total_jobs": 284,
+            "total_jobs": 285,
             "web_url": "https://buildkite.com/vllm/ci/builds/77439",
             "source": "test_results"
           },
@@ -269329,6 +269384,26 @@
             ]
           },
           {
+            "name": "AMD: Language Models Test (Extended Pooling) (mi325_1)",
+            "runs": 3,
+            "passed": 1,
+            "failed": 2,
+            "soft_failed": 0,
+            "fail_rate": 66.7,
+            "is_soft_fail": false,
+            "median_dur": 54.4,
+            "p90_dur": 68.4,
+            "avg_dur": 58.4,
+            "max_dur": 68.4,
+            "median_wait": 46.8,
+            "p90_wait": 77.8,
+            "avg_wait": 42.7,
+            "max_wait": 77.8,
+            "queues": [
+              "amd_mi325_1"
+            ]
+          },
+          {
             "name": "Extract Hidden States Integration (2 GPUs)",
             "runs": 3,
             "passed": 1,
@@ -269366,26 +269441,6 @@
             "max_wait": 14.6,
             "queues": [
               "b200-k8s"
-            ]
-          },
-          {
-            "name": "AMD: Language Models Test (Extended Pooling) (mi325_1)",
-            "runs": 2,
-            "passed": 1,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 50.0,
-            "is_soft_fail": false,
-            "median_dur": 53.3,
-            "p90_dur": 54.4,
-            "avg_dur": 53.3,
-            "max_dur": 54.4,
-            "median_wait": 25.1,
-            "p90_wait": 46.8,
-            "avg_wait": 25.1,
-            "max_wait": 46.8,
-            "queues": [
-              "amd_mi325_1"
             ]
           },
           {
@@ -269892,20 +269947,20 @@
           },
           {
             "name": "AMD: Language Models Test (Extended Pooling) (mi325_1)",
-            "runs": 2,
+            "runs": 3,
             "passed": 1,
-            "failed": 1,
+            "failed": 2,
             "soft_failed": 0,
-            "fail_rate": 50.0,
+            "fail_rate": 66.7,
             "is_soft_fail": false,
-            "median_dur": 53.3,
-            "p90_dur": 54.4,
-            "avg_dur": 53.3,
-            "max_dur": 54.4,
-            "median_wait": 25.1,
-            "p90_wait": 46.8,
-            "avg_wait": 25.1,
-            "max_wait": 46.8,
+            "median_dur": 54.4,
+            "p90_dur": 68.4,
+            "avg_dur": 58.4,
+            "max_dur": 68.4,
+            "median_wait": 46.8,
+            "p90_wait": 77.8,
+            "avg_wait": 42.7,
+            "max_wait": 77.8,
             "queues": [
               "amd_mi325_1"
             ]
@@ -275390,10 +275445,10 @@
           },
           {
             "queue": "amd_mi325_1",
-            "jobs": 128,
-            "median_wait": 15.2,
-            "p90_wait": 31.2,
-            "avg_wait": 16.7,
+            "jobs": 129,
+            "median_wait": 15.4,
+            "p90_wait": 35.3,
+            "avg_wait": 17.3,
             "max_wait": 205.4
           },
           {
@@ -275626,17 +275681,17 @@
         "builds": [
           {
             "number": 77439,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-10T06:00:07.508Z",
             "date": "2026-07-10",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 716.6,
             "passed": 276,
-            "failed": 4,
+            "failed": 5,
             "soft_failed": 4,
             "skipped": 0,
-            "total_jobs": 284,
+            "total_jobs": 285,
             "web_url": "https://buildkite.com/vllm/ci/builds/77439",
             "source": "test_results"
           },
@@ -275740,17 +275795,17 @@
         "nightly_builds": [
           {
             "number": 77439,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-10T06:00:07.508Z",
             "date": "2026-07-10",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 716.6,
             "passed": 276,
-            "failed": 4,
+            "failed": 5,
             "soft_failed": 4,
             "skipped": 0,
-            "total_jobs": 284,
+            "total_jobs": 285,
             "web_url": "https://buildkite.com/vllm/ci/builds/77439",
             "source": "test_results"
           },
@@ -276033,6 +276088,26 @@
             ]
           },
           {
+            "name": "AMD: Language Models Test (Extended Pooling) (mi325_1)",
+            "runs": 7,
+            "passed": 5,
+            "failed": 2,
+            "soft_failed": 0,
+            "fail_rate": 28.6,
+            "is_soft_fail": false,
+            "median_dur": 52.3,
+            "p90_dur": 68.9,
+            "avg_dur": 53.8,
+            "max_dur": 68.9,
+            "median_wait": 3.5,
+            "p90_wait": 77.8,
+            "avg_wait": 19.1,
+            "max_wait": 77.8,
+            "queues": [
+              "amd_mi325_1"
+            ]
+          },
+          {
             "name": "Extract Hidden States Integration (2 GPUs)",
             "runs": 7,
             "passed": 5,
@@ -276130,26 +276205,6 @@
             "max_wait": 0.2,
             "queues": [
               "h200_18gb"
-            ]
-          },
-          {
-            "name": "AMD: Language Models Test (Extended Pooling) (mi325_1)",
-            "runs": 6,
-            "passed": 5,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 16.7,
-            "is_soft_fail": false,
-            "median_dur": 50.5,
-            "p90_dur": 68.9,
-            "avg_dur": 51.4,
-            "max_dur": 68.9,
-            "median_wait": 1.9,
-            "p90_wait": 46.8,
-            "avg_wait": 9.3,
-            "max_wait": 46.8,
-            "queues": [
-              "amd_mi325_1"
             ]
           },
           {
@@ -276815,6 +276870,26 @@
             ]
           },
           {
+            "name": "AMD: Language Models Test (Extended Pooling) (mi325_1)",
+            "runs": 7,
+            "passed": 5,
+            "failed": 2,
+            "soft_failed": 0,
+            "fail_rate": 28.6,
+            "is_soft_fail": false,
+            "median_dur": 52.3,
+            "p90_dur": 68.9,
+            "avg_dur": 53.8,
+            "max_dur": 68.9,
+            "median_wait": 3.5,
+            "p90_wait": 77.8,
+            "avg_wait": 19.1,
+            "max_wait": 77.8,
+            "queues": [
+              "amd_mi325_1"
+            ]
+          },
+          {
             "name": "Sequence Parallel Correctness Tests (2xH100)",
             "runs": 7,
             "passed": 7,
@@ -276832,26 +276907,6 @@
             "max_wait": 7.7,
             "queues": [
               "mithril-h100-pool"
-            ]
-          },
-          {
-            "name": "AMD: Language Models Test (Extended Pooling) (mi325_1)",
-            "runs": 6,
-            "passed": 5,
-            "failed": 1,
-            "soft_failed": 0,
-            "fail_rate": 16.7,
-            "is_soft_fail": false,
-            "median_dur": 50.5,
-            "p90_dur": 68.9,
-            "avg_dur": 51.4,
-            "max_dur": 68.9,
-            "median_wait": 1.9,
-            "p90_wait": 46.8,
-            "avg_wait": 9.3,
-            "max_wait": 46.8,
-            "queues": [
-              "amd_mi325_1"
             ]
           },
           {
@@ -282418,7 +282473,7 @@
           },
           {
             "queue": "amd_mi325_1",
-            "jobs": 296,
+            "jobs": 297,
             "median_wait": 1.2,
             "p90_wait": 5.1,
             "avg_wait": 2.8,
@@ -282672,17 +282727,17 @@
         "builds": [
           {
             "number": 77439,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-10T06:00:07.508Z",
             "date": "2026-07-10",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 716.6,
             "passed": 276,
-            "failed": 4,
+            "failed": 5,
             "soft_failed": 4,
             "skipped": 0,
-            "total_jobs": 284,
+            "total_jobs": 285,
             "web_url": "https://buildkite.com/vllm/ci/builds/77439",
             "source": "test_results"
           },
@@ -282898,17 +282953,17 @@
         "nightly_builds": [
           {
             "number": 77439,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-10T06:00:07.508Z",
             "date": "2026-07-10",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 716.6,
             "passed": 276,
-            "failed": 4,
+            "failed": 5,
             "soft_failed": 4,
             "skipped": 0,
-            "total_jobs": 284,
+            "total_jobs": 285,
             "web_url": "https://buildkite.com/vllm/ci/builds/77439",
             "source": "test_results"
           },
@@ -283503,6 +283558,26 @@
             ]
           },
           {
+            "name": "AMD: Language Models Test (Extended Pooling) (mi325_1)",
+            "runs": 14,
+            "passed": 11,
+            "failed": 3,
+            "soft_failed": 0,
+            "fail_rate": 21.4,
+            "is_soft_fail": false,
+            "median_dur": 45.9,
+            "p90_dur": 68.9,
+            "avg_dur": 50.4,
+            "max_dur": 70.5,
+            "median_wait": 0.3,
+            "p90_wait": 46.8,
+            "avg_wait": 10.4,
+            "max_wait": 77.8,
+            "queues": [
+              "amd_mi325_1"
+            ]
+          },
+          {
             "name": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
             "runs": 14,
             "passed": 11,
@@ -283640,26 +283715,6 @@
             "max_wait": 3.7,
             "queues": [
               "gpu_1_queue"
-            ]
-          },
-          {
-            "name": "AMD: Language Models Test (Extended Pooling) (mi325_1)",
-            "runs": 13,
-            "passed": 11,
-            "failed": 2,
-            "soft_failed": 0,
-            "fail_rate": 15.4,
-            "is_soft_fail": false,
-            "median_dur": 43.0,
-            "p90_dur": 68.9,
-            "avg_dur": 49.1,
-            "max_dur": 70.5,
-            "median_wait": 0.3,
-            "p90_wait": 8.8,
-            "avg_wait": 5.3,
-            "max_wait": 46.8,
-            "queues": [
-              "amd_mi325_1"
             ]
           },
           {
@@ -284945,6 +285000,26 @@
             ]
           },
           {
+            "name": "AMD: Language Models Test (Extended Pooling) (mi325_1)",
+            "runs": 14,
+            "passed": 11,
+            "failed": 3,
+            "soft_failed": 0,
+            "fail_rate": 21.4,
+            "is_soft_fail": false,
+            "median_dur": 45.9,
+            "p90_dur": 68.9,
+            "avg_dur": 50.4,
+            "max_dur": 70.5,
+            "median_wait": 0.3,
+            "p90_wait": 46.8,
+            "avg_wait": 10.4,
+            "max_wait": 77.8,
+            "queues": [
+              "amd_mi325_1"
+            ]
+          },
+          {
             "name": "MoE Refactor Integration Test (H100 - TEMPORARY)",
             "runs": 14,
             "passed": 14,
@@ -284982,26 +285057,6 @@
             "max_wait": 8.0,
             "queues": [
               "h200_18gb"
-            ]
-          },
-          {
-            "name": "AMD: Language Models Test (Extended Pooling) (mi325_1)",
-            "runs": 13,
-            "passed": 11,
-            "failed": 2,
-            "soft_failed": 0,
-            "fail_rate": 15.4,
-            "is_soft_fail": false,
-            "median_dur": 43.0,
-            "p90_dur": 68.9,
-            "avg_dur": 49.1,
-            "max_dur": 70.5,
-            "median_wait": 0.3,
-            "p90_wait": 8.8,
-            "avg_wait": 5.3,
-            "max_wait": 46.8,
-            "queues": [
-              "amd_mi325_1"
             ]
           },
           {
@@ -290680,7 +290735,7 @@
           },
           {
             "queue": "amd_mi325_1",
-            "jobs": 588,
+            "jobs": 589,
             "median_wait": 0.3,
             "p90_wait": 0.7,
             "avg_wait": 0.7,
@@ -290998,17 +291053,17 @@
         "builds": [
           {
             "number": 77439,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-10T06:00:07.508Z",
             "date": "2026-07-10",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 716.6,
             "passed": 276,
-            "failed": 4,
+            "failed": 5,
             "soft_failed": 4,
             "skipped": 0,
-            "total_jobs": 284,
+            "total_jobs": 285,
             "web_url": "https://buildkite.com/vllm/ci/builds/77439",
             "source": "test_results"
           },
@@ -291480,17 +291535,17 @@
         "nightly_builds": [
           {
             "number": 77439,
-            "state": "failing",
+            "state": "failed",
             "created_at": "2026-07-10T06:00:07.508Z",
             "date": "2026-07-10",
             "message": "Full CI run - nightly",
             "author": "",
-            "wall_mins": null,
+            "wall_mins": 716.6,
             "passed": 276,
-            "failed": 4,
+            "failed": 5,
             "soft_failed": 4,
             "skipped": 0,
-            "total_jobs": 284,
+            "total_jobs": 285,
             "web_url": "https://buildkite.com/vllm/ci/builds/77439",
             "source": "test_results"
           },
@@ -292701,6 +292756,26 @@
             ]
           },
           {
+            "name": "AMD: Language Models Test (Extended Pooling) (mi325_1)",
+            "runs": 29,
+            "passed": 26,
+            "failed": 3,
+            "soft_failed": 0,
+            "fail_rate": 10.3,
+            "is_soft_fail": false,
+            "median_dur": 40.8,
+            "p90_dur": 68.4,
+            "avg_dur": 44.5,
+            "max_dur": 70.5,
+            "median_wait": 0.2,
+            "p90_wait": 8.8,
+            "avg_wait": 5.3,
+            "max_wait": 77.8,
+            "queues": [
+              "amd_mi325_1"
+            ]
+          },
+          {
             "name": "AMD: V1 Sample + Logits (mi325_1)",
             "runs": 29,
             "passed": 26,
@@ -292798,26 +292873,6 @@
             "max_wait": 36.5,
             "queues": [
               "b200-k8s"
-            ]
-          },
-          {
-            "name": "AMD: Language Models Test (Extended Pooling) (mi325_1)",
-            "runs": 28,
-            "passed": 26,
-            "failed": 2,
-            "soft_failed": 0,
-            "fail_rate": 7.1,
-            "is_soft_fail": false,
-            "median_dur": 40.8,
-            "p90_dur": 54.4,
-            "avg_dur": 43.7,
-            "max_dur": 70.5,
-            "median_wait": 0.2,
-            "p90_wait": 4.9,
-            "avg_wait": 2.7,
-            "max_wait": 46.8,
-            "queues": [
-              "amd_mi325_1"
             ]
           },
           {
@@ -294824,20 +294879,20 @@
           },
           {
             "name": "AMD: Language Models Test (Extended Pooling) (mi325_1)",
-            "runs": 28,
+            "runs": 29,
             "passed": 26,
-            "failed": 2,
+            "failed": 3,
             "soft_failed": 0,
-            "fail_rate": 7.1,
+            "fail_rate": 10.3,
             "is_soft_fail": false,
             "median_dur": 40.8,
-            "p90_dur": 54.4,
-            "avg_dur": 43.7,
+            "p90_dur": 68.4,
+            "avg_dur": 44.5,
             "max_dur": 70.5,
             "median_wait": 0.2,
-            "p90_wait": 4.9,
-            "avg_wait": 2.7,
-            "max_wait": 46.8,
+            "p90_wait": 8.8,
+            "avg_wait": 5.3,
+            "max_wait": 77.8,
             "queues": [
               "amd_mi325_1"
             ]
@@ -300782,7 +300837,7 @@
           },
           {
             "queue": "amd_mi325_1",
-            "jobs": 1052,
+            "jobs": 1053,
             "median_wait": 0.2,
             "p90_wait": 0.3,
             "avg_wait": 0.4,
