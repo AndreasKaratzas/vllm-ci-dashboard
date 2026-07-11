@@ -7,7 +7,7 @@
     "nvidia_only": 50,
     "mirrors": 54,
     "match_rate_pct": 92.5,
-    "avg_command_similarity_pct": 93.1
+    "avg_command_similarity_pct": 93.2
   },
   "matches": [
     {
@@ -591,22 +591,6 @@
         "pytest models/multimodal/generation/test_phi4siglip.py -v -s -m 'distributed(num_gpus=2)'",
         "pytest models/multimodal -v -s -m 'distributed(num_gpus=2)' --ignore models/multimodal/generation/test_whisper.py --ignore models/multimodal/generation/test_phi4siglip.py",
         "VLLM_WORKER_MULTIPROC_METHOD=spawn pytest models/multimodal/generation/test_whisper.py -v -s -m 'distributed(num_gpus=2)'"
-      ]
-    },
-    {
-      "amd_label": "Multi-Modal Processor (CPU) %N",
-      "nvidia_label": "Multi-Modal Processor (CPU)",
-      "normalized": "multi-modal processor (cpu)",
-      "identity_key": "multi-modal processor (cpu)",
-      "command_similarity": 0.8783,
-      "color": "yellow",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/models_multimodal.yaml",
-      "amd_commands": [
-        "pytest -v -s models/multimodal/processing --ignore models/multimodal/processing/test_tensor_schema.py --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT --shard-id=$$BUILDKITE_PARALLEL_JOB"
-      ],
-      "nvidia_commands": [
-        "pytest -v -s models/multimodal/processing --ignore models/multimodal/processing/test_tensor_schema.py"
       ]
     },
     {
@@ -1665,6 +1649,16 @@
       "nvidia_label": "Multi-Modal Processor",
       "normalized": "multi-modal processor",
       "identity_key": "multi-modal processor",
+      "command_similarity": 1.0,
+      "color": "green",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/models_multimodal.yaml"
+    },
+    {
+      "amd_label": "Multi-Modal Processor (CPU) %N",
+      "nvidia_label": "Multi-Modal Processor (CPU) %N",
+      "normalized": "multi-modal processor (cpu)",
+      "identity_key": "multi-modal processor (cpu)",
       "command_similarity": 1.0,
       "color": "green",
       "amd_source": "test-amd.yaml",
