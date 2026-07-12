@@ -7,7 +7,7 @@
     "nvidia_only": 50,
     "mirrors": 54,
     "match_rate_pct": 92.5,
-    "avg_command_similarity_pct": 93.2
+    "avg_command_similarity_pct": 92.7
   },
   "matches": [
     {
@@ -120,6 +120,22 @@
       "nvidia_commands": [
         "pytest -v -s kernels/moe/test_deepep_deepgemm_moe.py",
         "pytest -v -s kernels/moe/test_deepep_moe.py"
+      ]
+    },
+    {
+      "amd_label": "V1 attention (H100-MI250)",
+      "nvidia_label": "V1 attention (H100-MI300)",
+      "normalized": "v1 attention (h100-mi250)",
+      "identity_key": "v1 attention",
+      "command_similarity": 0.641,
+      "color": "orange",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/attention.yaml",
+      "amd_commands": [
+        "pytest -v -s v1/attention"
+      ],
+      "nvidia_commands": [
+        "pytest -v -s v1/attention --shard-id=$$BUILDKITE_PARALLEL_JOB --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT"
       ]
     },
     {
@@ -367,6 +383,24 @@
       ]
     },
     {
+      "amd_label": "Kernels Helion Test",
+      "nvidia_label": "Kernels Helion Test",
+      "normalized": "kernels helion test",
+      "identity_key": "kernels helion test",
+      "command_similarity": 0.7941,
+      "color": "yellow",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/kernels.yaml",
+      "amd_commands": [
+        "pip install helion==1.1.0",
+        "pytest -v -s kernels/helion/"
+      ],
+      "nvidia_commands": [
+        "pip install helion==1.1.0",
+        "pytest -v -s kernels/helion/ --shard-id=$$BUILDKITE_PARALLEL_JOB --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT"
+      ]
+    },
+    {
       "amd_label": "Basic Models Test (Other CPU)",
       "nvidia_label": "Basic Models Test (Other CPU)",
       "normalized": "basic models test (other cpu)",
@@ -407,6 +441,41 @@
         "pytest -v -s tests/v1/distributed/test_dbo.py",
         "VLLM_ALLOW_INSECURE_SERIALIZATION=1 pytest -v -s tests/distributed/test_weight_transfer.py",
         "pytest -v -s tests/distributed/test_packed_tensor.py"
+      ]
+    },
+    {
+      "amd_label": "V1 Core + KV + Metrics",
+      "nvidia_label": "V1 Core + KV + Metrics",
+      "normalized": "v1 core + kv + metrics",
+      "identity_key": "v1 core + kv + metrics",
+      "command_similarity": 0.8099,
+      "color": "yellow",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/misc.yaml",
+      "amd_commands": [
+        "uv pip install --system -r /vllm-workspace/requirements/kv_connectors_rocm.txt",
+        "pytest -v -s -m 'not cpu_test' v1/core",
+        "pytest -v -s v1/executor",
+        "pytest -v -s v1/kv_offload",
+        "pytest -v -s v1/worker",
+        "pytest -v -s -m 'not cpu_test' v1/kv_connector/unit",
+        "pytest -v -s -m 'not cpu_test' v1/metrics",
+        "pip install -U git+https://github.com/vllm-project/lm-evaluation-harness.git@streaming-api",
+        "pytest -v -s entrypoints/openai/correctness/test_lmeval.py::test_lm_eval_accuracy_v1_engine"
+      ],
+      "nvidia_commands": [
+        "bash /vllm-workspace/.buildkite/scripts/install-kv-connectors.sh",
+        "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
+        "pytest -v -s -m 'not cpu_test' v1/core",
+        "pytest -v -s v1/executor",
+        "pytest -v -s v1/kv_offload",
+        "pytest -v -s v1/simple_kv_offload",
+        "pytest -v -s v1/worker",
+        "pytest -v -s -m 'not cpu_test' v1/kv_connector/unit",
+        "pytest -v -s -m 'not cpu_test' v1/ec_connector/unit",
+        "pytest -v -s -m 'not cpu_test' v1/metrics",
+        "pip install -U git+https://github.com/vllm-project/lm-evaluation-harness.git@streaming-api",
+        "pytest -v -s entrypoints/openai/correctness/test_lmeval.py::test_lm_eval_accuracy_v1_engine"
       ]
     },
     {
@@ -452,6 +521,22 @@
       ]
     },
     {
+      "amd_label": "Kernels Core Operation Test",
+      "nvidia_label": "Kernels Core Operation Test",
+      "normalized": "kernels core operation test",
+      "identity_key": "kernels core operation test",
+      "command_similarity": 0.8328,
+      "color": "yellow",
+      "amd_source": "test-amd.yaml",
+      "nvidia_source": ".buildkite/test_areas/kernels.yaml",
+      "amd_commands": [
+        "pytest -v -s kernels/core --ignore=kernels/core/test_minimax_reduce_rms.py  kernels/test_concat_mla_q.py kernels/test_top_k_per_row.py"
+      ],
+      "nvidia_commands": [
+        "pytest -v -s kernels/core --ignore=kernels/core/test_minimax_reduce_rms.py kernels/test_concat_mla_q.py kernels/test_fused_qk_norm_rope_gate.py --shard-id=$$BUILDKITE_PARALLEL_JOB --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT"
+      ]
+    },
+    {
       "amd_label": "Fusion E2E Quick (H100-MI300)",
       "nvidia_label": "Fusion E2E Quick (H100)",
       "normalized": "fusion e2e quick (h100-mi300)",
@@ -485,40 +570,6 @@
       ],
       "nvidia_commands": [
         "find compile/fullgraph/ -name 'test_*.py' -not -name 'test_full_graph.py' -print0 | xargs -0 -n1 -I{} pytest -s -v '{}'"
-      ]
-    },
-    {
-      "amd_label": "V1 Core + KV + Metrics",
-      "nvidia_label": "V1 Core + KV + Metrics",
-      "normalized": "v1 core + kv + metrics",
-      "identity_key": "v1 core + kv + metrics",
-      "command_similarity": 0.8539,
-      "color": "yellow",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/misc.yaml",
-      "amd_commands": [
-        "uv pip install --system -r /vllm-workspace/requirements/kv_connectors_rocm.txt",
-        "pytest -v -s -m 'not cpu_test' v1/core",
-        "pytest -v -s v1/executor",
-        "pytest -v -s v1/kv_offload",
-        "pytest -v -s v1/worker",
-        "pytest -v -s -m 'not cpu_test' v1/kv_connector/unit",
-        "pytest -v -s -m 'not cpu_test' v1/metrics",
-        "pip install -U git+https://github.com/vllm-project/lm-evaluation-harness.git@streaming-api",
-        "pytest -v -s entrypoints/openai/correctness/test_lmeval.py::test_lm_eval_accuracy_v1_engine"
-      ],
-      "nvidia_commands": [
-        "bash /vllm-workspace/.buildkite/scripts/install-kv-connectors.sh",
-        "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
-        "pytest -v -s -m 'not cpu_test' v1/core",
-        "pytest -v -s v1/executor",
-        "pytest -v -s v1/kv_offload",
-        "pytest -v -s v1/simple_kv_offload",
-        "pytest -v -s v1/worker",
-        "pytest -v -s -m 'not cpu_test' v1/kv_connector/unit",
-        "pytest -v -s -m 'not cpu_test' v1/metrics",
-        "pip install -U git+https://github.com/vllm-project/lm-evaluation-harness.git@streaming-api",
-        "pytest -v -s entrypoints/openai/correctness/test_lmeval.py::test_lm_eval_accuracy_v1_engine"
       ]
     },
     {
@@ -691,22 +742,6 @@
         "pytest -v -s basic_correctness/test_mem.py",
         "pytest -v -s basic_correctness/test_basic_correctness.py",
         "pytest -v -s basic_correctness/test_cpu_offload.py"
-      ]
-    },
-    {
-      "amd_label": "Kernels Core Operation Test",
-      "nvidia_label": "Kernels Core Operation Test",
-      "normalized": "kernels core operation test",
-      "identity_key": "kernels core operation test",
-      "command_similarity": 0.9209,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/kernels.yaml",
-      "amd_commands": [
-        "pytest -v -s kernels/core --ignore=kernels/core/test_minimax_reduce_rms.py  kernels/test_concat_mla_q.py kernels/test_top_k_per_row.py"
-      ],
-      "nvidia_commands": [
-        "pytest -v -s kernels/core --ignore=kernels/core/test_minimax_reduce_rms.py  kernels/test_concat_mla_q.py kernels/test_fused_qk_norm_rope_gate.py"
       ]
     },
     {
@@ -1045,16 +1080,6 @@
       "nvidia_source": ".buildkite/test_areas/distributed.yaml"
     },
     {
-      "amd_label": "Kernels Helion Test",
-      "nvidia_label": "Kernels Helion Test",
-      "normalized": "kernels helion test",
-      "identity_key": "kernels helion test",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/kernels.yaml"
-    },
-    {
       "amd_label": "Kernels Mamba Test",
       "nvidia_label": "Kernels Mamba Test",
       "normalized": "kernels mamba test",
@@ -1143,16 +1168,6 @@
       "color": "green",
       "amd_source": "test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/spec_decode.yaml"
-    },
-    {
-      "amd_label": "V1 attention (H100-MI250)",
-      "nvidia_label": "V1 attention (H100-MI300)",
-      "normalized": "v1 attention (h100-mi250)",
-      "identity_key": "v1 attention",
-      "command_similarity": 1.0,
-      "color": "green",
-      "amd_source": "test-amd.yaml",
-      "nvidia_source": ".buildkite/test_areas/attention.yaml"
     },
     {
       "amd_label": "Benchmarks CLI Test",
