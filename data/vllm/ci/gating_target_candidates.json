@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-13T07:10:18Z",
+  "generated_at": "2026-07-13T07:44:27Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -23,17 +23,17 @@
     "upstream_build": 77754,
     "amd_ci_build": 10769,
     "canonical_target_count": 125,
-    "row_count": 230,
+    "row_count": 232,
     "canonical_match_count": 107,
-    "likely_duplicate_count": 17,
+    "likely_duplicate_count": 18,
     "new_candidate_count": 51,
-    "excluded_count": 44,
-    "missing_from_upstream_count": 11,
+    "excluded_count": 46,
+    "missing_from_upstream_count": 10,
     "by_decision": {
       "canonical": 107,
-      "excluded": 44,
-      "likely_duplicate": 17,
-      "missing_from_upstream": 11,
+      "excluded": 46,
+      "likely_duplicate": 18,
+      "missing_from_upstream": 10,
       "new_candidate": 51
     }
   },
@@ -828,7 +828,7 @@
       "canonical_key": "kernels core operation test",
       "state": "passed",
       "queue": "gpu_1_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/77754/steps/canvas?jid=019f5a11-08c9-47d4-bc3e-a1efe759f5bb&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/77754/steps/canvas?jid=019f5a11-08c9-4a84-8db2-2c9cf1986a23&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 7,
@@ -1693,7 +1693,7 @@
       "canonical_key": "v1 attention",
       "state": "passed",
       "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/77754/steps/canvas?jid=019f5a11-0810-407f-adfa-73e7100616a3&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/77754/steps/canvas?jid=019f5a11-080d-4bd8-b574-a7a780dca9e8&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 103,
@@ -2852,11 +2852,11 @@
       "proposal_matches": []
     },
     {
-      "label": "Sequence Parallel Correctness Tests (2xH100)",
+      "label": "Sequence Parallel Correctness Tests (2 GPUs)",
       "canonical_key": "sequence parallel correctness test (2 gpus)",
       "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/77754/steps/canvas?jid=019f5a11-083b-48ca-85bf-8e2f8bbd8e15&tab=output",
+      "queue": "gpu_4_queue",
+      "url": "https://buildkite.com/vllm/ci/builds/77754/steps/canvas?jid=019f5a11-0838-499d-a425-677927dca2df&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -2967,6 +2967,18 @@
       "decision": "likely_duplicate",
       "duplicate_of": "Distributed Tests (2 GPUs)(H100)",
       "target_id": 87,
+      "proposal_matches": []
+    },
+    {
+      "label": "Distributed Tests (4xA100)",
+      "canonical_key": "distributed test (4 gpus)",
+      "state": "passed",
+      "queue": "a100_queue",
+      "url": "https://buildkite.com/vllm/ci/builds/77754/steps/canvas?jid=019f5a11-084e-42be-a073-fe5b7053b692&tab=output",
+      "exclusion_reasons": [],
+      "decision": "likely_duplicate",
+      "duplicate_of": "Distributed Tests (4 GPUs)(A100)",
+      "target_id": 3,
       "proposal_matches": []
     },
     {
@@ -3334,6 +3346,17 @@
       "decision": "excluded"
     },
     {
+      "label": "LM Eval Humming f16 (A100 - TEMPORARY)",
+      "canonical_key": "lm eval humming f16 (a100 - temporary)",
+      "state": "passed",
+      "queue": "a100_queue",
+      "url": "https://buildkite.com/vllm/ci/builds/77754/steps/canvas?jid=019f5a11-08dc-4d36-b95b-1777853695fc&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
       "label": "LM Eval Humming f16 (B200 - TEMPORARY)",
       "canonical_key": "lm eval humming f16 (b200 - temporary)",
       "state": "passed",
@@ -3407,6 +3430,18 @@
       "url": "https://buildkite.com/vllm/ci/builds/77754/steps/canvas?jid=019f5a11-0904-43c7-9c17-5e3e815724af&tab=output",
       "exclusion_reasons": [
         "experimental_model_runner_v2"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "MoE Refactor Integration Test (B200 - TEMPORARY)",
+      "canonical_key": "moe refactor integration test (b200 - temporary)",
+      "state": "passed",
+      "queue": "b200-k8s",
+      "url": "https://buildkite.com/vllm/ci/builds/77754/steps/canvas?jid=019f5a11-08e6-4195-9a0a-8dc10c8485af&tab=output",
+      "exclusion_reasons": [
+        "temporary",
+        "moe_refactor_temporary"
       ],
       "decision": "excluded"
     },
@@ -3600,15 +3635,6 @@
         "cpu_or_non_gpu"
       ],
       "decision": "excluded"
-    },
-    {
-      "decision": "missing_from_upstream",
-      "target_id": 3,
-      "label": "Distributed Tests (4 GPUs)(A100)",
-      "canonical_key": "distributed test (4 gpus)",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "red"
     },
     {
       "decision": "missing_from_upstream",
