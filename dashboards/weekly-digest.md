@@ -12,4 +12,5 @@ _No PR activity this week._
 
 ## New Issues This Week
 
-_No new tracked issues this week._
+### vllm
+- [#48510](https://github.com/vllm-project/vllm/issues/48510) [CI Failure]: `AMD: Language Models Test (Extended Pooling)` (@micah-wil)
