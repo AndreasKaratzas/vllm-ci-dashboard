@@ -198,9 +198,12 @@ def test_all_main_and_nightly_analytics_are_distinct_surfaces():
     assert "canonical_nightly_build_count" in OPS_JS
     assert "non_nightly_main_build_count" in OPS_JS
     cohort = OPS_DATA["reliability"]["cohort"]["provenance"]["cohort"]
-    assert cohort["build_count"] == 34
-    assert cohort["canonical_nightly_build_count"] == 30
-    assert cohort["non_nightly_main_build_count"] == 4
+    assert cohort["build_count"] == (
+        cohort["canonical_nightly_build_count"]
+        + cohort["non_nightly_main_build_count"]
+    )
+    assert cohort["build_count"] >= cohort["canonical_nightly_build_count"] >= 0
+    assert cohort["non_nightly_main_build_count"] >= 0
 
 
 def test_retry_attempts_recoveries_and_latency_use_exact_evidence():
@@ -209,8 +212,15 @@ def test_retry_attempts_recoveries_and_latency_use_exact_evidence():
     assert "Recovered fail-to-pass chains" in OPS_JS
     assert "Open exact attempt" in OPS_JS
     retry = OPS_DATA["reliability"]["retry_analysis"]
-    assert len(retry["retry_attempts"]) == 80
-    assert len(retry["failed_then_passed_recoveries"]) == 21
+    assert len(retry["retry_attempts"]) == retry["summary"]["retry_attempt_count"]
+    assert len(retry["failed_then_passed_recoveries"]) == retry["summary"][
+        "failed_then_passed_recovery_count"
+    ]
+    assert all(row.get("job_url") for row in retry["retry_attempts"])
+    assert all(
+        row.get("failed_url") and row.get("passed_url")
+        for row in retry["failed_then_passed_recoveries"]
+    )
 
     retry_surface = OPS_JS.split("if (state.analyticsView === 'retries')", 1)[1].split(
         "const latencyRows", 1
@@ -251,7 +261,15 @@ def test_omni_is_all_fleet_and_never_infers_unsupported_history():
     assert "All-fleet running" in OPS_JS
     assert "AMD running" in OPS_JS
     jobs = OPS_DATA["omni"]["current_jobs"]
-    assert len(jobs["pending"]) + len(jobs["running"]) == 23
+    current = OPS_DATA["omni"]["current"]
+    assert len(jobs["pending"]) == current["waiting"]
+    assert len(jobs["running"]) == current["running"]
+    assert all(
+        job.get("workload") == "omni"
+        and job.get("url", "").startswith("https://buildkite.com/")
+        for state in ("pending", "running")
+        for job in jobs[state]
+    )
 
 
 def test_release_layout_scroll_accessibility_and_home_reconciliation():

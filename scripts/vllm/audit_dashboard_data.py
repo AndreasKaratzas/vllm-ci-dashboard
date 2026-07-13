@@ -1185,21 +1185,25 @@ class DashboardAudit:
                 .get(arch, {})
                 .get("groups")
             )
-            if health_groups is not None and health_groups != arch_stats["total"]:
-                terminal_total = arch_stats["total"] - arch_stats["waiting"]
-                diff = abs(int(health_groups) - int(arch_stats["total"]))
-                if terminal_total <= health_groups <= arch_stats["total"]:
+            # ci_health counts groups observed in the latest build. The matrix
+            # total also includes configured cells that were not present in that
+            # build, so its like-for-like denominator is the matched cell count.
+            observed_groups = arch_stats["matched"]
+            if health_groups is not None and health_groups != observed_groups:
+                terminal_observed = observed_groups - arch_stats["waiting"]
+                diff = abs(int(health_groups) - int(observed_groups))
+                if terminal_observed <= health_groups <= observed_groups:
                     self.warning(
                         "matrix-health-hardware-count-in-progress",
-                        f"{arch} matrix groups={arch_stats['total']} including "
+                        f"{arch} matrix matched groups={observed_groups} including "
                         f"{arch_stats['waiting']} waiting cells; ci_health by_hardware "
-                        f"currently reports {health_groups} terminal groups",
+                        f"currently reports {health_groups} observed terminal groups",
                         "data/vllm/ci/amd_test_matrix.json",
                     )
                 elif diff <= CROSS_VIEW_GROUP_DRIFT_TOLERANCE:
                     self.warning(
                         "matrix-health-hardware-count-drift",
-                        f"{arch} matrix groups={arch_stats['total']} but ci_health "
+                        f"{arch} matrix matched groups={observed_groups} but ci_health "
                         f"by_hardware groups={health_groups}; allowing one-group "
                         "cross-view collector drift",
                         "data/vllm/ci/amd_test_matrix.json",
@@ -1207,7 +1211,8 @@ class DashboardAudit:
                 else:
                     self.error(
                         "matrix-health-hardware-count",
-                        f"{arch} matrix groups={arch_stats['total']} but ci_health by_hardware groups={health_groups}",
+                        f"{arch} matrix matched groups={observed_groups} but ci_health "
+                        f"by_hardware groups={health_groups}",
                         "data/vllm/ci/amd_test_matrix.json",
                     )
 
