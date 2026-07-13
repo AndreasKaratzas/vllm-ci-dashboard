@@ -1,34 +1,13 @@
 {
-  "collected_at": "2026-07-13T18:09:23Z",
+  "collected_at": "2026-07-13T19:11:29Z",
   "issues": [
-    {
-      "number": 48510,
-      "title": "[CI Failure]: `AMD: Language Models Test (Extended Pooling)` Workspace growth allocation after lock",
-      "author": "micah-wil",
-      "state": "open",
-      "created_at": "2026-07-13T17:07:33Z",
-      "updated_at": "2026-07-13T17:31:33Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/48510",
-      "labels": [
-        "rocm",
-        "ci-failure"
-      ],
-      "assignees": [
-        "micah-wil"
-      ],
-      "project_status": "In progress",
-      "project_url": "https://github.com/orgs/vllm-project/projects/39",
-      "repo": "vllm-project/vllm",
-      "body_head": "### Name of failing test\n\nmodels/language/pooling/test_token_classification.py::test_openai_privacy_filter[bfloat16-openai/privacy-filter]\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\nmodels/language/pooling/test_token_classification.py::test_openai_privacy_filter[bfloat16-openai/privacy-filter] is failing on ROCm due to `AssertionError: Workspace is locked but allocation from 'modular_kernel.py:1096:_allocate_buffers' requires 15.00 MB, current size is 0.06 MB. Workspace growth is not allowed after locking.`\n\nhttps://buildkite.com/vllm/ci/builds/77673/list?sid=019f5553-8716-4596-8f4c-62c6657cef31&tab=output\n\n### \ud83d\udcdd History of failing test\n\nSince transformers 5.10 upgrade\n\n### CC List.\n\n_No response_",
-      "linked_prs": []
-    },
     {
       "number": 40554,
       "title": "[AMD][CI Failure][Tracker] Static dashboard tracker for current CI failures",
       "author": "AndreasKaratzas",
       "state": "open",
       "created_at": "2026-04-21T20:29:34Z",
-      "updated_at": "2026-07-13T17:10:40Z",
+      "updated_at": "2026-07-13T18:41:50Z",
       "html_url": "https://github.com/vllm-project/vllm/issues/40554",
       "labels": [
         "rocm",
