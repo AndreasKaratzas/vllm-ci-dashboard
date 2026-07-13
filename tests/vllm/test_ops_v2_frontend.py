@@ -106,12 +106,20 @@ def test_gating_uses_reviewed_plan_and_observed_evidence_contract():
         "Test group",
         "Reviewed plan",
         "Latest AMD result",
-        "Main reliability",
-        "Green streak",
-        "Last incident",
-        "Evidence",
+        "Upstream pass history",
+        "Upstream nightly streak",
+        "Last upstream incident",
+        "History evidence",
     ):
         assert visible_label in OPS_JS
+    assert "const latestEvidence = (((group.latest_amd_result || {}).evidence) || []).filter" in OPS_JS
+    assert "const historyEvidence = (group.evidence || []).filter" in OPS_JS
+    assert "exactPipelineEvidenceUrl(row, 'amd-ci')" in OPS_JS
+    assert "exactPipelineEvidenceUrl(row, 'ci')" in OPS_JS
+    assert "Latest AMD execution" in OPS_JS
+    assert "Upstream history" in OPS_JS
+    assert "const latest = explicitLatest || failure || null" in OPS_JS
+    assert "explicitLatest || failure || observed" not in OPS_JS
     assert "Search 127 reviewed groups" in OPS_JS
     assert "activeGroups.filter" not in OPS_JS
     assert "active_target_groups || gating.target_groups || []" in OPS_JS
@@ -190,26 +198,34 @@ def test_all_main_and_nightly_analytics_are_distinct_surfaces():
     assert "All-main reliability" in OPS_JS
     assert "Nightly comparisons" in OPS_JS
     assert "All main" in OPS_JS
-    assert "Nightlies only" in OPS_JS
+    assert "Upstream reliability unavailable" in OPS_JS
+    assert "No AMD or nightly history has been substituted" in OPS_JS
     assert "regression lifecycle only" in OPS_JS
     assert "reliabilityCatalog" in OPS_JS
     assert "evidence_ref" in OPS_JS
-    assert "ALL-MAIN BUILDS" in OPS_JS
+    assert "UPSTREAM MAIN BUILDS" in OPS_JS
     assert "canonical_nightly_build_count" in OPS_JS
     assert "non_nightly_main_build_count" in OPS_JS
-    cohort = OPS_DATA["reliability"]["cohort"]["provenance"]["cohort"]
-    assert cohort["build_count"] == (
-        cohort["canonical_nightly_build_count"]
-        + cohort["non_nightly_main_build_count"]
-    )
-    assert cohort["build_count"] >= cohort["canonical_nightly_build_count"] >= 0
-    assert cohort["non_nightly_main_build_count"] >= 0
+    assert "canonicalReliability(ops)" in OPS_JS
+    assert "return reliabilityForPipeline(ops, 'ci')" in OPS_JS
+    assert "Upstream CI is canonical for test groups, flakes, retries, and latency" in OPS_JS
+    assert "{id: 'flakes', label: 'Flakes'}" in OPS_JS
+
+
+def test_nightly_pipeline_selector_defaults_upstream_and_is_route_backed():
+    assert "analyticsPipeline: 'ci'" in OPS_JS
+    assert "['analyticsPipeline', 'analytics_pipeline', ['ci', 'amd-ci']]" in OPS_JS
+    assert "nightlyForPipeline(ops, state.analyticsPipeline)" in OPS_JS
+    assert "{id: 'ci', label: 'Upstream'}" in OPS_JS
+    assert "{id: 'amd-ci', label: 'AMD'}" in OPS_JS
+    assert "'Nightly pipeline'" in OPS_JS
+    assert "this selector does not change canonical upstream reliability" in OPS_JS
 
 
 def test_retry_attempts_recoveries_and_latency_use_exact_evidence():
-    assert "Explicit retry attempts" in OPS_JS
+    assert "Upstream explicit retry attempts" in OPS_JS
     assert "retry.retry_attempts || []" in OPS_JS
-    assert "Recovered fail-to-pass chains" in OPS_JS
+    assert "Upstream recovered fail-to-pass chains" in OPS_JS
     assert "Open exact attempt" in OPS_JS
     retry = OPS_DATA["reliability"]["retry_analysis"]
     assert len(retry["retry_attempts"]) == retry["summary"]["retry_attempt_count"]
@@ -226,6 +242,8 @@ def test_retry_attempts_recoveries_and_latency_use_exact_evidence():
         "const latencyRows", 1
     )[0]
     assert "openGroupDetail" not in retry_surface
+    assert "buildUrl('amd-ci'" not in retry_surface
+    assert "exactReliabilityBuildUrl(r)" in retry_surface
     latency_surface = OPS_JS.split("const latencyRows", 1)[1].split(
         "async function renderPerf", 1
     )[0]
@@ -249,6 +267,30 @@ def test_trajectory_uses_current_all_main_observations_not_stale_hotness():
     assert "strict catalog ID" in OPS_JS
     assert "Open exact Buildkite evidence for catalog ID" in OPS_JS
     assert "fetchJSON('data/vllm/ci/hotness.json')" not in OPS_JS
+    assert "Recent AMD build trajectory" not in OPS_JS
+    assert "trajectoryAmd" not in OPS_JS
+
+
+def test_pipeline_evidence_links_fail_closed_in_the_renderer():
+    assert "function pipelineUrlMatches" in OPS_JS
+    assert "function exactPipelineEvidenceUrl" in OPS_JS
+    assert "function exactPipelineBuildUrl" in OPS_JS
+    assert "parsed.host !== 'buildkite.com'" in OPS_JS
+    assert "parsed.protocol !== 'https:'" in OPS_JS
+    assert "suffix[0] !== 'steps'" in OPS_JS
+    assert "exactPipelineEvidenceUrl(row, sourcePipeline)" in OPS_JS
+    assert "exactPipelineEvidenceUrl(row, 'amd-ci')" in OPS_JS
+    assert "exactPipelineEvidenceUrl(row, 'ci')" in OPS_JS
+    assert "row.build_url || buildUrl(pipeline, row.build_number)" not in OPS_JS
+    assert "(ops || {}).amd_reliability" not in OPS_JS
+
+
+def test_empty_tables_and_mobile_evidence_have_single_scroll_surfaces():
+    assert "if (!rows.length)" in OPS_JS
+    assert "wrap.classList.add('is-empty')" in OPS_JS
+    assert ".ops-page .ops-evidence-table-host .ops-table-scroll" in OPS_CSS
+    assert "max-height: none" in OPS_CSS
+    assert '.ops-segmented[aria-label="CI Analytics view"]' in OPS_CSS
 
 
 def test_omni_is_all_fleet_and_never_infers_unsupported_history():
@@ -314,3 +356,28 @@ def test_operations_components_are_scoped_and_responsive():
     assert "@media (max-width: 420px)" in OPS_CSS
     assert "body.ops-v2.ops-drawer-open #sidebar" in OPS_CSS
     assert "body.ops-v2.ops-drawer-open #ops-nav-backdrop" in OPS_CSS
+
+
+def test_dense_tables_use_explicit_colgroups_and_scroll_geometry():
+    assert "const colgroup = n('colgroup')" in OPS_JS
+    assert "table.append(colgroup)" in OPS_JS
+    assert "table.classList.add('has-column-geometry')" in OPS_JS
+    assert "table.dataset.geometry = geometry.name || 'automatic'" in OPS_JS
+    assert "const columnWidths = columns.map" in OPS_JS
+    assert "column.sticky ? '280px' : column.numeric ? '110px' : '160px'" in OPS_JS
+    assert "--ops-table-min-width" in OPS_JS
+    for geometry in (
+        "gating",
+        "mixed-candidates",
+        "retry-attempts",
+        "retry-recoveries",
+        "latency",
+        "test-groups",
+        "nightly",
+    ):
+        assert f"name: '{geometry}'" in OPS_JS
+    assert "table.has-column-geometry" in OPS_CSS
+    assert "table-layout: fixed" in OPS_CSS
+    assert "width: max(100%, var(--ops-table-min-width))" in OPS_CSS
+    assert "min-width: var(--ops-table-min-width)" in OPS_CSS
+    assert ".ops-page .ops-table-wrap,\n.ops-page .ops-table-scroll" not in OPS_CSS

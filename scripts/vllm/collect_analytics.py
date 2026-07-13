@@ -36,9 +36,12 @@ from vllm.ci.utils import (  # noqa: E402
 from vllm.ci.reliability_history import (  # noqa: E402
     BUILD_FETCH_MAX_PAGES,
     BUILD_FETCH_PAGE_SIZE,
+    buildkite_job_url_matches,
     build_all_main_reliability,
     compact_main_builds,
     compute_nightly_change_history,
+    filter_reliability_builds,
+    validate_all_main_reliability,
 )
 from vllm.pipelines import NIGHTLY_NAME_PATTERNS_BY_SLUG  # noqa: E402
 
@@ -77,8 +80,6 @@ def buildkite_job_url(pipeline_slug: str, build_number: int, job_id: str = "", s
     if not build_number:
         return ""
     base = f"https://buildkite.com/{BK_ORG}/{pipeline_slug}/builds/{build_number}"
-    if pipeline_slug == "amd-ci" and step_id:
-        return f"{base}/steps/canvas?sid={step_id}&tab=output"
     if job_id:
         return f"{base}/steps/canvas?jid={job_id}&tab=output"
     if step_id:
@@ -560,8 +561,16 @@ def compute_retry_analysis(builds: list[dict]) -> dict:
     }
 
 
-def attach_main_reliability(pipeline_data: dict, reliability: dict) -> None:
+def attach_main_reliability(
+    pipeline_data: dict,
+    reliability: dict,
+    retry_builds: list[dict] | None = None,
+    retry_analysis: dict | None = None,
+) -> None:
     """Attach the bounded all-main cohort and its compatibility stream."""
+    pipeline_slug = str((reliability.get("cohort") or {}).get("pipeline") or "")
+    if not pipeline_slug or not validate_all_main_reliability(reliability, pipeline_slug):
+        raise ValueError("all-main reliability payload lacks strict exhaustive provenance")
     main_builds = compact_main_builds(reliability)
     retained = sum(len(build.get("jobs") or []) for build in main_builds)
     cohort = reliability.get("cohort") or {}
@@ -585,19 +594,149 @@ def attach_main_reliability(pipeline_data: dict, reliability: dict) -> None:
         },
         "authoritative_evidence_key": "all_main_reliability",
     }
-    pipeline_data["main_retry_analysis"] = compute_retry_analysis(main_builds)
+    eligible_numbers = {
+        int(build.get("number") or 0)
+        for build in reliability.get("builds") or []
+        if int(build.get("number") or 0)
+    }
+    if retry_analysis is not None and validate_retry_analysis(
+        retry_analysis,
+        pipeline_slug,
+        eligible_numbers,
+    ):
+        pipeline_data["main_retry_analysis"] = retry_analysis
+        return
+    if retry_builds is None:
+        pipeline_data["main_retry_analysis"] = {
+            "available": False,
+            "summary": {
+                "builds_evaluated": len(eligible_numbers),
+                "builds_with_retries": 0,
+                "retry_attempt_count": 0,
+                "failed_then_passed_recovery_count": 0,
+            },
+            "retry_attempts": [],
+            "failed_then_passed_recoveries": [],
+            "provenance": {
+                "source_pipeline": pipeline_slug,
+                "complete": False,
+                "reason": "complete raw retry attempts were unavailable; compacted history was not substituted",
+            },
+        }
+        return
+    complete_retry_builds = [
+        build
+        for build in retry_builds or []
+        if int(build.get("number") or 0) in eligible_numbers
+    ]
+    analysis = compute_retry_analysis(complete_retry_builds)
+    analysis["available"] = True
+    analysis["provenance"] = {
+        "source_pipeline": pipeline_slug,
+        "complete": True,
+        "scope": "same completed branch=main builds and test-job queue scope as all-main reliability",
+        "cohort_build_numbers": sorted(eligible_numbers),
+    }
+    pipeline_data["main_retry_analysis"] = analysis
+
+
+def validate_retry_analysis(
+    payload: Any,
+    pipeline_slug: str,
+    cohort_build_numbers: set[int],
+) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    provenance = payload.get("provenance")
+    attempts = payload.get("retry_attempts")
+    recoveries = payload.get("failed_then_passed_recoveries")
+    provenance_builds = (
+        provenance.get("cohort_build_numbers")
+        if isinstance(provenance, dict)
+        else None
+    )
+    if (
+        payload.get("available") is not True
+        or not isinstance(provenance, dict)
+        or provenance.get("source_pipeline") != pipeline_slug
+        or provenance.get("complete") is not True
+        or not isinstance(provenance_builds, list)
+        or any(not isinstance(number, int) or isinstance(number, bool) for number in provenance_builds)
+        or set(provenance_builds) != cohort_build_numbers
+        or not isinstance(attempts, list)
+        or not isinstance(recoveries, list)
+    ):
+        return False
+    for row in attempts:
+        if not isinstance(row, dict):
+            return False
+        try:
+            number = int(row.get("build_number") or 0)
+        except (TypeError, ValueError):
+            return False
+        url = row.get("job_url") or row.get("url")
+        if (
+            number not in cohort_build_numbers
+            or row.get("source_pipeline") not in (None, "", pipeline_slug)
+            or not buildkite_job_url_matches(url, pipeline_slug, number)
+        ):
+            return False
+    for row in recoveries:
+        if not isinstance(row, dict):
+            return False
+        try:
+            number = int(row.get("build_number") or 0)
+        except (TypeError, ValueError):
+            return False
+        if (
+            number not in cohort_build_numbers
+            or row.get("source_pipeline") not in (None, "", pipeline_slug)
+            or not buildkite_job_url_matches(
+                row.get("failed_url") or row.get("failed_job_url"),
+                pipeline_slug,
+                number,
+            )
+            or not buildkite_job_url_matches(
+                row.get("passed_url") or row.get("passed_job_url"),
+                pipeline_slug,
+                number,
+            )
+        ):
+            return False
+    return True
+
+
+def _safe_build_number(build: Any) -> int:
+    if not isinstance(build, dict):
+        return 0
+    try:
+        return int(build.get("number") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _fetched_build_rank(build: dict) -> tuple:
+    state = str(build.get("state") or "").lower()
+    return (
+        state in {"passed", "failed"} and bool(build.get("finished_at")),
+        len(build.get("jobs") or []),
+        str(build.get("finished_at") or ""),
+        str(build.get("created_at") or ""),
+    )
 
 
 def fetch_pipeline_builds(pipeline_slug, token, days, max_pages=None):
-    """Fetch Buildkite ``main`` builds, exhaustive for AMD and bounded for parity."""
+    """Fetch Buildkite ``main`` builds exhaustively within the safety cap."""
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     log.info("Fetching %s builds (last %d days)...", pipeline_slug, days)
     path = f"/organizations/{BK_ORG}/pipelines/{pipeline_slug}/builds"
-    page_limit = max_pages if max_pages is not None else (
-        BUILD_FETCH_MAX_PAGES if pipeline_slug == "amd-ci" else 1
-    )
+    page_limit = max_pages if max_pages is not None else BUILD_FETCH_MAX_PAGES
     by_number: dict[int, dict] = {}
+    termination_reason = "max_pages"
+    exhaustive = False
+    pages_fetched = 0
     for page in range(1, page_limit + 1):
+        pages_fetched = page
         rows = bk_get(path, token, {
             "branch": "main",
             "created_from": since,
@@ -606,33 +745,53 @@ def fetch_pipeline_builds(pipeline_slug, token, days, max_pages=None):
             "include_retried_jobs": "true",
         })
         if not rows:
+            termination_reason = "empty_page"
+            exhaustive = True
             break
-        before = len(by_number)
+        novel_numbers = 0
         for build in rows:
-            number = int(build.get("number") or 0)
+            if not isinstance(build, dict):
+                continue
+            number = _safe_build_number(build)
             if number:
-                by_number.setdefault(number, build)
+                existing = by_number.get(number)
+                if existing is None:
+                    by_number[number] = build
+                    novel_numbers += 1
+                elif _fetched_build_rank(build) > _fetched_build_rank(existing):
+                    by_number[number] = build
         if len(rows) < BUILD_FETCH_PAGE_SIZE:
+            termination_reason = "short_page"
+            exhaustive = True
             break
-        if len(by_number) == before:
+        if not novel_numbers:
+            termination_reason = "duplicate_page"
             log.warning("  stopping pagination at page %d: no new build numbers", page)
             break
-    else:
+    if not exhaustive:
         log.warning(
-            "  reached Buildkite pagination safety cap (%d pages, %d builds)",
-            page_limit,
+            "  incomplete Buildkite pagination (%s after %d pages, %d builds)",
+            termination_reason,
+            pages_fetched,
             len(by_number),
         )
     builds_raw = sorted(
         by_number.values(),
         key=lambda build: (
             str(build.get("created_at") or ""),
-            int(build.get("number") or 0),
+            _safe_build_number(build),
         ),
         reverse=True,
     )
     log.info("  %d unique builds fetched", len(builds_raw))
-    return builds_raw
+    return builds_raw, {
+        "created_from": since,
+        "page_size": BUILD_FETCH_PAGE_SIZE,
+        "max_pages": page_limit,
+        "pages_fetched": pages_fetched,
+        "termination_reason": termination_reason,
+        "exhaustive": exhaustive,
+    }
 
 
 def summarize_pipeline_builds(pipeline_slug, builds_raw, nightly_only=False, name_pattern=None):
@@ -739,7 +898,7 @@ def summarize_pipeline_builds(pipeline_slug, builds_raw, nightly_only=False, nam
 def collect_pipeline(pipeline_slug, token, days, nightly_only=False, name_pattern=None, builds_raw=None):
     """Fetch and normalize builds, preserving the historical public API."""
     if builds_raw is None:
-        builds_raw = fetch_pipeline_builds(pipeline_slug, token, days)
+        builds_raw, _ = fetch_pipeline_builds(pipeline_slug, token, days)
     return summarize_pipeline_builds(pipeline_slug, builds_raw, nightly_only, name_pattern)
 
 
@@ -970,8 +1129,8 @@ def main():
             log.warning("Ignoring malformed previous analytics at %s", previous_path)
 
     pipelines = ["amd-ci", "ci"] if args.pipeline == "both" else [args.pipeline]
-    # A targeted refresh must not erase the other pipeline. This is useful for
-    # AMD-only reliability refreshes while upstream remains a parity reference.
+    # A targeted refresh must not erase the other pipeline's analytics and
+    # reliability history.
     all_data = {
         slug: block
         for slug, block in previous_data.items()
@@ -983,11 +1142,17 @@ def main():
     for slug in pipelines:
         log.info("=== %s ===", PIPELINES.get(slug, slug))
 
-        # Fetch branch=main once. The canonical nightly stream remains
-        # message-matched for regressions, while AMD reliability retains every
-        # trustworthy terminal main build in a separate cohort.
+        # Fetch branch=main once. Nightly regression streams remain pipeline
+        # specific; strict test-group reliability is published only for upstream CI.
         previous_builds = (previous_data.get(slug) or {}).get("builds") or []
-        raw_builds = fetch_pipeline_builds(slug, token, args.days) if token else []
+        raw_builds = []
+        collection_provenance = {}
+        if token:
+            raw_builds, collection_provenance = fetch_pipeline_builds(
+                slug,
+                token,
+                args.days,
+            )
         buildkite_builds = (
             collect_pipeline(
                 slug,
@@ -1045,12 +1210,14 @@ def main():
             "default_window": default_window_key,
             "windows": windows,
         }
-        if slug == "amd-ci":
-            retry_builds = buildkite_builds or previous_builds or builds
-            all_data[slug]["retry_analysis"] = compute_retry_analysis(retry_builds)
-            previous_all_main = (previous_data.get(slug) or {}).get("all_main_reliability")
+        if slug == "ci":
+            previous_pipeline_data = previous_data.get(slug) or {}
+            previous_all_main = previous_pipeline_data.get("all_main_reliability")
+            previous_retry = previous_pipeline_data.get("main_retry_analysis")
+            preserved_retry_analysis = None
             all_main_reliability = None
-            if token:
+            complete_retry_builds = None
+            if token and collection_provenance.get("exhaustive") is True:
                 all_main_reliability = build_all_main_reliability(
                     raw_builds,
                     pipeline_slug=slug,
@@ -1058,12 +1225,30 @@ def main():
                     generated_at=generated_at,
                     nightly_pattern=NIGHTLY_NAME_PATTERNS_BY_SLUG.get(slug) or "",
                     test_result_builds=result_builds,
+                    collection_provenance=collection_provenance,
                 )
-            elif isinstance(previous_all_main, dict):
-                log.warning("  preserving previous all-main reliability: BUILDKITE_TOKEN is unavailable")
+                complete_retry_builds = summarize_pipeline_builds(
+                    slug,
+                    filter_reliability_builds(raw_builds),
+                )
+            elif validate_all_main_reliability(previous_all_main, slug):
+                reason = (
+                    "Buildkite pagination was incomplete"
+                    if token
+                    else "BUILDKITE_TOKEN is unavailable"
+                )
+                log.warning("  preserving previous upstream all-main reliability: %s", reason)
                 all_main_reliability = previous_all_main
+                preserved_retry_analysis = previous_retry
+            else:
+                log.error("  strict upstream all-main reliability is unavailable; refusing fallback data")
             if all_main_reliability:
-                attach_main_reliability(all_data[slug], all_main_reliability)
+                attach_main_reliability(
+                    all_data[slug],
+                    all_main_reliability,
+                    retry_builds=complete_retry_builds,
+                    retry_analysis=preserved_retry_analysis,
+                )
 
         log.info("  %d builds, %d jobs tracked, %d with failures",
                  len(builds), len(job_rankings),

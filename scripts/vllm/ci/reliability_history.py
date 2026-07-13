@@ -14,6 +14,7 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from statistics import median
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 from vllm.ci.utils import duration_mins, hardware_from_job_name, percentile, queue_from_rules
 from vllm.constants import BK_ORG, is_excluded_queue
@@ -36,6 +37,10 @@ RETRY_FIELDS = (
 )
 
 _HW_PREFIX_RE = re.compile(r"^(mi\d+[a-z]?_\d+|gpu_\d+|amd_\w+):\s*", re.IGNORECASE)
+_UPSTREAM_HW_RE = re.compile(
+    r"(?<![a-z0-9])(h100|h200|b100|b200|a100|l4|t4|cpu|npu|tpu)(?![a-z0-9])",
+    re.IGNORECASE,
+)
 
 
 def _iso_now() -> str:
@@ -51,11 +56,154 @@ def _parse_iso(value: Any) -> datetime | None:
         return None
 
 
+def _build_number(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
 def _build_url(pipeline_slug: str, build: dict) -> str:
-    if build.get("web_url"):
-        return str(build["web_url"])
-    number = build.get("number")
+    number = _build_number(build.get("number"))
     return f"https://buildkite.com/{BK_ORG}/{pipeline_slug}/builds/{number}" if number else ""
+
+
+def buildkite_build_url_matches(value: Any, pipeline_slug: str, build_number: Any = None) -> bool:
+    try:
+        parsed = urlparse(str(value or ""))
+    except ValueError:
+        return False
+    number = _build_number(build_number)
+    prefix = f"/{BK_ORG}/{pipeline_slug}/builds/"
+    if parsed.scheme != "https" or parsed.netloc != "buildkite.com" or not parsed.path.startswith(prefix):
+        return False
+    suffix = parsed.path[len(prefix):].strip("/")
+    if not suffix.isdigit() or "/" in suffix:
+        return False
+    return number is None or int(suffix) == number
+
+
+def buildkite_job_url_matches(value: Any, pipeline_slug: str, build_number: Any = None) -> bool:
+    try:
+        parsed = urlparse(str(value or ""))
+    except ValueError:
+        return False
+    number = _build_number(build_number)
+    prefix = f"/{BK_ORG}/{pipeline_slug}/builds/"
+    if parsed.scheme != "https" or parsed.netloc != "buildkite.com" or not parsed.path.startswith(prefix):
+        return False
+    suffix = parsed.path[len(prefix):].strip("/")
+    parts = suffix.split("/")
+    if len(parts) < 3 or not parts[0].isdigit() or parts[1] != "steps":
+        return False
+    if number is not None and int(parts[0]) != number:
+        return False
+    if parts[2] == "canvas":
+        query = parse_qs(parsed.query)
+        return bool(query.get("jid") or query.get("sid"))
+    return bool(parts[2])
+
+
+def validate_all_main_reliability(
+    payload: Any,
+    pipeline_slug: str,
+    *,
+    require_exhaustive: bool = True,
+) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    cohort = payload.get("cohort")
+    provenance = payload.get("provenance")
+    builds = payload.get("builds")
+    groups = payload.get("groups")
+    if not all(isinstance(value, dict) for value in (cohort, provenance)):
+        return False
+    if not isinstance(builds, list) or not isinstance(groups, list):
+        return False
+    build_states = cohort.get("build_states")
+    build_count = cohort.get("build_count")
+    collection = provenance.get("collection")
+    query = provenance.get("query")
+    if (
+        not isinstance(build_states, list)
+        or any(not isinstance(state, str) for state in build_states)
+        or set(build_states) != set(TRUSTWORTHY_BUILD_STATES)
+        or not isinstance(build_count, int)
+        or isinstance(build_count, bool)
+        or build_count != len(builds)
+        or cohort.get("id") != f"{pipeline_slug}-main-completed-pass-fail"
+        or cohort.get("pipeline") != pipeline_slug
+        or cohort.get("branch") != "main"
+        or not isinstance(query, dict)
+        or query.get("branch") != "main"
+        or provenance.get("pipeline") != pipeline_slug
+        or not str(provenance.get("endpoint") or "").endswith(f"/pipelines/{pipeline_slug}/builds")
+        or not isinstance(collection, dict)
+        or (require_exhaustive and collection.get("exhaustive") is not True)
+        or (require_exhaustive and cohort.get("exhaustive") is not True)
+    ):
+        return False
+    build_numbers: set[int] = set()
+    for build in builds:
+        if not isinstance(build, dict):
+            return False
+        number = _build_number(build.get("number"))
+        if (
+            number is None
+            or build.get("branch") != "main"
+            or str(build.get("state") or "").lower() not in TRUSTWORTHY_BUILD_STATES
+            or not build.get("finished_at")
+            or not buildkite_build_url_matches(build.get("url"), pipeline_slug, number)
+        ):
+            return False
+        build_numbers.add(number)
+    for group in groups:
+        if not isinstance(group, dict) or not isinstance(group.get("observations"), list):
+            return False
+        for field in (
+            "denominator", "passed", "failed", "soft_failed",
+            "excluded_observations", "retry_evidence_observations",
+        ):
+            value = group.get(field)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                return False
+        if not isinstance(group.get("duration"), dict):
+            return False
+        for observation in group["observations"]:
+            if not isinstance(observation, dict):
+                return False
+            number = _build_number(observation.get("build_number"))
+            if (
+                number not in build_numbers
+                or observation.get("source_pipeline") != pipeline_slug
+                or not buildkite_build_url_matches(observation.get("build_url"), pipeline_slug, number)
+                or not buildkite_job_url_matches(observation.get("job_url"), pipeline_slug, number)
+                or (
+                    observation.get("step_url")
+                    and not buildkite_job_url_matches(observation.get("step_url"), pipeline_slug, number)
+                )
+            ):
+                return False
+    return True
+
+
+def filter_reliability_builds(builds: list[dict]) -> list[dict]:
+    scoped = []
+    for build in builds:
+        if not _trusted_main_build(build):
+            continue
+        jobs = [
+            job
+            for job in build.get("jobs") or []
+            if _is_test_job(job)
+            and _is_terminal_job(job)
+            and not is_excluded_queue(_queue(job))
+        ]
+        scoped.append({**build, "jobs": jobs})
+    return scoped
 
 
 def _job_urls(pipeline_slug: str, build: dict, job: dict) -> tuple[str, str]:
@@ -86,14 +234,31 @@ def _queue(job: dict) -> str:
     return str(job.get("q") or queue_from_rules(job.get("agent_query_rules")) or "")
 
 
-def _identity(job: dict) -> dict[str, str]:
+def _hardware(job_name: str, queue: str, pipeline_slug: str) -> str:
+    if pipeline_slug != "ci":
+        return hardware_from_job_name(job_name, queue)
+    match = _UPSTREAM_HW_RE.search(job_name or "")
+    if match:
+        return match.group(1).lower()
+    normalized_queue = (queue or "").lower()
+    for token in ("h100", "h200", "b100", "b200", "a100", "l4", "t4"):
+        if token in normalized_queue:
+            return token
+    if normalized_queue.startswith("gpu_") or "gpu" in normalized_queue:
+        return "gpu"
+    if "cpu" in normalized_queue:
+        return "cpu"
+    return "unknown"
+
+
+def _identity(job: dict, pipeline_slug: str = "amd-ci") -> dict[str, str]:
     raw_label = str(job.get("raw_name") or job.get("name") or "unknown").strip()
     queue = _queue(job)
     return {
         "raw_label": raw_label,
         "canonical_label": _canonical_label(raw_label),
         "step_key": _step_key(job),
-        "hardware": hardware_from_job_name(raw_label, queue),
+        "hardware": _hardware(raw_label, queue, pipeline_slug),
         "queue": queue,
     }
 
@@ -218,6 +383,7 @@ def _observation(pipeline_slug: str, build: dict, job: dict, test_durations: dic
     e2e = duration_mins(runnable_at, finished_at)
     attempt_url, step_url = _job_urls(pipeline_slug, build, job)
     row = {
+        "source_pipeline": pipeline_slug,
         "build_number": number,
         "build_url": _build_url(pipeline_slug, build),
         "build_commit": str(build.get("commit") or ""),
@@ -242,6 +408,9 @@ def _observation(pipeline_slug: str, build: dict, job: dict, test_durations: dic
     }
     if exclusion_reason:
         row["exclusion_reason"] = exclusion_reason
+    for key in ("tests", "passed_tests", "failed_tests", "skipped_tests"):
+        if isinstance(job.get(key), (int, float)) and not isinstance(job.get(key), bool):
+            row[key] = job[key]
     retry = _retry_evidence(job)
     if retry:
         retried_in = str(retry.get("retried_in_job_id") or "")
@@ -261,6 +430,7 @@ def build_all_main_reliability(
     nightly_pattern: str = "",
     test_result_builds: list[dict] | None = None,
     observation_limit: int = OBSERVATION_LIMIT,
+    collection_provenance: dict | None = None,
 ) -> dict:
     """Build an all-main attempt catalog separate from canonical nightlies."""
     generated_at = generated_at or _iso_now()
@@ -309,11 +479,13 @@ def build_all_main_reliability(
                 excluded_queue_observations += 1
                 continue
             job_id = str(job.get("id") or job.get("job_id") or "")
-            dedupe_key = job_id or json.dumps(_identity(job), sort_keys=True) + "|" + str(job.get("finished_at") or "")
+            dedupe_key = job_id or json.dumps(
+                _identity(job, pipeline_slug), sort_keys=True
+            ) + "|" + str(job.get("finished_at") or "")
             if dedupe_key in seen_jobs:
                 continue
             seen_jobs.add(dedupe_key)
-            identity = _identity(job)
+            identity = _identity(job, pipeline_slug)
             group_id = _group_id(identity)
             group = grouped.setdefault(group_id, {
                 "group_id": group_id,
@@ -403,14 +575,18 @@ def build_all_main_reliability(
     generated_dt = _parse_iso(generated_at)
     if generated_dt:
         requested_from = (generated_dt - timedelta(days=window_days)).isoformat().replace("+00:00", "Z")
+    collection = dict(collection_provenance or {})
+    collection.setdefault("created_from", requested_from)
+    collection.setdefault("exhaustive", True)
+    collection.setdefault("termination_reason", "provided_builds")
     nightly_count = sum(bool(build["is_canonical_nightly"]) for build in build_catalog)
     eligible_groups = sum(bool(group["denominator"]) for group in groups)
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": generated_at,
         "cohort": {
-            "id": "amd-ci-main-completed-pass-fail",
-            "name": "amd-ci branch=main builds with state passed or failed and finished_at",
+            "id": f"{pipeline_slug}-main-completed-pass-fail",
+            "name": f"{pipeline_slug} branch=main builds with state passed or failed and finished_at",
             "pipeline": pipeline_slug,
             "branch": "main",
             "window_days": window_days,
@@ -422,6 +598,7 @@ def build_all_main_reliability(
             "canonical_nightly_build_count": nightly_count,
             "non_nightly_main_build_count": len(build_catalog) - nightly_count,
             "includes_canonical_nightlies": True,
+            "exhaustive": collection["exhaustive"] is True,
             "selection": "branch=main, build state in [failed, passed], and finished_at present",
         },
         "denominator": {
@@ -442,12 +619,16 @@ def build_all_main_reliability(
             "endpoint": f"/organizations/{BK_ORG}/pipelines/{pipeline_slug}/builds",
             "query": {
                 "branch": "main",
-                "created_from": requested_from,
+                "created_from": collection.get("created_from") or requested_from,
                 "include_retried_jobs": True,
             },
+            "collection": collection,
             "pagination": {
                 "page_size": BUILD_FETCH_PAGE_SIZE,
                 "max_pages": BUILD_FETCH_MAX_PAGES,
+                "pages_fetched": collection.get("pages_fetched"),
+                "termination_reason": collection.get("termination_reason"),
+                "exhaustive": collection.get("exhaustive") is True,
                 "stop_conditions": ["empty page", "short page", "page adds no build numbers"],
             },
             "build_state_source": "Buildkite build state",

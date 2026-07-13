@@ -7,7 +7,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-from vllm.audit_dashboard_data import DATA_SPECS, ROOT, DashboardAudit, run_audit
+from vllm.audit_dashboard_data import (
+    DATA_SPECS,
+    ROOT,
+    DashboardAudit,
+    _buildkite_url_matches,
+    run_audit,
+)
 
 
 def test_dashboard_audit_current_data_has_no_errors():
@@ -52,6 +58,132 @@ def test_dashboard_audit_json_cli_is_parseable():
     payload = json.loads(result.stdout)
     assert payload["errors"] == []
     assert "amd_matrix" in payload["metrics"]
+
+
+def test_operations_audit_rejects_cross_pipeline_links_and_trajectory(tmp_path):
+    ci = tmp_path / "data/vllm/ci"
+    ci.mkdir(parents=True)
+    (ci / "operations_v2.json").write_text(json.dumps({
+        "schema_version": 2,
+        "gating": {
+            "active_target_summary": {"target_group_count": 1},
+            "active_target_groups": [{
+                "label": "Cross-pipeline evidence",
+                "latest_amd_result": {
+                    "state": "passed",
+                    "source_pipeline": "amd-ci",
+                    "evidence": [{
+                        "source_pipeline": "amd-ci",
+                        "url": "https://buildkite.com/vllm/ci/builds/10",
+                    }],
+                },
+                "main_reliability": {
+                    "source_pipeline": "ci",
+                    "latest_url": "https://buildkite.com/vllm/amd-ci/builds/20",
+                },
+                "evidence": [{
+                    "source_pipeline": "ci",
+                    "url": "https://buildkite.com/vllm/amd-ci/builds/20",
+                }],
+            }],
+        },
+        "reliability": {
+            "available": True,
+            "source_pipeline": "ci",
+            "cohort": {
+                "id": "main",
+                "available": True,
+                "build_count": 0,
+                "canonical_nightly_build_count": 0,
+                "non_nightly_main_build_count": 0,
+                "provenance": {"cohort": {"pipeline": "ci"}},
+            },
+            "denominator": {"unit": "terminal ci branch=main job observations", "observations": 0},
+            "group_catalog": [],
+            "flaky_candidates": [],
+            "latency_rankings": {"by_p90_duration": []},
+            "retry_analysis": {
+                "summary": {"retry_attempt_count": 0, "failed_then_passed_recovery_count": 0},
+                "retry_attempts": [],
+                "failed_then_passed_recoveries": [],
+            },
+        },
+        "amd_reliability": {"source_pipeline": "amd-ci"},
+        "nightly": {
+            "canonical_history": {"pipeline": "amd-ci", "builds_available": 0, "builds": []},
+            "upstream_parity": {"pipeline": "ci"},
+        },
+        "trajectory": {
+            "source_pipeline": "amd-ci",
+            "pipeline_order": ["amd-ci", "ci"],
+            "pipelines": [{"pipeline": "amd-ci"}, {"pipeline": "ci"}],
+            "provenance": {
+                "source_paths": {"build_history": "ci_health.json", "group_changes": "group_changes.json"},
+                "build_history": {"source_pipeline": "amd-ci", "source_key": "amd-ci.builds"},
+            },
+        },
+        "queue": {
+            "history": [{"ts": "1"}, {"ts": "2"}],
+            "provenance": {"source_paths": {"history": "queue_timeseries.jsonl"}},
+        },
+        "omni": {"provenance": {"source_paths": {"queue_aggregates": "queue_timeseries.jsonl"}}},
+    }))
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_operations_v2()
+    codes = {finding.code for finding in audit.report.errors}
+
+    assert "operations-gating-latest-source-url" in codes
+    assert "operations-gating-history-source-pipeline" in codes
+    assert "operations-trajectory-scope" in codes
+
+
+def test_buildkite_audit_links_require_the_exact_host_pipeline_build_and_job():
+    exact_job = "https://buildkite.com/vllm/ci/builds/42/steps/canvas?jid=job-42"
+    assert _buildkite_url_matches(exact_job, "ci", 42, require_job=True)
+    assert not _buildkite_url_matches(
+        "https://buildkite.com.evil/vllm/ci/builds/42/steps/canvas?jid=job-42",
+        "ci",
+        42,
+        require_job=True,
+    )
+    assert not _buildkite_url_matches(
+        "https://buildkite.com/vllm/ci/builds/42",
+        "ci",
+        42,
+        require_job=True,
+    )
+    assert not _buildkite_url_matches(exact_job, "amd-ci", 42, require_job=True)
+    assert not _buildkite_url_matches(exact_job, "ci", 43, require_job=True)
+
+
+def test_operations_audit_handles_malformed_nested_types_without_crashing(tmp_path):
+    ci = tmp_path / "data/vllm/ci"
+    ci.mkdir(parents=True)
+    (ci / "operations_v2.json").write_text(json.dumps({
+        "schema_version": 2,
+        "gating": {
+            "active_target_summary": "not-an-object",
+            "active_target_groups": ["not-a-row"],
+        },
+        "reliability": {
+            "available": True,
+            "source_pipeline": "ci",
+            "cohort": {"build_numbers": ["bad"]},
+            "group_catalog": ["not-a-group"],
+            "flaky_candidates": ["not-a-candidate"],
+            "retry_analysis": {"summary": "bad", "retry_attempts": ["bad"]},
+        },
+        "nightly": "not-an-object",
+        "trajectory": "not-an-object",
+        "queue": "not-an-object",
+        "omni": "not-an-object",
+    }))
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_operations_v2()
+
+    assert audit.report.errors
 
 
 def test_dashboard_audit_allows_in_progress_hardware_count_drift(tmp_path):

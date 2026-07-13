@@ -1073,12 +1073,16 @@
    -------------------------------------------------------------------------- */
 
 .ops-page .ops-table-wrap,
-.ops-page .ops-table-scroll,
 .ops-page .oc-table-wrap,
 .ops-page .dep-graph-svg-wrap {
   position: relative;
   width: 100%;
   min-width: 0;
+}
+
+.ops-page .ops-table-scroll,
+.ops-page .oc-table-wrap,
+.ops-page .dep-graph-svg-wrap {
   overflow: auto;
   overscroll-behavior-inline: contain;
   scrollbar-width: thin;
@@ -1126,6 +1130,26 @@
 #main-content .ops-page table.is-compact,
 .ops-page .ops-table.is-compact {
   min-width: 0;
+}
+
+#main-content .ops-page table.has-column-geometry,
+.ops-page .ops-table.has-column-geometry {
+  width: max(100%, var(--ops-table-min-width));
+  min-width: var(--ops-table-min-width);
+  table-layout: fixed;
+}
+
+.ops-page .ops-table.has-column-geometry td {
+  overflow-wrap: normal;
+}
+
+.ops-page .ops-table.has-column-geometry td > a,
+.ops-page .ops-table.has-column-geometry td > .ops-mono {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 #main-content .ops-page table th,
@@ -2526,7 +2550,7 @@ body.ops-overlay-open {
 }
 
 .ops-page .ops-evidence-table-host .ops-table-scroll {
-  max-height: min(54vh, 560px);
+  max-height: none;
 }
 
 .ops-page .ops-evidence-method {
@@ -2819,6 +2843,18 @@ body.ops-overlay-open {
    -------------------------------------------------------------------------- */
 
 @media (max-width: 767px) {
+  .ops-page .ops-segmented[aria-label="CI Analytics view"] {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+  }
+
+  .ops-page .ops-segmented[aria-label="CI Analytics view"] .ops-segment {
+    width: 100%;
+    min-width: 0;
+  }
+
   body.ops-v2:has(#main-content > .ops-page.active) {
     display: block;
     min-width: 320px;
@@ -3106,7 +3142,6 @@ body.ops-overlay-open {
     gap: 3px;
   }
 
-  .ops-page .ops-table-wrap,
   .ops-page .ops-table-scroll,
   .ops-page .oc-table-wrap,
   .ops-page .dep-graph-svg-wrap,
@@ -3139,6 +3174,12 @@ body.ops-overlay-open {
   .ops-page .ops-table.is-wide {
     width: max-content;
     min-width: 760px;
+  }
+
+  #main-content .ops-page table.has-column-geometry,
+  .ops-page .ops-table.has-column-geometry {
+    width: var(--ops-table-min-width);
+    min-width: var(--ops-table-min-width);
   }
 
   .ops-page .ops-progress-row,

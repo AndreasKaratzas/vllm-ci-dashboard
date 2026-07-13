@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -32,6 +33,65 @@ AMD_FAILURE_STATES = {"failed", "timed_out", "broken", "soft_fail"}
 AMD_WAITING_STATES = {"running", "scheduled", "assigned"}
 RESULT_SUFFIXES = {"amd-ci": "amd", "ci": "upstream"}
 CROSS_VIEW_GROUP_DRIFT_TOLERANCE = 1
+
+
+def _mapping(value: Any) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def _rows(value: Any) -> list:
+    return value if isinstance(value, list) else []
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    if isinstance(value, bool):
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _strict_positive_int_set(value: Any) -> set[int] | None:
+    if not isinstance(value, list):
+        return None
+    if any(
+        not isinstance(item, int) or isinstance(item, bool) or item <= 0
+        for item in value
+    ):
+        return None
+    return set(value)
+
+
+def _buildkite_url_matches(
+    value: Any,
+    pipeline: str,
+    build_number: Any = None,
+    *,
+    require_job: bool = False,
+) -> bool:
+    try:
+        parsed = urlparse(str(value or ""))
+    except ValueError:
+        return False
+    if parsed.scheme != "https" or parsed.netloc != "buildkite.com":
+        return False
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) < 4 or parts[:3] != ["vllm", pipeline, "builds"]:
+        return False
+    actual = _safe_int(parts[3], -1)
+    expected = _safe_int(build_number, -1) if build_number not in (None, "") else None
+    if actual <= 0 or (expected is not None and actual != expected):
+        return False
+    suffix = parts[4:]
+    if not require_job:
+        return not suffix
+    if len(suffix) < 2 or suffix[0] != "steps":
+        return False
+    if suffix[1] == "canvas":
+        query = parse_qs(parsed.query)
+        return bool(query.get("jid") or query.get("sid"))
+    return bool(suffix[1])
 
 
 @dataclass(frozen=True)
@@ -146,8 +206,11 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         "data/vllm/ci/operations_v2.json",
         ("scripts/vllm/build_operations_snapshot.py",),
         ("docs/assets/js/ops-v2.js",),
-        ("schema_version", "generated_at", "nightly", "reliability", "gating", "queue"),
-        "Versioned AMD-first evidence and history read model",
+        (
+            "schema_version", "generated_at", "nightly", "reliability",
+            "gating", "queue",
+        ),
+        "Versioned AMD current-signal and upstream reliability read model",
     ),
     DataSpec(
         "data/vllm/ci/ready_tickets.json",
@@ -407,10 +470,10 @@ class DashboardAudit:
         if payload.get("schema_version") != 2:
             self.error("operations-schema", "operations_v2.json must use schema_version 2", relpath)
 
-        gating = payload.get("gating") or {}
-        active = gating.get("active_target_groups") or []
-        active_summary = gating.get("active_target_summary") or {}
-        expected_active = int(active_summary.get("target_group_count") or 0)
+        gating = _mapping(payload.get("gating"))
+        active = _rows(gating.get("active_target_groups"))
+        active_summary = _mapping(gating.get("active_target_summary"))
+        expected_active = _safe_int(active_summary.get("target_group_count"))
         if len(active) != expected_active:
             self.error(
                 "operations-active-target-count",
@@ -419,9 +482,9 @@ class DashboardAudit:
             )
 
         unsupported_owners = [
-            row.get("label")
+            _mapping(row).get("label")
             for row in active
-            if row.get("owner") or "owner" in row
+            if _mapping(row).get("owner") or "owner" in _mapping(row)
         ]
         if unsupported_owners:
             self.error(
@@ -432,11 +495,81 @@ class DashboardAudit:
 
         linked_gating = 0
         observed_gating = 0
-        for row in active:
-            latest = row.get("latest_amd_result") or {}
+        wrong_latest_pipeline = []
+        wrong_latest_urls = []
+        wrong_history_pipeline = []
+        wrong_history_evidence = []
+        wrong_history_urls = []
+        for raw_row in active:
+            row = _mapping(raw_row)
+            latest = _mapping(row.get("latest_amd_result"))
+            if latest.get("source_pipeline") != "amd-ci":
+                wrong_latest_pipeline.append(row.get("label"))
+            latest_evidence = _rows(latest.get("evidence"))
+            if any(
+                not isinstance(item, dict)
+                or item.get("source_pipeline") != "amd-ci"
+                for item in latest_evidence
+            ):
+                wrong_latest_pipeline.append(row.get("label"))
+            latest_links = [
+                (
+                    item.get("url") or item.get("job_url") or item.get("build_url"),
+                    item.get("build_number") or latest.get("build_number"),
+                )
+                for item in latest_evidence
+                if isinstance(item, dict)
+                if item.get("url") or item.get("job_url") or item.get("build_url")
+            ]
+            if any(
+                not _buildkite_url_matches(
+                    url,
+                    "amd-ci",
+                    build_number,
+                    require_job=True,
+                )
+                for url, build_number in latest_links
+            ):
+                wrong_latest_urls.append(row.get("label"))
+            history = _mapping(row.get("main_reliability"))
+            if history.get("source_pipeline") != "ci":
+                wrong_history_pipeline.append(row.get("label"))
+            history_evidence = _rows(row.get("evidence"))
+            if any(
+                not isinstance(item, dict) or item.get("source_pipeline") != "ci"
+                for item in history_evidence
+            ):
+                wrong_history_evidence.append(row.get("label"))
+            bad_history_links = any(
+                not _buildkite_url_matches(
+                    item.get("url") or item.get("job_url"),
+                    "ci",
+                    item.get("build_number"),
+                    require_job=True,
+                )
+                for item in history_evidence
+                if isinstance(item, dict)
+            )
+            incident = _mapping(row.get("last_incident"))
+            if incident and (
+                incident.get("source_pipeline") != "ci"
+                or not _buildkite_url_matches(
+                    incident.get("job_url"),
+                    "ci",
+                    incident.get("build_number"),
+                    require_job=True,
+                )
+            ):
+                bad_history_links = True
+            if history.get("latest_url") and not _buildkite_url_matches(
+                history.get("latest_url"), "ci", require_job=True
+            ):
+                bad_history_links = True
+            if bad_history_links:
+                wrong_history_urls.append(row.get("label"))
             if latest.get("state") in {"passed", "soft", "hard"}:
                 observed_gating += 1
-                if any(item.get("url") for item in latest.get("evidence") or []):
+                if any(item.get("url") for item in latest_evidence if isinstance(item, dict)):
                     linked_gating += 1
         if observed_gating != linked_gating:
             self.error(
@@ -444,27 +577,68 @@ class DashboardAudit:
                 f"{observed_gating - linked_gating} of {observed_gating} observed gating rows lack exact AMD evidence",
                 relpath,
             )
+        if wrong_latest_pipeline:
+            self.error(
+                "operations-gating-latest-source-pipeline",
+                f"{len(wrong_latest_pipeline)} gating rows do not source latest results from amd-ci",
+                relpath,
+            )
+        if wrong_latest_urls:
+            self.error(
+                "operations-gating-latest-source-url",
+                f"{len(wrong_latest_urls)} gating rows contain non-AMD links in latest AMD evidence",
+                relpath,
+            )
+        if wrong_history_pipeline or wrong_history_evidence or wrong_history_urls:
+            self.error(
+                "operations-gating-history-source-pipeline",
+                (
+                    f"{len(wrong_history_pipeline)} reliability summaries and "
+                    f"{len(wrong_history_evidence)} evidence lists do not source history from ci; "
+                    f"{len(wrong_history_urls)} rows contain non-ci history links"
+                ),
+                relpath,
+            )
 
-        reliability = payload.get("reliability") or {}
-        cohort = reliability.get("cohort") or {}
+        reliability = _mapping(payload.get("reliability"))
+        if reliability.get("source_pipeline") != "ci":
+            self.error(
+                "operations-reliability-source-pipeline",
+                (
+                    "Canonical operations_v2.reliability must publish "
+                    f"source_pipeline='ci', found {reliability.get('source_pipeline')!r}"
+                ),
+                relpath,
+            )
+        if reliability.get("available") is not True:
+            self.error(
+                "operations-reliability-unavailable",
+                "Canonical upstream reliability must fail closed until a strict ci all-main cohort is present",
+                relpath,
+            )
+        if "amd_reliability" in payload:
+            self.error(
+                "operations-amd-historical-reliability",
+                "AMD historical reliability must not be published; AMD is the latest gating signal only",
+                relpath,
+            )
+        cohort = _mapping(reliability.get("cohort"))
         if cohort.get("id") != "main":
             self.error(
                 "operations-reliability-cohort",
                 "Reliability must identify the all-main cohort separately from nightlies",
                 relpath,
             )
-        composition = cohort.get("composition") or {}
-        cohort_builds = int(composition.get("all_main_builds") or cohort.get("build_count") or 0)
-        cohort_nightlies = int(
+        composition = _mapping(cohort.get("composition"))
+        cohort_builds = _safe_int(composition.get("all_main_builds") or cohort.get("build_count"))
+        cohort_nightlies = _safe_int(
             composition.get("canonical_nightlies")
             or cohort.get("canonical_nightly_build_count")
-            or 0
         )
-        cohort_other_main = int(
+        cohort_other_main = _safe_int(
             composition.get("other_main_builds")
             or cohort.get("other_main_build_count")
             or cohort.get("non_nightly_main_build_count")
-            or 0
         )
         if cohort_builds != cohort_nightlies + cohort_other_main:
             self.error(
@@ -476,23 +650,23 @@ class DashboardAudit:
                 relpath,
             )
 
-        nightly = payload.get("nightly") or {}
-        canonical = nightly.get("canonical_history") or next(
+        nightly = _mapping(payload.get("nightly"))
+        canonical = _mapping(nightly.get("canonical_history")) or next(
             (
-                row for row in nightly.get("pipelines") or []
-                if row.get("pipeline") == "amd-ci"
+                row for row in _rows(nightly.get("pipelines"))
+                if isinstance(row, dict) and row.get("pipeline") == "amd-ci"
             ),
             {},
         )
-        canonical_rows = canonical.get("builds") or []
-        expected_nightlies = min(30, int(canonical.get("builds_available") or 0))
+        canonical_rows = _rows(canonical.get("builds"))
+        expected_nightlies = min(30, _safe_int(canonical.get("builds_available")))
         if len(canonical_rows) != expected_nightlies:
             self.error(
                 "operations-nightly-retention",
                 f"canonical AMD history retains {len(canonical_rows)} builds, expected {expected_nightlies}",
                 relpath,
             )
-        upstream_parity = nightly.get("upstream_parity") or {}
+        upstream_parity = _mapping(nightly.get("upstream_parity"))
         if upstream_parity.get("pipeline") != "ci" or canonical.get("pipeline") != "amd-ci":
             self.error(
                 "operations-upstream-parity-scope",
@@ -502,23 +676,82 @@ class DashboardAudit:
         if "branch=main" not in str((reliability.get("denominator") or {}).get("unit") or ""):
             self.error(
                 "operations-reliability-denominator",
-                "Reliability denominator must explicitly describe amd-ci branch=main observations",
+                "Reliability denominator must explicitly describe ci branch=main observations",
+                relpath,
+            )
+        cohort_provenance = _mapping(cohort.get("provenance"))
+        source_cohort = _mapping(cohort_provenance.get("cohort"))
+        if source_cohort.get("pipeline") != "ci" or cohort_provenance.get("fallback"):
+            self.error(
+                "operations-reliability-cohort-source",
+                "Canonical reliability must be backed by the strict ci all-main collector cohort",
                 relpath,
             )
 
-        catalog = reliability.get("group_catalog") or []
-        catalog_by_id = {row.get("id"): row for row in catalog if row.get("id")}
-        candidates = reliability.get("flaky_candidates") or []
+        catalog = _rows(reliability.get("group_catalog"))
+        catalog_by_id = {
+            row.get("id"): row
+            for row in catalog
+            if isinstance(row, dict) and row.get("id")
+        }
+        candidates = _rows(reliability.get("flaky_candidates"))
+        cohort_build_numbers = {
+            _safe_int(number, -1)
+            for number in _rows(cohort.get("build_numbers"))
+            if _safe_int(number, -1) > 0
+        }
+        if reliability.get("available") is True and len(cohort_build_numbers) != cohort_builds:
+            self.error(
+                "operations-reliability-cohort-build-numbers",
+                (
+                    f"cohort declares {cohort_builds} builds but publishes "
+                    f"{len(cohort_build_numbers)} unique build-number foreign keys"
+                ),
+                relpath,
+            )
         observations = 0
         linked_observations = 0
         denominator_observations = 0
-        for group in catalog:
-            rows = group.get("observations") or []
+        for raw_group in catalog:
+            group = _mapping(raw_group)
+            rows = _rows(group.get("observations"))
+            if group.get("source_pipeline") != "ci":
+                self.error(
+                    "operations-reliability-group-source",
+                    f"{group.get('name')}: group source_pipeline is not ci",
+                    relpath,
+                )
+            wrong_source_rows = [
+                row for row in rows
+                if not isinstance(row, dict)
+                or row.get("source_pipeline") != "ci"
+                or _safe_int(row.get("build_number"), -1) not in cohort_build_numbers
+                or not _buildkite_url_matches(
+                    row.get("build_url"), "ci", row.get("build_number")
+                )
+                or not _buildkite_url_matches(
+                    row.get("job_url"), "ci", row.get("build_number"), require_job=True
+                )
+                or (
+                    row.get("step_url")
+                    and not _buildkite_url_matches(
+                        row.get("step_url"), "ci", row.get("build_number"), require_job=True
+                    )
+                )
+            ]
+            if wrong_source_rows:
+                self.error(
+                    "operations-reliability-observation-source",
+                    f"{group.get('name')}: {len(wrong_source_rows)} retained observations are not upstream ci evidence",
+                    relpath,
+                )
             observations += len(rows)
-            linked_observations += sum(bool(row.get("job_url")) for row in rows)
-            runs = int(group.get("runs") or 0)
+            linked_observations += sum(
+                bool(row.get("job_url")) for row in rows if isinstance(row, dict)
+            )
+            runs = _safe_int(group.get("runs"))
             denominator_observations += runs
-            retained = int(group.get("retained_observation_count") or 0)
+            retained = _safe_int(group.get("retained_observation_count"))
             if len(rows) != retained or retained > runs:
                 self.error(
                     "operations-reliability-evidence-count",
@@ -544,14 +777,23 @@ class DashboardAudit:
                     f"{group.get('name')}: median duration is published without a maximum",
                     relpath,
                 )
-        expected_denominator = int((reliability.get("denominator") or {}).get("observations") or 0)
+        expected_denominator = _safe_int(
+            _mapping(reliability.get("denominator")).get("observations")
+        )
         if denominator_observations != expected_denominator:
             self.error(
                 "operations-reliability-denominator-sum",
                 f"catalog runs={denominator_observations} but denominator observations={expected_denominator}",
                 relpath,
             )
-        for candidate in candidates:
+        for raw_candidate in candidates:
+            candidate = _mapping(raw_candidate)
+            if candidate.get("source_pipeline") != "ci":
+                self.error(
+                    "operations-flaky-candidate-source",
+                    f"{candidate.get('name')}: flaky candidate source_pipeline is not ci",
+                    relpath,
+                )
             evidence_ref = candidate.get("evidence_ref") or candidate.get("id")
             if evidence_ref not in catalog_by_id:
                 self.error(
@@ -572,8 +814,23 @@ class DashboardAudit:
                 relpath,
             )
 
-        latency = (reliability.get("latency_rankings") or {}).get("by_p90_duration") or []
-        missing_latency_max = [row.get("name") for row in latency if row.get("max_dur") is None]
+        latency = _rows(_mapping(reliability.get("latency_rankings")).get("by_p90_duration"))
+        wrong_latency_source = [
+            _mapping(row).get("name")
+            for row in latency
+            if _mapping(row).get("source_pipeline") != "ci"
+        ]
+        if wrong_latency_source:
+            self.error(
+                "operations-latency-source",
+                f"{len(wrong_latency_source)} latency rows are not sourced from upstream ci",
+                relpath,
+            )
+        missing_latency_max = [
+            _mapping(row).get("name")
+            for row in latency
+            if _mapping(row).get("max_dur") is None
+        ]
         if missing_latency_max:
             self.error(
                 "operations-latency-max-duration",
@@ -581,11 +838,11 @@ class DashboardAudit:
                 relpath,
             )
 
-        retry = reliability.get("retry_analysis") or {}
-        retry_summary = retry.get("summary") or {}
-        retry_attempts = retry.get("retry_attempts") or []
-        recoveries = retry.get("failed_then_passed_recoveries") or []
-        if int(retry_summary.get("retry_attempt_count") or 0) != len(retry_attempts):
+        retry = _mapping(reliability.get("retry_analysis"))
+        retry_summary = _mapping(retry.get("summary"))
+        retry_attempts = _rows(retry.get("retry_attempts"))
+        recoveries = _rows(retry.get("failed_then_passed_recoveries"))
+        if _safe_int(retry_summary.get("retry_attempt_count")) != len(retry_attempts):
             self.error(
                 "operations-retry-attempt-count",
                 (
@@ -594,7 +851,7 @@ class DashboardAudit:
                 ),
                 relpath,
             )
-        if int(retry_summary.get("failed_then_passed_recovery_count") or 0) != len(recoveries):
+        if _safe_int(retry_summary.get("failed_then_passed_recovery_count")) != len(recoveries):
             self.error(
                 "operations-retry-recovery-count",
                 (
@@ -603,9 +860,13 @@ class DashboardAudit:
                 ),
                 relpath,
             )
-        missing_retry_urls = sum(not (row.get("job_url") or row.get("url")) for row in retry_attempts)
+        missing_retry_urls = sum(
+            not isinstance(row, dict) or not (row.get("job_url") or row.get("url"))
+            for row in retry_attempts
+        )
         missing_recovery_urls = sum(
-            not (row.get("failed_url") and row.get("passed_url")) for row in recoveries
+            not isinstance(row, dict) or not (row.get("failed_url") and row.get("passed_url"))
+            for row in recoveries
         )
         if missing_retry_urls or missing_recovery_urls:
             self.error(
@@ -616,24 +877,61 @@ class DashboardAudit:
                 ),
                 relpath,
             )
+        wrong_retry_sources = sum(
+            not isinstance(row, dict)
+            or row.get("source_pipeline") != "ci"
+            or _safe_int(row.get("build_number"), -1) not in cohort_build_numbers
+            or not _buildkite_url_matches(
+                row.get("job_url") or row.get("url"),
+                "ci",
+                row.get("build_number"),
+                require_job=True,
+            )
+            for row in retry_attempts
+        )
+        wrong_recovery_sources = sum(
+            not isinstance(row, dict)
+            or row.get("source_pipeline") != "ci"
+            or _safe_int(row.get("build_number"), -1) not in cohort_build_numbers
+            or not _buildkite_url_matches(
+                row.get("failed_url"), "ci", row.get("build_number"), require_job=True
+            )
+            or not _buildkite_url_matches(
+                row.get("passed_url"), "ci", row.get("build_number"), require_job=True
+            )
+            for row in recoveries
+        )
+        if wrong_retry_sources or wrong_recovery_sources:
+            self.error(
+                "operations-retry-source",
+                (
+                    f"{wrong_retry_sources} retry attempts and {wrong_recovery_sources} recoveries "
+                    "are not exact upstream ci evidence"
+                ),
+                relpath,
+            )
 
+        queue_block = _mapping(payload.get("queue"))
+        queue_provenance = _mapping(queue_block.get("provenance"))
+        trajectory_provenance = _mapping(_mapping(payload.get("trajectory")).get("provenance"))
+        omni_provenance = _mapping(_mapping(payload.get("omni")).get("provenance"))
         expected_source_paths = {
             "queue history": (
-                ((payload.get("queue") or {}).get("provenance") or {}).get("source_paths") or {}
+                _mapping(queue_provenance.get("source_paths"))
             ).get("history"),
             "trajectory builds": (
-                ((payload.get("trajectory") or {}).get("provenance") or {}).get("source_paths") or {}
+                _mapping(trajectory_provenance.get("source_paths"))
             ).get("build_history"),
             "trajectory changes": (
-                ((payload.get("trajectory") or {}).get("provenance") or {}).get("source_paths") or {}
+                _mapping(trajectory_provenance.get("source_paths"))
             ).get("group_changes"),
             "Omni aggregates": (
-                ((payload.get("omni") or {}).get("provenance") or {}).get("source_paths") or {}
+                _mapping(omni_provenance.get("source_paths"))
             ).get("queue_aggregates"),
         }
         required_source_paths = {
             "queue history": "queue_timeseries.jsonl",
-            "trajectory builds": "ci_health.json",
+            "trajectory builds": "analytics.json",
             "trajectory changes": "group_changes.json",
             "Omni aggregates": "queue_timeseries.jsonl",
         }
@@ -649,7 +947,34 @@ class DashboardAudit:
                 relpath,
             )
 
-        queue_history = ((payload.get("queue") or {}).get("history") or [])
+        trajectory = _mapping(payload.get("trajectory"))
+        trajectory_pipelines = _rows(trajectory.get("pipelines"))
+        trajectory_pipeline = _mapping(trajectory_pipelines[0]) if trajectory_pipelines else {}
+        trajectory_history = _mapping(
+            _mapping(trajectory.get("provenance")).get("build_history")
+        )
+        if (
+            trajectory.get("source_pipeline") != "ci"
+            or trajectory.get("available") is not (reliability.get("available") is True)
+            or trajectory.get("pipeline_order") != ["ci"]
+            or len(trajectory_pipelines) != 1
+            or trajectory_pipeline.get("pipeline") != "ci"
+            or trajectory_pipeline.get("source_key") != "ci.all_main_reliability"
+            or trajectory_pipeline.get("groups")
+            != _safe_int(_mapping(reliability.get("denominator")).get("groups"))
+            or trajectory_pipeline.get("observations")
+            != _safe_int(_mapping(reliability.get("denominator")).get("observations"))
+            or trajectory_pipeline.get("cohort") != cohort
+            or trajectory_history.get("source_pipeline") != "ci"
+            or trajectory_history.get("source_key") != "ci.all_main_reliability"
+        ):
+            self.error(
+                "operations-trajectory-scope",
+                "Workload trajectory must use only the strict upstream ci all-main cohort",
+                relpath,
+            )
+
+        queue_history = _rows(queue_block.get("history"))
         if len(queue_history) < 2:
             self.error(
                 "operations-queue-history",
@@ -866,7 +1191,7 @@ class DashboardAudit:
             if not isinstance(block, dict):
                 self.error("analytics-pipeline-missing", f"analytics.json missing {slug}")
                 continue
-            builds = block.get("builds") or []
+            builds = _rows(block.get("builds"))
             if not builds:
                 self.error("analytics-empty-builds", f"{slug} analytics has no builds")
                 continue
@@ -874,7 +1199,7 @@ class DashboardAudit:
             suffix = RESULT_SUFFIXES[slug]
             latest_results = self.latest_result_file(suffix)
             result_numbers = self.build_numbers_in_jsonl(latest_results)
-            latest = builds[0]
+            latest = _mapping(builds[0])
             if result_numbers and latest.get("number") not in result_numbers:
                 self.error(
                     "analytics-jsonl-build-mismatch",
@@ -888,7 +1213,7 @@ class DashboardAudit:
                     "data/vllm/ci/analytics.json",
                 )
 
-            windows = block.get("windows") or {}
+            windows = _mapping(block.get("windows"))
             default_window = block.get("default_window")
             if default_window not in windows:
                 self.error(
@@ -906,8 +1231,8 @@ class DashboardAudit:
 
             chartable_builds = [
                 b
-                for b in ((windows.get(default_window) or {}).get("builds") or builds)
-                if (b.get("total_jobs") or 0) > 10
+                for b in _rows(_mapping(windows.get(default_window)).get("builds")) or builds
+                if isinstance(b, dict) and _safe_int(b.get("total_jobs")) > 10
             ]
             if len(chartable_builds) < 2:
                 self.error(
@@ -916,8 +1241,9 @@ class DashboardAudit:
                     "data/vllm/ci/analytics.json",
                 )
 
-            for build in builds[:20]:
-                jobs = build.get("jobs") or []
+            for raw_build in builds[:20]:
+                build = _mapping(raw_build)
+                jobs = _rows(build.get("jobs"))
                 if build.get("total_jobs") != len(jobs):
                     self.error(
                         "analytics-total-jobs",
@@ -925,14 +1251,24 @@ class DashboardAudit:
                         "data/vllm/ci/analytics.json",
                     )
                 state_counts = {
-                    "passed": sum(1 for j in jobs if j.get("state") == "passed"),
+                    "passed": sum(
+                        1 for j in jobs
+                        if isinstance(j, dict) and j.get("state") == "passed"
+                    ),
                     "failed": sum(
                         1
                         for j in jobs
-                        if j.get("state") in {"failed", "timed_out", "broken"}
+                        if isinstance(j, dict)
+                        and j.get("state") in {"failed", "timed_out", "broken"}
                     ),
-                    "soft_failed": sum(1 for j in jobs if j.get("state") == "soft_fail"),
-                    "skipped": sum(1 for j in jobs if j.get("state") == "skipped"),
+                    "soft_failed": sum(
+                        1 for j in jobs
+                        if isinstance(j, dict) and j.get("state") == "soft_fail"
+                    ),
+                    "skipped": sum(
+                        1 for j in jobs
+                        if isinstance(j, dict) and j.get("state") == "skipped"
+                    ),
                 }
                 for key, expected in state_counts.items():
                     if build.get(key, 0) != expected:
@@ -942,11 +1278,13 @@ class DashboardAudit:
                             "data/vllm/ci/analytics.json",
                         )
 
-            rankings = block.get("duration_ranking") or []
+            rankings = _rows(block.get("duration_ranking"))
             too_long = [
                 row
                 for row in rankings
-                if isinstance(row.get("median_dur"), (int, float)) and row["median_dur"] > 360
+                if isinstance(row, dict)
+                and isinstance(row.get("median_dur"), (int, float))
+                and row["median_dur"] > 360
             ]
             if too_long:
                 self.warning(
@@ -955,79 +1293,219 @@ class DashboardAudit:
                     "data/vllm/ci/analytics.json",
                 )
             all_main_metrics = None
+            all_main = block.get("all_main_reliability") or {}
             if slug == "amd-ci":
-                all_main = block.get("all_main_reliability") or {}
-                if not isinstance(all_main, dict) or not isinstance(all_main.get("groups"), list):
+                if all_main or block.get("main_retry_analysis"):
                     self.error(
-                        "analytics-all-main-missing",
-                        "amd-ci analytics must retain a separate all-main reliability cohort",
+                        "analytics-amd-historical-reliability",
+                        "AMD analytics must not publish historical reliability or flake/retry ledgers",
                         "data/vllm/ci/analytics.json",
                     )
-                else:
-                    cohort = all_main.get("cohort") or {}
-                    denominator = all_main.get("denominator") or {}
-                    groups = all_main.get("groups") or []
-                    if cohort.get("branch") != "main":
+                metrics[slug] = {
+                    "builds": len(builds),
+                    "latest_build": latest.get("number"),
+                    "latest_source": latest.get("source"),
+                    "default_window": default_window,
+                    "failure_rankings": len(_rows(block.get("failure_ranking"))),
+                    "duration_rankings": len(_rows(block.get("duration_ranking"))),
+                }
+                continue
+            if not isinstance(all_main, dict) or not isinstance(all_main.get("groups"), list):
+                self.error(
+                    "analytics-all-main-missing",
+                    f"{slug} analytics must retain a separate all-main reliability cohort",
+                    "data/vllm/ci/analytics.json",
+                )
+            else:
+                cohort = _mapping(all_main.get("cohort"))
+                denominator = _mapping(all_main.get("denominator"))
+                groups = _rows(all_main.get("groups"))
+                provenance = _mapping(all_main.get("provenance"))
+                collection = _mapping(provenance.get("collection"))
+                cohort_builds_rows = _rows(all_main.get("builds"))
+                build_states = cohort.get("build_states")
+                expected_endpoint = f"/organizations/vllm/pipelines/{slug}/builds"
+                if (
+                    cohort.get("id") != f"{slug}-main-completed-pass-fail"
+                    or cohort.get("branch") != "main"
+                    or cohort.get("pipeline") != slug
+                    or not isinstance(build_states, list)
+                    or any(not isinstance(state, str) for state in build_states)
+                    or set(build_states) != {"failed", "passed"}
+                    or provenance.get("pipeline") != slug
+                    or _mapping(provenance.get("query")).get("branch") != "main"
+                    or not str(provenance.get("endpoint") or "").endswith(expected_endpoint)
+                    or cohort.get("exhaustive") is not True
+                    or collection.get("exhaustive") is not True
+                ):
+                    self.error(
+                        "analytics-all-main-branch",
+                        (
+                            f"{slug} all-main cohort does not prove the strict completed branch=main "
+                            "Buildkite query"
+                        ),
+                        "data/vllm/ci/analytics.json",
+                    )
+                malformed_builds = [
+                    row
+                    for row in cohort_builds_rows
+                    if not isinstance(row, dict)
+                    or row.get("branch") != "main"
+                    or str(row.get("state") or "").lower() not in {"failed", "passed"}
+                    or not row.get("finished_at")
+                    or not _buildkite_url_matches(row.get("url"), slug, row.get("number"))
+                ]
+                if malformed_builds or len(cohort_builds_rows) != _safe_int(cohort.get("build_count")):
+                    self.error(
+                        "analytics-all-main-build-provenance",
+                        (
+                            f"{slug} strict cohort has {len(malformed_builds)} malformed builds and "
+                            f"{len(cohort_builds_rows)} rows for declared count {cohort.get('build_count')}"
+                        ),
+                        "data/vllm/ci/analytics.json",
+                    )
+                cohort_builds = _safe_int(cohort.get("build_count"))
+                cohort_nightlies = _safe_int(cohort.get("canonical_nightly_build_count"))
+                cohort_other_main = _safe_int(cohort.get("non_nightly_main_build_count"))
+                if cohort_builds != cohort_nightlies + cohort_other_main:
+                    self.error(
+                        "analytics-all-main-cohort-composition",
+                        (
+                            f"all-main builds={cohort_builds}, canonical nightlies={cohort_nightlies}, "
+                            f"other main={cohort_other_main}"
+                        ),
+                        "data/vllm/ci/analytics.json",
+                    )
+                eligible = sum(
+                    _safe_int(_mapping(group).get("denominator")) for group in groups
+                )
+                expected_eligible = _safe_int(denominator.get("eligible_observations"))
+                if eligible != expected_eligible:
+                    self.error(
+                        "analytics-all-main-denominator",
+                        f"group denominators sum to {eligible}, cohort reports {expected_eligible}",
+                        "data/vllm/ci/analytics.json",
+                    )
+                retained = [
+                    observation
+                    for group in groups
+                    for observation in _rows(_mapping(group).get("observations"))
+                    if isinstance(observation, dict)
+                    and observation.get("eligible_for_reliability")
+                ]
+                all_observations = [
+                    observation
+                    for group in groups
+                    for observation in _rows(_mapping(group).get("observations"))
+                    if isinstance(observation, dict)
+                ]
+                cohort_build_numbers = {
+                    _safe_int(_mapping(row).get("number"), -1)
+                    for row in cohort_builds_rows
+                    if _safe_int(_mapping(row).get("number"), -1) > 0
+                }
+                missing_links = sum(not observation.get("job_url") for observation in all_observations)
+                wrong_pipeline_links = sum(
+                    _safe_int(observation.get("build_number"), -1) not in cohort_build_numbers
+                    or not _buildkite_url_matches(
+                        observation.get("build_url"), slug, observation.get("build_number")
+                    )
+                    or not _buildkite_url_matches(
+                        observation.get("job_url"),
+                        slug,
+                        observation.get("build_number"),
+                        require_job=True,
+                    )
+                    for observation in all_observations
+                )
+                if missing_links or wrong_pipeline_links:
+                    self.error(
+                        "analytics-all-main-links",
+                        (
+                            f"{missing_links} retained observations lack an exact job URL and "
+                            f"{wrong_pipeline_links} link to a different pipeline"
+                        ),
+                        "data/vllm/ci/analytics.json",
+                    )
+                retry = _mapping(block.get("main_retry_analysis"))
+                retry_provenance = _mapping(retry.get("provenance"))
+                attempts = _rows(retry.get("retry_attempts"))
+                recoveries = _rows(retry.get("failed_then_passed_recoveries"))
+                if retry.get("available") is True:
+                    retry_cohort = _strict_positive_int_set(
+                        retry_provenance.get("cohort_build_numbers")
+                    )
+                    invalid_retry = (
+                        retry_provenance.get("source_pipeline") != "ci"
+                        or retry_provenance.get("complete") is not True
+                        or retry_cohort != cohort_build_numbers
+                        or any(
+                            not isinstance(row, dict)
+                            or _safe_int(row.get("build_number"), -1) not in cohort_build_numbers
+                            or not _buildkite_url_matches(
+                                row.get("job_url") or row.get("url"),
+                                "ci",
+                                row.get("build_number"),
+                                require_job=True,
+                            )
+                            for row in attempts
+                        )
+                        or any(
+                            not isinstance(row, dict)
+                            or _safe_int(row.get("build_number"), -1) not in cohort_build_numbers
+                            or not _buildkite_url_matches(
+                                row.get("failed_url"),
+                                "ci",
+                                row.get("build_number"),
+                                require_job=True,
+                            )
+                            or not _buildkite_url_matches(
+                                row.get("passed_url"),
+                                "ci",
+                                row.get("build_number"),
+                                require_job=True,
+                            )
+                            for row in recoveries
+                        )
+                    )
+                    if invalid_retry:
                         self.error(
-                            "analytics-all-main-branch",
-                            f"all-main cohort branch={cohort.get('branch')!r}, expected 'main'",
+                            "analytics-main-retry-provenance",
+                            "CI retry evidence is not transitively bound to the exhaustive upstream cohort",
                             "data/vllm/ci/analytics.json",
                         )
-                    cohort_builds = int(cohort.get("build_count") or 0)
-                    cohort_nightlies = int(cohort.get("canonical_nightly_build_count") or 0)
-                    cohort_other_main = int(cohort.get("non_nightly_main_build_count") or 0)
-                    if cohort_builds != cohort_nightlies + cohort_other_main:
-                        self.error(
-                            "analytics-all-main-cohort-composition",
-                            (
-                                f"all-main builds={cohort_builds}, canonical nightlies={cohort_nightlies}, "
-                                f"other main={cohort_other_main}"
-                            ),
-                            "data/vllm/ci/analytics.json",
-                        )
-                    eligible = sum(int(group.get("denominator") or 0) for group in groups)
-                    expected_eligible = int(denominator.get("eligible_observations") or 0)
-                    if eligible != expected_eligible:
-                        self.error(
-                            "analytics-all-main-denominator",
-                            f"group denominators sum to {eligible}, cohort reports {expected_eligible}",
-                            "data/vllm/ci/analytics.json",
-                        )
-                    retained = [
-                        observation
-                        for group in groups
-                        for observation in group.get("observations") or []
-                        if observation.get("eligible_for_reliability")
-                    ]
-                    missing_links = sum(not observation.get("job_url") for observation in retained)
-                    if missing_links:
-                        self.error(
-                            "analytics-all-main-links",
-                            f"{missing_links} retained all-main observations lack an exact job URL",
-                            "data/vllm/ci/analytics.json",
-                        )
-                    retired = [group.get("name") for group in groups if is_mi355b_queue(group.get("queue"))]
-                    if retired:
-                        self.error(
-                            "analytics-retired-mi355b",
-                            f"all-main reliability contains {len(retired)} retired amd_mi355B variants",
-                            "data/vllm/ci/analytics.json",
-                        )
-                    all_main_metrics = {
-                        "builds": cohort.get("build_count"),
-                        "nightlies": cohort.get("canonical_nightly_build_count"),
-                        "non_nightly_main": cohort.get("non_nightly_main_build_count"),
-                        "groups": len(groups),
-                        "eligible_observations": eligible,
-                        "retained_linked_observations": len(retained) - missing_links,
-                    }
+                elif attempts or recoveries:
+                    self.error(
+                        "analytics-main-retry-unavailable-rows",
+                        "Unavailable retry analysis must not publish partial attempt rows",
+                        "data/vllm/ci/analytics.json",
+                    )
+                retired = [
+                    _mapping(group).get("name")
+                    for group in groups
+                    if is_mi355b_queue(_mapping(group).get("queue"))
+                ]
+                if retired:
+                    self.error(
+                        "analytics-retired-mi355b",
+                        f"all-main reliability contains {len(retired)} retired amd_mi355B variants",
+                        "data/vllm/ci/analytics.json",
+                    )
+                all_main_metrics = {
+                    "builds": cohort.get("build_count"),
+                    "nightlies": cohort.get("canonical_nightly_build_count"),
+                    "non_nightly_main": cohort.get("non_nightly_main_build_count"),
+                    "groups": len(groups),
+                    "eligible_observations": eligible,
+                    "retained_linked_observations": len(all_observations) - missing_links,
+                }
             metrics[slug] = {
                 "builds": len(builds),
                 "latest_build": latest.get("number"),
                 "latest_source": latest.get("source"),
                 "default_window": default_window,
-                "failure_rankings": len(block.get("failure_ranking") or []),
-                "duration_rankings": len(block.get("duration_ranking") or []),
+                "failure_rankings": len(_rows(block.get("failure_ranking"))),
+                "duration_rankings": len(_rows(block.get("duration_ranking"))),
             }
             if all_main_metrics is not None:
                 metrics[slug]["all_main"] = all_main_metrics

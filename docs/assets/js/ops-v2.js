@@ -20,6 +20,7 @@
   const state = {
     healthView: 'overview',
     analyticsView: 'groups',
+    analyticsPipeline: 'ci',
     homeWork: 'issues',
     healthSearch: '',
     healthPlan: 'all',
@@ -131,6 +132,38 @@
     return record.job_url || record.step_url || record.url || record.build_url || record.html_url || '';
   }
 
+  function pipelineUrlMatches(url, pipeline, requireJob, expectedBuild) {
+    if (!url || !pipeline) return false;
+    try {
+      const parsed = new URL(String(url));
+      if (parsed.protocol !== 'https:' || parsed.host !== 'buildkite.com') return false;
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      if (parts.length < 4 || parts[0] !== 'vllm' || parts[1] !== pipeline || parts[2] !== 'builds' || !/^\d+$/.test(parts[3])) return false;
+      if (expectedBuild !== null && expectedBuild !== undefined && expectedBuild !== '' && String(expectedBuild) !== parts[3]) return false;
+      const suffix = parts.slice(4);
+      if (!requireJob) return suffix.length === 0;
+      if (suffix.length < 2 || suffix[0] !== 'steps') return false;
+      if (suffix[1] === 'canvas') return Boolean(parsed.searchParams.get('jid') || parsed.searchParams.get('sid'));
+      return Boolean(suffix[1]);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function exactPipelineEvidenceUrl(record, pipeline) {
+    if (!record || !pipeline) return '';
+    const urls = [record.job_url, record.step_url, record.url, record.latest_url, record.html_url];
+    const buildNumber = record.build_number !== undefined ? record.build_number : record.number;
+    return urls.find(function (url) { return pipelineUrlMatches(url, pipeline, true, buildNumber); }) || '';
+  }
+
+  function exactPipelineBuildUrl(record, pipeline) {
+    if (!record || !pipeline) return '';
+    const urls = [record.build_url, record.url, record.html_url];
+    const buildNumber = record.build_number !== undefined ? record.build_number : record.number;
+    return urls.find(function (url) { return pipelineUrlMatches(url, pipeline, false, buildNumber); }) || '';
+  }
+
   function queryName(name) {
     return 'ops_' + name;
   }
@@ -158,7 +191,8 @@
     const specs = {
       'ci-health': [['healthView', 'health_view', ['overview', 'gating', 'coverage', 'diagnostics']]],
       'ci-analytics': [
-        ['analyticsView', 'analytics_view', ['groups', 'nightlies', 'retries', 'latency']],
+        ['analyticsView', 'analytics_view', ['groups', 'flakes', 'nightlies', 'retries', 'latency']],
+        ['analyticsPipeline', 'analytics_pipeline', ['ci', 'amd-ci']],
         ['analyticsSearch', 'analytics_search', null],
       ],
       'ci-queue': [
@@ -413,12 +447,35 @@
     return content.nodeType ? content : document.createTextNode(String(content));
   }
 
-  function dataTable(columns, rows, caption) {
+  function dataTable(columns, rows, caption, options) {
+    const geometry = options || {};
     const wrap = n('div', 'ops-table-wrap');
+    if (!rows.length) {
+      wrap.classList.add('is-empty');
+      wrap.append(n('div', 'ops-empty', caption ? caption + '. No matching observations.' : 'No matching observations.'));
+      return wrap;
+    }
     const scroll = n('div', 'ops-table-scroll');
     const table = n('table', 'ops-table ' + (columns.length <= 4 ? 'is-compact' : columns.length >= 7 ? 'is-wide' : 'is-standard'));
     table.dataset.columnCount = String(columns.length);
+    table.dataset.geometry = geometry.name || 'automatic';
+    const columnWidths = columns.map(function (column) {
+      return column.width || (column.sticky ? '280px' : column.numeric ? '110px' : '160px');
+    });
+    const automaticMinWidth = columnWidths.reduce(function (sum, width) {
+      const match = String(width).match(/^(\d+(?:\.\d+)?)px$/);
+      return sum + (match ? Number(match[1]) : 0);
+    }, 0);
+    table.style.setProperty('--ops-table-min-width', geometry.minWidth || Math.max(320, automaticMinWidth) + 'px');
     if (caption) table.append(n('caption', 'ops-table-caption', caption));
+    table.classList.add('has-column-geometry');
+    const colgroup = n('colgroup');
+    columnWidths.forEach(function (width) {
+      const col = n('col');
+      col.style.width = width;
+      colgroup.append(col);
+    });
+    table.append(colgroup);
     const thead = n('thead');
     const hr = n('tr');
     for (const col of columns) {
@@ -442,7 +499,6 @@
     add(table, [thead, tbody]);
     scroll.append(table);
     wrap.append(scroll);
-    if (!rows.length) wrap.append(n('div', 'ops-empty', 'No matching observations.'));
     return wrap;
   }
 
@@ -550,8 +606,12 @@
   }
 
   function openMixedOutcomeEvidence(candidate) {
-    const observations = evidenceObservations(candidate);
-    const scope = candidate.scope_label || candidate.scope || 'retained AMD reliability window';
+    const sourcePipeline = candidate.source_pipeline || 'ci';
+    const observations = evidenceObservations(candidate).filter(function (row) {
+      return (!row.source_pipeline || row.source_pipeline === sourcePipeline)
+        && Boolean(exactPipelineEvidenceUrl(row, sourcePipeline));
+    });
+    const scope = candidate.scope_label || candidate.scope || 'retained reliability window';
     const content = n('div', 'ops-evidence');
     const notice = n('div', 'ops-evidence-note is-info');
     add(notice, [
@@ -606,39 +666,39 @@
       });
       clear(tableHost);
       tableHost.append(dataTable([
-        {label: 'Build', sticky: true, render: function (row) {
+        {label: 'Build', sticky: true, width: '110px', render: function (row) {
           const label = row.build_number ? '#' + row.build_number : 'Build';
-          return externalLink(label, row.build_url || row.url || row.job_url, 'ops-mono');
+          return externalLink(label, exactPipelineEvidenceUrl(row, sourcePipeline), 'ops-mono');
         }},
-        {label: 'Observed', render: function (row) { return shortDate(row.observed_at || row.created_at || row.date); }},
-        {label: 'Result', render: function (row) {
+        {label: 'Observed', width: '170px', render: function (row) { return shortDate(row.observed_at || row.created_at || row.date); }},
+        {label: 'Result', width: '120px', render: function (row) {
           const stateName = observationState(row);
-          return linkedBadge(stateName === 'soft' ? 'soft fail' : stateName === 'hard' ? 'hard fail' : stateName, row.job_url || row.url || row.build_url);
+          return linkedBadge(stateName === 'soft' ? 'soft fail' : stateName === 'hard' ? 'hard fail' : stateName, exactPipelineEvidenceUrl(row, sourcePipeline));
         }},
-        {label: 'Variant', render: function (row) {
+        {label: 'Variant', width: '260px', render: function (row) {
           const parts = [row.variant_hardware, (row.variant_queues || []).join(', '), row.variant_id ? 'id ' + row.variant_id : null].filter(Boolean);
           return n('span', 'ops-mono', parts.join(' - ') || value(row.group_id));
         }},
-        {label: 'Queue', render: function (row) { return n('span', 'ops-mono', value(row.queue)); }},
-        {label: 'Completion', numeric: true, render: function (row) {
+        {label: 'Queue', width: '170px', render: function (row) { return n('span', 'ops-mono', value(row.queue)); }},
+        {label: 'Completion', numeric: true, width: '120px', render: function (row) {
           const minutes = row.duration_mins !== undefined ? row.duration_mins : row.duration_min !== undefined ? row.duration_min : row.dur;
           return duration(minutes);
         }},
-        {label: 'Tests', numeric: true, render: function (row) { return integer(row.tests); }},
-        {label: 'Retry evidence', render: function (row) {
+        {label: 'Tests', numeric: true, width: '90px', render: function (row) { return integer(row.tests); }},
+        {label: 'Retry evidence', width: '150px', render: function (row) {
           const retry = row.retry_evidence || row;
           const retries = Number(retry.retries_count || 0);
-          if (retry.retried || retry.retried_in_job_id || retries) return linkedBadge(retries ? retries + ' retries' : 'retried', row.job_url || row.url || row.build_url, null, 'is-info');
+          if (retry.retried || retry.retried_in_job_id || retries) return linkedBadge(retries ? retries + ' retries' : 'retried', exactPipelineEvidenceUrl(row, sourcePipeline), null, 'is-info');
           return n('span', 'ops-cell-muted', '-');
         }},
-        {label: 'Job evidence', render: function (row) { return externalLink('Open log', row.job_url || row.url || row.step_url); }},
-      ], filtered, integer(filtered.length) + ' of ' + integer(observations.length) + ' contributing AMD job observations'));
+        {label: 'Job evidence', width: '130px', render: function (row) { return externalLink('Open log', exactPipelineEvidenceUrl(row, sourcePipeline)); }},
+      ], filtered, integer(filtered.length) + ' of ' + integer(observations.length) + ' contributing ' + sourcePipeline + ' job observations', {name: 'mixed-evidence', minWidth: '1320px'}));
     }
 
     search.addEventListener('input', renderEvidenceRows);
     resultFilter.addEventListener('change', renderEvidenceRows);
     renderEvidenceRows();
-    content.append(n('p', 'ops-evidence-method', 'Method: group outcomes combine Buildkite job state with parsed test-result summaries from collected logs. Retry badges require explicit Buildkite retry metadata; mixed nightly outcomes alone are not labeled as confirmed flakes.'));
+    content.append(n('p', 'ops-evidence-method', 'Method: group outcomes combine Buildkite job state with parsed test-result summaries from collected logs. Retry badges require explicit Buildkite retry metadata; mixed outcomes alone are not labeled as confirmed flakes.'));
     openOverlay(candidate.name || 'Group evidence', 'Exact Buildkite evidence for every contributing observation', content, true, 'group-' + (candidate.id || candidate.name));
   }
 
@@ -715,19 +775,79 @@
     });
   }
 
+  function reliabilitySourcePipeline(reliability) {
+    const cohort = reliability.cohort || {};
+    const provenanceCohort = ((cohort.provenance || {}).cohort) || {};
+    return reliability.source_pipeline || cohort.pipeline || provenanceCohort.pipeline || '';
+  }
+
+  function reliabilityPayload(entry) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+    return entry.reliability && typeof entry.reliability === 'object' ? entry.reliability : entry;
+  }
+
+  function reliabilityForPipeline(ops, pipeline) {
+    const root = (ops || {}).reliability || {};
+    const maps = [
+      (ops || {}).reliability_by_pipeline,
+      root.by_pipeline,
+      root.byPipeline,
+      root,
+    ];
+    for (const map of maps) {
+      const payload = reliabilityPayload(map && map[pipeline]);
+      if (payload) return payload;
+    }
+    const lists = [(ops || {}).reliability_pipelines, root.pipelines];
+    for (const list of lists) {
+      if (!Array.isArray(list)) continue;
+      const entry = list.find(function (item) {
+        return item && (item.pipeline === pipeline || item.source_pipeline === pipeline);
+      });
+      const payload = reliabilityPayload(entry);
+      if (payload) return payload;
+    }
+    const aliases = pipeline === 'ci'
+      ? [(ops || {}).upstream_reliability, root.upstream, root.canonical]
+      : [];
+    for (const alias of aliases) {
+      const payload = reliabilityPayload(alias);
+      if (payload) return payload;
+    }
+    return reliabilitySourcePipeline(root) === pipeline ? root : {};
+  }
+
+  function canonicalReliability(ops) {
+    return reliabilityForPipeline(ops, 'ci');
+  }
+
+  function exactReliabilityBuildUrl(row) {
+    return exactPipelineBuildUrl(row, 'ci');
+  }
+
   function reliabilityScopeInfo(reliability) {
+    reliability = reliability && typeof reliability === 'object' ? reliability : {};
     const explicit = reliability.scope || reliability.observation_scope || reliability.denominator_scope || '';
     const text = JSON.stringify([explicit, reliability.cohort, reliability.denominator, reliability.source_pipeline, reliability.evidence_definitions]).toLowerCase();
-    const allMain = /all[-_ ]main|origin\/main|branch.?main/.test(text) && !/nightly job runs|nightl(?:y|ies)[-_ ]only/.test(text);
+    const available = reliability.available === true
+      && reliability.source_pipeline === 'ci'
+      && ((reliability.cohort || {}).available === true);
+    const allMain = available && /all[-_ ]main|origin\/main|branch.?main/.test(text) && !/nightly job runs|nightl(?:y|ies)[-_ ]only/.test(text);
+    const pipeline = reliabilitySourcePipeline(reliability);
+    const source = pipeline === 'ci' ? 'upstream CI' : pipeline === 'amd-ci' ? 'AMD CI' : 'selected CI';
     return {
       allMain: allMain,
-      label: allMain ? 'All-main reliability' : 'Retained nightly reliability',
-      detail: allMain ? 'All completed AMD origin/main builds in the retained window' : 'Current payload contains nightly-only reliability; the all-main ledger has not landed yet',
+      available: available,
+      pipeline: pipeline,
+      label: allMain ? 'All-main reliability - ' + source : available ? 'Retained nightly reliability - ' + source : 'Upstream reliability unavailable',
+      detail: allMain ? 'All completed ' + source + ' branch=main builds in the retained window' : available ? 'Current payload contains nightly-only reliability; the all-main ledger has not landed yet' : 'The strict upstream main cohort is absent; nightly data was not substituted',
     };
   }
 
   function reliabilityCohortSummary(reliability) {
-    const cohort = ((((reliability.cohort || {}).provenance || {}).cohort) || {});
+    const cohortBlock = reliability.cohort || {};
+    const provenanceCohort = ((cohortBlock.provenance || {}).cohort) || {};
+    const cohort = Object.assign({}, cohortBlock, provenanceCohort);
     const retries = ((reliability.retry_analysis || {}).summary) || {};
     const total = Number(cohort.build_count !== undefined ? cohort.build_count : (reliability.denominator || {}).builds !== undefined ? (reliability.denominator || {}).builds : retries.builds_evaluated);
     const nightlies = Number(cohort.canonical_nightly_build_count);
@@ -868,8 +988,8 @@
     }).find(isIncidentObservation) || null;
   }
 
-  function openGroupDetail(group, ops, reliabilityRow) {
-    const reliability = (ops || {}).reliability || {};
+  function openGroupDetail(group, ops, reliabilityRow, sourceReliability) {
+    const reliability = sourceReliability || canonicalReliability(ops);
     const reference = (reliabilityRow || {}).evidence_ref || group.evidence_ref || ((group.main_reliability || {}).id);
     const row = groupReliabilityByRef(reliability, reference, group.name || group.label || group.group) || reliabilityRow;
     if (row && evidenceObservations(row).length) {
@@ -897,35 +1017,54 @@
 
   function gatingEvidenceUrl(group) {
     const latest = group.latest_amd_result || {};
-    const direct = recordUrl(latest) || latest.latest_url;
+    const direct = exactPipelineEvidenceUrl(latest, 'amd-ci');
     if (direct) return direct;
-    const exact = (latest.evidence || []).find(function (item) { return recordUrl(item); });
-    if (exact) return recordUrl(exact);
-    const retained = (group.evidence || []).find(function (item) { return recordUrl(item); });
-    return recordUrl(retained);
+    const exact = (latest.evidence || []).map(function (item) {
+      return exactPipelineEvidenceUrl(item, 'amd-ci');
+    }).find(Boolean);
+    return exact || '';
   }
 
   function openGatingDetail(group, ops) {
-    const reliability = (ops || {}).reliability || {};
+    const reliability = canonicalReliability(ops);
     const combined = combinedGatingReliability(group, reliability);
     const variants = (combined || {}).variants || [];
-    const evidence = group.evidence || ((group.latest_amd_result || {}).evidence) || [];
+    const latestEvidence = (((group.latest_amd_result || {}).evidence) || []).filter(function (row) {
+      return Boolean(exactPipelineEvidenceUrl(row, 'amd-ci'));
+    });
+    const historyEvidence = (group.evidence || []).filter(function (row) {
+      return Boolean(exactPipelineEvidenceUrl(row, 'ci'));
+    });
     const content = n('div', 'ops-stack');
-    if (evidence.length) {
-      content.append(dataTable([
-        {label: 'Evidence', sticky: true, render: function (row) { return externalLink(row.label || row.architecture || row.source || 'Open source', recordUrl(row)); }},
-        {label: 'Result', render: function (row) { return linkedBadge(row.state || row.raw_state || 'unknown', recordUrl(row)); }},
-        {label: 'Build', render: function (row) { return row.build_number ? externalLink('#' + row.build_number, row.build_url || buildUrl('amd-ci', row.build_number), 'ops-mono') : n('span', 'ops-cell-muted', '-'); }},
+    function sourceEvidenceTable(rows, fallbackPipeline, caption) {
+      return dataTable([
+        {label: 'Evidence', sticky: true, render: function (row) { return externalLink(row.label || row.architecture || row.source || 'Open source', exactPipelineEvidenceUrl(row, fallbackPipeline)); }},
+        {label: 'Result', render: function (row) { return linkedBadge(row.state || row.raw_state || 'unknown', exactPipelineEvidenceUrl(row, fallbackPipeline)); }},
+        {label: 'Build', render: function (row) { return row.build_number ? externalLink('#' + row.build_number, exactPipelineEvidenceUrl(row, fallbackPipeline), 'ops-mono') : n('span', 'ops-cell-muted', '-'); }},
         {label: 'Source', render: function (row) { return value(row.source || row.architecture); }},
-      ], evidence, integer(evidence.length) + ' exact execution and parity references'));
+      ], rows, caption);
+    }
+    if (latestEvidence.length) {
+      content.append(panel('Latest AMD execution', 'Current mirror signal only', sourceEvidenceTable(
+        latestEvidence,
+        'amd-ci',
+        integer(latestEvidence.length) + ' exact AMD execution references'
+      )));
+    }
+    if (historyEvidence.length) {
+      content.append(panel('Upstream history', 'Historical reliability and parity evidence', sourceEvidenceTable(
+        historyEvidence,
+        'ci',
+        integer(historyEvidence.length) + ' retained upstream references'
+      )));
     }
     if (variants.length) {
       content.append(panel('Strict reliability variants', integer(variants.length) + ' catalog identities combined by the reviewed target', dataTable([
-        {label: 'Hardware variant', sticky: true, render: function (variant) { return groupIdentityCell(variant, function () { openGroupDetail(variant, ops, variant); }); }},
-        {label: 'Runs', numeric: true, render: function (variant) { return linkButton(integer(variant.runs), function () { openGroupDetail(variant, ops, variant); }, 'Inspect ' + value(variant.name) + ' on ' + value(variant.hardware) + ' run history'); }},
-        {label: 'Incident rate', numeric: true, render: function (variant) { const rate = Number(variant.fail_rate); return linkButton(Number.isFinite(rate) ? rate.toFixed(1) + '%' : '-', function () { openGroupDetail(variant, ops, variant); }, 'Inspect ' + value(variant.name) + ' on ' + value(variant.hardware) + ' incidents'); }},
-        {label: 'Latest', render: function (variant) { const latest = latestObservation(variant); return linkedBadge(latest ? observationState(latest) : 'unavailable', recordUrl(latest), function () { openGroupDetail(variant, ops, variant); }); }},
-        {label: 'Evidence', render: function (variant) { return linkButton(integer(evidenceObservations(variant).length) + ' observations', function () { openGroupDetail(variant, ops, variant); }, 'Inspect every retained observation for variant ' + value(variant.id)); }},
+        {label: 'Hardware variant', sticky: true, render: function (variant) { return groupIdentityCell(variant, function () { openGroupDetail(variant, ops, variant, reliability); }); }},
+        {label: 'Runs', numeric: true, render: function (variant) { return linkButton(integer(variant.runs), function () { openGroupDetail(variant, ops, variant, reliability); }, 'Inspect ' + value(variant.name) + ' on ' + value(variant.hardware) + ' run history'); }},
+        {label: 'Incident rate', numeric: true, render: function (variant) { const rate = Number(variant.fail_rate); return linkButton(Number.isFinite(rate) ? rate.toFixed(1) + '%' : '-', function () { openGroupDetail(variant, ops, variant, reliability); }, 'Inspect ' + value(variant.name) + ' on ' + value(variant.hardware) + ' incidents'); }},
+        {label: 'Latest', render: function (variant) { const latest = latestObservation(variant); return linkedBadge(latest ? observationState(latest) : 'unavailable', exactPipelineEvidenceUrl(latest, 'ci'), function () { openGroupDetail(variant, ops, variant, reliability); }); }},
+        {label: 'Evidence', render: function (variant) { return linkButton(integer(evidenceObservations(variant).length) + ' observations', function () { openGroupDetail(variant, ops, variant, reliability); }, 'Inspect every retained observation for variant ' + value(variant.id)); }},
       ], variants, integer(evidenceObservations(combined).length) + ' exact observations across all target variants')));
     }
     if (combined && evidenceObservations(combined).length) {
@@ -938,16 +1077,16 @@
     openDetailDrawer({
       id: 'gating-' + (group.id || group.label),
       title: group.label || group.name || 'Reviewed target',
-      subtitle: 'Reviewed plan and observed AMD evidence',
-      description: 'Plan membership is configuration intent. Result and reliability values come from linked execution evidence.',
+      subtitle: 'Reviewed plan, current AMD signal, and upstream history',
+      description: 'Plan membership is configuration intent. The latest result is AMD; reliability, streaks, and incidents are upstream.',
       fields: [
         {label: 'Reviewed plan', value: plan.label || plan.status},
         {label: 'Latest AMD result', value: latest.state},
         {label: 'Assessment', value: group.assessment},
-        {label: 'All-main runs', value: main.runs !== undefined ? integer(main.runs) : null},
-        {label: 'All-main incidents', value: main.incident_count !== undefined ? integer(main.incident_count) + ' (' + value(main.incident_rate_pct) + '%)' : null},
-        {label: 'Nightly green streak', value: group.nightly_green_streak !== undefined ? integer(group.nightly_green_streak) : null},
-        {label: 'Last incident', value: group.last_incident ? shortDate(group.last_incident.observed_at) : null},
+        {label: 'Upstream main runs', value: main.runs !== undefined ? integer(main.runs) : null},
+        {label: 'Upstream main incidents', value: main.incident_count !== undefined ? integer(main.incident_count) + ' (' + value(main.incident_rate_pct) + '%)' : null},
+        {label: 'Upstream nightly streak', value: group.nightly_green_streak !== undefined ? integer(group.nightly_green_streak) : null},
+        {label: 'Last upstream incident', value: group.last_incident ? shortDate(group.last_incident.observed_at) : null},
       ],
       sources: [
         plan.source_url ? {label: 'Open reviewed configuration', url: plan.source_url} : null,
@@ -959,6 +1098,7 @@
   }
 
   function openBuildDetail(build, title) {
+    const sourcePipeline = build.source_pipeline || 'amd-ci';
     const transitions = build.transitions || {};
     const content = n('div', 'ops-stack');
     const rows = [];
@@ -966,8 +1106,8 @@
       bucket[1].forEach(function (group) { rows.push(Object.assign({lifecycle: bucket[0]}, group)); });
     });
     if (rows.length) content.append(dataTable([
-      {label: 'Group', sticky: true, render: function (row) { return externalLink(row.display_name || row.name, row.url); }},
-      {label: 'Lifecycle', render: function (row) { return linkedBadge(row.lifecycle, row.url, null, row.lifecycle === 'New' ? 'is-danger' : row.lifecycle === 'Fixed' ? 'is-success' : 'is-warning'); }},
+      {label: 'Group', sticky: true, render: function (row) { return externalLink(row.display_name || row.name, exactPipelineEvidenceUrl(row, sourcePipeline)); }},
+      {label: 'Lifecycle', render: function (row) { return linkedBadge(row.lifecycle, exactPipelineEvidenceUrl(row, sourcePipeline), null, row.lifecycle === 'New' ? 'is-danger' : row.lifecycle === 'Fixed' ? 'is-success' : 'is-warning'); }},
       {label: 'Queue', render: function (row) { return n('span', 'ops-mono', value(row.queue)); }},
     ], rows, integer(rows.length) + ' changed group observations'));
     openDetailDrawer({
@@ -980,7 +1120,7 @@
         {label: 'Observed groups', value: integer(build.total_groups)},
         {label: 'New / recurring / fixed', value: integer((transitions.new || []).length) + ' / ' + integer((transitions.recurring || []).length) + ' / ' + integer((transitions.fixed || []).length)},
       ],
-      sources: build.url ? [{label: 'Open Buildkite build', url: build.url}] : [],
+      sources: exactPipelineBuildUrl(build, sourcePipeline) ? [{label: 'Open Buildkite build', url: exactPipelineBuildUrl(build, sourcePipeline)}] : [],
       content: content,
     });
   }
@@ -1278,9 +1418,21 @@
     return host;
   }
 
+  function nightlyForPipeline(ops, pipeline) {
+    const nightly = (ops || {}).nightly || {};
+    const pipelines = nightly.pipelines || [];
+    const matched = pipelines.find(function (item) { return item.pipeline === pipeline; });
+    if (matched) return matched;
+    if (pipeline === 'ci') return nightly.upstream || nightly.upstream_parity || {pipeline: pipeline, builds: []};
+    return nightly.amd || nightly.canonical_history || {pipeline: pipeline, builds: []};
+  }
+
+  function nightlyDisplayName(nightly, pipeline) {
+    return nightly.display_name || (pipeline === 'ci' ? 'Upstream CI' : 'AMD CI');
+  }
+
   function latestAmd(ops) {
-    const pipelines = ((ops.nightly || {}).pipelines || []);
-    return pipelines.find(function (p) { return p.pipeline === 'amd-ci'; }) || {builds: []};
+    return nightlyForPipeline(ops, 'amd-ci');
   }
 
   function setFreshness(ops) {
@@ -1309,7 +1461,7 @@
   function inspectAttention(item, ops) {
     if (String(item.kind || '').startsWith('queue_')) navigateTo('ci-queue', {queueView: item.kind === 'queue_waiting' ? 'jobs' : 'current', queueScope: 'all'});
     else if (item.kind === 'gating_red_targets' || item.kind === 'target_groups_with_current_incidents') navigateTo('ci-health', {healthView: 'gating', healthResult: 'incident'});
-    else if (item.kind === 'mixed_state_flaky_candidates') navigateTo('ci-analytics', {analyticsView: 'groups'});
+    else if (item.kind === 'mixed_state_flaky_candidates') navigateTo('ci-analytics', {analyticsView: 'flakes'});
     else if (item.kind === 'omni_waiting') navigateTo('ci-omni');
     else {
       const build = ((latestAmd(ops).builds || [])[0]) || {};
@@ -1330,7 +1482,7 @@
     const unknownCells = Number(matrix.unknown_cells || 0);
     add(host, pageHeader('Command Center', 'Current AMD operations with retained nightly movement and direct paths to source evidence.', ops.generated_at));
     add(host, statusStrip([
-      {id: 'home-amd-nightly', label: 'LATEST AMD NIGHTLY', value: build.number ? '#' + build.number : '-', meta: value(build.state, 'No completed build'), tone: toneForState(build.state), url: build.url, observed: build.created_at},
+      {id: 'home-amd-nightly', label: 'LATEST AMD NIGHTLY', value: build.number ? '#' + build.number : '-', meta: value(build.state, 'No completed build'), tone: toneForState(build.state), url: exactPipelineBuildUrl(build, 'amd-ci'), observed: build.created_at},
       {id: 'home-hardware-coverage', label: 'HARDWARE COVERAGE', value: integer(matrix.passing_cells) + ' / ' + integer(matrix.hardware_cells), meta: integer(matrix.passing_cells) + ' passing + ' + integer(matrix.failing_cells) + ' failing + ' + integer(unknownCells) + ' unknown = ' + integer(matrix.hardware_cells), tone: Number(matrix.failing_cells) ? 'is-danger' : unknownCells ? 'is-warning' : 'is-success', onOpen: function () { navigateTo('ci-health', {healthView: 'coverage'}); }},
       {id: 'home-failure-lifecycle', label: 'NIGHTLY MOVEMENT', value: integer((trans.new || []).length) + ' new', meta: integer((trans.recurring || []).length) + ' recurring - ' + integer((trans.fixed || []).length) + ' fixed', tone: (trans.new || []).length ? 'is-danger' : 'is-success', onOpen: function () { openBuildDetail(build); }},
       {id: 'home-queue-snapshot', label: 'ALL-FLEET QUEUE ACTIVITY', value: integer(allFleetWaiting) + ' waiting', meta: integer(allFleetRunning) + ' running across ' + integer(allFleetQueues.length) + ' queues', tone: allFleetWaiting ? 'is-warning' : 'is-success', observed: queue.ts, provenance: 'Same all-queue scope as destination', onOpen: function () { navigateTo('ci-queue', {queueView: 'current', queueScope: 'all'}); }},
@@ -1346,7 +1498,7 @@
 
     const recent = (amd.builds || []).slice(0, 7);
     grid.append(panel('AMD nightly movement', 'Latest seven completed observations', dataTable([
-      {label: 'Build', render: function (r) { return externalLink('#' + r.number, r.url, 'ops-mono'); }},
+      {label: 'Build', render: function (r) { return externalLink('#' + r.number, exactPipelineBuildUrl(r, 'amd-ci'), 'ops-mono'); }},
       {label: 'New', numeric: true, render: function (r) { return linkButton(integer((r.transitions.new || []).length), function () { openBuildDetail(r); }); }},
       {label: 'Recurring', numeric: true, render: function (r) { return linkButton(integer((r.transitions.recurring || []).length), function () { openBuildDetail(r); }); }},
       {label: 'Fixed', numeric: true, render: function (r) { return linkButton(integer((r.transitions.fixed || []).length), function () { openBuildDetail(r); }); }},
@@ -1398,7 +1550,7 @@
     add(host, pageHeader('CI Health', 'Reviewed AMD coverage, observed results, and nightly movement with source evidence kept distinct.', ops.generated_at));
     healthTabs(host);
     host.append(statusStrip([
-      {id: 'health-build', label: 'LATEST AMD NIGHTLY', value: value(build.state), meta: build.number ? '#' + build.number + ' - ' + shortDate(build.created_at) : 'No completed build', tone: toneForState(build.state), url: build.url},
+      {id: 'health-build', label: 'LATEST AMD NIGHTLY', value: value(build.state), meta: build.number ? '#' + build.number + ' - ' + shortDate(build.created_at) : 'No completed build', tone: toneForState(build.state), url: exactPipelineBuildUrl(build, 'amd-ci')},
       {id: 'health-hardware', label: 'HARDWARE COVERAGE', value: integer(matrix.passing_cells) + ' / ' + integer(matrix.hardware_cells), meta: integer(matrix.failing_cells) + ' failing + ' + integer(matrix.unknown_cells || 0) + ' unknown', tone: Number(matrix.failing_cells) ? 'is-danger' : Number(matrix.unknown_cells) ? 'is-warning' : 'is-success', onOpen: function () { setRouteState('ci-health', 'healthView', 'coverage', 'health_view'); }},
       {id: 'health-reviewed-plan', label: 'REVIEWED PLAN', value: integer(targetSummary.canonical_group_count || targetSummary.target_group_count), meta: integer(targetSummary.active_outside_canonical_count || 0) + ' observed outside the reviewed list', onOpen: function () { setRouteState('ci-health', 'healthView', 'gating', 'health_view'); }},
       {id: 'health-nightly-transition', label: 'NIGHTLY MOVEMENT', value: integer((trans.new || []).length) + ' new', meta: integer((trans.recurring || []).length) + ' recurring - ' + integer((trans.fixed || []).length) + ' fixed', tone: (trans.new || []).length ? 'is-danger' : 'is-success', onOpen: function () { openBuildDetail(build); }},
@@ -1411,8 +1563,8 @@
       grid.append(trend.root);
       const failures = (build.failed_groups || []).concat(build.soft_failed_groups || []).slice(0, 15);
       grid.append(panel('Latest blockers', (build.failed_groups || []).length + ' hard - ' + (build.soft_failed_groups || []).length + ' soft', dataTable([
-        {label: 'Group', render: function (r) { return externalLink(r.display_name || r.name, r.url); }},
-        {label: 'State', render: function (r) { return linkedBadge(r.state, r.url); }},
+        {label: 'Group', render: function (r) { return externalLink(r.display_name || r.name, exactPipelineEvidenceUrl(r, 'amd-ci')); }},
+        {label: 'State', render: function (r) { return linkedBadge(r.state, exactPipelineEvidenceUrl(r, 'amd-ci')); }},
       ], failures), 'ops-health-aside'));
       host.append(grid);
       drawChart('health-nightly', trend.canvas, {
@@ -1428,7 +1580,7 @@
         options: {scales: {x: {stacked: true}, y: {stacked: true, beginAtZero: true}}},
         evidenceTitle: 'AMD nightly failure lifecycle',
         evidence: (amd.builds || []).slice(0, 14).reverse().map(function (nightly) {
-          return {label: '#' + nightly.number, timestamp: nightly.created_at, url: nightly.url, valueSummary: integer((nightly.transitions.new || []).length) + ' new', details: {state: nightly.state, new: (nightly.transitions.new || []).length, recurring: (nightly.transitions.recurring || []).length, fixed: (nightly.transitions.fixed || []).length}};
+          return {label: '#' + nightly.number, timestamp: nightly.created_at, url: exactPipelineBuildUrl(nightly, 'amd-ci'), valueSummary: integer((nightly.transitions.new || []).length) + ' new', details: {state: nightly.state, new: (nightly.transitions.new || []).length, recurring: (nightly.transitions.recurring || []).length, fixed: (nightly.transitions.fixed || []).length}};
         }),
       });
       return;
@@ -1437,17 +1589,18 @@
     if (state.healthView === 'gating') {
       const activeGroups = gating.active_target_groups || gating.target_groups || [];
       const total = Number(targetSummary.target_group_count || activeGroups.length);
-      const reliability = ops.reliability || {};
+      const reliability = canonicalReliability(ops);
       const scope = reliabilityScopeInfo(reliability);
       const latestFailures = (build.failed_groups || []).concat(build.soft_failed_groups || []);
       const failureByName = new Map(latestFailures.map(function (row) { return [normalizeLabel(row.display_name || row.name), row]; }));
       const rows = activeGroups.map(function (group) {
         const explicitReliability = group.main_reliability || {};
         const rel = combinedGatingReliability(group, reliability);
-        const observed = latestObservation(rel);
         const failure = failureByName.get(normalizeLabel(group.label || group.name));
-        const explicitLatest = group.latest_amd_result && group.latest_amd_result.state ? group.latest_amd_result : null;
-        const latest = explicitLatest || failure || observed;
+        const explicitLatestResult = group.latest_amd_result || {};
+        const explicitLatestState = observationState(explicitLatestResult);
+        const explicitLatest = ['passed', 'soft', 'hard'].includes(explicitLatestState) ? explicitLatestResult : null;
+        const latest = explicitLatest || failure || null;
         const latestState = latest ? observationState(latest) : 'unavailable';
         const explicitPlan = group.reviewed_plan || {};
         const plan = explicitPlan.label || (group.target_origin === 'canonical' || !group.target_origin ? 'Reviewed target' : group.target_origin === 'active_outside_canonical' ? 'Observed outside review' : 'Unreviewed');
@@ -1472,14 +1625,14 @@
           incident: group.last_incident || lastIncident(rel),
         };
       });
-      const linked = rows.filter(function (row) { return row.latest; }).length;
+      const linked = rows.filter(function (row) { return row.latest && gatingEvidenceUrl(row.group); }).length;
       const passing = rows.filter(function (row) { return row.latestState === 'passed'; }).length;
       const incidents = rows.filter(function (row) { return isIncidentObservation(row.latest || {}); }).length;
       host.append(statusStrip([
         {id: 'gating-reviewed', label: 'REVIEWED TARGETS', value: integer(rows.filter(function (row) { return row.planStatus === 'included'; }).length), meta: integer(total) + ' groups in this view', onOpen: function () { state.healthPlan = 'reviewed'; render('ci-health', true); }},
-        {id: 'gating-linked', label: 'LINKED RESULTS', value: integer(linked) + ' / ' + integer(total), meta: 'exact-name evidence in retained history', tone: linked === total ? 'is-success' : 'is-warning', onOpen: function () { state.healthResult = 'linked'; render('ci-health', true); }},
-        {id: 'gating-passing', label: 'LATEST PASSING', value: integer(passing), meta: 'among groups with linked observations', tone: incidents ? 'is-warning' : 'is-success', onOpen: function () { state.healthResult = 'passing'; render('ci-health', true); }},
-        {id: 'gating-incidents', label: 'LATEST INCIDENTS', value: integer(incidents), meta: scope.label + ' evidence', tone: incidents ? 'is-danger' : 'is-success', onOpen: function () { state.healthResult = 'incident'; render('ci-health', true); }},
+        {id: 'gating-linked', label: 'LINKED AMD RESULTS', value: integer(linked) + ' / ' + integer(total), meta: 'exact latest AMD execution links', tone: linked === total ? 'is-success' : 'is-warning', onOpen: function () { state.healthResult = 'linked'; render('ci-health', true); }},
+        {id: 'gating-passing', label: 'LATEST AMD PASSING', value: integer(passing), meta: 'among groups with a current AMD signal', tone: incidents ? 'is-warning' : 'is-success', onOpen: function () { state.healthResult = 'passing'; render('ci-health', true); }},
+        {id: 'gating-incidents', label: 'LATEST AMD INCIDENTS', value: integer(incidents), meta: 'current mirror evidence only', tone: incidents ? 'is-danger' : 'is-success', onOpen: function () { state.healthResult = 'incident'; render('ci-health', true); }},
       ]));
       const note = n('div', 'ops-evidence-note is-info');
       add(note, [n('strong', '', scope.label + '. '), n('span', '', scope.detail + '. Plan membership and observed execution are intentionally shown as separate facts.')]);
@@ -1506,19 +1659,19 @@
         if (state.healthPlan === 'outside' && row.planStatus !== 'observed_outside_reviewed_plan') return false;
         if (state.healthResult === 'passing' && row.latestState !== 'passed') return false;
         if (state.healthResult === 'incident' && !isIncidentObservation(row.latest || {})) return false;
-        if (state.healthResult === 'linked' && !row.latest) return false;
+        if (state.healthResult === 'linked' && !(row.latest && gatingEvidenceUrl(row.group))) return false;
         if (state.healthResult === 'unavailable' && row.latest) return false;
         return true;
       });
       host.append(dataTable([
-        {label: 'Test group', sticky: true, render: function (row) { return linkButton(row.group.label || row.group.name, function () { openGatingDetail(row.group, ops); }); }},
-        {label: 'Reviewed plan', render: function (row) { const plan = row.group.reviewed_plan || {}; return linkedBadge(row.plan, plan.source_url, function () { openGatingDetail(row.group, ops); }, row.planStatus === 'included' ? 'is-neutral' : 'is-info'); }},
-        {label: 'Latest AMD result', render: function (row) { return linkedBadge(row.latest ? row.latestState : 'Evidence pending', gatingEvidenceUrl(row.group) || recordUrl(row.latest), function () { openGatingDetail(row.group, ops); }, row.latest ? toneForState(row.latestState) : 'is-neutral'); }},
-        {label: 'Main reliability', numeric: true, render: function (row) { return linkButton(row.mainReliability || (row.hasExplicitMainReliability ? 'No main history' : 'Pending ledger'), function () { openGatingDetail(row.group, ops); }, 'Inspect all hardware variants contributing to ' + value(row.group.label) + ' main reliability'); }},
-        {label: 'Green streak', numeric: true, render: function (row) { return linkButton(row.reliability || row.group.nightly_green_streak !== undefined ? integer(row.streak) + ' nightlies' : '-', function () { openGatingDetail(row.group, ops); }, 'Inspect nightly green streak evidence for ' + value(row.group.label)); }},
-        {label: 'Last incident', render: function (row) { return row.incident && recordUrl(row.incident) ? externalLink(shortDate(row.incident.observed_at || row.incident.date), recordUrl(row.incident)) : linkButton(row.incident ? shortDate(row.incident.observed_at || row.incident.date) : 'None retained', function () { openGatingDetail(row.group, ops); }); }},
-        {label: 'Evidence', render: function (row) { const count = evidenceObservations(row.reliability || {}).length; const direct = (row.group.evidence || []).length; return linkButton(integer(count) + ' runs' + (direct ? ' + ' + integer(direct) + ' refs' : ''), function () { openGatingDetail(row.group, ops); }, 'Inspect every retained source for ' + value(row.group.label)); }},
-      ], groups, integer(groups.length) + ' of ' + integer(total) + ' reviewed and observed groups'));
+        {label: 'Test group', sticky: true, width: '270px', render: function (row) { return linkButton(row.group.label || row.group.name, function () { openGatingDetail(row.group, ops); }); }},
+        {label: 'Reviewed plan', width: '170px', render: function (row) { const plan = row.group.reviewed_plan || {}; return linkedBadge(row.plan, plan.source_url, function () { openGatingDetail(row.group, ops); }, row.planStatus === 'included' ? 'is-neutral' : 'is-info'); }},
+        {label: 'Latest AMD result', width: '160px', render: function (row) { return linkedBadge(row.latest ? row.latestState : 'Evidence pending', gatingEvidenceUrl(row.group), function () { openGatingDetail(row.group, ops); }, row.latest ? toneForState(row.latestState) : 'is-neutral'); }},
+        {label: 'Upstream pass history', numeric: true, width: '170px', render: function (row) { return linkButton(row.mainReliability || (row.hasExplicitMainReliability ? 'No upstream history' : 'Pending ledger'), function () { openGatingDetail(row.group, ops); }, 'Inspect upstream main variants contributing to ' + value(row.group.label) + ' reliability'); }},
+        {label: 'Upstream nightly streak', numeric: true, width: '160px', render: function (row) { return linkButton(row.reliability || row.group.nightly_green_streak !== undefined ? integer(row.streak) + ' nightlies' : '-', function () { openGatingDetail(row.group, ops); }, 'Inspect upstream nightly streak evidence for ' + value(row.group.label)); }},
+        {label: 'Last upstream incident', width: '180px', render: function (row) { const incidentUrl = exactPipelineEvidenceUrl(row.incident, 'ci'); return row.incident && incidentUrl ? externalLink(shortDate(row.incident.observed_at || row.incident.date), incidentUrl) : linkButton(row.incident ? shortDate(row.incident.observed_at || row.incident.date) : 'None retained', function () { openGatingDetail(row.group, ops); }); }},
+        {label: 'History evidence', width: '160px', render: function (row) { const count = evidenceObservations(row.reliability || {}).length; const direct = (row.group.evidence || []).length; return linkButton(integer(count) + ' runs' + (direct ? ' + ' + integer(direct) + ' refs' : ''), function () { openGatingDetail(row.group, ops); }, 'Inspect every retained upstream source for ' + value(row.group.label)); }},
+      ], groups, integer(groups.length) + ' of ' + integer(total) + ' reviewed groups; AMD current signal and upstream history are separate', {name: 'gating', minWidth: '1290px'}));
       return;
     }
 
@@ -1534,61 +1687,71 @@
         cols.push({label: a.label, render: function (r) {
           const c = (r.cells || {})[a.id] || {};
           if (!c.exists) return n('span', 'ops-cell-muted', '-');
-          return linkedBadge(c.latest_state || 'unknown', c.latest_url, function () { openGroupDetail({name: r.title, area: r.area}, ops); });
+          return linkedBadge(c.latest_state || 'unknown', exactPipelineEvidenceUrl({job_url: c.latest_url}, 'amd-ci'), function () { openGroupDetail({name: r.title, area: r.area}, ops); });
         }});
       }
       host.append(dataTable(cols, matrixData.rows || [], integer((matrixData.rows || []).length) + ' configured AMD definition rows'));
       return;
     }
 
-    const reliability = ops.reliability || {};
+    const reliability = canonicalReliability(ops);
     const retry = reliability.retry_analysis || {};
     const diagnosticGrid = n('div', 'ops-stack ops-reliability-stack');
-    diagnosticGrid.append(panel('Mixed-outcome candidates', 'Groups with both passing and incident observations; inspect the run evidence before classifying a flake', dataTable([
-      {label: 'Group', sticky: true, render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return groupIdentityCell(full, function () { openGroupDetail(row, ops, full); }); }},
-      {label: 'Runs', numeric: true, render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return linkButton(integer(row.runs), function () { openGroupDetail(row, ops, full); }); }},
-      {label: 'Passed', numeric: true, render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return linkButton(integer(row.passed), function () { openGroupDetail(row, ops, full); }); }},
-      {label: 'Failed / soft', numeric: true, render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return linkButton(integer(Number(row.failed || 0) + Number(row.soft_failed || 0)), function () { openGroupDetail(row, ops, full); }); }},
-      {label: 'Mixed-outcome incident rate', numeric: true, render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return linkButton(value(row.incident_rate_pct !== undefined ? row.incident_rate_pct : row.fail_rate) + '%', function () { openGroupDetail(row, ops, full); }); }},
-      {label: 'Evidence', render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return linkButton(integer(evidenceObservations(full).length || full.retained_observation_count) + ' runs', function () { openGroupDetail(row, ops, full); }); }},
-    ], reliability.flaky_candidates || [])));
+    diagnosticGrid.append(panel('Upstream mixed-outcome candidates', 'Upstream groups with both passing and incident observations; inspect the run evidence before classifying a flake', dataTable([
+      {label: 'Group', sticky: true, width: '320px', render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return groupIdentityCell(full, function () { openGroupDetail(row, ops, full, reliability); }); }},
+      {label: 'Runs', numeric: true, width: '90px', render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return linkButton(integer(row.runs), function () { openGroupDetail(row, ops, full, reliability); }); }},
+      {label: 'Passed', numeric: true, width: '90px', render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return linkButton(integer(row.passed), function () { openGroupDetail(row, ops, full, reliability); }); }},
+      {label: 'Failed / soft', numeric: true, width: '120px', render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return linkButton(integer(Number(row.failed || 0) + Number(row.soft_failed || 0)), function () { openGroupDetail(row, ops, full, reliability); }); }},
+      {label: 'Mixed-outcome incident rate', numeric: true, width: '210px', render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return linkButton(value(row.incident_rate_pct !== undefined ? row.incident_rate_pct : row.fail_rate) + '%', function () { openGroupDetail(row, ops, full, reliability); }); }},
+      {label: 'Evidence', width: '130px', render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return linkButton(integer(evidenceObservations(full).length || full.retained_observation_count) + ' runs', function () { openGroupDetail(row, ops, full, reliability); }); }},
+    ], reliability.flaky_candidates || [], null, {name: 'mixed-candidates', minWidth: '960px'})));
     diagnosticGrid.append(panel('Retry recoveries', 'Explicit Buildkite retry chains; log confirmation is a separate evidence level', dataTable([
-      {label: 'Build', render: function (r) { return externalLink('#' + value(r.build_number), r.build_url || buildUrl('amd-ci', r.build_number), 'ops-mono'); }},
-      {label: 'Retried job', render: function (r) { return externalLink(r.name, r.failed_url || r.passed_url); }},
-      {label: 'Failed attempt', render: function (r) { return externalLink('Open', r.failed_url); }},
-      {label: 'Passing retry', render: function (r) { return externalLink('Open', r.passed_url); }},
-    ], retry.failed_then_passed_recoveries || [])));
+      {label: 'Build', width: '110px', render: function (r) { return externalLink('#' + value(r.build_number), exactReliabilityBuildUrl(r), 'ops-mono'); }},
+      {label: 'Retried job', width: '340px', render: function (r) { return externalLink(r.name, exactPipelineEvidenceUrl({job_url: r.failed_url || r.passed_url, build_number: r.build_number}, 'ci')); }},
+      {label: 'Failed attempt', width: '180px', render: function (r) { return externalLink('Open', exactPipelineEvidenceUrl({job_url: r.failed_url, build_number: r.build_number}, 'ci')); }},
+      {label: 'Passing retry', width: '180px', render: function (r) { return externalLink('Open', exactPipelineEvidenceUrl({job_url: r.passed_url, build_number: r.build_number}, 'ci')); }},
+    ], retry.failed_then_passed_recoveries || [], null, {name: 'retry-recoveries', minWidth: '810px'})));
     host.append(diagnosticGrid);
   }
 
   async function renderAnalytics(host, ops) {
-    const amd = latestAmd(ops);
-    const builds = amd.builds || [];
-    const reliability = ops.reliability || {};
+    const reliability = canonicalReliability(ops);
+    const nightly = nightlyForPipeline(ops, state.analyticsPipeline);
+    const builds = nightly.builds || [];
+    const nightlyName = nightlyDisplayName(nightly, state.analyticsPipeline);
     const retry = reliability.retry_analysis || {};
     const scope = reliabilityScopeInfo(reliability);
     const cohort = reliabilityCohortSummary(reliability);
     const catalog = reliabilityCatalog(reliability);
-    add(host, pageHeader('CI Analytics', 'All-main reliability when present, with nightly regression comparisons kept as a separate evidence surface.', ops.generated_at));
+    add(host, pageHeader('CI Analytics', 'Upstream CI is canonical for test groups, flakes, retries, and latency. Nightly comparisons can switch between upstream and AMD.', ops.generated_at));
     host.append(segmented([
-      {id: 'groups', label: 'Test groups'}, {id: 'nightlies', label: 'Nightly comparisons'},
+      {id: 'groups', label: 'Test groups'}, {id: 'flakes', label: 'Flakes'},
       {id: 'retries', label: 'Retries'}, {id: 'latency', label: 'Latency'},
+      {id: 'nightlies', label: 'Nightly comparisons'},
     ], state.analyticsView, function (id) { setRouteState('ci-analytics', 'analyticsView', id, 'analytics_view'); }, 'CI Analytics view'));
     const retrySummary = retry.summary || {};
+    const retryAvailable = retry.available === true;
     const slowest = (((reliability.latency_rankings || {}).by_p90_duration || [])[0] || {});
     const cohortMeta = cohort.nightlies !== null && cohort.otherMain !== null
       ? integer(cohort.nightlies) + ' nightlies + ' + integer(cohort.otherMain) + ' other main'
       : scope.detail;
     host.append(statusStrip([
-      {id: 'analytics-scope', label: 'ALL-MAIN BUILDS', value: cohort.total !== null ? integer(cohort.total) : (scope.allMain ? 'All main' : 'Nightlies only'), meta: cohortMeta, tone: scope.allMain ? 'is-success' : 'is-warning', description: scope.detail, observed: cohort.observedTo, window: cohort.observedFrom && cohort.observedTo ? shortDate(cohort.observedFrom) + ' to ' + shortDate(cohort.observedTo) : null, provenance: cohort.selection, sources: [{label: 'Open published reliability cohort', url: SOURCE_ASSETS.operations}], onOpen: function () { openMetricDetail({id: 'analytics-scope', label: 'All-main builds', value: cohort.total, meta: cohortMeta, observed: cohort.observedTo, window: cohort.observedFrom && cohort.observedTo ? shortDate(cohort.observedFrom) + ' to ' + shortDate(cohort.observedTo) : null, provenance: cohort.selection, sources: [{label: 'Open published reliability cohort', url: SOURCE_ASSETS.operations}]}); }},
-      {id: 'analytics-nightlies', label: 'NIGHTLIES COMPARED', value: integer(builds.length), meta: 'regression lifecycle only', onOpen: function () { setRouteState('ci-analytics', 'analyticsView', 'nightlies', 'analytics_view'); }},
-      {id: 'analytics-retries', label: 'EXPLICIT RETRY ATTEMPTS', value: integer(retrySummary.retry_attempt_count), meta: integer(retrySummary.failed_then_passed_recovery_count) + ' recovered fail-to-pass chains', tone: Number(retrySummary.failed_then_passed_recovery_count) ? 'is-warning' : 'is-neutral', onOpen: function () { setRouteState('ci-analytics', 'analyticsView', 'retries', 'analytics_view'); }},
-      {id: 'analytics-slowest', label: 'SLOWEST GROUP P90', value: duration(slowest.p90_dur), meta: value(slowest.name, 'No duration data'), onOpen: function () { slowest.name ? openGroupDetail(slowest, ops) : setRouteState('ci-analytics', 'analyticsView', 'latency', 'analytics_view'); }},
+      {id: 'analytics-scope', label: 'UPSTREAM MAIN BUILDS', value: scope.available ? (cohort.total !== null ? integer(cohort.total) : 'All main') : 'Unavailable', meta: cohortMeta, tone: scope.allMain ? 'is-success' : 'is-warning', description: scope.detail, observed: cohort.observedTo, window: cohort.observedFrom && cohort.observedTo ? shortDate(cohort.observedFrom) + ' to ' + shortDate(cohort.observedTo) : null, provenance: cohort.selection, sources: [{label: 'Open published upstream reliability cohort', url: SOURCE_ASSETS.operations}], onOpen: function () { openMetricDetail({id: 'analytics-scope', label: 'Upstream all-main builds', value: scope.available ? cohort.total : 'Unavailable', meta: cohortMeta, observed: cohort.observedTo, window: cohort.observedFrom && cohort.observedTo ? shortDate(cohort.observedFrom) + ' to ' + shortDate(cohort.observedTo) : null, provenance: cohort.selection, sources: [{label: 'Open published upstream reliability cohort', url: SOURCE_ASSETS.operations}]}); }},
+      {id: 'analytics-nightlies', label: 'NIGHTLIES COMPARED', value: integer(builds.length), meta: nightlyName + ' - regression lifecycle only', onOpen: function () { setRouteState('ci-analytics', 'analyticsView', 'nightlies', 'analytics_view'); }},
+      {id: 'analytics-retries', label: 'UPSTREAM RETRY ATTEMPTS', value: retryAvailable ? integer(retrySummary.retry_attempt_count) : 'Unavailable', meta: retryAvailable ? integer(retrySummary.failed_then_passed_recovery_count) + ' recovered fail-to-pass chains' : 'complete explicit retry ledger not retained', tone: retryAvailable && Number(retrySummary.failed_then_passed_recovery_count) ? 'is-warning' : 'is-neutral', onOpen: function () { setRouteState('ci-analytics', 'analyticsView', 'retries', 'analytics_view'); }},
+      {id: 'analytics-slowest', label: 'UPSTREAM SLOWEST P90', value: duration(slowest.p90_dur), meta: value(slowest.name, 'No duration data'), onOpen: function () { slowest.name ? openGroupDetail(slowest, ops, slowest, reliability) : setRouteState('ci-analytics', 'analyticsView', 'latency', 'analytics_view'); }},
     ]));
+
+    if (!scope.available && state.analyticsView !== 'nightlies') {
+      const unavailable = n('div', 'ops-evidence-note is-warning');
+      add(unavailable, [n('strong', '', 'Upstream reliability unavailable. '), n('span', '', scope.detail + '. No AMD or nightly history has been substituted.')]);
+      host.append(unavailable);
+      return;
+    }
 
     if (state.analyticsView === 'groups') {
       const note = n('div', 'ops-evidence-note ' + (scope.allMain ? 'is-success' : 'is-info'));
-      add(note, [n('strong', '', scope.label + '. '), n('span', '', scope.detail + '. Mixed outcomes are candidates for investigation, not a test-case flake probability.')]);
+      add(note, [n('strong', '', 'Canonical upstream reliability. '), n('span', '', scope.detail + '. Mixed outcomes are candidates for investigation, not a test-case flake probability.')]);
       host.append(note);
       const toolbar = n('div', 'ops-toolbar');
       const search = n('input', 'ops-input');
@@ -1606,19 +1769,41 @@
       const query = normalizeLabel(state.analyticsSearch);
       const rows = catalog.filter(function (row) { return !query || normalizeLabel(row.name).includes(query); });
       host.append(dataTable([
-        {label: 'Test group', sticky: true, render: function (row) { return groupIdentityCell(row, function () { openGroupDetail(row, ops, row); }); }},
-        {label: 'Runs', numeric: true, render: function (row) { return linkButton(integer(row.runs !== undefined ? row.runs : row.observation_count), function () { openGroupDetail(row, ops, row); }); }},
-        {label: 'Latest result', render: function (row) { const latest = latestObservation(row); return linkedBadge(latest ? observationState(latest) : 'Evidence pending', recordUrl(latest), function () { openGroupDetail(row, ops, row); }); }},
-        {label: 'Incident rate', numeric: true, render: function (row) { return linkButton(Number.isFinite(Number(row.fail_rate)) ? Number(row.fail_rate).toFixed(1) + '%' : '-', function () { openGroupDetail(row, ops, row); }); }},
-        {label: 'Median', numeric: true, render: function (row) { return linkButton(duration(row.median_dur), function () { openGroupDetail(row, ops, row); }); }},
-        {label: 'p90', numeric: true, render: function (row) { return linkButton(duration(row.p90_dur), function () { openGroupDetail(row, ops, row); }); }},
-        {label: 'Evidence', render: function (row) { return linkButton(integer(evidenceObservations(row).length || row.observation_count || row.runs) + ' observations', function () { openGroupDetail(row, ops, row); }); }},
-      ], rows, integer(rows.length) + ' test groups in ' + scope.label.toLowerCase()));
+        {label: 'Test group', sticky: true, width: '340px', render: function (row) { return groupIdentityCell(row, function () { openGroupDetail(row, ops, row, reliability); }); }},
+        {label: 'Runs', numeric: true, width: '90px', render: function (row) { return linkButton(integer(row.runs !== undefined ? row.runs : row.observation_count), function () { openGroupDetail(row, ops, row, reliability); }); }},
+        {label: 'Latest result', width: '150px', render: function (row) { const latest = latestObservation(row); return linkedBadge(latest ? observationState(latest) : 'Evidence pending', exactPipelineEvidenceUrl(latest, 'ci'), function () { openGroupDetail(row, ops, row, reliability); }); }},
+        {label: 'Incident rate', numeric: true, width: '130px', render: function (row) { return linkButton(Number.isFinite(Number(row.fail_rate)) ? Number(row.fail_rate).toFixed(1) + '%' : '-', function () { openGroupDetail(row, ops, row, reliability); }); }},
+        {label: 'Median', numeric: true, width: '100px', render: function (row) { return linkButton(duration(row.median_dur), function () { openGroupDetail(row, ops, row, reliability); }); }},
+        {label: 'p90', numeric: true, width: '100px', render: function (row) { return linkButton(duration(row.p90_dur), function () { openGroupDetail(row, ops, row, reliability); }); }},
+        {label: 'Evidence', width: '150px', render: function (row) { return linkButton(integer(evidenceObservations(row).length || row.observation_count || row.runs) + ' observations', function () { openGroupDetail(row, ops, row, reliability); }); }},
+      ], rows, integer(rows.length) + ' upstream test groups in ' + scope.label.toLowerCase(), {name: 'test-groups', minWidth: '1060px'}));
+      return;
+    }
+
+    if (state.analyticsView === 'flakes') {
+      const candidates = reliability.flaky_candidates || [];
+      const note = n('div', 'ops-evidence-note is-info');
+      add(note, [n('strong', '', 'Upstream mixed-outcome history. '), n('span', '', 'These are investigation candidates from upstream branch=main observations, not test-case flake probabilities.')]);
+      host.append(note);
+      host.append(dataTable([
+        {label: 'Group', sticky: true, width: '320px', render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return groupIdentityCell(full, function () { openGroupDetail(row, ops, full, reliability); }); }},
+        {label: 'Runs', numeric: true, width: '90px', render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return linkButton(integer(row.runs), function () { openGroupDetail(row, ops, full, reliability); }); }},
+        {label: 'Passed', numeric: true, width: '90px', render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return linkButton(integer(row.passed), function () { openGroupDetail(row, ops, full, reliability); }); }},
+        {label: 'Failed / soft', numeric: true, width: '120px', render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return linkButton(integer(Number(row.failed || 0) + Number(row.soft_failed || 0)), function () { openGroupDetail(row, ops, full, reliability); }); }},
+        {label: 'Mixed-outcome incident rate', numeric: true, width: '210px', render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return linkButton(value(row.incident_rate_pct !== undefined ? row.incident_rate_pct : row.fail_rate) + '%', function () { openGroupDetail(row, ops, full, reliability); }); }},
+        {label: 'Evidence', width: '130px', render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return linkButton(integer(evidenceObservations(full).length || full.retained_observation_count) + ' runs', function () { openGroupDetail(row, ops, full, reliability); }); }},
+      ], candidates, integer(candidates.length) + ' upstream mixed-outcome candidates', {name: 'mixed-candidates', minWidth: '960px'}));
       return;
     }
 
     if (state.analyticsView === 'nightlies') {
-      const cp = chartPanel('AMD nightly regressions', 'New, recurring, and fixed group observations per completed nightly', 'analytics-trend');
+      const controls = n('div', 'ops-toolbar ops-analytics-nightly-toolbar');
+      controls.append(segmented([
+        {id: 'ci', label: 'Upstream'},
+        {id: 'amd-ci', label: 'AMD'},
+      ], state.analyticsPipeline, function (pipeline) { setRouteState('ci-analytics', 'analyticsPipeline', pipeline, 'analytics_pipeline'); }, 'Nightly pipeline'));
+      host.append(controls);
+      const cp = chartPanel(nightlyName + ' nightly regressions', 'New, recurring, and fixed group observations per completed nightly', 'analytics-trend');
       host.append(cp.root);
       drawChart('analytics-trend', cp.canvas, {type: 'bar', data: {
         labels: builds.slice().reverse().map(function (b) { return '#' + b.number; }),
@@ -1628,53 +1813,59 @@
           {label: 'Fixed', data: builds.slice().reverse().map(function (b) { return (b.transitions.fixed || []).length; }), backgroundColor: '#35bb78'},
         ],
       }, options: {scales: {x: {stacked: true}, y: {stacked: true, beginAtZero: true}}},
-      evidenceTitle: 'Nightly regression comparison history',
-      evidence: builds.slice().reverse().map(function (buildRow) { return {label: '#' + buildRow.number, timestamp: buildRow.created_at, url: buildRow.url, valueSummary: integer((buildRow.transitions.new || []).length) + ' new', details: {state: buildRow.state, new: (buildRow.transitions.new || []).length, recurring: (buildRow.transitions.recurring || []).length, fixed: (buildRow.transitions.fixed || []).length}}; })});
+      evidenceTitle: nightlyName + ' nightly regression comparison history',
+      evidence: builds.slice().reverse().map(function (buildRow) { return {label: '#' + buildRow.number, timestamp: buildRow.created_at, url: exactPipelineBuildUrl(buildRow, state.analyticsPipeline), valueSummary: integer((buildRow.transitions.new || []).length) + ' new', details: {state: buildRow.state, new: (buildRow.transitions.new || []).length, recurring: (buildRow.transitions.recurring || []).length, fixed: (buildRow.transitions.fixed || []).length}}; })});
       host.append(dataTable([
-        {label: 'AMD nightly', sticky: true, render: function (r) { return externalLink('#' + r.number, r.url, 'ops-mono'); }},
-        {label: 'State', render: function (r) { return linkedBadge(r.state, r.url); }},
-        {label: 'Observed groups', numeric: true, render: function (r) { return linkButton(integer(r.total_groups), function () { openBuildDetail(r); }); }},
-        {label: 'Hard fail', numeric: true, render: function (r) { return linkButton(integer((r.failed_groups || []).length), function () { openBuildDetail(r); }); }},
-        {label: 'Soft fail', numeric: true, render: function (r) { return linkButton(integer((r.soft_failed_groups || []).length), function () { openBuildDetail(r); }); }},
-        {label: 'New', numeric: true, render: function (r) { return linkButton(integer((r.transitions.new || []).length), function () { openBuildDetail(r); }); }},
-        {label: 'Recurring', numeric: true, render: function (r) { return linkButton(integer((r.transitions.recurring || []).length), function () { openBuildDetail(r); }); }},
-        {label: 'Fixed', numeric: true, render: function (r) { return linkButton(integer((r.transitions.fixed || []).length), function () { openBuildDetail(r); }); }},
-        {label: 'Started', render: function (r) { return shortDate(r.created_at); }},
-      ], builds, 'Nightly comparisons only; upstream remains limited to explicit parity surfaces'));
+        {label: nightlyName + ' nightly', sticky: true, width: '130px', render: function (r) { return externalLink('#' + r.number, exactPipelineBuildUrl(r, state.analyticsPipeline), 'ops-mono'); }},
+        {label: 'State', width: '120px', render: function (r) { return linkedBadge(r.state, exactPipelineBuildUrl(r, state.analyticsPipeline)); }},
+        {label: 'Observed groups', numeric: true, width: '140px', render: function (r) { return linkButton(integer(r.total_groups), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number)); }); }},
+        {label: 'Hard fail', numeric: true, width: '100px', render: function (r) { return linkButton(integer((r.failed_groups || []).length), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number)); }); }},
+        {label: 'Soft fail', numeric: true, width: '100px', render: function (r) { return linkButton(integer((r.soft_failed_groups || []).length), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number)); }); }},
+        {label: 'New', numeric: true, width: '80px', render: function (r) { return linkButton(integer((r.transitions.new || []).length), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number)); }); }},
+        {label: 'Recurring', numeric: true, width: '100px', render: function (r) { return linkButton(integer((r.transitions.recurring || []).length), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number)); }); }},
+        {label: 'Fixed', numeric: true, width: '80px', render: function (r) { return linkButton(integer((r.transitions.fixed || []).length), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number)); }); }},
+        {label: 'Started', width: '180px', render: function (r) { return shortDate(r.created_at); }},
+      ], builds, nightlyName + ' nightly comparisons; this selector does not change canonical upstream reliability', {name: 'nightly', minWidth: '1030px'}));
       return;
     }
 
     if (state.analyticsView === 'retries') {
+      if (retry.available !== true) {
+        const unavailable = n('div', 'ops-evidence-note is-warning');
+        add(unavailable, [n('strong', '', 'Upstream retry ledger unavailable. '), n('span', '', ((retry.provenance || {}).reason || 'Complete explicit Buildkite retry metadata was not retained; compacted group history was not substituted.'))]);
+        host.append(unavailable);
+        return;
+      }
       const attemptsTable = dataTable([
-        {label: 'Build', render: function (r) { return externalLink('#' + value(r.build_number), buildUrl('amd-ci', r.build_number), 'ops-mono'); }},
-        {label: 'Retried job', sticky: true, render: function (r) { return externalLink(r.name || 'Unnamed retry', r.url); }},
-        {label: 'Result', render: function (r) { return linkedBadge(r.state || 'unknown', r.url); }},
-        {label: 'Retry type', render: function (r) { return linkedBadge(r.retry_type || 'explicit', r.url, null, 'is-info'); }},
-        {label: 'Job ID', render: function (r) { return externalLink(value(r.job_id), r.url, 'ops-mono'); }},
-        {label: 'Evidence', render: function (r) { return externalLink('Open exact attempt', r.url); }},
-      ], retry.retry_attempts || [], integer((retry.retry_attempts || []).length) + ' explicit attempts; every row links to its exact Buildkite job');
-      host.append(panel('Explicit retry attempts', integer((retry.retry_attempts || []).length) + ' Buildkite attempts across ' + integer(retrySummary.builds_with_retries) + ' builds', attemptsTable));
+        {label: 'Build', width: '110px', render: function (r) { return externalLink('#' + value(r.build_number), exactReliabilityBuildUrl(r), 'ops-mono'); }},
+        {label: 'Retried job', sticky: true, width: '360px', render: function (r) { return externalLink(r.name || 'Unnamed retry', exactPipelineEvidenceUrl(r, 'ci')); }},
+        {label: 'Result', width: '120px', render: function (r) { return linkedBadge(r.state || 'unknown', exactPipelineEvidenceUrl(r, 'ci')); }},
+        {label: 'Retry type', width: '130px', render: function (r) { return linkedBadge(r.retry_type || 'explicit', exactPipelineEvidenceUrl(r, 'ci'), null, 'is-info'); }},
+        {label: 'Job ID', width: '300px', render: function (r) { return externalLink(value(r.job_id), exactPipelineEvidenceUrl(r, 'ci'), 'ops-mono'); }},
+        {label: 'Evidence', width: '170px', render: function (r) { return externalLink('Open exact attempt', exactPipelineEvidenceUrl(r, 'ci')); }},
+      ], retry.retry_attempts || [], integer((retry.retry_attempts || []).length) + ' upstream explicit attempts; every row links to its exact Buildkite job', {name: 'retry-attempts', minWidth: '1190px'});
+      host.append(panel('Upstream explicit retry attempts', integer((retry.retry_attempts || []).length) + ' Buildkite attempts across ' + integer(retrySummary.builds_with_retries) + ' builds', attemptsTable));
       const recoveryTable = dataTable([
-        {label: 'Build', render: function (r) { return externalLink('#' + value(r.build_number), r.build_url || buildUrl('amd-ci', r.build_number), 'ops-mono'); }},
-        {label: 'Retried job', sticky: true, render: function (r) { return externalLink(r.name || 'Unnamed retry chain', r.failed_url || r.passed_url); }},
-        {label: 'Failed attempt', render: function (r) { return externalLink('Open failed log', r.failed_url); }},
-        {label: 'Passing retry', render: function (r) { return externalLink('Open passing log', r.passed_url); }},
-      ], retry.failed_then_passed_recoveries || [], integer((retry.failed_then_passed_recoveries || []).length) + ' recovered chains, separate from the full attempt ledger');
-      host.append(panel('Recovered fail-to-pass chains', integer((retry.failed_then_passed_recoveries || []).length) + ' chains confirmed by explicit retry metadata', recoveryTable));
+        {label: 'Build', width: '110px', render: function (r) { return externalLink('#' + value(r.build_number), exactReliabilityBuildUrl(r), 'ops-mono'); }},
+        {label: 'Retried job', sticky: true, width: '390px', render: function (r) { return externalLink(r.name || 'Unnamed retry chain', exactPipelineEvidenceUrl({job_url: r.failed_url || r.passed_url, build_number: r.build_number}, 'ci')); }},
+        {label: 'Failed attempt', width: '190px', render: function (r) { return externalLink('Open failed log', exactPipelineEvidenceUrl({job_url: r.failed_url, build_number: r.build_number}, 'ci')); }},
+        {label: 'Passing retry', width: '190px', render: function (r) { return externalLink('Open passing log', exactPipelineEvidenceUrl({job_url: r.passed_url, build_number: r.build_number}, 'ci')); }},
+      ], retry.failed_then_passed_recoveries || [], integer((retry.failed_then_passed_recoveries || []).length) + ' upstream recovered chains, separate from the full attempt ledger', {name: 'retry-recoveries', minWidth: '880px'});
+      host.append(panel('Upstream recovered fail-to-pass chains', integer((retry.failed_then_passed_recoveries || []).length) + ' chains confirmed by explicit retry metadata', recoveryTable));
       return;
     }
 
     const latencyRows = (reliability.latency_rankings || {}).by_p90_duration || [];
     host.append(dataTable([
-      {label: 'Test group', sticky: true, render: function (r) { const full = groupReliabilityByRef(reliability, r.evidence_ref); return groupIdentityCell(full || r, function () { if (full) openGroupDetail(r, ops, full); }); }},
-      {label: 'Runs', numeric: true, render: function (r) { const full = groupReliabilityByRef(reliability, r.evidence_ref); return linkButton(integer(r.runs), function () { if (full) openGroupDetail(r, ops, full); }, 'Inspect run history for evidence ID ' + value(r.evidence_ref)); }},
-      {label: 'Median completion', numeric: true, render: function (r) { const full = groupReliabilityByRef(reliability, r.evidence_ref); return linkButton(duration(r.median_dur), function () { if (full) openGroupDetail(r, ops, full); }, 'Inspect median completion evidence for ID ' + value(r.evidence_ref)); }},
-      {label: 'p90 completion', numeric: true, render: function (r) { const full = groupReliabilityByRef(reliability, r.evidence_ref); return linkButton(duration(r.p90_dur), function () { if (full) openGroupDetail(r, ops, full); }, 'Inspect p90 completion evidence for ID ' + value(r.evidence_ref)); }},
-      {label: 'Maximum', numeric: true, render: function (r) { const full = groupReliabilityByRef(reliability, r.evidence_ref); return linkButton(duration(r.max_dur), function () { if (full) openGroupDetail(r, ops, full); }, 'Inspect maximum completion evidence for ID ' + value(r.evidence_ref)); }},
-      {label: 'Incident rate', numeric: true, render: function (r) { const full = groupReliabilityByRef(reliability, r.evidence_ref); return linkButton(Number.isFinite(Number(r.fail_rate)) ? Number(r.fail_rate).toFixed(1) + '%' : '-', function () { if (full) openGroupDetail(r, ops, full); }, 'Inspect incident evidence for ID ' + value(r.evidence_ref)); }},
-      {label: 'Queues', render: function (r) { const names = r.queues || []; const wrap = n('div', 'ops-inline-links'); names.forEach(function (name) { wrap.append(linkButton(name, function () { navigateTo('ci-queue', {queueView: 'current'}); })); }); return names.length ? wrap : n('span', 'ops-cell-muted', '-'); }},
-      {label: 'Evidence', render: function (r) { const rel = groupReliabilityByRef(reliability, r.evidence_ref); return rel ? linkButton(integer(evidenceObservations(rel).length) + ' runs', function () { openGroupDetail(r, ops, rel); }, 'Inspect exact observations for evidence ID ' + value(r.evidence_ref)) : externalLink('Published ranking', SOURCE_ASSETS.operations); }},
-    ], latencyRows, 'Completion time per test group in ' + scope.label.toLowerCase() + '; queue wait is separate when reported'));
+      {label: 'Test group', sticky: true, width: '340px', render: function (r) { const full = groupReliabilityByRef(reliability, r.evidence_ref); return groupIdentityCell(full || r, function () { if (full) openGroupDetail(r, ops, full, reliability); }); }},
+      {label: 'Runs', numeric: true, width: '90px', render: function (r) { const full = groupReliabilityByRef(reliability, r.evidence_ref); return linkButton(integer(r.runs), function () { if (full) openGroupDetail(r, ops, full, reliability); }, 'Inspect run history for evidence ID ' + value(r.evidence_ref)); }},
+      {label: 'Median completion', numeric: true, width: '150px', render: function (r) { const full = groupReliabilityByRef(reliability, r.evidence_ref); return linkButton(duration(r.median_dur), function () { if (full) openGroupDetail(r, ops, full, reliability); }, 'Inspect median completion evidence for ID ' + value(r.evidence_ref)); }},
+      {label: 'p90 completion', numeric: true, width: '140px', render: function (r) { const full = groupReliabilityByRef(reliability, r.evidence_ref); return linkButton(duration(r.p90_dur), function () { if (full) openGroupDetail(r, ops, full, reliability); }, 'Inspect p90 completion evidence for ID ' + value(r.evidence_ref)); }},
+      {label: 'Maximum', numeric: true, width: '120px', render: function (r) { const full = groupReliabilityByRef(reliability, r.evidence_ref); return linkButton(duration(r.max_dur), function () { if (full) openGroupDetail(r, ops, full, reliability); }, 'Inspect maximum completion evidence for ID ' + value(r.evidence_ref)); }},
+      {label: 'Incident rate', numeric: true, width: '130px', render: function (r) { const full = groupReliabilityByRef(reliability, r.evidence_ref); return linkButton(Number.isFinite(Number(r.fail_rate)) ? Number(r.fail_rate).toFixed(1) + '%' : '-', function () { if (full) openGroupDetail(r, ops, full, reliability); }, 'Inspect incident evidence for ID ' + value(r.evidence_ref)); }},
+      {label: 'Queues', width: '220px', render: function (r) { const names = r.queues || []; const wrap = n('div', 'ops-inline-links'); names.forEach(function (name) { wrap.append(linkButton(name, function () { navigateTo('ci-queue', {queueView: 'current'}); })); }); return names.length ? wrap : n('span', 'ops-cell-muted', '-'); }},
+      {label: 'Evidence', width: '150px', render: function (r) { const rel = groupReliabilityByRef(reliability, r.evidence_ref); return rel ? linkButton(integer(evidenceObservations(rel).length) + ' runs', function () { openGroupDetail(r, ops, rel, reliability); }, 'Inspect exact observations for evidence ID ' + value(r.evidence_ref)) : externalLink('Published ranking', SOURCE_ASSETS.operations); }},
+    ], latencyRows, 'Upstream completion time per test group in ' + scope.label.toLowerCase() + '; queue wait is separate when reported', {name: 'latency', minWidth: '1340px'}));
   }
 
   async function renderPerf(host, ops) {
@@ -1968,10 +2159,16 @@
     const endMs = new Date(endCandidate || Date.now()).getTime();
     const safeEndMs = Number.isFinite(endMs) ? endMs : Date.now();
     const cutoffMs = safeEndMs - (windowHours[windowId] || 24) * 3600000;
-    const rows = reliabilityCatalog(reliability).map(function (catalogRow) {
+    const rows = reliabilityCatalog(reliability).filter(function (catalogRow) {
+      return catalogRow && catalogRow.source_pipeline === 'ci';
+    }).map(function (catalogRow) {
       const observations = evidenceObservations(catalogRow).filter(function (observation) {
         const observedMs = new Date(observationTimestamp(observation) || 0).getTime();
-        return Number.isFinite(observedMs) && observedMs >= cutoffMs && observedMs <= safeEndMs;
+        return observation.source_pipeline === 'ci'
+          && Boolean(exactPipelineEvidenceUrl(observation, 'ci'))
+          && Number.isFinite(observedMs)
+          && observedMs >= cutoffMs
+          && observedMs <= safeEndMs;
       }).map(function (observation) {
         return Object.assign({}, observation, {
           variant_id: catalogRow.id,
@@ -2030,7 +2227,8 @@
   }
 
   async function renderTrajectory(host, ops) {
-    const reliability = ops.reliability || {};
+    const reliability = canonicalReliability(ops);
+    const scope = reliabilityScopeInfo(reliability);
     const windowData = trajectoryRowsFromReliability(reliability, state.trajectoryWindow, ops.generated_at);
     const allRows = windowData.rows;
     let rows = allRows.slice();
@@ -2040,8 +2238,14 @@
     if (state.trajectoryHardware !== 'all') rows = rows.filter(function (row) { return (row.hardware || 'unknown') === state.trajectoryHardware; });
     const query = state.trajectorySearch.trim().toLowerCase();
     if (query) rows = rows.filter(function (row) { return [row.name, row.id, row.hardware, (row.queues || []).join(' ')].some(function (part) { return String(part || '').toLowerCase().includes(query); }); });
-    const sourceAction = externalLink('Open all-main source', SOURCE_ASSETS.operations, 'ops-button');
-    add(host, pageHeader('CI Workload Trajectory', 'Current execution volume, completion time, and incident pressure derived from authoritative all-main job observations.', windowData.observedTo, sourceAction));
+    const sourceAction = externalLink('Open upstream main source', SOURCE_ASSETS.operations, 'ops-button');
+    add(host, pageHeader('CI Workload Trajectory', 'Upstream main execution volume, completion time, and incident pressure from strict vllm/ci job observations.', windowData.observedTo, sourceAction));
+    if (!scope.available) {
+      const unavailable = n('div', 'ops-evidence-note is-warning');
+      add(unavailable, [n('strong', '', 'Upstream trajectory unavailable. '), n('span', '', scope.detail + '. No AMD or nightly observations have been substituted.')]);
+      host.append(unavailable);
+      return;
+    }
     const toolbar = n('div', 'ops-toolbar');
     toolbar.append(segmented(['24h', '72h', '7d', '30d'].map(function (id) { return {id: id, label: id}; }), state.trajectoryWindow, function (id) { setRouteState('ci-hotness', 'trajectoryWindow', id, 'trajectory_window'); }, 'All-main observation window'));
     const workloadSelect = n('select', 'ops-select');
@@ -2057,7 +2261,7 @@
     search.addEventListener('change', function () { state.trajectorySearch = search.value; render('ci-hotness', true); });
     add(toolbar, [workloadSelect, hwSelect, search]); host.append(toolbar);
     const sourceNote = n('div', 'ops-evidence-note is-info');
-    add(sourceNote, [n('strong', '', 'All-main terminal history. '), n('span', '', 'Windowed in the browser from ' + shortDate(windowData.observedFrom) + ' through ' + shortDate(windowData.observedTo) + '. Identities remain split by catalog ID, hardware, and queue. The source retains up to 60 observations per group, so longer windows may be truncated.')]);
+    add(sourceNote, [n('strong', '', 'Upstream main terminal history. '), n('span', '', 'Windowed in the browser from ' + shortDate(windowData.observedFrom) + ' through ' + shortDate(windowData.observedTo) + '. Identities remain split by catalog ID, hardware, and queue. The source retains up to 60 observations per group, so longer windows may be truncated.')]);
     host.append(sourceNote);
     const totalRuns = rows.reduce(function (sum, row) { return sum + Number(row.count || 0); }, 0);
     const uniqueBuilds = new Set();
@@ -2082,20 +2286,10 @@
       {label: 'Median', numeric: true, render: function (row) { return linkButton(duration(row.p50_min), function () { openTrajectoryGroupHistory(row); }, 'Inspect median completion for ' + row.name + ' on ' + row.hardware); }},
       {label: 'p90', numeric: true, render: function (row) { return linkButton(duration(row.p90_min), function () { openTrajectoryGroupHistory(row); }, 'Inspect p90 completion for ' + row.name + ' on ' + row.hardware); }},
       {label: 'Incident rate', numeric: true, render: function (row) { return linkButton(hotnessRatePercent(row).toFixed(1) + '%', function () { openTrajectoryGroupHistory(row); }, 'Inspect incidents for ' + row.name + ' on ' + row.hardware); }},
-      {label: 'Last observed', render: function (row) { const latest = row.observations.slice().sort(function (a, b) { return new Date(observationTimestamp(b) || 0) - new Date(observationTimestamp(a) || 0); })[0]; return externalLink(shortDate(row.last_seen), recordUrl(latest)); }},
+      {label: 'Last observed', render: function (row) { const latest = row.observations.slice().sort(function (a, b) { return new Date(observationTimestamp(b) || 0) - new Date(observationTimestamp(a) || 0); })[0]; return externalLink(shortDate(row.last_seen), exactPipelineEvidenceUrl(latest, 'ci')); }},
       {label: 'Evidence', render: function (row) { return linkButton(integer(row.observations.length) + ' exact links', function () { openTrajectoryGroupHistory(row); }, 'Open exact Buildkite evidence for catalog ID ' + row.id); }},
     ], rows.slice(0, 150), rows.length + ' strict all-main test-group variants'));
 
-    const trajectoryAmd = (((ops.trajectory || {}).pipelines || []).find(function (pipeline) { return pipeline.pipeline === 'amd-ci'; }) || {}).builds || [];
-    if (trajectoryAmd.length) {
-      host.append(panel('Recent AMD build trajectory', 'Retained build-level history', dataTable([
-        {label: 'Build', sticky: true, render: function (row) { return externalLink('#' + value(row.build_number), row.url || buildUrl('amd-ci', row.build_number), 'ops-mono'); }},
-        {label: 'State', render: function (row) { return linkedBadge(row.state || 'unknown', row.url || buildUrl('amd-ci', row.build_number)); }},
-        {label: 'Pass rate', numeric: true, render: function (row) { return externalLink(Number.isFinite(Number(row.pass_rate)) ? Number(row.pass_rate).toFixed(1) + '%' : '-', row.url || buildUrl('amd-ci', row.build_number)); }},
-        {label: 'Failed jobs', numeric: true, render: function (row) { return externalLink(integer(row.jobs_failed), row.url || buildUrl('amd-ci', row.build_number)); }},
-        {label: 'Observed', render: function (row) { return shortDate(row.created_at); }},
-      ], trajectoryAmd, integer(trajectoryAmd.length) + ' retained AMD builds')));
-    }
   }
 
   async function renderOmni(host, ops) {

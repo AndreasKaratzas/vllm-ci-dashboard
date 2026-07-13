@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from statistics import median
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -23,6 +24,7 @@ CHANGE_LIMIT = 20
 GROUP_HISTORY_LIMIT = 60
 FAILED_STATES = {"failed", "timed_out", "broken", "canceled"}
 SOFT_FAILED_STATES = {"soft_fail", "soft_failed"}
+TRUSTWORTHY_BUILD_STATES = {"passed", "failed"}
 RETRY_EVIDENCE_FIELDS = (
     "retried",
     "retried_in_job_id",
@@ -158,25 +160,23 @@ def _source_record(path: Path, data: dict, timestamp: str = "") -> dict:
 
 
 def _build_url(pipeline: str, build: dict) -> str:
-    if build.get("web_url"):
-        return str(build["web_url"])
-    number = build.get("number") or build.get("build_number")
+    number = _strict_int(build.get("number") or build.get("build_number"))
     return f"https://buildkite.com/vllm/{pipeline}/builds/{number}" if number else ""
 
 
 def _job_url(pipeline: str, build: dict, job: dict) -> str:
-    if job.get("url") or job.get("web_url"):
-        return str(job.get("url") or job.get("web_url"))
     base = _build_url(pipeline, build)
     if not base:
         return ""
-    if pipeline == "amd-ci" and job.get("step_id"):
-        return f"{base}/steps/canvas?sid={job['step_id']}&tab=output"
     if job.get("job_id"):
         return f"{base}/steps/canvas?jid={job['job_id']}&tab=output"
     if job.get("step_id"):
         return f"{base}/steps/canvas?sid={job['step_id']}&tab=output"
-    return base
+    raw_url = job.get("url") or job.get("web_url")
+    build_number = build.get("number") or build.get("build_number")
+    return str(raw_url) if _pipeline_job_url_matches(
+        raw_url, pipeline, build_number
+    ) else ""
 
 
 def _group_identity(job: dict) -> str:
@@ -185,7 +185,13 @@ def _group_identity(job: dict) -> str:
 
 def _group_row(pipeline: str, build: dict, job: dict, state: str) -> dict:
     raw_name = _group_identity(job)
-    row = {"name": raw_name, "state": state, "url": _job_url(pipeline, build, job)}
+    row = {
+        "name": raw_name,
+        "state": state,
+        "url": _job_url(pipeline, build, job),
+        "source_pipeline": pipeline,
+        "build_number": build.get("number") or build.get("build_number"),
+    }
     display_name = str(job.get("name") or "")
     if display_name and display_name != raw_name:
         row["display_name"] = display_name
@@ -253,6 +259,7 @@ def _nightly_pipeline(pipeline: str, analytics: dict) -> dict:
         ) if previous_build else []
         rows.append({
             "number": build.get("number") or build.get("build_number"),
+            "source_pipeline": pipeline,
             "created_at": build.get("created_at") or "",
             "state": build.get("state") or "unknown",
             "url": _build_url(pipeline, build),
@@ -388,20 +395,157 @@ def _target_match_key(value: Any) -> str:
     return MULTISPACE_RE.sub(" ", text).strip()
 
 
-def _mainline_builds(amd_analytics: dict) -> tuple[list[dict], dict]:
-    for key in ("main_builds", "mainline_builds"):
-        rows = amd_analytics.get(key)
-        if isinstance(rows, list):
-            return rows, dict(amd_analytics.get(f"{key}_provenance") or {})
-    cohorts = amd_analytics.get("cohorts") or {}
-    for key in ("main", "mainline"):
-        cohort = cohorts.get(key) or {}
-        if isinstance(cohort.get("builds"), list):
-            return list(cohort["builds"]), {k: v for k, v in cohort.items() if k != "builds"}
-    return list(amd_analytics.get("builds") or []), {
-        "fallback": True,
-        "note": "Collector did not expose a separate all-main cohort.",
-    }
+def _strict_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _pipeline_url_parts(value: Any, pipeline_slug: str) -> tuple[int, list[str], dict] | None:
+    try:
+        parsed = urlparse(str(value or ""))
+    except ValueError:
+        return None
+    if parsed.scheme != "https" or parsed.netloc != "buildkite.com":
+        return None
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) < 4 or parts[:3] != ["vllm", pipeline_slug, "builds"]:
+        return None
+    build_number = _strict_int(parts[3])
+    if build_number is None:
+        return None
+    return build_number, parts[4:], parse_qs(parsed.query)
+
+
+def _pipeline_build_url_matches(
+    value: Any,
+    pipeline_slug: str,
+    build_number: Any = None,
+) -> bool:
+    parsed = _pipeline_url_parts(value, pipeline_slug)
+    expected = _strict_int(build_number)
+    return bool(parsed and not parsed[1] and (expected is None or parsed[0] == expected))
+
+
+def _pipeline_job_url_matches(
+    value: Any,
+    pipeline_slug: str,
+    build_number: Any = None,
+) -> bool:
+    parsed = _pipeline_url_parts(value, pipeline_slug)
+    expected = _strict_int(build_number)
+    if not parsed or (expected is not None and parsed[0] != expected):
+        return False
+    suffix, query = parsed[1], parsed[2]
+    if len(suffix) < 2 or suffix[0] != "steps":
+        return False
+    if suffix[1] == "canvas":
+        return bool(query.get("jid") or query.get("sid"))
+    return bool(suffix[1])
+
+
+def _strict_build_rows(rows: Any, pipeline_slug: str) -> tuple[bool, set[int]]:
+    if not isinstance(rows, list):
+        return False, set()
+    build_numbers: set[int] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            return False, set()
+        number = _strict_int(row.get("number"))
+        if (
+            number is None
+            or row.get("branch") != "main"
+            or str(row.get("state") or "").lower() not in TRUSTWORTHY_BUILD_STATES
+            or not row.get("finished_at")
+            or not _pipeline_build_url_matches(
+                row.get("url") or row.get("web_url"),
+                pipeline_slug,
+                number,
+            )
+            or number in build_numbers
+        ):
+            return False, set()
+        build_numbers.add(number)
+    return True, build_numbers
+
+
+def _collector_main_is_strict(payload: Any, pipeline_slug: str) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    cohort = payload.get("cohort")
+    provenance = payload.get("provenance")
+    builds = payload.get("builds")
+    groups = payload.get("groups")
+    if not isinstance(cohort, dict) or not isinstance(provenance, dict):
+        return False
+    if not isinstance(groups, list):
+        return False
+    query = provenance.get("query")
+    collection = provenance.get("collection")
+    build_states = cohort.get("build_states")
+    strict_builds, build_numbers = _strict_build_rows(builds, pipeline_slug)
+    if (
+        not strict_builds
+        or not isinstance(build_states, list)
+        or any(not isinstance(state, str) for state in build_states)
+        or set(build_states) != TRUSTWORTHY_BUILD_STATES
+        or _strict_int(cohort.get("build_count")) != len(builds)
+        or cohort.get("id") != f"{pipeline_slug}-main-completed-pass-fail"
+        or cohort.get("pipeline") != pipeline_slug
+        or cohort.get("branch") != "main"
+        or cohort.get("exhaustive") is not True
+        or provenance.get("pipeline") != pipeline_slug
+        or not str(provenance.get("endpoint") or "").endswith(
+            f"/pipelines/{pipeline_slug}/builds"
+        )
+        or not isinstance(query, dict)
+        or query.get("branch") != "main"
+        or not isinstance(collection, dict)
+        or collection.get("exhaustive") is not True
+    ):
+        return False
+    for group in groups:
+        if not isinstance(group, dict) or not isinstance(group.get("observations"), list):
+            return False
+        numeric_fields = (
+            "denominator", "passed", "failed", "soft_failed",
+            "excluded_observations", "retry_evidence_observations",
+        )
+        if any(
+            isinstance(group.get(field), bool)
+            or not isinstance(group.get(field), int)
+            or group.get(field) < 0
+            for field in numeric_fields
+        ):
+            return False
+        if not isinstance(group.get("duration"), dict):
+            return False
+        for observation in group["observations"]:
+            if not isinstance(observation, dict):
+                return False
+            number = _strict_int(observation.get("build_number"))
+            if (
+                number not in build_numbers
+                or observation.get("source_pipeline") != pipeline_slug
+                or not _pipeline_build_url_matches(
+                    observation.get("build_url"), pipeline_slug, number
+                )
+                or not _pipeline_job_url_matches(
+                    observation.get("job_url"), pipeline_slug, number
+                )
+                or (
+                    observation.get("step_url")
+                    and not _pipeline_job_url_matches(
+                        observation.get("step_url"), pipeline_slug, number
+                    )
+                )
+            ):
+                return False
+    return True
 
 
 def _build_kind(build: dict) -> str:
@@ -412,11 +556,17 @@ def _build_kind(build: dict) -> str:
     return "nightly" if "nightly" in message else "main"
 
 
-def _historical_observation(build: dict, job: dict, group_id: str = "") -> dict:
+def _historical_observation(
+    build: dict,
+    job: dict,
+    group_id: str = "",
+    pipeline_slug: str = "amd-ci",
+) -> dict:
     state = _historical_state(job)
     row = {
+        "source_pipeline": pipeline_slug,
         "build_number": build.get("number") or build.get("build_number"),
-        "build_url": _build_url("amd-ci", build),
+        "build_url": _build_url(pipeline_slug, build),
         "build_kind": _build_kind(build),
         "state": state,
         "observed_at": (
@@ -440,7 +590,7 @@ def _historical_observation(build: dict, job: dict, group_id: str = "") -> dict:
         if source not in (None, ""):
             row[key] = source
     if job.get("url") or job.get("web_url") or job.get("job_id") or job.get("step_id"):
-        row["job_url"] = _job_url("amd-ci", build, job)
+        row["job_url"] = _job_url(pipeline_slug, build, job)
 
     wall = _number(
         job.get("wall_duration_mins")
@@ -515,7 +665,10 @@ def _streak(observations: list[dict], build_kind: str | None = None) -> int:
     return count
 
 
-def _group_catalog(builds: list[dict]) -> tuple[list[dict], dict]:
+def _group_catalog(
+    builds: list[dict],
+    pipeline_slug: str = "amd-ci",
+) -> tuple[list[dict], dict]:
     groups: dict[str, dict] = {}
     unknown_observations = 0
     source_builds = sorted(
@@ -571,7 +724,12 @@ def _group_catalog(builds: list[dict]) -> tuple[list[dict], dict]:
                 row["soft_failed"] += 1
             else:
                 row["failed"] += 1
-            observation = _historical_observation(build, job, group_id)
+            observation = _historical_observation(
+                build,
+                job,
+                group_id,
+                pipeline_slug=pipeline_slug,
+            )
             if observation.get("job_url"):
                 row["linked"] += 1
             if observation.get("retry_evidence"):
@@ -605,6 +763,7 @@ def _group_catalog(builds: list[dict]) -> tuple[list[dict], dict]:
         end_to_end = sorted(row["end_to_end"])
         preferred = wall or test
         catalog.append({
+            "source_pipeline": pipeline_slug,
             "id": row["id"],
             "group_ids": sorted(row["group_ids"]),
             "name": row["name"],
@@ -663,7 +822,10 @@ def _group_catalog(builds: list[dict]) -> tuple[list[dict], dict]:
     }
 
 
-def _collector_main_catalog(payload: dict) -> tuple[list[dict], dict, dict]:
+def _collector_main_catalog(
+    payload: dict,
+    pipeline_slug: str = "amd-ci",
+) -> tuple[list[dict], dict, dict]:
     """Adapt the collector's strict all-main variant catalog for the UI contract."""
     build_kind = {
         row.get("number"): "nightly" if row.get("is_canonical_nightly") else "main"
@@ -686,17 +848,30 @@ def _collector_main_catalog(payload: dict) -> tuple[list[dict], dict, dict]:
                 continue
             result = str(raw.get("result") or "")
             state = "soft" if result == "soft_fail" else ("hard" if result == "failed" else result)
+            build_number = raw.get("build_number")
+            build_url = raw.get("build_url") or _build_url(
+                pipeline_slug,
+                {"number": build_number},
+            )
+            job_url = raw.get("job_url") or ""
+            if not job_url and (raw.get("job_id") or raw.get("step_id")):
+                job_url = _job_url(
+                    pipeline_slug,
+                    {"number": build_number, "web_url": build_url},
+                    {"job_id": raw.get("job_id"), "step_id": raw.get("step_id")},
+                )
             row = {
+                "source_pipeline": pipeline_slug,
                 "group_id": source.get("group_id"),
-                "build_number": raw.get("build_number"),
-                "build_url": raw.get("build_url"),
-                "build_kind": build_kind.get(raw.get("build_number"), "main"),
+                "build_number": build_number,
+                "build_url": build_url,
+                "build_kind": build_kind.get(build_number, "main"),
                 "commit": raw.get("build_commit") or "",
                 "message": raw.get("build_message") or "",
                 "state": state,
                 "terminal_state": raw.get("terminal_state") or "",
                 "observed_at": raw.get("observed_at") or "",
-                "job_url": raw.get("job_url") or "",
+                "job_url": job_url,
                 "step_url": raw.get("step_url") or "",
                 "job_id": raw.get("job_id") or "",
                 "step_id": raw.get("step_id") or "",
@@ -714,16 +889,20 @@ def _collector_main_catalog(payload: dict) -> tuple[list[dict], dict, dict]:
                 preferred = raw.get("test_duration_mins")
             if preferred is not None:
                 row["duration_mins"] = preferred
+            for key in ("tests", "passed_tests", "failed_tests", "skipped_tests"):
+                if isinstance(raw.get(key), (int, float)) and not isinstance(raw.get(key), bool):
+                    row[key] = raw[key]
             retry = raw.get("retry_evidence") or {}
             if retry:
                 row["retry_evidence"] = retry
                 attempt = {
+                    "source_pipeline": pipeline_slug,
                     "group_id": source.get("group_id"),
                     "name": source.get("name"),
-                    "build_number": raw.get("build_number"),
-                    "build_url": raw.get("build_url"),
+                    "build_number": build_number,
+                    "build_url": build_url,
                     "job_id": raw.get("job_id"),
-                    "job_url": raw.get("job_url"),
+                    "job_url": job_url,
                     "result": result,
                     "retry_evidence": retry,
                 }
@@ -731,10 +910,22 @@ def _collector_main_catalog(payload: dict) -> tuple[list[dict], dict, dict]:
                 retried_in = str(retry.get("retried_in_job_id") or "")
                 recovered = by_job_id.get(retried_in) if retried_in else None
                 if recovered and recovered.get("result") == "passed":
+                    recovered_job_url = recovered.get("job_url") or ""
+                    if not recovered_job_url and (recovered.get("job_id") or recovered.get("step_id")):
+                        recovered_job_url = _job_url(
+                            pipeline_slug,
+                            {"number": build_number, "web_url": build_url},
+                            {
+                                "job_id": recovered.get("job_id"),
+                                "step_id": recovered.get("step_id"),
+                            },
+                        )
                     recoveries.append({
                         **attempt,
-                        "failed_job_url": raw.get("job_url"),
-                        "passed_job_url": recovered.get("job_url"),
+                        "failed_job_id": raw.get("job_id"),
+                        "passed_job_id": recovered.get("job_id"),
+                        "failed_job_url": job_url,
+                        "passed_job_url": recovered_job_url,
                     })
             observations.append({key: value for key, value in row.items() if value not in (None, "")})
 
@@ -761,6 +952,7 @@ def _collector_main_catalog(payload: dict) -> tuple[list[dict], dict, dict]:
             if group_id
         })
         catalog.append({
+            "source_pipeline": pipeline_slug,
             "id": source.get("group_id"),
             "group_ids": group_ids,
             "name": source.get("name") or source.get("raw_name") or "Unknown group",
@@ -833,47 +1025,82 @@ def _collector_main_catalog(payload: dict) -> tuple[list[dict], dict, dict]:
     return catalog, counts, retry_analysis
 
 
-def _normalize_retry_analysis(source: dict, fallback: dict) -> dict:
-    """Preserve every explicit retry record and normalize exact link fields."""
-    selected = source if isinstance(source, dict) and source else fallback
+def _normalize_retry_analysis(
+    source: Any,
+    cohort_build_numbers: set[int],
+    pipeline_slug: str = "ci",
+) -> dict:
+    """Retain only explicit retry records that belong to the strict cohort."""
+    selected = source if isinstance(source, dict) else {}
+    source_provenance = selected.get("provenance")
+    source_provenance = source_provenance if isinstance(source_provenance, dict) else {}
+    if (
+        selected.get("available") is not True
+        or source_provenance.get("source_pipeline") != pipeline_slug
+        or source_provenance.get("complete") is not True
+    ):
+        return {
+            "available": False,
+            "summary": {
+                "builds_evaluated": len(cohort_build_numbers),
+                "builds_with_retries": 0,
+                "retry_attempt_count": 0,
+                "failed_then_passed_recovery_count": 0,
+                "linked_retry_attempt_count": 0,
+                "linked_recovery_count": 0,
+            },
+            "retry_attempts": [],
+            "failed_then_passed_recoveries": [],
+            "evidence_type": "explicit_retry_recovery",
+            "provenance": {
+                "source_path": SOURCE_FILES["analytics"],
+                "source_key": f"{pipeline_slug}.main_retry_analysis",
+                "source_pipeline": pipeline_slug,
+                "complete": False,
+                "reason": source_provenance.get("reason") or (
+                    "Complete explicit retry metadata is unavailable; retained group history was not substituted."
+                ),
+                "cohort_build_numbers": sorted(cohort_build_numbers),
+            },
+        }
     attempts = []
     for value in selected.get("retry_attempts") or []:
+        if not isinstance(value, dict):
+            continue
         row = dict(value)
-        build_number = row.get("build_number")
-        build_url = row.get("build_url") or (
-            f"https://buildkite.com/vllm/amd-ci/builds/{build_number}"
-            if build_number else ""
-        )
+        build_number = _strict_int(row.get("build_number"))
         job_url = row.get("job_url") or row.get("url") or ""
-        if not job_url and build_url and row.get("job_id"):
-            job_url = f"{build_url}/steps/canvas?jid={row['job_id']}&tab=output"
-        if build_url:
-            row["build_url"] = build_url
-        if job_url:
-            row["job_url"] = job_url
-            row["url"] = job_url
+        if (
+            build_number not in cohort_build_numbers
+            or row.get("source_pipeline") not in (None, "", pipeline_slug)
+            or not _pipeline_job_url_matches(job_url, pipeline_slug, build_number)
+        ):
+            continue
+        row["build_url"] = _build_url(pipeline_slug, {"number": build_number})
+        row["job_url"] = job_url
+        row["url"] = job_url
+        row["source_pipeline"] = pipeline_slug
         attempts.append(row)
 
     recoveries = []
     for value in selected.get("failed_then_passed_recoveries") or []:
+        if not isinstance(value, dict):
+            continue
         row = dict(value)
-        build_number = row.get("build_number")
-        build_url = row.get("build_url") or (
-            f"https://buildkite.com/vllm/amd-ci/builds/{build_number}"
-            if build_number else ""
-        )
+        build_number = _strict_int(row.get("build_number"))
         failed_url = row.get("failed_url") or row.get("failed_job_url") or ""
         passed_url = row.get("passed_url") or row.get("passed_job_url") or ""
-        if not failed_url and build_url and row.get("failed_job_id"):
-            failed_url = f"{build_url}/steps/canvas?jid={row['failed_job_id']}&tab=output"
-        if not passed_url and build_url and row.get("passed_job_id"):
-            passed_url = f"{build_url}/steps/canvas?jid={row['passed_job_id']}&tab=output"
-        if build_url:
-            row["build_url"] = build_url
-        if failed_url:
-            row["failed_url"] = failed_url
-        if passed_url:
-            row["passed_url"] = passed_url
+        if (
+            build_number not in cohort_build_numbers
+            or row.get("source_pipeline") not in (None, "", pipeline_slug)
+            or not _pipeline_job_url_matches(failed_url, pipeline_slug, build_number)
+            or not _pipeline_job_url_matches(passed_url, pipeline_slug, build_number)
+        ):
+            continue
+        row["build_url"] = _build_url(pipeline_slug, {"number": build_number})
+        row["failed_url"] = failed_url
+        row["passed_url"] = passed_url
+        row["source_pipeline"] = pipeline_slug
         recoveries.append(row)
 
     summary = dict(selected.get("summary") or {})
@@ -890,13 +1117,17 @@ def _normalize_retry_analysis(source: dict, fallback: dict) -> dict:
     )
     return {
         **selected,
+        "available": True,
         "summary": summary,
         "retry_attempts": attempts,
         "failed_then_passed_recoveries": recoveries,
         "evidence_type": "explicit_retry_recovery",
         "provenance": {
             "source_path": SOURCE_FILES["analytics"],
-            "source_key": "amd-ci.main_retry_analysis",
+            "source_key": f"{pipeline_slug}.main_retry_analysis",
+            "source_pipeline": pipeline_slug,
+            "complete": True,
+            "cohort_build_numbers": sorted(cohort_build_numbers),
             "evidence_kind": "explicit Buildkite retry metadata retained by the collector",
         },
     }
@@ -928,26 +1159,35 @@ def _cohort_composition(payload: dict, counts: dict, provenance: dict) -> dict:
     }
 
 
-def _reliability(amd_analytics: dict) -> dict:
-    collector_payload = amd_analytics.get("all_main_reliability") or {}
-    if isinstance(collector_payload, dict) and isinstance(collector_payload.get("groups"), list):
-        catalog, counts, derived_retry_analysis = _collector_main_catalog(collector_payload)
-        retry_source = amd_analytics.get("main_retry_analysis") or {}
+def _reliability(pipeline_analytics: Any, pipeline_slug: str = "ci") -> dict:
+    pipeline_analytics = pipeline_analytics if isinstance(pipeline_analytics, dict) else {}
+    collector_payload = pipeline_analytics.get("all_main_reliability") or {}
+    strict_available = False
+    collector_present = isinstance(collector_payload, dict) and bool(collector_payload)
+    if collector_present and _collector_main_is_strict(collector_payload, pipeline_slug):
+        strict_available = True
+        catalog, counts, _derived_retry_analysis = _collector_main_catalog(
+            collector_payload,
+            pipeline_slug=pipeline_slug,
+        )
+        retry_source = pipeline_analytics.get("main_retry_analysis") or {}
         cohort_provenance = {
             "cohort": collector_payload.get("cohort") or {},
             "denominator": collector_payload.get("denominator") or {},
             "provenance": collector_payload.get("provenance") or {},
         }
     else:
-        builds, cohort_provenance = _mainline_builds(amd_analytics)
-        catalog, counts = _group_catalog(builds)
-        retry_source = dict(
-            amd_analytics.get("main_retry_analysis")
-            or ((amd_analytics.get("cohorts") or {}).get("main") or {}).get("retry_analysis")
-            or amd_analytics.get("retry_analysis")
-            or {}
-        )
-        derived_retry_analysis = {}
+        catalog, counts = _group_catalog([], pipeline_slug=pipeline_slug)
+        retry_source = {}
+        cohort_provenance = {
+            "unavailable": True,
+            "invalid_collector_cohort": collector_present,
+            "note": (
+                "Collector all-main payload failed strict exhaustive pipeline, branch, state, cohort, or URL validation."
+                if collector_present
+                else "Collector did not expose an exhaustive strict all-main cohort; nightly data was not substituted."
+            ),
+        }
     def summary(row: dict) -> dict:
         return {
             key: value
@@ -967,26 +1207,46 @@ def _reliability(amd_analytics: dict) -> dict:
     by_median = sorted(latency, key=lambda row: (float(row.get("median_dur") or 0), row["name"]), reverse=True)
     by_p90 = sorted(latency, key=lambda row: (float(row.get("p90_dur") or 0), row["name"]), reverse=True)
     by_max = sorted(latency, key=lambda row: (float(row.get("max_dur") or 0), row["name"]), reverse=True)
-    retry_analysis = _normalize_retry_analysis(retry_source, derived_retry_analysis)
-    composition = _cohort_composition(collector_payload, counts, cohort_provenance)
+    cohort_build_numbers = {
+        number
+        for row in (collector_payload.get("builds") or [])
+        if isinstance(row, dict) and (number := _strict_int(row.get("number"))) is not None
+    } if strict_available else set()
+    retry_analysis = _normalize_retry_analysis(
+        retry_source,
+        cohort_build_numbers,
+        pipeline_slug=pipeline_slug,
+    )
+    composition = _cohort_composition(
+        collector_payload if strict_available else {},
+        counts,
+        cohort_provenance,
+    )
     return {
-        "source_pipeline": "amd-ci",
+        "available": strict_available,
+        "source_pipeline": pipeline_slug,
         "cohort": {
             "id": "main",
-            "label": "All completed amd-ci branch=main builds",
+            "available": strict_available,
+            "label": (
+                f"All completed {pipeline_slug} branch=main builds"
+                if strict_available
+                else f"Strict {pipeline_slug} branch=main reliability unavailable"
+            ),
             **composition,
+            "build_numbers": sorted(cohort_build_numbers),
             "provenance": cohort_provenance,
         },
         "evidence_definitions": {
             "mixed_outcome_history": (
-                "At least one passed and one incident observation in the all-main AMD cohort; "
+                f"At least one passed and one incident observation in the all-main {pipeline_slug} cohort; "
                 "this is a flaky candidate, not proof that a retry recovered."
             ),
             "explicit_retry_recovery": "Buildkite retry metadata linking a failed attempt to a passed retry.",
             "terminal_history": "Only passed, hard-failed, or soft-failed jobs count in the denominator.",
         },
         "denominator": {
-            "unit": "terminal amd-ci branch=main job observations",
+            "unit": f"terminal {pipeline_slug} branch=main job observations",
             "builds": counts["builds"],
             "groups": len(catalog),
             "observations": counts["terminal_observations"],
@@ -1024,6 +1284,8 @@ def _matrix_evidence(matrix: dict) -> dict[str, dict]:
                 "raw_state": raw_state,
                 "build_number": cell.get("latest_build_number") or (matrix.get("source") or {}).get("latest_build_number"),
                 "url": cell.get("latest_url") or "",
+                "source": "amd_matrix",
+                "source_pipeline": "amd-ci",
             })
         if not evidence:
             continue
@@ -1040,6 +1302,7 @@ def _matrix_evidence(matrix: dict) -> dict[str, dict]:
             "state": state,
             "build_number": max((item.get("build_number") or 0 for item in evidence), default=None),
             "observed_at": matrix.get("generated_at"),
+            "source_pipeline": "amd-ci",
             "evidence": evidence,
         }
     return evidence_by_key
@@ -1053,11 +1316,71 @@ def _assessment(latest: dict, reliability: dict) -> str:
         return "soft_failing_now"
     if state != "passed":
         return "no_recent_amd_signal"
-    if not reliability:
+    if reliability.get("available") is not True or not int(reliability.get("runs") or 0):
         return "passed_without_history"
     if reliability.get("incident_count"):
         return "passed_with_incident_history"
     return "consistently_passing"
+
+
+def _target_history_summary(histories: list[dict]) -> dict:
+    """Aggregate matched variants by build, with incident precedence."""
+    buckets: dict[tuple[str, Any], list[dict]] = defaultdict(list)
+    for variant in histories:
+        for observation in variant.get("observations") or []:
+            if not isinstance(observation, dict):
+                continue
+            build_number = observation.get("build_number")
+            key = (
+                "build" if build_number not in (None, "") else "time",
+                build_number if build_number not in (None, "") else observation.get("observed_at"),
+            )
+            buckets[key].append(observation)
+    precedence = {"passed": 0, "unknown": 1, "soft": 2, "hard": 3}
+    timeline = []
+    for rows in buckets.values():
+        representative = max(
+            rows,
+            key=lambda row: (
+                precedence.get(str(row.get("state") or "unknown"), 1),
+                str(row.get("observed_at") or ""),
+            ),
+        )
+        state = str(representative.get("state") or "unknown")
+        timeline.append({
+            "state": state,
+            "build_number": representative.get("build_number"),
+            "build_kind": representative.get("build_kind") or "main",
+            "observed_at": max(str(row.get("observed_at") or "") for row in rows),
+            "job_url": representative.get("job_url"),
+            "build_url": representative.get("build_url"),
+        })
+    timeline.sort(
+        key=lambda row: (
+            str(row.get("observed_at") or ""),
+            _strict_int(row.get("build_number")) or 0,
+        ),
+        reverse=True,
+    )
+
+    def streak(build_kind: str | None = None) -> int:
+        count = 0
+        for row in timeline:
+            if build_kind and row.get("build_kind") != build_kind:
+                continue
+            if row.get("state") != "passed":
+                break
+            count += 1
+        return count
+
+    latest = timeline[0] if timeline else {}
+    return {
+        "latest_state": latest.get("state"),
+        "latest_observed_at": latest.get("observed_at"),
+        "latest_url": latest.get("job_url") or latest.get("build_url"),
+        "green_streak": streak(),
+        "nightly_green_streak": streak("nightly"),
+    }
 
 
 def _gating(targets: dict, candidates: dict, matrix: dict, capacity: dict, reliability: dict) -> dict:
@@ -1067,6 +1390,7 @@ def _gating(targets: dict, candidates: dict, matrix: dict, capacity: dict, relia
     matrix_summary = dict(matrix.get("summary") or {})
     matrix_cells = int(matrix_summary.get("hardware_cells") or 0)
     matrix_by_key = _matrix_evidence(matrix)
+    history_pipeline = str(reliability.get("source_pipeline") or "ci")
     catalog_by_key: dict[str, list[dict]] = defaultdict(list)
     for row in reliability.get("group_catalog") or []:
         catalog_by_key[_target_match_key(row.get("name"))].append(row)
@@ -1078,6 +1402,7 @@ def _gating(targets: dict, candidates: dict, matrix: dict, capacity: dict, relia
                 "state": row.get("state"),
                 "url": row.get("url"),
                 "source": "upstream_parity",
+                "source_pipeline": "ci",
             })
 
     def enrich(group: dict, reviewed: bool) -> dict:
@@ -1088,25 +1413,28 @@ def _gating(targets: dict, candidates: dict, matrix: dict, capacity: dict, relia
             key=lambda row: str(row.get("latest_observed_at") or ""),
             default={},
         )
+        target_history = _target_history_summary(histories)
         runs = sum(int(row.get("runs") or 0) for row in histories)
         passed = sum(int(row.get("passed") or 0) for row in histories)
         failed = sum(int(row.get("failed") or 0) for row in histories)
         soft_failed = sum(int(row.get("soft_failed") or 0) for row in histories)
         incidents = failed + soft_failed
+        history_available = (
+            reliability.get("available") is True
+            and bool(histories)
+            and runs > 0
+        )
         latest_incident = max(
             (row.get("last_incident") for row in histories if row.get("last_incident")),
             key=lambda row: str(row.get("observed_at") or ""),
             default=None,
         )
         latest = matrix_by_key.get(key) or {
-            "state": history.get("latest_state") or "unknown",
-            "build_number": (history.get("observations") or [{}])[0].get("build_number") if history else None,
-            "observed_at": history.get("latest_observed_at"),
-            "evidence": ([{
-                "state": history.get("latest_state"),
-                "url": history.get("latest_url"),
-                "source": "main_history",
-            }] if history.get("latest_url") else []),
+            "state": "unknown",
+            "build_number": None,
+            "observed_at": matrix.get("generated_at"),
+            "source_pipeline": "amd-ci",
+            "evidence": [],
         }
         aggregate_group_ids = sorted({
             str(group_id)
@@ -1115,6 +1443,8 @@ def _gating(targets: dict, candidates: dict, matrix: dict, capacity: dict, relia
             if group_id
         })
         reliability_summary = {
+            "available": history_available,
+            "source_pipeline": history_pipeline,
             "id": history.get("id"),
             "group_ids": aggregate_group_ids,
             "variant_count": len(histories),
@@ -1124,11 +1454,11 @@ def _gating(targets: dict, candidates: dict, matrix: dict, capacity: dict, relia
             "soft_failed": soft_failed,
             "incident_count": incidents,
             "incident_rate_pct": round(incidents / runs * 100, 1) if runs else None,
-            "green_streak": history.get("green_streak") or 0,
-            "nightly_green_streak": history.get("nightly_green_streak") or 0,
-            "latest_state": history.get("latest_state"),
-            "latest_observed_at": history.get("latest_observed_at"),
-            "latest_url": history.get("latest_url"),
+            "green_streak": target_history.get("green_streak") or 0,
+            "nightly_green_streak": target_history.get("nightly_green_streak") or 0,
+            "latest_state": target_history.get("latest_state"),
+            "latest_observed_at": target_history.get("latest_observed_at"),
+            "latest_url": target_history.get("latest_url"),
             "variants": [
                 {
                     key: row.get(key)
@@ -1141,8 +1471,25 @@ def _gating(targets: dict, candidates: dict, matrix: dict, capacity: dict, relia
                 for row in histories
             ],
         }
-        evidence = list(latest.get("evidence") or [])
-        evidence.extend(parity_by_id.get(group.get("id"), []))
+        evidence = list(parity_by_id.get(group.get("id"), []))
+        linked_urls = {str(row.get("url")) for row in evidence if row.get("url")}
+        for variant in histories:
+            observation = (variant.get("observations") or [{}])[0]
+            url = observation.get("job_url") or observation.get("build_url") or variant.get("latest_url")
+            if not url or str(url) in linked_urls:
+                continue
+            linked_urls.add(str(url))
+            evidence.append({
+                "label": variant.get("name") or group.get("label"),
+                "state": observation.get("state") or variant.get("latest_state") or "unknown",
+                "build_number": observation.get("build_number"),
+                "build_url": observation.get("build_url"),
+                "observed_at": observation.get("observed_at") or variant.get("latest_observed_at"),
+                "url": url,
+                "source": "upstream_main_history",
+                "source_pipeline": history_pipeline,
+                "group_id": variant.get("id"),
+            })
         return {
             "id": group.get("id"),
             "label": group.get("label") or "Unknown group",
@@ -1156,7 +1503,7 @@ def _gating(targets: dict, candidates: dict, matrix: dict, capacity: dict, relia
             },
             "latest_amd_result": latest,
             "main_reliability": reliability_summary,
-            "nightly_green_streak": history.get("nightly_green_streak") or 0,
+            "nightly_green_streak": target_history.get("nightly_green_streak") or 0,
             "last_incident": latest_incident,
             "assessment": _assessment(latest, reliability_summary),
             "evidence": evidence,
@@ -1189,8 +1536,9 @@ def _gating(targets: dict, candidates: dict, matrix: dict, capacity: dict, relia
         "definitions": {
             "reviewed_plan": "Intent from the reviewed target configuration; not an ownership assignment.",
             "latest_amd_result": "Latest exact AMD matrix evidence for this group.",
-            "main_reliability": "Terminal outcomes across all retained amd-ci branch=main builds.",
-            "upstream_parity": "Upstream evidence is shown only as a parity reference.",
+            "main_reliability": "Terminal outcomes across all retained upstream ci branch=main builds.",
+            "historical_evidence": "Reliability, streaks, incidents, and retained execution references come from upstream ci.",
+            "upstream_parity": "Upstream ci evidence is the historical reliability reference.",
         },
         "denominators": {
             "reviewed_targets": {"value": len(groups), "unit": "reviewed target groups"},
@@ -1436,29 +1784,22 @@ def _omni(queue_snapshot: dict, queue_jobs: dict, heuristic: dict, issue_state: 
     }
 
 
-def _trajectory(ci_health: dict, group_changes: dict) -> dict:
-    pipelines = []
-    for source_key, pipeline in (("amd", "amd-ci"), ("upstream", "ci")):
-        block = ci_health.get(source_key) or {}
-        builds = []
-        for build in block.get("builds") or []:
-            keys = (
-                "build_number", "created_at", "state", "pass_rate", "failed", "errors",
-                "jobs_failed", "jobs_soft_failed", "test_groups_passing_all", "unique_test_groups",
-                "commit", "commit_sha", "message",
-            )
-            row = {key: build[key] for key in keys if key in build}
-            row["url"] = _build_url(pipeline, build)
-            builds.append(row)
-        pipelines.append({
-            "pipeline": pipeline,
-            "source_path": SOURCE_FILES["ci_health"],
-            "evidence_kind": "published CI health aggregate",
-            "builds": builds,
-        })
+def _trajectory(reliability: dict, group_changes: dict) -> dict:
+    cohort = reliability.get("cohort") or {}
+    denominator = reliability.get("denominator") or {}
     return {
-        "pipeline_order": ["amd-ci", "ci"],
-        "pipelines": pipelines,
+        "source_pipeline": "ci",
+        "available": reliability.get("available") is True,
+        "pipeline_order": ["ci"],
+        "pipelines": [{
+            "pipeline": "ci",
+            "source_path": SOURCE_FILES["analytics"],
+            "source_key": "ci.all_main_reliability",
+            "evidence_kind": "strict completed upstream branch=main job observations",
+            "cohort": cohort,
+            "groups": int(denominator.get("groups") or 0),
+            "observations": int(denominator.get("observations") or 0),
+        }],
         "group_changes": {
             "days": group_changes.get("days"),
             "total_changes": group_changes.get("total_changes") or len(group_changes.get("changes") or []),
@@ -1467,12 +1808,14 @@ def _trajectory(ci_health: dict, group_changes: dict) -> dict:
         },
         "provenance": {
             "source_paths": {
-                "build_history": SOURCE_FILES["ci_health"],
+                "build_history": SOURCE_FILES["analytics"],
                 "group_changes": SOURCE_FILES["group_changes"],
             },
             "build_history": {
-                "path": SOURCE_FILES["ci_health"],
-                "evidence_kind": "published CI health aggregate",
+                "path": SOURCE_FILES["analytics"],
+                "source_key": "ci.all_main_reliability",
+                "source_pipeline": "ci",
+                "evidence_kind": "strict completed upstream branch=main job observations",
             },
             "group_changes": {
                 "path": SOURCE_FILES["group_changes"],
@@ -1544,7 +1887,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         "upstream_parity": upstream_parity,
         "pipelines": pipeline_blocks,
     }
-    reliability = _reliability(analytics.get("amd-ci") or {})
+    reliability = _reliability(analytics.get("ci") or {}, pipeline_slug="ci")
     gating = _gating(
         loaded.get("gating_targets") or {},
         loaded.get("gating_target_candidates") or {},
@@ -1559,7 +1902,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         loaded.get("omni_heuristic") or {},
         loaded.get("omni_issue_state") or {},
     )
-    trajectory = _trajectory(loaded.get("ci_health") or {}, loaded.get("group_changes") or {})
+    trajectory = _trajectory(reliability, loaded.get("group_changes") or {})
     attention = _attention(nightly, reliability, gating, queue, omni)
     status = "critical" if any(row["severity"] == "critical" for row in attention) else (
         "attention" if any(row["severity"] == "warning" for row in attention) else "healthy"

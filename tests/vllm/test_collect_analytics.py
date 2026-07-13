@@ -63,7 +63,7 @@ class TestWindowedAnalytics:
 
         monkeypatch.setattr(ca, "bk_get", fake_get)
 
-        builds = ca.fetch_pipeline_builds("amd-ci", "fake-token", 30)
+        builds, provenance = ca.fetch_pipeline_builds("amd-ci", "fake-token", 30)
 
         assert len(builds) == 120
         assert {build["number"] for build in builds} == set(range(1, 121))
@@ -71,6 +71,8 @@ class TestWindowedAnalytics:
         assert all(call["per_page"] == 100 for call in calls)
         assert all(call["branch"] == "main" for call in calls)
         assert all(call["include_retried_jobs"] == "true" for call in calls)
+        assert provenance["exhaustive"] is True
+        assert provenance["termination_reason"] == "short_page"
 
     def test_fetch_pipeline_builds_stops_when_a_full_page_adds_no_builds(self, monkeypatch):
         repeated_page = [{"number": number} for number in range(1, 101)]
@@ -82,24 +84,233 @@ class TestWindowedAnalytics:
 
         monkeypatch.setattr(ca, "bk_get", fake_get)
 
-        builds = ca.fetch_pipeline_builds("amd-ci", "fake-token", 30)
+        builds, provenance = ca.fetch_pipeline_builds("amd-ci", "fake-token", 30)
 
         assert len(builds) == 100
         assert pages == [1, 2]
+        assert provenance["exhaustive"] is False
+        assert provenance["termination_reason"] == "duplicate_page"
 
-    def test_upstream_parity_fetch_is_bounded_to_one_page(self, monkeypatch):
+    def test_upstream_fetch_includes_page_two(self, monkeypatch):
         pages = []
 
         def fake_get(path, token, params=None):
             pages.append(params["page"])
-            return [{"number": number} for number in range(1, 101)]
+            if params["page"] == 1:
+                return [{"number": number} for number in range(1, 101)]
+            return [{"number": number} for number in range(101, 121)]
 
         monkeypatch.setattr(ca, "bk_get", fake_get)
 
-        builds = ca.fetch_pipeline_builds("ci", "fake-token", 30)
+        builds, provenance = ca.fetch_pipeline_builds("ci", "fake-token", 30)
 
-        assert pages == [1]
+        assert pages == [1, 2]
+        assert len(builds) == 120
+        assert provenance["exhaustive"] is True
+
+    def test_fetch_pipeline_builds_marks_the_safety_cap_incomplete(self, monkeypatch):
+        monkeypatch.setattr(
+            ca,
+            "bk_get",
+            lambda path, token, params=None: [
+                {"number": number} for number in range(1, 101)
+            ],
+        )
+
+        builds, provenance = ca.fetch_pipeline_builds(
+            "ci", "fake-token", 30, max_pages=1
+        )
+
         assert len(builds) == 100
+        assert provenance["exhaustive"] is False
+        assert provenance["termination_reason"] == "max_pages"
+
+    def test_fetch_pipeline_builds_keeps_the_richer_duplicate(self, monkeypatch):
+        page_one = [{"number": number, "jobs": []} for number in range(1, 101)]
+        richer = {
+            "number": 100,
+            "state": "passed",
+            "finished_at": "2026-04-21T12:00:00Z",
+            "jobs": [{"id": "retained-job"}],
+        }
+
+        def fake_get(path, token, params=None):
+            return page_one if params["page"] == 1 else [richer]
+
+        monkeypatch.setattr(ca, "bk_get", fake_get)
+
+        builds, provenance = ca.fetch_pipeline_builds("ci", "fake-token", 30)
+
+        retained = next(build for build in builds if build["number"] == 100)
+        assert retained["jobs"] == [{"id": "retained-job"}]
+        assert provenance["exhaustive"] is True
+        assert provenance["termination_reason"] == "short_page"
+
+    def test_fetch_pipeline_builds_ignores_malformed_rows(self, monkeypatch):
+        monkeypatch.setattr(
+            ca,
+            "bk_get",
+            lambda path, token, params=None: [
+                None,
+                {"number": "not-a-number"},
+                {"number": 42, "created_at": "2026-07-12T09:00:00Z"},
+            ],
+        )
+
+        builds, provenance = ca.fetch_pipeline_builds("ci", "fake-token", 30)
+
+        assert [build["number"] for build in builds] == [42]
+        assert provenance["exhaustive"] is True
+
+    def test_main_emits_all_main_reliability_only_for_upstream(self, monkeypatch, tmp_path):
+        messages = {
+            "amd-ci": "AMD Full CI Run - nightly",
+            "ci": "Full CI run - nightly",
+        }
+
+        def fake_fetch(pipeline_slug, token, days, max_pages=None):
+            number = 101 if pipeline_slug == "amd-ci" else 202
+            return [{
+                "number": number,
+                "branch": "main",
+                "state": "passed",
+                "commit": f"commit-{number}",
+                "message": messages[pipeline_slug],
+                "created_at": "2026-07-12T09:00:00Z",
+                "started_at": "2026-07-12T09:01:00Z",
+                "finished_at": "2026-07-12T10:00:00Z",
+                "web_url": f"https://buildkite.com/vllm/{pipeline_slug}/builds/{number}",
+                "jobs": [
+                    {
+                        "id": f"failed-{number}",
+                        "type": "script",
+                        "name": "Retry group",
+                        "state": "failed",
+                        "retried_in_job_id": f"passed-{number}",
+                        "runnable_at": "2026-07-12T09:01:00Z",
+                        "started_at": "2026-07-12T09:02:00Z",
+                        "finished_at": "2026-07-12T09:03:00Z",
+                        "agent_query_rules": ["queue=gpu_1_queue"],
+                        "step": {"id": f"step-{number}", "key": "retry-group"},
+                    },
+                    {
+                        "id": f"passed-{number}",
+                        "type": "script",
+                        "name": "Retry group",
+                        "state": "passed",
+                        "retry_type": "automatic",
+                        "runnable_at": "2026-07-12T09:03:00Z",
+                        "started_at": "2026-07-12T09:04:00Z",
+                        "finished_at": "2026-07-12T09:05:00Z",
+                        "agent_query_rules": ["queue=gpu_1_queue"],
+                        "step": {"id": f"step-{number}", "key": "retry-group"},
+                    },
+                ],
+            }], {
+                "created_from": "2026-06-12T00:00:00Z",
+                "page_size": 100,
+                "max_pages": 50,
+                "pages_fetched": 1,
+                "termination_reason": "short_page",
+                "exhaustive": True,
+            }
+
+        monkeypatch.setenv("BUILDKITE_TOKEN", "fake-token")
+        monkeypatch.setattr(ca, "fetch_pipeline_builds", fake_fetch)
+        monkeypatch.setattr(ca, "load_test_result_builds", lambda *args, **kwargs: [])
+        monkeypatch.setattr(ca.sys, "argv", [
+            "collect_analytics.py",
+            "--days", "30",
+            "--pipeline", "both",
+            "--output", str(tmp_path),
+        ])
+
+        ca.main()
+
+        payload = json.loads((tmp_path / "analytics.json").read_text())
+        assert "all_main_reliability" not in payload["amd-ci"]
+        assert "main_retry_analysis" not in payload["amd-ci"]
+        block = payload["ci"]
+        reliability = block["all_main_reliability"]
+        assert reliability["cohort"]["id"] == "ci-main-completed-pass-fail"
+        assert reliability["cohort"]["pipeline"] == "ci"
+        assert block["main_retry_analysis"]["summary"]["builds_evaluated"] == 1
+        assert block["main_retry_analysis"]["summary"]["retry_attempt_count"] == 1
+        assert block["main_retry_analysis"]["summary"]["failed_then_passed_recovery_count"] == 1
+        assert "/vllm/ci/builds/" in block["main_retry_analysis"]["retry_attempts"][0]["url"]
+
+    def test_tokenless_refresh_preserves_complete_main_retry_ledger(self, monkeypatch, tmp_path):
+        previous_build = _build(202, 0.5, [_job("No retry in compact history", 10)])
+        previous_build["web_url"] = "https://buildkite.com/vllm/ci/builds/202"
+        reliability = {
+            "schema_version": 1,
+            "cohort": {
+                "id": "ci-main-completed-pass-fail",
+                "pipeline": "ci",
+                "branch": "main",
+                "build_states": ["failed", "passed"],
+                "build_count": 1,
+                "canonical_nightly_build_count": 1,
+                "non_nightly_main_build_count": 0,
+                "exhaustive": True,
+            },
+            "denominator": {"eligible_observations": 0},
+            "provenance": {
+                "pipeline": "ci",
+                "endpoint": "/organizations/vllm/pipelines/ci/builds",
+                "query": {"branch": "main"},
+                "collection": {"exhaustive": True},
+            },
+            "builds": [{
+                "number": 202,
+                "branch": "main",
+                "state": "passed",
+                "finished_at": "2026-04-20T12:00:00Z",
+                "url": "https://buildkite.com/vllm/ci/builds/202",
+            }],
+            "groups": [],
+        }
+        preserved_retry = {
+            "available": True,
+            "summary": {
+                "builds_evaluated": 30,
+                "builds_with_retries": 1,
+                "retry_attempt_count": 1,
+                "failed_then_passed_recovery_count": 0,
+            },
+            "retry_attempts": [{
+                "build_number": 202,
+                "job_id": "older-retry",
+                "url": "https://buildkite.com/vllm/ci/builds/202/steps/canvas?jid=older-retry",
+            }],
+            "failed_then_passed_recoveries": [],
+            "provenance": {
+                "source_pipeline": "ci",
+                "complete": True,
+                "cohort_build_numbers": [202],
+            },
+        }
+        (tmp_path / "analytics.json").write_text(json.dumps({
+            "ci": {
+                "display_name": "Upstream CI",
+                "builds": [previous_build],
+                "all_main_reliability": reliability,
+                "main_retry_analysis": preserved_retry,
+            },
+        }))
+        monkeypatch.delenv("BUILDKITE_TOKEN", raising=False)
+        monkeypatch.setattr(ca, "load_test_result_builds", lambda *args, **kwargs: [])
+        monkeypatch.setattr(ca.sys, "argv", [
+            "collect_analytics.py",
+            "--days", "30",
+            "--pipeline", "ci",
+            "--output", str(tmp_path),
+        ])
+
+        ca.main()
+
+        refreshed = json.loads((tmp_path / "analytics.json").read_text())
+        assert refreshed["ci"]["main_retry_analysis"] == preserved_retry
 
     def test_analytics_uses_exact_amd_nightly_pattern(self, monkeypatch):
         builds = [

@@ -1,7 +1,8 @@
-"""Contract tests for the bounded all-main AMD reliability dataset."""
+"""Contract tests for bounded all-main pipeline reliability datasets."""
 
 from __future__ import annotations
 
+import copy
 from datetime import datetime, timedelta, timezone
 
 from vllm import collect_analytics as ca
@@ -9,6 +10,7 @@ from vllm.ci.reliability_history import (
     build_all_main_reliability,
     compact_main_builds,
     compute_nightly_change_history,
+    validate_all_main_reliability,
 )
 
 
@@ -79,10 +81,10 @@ def _build(
     }
 
 
-def _dataset(builds: list[dict], **kwargs) -> dict:
+def _dataset(builds: list[dict], pipeline_slug: str = "amd-ci", **kwargs) -> dict:
     return build_all_main_reliability(
         builds,
-        pipeline_slug="amd-ci",
+        pipeline_slug=pipeline_slug,
         window_days=30,
         generated_at=GENERATED_AT,
         nightly_pattern=NIGHTLY_PATTERN,
@@ -148,6 +150,20 @@ def test_group_identity_keeps_gpu_hardware_queue_and_shard_variants_distinct():
     }
     assert {row["hardware"] for row in groups} == {"mi300"}
     assert {row["queue"] for row in groups} == {"amd_mi300_4"}
+
+
+def test_upstream_identity_reports_explicit_and_generic_hardware_without_conflation():
+    jobs = [
+        _job("h100", "Kernel test (H100)", queue="gpu_4_queue", step_key="kernel"),
+        _job("generic", "Generic GPU test", queue="gpu_4_queue", step_key="generic"),
+        _job("b200", "Large model test", queue="B200", step_key="large"),
+        _job("cpu", "CPU correctness", queue="cpu_queue_postmerge", step_key="cpu"),
+    ]
+
+    groups = _dataset([_build(202, jobs)], pipeline_slug="ci")["groups"]
+
+    assert {row["hardware"] for row in groups} == {"h100", "gpu", "b200", "cpu"}
+    assert len({row["group_id"] for row in groups}) == 4
 
 
 def test_reliability_denominator_excludes_non_pass_fail_soft_fail_states():
@@ -394,6 +410,42 @@ def test_collector_exposes_main_builds_with_exact_cohort_provenance():
     assert provenance["authoritative_evidence_key"] == "all_main_reliability"
 
 
+def test_collector_preserves_complete_retry_analysis_when_raw_builds_are_unavailable():
+    source = _dataset([_build(803, [
+        _job("main-attempt", "mi300_1: Main Evidence"),
+    ])], pipeline_slug="ci")
+    preserved = {
+        "available": True,
+        "summary": {
+            "builds_evaluated": 30,
+            "builds_with_retries": 1,
+            "retry_attempt_count": 1,
+            "failed_then_passed_recovery_count": 0,
+        },
+        "retry_attempts": [{
+            "build_number": 803,
+            "job_id": "older-than-compaction-window",
+            "url": "https://buildkite.com/vllm/ci/builds/803/steps/canvas?jid=older-than-compaction-window",
+        }],
+        "failed_then_passed_recoveries": [],
+        "provenance": {
+            "source_pipeline": "ci",
+            "complete": True,
+            "cohort_build_numbers": [803],
+        },
+    }
+    pipeline_data = {}
+
+    ca.attach_main_reliability(
+        pipeline_data,
+        source,
+        retry_builds=None,
+        retry_analysis=preserved,
+    )
+
+    assert pipeline_data["main_retry_analysis"] is preserved
+
+
 def test_nightly_fixed_requires_current_pass_and_preserves_both_links():
     def nightly_job(name: str, state: str, suffix: str) -> dict:
         return {
@@ -460,6 +512,9 @@ def test_schema_reports_cohort_window_denominator_source_and_deterministic_order
     assert forward["provenance"]["pagination"] == {
         "page_size": 100,
         "max_pages": 50,
+        "pages_fetched": None,
+        "termination_reason": "provided_builds",
+        "exhaustive": True,
         "stop_conditions": ["empty page", "short page", "page adds no build numbers"],
     }
     assert forward["provenance"]["retry_source"] == "explicit Buildkite retry fields only"
@@ -468,3 +523,41 @@ def test_schema_reports_cohort_window_denominator_source_and_deterministic_order
         row["group_id"] for row in reverse["groups"]
     ]
     assert [row["number"] for row in forward["builds"]] == [1002, 1001]
+
+
+def test_cohort_identity_is_pipeline_specific():
+    result = _dataset(
+        [_build(1101, [_job("upstream-job", "GPU Test")])],
+        pipeline_slug="ci",
+    )
+
+    assert result["cohort"]["id"] == "ci-main-completed-pass-fail"
+    assert result["cohort"]["name"] == (
+        "ci branch=main builds with state passed or failed and finished_at"
+    )
+    assert result["cohort"]["pipeline"] == "ci"
+    assert result["provenance"]["pipeline"] == "ci"
+    assert result["provenance"]["endpoint"] == (
+        "/organizations/vllm/pipelines/ci/builds"
+    )
+
+
+def test_strict_validation_rejects_lookalike_hosts_build_only_jobs_and_foreign_builds():
+    source = _dataset(
+        [_build(1201, [_job("upstream-job", "GPU Test")])],
+        pipeline_slug="ci",
+    )
+    assert validate_all_main_reliability(source, "ci")
+
+    observation = source["groups"][0]["observations"][0]
+    for field, value in (
+        (
+            "job_url",
+            "https://buildkite.com.evil/vllm/ci/builds/1201/steps/canvas?jid=upstream-job",
+        ),
+        ("job_url", "https://buildkite.com/vllm/ci/builds/1201"),
+        ("build_number", 9999),
+    ):
+        candidate = copy.deepcopy(source)
+        candidate["groups"][0]["observations"][0][field] = value
+        assert not validate_all_main_reliability(candidate, "ci")
