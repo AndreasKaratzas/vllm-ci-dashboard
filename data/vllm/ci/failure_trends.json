@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-13T10:07:26Z",
+  "generated_at": "2026-07-13T10:44:40Z",
   "top_offenders": [
     {
       "test_id": "mi355_1: Kernels MoE Test 2::__unidentified_failures__",
@@ -163,6 +163,52 @@
       "mean_duration": 0.0
     },
     {
+      "test_id": "mi355_1: Kernels Quantization Test 1::__unidentified_failures__",
+      "label": "failing",
+      "pass_rate": 0.0,
+      "appearances": 29,
+      "last_seen": "2026-07-13",
+      "first_failure": "2026-06-13",
+      "failure_streak": 29,
+      "history": [
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F"
+      ],
+      "module": "mi355_1: Kernels Quantization Test 1",
+      "mean_duration": 0.0
+    },
+    {
+      "test_id": "mi355_1: Kernels Quantization Test 2::__unidentified_failures__",
+      "label": "failing",
+      "pass_rate": 0.0,
+      "appearances": 29,
+      "last_seen": "2026-07-13",
+      "first_failure": "2026-06-13",
+      "failure_streak": 29,
+      "history": [
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F"
+      ],
+      "module": "mi355_1: Kernels Quantization Test 2",
+      "mean_duration": 0.0
+    },
+    {
       "test_id": "mi355_1: Language Models Tests (Standard)::__unidentified_failures__",
       "label": "failing",
       "pass_rate": 0.0,
@@ -321,52 +367,6 @@
         "F"
       ],
       "module": "mi300_4: Elastic EP Scaling Test",
-      "mean_duration": 0.0
-    },
-    {
-      "test_id": "mi355_1: Kernels Quantization Test 1::__unidentified_failures__",
-      "label": "failing",
-      "pass_rate": 0.0,
-      "appearances": 28,
-      "last_seen": "2026-07-12",
-      "first_failure": "2026-06-13",
-      "failure_streak": 28,
-      "history": [
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F"
-      ],
-      "module": "mi355_1: Kernels Quantization Test 1",
-      "mean_duration": 0.0
-    },
-    {
-      "test_id": "mi355_1: Kernels Quantization Test 2::__unidentified_failures__",
-      "label": "failing",
-      "pass_rate": 0.0,
-      "appearances": 28,
-      "last_seen": "2026-07-12",
-      "first_failure": "2026-06-13",
-      "failure_streak": 28,
-      "history": [
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F"
-      ],
-      "module": "mi355_1: Kernels Quantization Test 2",
       "mean_duration": 0.0
     },
     {
@@ -896,6 +896,22 @@
     },
     {
       "module": "mi355_1: Kernels MoE Test 5",
+      "avg_pass_rate": 0.25,
+      "total_tests": 5,
+      "failing": 2,
+      "flaky": 0,
+      "passing": 1
+    },
+    {
+      "module": "mi355_1: Kernels Quantization Test 1",
+      "avg_pass_rate": 0.25,
+      "total_tests": 5,
+      "failing": 2,
+      "flaky": 0,
+      "passing": 1
+    },
+    {
+      "module": "mi355_1: Kernels Quantization Test 2",
       "avg_pass_rate": 0.25,
       "total_tests": 5,
       "failing": 2,
@@ -1488,22 +1504,6 @@
     },
     {
       "module": "mi355_1: Kernels MoE Test 1",
-      "avg_pass_rate": 0.3333,
-      "total_tests": 5,
-      "failing": 1,
-      "flaky": 0,
-      "passing": 1
-    },
-    {
-      "module": "mi355_1: Kernels Quantization Test 1",
-      "avg_pass_rate": 0.3333,
-      "total_tests": 5,
-      "failing": 1,
-      "flaky": 0,
-      "passing": 1
-    },
-    {
-      "module": "mi355_1: Kernels Quantization Test 2",
       "avg_pass_rate": 0.3333,
       "total_tests": 5,
       "failing": 1,
@@ -2224,9 +2224,9 @@
     {
       "build_number": 10783,
       "date": "2026-07-13",
-      "pass_rate": 0.2087,
-      "total": 29763,
-      "failed": 15431
+      "pass_rate": 0.1117,
+      "total": 54920,
+      "failed": 39184
     },
     {
       "build_number": 10769,

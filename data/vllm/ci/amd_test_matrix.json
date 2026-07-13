@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-13T10:08:21Z",
+  "generated_at": "2026-07-13T10:45:30Z",
   "source": {
     "yaml_url": "https://raw.githubusercontent.com/vllm-project/vllm/refs/heads/main/.buildkite/test-amd.yaml",
     "latest_build_number": 10783,
@@ -11,11 +11,11 @@
     "unique_groups": 159,
     "architecture_count": 4,
     "hardware_cells": 189,
-    "latest_matched_cells": 177,
-    "passing_cells": 28,
-    "failing_cells": 149,
+    "latest_matched_cells": 180,
+    "passing_cells": 29,
+    "failing_cells": 151,
     "waiting_cells": 0,
-    "unknown_cells": 12,
+    "unknown_cells": 9,
     "fully_shared_groups": 0,
     "single_arch_groups": 130,
     "multi_variant_cells": 0
@@ -25,7 +25,7 @@
       "id": "mi250",
       "label": "MI250",
       "group_count": 20,
-      "nightly_match_count": 18
+      "nightly_match_count": 19
     },
     {
       "id": "mi300",
@@ -43,7 +43,7 @@
       "id": "mi355",
       "label": "MI355",
       "group_count": 38,
-      "nightly_match_count": 29
+      "nightly_match_count": 31
     }
   ],
   "areas": [
@@ -147,10 +147,10 @@
               "agent_pool": "mi250_4",
               "optional": false,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "passed",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10783/steps/canvas?sid=019f5ab4-a1c8-4959-b6b3-3ea447cbcfb7&tab=output",
               "aliases": [
                 "Pipeline + Context Parallelism (4 GPUs)"
               ],
@@ -161,10 +161,10 @@
                   "agent_pool": "mi250_4",
                   "optional": false,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "passed",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10783/steps/canvas?sid=019f5ab4-a1c8-4959-b6b3-3ea447cbcfb7&tab=output",
                   "aliases": [
                     "Pipeline + Context Parallelism (4 GPUs)"
                   ],
@@ -173,12 +173,12 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "passed",
           "latest_build_number": 10783,
           "primary_label": "Pipeline + Context Parallelism (4 GPUs)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10783/steps/canvas?sid=019f5ab4-a1c8-4959-b6b3-3ea447cbcfb7&tab=output"
         },
         "mi300": {
           "exists": false
@@ -191,7 +191,7 @@
         }
       },
       "coverage_count": 1,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 1,
       "architectures_present": [
         "mi250"
       ],
@@ -5497,10 +5497,10 @@
               "agent_pool": "mi355_1",
               "optional": false,
               "parallelism": 2,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 2,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10783/steps/canvas?sid=019f5ab4-a304-4307-9a3a-6453de56e105&tab=output",
               "aliases": [
                 "Kernels Quantization Test"
               ],
@@ -5511,10 +5511,10 @@
                   "agent_pool": "mi355_1",
                   "optional": false,
                   "parallelism": 2,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 2,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10783/steps/canvas?sid=019f5ab4-a304-4307-9a3a-6453de56e105&tab=output",
                   "aliases": [
                     "Kernels Quantization Test"
                   ],
@@ -5523,16 +5523,16 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 10783,
           "primary_label": "Kernels Quantization Test",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10783/steps/canvas?sid=019f5ab4-a304-4307-9a3a-6453de56e105&tab=output"
         }
       },
       "coverage_count": 2,
-      "nightly_coverage_count": 1,
+      "nightly_coverage_count": 2,
       "architectures_present": [
         "mi300",
         "mi355"
@@ -11220,10 +11220,10 @@
               "agent_pool": "mi355_2",
               "optional": true,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10783/steps/canvas?sid=019f5ab4-a2f7-412b-a883-8fb453203416&tab=output",
               "aliases": [
                 "GPQA Eval (GPT-OSS) (2xB200-2xMI355)"
               ],
@@ -11234,10 +11234,10 @@
                   "agent_pool": "mi355_2",
                   "optional": true,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10783/steps/canvas?sid=019f5ab4-a2f7-412b-a883-8fb453203416&tab=output",
                   "aliases": [
                     "GPQA Eval (GPT-OSS) (2xB200-2xMI355)"
                   ],
@@ -11246,16 +11246,16 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 10783,
           "primary_label": "GPQA Eval (GPT-OSS) (2xB200-2xMI355)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10783/steps/canvas?sid=019f5ab4-a2f7-412b-a883-8fb453203416&tab=output"
         }
       },
       "coverage_count": 1,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 1,
       "architectures_present": [
         "mi355"
       ],
