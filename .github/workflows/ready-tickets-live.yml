@@ -16,7 +16,10 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ready-tickets-live
+  # This workflow and hourly-master.yml both rewrite the ready-ticket snapshots.
+  # Sharing the deploy lock prevents a long collection from rebasing over a
+  # concurrent project_items.json refresh.
+  group: gh-pages-deploy
   cancel-in-progress: false
 
 permissions:

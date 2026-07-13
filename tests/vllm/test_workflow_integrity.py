@@ -100,6 +100,12 @@ class TestWorkflowYAML:
                 f"{f.name} writes to gh-pages but still has cancel-in-progress enabled"
             )
 
+    def test_ready_ticket_and_hourly_snapshot_writers_are_serialized(self):
+        for name in ("hourly-master.yml", "ready-tickets-live.yml"):
+            concurrency = _load_workflow(name).get("concurrency", {})
+            assert concurrency.get("group") == "gh-pages-deploy"
+            assert concurrency.get("cancel-in-progress") is False
+
     def test_repo_governance_workflow_exists_and_watches_issues_and_prs(self):
         wf = _load_workflow("repo-governance.yml")
         triggers = wf.get(True, wf.get("on", {}))
