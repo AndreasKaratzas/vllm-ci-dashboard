@@ -507,8 +507,14 @@ class TestCIQueueFrontend:
                 f"collect_queue_snapshot.py must emit all percentile fields."
             )
 
-    def test_queue_percentile_ordering(self):
-        """Wait time percentiles must be ordered: p50 <= p75 <= p90 <= p99 <= max."""
+    def test_queue_source_percentile_ordering(self):
+        """Each independently sourced percentile family must stay ordered.
+
+        Root compatibility fields intentionally combine queue-native p50/p95
+        with sampled p75/p90/p99 observations. Those sources have different
+        sample windows and may cross, so ordering them as one distribution is
+        not a valid invariant.
+        """
         path = DATA / "vllm" / "ci" / "queue_timeseries.jsonl"
         if not path.exists():
             pytest.skip("no data yet")
@@ -519,17 +525,25 @@ class TestCIQueueFrontend:
         for line in lines:
             snap = json.loads(line)
             for qname, qdata in snap["queues"].items():
-                vals = [
-                    qdata.get(k)
-                    for k in ["p50_wait", "p75_wait", "p90_wait", "p99_wait", "max_wait"]
-                ]
-                for i in range(len(vals) - 1):
-                    # Missing percentiles are explicitly null when Buildkite
-                    # exposes neither queue-native metrics nor a job sample.
-                    if vals[i] is None or vals[i + 1] is None:
-                        continue
-                    if vals[i] > vals[i + 1] + 0.01:  # small tolerance for rounding
-                        bad.append(f"{snap['ts']} queue '{qname}': {vals}")
+                families = {
+                    "official": [
+                        (qdata.get("official_wait") or {}).get(key)
+                        for key in ("p50", "p95", "max")
+                    ],
+                    "sample": [
+                        (qdata.get("sample_wait") or {}).get(key)
+                        for key in ("p50", "p75", "p90", "p95", "p99", "max")
+                    ],
+                }
+                for source, vals in families.items():
+                    observed = [value for value in vals if value is not None]
+                    if any(
+                        left > right + 0.01
+                        for left, right in zip(observed, observed[1:])
+                    ):
+                        bad.append(
+                            f"{snap['ts']} queue '{qname}' {source}: {vals}"
+                        )
                         break
         assert not bad, f"Percentile ordering violated:\n" + "\n".join(bad[:5])
 
