@@ -119,7 +119,7 @@ def validate_all_main_reliability(
     provenance = payload.get("provenance")
     builds = payload.get("builds")
     groups = payload.get("groups")
-    if not all(isinstance(value, dict) for value in (cohort, provenance)):
+    if not isinstance(cohort, dict) or not isinstance(provenance, dict):
         return False
     if not isinstance(builds, list) or not isinstance(groups, list):
         return False
