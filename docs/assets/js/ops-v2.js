@@ -29,6 +29,7 @@
     queueScope: 'amd',
     queueView: 'current',
     queueRange: '24h',
+    queueHistoryQueue: 'fleet',
     queueIncludeIdle: false,
     trajectoryWindow: '24h',
     trajectoryWorkload: 'all',
@@ -199,6 +200,7 @@
         ['queueView', 'queue_view', ['current', 'history', 'jobs']],
         ['queueRange', 'queue_range', ['24h', '7d', '30d']],
         ['queueScope', 'queue_scope', ['amd', 'all']],
+        ['queueHistoryQueue', 'queue_history_queue', null],
       ],
       'ci-hotness': [['trajectoryWindow', 'trajectory_window', ['24h', '72h', '7d', '30d']]],
       'ci-perf-eval': [['perfView', 'perf_view', ['performance', 'accuracy']]],
@@ -268,6 +270,12 @@
   function closeOverlay() {
     if (!activeOverlay) return;
     const trigger = activeOverlay.trigger;
+    for (const [key, chart] of charts.entries()) {
+      if (chart && chart.canvas && activeOverlay.root.contains(chart.canvas)) {
+        chart.destroy();
+        charts.delete(key);
+      }
+    }
     activeOverlay.root.remove();
     activeOverlay = null;
     document.body.classList.remove('ops-overlay-open');
@@ -479,8 +487,10 @@
     const thead = n('thead');
     const hr = n('tr');
     for (const col of columns) {
-      const th = n('th', (col.numeric ? 'is-numeric ' : '') + (col.sticky ? 'is-sticky-left' : ''), col.label);
+      const alignment = col.numeric ? 'numeric' : col.align || 'text';
+      const th = n('th', (alignment === 'numeric' ? 'is-numeric ' : alignment === 'center' ? 'is-center ' : '') + (col.sticky ? 'is-sticky-left' : ''), col.label);
       th.scope = 'col';
+      th.dataset.align = alignment;
       hr.append(th);
     }
     thead.append(hr);
@@ -489,7 +499,9 @@
       const tr = n('tr');
       if (row && row._rowTone) tr.classList.add(row._rowTone);
       for (const col of columns) {
-        const td = n('td', (col.numeric ? 'is-numeric ' : '') + (col.sticky ? 'is-sticky-left ' : '') + (col.className || ''));
+        const alignment = col.numeric ? 'numeric' : col.align || 'text';
+        const td = n('td', (alignment === 'numeric' ? 'is-numeric ' : alignment === 'center' ? 'is-center ' : '') + (col.sticky ? 'is-sticky-left ' : '') + (col.className || ''));
+        td.dataset.align = alignment;
         const result = col.render ? col.render(row) : row[col.key];
         td.append(cellContent(result));
         tr.append(td);
@@ -599,6 +611,51 @@
       .includes(observationState(observation));
   }
 
+  function isNightlyObservation(observation) {
+    return String(observation.build_kind || '').toLowerCase() === 'nightly'
+      || /\bnightly\b/i.test(String(observation.message || observation.build_message || ''));
+  }
+
+  function observationDurationMinutes(observation) {
+    const raw = observation.duration_mins !== undefined ? observation.duration_mins
+      : observation.wall_duration_mins !== undefined ? observation.wall_duration_mins
+        : observation.duration_min !== undefined ? observation.duration_min : observation.dur;
+    return Number.isFinite(Number(raw)) ? Number(raw) : null;
+  }
+
+  function observationWaitMinutes(observation) {
+    const raw = observation.wait_mins !== undefined ? observation.wait_mins : observation.wait_min;
+    return Number.isFinite(Number(raw)) ? Number(raw) : null;
+  }
+
+  function observationOutcomeValue(observation) {
+    const stateName = observationState(observation);
+    if (stateName === 'passed') return 2;
+    if (['soft', 'soft_fail', 'soft_failed'].includes(stateName)) return 1;
+    if (isIncidentObservation(observation)) return 0;
+    return null;
+  }
+
+  function observationHistoryPoint(observation, sourcePipeline) {
+    const stateName = observationState(observation);
+    const completion = observationDurationMinutes(observation);
+    const wait = observationWaitMinutes(observation);
+    return {
+      id: observation.job_id || sourcePipeline + '-' + value(observation.build_number),
+      label: observation.build_number ? '#' + observation.build_number : shortDate(observationTimestamp(observation)),
+      timestamp: observationTimestamp(observation),
+      url: exactPipelineEvidenceUrl(observation, sourcePipeline),
+      valueSummary: stateName + (completion !== null ? ' - ' + duration(completion) : ''),
+      details: {
+        result: stateName,
+        build_kind: observation.build_kind || 'main',
+        queue: observation.queue,
+        completion: completion !== null ? duration(completion) : '-',
+        queue_wait: wait !== null ? duration(wait) : '-',
+      },
+    };
+  }
+
   function evidenceSummaryItem(label, metric, tone) {
     const item = n('div', 'ops-evidence-stat ' + (tone || ''));
     add(item, [n('div', 'ops-stat-label', label), n('div', 'ops-stat-value', metric)]);
@@ -607,99 +664,176 @@
 
   function openMixedOutcomeEvidence(candidate) {
     const sourcePipeline = candidate.source_pipeline || 'ci';
-    const observations = evidenceObservations(candidate).filter(function (row) {
+    const allObservations = evidenceObservations(candidate).filter(function (row) {
       return (!row.source_pipeline || row.source_pipeline === sourcePipeline)
         && Boolean(exactPipelineEvidenceUrl(row, sourcePipeline));
+    }).sort(function (a, b) {
+      return new Date(observationTimestamp(a) || 0) - new Date(observationTimestamp(b) || 0);
     });
     const scope = candidate.scope_label || candidate.scope || 'retained reliability window';
     const content = n('div', 'ops-evidence');
     const notice = n('div', 'ops-evidence-note is-info');
+    const hasPassing = allObservations.some(function (row) { return observationState(row) === 'passed'; });
+    const hasIncidents = allObservations.some(isIncidentObservation);
     add(notice, [
-      n('strong', '', 'Classification: mixed-outcome candidate. '),
-      n('span', '', 'This group has both passing and incident observations in the selected ' + scope + '. The incident rate is not a test-case flake probability.'),
+      n('strong', '', hasPassing && hasIncidents ? 'Classification: mixed-outcome candidate. ' : 'Historical group evidence. '),
+      n('span', '', 'Outcome, completion, and queue-wait history below use exact ' + sourcePipeline + ' observations. Any incident rate shown is not a test-case flake probability.'),
     ]);
     content.append(notice);
 
-    const summary = n('div', 'ops-evidence-summary');
-    add(summary, [
-      evidenceSummaryItem('OBSERVATIONS', integer(candidate.runs !== undefined ? candidate.runs : observations.length)),
-      evidenceSummaryItem('PASSED', integer(candidate.passed), 'is-success'),
-      evidenceSummaryItem('HARD INCIDENTS', integer(candidate.failed), Number(candidate.failed) ? 'is-danger' : ''),
-      evidenceSummaryItem('SOFT INCIDENTS', integer(candidate.soft_failed), Number(candidate.soft_failed) ? 'is-warning' : ''),
-      evidenceSummaryItem('INCIDENT RATE', value(candidate.fail_rate) + '%', Number(candidate.fail_rate) ? 'is-warning' : 'is-success'),
-    ]);
-    content.append(summary);
-
-    if (!observations.length) {
+    if (!allObservations.length) {
       content.append(n('div', 'ops-empty', 'The aggregate is available, but this snapshot predates per-run evidence. Regenerate operations_v2.json to populate exact links.'));
       openOverlay(candidate.name || 'Group evidence', scope + ' evidence', content, true, 'group-' + (candidate.id || candidate.name));
       return;
     }
 
-    const toolbar = n('div', 'ops-toolbar ops-evidence-toolbar');
-    const search = n('input', 'ops-input');
-    search.type = 'search';
-    search.placeholder = 'Filter build, queue, or result';
-    search.setAttribute('aria-label', 'Filter reliability observations');
-    const resultFilter = n('select', 'ops-select');
-    resultFilter.setAttribute('aria-label', 'Filter observations by result');
-    [['all', 'All results'], ['passing', 'Passing only'], ['incident', 'Incidents only']].forEach(function (pair) {
-      const option = n('option', '', pair[1]);
-      option.value = pair[0];
-      resultFilter.append(option);
-    });
-    add(toolbar, [search, resultFilter]);
-    content.append(toolbar);
-    const tableHost = n('div', 'ops-evidence-table-host');
-    content.append(tableHost);
+    let historyMode = 'main';
+    const scopeControlHost = n('div');
+    const scopeToolbar = n('div', 'ops-toolbar ops-evidence-toolbar');
+    scopeToolbar.append(scopeControlHost);
+    scopeToolbar.append(n('span', 'ops-panel-meta', 'Choose the complete branch=main cohort or its nightly subset.'));
+    content.append(scopeToolbar);
+    const historyHost = n('div', 'ops-stack');
+    content.append(historyHost);
 
-    function renderEvidenceRows() {
-      const query = search.value.trim().toLowerCase();
-      const mode = resultFilter.value;
-      const filtered = observations.filter(function (row) {
-        const incident = isIncidentObservation(row);
-        if (mode === 'passing' && observationState(row) !== 'passed') return false;
-        if (mode === 'incident' && !incident) return false;
-        if (!query) return true;
-        return [row.build_number, row.queue, row.raw_name, row.name, observationState(row)]
-          .some(function (part) { return String(part || '').toLowerCase().includes(query); });
-      });
-      clear(tableHost);
-      tableHost.append(dataTable([
-        {label: 'Build', sticky: true, width: '110px', render: function (row) {
-          const label = row.build_number ? '#' + row.build_number : 'Build';
-          return externalLink(label, exactPipelineEvidenceUrl(row, sourcePipeline), 'ops-mono');
-        }},
-        {label: 'Observed', width: '170px', render: function (row) { return shortDate(row.observed_at || row.created_at || row.date); }},
-        {label: 'Result', width: '120px', render: function (row) {
-          const stateName = observationState(row);
-          return linkedBadge(stateName === 'soft' ? 'soft fail' : stateName === 'hard' ? 'hard fail' : stateName, exactPipelineEvidenceUrl(row, sourcePipeline));
-        }},
-        {label: 'Variant', width: '260px', render: function (row) {
-          const parts = [row.variant_hardware, (row.variant_queues || []).join(', '), row.variant_id ? 'id ' + row.variant_id : null].filter(Boolean);
-          return n('span', 'ops-mono', parts.join(' - ') || value(row.group_id));
-        }},
-        {label: 'Queue', width: '170px', render: function (row) { return n('span', 'ops-mono', value(row.queue)); }},
-        {label: 'Completion', numeric: true, width: '120px', render: function (row) {
-          const minutes = row.duration_mins !== undefined ? row.duration_mins : row.duration_min !== undefined ? row.duration_min : row.dur;
-          return duration(minutes);
-        }},
-        {label: 'Tests', numeric: true, width: '90px', render: function (row) { return integer(row.tests); }},
-        {label: 'Retry evidence', width: '150px', render: function (row) {
-          const retry = row.retry_evidence || row;
-          const retries = Number(retry.retries_count || 0);
-          if (retry.retried || retry.retried_in_job_id || retries) return linkedBadge(retries ? retries + ' retries' : 'retried', exactPipelineEvidenceUrl(row, sourcePipeline), null, 'is-info');
-          return n('span', 'ops-cell-muted', '-');
-        }},
-        {label: 'Job evidence', width: '130px', render: function (row) { return externalLink('Open log', exactPipelineEvidenceUrl(row, sourcePipeline)); }},
-      ], filtered, integer(filtered.length) + ' of ' + integer(observations.length) + ' contributing ' + sourcePipeline + ' job observations', {name: 'mixed-evidence', minWidth: '1320px'}));
+    function selectHistoryMode(nextMode) {
+      historyMode = nextMode;
+      clear(scopeControlHost);
+      scopeControlHost.append(segmented([
+        {id: 'main', label: 'All main'},
+        {id: 'nightly', label: 'Nightly only'},
+      ], historyMode, selectHistoryMode, 'Test-group history cohort'));
+      renderHistory();
     }
 
-    search.addEventListener('input', renderEvidenceRows);
-    resultFilter.addEventListener('change', renderEvidenceRows);
-    renderEvidenceRows();
-    content.append(n('p', 'ops-evidence-method', 'Method: group outcomes combine Buildkite job state with parsed test-result summaries from collected logs. Retry badges require explicit Buildkite retry metadata; mixed outcomes alone are not labeled as confirmed flakes.'));
-    openOverlay(candidate.name || 'Group evidence', 'Exact Buildkite evidence for every contributing observation', content, true, 'group-' + (candidate.id || candidate.name));
+    function renderHistory() {
+      const observations = allObservations.filter(function (row) {
+        return historyMode === 'main' || isNightlyObservation(row);
+      });
+      clear(historyHost);
+      if (!observations.length) {
+        historyHost.append(n('div', 'ops-empty', 'No exact nightly observations are retained for this strict test-group variant.'));
+        return;
+      }
+
+      const passed = observations.filter(function (row) { return observationState(row) === 'passed'; }).length;
+      const soft = observations.filter(function (row) { return ['soft', 'soft_fail', 'soft_failed'].includes(observationState(row)); }).length;
+      const incidents = observations.filter(isIncidentObservation);
+      const hard = Math.max(0, incidents.length - soft);
+      const summary = n('div', 'ops-evidence-summary');
+      add(summary, [
+        evidenceSummaryItem(historyMode === 'main' ? 'MAIN OBSERVATIONS' : 'NIGHTLY OBSERVATIONS', integer(observations.length)),
+        evidenceSummaryItem('PASSED', integer(passed), 'is-success'),
+        evidenceSummaryItem('HARD INCIDENTS', integer(hard), hard ? 'is-danger' : ''),
+        evidenceSummaryItem('SOFT INCIDENTS', integer(soft), soft ? 'is-warning' : ''),
+        evidenceSummaryItem('INCIDENT RATE', percent(incidents.length, observations.length), incidents.length ? 'is-warning' : 'is-success'),
+      ]);
+      historyHost.append(summary);
+
+      const labels = observations.map(function (row) { return row.build_number ? '#' + row.build_number : shortDate(observationTimestamp(row)); });
+      const evidence = observations.map(function (row) { return observationHistoryPoint(row, sourcePipeline); });
+      const pointColors = observations.map(function (row) {
+        const outcome = observationOutcomeValue(row);
+        return outcome === 2 ? '#35bb78' : outcome === 1 ? '#e3a63a' : '#e06464';
+      });
+      const chartGrid = n('div', 'ops-grid ops-grid-2');
+      const chartKey = 'group-' + String(candidate.id || candidate.name || 'history').replace(/[^a-z0-9]+/gi, '-').toLowerCase() + '-' + historyMode;
+      const outcomeChart = chartPanel('Outcome history', integer(observations.length) + ' exact ' + (historyMode === 'main' ? 'main' : 'nightly') + ' observations', chartKey + '-outcome');
+      chartGrid.append(outcomeChart.root);
+      const hasDuration = observations.some(function (row) { return observationDurationMinutes(row) !== null || observationWaitMinutes(row) !== null; });
+      let durationChart = null;
+      if (hasDuration) {
+        durationChart = chartPanel('Completion and queue wait', 'Minutes per exact Buildkite job observation', chartKey + '-duration');
+        chartGrid.append(durationChart.root);
+      }
+      historyHost.append(chartGrid);
+
+      const filterToolbar = n('div', 'ops-toolbar ops-evidence-toolbar');
+      const search = n('input', 'ops-input');
+      search.type = 'search';
+      search.placeholder = 'Filter build, queue, or result';
+      search.setAttribute('aria-label', 'Filter reliability observations');
+      const resultFilter = n('select', 'ops-select');
+      resultFilter.setAttribute('aria-label', 'Filter observations by result');
+      [['all', 'All results'], ['passing', 'Passing only'], ['incident', 'Incidents only']].forEach(function (pair) {
+        const option = n('option', '', pair[1]);
+        option.value = pair[0];
+        resultFilter.append(option);
+      });
+      add(filterToolbar, [search, resultFilter]);
+      historyHost.append(filterToolbar);
+      const tableHost = n('div', 'ops-evidence-table-host');
+      historyHost.append(tableHost);
+
+      function renderEvidenceRows() {
+        const query = search.value.trim().toLowerCase();
+        const mode = resultFilter.value;
+        const filtered = observations.slice().reverse().filter(function (row) {
+          const incident = isIncidentObservation(row);
+          if (mode === 'passing' && observationState(row) !== 'passed') return false;
+          if (mode === 'incident' && !incident) return false;
+          if (!query) return true;
+          return [row.build_number, row.queue, row.raw_name, row.name, observationState(row)]
+            .some(function (part) { return String(part || '').toLowerCase().includes(query); });
+        });
+        clear(tableHost);
+        tableHost.append(dataTable([
+          {label: 'Build', sticky: true, width: '110px', render: function (row) {
+            const label = row.build_number ? '#' + row.build_number : 'Build';
+            return externalLink(label, exactPipelineEvidenceUrl(row, sourcePipeline), 'ops-mono');
+          }},
+          {label: 'Cohort', width: '100px', render: function (row) { return badge(isNightlyObservation(row) ? 'nightly' : 'main', isNightlyObservation(row) ? 'is-info' : 'is-neutral'); }},
+          {label: 'Observed', width: '170px', render: function (row) { return shortDate(observationTimestamp(row)); }},
+          {label: 'Result', width: '120px', render: function (row) {
+            const stateName = observationState(row);
+            return linkedBadge(stateName === 'soft' ? 'soft fail' : stateName === 'hard' ? 'hard fail' : stateName, exactPipelineEvidenceUrl(row, sourcePipeline));
+          }},
+          {label: 'Variant', width: '250px', render: function (row) {
+            const parts = [row.variant_hardware, (row.variant_queues || []).join(', '), row.variant_id ? 'id ' + row.variant_id : null].filter(Boolean);
+            return n('span', 'ops-mono', parts.join(' - ') || value(row.group_id));
+          }},
+          {label: 'Queue', width: '160px', render: function (row) { return n('span', 'ops-mono', value(row.queue)); }},
+          {label: 'Completion', numeric: true, width: '120px', render: function (row) { return duration(observationDurationMinutes(row)); }},
+          {label: 'Queue wait', numeric: true, width: '110px', render: function (row) { return duration(observationWaitMinutes(row)); }},
+          {label: 'Retry evidence', width: '150px', render: function (row) {
+            const retry = row.retry_evidence || row;
+            const retries = Number(retry.retries_count || 0);
+            if (retry.retried || retry.retried_in_job_id || retries) return linkedBadge(retries ? retries + ' retries' : 'retried', exactPipelineEvidenceUrl(row, sourcePipeline), null, 'is-info');
+            return n('span', 'ops-cell-muted', '-');
+          }},
+          {label: 'Job evidence', width: '130px', render: function (row) { return externalLink('Open log', exactPipelineEvidenceUrl(row, sourcePipeline)); }},
+        ], filtered, integer(filtered.length) + ' of ' + integer(observations.length) + ' retained ' + (historyMode === 'main' ? 'main' : 'nightly') + ' observations', {name: 'mixed-evidence', minWidth: '1420px'}));
+      }
+
+      search.addEventListener('input', renderEvidenceRows);
+      resultFilter.addEventListener('change', renderEvidenceRows);
+      renderEvidenceRows();
+      historyHost.append(n('p', 'ops-evidence-method', 'Method: outcomes combine Buildkite job state with parsed test-result summaries. Completion is job wall time and queue wait is shown only when the collector retained it. Retry badges require explicit Buildkite retry metadata; mixed outcomes alone are not labeled as confirmed flakes.'));
+
+      requestAnimationFrame(function () {
+        drawChart(chartKey + '-outcome', outcomeChart.canvas, {
+          type: 'line',
+          data: {labels: labels, datasets: [{label: 'Outcome', data: observations.map(observationOutcomeValue), showLine: false, pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: pointColors, pointBorderColor: pointColors}]},
+          options: {scales: {x: {grid: {display: false}, ticks: {maxTicksLimit: 8}}, y: {min: 0, max: 2, ticks: {stepSize: 1, callback: function (tick) { return tick === 2 ? 'Passed' : tick === 1 ? 'Soft' : tick === 0 ? 'Hard' : ''; }}}}},
+          evidenceTitle: (candidate.name || 'Test group') + ' outcome history',
+          evidence: evidence,
+        });
+        if (durationChart) {
+          const datasets = [{label: 'Completion', data: observations.map(observationDurationMinutes), borderColor: '#22b8ad', backgroundColor: '#22b8ad', pointRadius: 2, borderWidth: 2, spanGaps: false}];
+          if (observations.some(function (row) { return observationWaitMinutes(row) !== null; })) datasets.push({label: 'Queue wait', data: observations.map(observationWaitMinutes), borderColor: '#e3a63a', backgroundColor: '#e3a63a', pointRadius: 2, borderWidth: 1.5, spanGaps: false});
+          drawChart(chartKey + '-duration', durationChart.canvas, {
+            type: 'line',
+            data: {labels: labels, datasets: datasets},
+            options: {scales: {x: {grid: {display: false}, ticks: {maxTicksLimit: 8}}, y: {beginAtZero: true, title: {display: true, text: 'Minutes'}}}},
+            evidenceTitle: (candidate.name || 'Test group') + ' completion and queue-wait history',
+            evidence: evidence,
+          });
+        }
+      });
+    }
+
+    openOverlay(candidate.name || 'Group evidence', 'Historical outcomes, latency, and exact Buildkite evidence', content, true, 'group-' + (candidate.id || candidate.name));
+    selectHistoryMode('main');
   }
 
   function candidateNameCell(candidate) {
@@ -962,6 +1096,12 @@
     const variant = groupVariantMeta(row);
     if (variant) cell.append(n('span', 'ops-entity-meta ops-mono', variant));
     return cell;
+  }
+
+  function compactChartLabel(row, maxLength) {
+    const full = (row.name || row.label || row.group || 'Unnamed group') + ' [' + value(row.hardware || row.hw, 'unknown') + ']';
+    const limit = maxLength || 46;
+    return full.length > limit ? full.slice(0, Math.max(1, limit - 3)) + '...' : full;
   }
 
   function latestObservation(row) {
@@ -1775,7 +1915,7 @@
         {label: 'Incident rate', numeric: true, width: '130px', render: function (row) { return linkButton(Number.isFinite(Number(row.fail_rate)) ? Number(row.fail_rate).toFixed(1) + '%' : '-', function () { openGroupDetail(row, ops, row, reliability); }); }},
         {label: 'Median', numeric: true, width: '100px', render: function (row) { return linkButton(duration(row.median_dur), function () { openGroupDetail(row, ops, row, reliability); }); }},
         {label: 'p90', numeric: true, width: '100px', render: function (row) { return linkButton(duration(row.p90_dur), function () { openGroupDetail(row, ops, row, reliability); }); }},
-        {label: 'Evidence', width: '150px', render: function (row) { return linkButton(integer(evidenceObservations(row).length || row.observation_count || row.runs) + ' observations', function () { openGroupDetail(row, ops, row, reliability); }); }},
+        {label: 'History', width: '170px', render: function (row) { return linkButton('Timeline - ' + integer(evidenceObservations(row).length || row.observation_count || row.runs) + ' runs', function () { openGroupDetail(row, ops, row, reliability); }, 'Open all-main and nightly history for ' + value(row.name)); }},
       ], rows, integer(rows.length) + ' upstream test groups in ' + scope.label.toLowerCase(), {name: 'test-groups', minWidth: '1060px'}));
       return;
     }
@@ -2019,6 +2159,66 @@
     });
   }
 
+  function queueWaitHistoryPoint(snapshot, queueName) {
+    const entries = queueName === 'fleet'
+      ? selectedQueues(snapshot, true)
+      : Object.prototype.hasOwnProperty.call(snapshot.queues || {}, queueName)
+        ? [[queueName, (snapshot.queues || {})[queueName]]]
+        : [];
+    function highest(metric) {
+      return entries.map(function (entry) {
+        return {queue: entry[0], value: waitValue(entry[1] || {}, metric), source: waitSource(entry[1] || {}, metric)};
+      }).filter(function (row) {
+        return row.value !== null && row.value !== undefined && Number.isFinite(Number(row.value));
+      }).sort(function (a, b) { return Number(b.value) - Number(a.value); })[0] || {};
+    }
+    const p50 = highest('p50'), p95 = highest('p95'), p99 = highest('p99');
+    return {
+      ts: snapshot.ts,
+      snapshot: snapshot,
+      p50: p50.value !== undefined ? Number(p50.value) : null,
+      p95: p95.value !== undefined ? Number(p95.value) : null,
+      p99: p99.value !== undefined ? Number(p99.value) : null,
+      p50Queue: p50.queue,
+      p95Queue: p95.queue,
+      p99Queue: p99.queue,
+      p50Source: p50.source,
+      p95Source: p95.source,
+      p99Source: p99.source,
+    };
+  }
+
+  function queuePressureRows(snapshot, history) {
+    return selectedQueues(snapshot, true).map(function (entry) {
+      const name = entry[0], currentRow = entry[1] || {};
+      const loads = (history || []).filter(function (point) { return point && point.ts !== snapshot.ts; }).map(function (point) {
+        const row = ((point.queues || {})[name]);
+        return row ? Number(row.running || 0) + Number(row.waiting || 0) : null;
+      }).filter(function (load) { return Number.isFinite(load); });
+      const current = Number(currentRow.running || 0) + Number(currentRow.waiting || 0);
+      const baselineMedian = percentileValue(loads, 0.5);
+      const baselineP95 = percentileValue(loads, 0.95);
+      const pressureRatio = Number(baselineP95) > 0 ? current / Number(baselineP95) : current > 0 ? null : 0;
+      return {
+        name: name,
+        row: currentRow,
+        current: current,
+        running: Number(currentRow.running || 0),
+        waiting: Number(currentRow.waiting || 0),
+        baselineMedian: baselineMedian,
+        baselineP95: baselineP95,
+        pressureRatio: pressureRatio,
+        historyPoints: loads.length,
+        elevated: baselineP95 !== null && current > Number(baselineP95),
+      };
+    }).filter(function (row) {
+      return row.current > 0 || Number(row.baselineP95 || 0) > 0;
+    }).sort(function (a, b) {
+      if (a.elevated !== b.elevated) return a.elevated ? -1 : 1;
+      return Number(b.current || 0) - Number(a.current || 0);
+    });
+  }
+
   async function renderQueue(host, ops) {
     const queueBlock = ops.queue || {};
     const snapshot = queueBlock.snapshot || {};
@@ -2070,6 +2270,30 @@
     });
 
     if (state.queueView === 'current') {
+      const pressureRows = queuePressureRows(snapshot, Array.isArray(queueBlock.history) ? queueBlock.history : []);
+      if (pressureRows.length) {
+        const pressureTop = pressureRows.slice(0, 14);
+        const pressureChart = chartPanel('Queue pressure against retained baseline', 'Current running + waiting versus each queue\'s historical p95 load', 'queue-pressure');
+        host.append(pressureChart.root);
+        requestAnimationFrame(function () {
+          drawChart('queue-pressure', pressureChart.canvas, {
+            type: 'bar',
+            data: {
+              labels: pressureTop.map(function (row) { return row.name; }),
+              datasets: [
+                {label: 'Current load', data: pressureTop.map(function (row) { return row.current; }), backgroundColor: '#22b8ad', borderColor: pressureTop.map(function (row) { return row.elevated ? '#e06464' : '#22b8ad'; }), borderWidth: pressureTop.map(function (row) { return row.elevated ? 2 : 0; })},
+                {label: 'Historical p95', data: pressureTop.map(function (row) { return row.baselineP95; }), backgroundColor: '#66717d'},
+              ],
+            },
+            options: {indexAxis: 'y', scales: {x: {beginAtZero: true, title: {display: true, text: 'Running + waiting jobs'}}, y: {grid: {display: false}}}},
+            evidenceTitle: 'Queue pressure versus historical p95',
+            evidenceAsset: SOURCE_ASSETS.queueHistory,
+            evidence: pressureTop.map(function (row) { return {label: row.name, timestamp: snapshot.ts, valueSummary: integer(row.current) + ' current - ' + integer(row.baselineP95) + ' historical p95', details: {running: row.running, waiting: row.waiting, historical_median: row.baselineMedian, historical_p95: row.baselineP95, retained_snapshots: row.historyPoints}, sources: [{label: 'Open published queue history', url: SOURCE_ASSETS.queueHistory}], onOpen: function () { openQueueDetail(row.name, row.row, activeJobs); }}; }),
+          });
+        });
+        const elevatedRows = pressureRows.filter(function (row) { return row.elevated; });
+        if (elevatedRows.length) host.append(n('div', 'ops-evidence-note is-warning', integer(elevatedRows.length) + ' queues are above their retained historical p95 concurrent load. Select a queue in History to inspect its wait-time trend.'));
+      }
       host.append(dataTable([
         {label: 'Queue', sticky: true, render: function (item) { const name = item[0], row = item[1]; return row.queue_url ? externalLink(name, row.queue_url, 'ops-mono') : linkButton(name, function () { openQueueDetail(name, row, activeJobs); }); }},
         {label: 'Running', numeric: true, render: function (item) { return linkButton(integer(item[1].running), function () { openQueueDetail(item[0], item[1], activeJobs); }); }},
@@ -2104,16 +2328,48 @@
     const latestHistoryMs = history.length ? new Date(history[history.length - 1].ts).getTime() : Date.now();
     const rangeHours = state.queueRange === '30d' ? 720 : state.queueRange === '7d' ? 168 : 24;
     history = history.filter(function (snap) { const time = new Date(snap.ts).getTime(); return !Number.isFinite(time) || time >= latestHistoryMs - rangeHours * 3600000; });
-    const points = history.map(function (snap) {
-      let waiting = 0, running = 0;
+    const queueNames = Array.from(new Set(history.flatMap(function (snap) {
+      return Object.keys(snap.queues || {}).filter(function (name) {
+        return !isRetiredQueue(name) && (state.queueScope === 'all' || isAmdQueue(name));
+      });
+    }))).sort();
+    if (state.queueHistoryQueue !== 'fleet' && !queueNames.includes(state.queueHistoryQueue)) {
+      state.queueHistoryQueue = 'fleet';
+      setQueryValue('queue_history_queue', 'fleet');
+    }
+    const queueField = n('label', 'ops-field');
+    queueField.append(n('span', 'ops-field-label', 'History queue'));
+    const queueSelect = n('select', 'ops-select');
+    queueSelect.setAttribute('aria-label', 'Select queue for historical activity and wait time');
+    [['fleet', 'Fleet aggregate']].concat(queueNames.map(function (name) { return [name, name]; })).forEach(function (pair) {
+      const option = n('option', '', pair[1]);
+      option.value = pair[0];
+      option.selected = pair[0] === state.queueHistoryQueue;
+      queueSelect.append(option);
+    });
+    queueSelect.addEventListener('change', function () { setRouteState('ci-queue', 'queueHistoryQueue', queueSelect.value, 'queue_history_queue'); });
+    queueField.append(queueSelect);
+    const historyToolbar = n('div', 'ops-toolbar');
+    historyToolbar.append(queueField);
+    host.append(historyToolbar);
+    const selectedHistory = state.queueHistoryQueue === 'fleet' ? history : history.filter(function (snap) {
+      return Object.prototype.hasOwnProperty.call(snap.queues || {}, state.queueHistoryQueue);
+    });
+    const points = selectedHistory.map(function (snap) {
+      let waiting = 0, running = 0, queues = 0;
       for (const [name, row] of Object.entries(snap.queues || {})) {
-        if (isRetiredQueue(name)) continue;
-        if (state.queueScope === 'all' || isAmdQueue(name)) { waiting += Number(row.waiting || 0); running += Number(row.running || 0); }
+        if (isRetiredQueue(name) || (state.queueScope !== 'all' && !isAmdQueue(name))) continue;
+        if (state.queueHistoryQueue !== 'fleet' && name !== state.queueHistoryQueue) continue;
+        waiting += Number(row.waiting || 0);
+        running += Number(row.running || 0);
+        queues += 1;
       }
-      return {ts: snap.ts, waiting: waiting, running: running, snapshot: snap, queues: selectedQueues(snap, true).length};
+      return {ts: snap.ts, waiting: waiting, running: running, snapshot: snap, queues: queues};
     });
     const summary = queueBlock.history_summary || {};
-    const cp = chartPanel('Fleet activity', integer(points.length) + ' snapshots in ' + state.queueRange + (summary.first_observed_at ? ' - history begins ' + shortDate(summary.first_observed_at) : ''), 'queue-history');
+    const selectedHistoryStart = selectedHistory.length ? selectedHistory[0].ts : summary.first_observed_at;
+    const historyLabel = state.queueHistoryQueue === 'fleet' ? 'Fleet' : state.queueHistoryQueue;
+    const cp = chartPanel(historyLabel + ' activity', integer(points.length) + ' snapshots in ' + state.queueRange + (selectedHistoryStart ? ' - history begins ' + shortDate(selectedHistoryStart) : ''), 'queue-history');
     host.append(cp.root);
     drawChart('queue-history', cp.canvas, {type: 'line', data: {
       labels: points.map(function (p) { return shortDate(p.ts); }),
@@ -2121,7 +2377,35 @@
         {label: 'Running', data: points.map(function (p) { return p.running; }), borderColor: '#22b8ad', backgroundColor: '#22b8ad', pointRadius: 0, borderWidth: 2},
         {label: 'Waiting', data: points.map(function (p) { return p.waiting; }), borderColor: '#e3a63a', backgroundColor: '#e3a63a', pointRadius: 0, borderWidth: 2},
       ],
-    }, evidenceTitle: 'Queue snapshot history', evidenceAsset: SOURCE_ASSETS.queueHistory, evidence: points.map(function (point) { return {label: shortDate(point.ts), timestamp: point.ts, valueSummary: integer(point.running) + ' running - ' + integer(point.waiting) + ' waiting', details: {running: point.running, waiting: point.waiting, queues: point.queues}, sources: [{label: 'Open published queue history', url: SOURCE_ASSETS.queueHistory}], onOpen: function () { openQueueSnapshotDetail(point.snapshot, point); }}; })});
+    }, evidenceTitle: historyLabel + ' queue activity history', evidenceAsset: SOURCE_ASSETS.queueHistory, evidence: points.map(function (point) { return {label: shortDate(point.ts), timestamp: point.ts, valueSummary: integer(point.running) + ' running - ' + integer(point.waiting) + ' waiting', details: {running: point.running, waiting: point.waiting, queues: point.queues, selected_queue: state.queueHistoryQueue}, sources: [{label: 'Open published queue history', url: SOURCE_ASSETS.queueHistory}], onOpen: function () { openQueueSnapshotDetail(point.snapshot, point); }}; })});
+
+    const waitPoints = selectedHistory.map(function (snap) { return queueWaitHistoryPoint(snap, state.queueHistoryQueue); });
+    const waitEvidenceCount = waitPoints.filter(function (point) { return point.p50 !== null || point.p95 !== null || point.p99 !== null; }).length;
+    if (waitEvidenceCount) {
+      const waitTitle = state.queueHistoryQueue === 'fleet' ? 'Highest reported wait across queues' : state.queueHistoryQueue + ' wait history';
+      const waitSubtitle = state.queueHistoryQueue === 'fleet'
+        ? 'Maximum queue-level percentile in scope at each snapshot; percentiles are not combined into a fleet percentile'
+        : 'Source-reported queue wait percentiles; p99 appears only for sampled wait evidence';
+      const waitChart = chartPanel(waitTitle, integer(waitEvidenceCount) + ' snapshots with wait measurements', 'queue-wait-history');
+      host.append(waitChart.root);
+      drawChart('queue-wait-history', waitChart.canvas, {
+        type: 'line',
+        data: {
+          labels: waitPoints.map(function (point) { return shortDate(point.ts); }),
+          datasets: [
+            {label: 'p50', data: waitPoints.map(function (point) { return point.p50; }), borderColor: '#22b8ad', backgroundColor: '#22b8ad', pointRadius: 2, borderWidth: 2},
+            {label: 'p95', data: waitPoints.map(function (point) { return point.p95; }), borderColor: '#e3a63a', backgroundColor: '#e3a63a', pointRadius: 2, borderWidth: 2},
+            {label: 'p99 sampled', data: waitPoints.map(function (point) { return point.p99; }), borderColor: '#cf8dd9', backgroundColor: '#cf8dd9', pointRadius: 2, borderWidth: 1.5},
+          ],
+        },
+        options: {scales: {x: {grid: {display: false}, ticks: {maxTicksLimit: 8}}, y: {beginAtZero: true, title: {display: true, text: 'Wait minutes'}}}},
+        evidenceTitle: waitTitle,
+        evidenceAsset: SOURCE_ASSETS.queueHistory,
+        evidence: waitPoints.map(function (point) { return {label: shortDate(point.ts), timestamp: point.ts, valueSummary: 'p50 ' + duration(point.p50) + ' - p95 ' + duration(point.p95) + ' - p99 ' + duration(point.p99), details: {p50: duration(point.p50), p50_queue: point.p50Queue, p50_source: point.p50Source, p95: duration(point.p95), p95_queue: point.p95Queue, p95_source: point.p95Source, p99_sampled: duration(point.p99), p99_queue: point.p99Queue, p99_source: point.p99Source}, sources: [{label: 'Open published queue history', url: SOURCE_ASSETS.queueHistory}], onOpen: function () { openQueueSnapshotDetail(point.snapshot, {running: '-', waiting: '-', queues: state.queueHistoryQueue === 'fleet' ? selectedQueues(point.snapshot, true).length : 1}); }}; }),
+      });
+    } else {
+      host.append(n('div', 'ops-evidence-note is-info', 'No source-reported queue wait percentiles exist for ' + historyLabel + ' in this range. Counts remain historical evidence; missing waits are not rendered as zero.'));
+    }
     if (points.length < 2) host.append(n('div', 'ops-evidence-note is-info', 'Historical collection has only one snapshot in this range. The dashboard will not infer a trend until another source-backed point exists.'));
     host.append(dataTable([
       {label: 'Snapshot', sticky: true, render: function (point) { return linkButton(shortDate(point.ts), function () { openQueueSnapshotDetail(point.snapshot, point); }); }},
@@ -2146,6 +2430,19 @@
     const sorted = values.filter(function (item) { return Number.isFinite(Number(item)); }).map(Number).sort(function (a, b) { return a - b; });
     if (!sorted.length) return null;
     return sorted[Math.ceil((sorted.length - 1) * percentile)];
+  }
+
+  function executionCadencePerDay(observations) {
+    const timestamps = observations.map(function (observation) {
+      return new Date(observationTimestamp(observation) || 0).getTime();
+    }).filter(Number.isFinite).sort(function (a, b) { return a - b; });
+    const gapsMinutes = [];
+    for (let index = 1; index < timestamps.length; index += 1) {
+      const gap = (timestamps[index] - timestamps[index - 1]) / 60000;
+      if (gap > 0) gapsMinutes.push(gap);
+    }
+    const medianGap = percentileValue(gapsMinutes, 0.5);
+    return Number(medianGap) > 0 ? 1440 / Number(medianGap) : null;
   }
 
   function observationTimestamp(observation) {
@@ -2209,6 +2506,115 @@
     return {rows: rows, observedTo: new Date(safeEndMs).toISOString(), observedFrom: new Date(cutoffMs).toISOString(), cohort: cohort};
   }
 
+  function trajectoryAnomaliesFromReliability(reliability, windowId, generatedAt) {
+    const windowHours = {"24h": 24, "72h": 72, "7d": 168, "30d": 720};
+    const cohort = reliabilityCohortSummary(reliability);
+    const endMsRaw = new Date(cohort.observedTo || generatedAt || Date.now()).getTime();
+    const endMs = Number.isFinite(endMsRaw) ? endMsRaw : Date.now();
+    const recentHours = Math.min(windowHours[windowId] || 24, 72);
+    const recentStartMs = endMs - recentHours * 3600000;
+    const retainedStartRaw = new Date(cohort.observedFrom || 0).getTime();
+    const desiredBaselineHours = Math.max(168, recentHours * 4);
+    const baselineStartMs = Math.max(Number.isFinite(retainedStartRaw) ? retainedStartRaw : 0, recentStartMs - desiredBaselineHours * 3600000);
+    const baselineDays = Math.max((recentStartMs - baselineStartMs) / 86400000, 0);
+    const rows = reliabilityCatalog(reliability).filter(function (catalogRow) {
+      return catalogRow && catalogRow.source_pipeline === 'ci';
+    }).map(function (catalogRow) {
+      const retained = evidenceObservations(catalogRow).filter(function (observation) {
+        const observedMs = new Date(observationTimestamp(observation) || 0).getTime();
+        return observation.source_pipeline === 'ci'
+          && Boolean(exactPipelineEvidenceUrl(observation, 'ci'))
+          && Number.isFinite(observedMs)
+          && observedMs <= endMs;
+      }).sort(function (a, b) { return new Date(observationTimestamp(a) || 0) - new Date(observationTimestamp(b) || 0); });
+      const recent = retained.filter(function (observation) { return new Date(observationTimestamp(observation)).getTime() >= recentStartMs; });
+      const baseline = retained.filter(function (observation) { const observedMs = new Date(observationTimestamp(observation)).getTime(); return observedMs >= baselineStartMs && observedMs < recentStartMs; });
+      if (!recent.length) return null;
+      const byBuild = new Map();
+      retained.forEach(function (observation) {
+        const key = observation.build_number !== null && observation.build_number !== undefined
+          ? 'build-' + observation.build_number
+          : 'job-' + value(observation.job_id || exactPipelineEvidenceUrl(observation, 'ci'));
+        if (!byBuild.has(key)) byBuild.set(key, observation);
+      });
+      const distinctBuilds = Array.from(byBuild.values());
+      const cadenceRecent = distinctBuilds.slice(-8);
+      const cadenceBaseline = distinctBuilds.slice(-24, -8);
+      const recentDurations = recent.map(observationDurationMinutes).filter(function (minutes) { return minutes !== null; });
+      const baselineDurations = baseline.map(observationDurationMinutes).filter(function (minutes) { return minutes !== null; });
+      const recentRate = cadenceRecent.length >= 4 ? executionCadencePerDay(cadenceRecent) : null;
+      const baselineRate = cadenceBaseline.length >= 4 ? executionCadencePerDay(cadenceBaseline) : null;
+      const frequencyChangePct = Number(recentRate) > 0 && Number(baselineRate) > 0 ? (Number(recentRate) - Number(baselineRate)) / Number(baselineRate) * 100 : null;
+      const recentMedian = percentileValue(recentDurations, 0.5);
+      const baselineMedian = percentileValue(baselineDurations, 0.5);
+      const durationChangePct = Number(baselineMedian) > 0 && recentMedian !== null ? (Number(recentMedian) - Number(baselineMedian)) / Number(baselineMedian) * 100 : null;
+      const incidents = recent.filter(isIncidentObservation);
+      const latest = recent.slice().sort(function (a, b) { return new Date(observationTimestamp(b) || 0) - new Date(observationTimestamp(a) || 0); })[0];
+      return {
+        id: catalogRow.id,
+        name: catalogRow.name,
+        hardware: catalogRow.hardware || catalogRow.hw || 'unknown',
+        queues: catalogRow.queues || (catalogRow.queue ? [catalogRow.queue] : []),
+        workload: catalogRow.workload || 'vllm',
+        recent: recent,
+        baseline: baseline,
+        recentCount: recent.length,
+        baselineCount: baseline.length,
+        cadenceRecentCount: cadenceRecent.length,
+        cadenceBaselineCount: cadenceBaseline.length,
+        cadenceRecent: cadenceRecent,
+        cadenceBaseline: cadenceBaseline,
+        recentRate: recentRate,
+        baselineRate: baselineRate,
+        frequencyChangePct: frequencyChangePct,
+        recentMedian: recentMedian,
+        baselineMedian: baselineMedian,
+        durationChangePct: durationChangePct,
+        incidentRatePct: incidents.length / recent.length * 100,
+        latest: latest,
+        catalogRow: catalogRow,
+      };
+    }).filter(Boolean);
+    return {
+      rows: rows,
+      recentHours: recentHours,
+      recentStart: new Date(recentStartMs).toISOString(),
+      baselineStart: new Date(baselineStartMs).toISOString(),
+      baselineEnd: new Date(recentStartMs).toISOString(),
+      baselineDays: baselineDays,
+    };
+  }
+
+  function trajectoryAnomalyObservations(row) {
+    const unique = new Map();
+    [row.baseline, row.recent, row.cadenceBaseline, row.cadenceRecent].flat().filter(Boolean).forEach(function (observation) {
+      const key = observation.job_id || exactPipelineEvidenceUrl(observation, 'ci')
+        || value(observation.build_number) + '-' + observationTimestamp(observation);
+      if (!unique.has(key)) unique.set(key, observation);
+    });
+    return Array.from(unique.values());
+  }
+
+  function openTrajectoryAnomalyHistory(row, anomalyData) {
+    const observations = trajectoryAnomalyObservations(row);
+    const passed = observations.filter(function (observation) { return observationState(observation) === 'passed'; }).length;
+    const incidents = observations.filter(isIncidentObservation);
+    const soft = observations.filter(function (observation) { return ['soft', 'soft_fail', 'soft_failed'].includes(observationState(observation)); }).length;
+    openMixedOutcomeEvidence(Object.assign({}, row.catalogRow || {}, {
+      id: row.id,
+      name: row.name,
+      hardware: row.hardware,
+      queues: row.queues,
+      runs: observations.length,
+      passed: passed,
+      failed: Math.max(0, incidents.length - soft),
+      soft_failed: soft,
+      fail_rate: observations.length ? incidents.length / observations.length * 100 : 0,
+      observations: observations,
+      scope_label: duration(anomalyData.recentHours * 60) + ' recent window versus retained baseline beginning ' + shortDate(anomalyData.baselineStart),
+    }));
+  }
+
   function openTrajectoryGroupHistory(row) {
     const candidate = Object.assign({}, row.catalogRow || {}, {
       id: row.id,
@@ -2230,6 +2636,7 @@
     const reliability = canonicalReliability(ops);
     const scope = reliabilityScopeInfo(reliability);
     const windowData = trajectoryRowsFromReliability(reliability, state.trajectoryWindow, ops.generated_at);
+    const anomalyData = trajectoryAnomaliesFromReliability(reliability, state.trajectoryWindow, ops.generated_at);
     const allRows = windowData.rows;
     let rows = allRows.slice();
     const hardware = Array.from(new Set(allRows.map(function (row) { return row.hardware || 'unknown'; }))).sort();
@@ -2274,10 +2681,83 @@
       {id: 'trajectory-incidents', label: 'VARIANTS WITH INCIDENTS', value: integer(failing), meta: 'non-zero incident rate', tone: failing ? 'is-warning' : 'is-success', onOpen: function () { openHistoryEvidence('Variants with incidents', rows.filter(function (row) { return hotnessRatePercent(row) > 0; }).map(function (row) { return {id: row.id, label: row.name + ' - ' + row.hardware, timestamp: row.last_seen, valueSummary: hotnessRatePercent(row).toFixed(1) + '%', sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.operations}], onOpen: function () { openTrajectoryGroupHistory(row); }}; }), 'Strict all-main group identities in the selected window', SOURCE_ASSETS.operations); }},
       {id: 'trajectory-slowest', label: 'SLOWEST P90', value: duration(slowest.p90_min), meta: value(slowest.name, 'No duration data'), onOpen: function () { slowest.id ? openTrajectoryGroupHistory(slowest) : openMetricDetail({label: 'Slowest p90', value: '-', meta: 'No completion data in this window', sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.operations}]}); }},
     ]));
+
+    let anomalyRows = anomalyData.rows.slice();
+    if (state.trajectoryWorkload !== 'all') anomalyRows = anomalyRows.filter(function (row) { return row.workload === state.trajectoryWorkload; });
+    if (state.trajectoryHardware !== 'all') anomalyRows = anomalyRows.filter(function (row) { return row.hardware === state.trajectoryHardware; });
+    if (query) anomalyRows = anomalyRows.filter(function (row) { return [row.name, row.id, row.hardware, row.queues.join(' ')].some(function (part) { return String(part || '').toLowerCase().includes(query); }); });
+    const frequencyRows = anomalyRows.filter(function (row) {
+      return row.cadenceRecentCount >= 4 && row.cadenceBaselineCount >= 4 && Number(row.frequencyChangePct) >= 25;
+    }).sort(function (a, b) {
+      return Number(b.frequencyChangePct || 0) - Number(a.frequencyChangePct || 0);
+    }).slice(0, 15);
+    const durationRows = anomalyRows.filter(function (row) {
+      return row.recentCount >= 2 && row.baselineCount >= 2 && Number(row.durationChangePct) >= 15;
+    }).sort(function (a, b) { return Number(b.durationChangePct) - Number(a.durationChangePct); }).slice(0, 15);
+    const anomalyGrid = n('div', 'ops-grid ops-grid-2');
+    if (frequencyRows.length) {
+      const frequencyChart = chartPanel('Execution-frequency changes', 'Median cadence across the latest 8 distinct builds versus the preceding 16', 'trajectory-frequency-anomalies');
+      anomalyGrid.append(frequencyChart.root);
+      requestAnimationFrame(function () {
+        drawChart('trajectory-frequency-anomalies', frequencyChart.canvas, {
+          type: 'bar',
+          data: {labels: frequencyRows.map(function (row) { return compactChartLabel(row, 42); }), datasets: [
+            {label: 'Latest', data: frequencyRows.map(function (row) { return Number(row.recentRate.toFixed(2)); }), backgroundColor: '#e3a63a'},
+            {label: 'Prior', data: frequencyRows.map(function (row) { return row.baselineRate === null ? null : Number(row.baselineRate.toFixed(2)); }), backgroundColor: '#66717d'},
+          ]},
+          options: {indexAxis: 'y', scales: {x: {beginAtZero: true, title: {display: true, text: 'Distinct builds per day'}}, y: {grid: {display: false}}}},
+          evidenceTitle: 'Test-group execution-frequency changes',
+          evidence: frequencyRows.map(function (row) { return {id: row.id, label: row.name + ' - ' + row.hardware, timestamp: observationTimestamp(row.latest), valueSummary: (row.frequencyChangePct >= 0 ? '+' : '') + row.frequencyChangePct.toFixed(0) + '% execution cadence', details: {latest_distinct_builds: row.cadenceRecentCount, latest_cadence_per_day: row.recentRate.toFixed(2), prior_distinct_builds: row.cadenceBaselineCount, prior_cadence_per_day: row.baselineRate === null ? '-' : row.baselineRate.toFixed(2), queues: row.queues.join(', '), incident_rate: row.incidentRatePct.toFixed(1) + '%'}, sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.operations}], onOpen: function () { openTrajectoryAnomalyHistory(row, anomalyData); }}; }),
+        });
+      });
+    } else {
+      anomalyGrid.append(panel('Execution-frequency changes', 'No group crossed the evidence threshold', n('div', 'ops-empty', 'At least four latest and four prior distinct builds plus a 25% cadence increase are required.')));
+    }
+    if (durationRows.length) {
+      const durationRegressionChart = chartPanel('Completion-time regressions', 'Recent median completion versus the preceding retained baseline', 'trajectory-duration-anomalies');
+      anomalyGrid.append(durationRegressionChart.root);
+      requestAnimationFrame(function () {
+        drawChart('trajectory-duration-anomalies', durationRegressionChart.canvas, {
+          type: 'bar',
+          data: {labels: durationRows.map(function (row) { return compactChartLabel(row, 42); }), datasets: [
+            {label: 'Recent', data: durationRows.map(function (row) { return row.recentMedian; }), backgroundColor: '#e06464'},
+            {label: 'Baseline', data: durationRows.map(function (row) { return row.baselineMedian; }), backgroundColor: '#66717d'},
+          ]},
+          options: {indexAxis: 'y', scales: {x: {beginAtZero: true, title: {display: true, text: 'Completion minutes'}}, y: {grid: {display: false}}}},
+          evidenceTitle: 'Test-group completion-time regressions',
+          evidence: durationRows.map(function (row) { return {id: row.id, label: row.name + ' - ' + row.hardware, timestamp: observationTimestamp(row.latest), valueSummary: '+' + row.durationChangePct.toFixed(0) + '% median completion time', details: {recent_median: duration(row.recentMedian), baseline_median: duration(row.baselineMedian), recent_observations: row.recentCount, baseline_observations: row.baselineCount, queues: row.queues.join(', '), incident_rate: row.incidentRatePct.toFixed(1) + '%'}, sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.operations}], onOpen: function () { openTrajectoryAnomalyHistory(row, anomalyData); }}; }),
+        });
+      });
+    } else {
+      anomalyGrid.append(panel('Completion-time regressions', 'No group crossed the evidence threshold', n('div', 'ops-empty', 'At least two recent and two baseline durations plus a 15% median increase are required.')));
+    }
+    host.append(anomalyGrid);
+    const anomalyById = new Map();
+    frequencyRows.concat(durationRows).forEach(function (row) { anomalyById.set(row.id, row); });
+    const anomalyDetails = Array.from(anomalyById.values()).sort(function (a, b) {
+      const aScore = Math.max(Number(a.frequencyChangePct || 0), Number(a.durationChangePct || 0));
+      const bScore = Math.max(Number(b.frequencyChangePct || 0), Number(b.durationChangePct || 0));
+      return bScore - aScore;
+    });
+    if (anomalyDetails.length) {
+      host.append(panel('Abnormal test-group activity', integer(anomalyDetails.length) + ' strict variants crossing frequency or duration thresholds', dataTable([
+        {label: 'Test group variant', sticky: true, width: '340px', render: function (row) { return groupIdentityCell(row, function () { openTrajectoryAnomalyHistory(row, anomalyData); }); }},
+        {label: 'Frequency signal', width: '150px', render: function (row) { const hasChange = Number.isFinite(Number(row.frequencyChangePct)); const text = hasChange ? (row.frequencyChangePct >= 0 ? '+' : '') + row.frequencyChangePct.toFixed(0) + '%' : 'baseline limited'; return linkedBadge(text, exactPipelineEvidenceUrl(row.latest, 'ci'), function () { openTrajectoryAnomalyHistory(row, anomalyData); }, Number(row.frequencyChangePct) >= 100 ? 'is-warning' : 'is-info'); }},
+        {label: 'Latest builds / day', numeric: true, width: '150px', render: function (row) { return linkButton(row.recentRate === null ? '-' : row.recentRate.toFixed(1), function () { openTrajectoryAnomalyHistory(row, anomalyData); }); }},
+        {label: 'Prior builds / day', numeric: true, width: '150px', render: function (row) { return linkButton(row.baselineRate === null ? '-' : row.baselineRate.toFixed(1), function () { openTrajectoryAnomalyHistory(row, anomalyData); }); }},
+        {label: 'Median change', numeric: true, width: '130px', render: function (row) { return linkButton(row.durationChangePct === null ? '-' : (row.durationChangePct >= 0 ? '+' : '') + row.durationChangePct.toFixed(0) + '%', function () { openTrajectoryAnomalyHistory(row, anomalyData); }); }},
+        {label: 'Incident rate', numeric: true, width: '120px', render: function (row) { return linkButton(row.incidentRatePct.toFixed(1) + '%', function () { openTrajectoryAnomalyHistory(row, anomalyData); }); }},
+        {label: 'Queues', width: '220px', render: function (row) { const links = n('div', 'ops-inline-links'); row.queues.forEach(function (queueName) { links.append(linkButton(queueName, function () { navigateTo('ci-queue', {queueView: 'history', queueHistoryQueue: queueName, queueScope: isAmdQueue(queueName) ? 'amd' : 'all'}); }, 'Open historical queue activity for ' + queueName)); }); return row.queues.length ? links : n('span', 'ops-cell-muted', '-'); }},
+        {label: 'History', width: '140px', render: function (row) { return linkButton(integer(trajectoryAnomalyObservations(row).length) + ' runs', function () { openTrajectoryAnomalyHistory(row, anomalyData); }, 'Open exact cadence, baseline, and recent Buildkite history'); }},
+      ], anomalyDetails, integer(anomalyDetails.length) + ' evidence-backed anomalies with strict hardware and queue identity', {name: 'trajectory-anomalies', minWidth: '1390px'})));
+    }
+    const anomalyNote = n('div', 'ops-evidence-note is-info');
+    add(anomalyNote, [n('strong', '', 'Abnormal activity method. '), n('span', '', 'Execution frequency compares median inter-build cadence across the latest 8 distinct builds with the preceding 16, so retries in one build are counted once. Completion compares the last ' + duration(anomalyData.recentHours * 60) + ' with ' + shortDate(anomalyData.baselineStart) + ' through ' + shortDate(anomalyData.baselineEnd) + '. Signals remain split by strict group ID, hardware, and queue.')]);
+    host.append(anomalyNote);
     const top = rows.slice().sort(function (a, b) { return Number(b.count || 0) - Number(a.count || 0); }).slice(0, 15);
     const cp = chartPanel('Most active strict variants', 'Terminal observations in the selected all-main window', 'trajectory-groups');
     host.append(cp.root);
-    drawChart('trajectory-groups', cp.canvas, {type: 'bar', data: {labels: top.map(function (row) { return row.name + ' [' + row.hardware + ']'; }), datasets: [{label: 'Observations', data: top.map(function (row) { return row.count; }), backgroundColor: '#22b8ad'}]}, options: {indexAxis: 'y'}, evidenceTitle: 'Strict test-group execution volume', evidence: top.map(function (row) { return {id: row.id, label: row.name + ' - ' + row.hardware, timestamp: row.last_seen, valueSummary: integer(row.count) + ' observations', details: {catalog_id: row.id, hardware: row.hardware, queues: row.queues.join(', '), median: duration(row.p50_min), p90: duration(row.p90_min), incident_rate: hotnessRatePercent(row).toFixed(1) + '%'}, sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.operations}], onOpen: function () { openTrajectoryGroupHistory(row); }}; })});
+    drawChart('trajectory-groups', cp.canvas, {type: 'bar', data: {labels: top.map(function (row) { return compactChartLabel(row, 54); }), datasets: [{label: 'Observations', data: top.map(function (row) { return row.count; }), backgroundColor: '#22b8ad'}]}, options: {indexAxis: 'y'}, evidenceTitle: 'Strict test-group execution volume', evidence: top.map(function (row) { return {id: row.id, label: row.name + ' - ' + row.hardware, timestamp: row.last_seen, valueSummary: integer(row.count) + ' observations', details: {catalog_id: row.id, hardware: row.hardware, queues: row.queues.join(', '), median: duration(row.p50_min), p90: duration(row.p90_min), incident_rate: hotnessRatePercent(row).toFixed(1) + '%'}, sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.operations}], onOpen: function () { openTrajectoryGroupHistory(row); }}; })});
     host.append(dataTable([
       {label: 'Test group variant', sticky: true, render: function (row) { return groupIdentityCell(row, function () { openTrajectoryGroupHistory(row); }); }},
       {label: 'Workload', render: function (row) { return linkedBadge(row.workload || 'vllm', null, function () { state.trajectoryWorkload = row.workload || 'vllm'; render('ci-hotness', true); }, row.workload === 'omni' ? 'is-info' : 'is-neutral'); }},

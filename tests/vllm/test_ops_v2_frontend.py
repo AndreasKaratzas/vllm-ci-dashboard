@@ -59,6 +59,36 @@ def test_reliability_evidence_is_drillable_and_honestly_named():
     assert "Incidents only" in OPS_JS
 
 
+def test_test_group_history_switches_all_main_and_nightly_with_charts():
+    for contract in (
+        "function isNightlyObservation",
+        "function observationHistoryPoint",
+        "All main",
+        "Nightly only",
+        "Test-group history cohort",
+        "Outcome history",
+        "Completion and queue wait",
+        "Historical outcomes, latency, and exact Buildkite evidence",
+    ):
+        assert contract in OPS_JS
+    assert "observation.build_kind" in OPS_JS
+    assert "exactPipelineEvidenceUrl(observation, sourcePipeline)" in OPS_JS
+    assert "spanGaps: false" in OPS_JS
+    assert "Timeline - " in OPS_JS
+
+    groups = OPS_DATA["reliability"]["group_catalog"]
+    assert any(
+        {row.get("build_kind") for row in group.get("observations", [])}
+        >= {"nightly", "main"}
+        for group in groups
+    )
+    assert all(
+        row.get("job_url", "").startswith("https://buildkite.com/vllm/ci/builds/")
+        for group in groups
+        for row in group.get("observations", [])
+    )
+
+
 def test_shared_evidence_primitives_are_accessible_and_source_linked():
     for primitive in (
         "openDetailDrawer",
@@ -172,6 +202,56 @@ def test_queue_modes_ranges_provenance_and_missing_values_are_explicit():
     assert "minutes === null || minutes === undefined" in OPS_JS
     assert "Array.isArray(queueBlock.history)" in OPS_JS
     assert "queueBlock.history_summary" in OPS_JS
+
+
+def test_queue_history_has_selectable_wait_and_pressure_visualizations():
+    for contract in (
+        "queueHistoryQueue: 'fleet'",
+        "queue_history_queue",
+        "function queueWaitHistoryPoint",
+        "function queuePressureRows",
+        "Select queue for historical activity and wait time",
+        "const selectedHistory = state.queueHistoryQueue === 'fleet'",
+        "Highest reported wait across queues",
+        "Queue pressure against retained baseline",
+        "Historical p95",
+        "p99 sampled",
+    ):
+        assert contract in OPS_JS
+    assert "percentiles are not combined into a fleet percentile" in OPS_JS
+    assert "missing waits are not rendered as zero" in OPS_JS
+
+    history = OPS_DATA["queue"]["history"]
+    assert len(history) >= 2
+    assert any(
+        row.get("p50_wait_source") or row.get("p95_wait_source")
+        for snapshot in history
+        for row in snapshot.get("queues", {}).values()
+    )
+
+
+def test_workload_anomaly_views_compare_recent_and_baseline_evidence():
+    for contract in (
+        "function trajectoryAnomaliesFromReliability",
+        "function openTrajectoryAnomalyHistory",
+        "Execution-frequency changes",
+        "Completion-time regressions",
+        "Abnormal test-group activity",
+        "Latest builds / day",
+        "Prior builds / day",
+        "Median change",
+        "Abnormal activity method",
+    ):
+        assert contract in OPS_JS
+    assert "recentCount >= 2" in OPS_JS
+    assert "cadenceRecentCount >= 4" in OPS_JS
+    assert "cadenceBaselineCount >= 4" in OPS_JS
+    assert "function executionCadencePerDay" in OPS_JS
+    assert "function trajectoryAnomalyObservations" in OPS_JS
+    assert "Number(row.frequencyChangePct) >= 25" in OPS_JS
+    assert "Number(row.durationChangePct) >= 15" in OPS_JS
+    assert "queueHistoryQueue: queueName" in OPS_JS
+    assert "Open exact cadence, baseline, and recent Buildkite history" in OPS_JS
 
 
 def test_retired_mi355b_queues_are_excluded_on_every_frontend_path():
@@ -381,3 +461,12 @@ def test_dense_tables_use_explicit_colgroups_and_scroll_geometry():
     assert "width: max(100%, var(--ops-table-min-width))" in OPS_CSS
     assert "min-width: var(--ops-table-min-width)" in OPS_CSS
     assert ".ops-page .ops-table-wrap,\n.ops-page .ops-table-scroll" not in OPS_CSS
+
+
+def test_table_headers_and_cells_share_explicit_alignment_contract():
+    assert "th.dataset.align = alignment" in OPS_JS
+    assert "td.dataset.align = alignment" in OPS_JS
+    assert "#main-content .ops-page .ops-table .is-numeric" in OPS_CSS
+    assert '#main-content .ops-page .ops-table [data-align="numeric"]' in OPS_CSS
+    assert "td.is-numeric > .ops-link-button" in OPS_CSS
+    assert "margin-left: auto" in OPS_CSS
