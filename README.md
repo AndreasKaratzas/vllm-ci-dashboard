@@ -1,6 +1,6 @@
 # Project Dashboard
 
-Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-07-13 19:55 UTC**
+Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-07-13 21:21 UTC**
 
 ## Overview
 
@@ -71,20 +71,6 @@ python scripts/build_site.py --cache-bust-index
 ```
 
 Configure tracked projects in [`config/projects.yaml`](config/projects.yaml).
-
-## Upstream Issue Safety
-
-Ready-ticket automation has one permitted write in `vllm-project/vllm`: it may
-update the pinned dashboard comment `4291606592` on umbrella issue `#40554`.
-It cannot create comments or create, close, relabel, assign, or edit upstream
-issues and project fields. The live workflow is pinned to `main`, uses the
-protected `upstream-comment-write` environment, and requires all three guards
-(`READY_TICKETS_LIVE=1`, the explicit upstream-write acknowledgement, and
-`READY_TICKETS_WRITE_SCOPE=master_comment_only`). Configure
-`PROJECTS_READ_TOKEN` for read-only Projects V2 evidence and keep the separate
-`UPSTREAM_COMMENT_TOKEN` only in that protected environment. The legacy
-per-group cleanup command is audit-only; queue, Omni, and signup issue writers
-are hard-bound to `AndreasKaratzas/vllm-ci-dashboard`.
 
 ## Local development (Nix)
 
