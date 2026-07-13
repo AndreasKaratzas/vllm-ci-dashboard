@@ -66,6 +66,10 @@ def test_test_group_history_switches_all_main_and_nightly_with_charts():
         "All main",
         "Nightly only",
         "Test-group history cohort",
+        "Test-group history explorer",
+        "Select test group for historical analysis",
+        "Pass and incident history",
+        "Rolling reliability",
         "Outcome history",
         "Completion and queue wait",
         "Historical outcomes, latency, and exact Buildkite evidence",
@@ -74,7 +78,9 @@ def test_test_group_history_switches_all_main_and_nightly_with_charts():
     assert "observation.build_kind" in OPS_JS
     assert "exactPipelineEvidenceUrl(observation, sourcePipeline)" in OPS_JS
     assert "spanGaps: false" in OPS_JS
-    assert "Timeline - " in OPS_JS
+    assert "analytics_group" in OPS_JS
+    assert "analytics_cohort" in OPS_JS
+    assert "Each bar is one exact upstream Buildkite job" in OPS_JS
 
     groups = OPS_DATA["reliability"]["group_catalog"]
     assert any(
@@ -87,6 +93,43 @@ def test_test_group_history_switches_all_main_and_nightly_with_charts():
         for group in groups
         for row in group.get("observations", [])
     )
+
+
+def test_group_and_flake_views_use_visual_clusters_instead_of_page_length_tables():
+    for contract in (
+        "function reliabilityRiskClusters",
+        "function reliabilityHardwareClusters",
+        "function openReliabilityList",
+        "function renderReliabilityClusters",
+        "Browse all ",
+        "Reliability distribution",
+        "Hardware composition",
+        "Mixed-outcome clusters",
+    ):
+        assert contract in OPS_JS
+    for contract in (
+        ".ops-page .ops-history-explorer",
+        ".ops-page .ops-cluster-section",
+        ".ops-page .ops-cluster-grid",
+        ".ops-page .ops-cluster-tile",
+    ):
+        assert contract in OPS_CSS
+    assert "filter(function (cluster) { return cluster.count > 0; })" in OPS_JS
+    assert "name: 'reliability-browser'" in OPS_JS
+
+
+def test_flake_visualizations_deduplicate_retries_and_link_exact_build_history():
+    for contract in (
+        "function candidateBuildTimeline",
+        "Mixed-outcome results by upstream build",
+        "Highest retained incident rates",
+        "retries in one build resolve to the latest attempt",
+        "exactPipelineBuildUrl(build.observation, 'ci')",
+    ):
+        assert contract in OPS_JS
+    assert "const perGroupBuild = new Map()" in OPS_JS
+    assert "const key = row.id + '-' + build" in OPS_JS
+    assert "perGroupBuild.set(key" in OPS_JS
 
 
 def test_shared_evidence_primitives_are_accessible_and_source_linked():
@@ -452,7 +495,7 @@ def test_dense_tables_use_explicit_colgroups_and_scroll_geometry():
         "retry-attempts",
         "retry-recoveries",
         "latency",
-        "test-groups",
+        "reliability-browser",
         "nightly",
     ):
         assert f"name: '{geometry}'" in OPS_JS

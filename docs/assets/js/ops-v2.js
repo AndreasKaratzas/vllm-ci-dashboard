@@ -26,6 +26,8 @@
     healthPlan: 'all',
     healthResult: 'all',
     analyticsSearch: '',
+    analyticsGroupId: '',
+    analyticsGroupCohort: 'main',
     queueScope: 'amd',
     queueView: 'current',
     queueRange: '24h',
@@ -195,6 +197,8 @@
         ['analyticsView', 'analytics_view', ['groups', 'flakes', 'nightlies', 'retries', 'latency']],
         ['analyticsPipeline', 'analytics_pipeline', ['ci', 'amd-ci']],
         ['analyticsSearch', 'analytics_search', null],
+        ['analyticsGroupId', 'analytics_group', null],
+        ['analyticsGroupCohort', 'analytics_cohort', ['main', 'nightly']],
       ],
       'ci-queue': [
         ['queueView', 'queue_view', ['current', 'history', 'jobs']],
@@ -227,8 +231,10 @@
 
   function openTestGroupHistory(name) {
     state.analyticsSearch = String(name || '');
+    state.analyticsGroupId = '';
     state.analyticsView = 'groups';
     setQueryValue('analytics_search', state.analyticsSearch);
+    setQueryValue('analytics_group', null);
     setQueryValue('analytics_view', 'groups');
     navigateTo('ci-analytics');
   }
@@ -1854,6 +1860,360 @@
     host.append(diagnosticGrid);
   }
 
+  function reliabilityIncidentRate(row) {
+    const raw = row.incident_rate_pct !== undefined ? row.incident_rate_pct : row.fail_rate;
+    return Number.isFinite(Number(raw)) ? Number(raw) : 0;
+  }
+
+  function groupHistoryObservations(row, cohort) {
+    return evidenceObservations(row || {}).filter(function (observation) {
+      return (!observation.source_pipeline || observation.source_pipeline === 'ci')
+        && Boolean(exactPipelineEvidenceUrl(observation, 'ci'))
+        && (cohort !== 'nightly' || isNightlyObservation(observation));
+    }).sort(function (a, b) {
+      return new Date(observationTimestamp(a) || 0) - new Date(observationTimestamp(b) || 0);
+    });
+  }
+
+  function reliabilityBandDefinitions() {
+    return [
+      {id: 'stable', label: 'Stable', description: 'No retained incidents', tone: 'is-success', matches: function (rate) { return rate === 0; }},
+      {id: 'watch', label: 'Watch', description: 'Above 0% and below 10%', tone: 'is-info', matches: function (rate) { return rate > 0 && rate < 10; }},
+      {id: 'elevated', label: 'Elevated', description: '10% to below 25%', tone: 'is-warning', matches: function (rate) { return rate >= 10 && rate < 25; }},
+      {id: 'high', label: 'High', description: '25% to below 50%', tone: 'is-warning', matches: function (rate) { return rate >= 25 && rate < 50; }},
+      {id: 'critical', label: 'Critical', description: '50% or greater', tone: 'is-danger', matches: function (rate) { return rate >= 50; }},
+    ];
+  }
+
+  function reliabilityRiskClusters(rows) {
+    return reliabilityBandDefinitions().map(function (definition) {
+      const members = rows.filter(function (row) { return definition.matches(reliabilityIncidentRate(row)); });
+      const rates = members.map(reliabilityIncidentRate);
+      const latestIncidents = members.filter(function (row) { return isIncidentObservation(latestObservation(row) || {}); }).length;
+      return Object.assign({}, definition, {
+        rows: members,
+        count: members.length,
+        medianRate: percentileValue(rates, 0.5),
+        latestIncidents: latestIncidents,
+      });
+    });
+  }
+
+  function reliabilityHardwareClusters(rows) {
+    const clusters = new Map();
+    rows.forEach(function (row) {
+      const hardware = value(row.hardware || row.hw, 'unknown');
+      if (!clusters.has(hardware)) clusters.set(hardware, []);
+      clusters.get(hardware).push(row);
+    });
+    return Array.from(clusters.entries()).map(function (entry) {
+      const members = entry[1];
+      return {
+        id: entry[0],
+        label: entry[0].toUpperCase(),
+        rows: members,
+        count: members.length,
+        incidentObserved: members.filter(function (row) { return reliabilityIncidentRate(row) > 0; }).length,
+      };
+    }).sort(function (a, b) { return b.count - a.count || a.label.localeCompare(b.label); });
+  }
+
+  function openReliabilityList(title, subtitle, rows, ops, reliability, initialQuery) {
+    const content = n('div', 'ops-evidence ops-reliability-browser');
+    const toolbar = n('div', 'ops-toolbar ops-evidence-toolbar');
+    const search = n('input', 'ops-input');
+    search.type = 'search';
+    search.placeholder = 'Filter group, hardware, or queue';
+    search.value = initialQuery || '';
+    search.setAttribute('aria-label', 'Filter test-group list');
+    const resultFilter = n('select', 'ops-select');
+    resultFilter.setAttribute('aria-label', 'Filter test groups by latest result');
+    [['all', 'All latest results'], ['passing', 'Currently passing'], ['incident', 'Current incidents'], ['mixed', 'Mixed outcomes']].forEach(function (pair) {
+      const option = n('option', '', pair[1]);
+      option.value = pair[0];
+      resultFilter.append(option);
+    });
+    add(toolbar, [search, resultFilter]);
+    content.append(toolbar);
+    const tableHost = n('div', 'ops-evidence-table-host');
+    content.append(tableHost);
+
+    function renderRows() {
+      const query = normalizeLabel(search.value);
+      const mode = resultFilter.value;
+      const filtered = rows.filter(function (row) {
+        const latest = latestObservation(row);
+        if (mode === 'passing' && observationState(latest || {}) !== 'passed') return false;
+        if (mode === 'incident' && !isIncidentObservation(latest || {})) return false;
+        if (mode === 'mixed' && !(row.mixed_outcomes || (reliabilityIncidentRate(row) > 0 && Number(row.passed || 0) > 0))) return false;
+        if (!query) return true;
+        return [row.name, row.hardware, (row.queues || []).join(' '), row.id]
+          .some(function (part) { return normalizeLabel(part).includes(query); });
+      });
+      clear(tableHost);
+      tableHost.append(dataTable([
+        {label: 'Test group', sticky: true, width: '360px', render: function (row) { return groupIdentityCell(row, function () { openGroupDetail(row, ops, row, reliability); }); }},
+        {label: 'Runs', numeric: true, width: '90px', render: function (row) { return linkButton(integer(row.runs !== undefined ? row.runs : row.observation_count), function () { openGroupDetail(row, ops, row, reliability); }); }},
+        {label: 'Latest', width: '130px', render: function (row) { const latest = latestObservation(row); return linkedBadge(latest ? observationState(latest) : 'pending', exactPipelineEvidenceUrl(latest, 'ci'), function () { openGroupDetail(row, ops, row, reliability); }); }},
+        {label: 'Incident rate', numeric: true, width: '130px', render: function (row) { return linkButton(reliabilityIncidentRate(row).toFixed(1) + '%', function () { openGroupDetail(row, ops, row, reliability); }); }},
+        {label: 'p90 completion', numeric: true, width: '140px', render: function (row) { return linkButton(duration(row.p90_dur), function () { openGroupDetail(row, ops, row, reliability); }); }},
+        {label: 'Hardware', width: '110px', render: function (row) { return badge(value(row.hardware, 'unknown'), 'is-neutral'); }},
+        {label: 'Queues', width: '220px', render: function (row) { const links = n('div', 'ops-inline-links'); (row.queues || []).forEach(function (queueName) { links.append(linkButton(queueName, function () { navigateTo('ci-queue', {queueView: 'history', queueHistoryQueue: queueName, queueScope: isAmdQueue(queueName) ? 'amd' : 'all'}); }, 'Open queue history for ' + queueName)); }); return links.childNodes.length ? links : n('span', 'ops-cell-muted', '-'); }},
+        {label: 'History', width: '140px', render: function (row) { return linkButton(integer(groupHistoryObservations(row, 'main').length) + ' runs', function () { openGroupDetail(row, ops, row, reliability); }, 'Open exact pass, incident, and latency history'); }},
+      ], filtered, integer(filtered.length) + ' of ' + integer(rows.length) + ' test groups', {name: 'reliability-browser', minWidth: '1320px'}));
+    }
+
+    search.addEventListener('input', renderRows);
+    resultFilter.addEventListener('change', renderRows);
+    renderRows();
+    openOverlay(title, subtitle, content, true, 'reliability-browser-' + normalizeLabel(title));
+    requestAnimationFrame(function () { search.focus(); });
+  }
+
+  function clusterTile(cluster, onOpen) {
+    const tile = n('button', 'ops-cluster-tile ' + (cluster.tone || ''));
+    tile.type = 'button';
+    tile.setAttribute('aria-label', 'Open ' + cluster.label + ' cluster with ' + integer(cluster.count) + ' test groups');
+    const head = n('div', 'ops-cluster-tile-head');
+    add(head, [n('span', 'ops-cluster-label', cluster.label), n('span', 'ops-cluster-count', integer(cluster.count))]);
+    const median = cluster.medianRate === null || cluster.medianRate === undefined ? '-' : Number(cluster.medianRate).toFixed(1) + '% median incident';
+    add(tile, [head, n('div', 'ops-cluster-description', cluster.description), n('div', 'ops-cluster-meta', median + ' - ' + integer(cluster.latestIncidents || 0) + ' current incidents')]);
+    tile.addEventListener('click', onOpen);
+    return tile;
+  }
+
+  function renderReliabilityClusters(host, title, subtitle, rows, ops, reliability, initialQuery) {
+    const section = n('section', 'ops-cluster-section');
+    const header = n('header', 'ops-section-header');
+    const heading = n('div', 'ops-section-heading');
+    add(heading, [n('h2', 'ops-section-title', title), n('p', 'ops-section-description', subtitle)]);
+    const browse = button('Browse all ' + integer(rows.length), function () {
+      openReliabilityList(title, 'Search and inspect every exact upstream test-group variant', rows, ops, reliability, initialQuery);
+    });
+    add(header, [heading, browse]);
+    section.append(header);
+    const grid = n('div', 'ops-cluster-grid');
+    reliabilityRiskClusters(rows).filter(function (cluster) { return cluster.count > 0; }).forEach(function (cluster) {
+      grid.append(clusterTile(cluster, function () {
+        openReliabilityList(cluster.label + ' reliability', cluster.description, cluster.rows, ops, reliability);
+      }));
+    });
+    section.append(grid);
+    host.append(section);
+  }
+
+  function chooseAnalyticsGroup(rows) {
+    const byId = rows.find(function (row) { return row.id === state.analyticsGroupId; });
+    if (byId) return byId;
+    const bySearch = state.analyticsSearch && rows.find(function (row) { return normalizeLabel(row.name) === normalizeLabel(state.analyticsSearch); });
+    if (bySearch) return bySearch;
+    return rows.filter(function (row) { return row.mixed_outcomes && groupHistoryObservations(row, 'main').length; }).sort(function (a, b) {
+      return new Date(b.latest_observed_at || 0) - new Date(a.latest_observed_at || 0);
+    })[0] || rows.find(function (row) { return groupHistoryObservations(row, 'main').length; }) || rows[0];
+  }
+
+  function rollingReliability(observations, windowSize) {
+    return observations.map(function (_, index) {
+      const sample = observations.slice(Math.max(0, index - windowSize + 1), index + 1);
+      const passed = sample.filter(function (row) { return observationState(row) === 'passed'; }).length;
+      const incidents = sample.filter(isIncidentObservation).length;
+      return {passRate: sample.length ? passed / sample.length * 100 : null, incidentRate: sample.length ? incidents / sample.length * 100 : null};
+    });
+  }
+
+  function renderGroupHistoryExplorer(host, rows, ops, reliability) {
+    const choices = rows.filter(function (row) { return groupHistoryObservations(row, 'main').length; }).slice().sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+    const selected = chooseAnalyticsGroup(choices);
+    if (!selected) return;
+    state.analyticsGroupId = selected.id;
+    const observations = groupHistoryObservations(selected, state.analyticsGroupCohort);
+    const section = n('section', 'ops-history-explorer');
+    const header = n('header', 'ops-section-header');
+    const heading = n('div', 'ops-section-heading');
+    add(heading, [n('h2', 'ops-section-title', 'Test-group history explorer'), n('p', 'ops-section-description', 'Choose one strict upstream group and inspect pass, incident, and rolling reliability over exact Buildkite runs.')]);
+    header.append(heading);
+    section.append(header);
+
+    const controls = n('div', 'ops-toolbar ops-history-controls');
+    const groupField = n('label', 'ops-field ops-history-group-field');
+    groupField.append(n('span', 'ops-field-label', 'Test group'));
+    const groupSelect = n('select', 'ops-select');
+    groupSelect.setAttribute('aria-label', 'Select test group for historical analysis');
+    choices.forEach(function (row) {
+      const option = n('option', '', row.name + ' - ' + value(row.hardware, 'unknown'));
+      option.value = row.id;
+      option.selected = row.id === selected.id;
+      groupSelect.append(option);
+    });
+    groupSelect.addEventListener('change', function () {
+      state.analyticsGroupId = groupSelect.value;
+      state.analyticsSearch = '';
+      setQueryValue('analytics_group', state.analyticsGroupId);
+      setQueryValue('analytics_search', null);
+      render('ci-analytics', true);
+    });
+    groupField.append(groupSelect);
+    controls.append(groupField);
+    controls.append(segmented([{id: 'main', label: 'All main'}, {id: 'nightly', label: 'Nightly only'}], state.analyticsGroupCohort, function (cohort) {
+      setRouteState('ci-analytics', 'analyticsGroupCohort', cohort, 'analytics_cohort');
+    }, 'Test-group history cohort'));
+    const actions = n('div', 'ops-history-actions');
+    actions.append(button('Open full run evidence', function () { openGroupDetail(selected, ops, selected, reliability); }));
+    const latest = observations[observations.length - 1] || latestObservation(selected);
+    const latestUrl = exactPipelineEvidenceUrl(latest, 'ci');
+    if (latestUrl) actions.append(externalLink('Latest Buildkite job', latestUrl, 'ops-button'));
+    controls.append(actions);
+    section.append(controls);
+
+    if (!observations.length) {
+      section.append(n('div', 'ops-empty', 'No exact nightly observations are retained for this strict group. Switch to All main to inspect its complete retained history.'));
+      host.append(section);
+      return;
+    }
+
+    const passed = observations.filter(function (row) { return observationState(row) === 'passed'; }).length;
+    const soft = observations.filter(function (row) { return ['soft', 'soft_fail', 'soft_failed'].includes(observationState(row)); }).length;
+    const incidents = observations.filter(isIncidentObservation);
+    const hard = Math.max(0, incidents.length - soft);
+    const summary = n('div', 'ops-evidence-summary');
+    add(summary, [
+      evidenceSummaryItem(state.analyticsGroupCohort === 'nightly' ? 'NIGHTLY RUNS' : 'MAIN RUNS', integer(observations.length)),
+      evidenceSummaryItem('PASSED', integer(passed), 'is-success'),
+      evidenceSummaryItem('HARD INCIDENTS', integer(hard), hard ? 'is-danger' : ''),
+      evidenceSummaryItem('SOFT INCIDENTS', integer(soft), soft ? 'is-warning' : ''),
+      evidenceSummaryItem('PASS RATE', percent(passed, observations.length), passed === observations.length ? 'is-success' : 'is-warning'),
+    ]);
+    section.append(summary);
+
+    const labels = observations.map(function (row) { return row.build_number ? '#' + row.build_number : shortDate(observationTimestamp(row)); });
+    const evidence = observations.map(function (row) { return observationHistoryPoint(row, 'ci'); });
+    const rollingWindow = Math.min(10, observations.length);
+    const rolling = rollingReliability(observations, rollingWindow);
+    const chartGrid = n('div', 'ops-grid ops-grid-2');
+    const key = 'analytics-group-' + selected.id + '-' + state.analyticsGroupCohort;
+    const outcomeChart = chartPanel('Pass and incident history', selected.name + ' - ' + integer(observations.length) + ' exact runs', key + '-outcomes');
+    const rollingChart = chartPanel('Rolling reliability', integer(rollingWindow) + '-run pass and incident rate', key + '-rolling');
+    add(chartGrid, [outcomeChart.root, rollingChart.root]);
+    section.append(chartGrid);
+    section.append(n('p', 'ops-evidence-method', 'Each bar is one exact upstream Buildkite job. Rolling rates use only the visible cohort and do not infer results for runs outside the retained history. Select a chart point or open full run evidence for exact logs.'));
+    host.append(section);
+
+    requestAnimationFrame(function () {
+      drawChart(key + '-outcomes', outcomeChart.canvas, {
+        type: 'bar',
+        data: {labels: labels, datasets: [
+          {label: 'Passed', data: observations.map(function (row) { return observationState(row) === 'passed' ? 1 : 0; }), backgroundColor: '#35bb78', barPercentage: 1, categoryPercentage: 1},
+          {label: 'Soft incident', data: observations.map(function (row) { return ['soft', 'soft_fail', 'soft_failed'].includes(observationState(row)) ? 1 : 0; }), backgroundColor: '#e3a63a', barPercentage: 1, categoryPercentage: 1},
+          {label: 'Hard incident', data: observations.map(function (row) { return isIncidentObservation(row) && !['soft', 'soft_fail', 'soft_failed'].includes(observationState(row)) ? 1 : 0; }), backgroundColor: '#e06464', barPercentage: 1, categoryPercentage: 1},
+        ]},
+        options: {scales: {x: {stacked: true, grid: {display: false}, ticks: {maxTicksLimit: 10}}, y: {stacked: true, min: 0, max: 1, ticks: {display: false}, grid: {display: false}}}},
+        evidenceTitle: selected.name + ' pass and incident history',
+        evidence: evidence,
+      });
+      drawChart(key + '-rolling', rollingChart.canvas, {
+        type: 'line',
+        data: {labels: labels, datasets: [
+          {label: 'Pass rate', data: rolling.map(function (point) { return point.passRate; }), borderColor: '#35bb78', backgroundColor: '#35bb78', borderWidth: 2, pointRadius: 1.5, spanGaps: false},
+          {label: 'Incident rate', data: rolling.map(function (point) { return point.incidentRate; }), borderColor: '#e06464', backgroundColor: '#e06464', borderWidth: 1.5, pointRadius: 1.5, spanGaps: false},
+        ]},
+        options: {scales: {x: {grid: {display: false}, ticks: {maxTicksLimit: 10}}, y: {min: 0, max: 100, title: {display: true, text: 'Percent'}, ticks: {callback: function (tick) { return tick + '%'; }}}}},
+        evidenceTitle: selected.name + ' rolling reliability',
+        evidence: evidence,
+      });
+    });
+  }
+
+  function candidateBuildTimeline(rows) {
+    const perGroupBuild = new Map();
+    rows.forEach(function (row) {
+      groupHistoryObservations(row, 'main').forEach(function (observation) {
+        const build = observation.build_number;
+        if (build === null || build === undefined) return;
+        const key = row.id + '-' + build;
+        const current = perGroupBuild.get(key);
+        if (!current || new Date(observationTimestamp(observation) || 0) >= new Date(observationTimestamp(current.observation) || 0)) {
+          perGroupBuild.set(key, {row: row, observation: observation});
+        }
+      });
+    });
+    const builds = new Map();
+    perGroupBuild.forEach(function (item) {
+      const observation = item.observation;
+      const number = observation.build_number;
+      if (!builds.has(number)) builds.set(number, {number: number, observedAt: observationTimestamp(observation), observation: observation, passed: 0, soft: 0, hard: 0});
+      const build = builds.get(number);
+      if (observationState(observation) === 'passed') build.passed += 1;
+      else if (['soft', 'soft_fail', 'soft_failed'].includes(observationState(observation))) build.soft += 1;
+      else if (isIncidentObservation(observation)) build.hard += 1;
+      if (new Date(observationTimestamp(observation) || 0) > new Date(build.observedAt || 0)) {
+        build.observedAt = observationTimestamp(observation);
+        build.observation = observation;
+      }
+    });
+    return Array.from(builds.values()).sort(function (a, b) {
+      return new Date(a.observedAt || 0) - new Date(b.observedAt || 0);
+    }).slice(-30);
+  }
+
+  function renderGroupOverviewCharts(host, rows, ops, reliability) {
+    const risks = reliabilityRiskClusters(rows);
+    const hardware = reliabilityHardwareClusters(rows);
+    const grid = n('div', 'ops-grid ops-grid-2');
+    const riskChart = chartPanel('Reliability distribution', 'Strict upstream groups clustered by retained incident rate', 'analytics-group-risk');
+    const hardwareChart = chartPanel('Hardware composition', 'Stable and incident-observed groups by strict hardware family', 'analytics-group-hardware');
+    add(grid, [riskChart.root, hardwareChart.root]);
+    host.append(grid);
+    requestAnimationFrame(function () {
+      drawChart('analytics-group-risk', riskChart.canvas, {
+        type: 'bar',
+        data: {labels: risks.map(function (cluster) { return cluster.label; }), datasets: [{label: 'Groups', data: risks.map(function (cluster) { return cluster.count; }), backgroundColor: ['#35bb78', '#4e9ed4', '#e3a63a', '#d9823b', '#e06464']}]},
+        options: {scales: {x: {grid: {display: false}}, y: {beginAtZero: true, title: {display: true, text: 'Strict groups'}}}},
+        evidenceTitle: 'Reliability distribution clusters',
+        evidence: risks.map(function (cluster) { return {id: cluster.id, label: cluster.label, valueSummary: integer(cluster.count) + ' groups', details: {definition: cluster.description, median_incident_rate: cluster.medianRate === null ? '-' : Number(cluster.medianRate).toFixed(1) + '%', current_incidents: cluster.latestIncidents}, sources: [{label: 'Open published upstream reliability', url: SOURCE_ASSETS.operations}], onOpen: function () { openReliabilityList(cluster.label + ' reliability', cluster.description, cluster.rows, ops, reliability); }}; }),
+      });
+      drawChart('analytics-group-hardware', hardwareChart.canvas, {
+        type: 'bar',
+        data: {labels: hardware.map(function (cluster) { return cluster.label; }), datasets: [
+          {label: 'Stable', data: hardware.map(function (cluster) { return cluster.count - cluster.incidentObserved; }), backgroundColor: '#35bb78'},
+          {label: 'Incident observed', data: hardware.map(function (cluster) { return cluster.incidentObserved; }), backgroundColor: '#e3a63a'},
+        ]},
+        options: {scales: {x: {stacked: true, grid: {display: false}}, y: {stacked: true, beginAtZero: true, title: {display: true, text: 'Strict groups'}}}},
+        evidenceTitle: 'Hardware reliability clusters',
+        evidence: hardware.map(function (cluster) { return {id: cluster.id, label: cluster.label, valueSummary: integer(cluster.count) + ' groups - ' + integer(cluster.incidentObserved) + ' incident observed', sources: [{label: 'Open published upstream reliability', url: SOURCE_ASSETS.operations}], onOpen: function () { openReliabilityList(cluster.label + ' test groups', 'Strict groups assigned to the ' + cluster.label + ' hardware family', cluster.rows, ops, reliability); }}; }),
+      });
+    });
+  }
+
+  function renderFlakeOverviewCharts(host, rows, ops, reliability) {
+    const builds = candidateBuildTimeline(rows);
+    const top = rows.slice().sort(function (a, b) { return reliabilityIncidentRate(b) - reliabilityIncidentRate(a); }).slice(0, 15);
+    const grid = n('div', 'ops-grid ops-grid-2');
+    const buildChart = chartPanel('Mixed-outcome results by upstream build', 'Terminal result per strict group and build; retries in one build resolve to the latest attempt', 'analytics-flake-builds');
+    const candidateChart = chartPanel('Highest retained incident rates', 'Mixed-outcome candidates with exact passing and incident evidence', 'analytics-flake-rates');
+    add(grid, [buildChart.root, candidateChart.root]);
+    host.append(grid);
+    requestAnimationFrame(function () {
+      drawChart('analytics-flake-builds', buildChart.canvas, {
+        type: 'bar',
+        data: {labels: builds.map(function (build) { return '#' + build.number; }), datasets: [
+          {label: 'Passed', data: builds.map(function (build) { return build.passed; }), backgroundColor: '#35bb78'},
+          {label: 'Soft incident', data: builds.map(function (build) { return build.soft; }), backgroundColor: '#e3a63a'},
+          {label: 'Hard incident', data: builds.map(function (build) { return build.hard; }), backgroundColor: '#e06464'},
+        ]},
+        options: {scales: {x: {stacked: true, grid: {display: false}, ticks: {maxTicksLimit: 10}}, y: {stacked: true, beginAtZero: true, title: {display: true, text: 'Strict groups'}}}},
+        evidenceTitle: 'Mixed-outcome candidate results by upstream build',
+        evidence: builds.map(function (build) { return {id: 'build-' + build.number, label: '#' + build.number, timestamp: build.observedAt, url: exactPipelineBuildUrl(build.observation, 'ci'), valueSummary: integer(build.passed) + ' passed - ' + integer(build.soft + build.hard) + ' incidents', details: {passed: build.passed, soft_incidents: build.soft, hard_incidents: build.hard}}; }),
+      });
+      drawChart('analytics-flake-rates', candidateChart.canvas, {
+        type: 'bar',
+        data: {labels: top.map(function (row) { return compactChartLabel(row, 42); }), datasets: [{label: 'Incident rate', data: top.map(reliabilityIncidentRate), backgroundColor: '#e06464'}]},
+        options: {indexAxis: 'y', scales: {x: {min: 0, max: 100, title: {display: true, text: 'Incident rate'}, ticks: {callback: function (tick) { return tick + '%'; }}}, y: {grid: {display: false}}}},
+        evidenceTitle: 'Highest retained mixed-outcome incident rates',
+        evidence: top.map(function (row) { return {id: row.id, label: row.name, timestamp: row.latest_observed_at, valueSummary: reliabilityIncidentRate(row).toFixed(1) + '% incident rate', details: {runs: row.runs, passed: row.passed, hard_incidents: row.failed, soft_incidents: row.soft_failed, hardware: row.hardware, queues: (row.queues || []).join(', ')}, sources: [{label: 'Open published upstream reliability', url: SOURCE_ASSETS.operations}], onOpen: function () { openGroupDetail(row, ops, row, reliability); }}; }),
+      });
+    });
+  }
+
   async function renderAnalytics(host, ops) {
     const reliability = canonicalReliability(ops);
     const nightly = nightlyForPipeline(ops, state.analyticsPipeline);
@@ -1893,46 +2253,23 @@
       const note = n('div', 'ops-evidence-note ' + (scope.allMain ? 'is-success' : 'is-info'));
       add(note, [n('strong', '', 'Canonical upstream reliability. '), n('span', '', scope.detail + '. Mixed outcomes are candidates for investigation, not a test-case flake probability.')]);
       host.append(note);
-      const toolbar = n('div', 'ops-toolbar');
-      const search = n('input', 'ops-input');
-      search.type = 'search';
-      search.placeholder = 'Search test-group history';
-      search.value = state.analyticsSearch;
-      search.setAttribute('aria-label', 'Search reliability test groups');
-      search.addEventListener('change', function () {
-        state.analyticsSearch = search.value;
-        setQueryValue('analytics_search', state.analyticsSearch);
-        render('ci-analytics', true);
-      });
-      toolbar.append(search);
-      host.append(toolbar);
-      const query = normalizeLabel(state.analyticsSearch);
-      const rows = catalog.filter(function (row) { return !query || normalizeLabel(row.name).includes(query); });
-      host.append(dataTable([
-        {label: 'Test group', sticky: true, width: '340px', render: function (row) { return groupIdentityCell(row, function () { openGroupDetail(row, ops, row, reliability); }); }},
-        {label: 'Runs', numeric: true, width: '90px', render: function (row) { return linkButton(integer(row.runs !== undefined ? row.runs : row.observation_count), function () { openGroupDetail(row, ops, row, reliability); }); }},
-        {label: 'Latest result', width: '150px', render: function (row) { const latest = latestObservation(row); return linkedBadge(latest ? observationState(latest) : 'Evidence pending', exactPipelineEvidenceUrl(latest, 'ci'), function () { openGroupDetail(row, ops, row, reliability); }); }},
-        {label: 'Incident rate', numeric: true, width: '130px', render: function (row) { return linkButton(Number.isFinite(Number(row.fail_rate)) ? Number(row.fail_rate).toFixed(1) + '%' : '-', function () { openGroupDetail(row, ops, row, reliability); }); }},
-        {label: 'Median', numeric: true, width: '100px', render: function (row) { return linkButton(duration(row.median_dur), function () { openGroupDetail(row, ops, row, reliability); }); }},
-        {label: 'p90', numeric: true, width: '100px', render: function (row) { return linkButton(duration(row.p90_dur), function () { openGroupDetail(row, ops, row, reliability); }); }},
-        {label: 'History', width: '170px', render: function (row) { return linkButton('Timeline - ' + integer(evidenceObservations(row).length || row.observation_count || row.runs) + ' runs', function () { openGroupDetail(row, ops, row, reliability); }, 'Open all-main and nightly history for ' + value(row.name)); }},
-      ], rows, integer(rows.length) + ' upstream test groups in ' + scope.label.toLowerCase(), {name: 'test-groups', minWidth: '1060px'}));
+      renderGroupHistoryExplorer(host, catalog, ops, reliability);
+      renderGroupOverviewCharts(host, catalog, ops, reliability);
+      renderReliabilityClusters(host, 'Reliability clusters', 'The complete catalog is grouped into understandable incident-rate bands. Select a cluster or browse the searchable full catalog.', catalog, ops, reliability, state.analyticsSearch);
       return;
     }
 
     if (state.analyticsView === 'flakes') {
       const candidates = reliability.flaky_candidates || [];
+      const candidateRows = candidates.map(function (row) {
+        return groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row;
+      }).filter(function (row) { return groupHistoryObservations(row, 'main').length; });
       const note = n('div', 'ops-evidence-note is-info');
       add(note, [n('strong', '', 'Upstream mixed-outcome history. '), n('span', '', 'These are investigation candidates from upstream branch=main observations, not test-case flake probabilities.')]);
       host.append(note);
-      host.append(dataTable([
-        {label: 'Group', sticky: true, width: '320px', render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return groupIdentityCell(full, function () { openGroupDetail(row, ops, full, reliability); }); }},
-        {label: 'Runs', numeric: true, width: '90px', render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return linkButton(integer(row.runs), function () { openGroupDetail(row, ops, full, reliability); }); }},
-        {label: 'Passed', numeric: true, width: '90px', render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return linkButton(integer(row.passed), function () { openGroupDetail(row, ops, full, reliability); }); }},
-        {label: 'Failed / soft', numeric: true, width: '120px', render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return linkButton(integer(Number(row.failed || 0) + Number(row.soft_failed || 0)), function () { openGroupDetail(row, ops, full, reliability); }); }},
-        {label: 'Mixed-outcome incident rate', numeric: true, width: '210px', render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return linkButton(value(row.incident_rate_pct !== undefined ? row.incident_rate_pct : row.fail_rate) + '%', function () { openGroupDetail(row, ops, full, reliability); }); }},
-        {label: 'Evidence', width: '130px', render: function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row; return linkButton(integer(evidenceObservations(full).length || full.retained_observation_count) + ' runs', function () { openGroupDetail(row, ops, full, reliability); }); }},
-      ], candidates, integer(candidates.length) + ' upstream mixed-outcome candidates', {name: 'mixed-candidates', minWidth: '960px'}));
+      renderGroupHistoryExplorer(host, candidateRows, ops, reliability);
+      renderFlakeOverviewCharts(host, candidateRows, ops, reliability);
+      renderReliabilityClusters(host, 'Mixed-outcome clusters', 'Candidates are grouped by retained incident rate. Open a cluster for exact runs or search the complete candidate catalog.', candidateRows, ops, reliability);
       return;
     }
 

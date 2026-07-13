@@ -407,6 +407,11 @@
   line-height: 20px;
 }
 
+#main-content .ops-page h2.ops-section-title {
+  font-size: 16px !important;
+  line-height: 22px;
+}
+
 #main-content .ops-page h4 {
   margin: 0;
   color: var(--ops-text-muted);
@@ -461,6 +466,131 @@
   margin-top: 3px;
   font-size: 12px;
   line-height: 18px;
+}
+
+.ops-page .ops-section-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.ops-page .ops-section-heading {
+  min-width: 0;
+}
+
+.ops-page .ops-section-description {
+  max-width: 88ch;
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.ops-page .ops-history-explorer,
+.ops-page .ops-cluster-section {
+  min-width: 0;
+  margin-top: 14px;
+  padding: 14px 0;
+  border-top: 1px solid var(--ops-border);
+  border-bottom: 1px solid var(--ops-border);
+}
+
+.ops-page .ops-history-controls {
+  align-items: flex-end;
+  flex-wrap: wrap;
+  padding: 8px;
+}
+
+.ops-page .ops-history-group-field {
+  display: flex;
+  min-width: min(520px, 100%);
+  flex: 1 1 520px;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ops-page .ops-history-group-field .ops-select {
+  width: 100%;
+  max-width: 100%;
+}
+
+.ops-page .ops-history-actions {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin-left: auto;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ops-page .ops-cluster-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ops-page .ops-cluster-tile {
+  min-width: 0;
+  min-height: 98px;
+  padding: 10px 11px;
+  overflow: hidden;
+  border: 1px solid var(--ops-border);
+  border-top: 3px solid var(--ops-info);
+  border-radius: var(--ops-radius);
+  color: var(--ops-text);
+  background: var(--ops-surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ops-page .ops-cluster-tile:hover {
+  border-color: var(--ops-teal);
+  background: var(--ops-surface-hover);
+}
+
+.ops-page .ops-cluster-tile.is-success { border-top-color: var(--ops-success); }
+.ops-page .ops-cluster-tile.is-warning { border-top-color: var(--ops-warning); }
+.ops-page .ops-cluster-tile.is-danger { border-top-color: var(--ops-danger); }
+
+.ops-page .ops-cluster-tile-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ops-page .ops-cluster-label {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-page .ops-cluster-count {
+  color: var(--ops-text);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 26px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-page .ops-cluster-description,
+.ops-page .ops-cluster-meta {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--ops-text-muted);
+  font-size: 10px;
+  line-height: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-page .ops-reliability-browser .ops-evidence-table-host {
+  min-width: 0;
 }
 
 .ops-page .ops-eyebrow {
@@ -2817,6 +2947,10 @@ body.ops-overlay-open {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .ops-page .ops-cluster-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .ops-page .ops-grid-4,
   .ops-page .ops-kpi-grid,
   .ops-page .ops-stat-grid,
@@ -3129,6 +3263,31 @@ body.ops-overlay-open {
     display: none;
   }
 
+  .ops-page .ops-section-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .ops-page .ops-history-group-field,
+  .ops-page .ops-history-actions {
+    width: 100%;
+    min-width: 0;
+    margin-left: 0;
+  }
+
+  .ops-page .ops-history-group-field {
+    flex: 0 0 auto;
+  }
+
+  .ops-page .ops-history-actions .ops-button {
+    flex: 1 1 auto;
+  }
+
+  .ops-page .ops-cluster-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .ops-page .ops-input,
   .ops-page .control-search,
   .ops-page .control-search input {
@@ -3395,6 +3554,10 @@ body.ops-overlay-open {
 }
 
 @media (max-width: 420px) {
+  .ops-page .ops-cluster-grid {
+    grid-template-columns: 1fr;
+  }
+
   .ops-page .ops-status-strip,
   .ops-page .ops-kpi-grid,
   .ops-page .ops-stat-grid,
