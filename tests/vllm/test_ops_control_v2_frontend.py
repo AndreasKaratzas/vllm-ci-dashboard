@@ -61,13 +61,20 @@ def test_only_v2_registers_each_control_render_loop():
         assert active.count("document.addEventListener('click'") == 1
 
 
-def test_ready_evidence_is_public_but_mutations_are_admin_gated():
+def test_ready_evidence_is_strictly_read_only():
     assert "Read-only failure evidence is public" in READY_V2
     assert "const plan = await actions.loadPlan()" in READY_V2
-    assert "isAdmin: !!(gate && gate.isAdmin && gate.isAdmin())" in READY_V2
-    assert "plan.engineers = state.isAdmin ? await actions.loadEngineers() : []" in READY_V2
-    assert "if (!state.isAdmin) return" in READY_V2
-    assert "await actions.assignIssue" in READY_V2
+    assert "Read only" in READY_V2
+    for prohibited in (
+        "getGithubPat",
+        "/assignees",
+        "issues/new",
+        "assignIssue",
+        "issueCreateUrl",
+        "Review draft",
+        "loadEngineers",
+    ):
+        assert prohibited not in READY
     assert "canAccessTab" not in READY_V2
 
 
@@ -197,5 +204,5 @@ def test_control_css_scopes_tables_and_all_required_viewports():
 def test_release_assets_are_cache_busted():
     assert "ops-control-v2.css?v=2" in INDEX
     assert "ci-testbuild.js?v=5" in INDEX
-    assert "ci-ready.js?v=4" in INDEX
+    assert "ci-ready.js?v=5" in INDEX
     assert "ci-admin.js?v=3" in INDEX

@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""One-shot backfill for ready-ticket noise on project #39.
+"""Read-only audit for legacy ready-ticket noise on project #39.
 
-This is intentionally standalone so it can be run manually when the comment
-renderer changes and we want to clean up already-open CI-failure tickets.
+This utility reports individual issues whose body or comments still contain
+legacy ready-ticket automation. It intentionally has no write mode: the
+dashboard's only permitted upstream write is the managed comment on the
+validated umbrella issue in ``sync_ready_tickets.py``.
 
 Scope is deliberately narrow:
 
 * only scans issues that are still OPEN on ``vllm-project/projects/39``
 * only considers comments authored by the allowlisted login(s)
-* refreshes the issue body from ``data/vllm/ci/ready_tickets.json`` when a
-  current ticket entry exists for that issue number
-* deletes automation-generated failure comments so the issue body is the
-  single source of truth for an open failure
-* defaults to dry-run
+* reports body differences against ``data/vllm/ci/ready_tickets.json``
+* reports automation-generated failure comments for manual review
+* never updates issue bodies or deletes comments
 
 Usage:
 
@@ -21,8 +21,7 @@ Usage:
       --author github-actions[bot]
 
     python scripts/vllm/backfill_ready_ticket_comments.py \
-      --author AndreasKaratzas \
-      --write
+      --author AndreasKaratzas
 """
 
 from __future__ import annotations
@@ -94,6 +93,8 @@ def _rest_headers(token: str) -> dict[str, str]:
 
 
 def _graphql(token: str, query: str, variables: dict) -> dict:
+    if re.search(r"\bmutation\b", query, flags=re.IGNORECASE):
+        raise RuntimeError("Ready-ticket backfill GraphQL is read-only")
     resp = requests.post(
         GH_GRAPHQL,
         headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
@@ -232,25 +233,6 @@ def is_generated_ready_ticket_comment(body: str) -> bool:
     return False
 
 
-def _update_issue_body(token: str, repo_full_name: str, issue_number: int, body: str) -> None:
-    resp = requests.patch(
-        f"{GH_API}/repos/{repo_full_name}/issues/{issue_number}",
-        headers=_rest_headers(token),
-        json={"body": body},
-        timeout=30,
-    )
-    resp.raise_for_status()
-
-
-def _delete_comment(token: str, repo_full_name: str, comment_id: int) -> None:
-    resp = requests.delete(
-        f"{GH_API}/repos/{repo_full_name}/issues/comments/{comment_id}",
-        headers=_rest_headers(token),
-        timeout=30,
-    )
-    resp.raise_for_status()
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--token", default=os.getenv("GITHUB_TOKEN"))
@@ -274,10 +256,10 @@ def main(argv: list[str] | None = None) -> int:
         "--author",
         action="append",
         default=[],
-        help="Allowed GitHub login whose generated comments may be deleted. Repeatable. Defaults to github-actions[bot].",
+        help="GitHub login whose generated comments should be reported. "
+        "Repeatable. Defaults to github-actions[bot].",
     )
     parser.add_argument("--limit", type=int, default=0, help="Only scan the first N open project issues.")
-    parser.add_argument("--write", action="store_true", help="Apply updates instead of dry-run.")
     args = parser.parse_args(argv)
 
     if not args.token:
@@ -310,20 +292,14 @@ def main(argv: list[str] | None = None) -> int:
 
     scanned_comments = 0
     candidate_comments = 0
-    deleted_comments = 0
     candidate_bodies = 0
-    updated_bodies = 0
 
     for issue_seed in issues:
         issue = _fetch_issue(args.token, issue_seed.repo, issue_seed.issue_number)
         desired_body = desired_bodies.get(issue.issue_number)
         if desired_body and desired_body != issue.body:
             candidate_bodies += 1
-            status = "update-body" if args.write else "would-update-body"
-            print(f"{status}: issue #{issue.issue_number} ({issue.title})")
-            if args.write:
-                _update_issue_body(args.token, issue.repo, issue.issue_number, desired_body)
-                updated_bodies += 1
+            print(f"body-mismatch: issue #{issue.issue_number} ({issue.title})")
         comments = _issue_comments(args.token, issue.repo, issue.issue_number)
         for comment in comments:
             scanned_comments += 1
@@ -333,22 +309,17 @@ def main(argv: list[str] | None = None) -> int:
             if not is_generated_ready_ticket_comment(comment.get("body") or ""):
                 continue
             candidate_comments += 1
-            status = "delete-comment" if args.write else "would-delete-comment"
             print(
-                f"{status}: issue #{issue.issue_number} comment {comment['id']} by {author} "
+                f"generated-comment: issue #{issue.issue_number} comment {comment['id']} by {author} "
                 f"({issue.title})"
             )
-            if args.write:
-                _delete_comment(args.token, issue.repo, int(comment["id"]))
-                deleted_comments += 1
 
     print(
         f"scanned {len(issues)} open project issues, {scanned_comments} comments, "
-        f"{candidate_bodies} candidate bodies, {updated_bodies} updated bodies, "
-        f"{candidate_comments} candidate comments, {deleted_comments} deleted"
+        f"{candidate_bodies} body mismatches, "
+        f"{candidate_comments} generated comments"
     )
-    if not args.write:
-        print("dry-run only; rerun with --write to apply updates")
+    print("read-only audit; no changes applied")
     return 0
 
 

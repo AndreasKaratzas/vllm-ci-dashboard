@@ -17,6 +17,12 @@ import pytest
 from vllm import queue_issue_watcher as qiw
 
 
+def test_issue_writes_are_restricted_to_dashboard_repo():
+    qiw._validate_target_repo(qiw.DASHBOARD_REPO)
+    with pytest.raises(RuntimeError, match="restricted"):
+        qiw._validate_target_repo("vllm-project/vllm")
+
+
 @pytest.fixture
 def isolated_state(tmp_path, monkeypatch):
     """Point the watcher at a tmp snapshot file + tmp state file."""

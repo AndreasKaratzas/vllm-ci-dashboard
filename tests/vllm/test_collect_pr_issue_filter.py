@@ -33,6 +33,15 @@ if _SCRIPTS not in sys.path:
 import collect  # noqa: E402  (sys.path mutation above)
 
 
+def test_graphql_transport_rejects_mutations_before_subprocess(monkeypatch):
+    def _unexpected_run(*args, **kwargs):
+        raise AssertionError("rejected mutation reached gh")
+
+    monkeypatch.setattr(collect.subprocess, "run", _unexpected_run)
+    with pytest.raises(ValueError, match="does not permit GraphQL mutations"):
+        collect.gh_graphql("mutation { deleteProjectV2Item(input: {}) { clientMutationId } }")
+
+
 # ---------------------------------------------------------------------------
 # Realistic payload fixtures.
 # ---------------------------------------------------------------------------

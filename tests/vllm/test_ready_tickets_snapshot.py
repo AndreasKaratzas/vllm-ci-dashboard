@@ -42,5 +42,17 @@ class TestReadyTicketsSnapshot:
     def test_single_master_state_matches_static_tracker(self, ready_state):
         master = ready_state.get("master_issue") or {}
         assert master.get("issue_number") == 40554
+        assert master.get("comment_id") == 4291606592
         assert str(master.get("issue_url", "")).endswith("/issues/40554")
         assert "/issues/40554#issuecomment-" in str(master.get("comment_url", ""))
+
+    def test_snapshot_has_no_per_group_issue_drafts(self, ready):
+        master = ready.get("master_issue") or {}
+        assert "master_issue_body" not in ready
+        for ticket in ready.get("tickets", []):
+            assert "body" not in ticket
+            assert "labels" not in ticket
+            assert ticket.get("issue_number")
+            assert ticket.get("issue_url")
+            if ticket.get("project_status") == "Tracked in master issue":
+                assert ticket["issue_number"] == master.get("number")

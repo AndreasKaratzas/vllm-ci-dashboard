@@ -23,34 +23,9 @@ window.__OPS_CONTROL_V2_READY__ = true;
   };
   const h = el;
 
-  const DASHBOARD_REPO = 'AndreasKaratzas/vllm-ci-dashboard';
   let readyTableSort = { key: null, dir: 'asc' };
   const CI_FAILURE_PREFIX_RE = /^\[CI Failure\]:\s*/i;
   const HW_PREFIX_RE = /^mi\d+_\d+:\s*/i;
-  // Session PAT is held in memory by auth.js after signin; roster ciphertext
-  // unlocks via the token vault (wrap key derived from that same PAT).
-  function _vault() { return window.__tokenVault; }
-  function _authPat() {
-    const g = window.__authGate;
-    return g && g.getGithubPat ? g.getGithubPat() : '';
-  }
-
-  async function ghFetch(pat, path, opts) {
-    const url = path.startsWith('http') ? path : ('https://api.github.com' + path);
-    const headers = Object.assign({
-      'Accept': 'application/vnd.github+json',
-      'Authorization': 'token ' + pat,
-      'X-GitHub-Api-Version': '2022-11-28',
-    }, (opts && opts.headers) || {});
-    const resp = await fetch(url, Object.assign({}, opts || {}, { headers }));
-    return resp;
-  }
-  async function ghJson(pat, path, opts) {
-    const r = await ghFetch(pat, path, opts);
-    const text = await r.text();
-    let data = null; try { data = text ? JSON.parse(text) : null; } catch (e) {}
-    return { ok: r.ok, status: r.status, data, text };
-  }
 
   async function loadPlan() {
     try {
@@ -67,33 +42,6 @@ window.__OPS_CONTROL_V2_READY__ = true;
       return await r.json();
     } catch (e) { return null; }
   }
-
-  // The engineer roster used to ride along in ``ready_tickets.json`` as
-  // plaintext ``{github_login, display_name}``. That file is served
-  // publicly on gh-pages, so we now ship the roster as AES-GCM ciphertext
-  // at ``engineers.enc.json`` — generated locally by
-  // ``scripts/vllm/encrypt_roster.py`` with the admin's vault key. Only a
-  // signed-in user whose vault is unlocked can decrypt it; guests and
-  // non-admin viewers see an empty dropdown (and the dropdown itself is
-  // disabled for them anyway).
-  async function loadEngineers() {
-    const v = _vault();
-    if (!v || !v.isUnlocked() || !v.decryptExternal) return [];
-    let record;
-    try {
-      const r = await fetch('data/vllm/ci/engineers.enc.json?_=' + Math.floor(Date.now()/1000));
-      if (!r.ok) return [];
-      record = await r.json();
-    } catch (e) { return []; }
-    let pt;
-    try { pt = await v.decryptExternal(record); } catch (e) { return []; }
-    if (!pt) return [];
-    try {
-      const list = JSON.parse(pt);
-      return Array.isArray(list) ? list : [];
-    } catch (e) { return []; }
-  }
-
 
   function renderBanner(container, plan) {
     const paused = !!(plan && (plan.feature_paused || plan.mode === 'paused'));
@@ -148,19 +96,6 @@ window.__OPS_CONTROL_V2_READY__ = true;
     container.append(card);
   }
 
-  function renderAdminStatus(container, state) {
-    const card = h('div', { style: { background: C.bg, border: `1px solid ${C.bd}`, borderRadius: '6px', padding: '10px 14px', marginBottom: '14px', fontSize: '13px' } });
-    card.append(h('strong', { text: 'Assignment control', style: { color: C.t } }));
-    const msg = state.isAdmin
-      ? `Signed in as admin @${state.login} — assignment dropdown enabled. Writes use your session PAT.`
-      : state.login
-        ? `Signed in as @${state.login}. Assignment requires the dashboard admin account; this tab is read-only for you.`
-        : 'Sign in to enable assignment.';
-    const color = state.isAdmin ? C.g : C.m;
-    card.append(h('div', { text: msg, style: { color, marginTop: '4px' } }));
-    container.append(card);
-  }
-
   function fmtDate(d) { return d || '—'; }
   function daysSince(d) {
     if (!d) return '—';
@@ -168,15 +103,6 @@ window.__OPS_CONTROL_V2_READY__ = true;
     if (!t) return '—';
     const diff = Math.floor((Date.now() - t) / 86400000);
     return diff + 'd';
-  }
-
-  async function assignIssue(pat, repo, issueNumber, login) {
-    const r = await ghJson(pat, `/repos/${repo}/issues/${issueNumber}/assignees`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ assignees: [login] }),
-    });
-    return r;
   }
 
   function latestBuildText(summary) {
@@ -272,11 +198,6 @@ window.__OPS_CONTROL_V2_READY__ = true;
         const n = Number(ticket && ticket.issue_number);
         return Number.isFinite(n) && ticket && ticket.project_status !== 'Tracked in master issue' ? n : null;
       }
-      case 'issue': {
-        const n = Number(ticket && ticket.issue_number);
-        return Number.isFinite(n) ? n : null;
-      }
-      case 'assignee': return ticket && ticket.assignee ? String(ticket.assignee).toLowerCase() : null;
       default: return null;
     }
   }
@@ -304,10 +225,9 @@ window.__OPS_CONTROL_V2_READY__ = true;
       .map((entry) => entry.ticket);
   }
 
-  function renderMetricsTable(container, plan, state, projectItems) {
+  function renderMetricsTable(container, plan, projectItems) {
     const card = h('div', { style: { background: C.bg, border: `1px solid ${C.bd}`, borderRadius: '8px', padding: '14px 18px', marginBottom: '12px' } });
     card.append(h('h3', { text: `Failing test groups (${(plan.tickets || []).length})`, style: { marginTop: 0, fontSize: '15px' } }));
-    const singleMaster = plan && plan.issue_mode === 'single_master';
     const masterIssueNumber = Number(plan && plan.master_issue && plan.master_issue.number) || 40554;
     const projectIssueIndexes = buildProjectIssueIndexes(projectItems, masterIssueNumber);
 
@@ -317,25 +237,15 @@ window.__OPS_CONTROL_V2_READY__ = true;
       return;
     }
 
-    const columns = singleMaster
-      ? [
-          { key: 'group', label: 'Group', defaultDir: 'asc' },
-          { key: 'streak_start', label: 'Streak start', defaultDir: 'desc' },
-          { key: 'first_fail', label: 'First fail', defaultDir: 'desc' },
-          { key: 'last_success', label: 'Last success', defaultDir: 'desc' },
-          { key: 'break_freq', label: 'Break freq', defaultDir: 'desc' },
-          { key: 'latest_builds', label: 'Latest build(s)', defaultDir: 'desc' },
-          { key: 'project_issue', label: 'Project issue', defaultDir: 'desc' },
-        ]
-      : [
-          { key: 'group', label: 'Group', defaultDir: 'asc' },
-          { key: 'streak_start', label: 'Streak start', defaultDir: 'desc' },
-          { key: 'first_fail', label: 'First fail', defaultDir: 'desc' },
-          { key: 'last_success', label: 'Last success', defaultDir: 'desc' },
-          { key: 'break_freq', label: 'Break freq', defaultDir: 'desc' },
-          { key: 'issue', label: 'Issue', defaultDir: 'desc' },
-          { key: 'assignee', label: 'Assignee', defaultDir: 'asc' },
-        ];
+    const columns = [
+      { key: 'group', label: 'Group', defaultDir: 'asc' },
+      { key: 'streak_start', label: 'Streak start', defaultDir: 'desc' },
+      { key: 'first_fail', label: 'First fail', defaultDir: 'desc' },
+      { key: 'last_success', label: 'Last success', defaultDir: 'desc' },
+      { key: 'break_freq', label: 'Break freq', defaultDir: 'desc' },
+      { key: 'latest_builds', label: 'Latest build(s)', defaultDir: 'desc' },
+      { key: 'project_issue', label: 'Issue evidence', defaultDir: 'desc' },
+    ];
 
     const tableMount = h('div');
     card.append(tableMount);
@@ -388,37 +298,33 @@ window.__OPS_CONTROL_V2_READY__ = true;
         tr.append(cell(fmtDate(s.first_failure_in_window)));
         tr.append(cell(`${fmtDate(s.last_successful)} (${daysSince(s.last_successful)})`));
         tr.append(cell(s.break_frequency == null ? '—' : s.break_frequency, { style: { textAlign: 'right' } }));
-        if (singleMaster) {
-          tr.append(cell(latestBuildText(s)));
-          const issueCell = h('td', { style: { padding: '6px 8px', borderBottom: `1px solid ${C.bd}`, whiteSpace: 'nowrap' } });
-          const linked = pickProjectIssueForTicket(t, projectIssueIndexes);
-          if (linked && linked.url && linked.issue_number) {
-            issueCell.append(h('a', {
-              href: linked.url,
-              target: '_blank',
-              rel: 'noopener',
-              text: `#${linked.issue_number}`,
-              style: { color: C.b, fontWeight: '600' },
+        tr.append(cell(latestBuildText(s)));
+        const issueCell = h('td', { style: { padding: '6px 8px', borderBottom: `1px solid ${C.bd}`, whiteSpace: 'nowrap' } });
+        const linked = pickProjectIssueForTicket(t, projectIssueIndexes);
+        if (linked && linked.url && linked.issue_number) {
+          issueCell.append(h('a', {
+            href: linked.url,
+            target: '_blank',
+            rel: 'noopener',
+            text: `#${linked.issue_number}`,
+            style: { color: C.b, fontWeight: '600' },
+          }));
+          if (linked.status) {
+            issueCell.append(h('span', {
+              text: ' · ' + linked.status,
+              style: { color: C.m, fontSize: '11px' },
             }));
-            if (linked.status) {
-              issueCell.append(h('span', {
-                text: ' · ' + linked.status,
-                style: { color: C.m, fontSize: '11px' },
-              }));
-            }
-          } else {
-            issueCell.append(h('span', { text: '—', style: { color: C.m } }));
           }
-          tr.append(issueCell);
         } else {
-          const issueCell = h('td', { style: { padding: '6px 8px', borderBottom: `1px solid ${C.bd}`, whiteSpace: 'nowrap' } });
-          renderIssueCell(issueCell, t, plan, state);
-          tr.append(issueCell);
-
-          const assignCell = h('td', { style: { padding: '6px 8px', borderBottom: `1px solid ${C.bd}` } });
-          renderAssignControl(assignCell, t, plan, state);
-          tr.append(assignCell);
+          issueCell.append(h('a', {
+            href: (plan.master_issue && plan.master_issue.url) || t.issue_url,
+            target: '_blank',
+            rel: 'noopener',
+            text: `Shared #${masterIssueNumber}`,
+            style: { color: C.b, fontWeight: '600' },
+          }));
         }
+        tr.append(issueCell);
 
         tbody.append(tr);
       }
@@ -428,102 +334,6 @@ window.__OPS_CONTROL_V2_READY__ = true;
 
     renderTable();
     container.append(card);
-  }
-
-  // ---------------------------------------------------------------------
-  // Issue cell: when the syncer has already filed a ticket (live mode),
-  // show the ``#NNN`` link. When the ticket is still pending (dry-run, or
-  // live-mode before the first successful POST), show two compact actions:
-  //
-  //   * ``search``  — opens a GitHub Issues search filtered by the canonical
-  //                   title on ``plan.issue_repo``. Lets an admin spot a
-  //                   pre-existing issue before filing a duplicate.
-  //   * ``create ↗`` — opens GitHub's new-issue form pre-filled with the
-  //                   exact title / body / label the syncer *would* POST.
-  //                   The admin reviews the compose page and clicks
-  //                   "Submit new issue" to file it by hand.
-  //
-  // Using pre-filled URLs instead of a direct POST is deliberate: the
-  // admin sees the whole body before it lands on ``vllm-project/vllm`` and
-  // can edit or abandon. No extra auth is needed — GitHub's own compose
-  // page gates creation.
-  // ---------------------------------------------------------------------
-  function _issueSearchUrl(repo, title) {
-    const q = `is:issue in:title "${title}"`;
-    return `https://github.com/${repo}/issues?q=` + encodeURIComponent(q);
-  }
-  function _issueCreateUrl(repo, title, body, labels) {
-    const params = new URLSearchParams();
-    params.set('title', title);
-    if (body) params.set('body', body);
-    if (labels && labels.length) params.set('labels', labels.join(','));
-    // GitHub caps URL length around 8k; a typical body is <1.5k so this is
-    // fine, but fall back to title-only if we somehow exceed it.
-    const url = `https://github.com/${repo}/issues/new?` + params.toString();
-    if (url.length > 7500) {
-      return `https://github.com/${repo}/issues/new?title=` + encodeURIComponent(title);
-    }
-    return url;
-  }
-  function renderIssueCell(cell, ticket, plan, state) {
-    if (ticket.issue_number) {
-      cell.append(h('a', { href: ticket.issue_url, target: '_blank', rel: 'noopener', text: `#${ticket.issue_number}`, style: { color: C.b } }));
-      return;
-    }
-    const repo = plan.issue_repo || 'vllm-project/vllm';
-    const title = ticket.title || '';
-    const body = ticket.body || '';
-    const labels = ticket.labels || ['ci-failure'];
-    cell.append(h('span', { text: 'pending', style: { color: C.y, fontSize: '11px' } }));
-    cell.append(h('span', { text: ' \u00b7 ', style: { color: C.m, fontSize: '11px' } }));
-    cell.append(h('a', {
-      href: _issueSearchUrl(repo, title), target: '_blank', rel: 'noopener',
-      text: 'search', title: `Check ${repo} for an existing issue with this title`,
-      style: { color: C.m, fontSize: '11px' },
-    }));
-    cell.append(h('span', { text: ' \u00b7 ', style: { color: C.m, fontSize: '11px' } }));
-    cell.append(h('a', {
-      href: _issueCreateUrl(repo, title, body, labels), target: '_blank', rel: 'noopener',
-      text: 'create \u2197',
-      title: `Open GitHub's new-issue form on ${repo} with this title + body pre-filled`,
-      style: { color: C.b, fontSize: '11px', fontWeight: '600' },
-    }));
-  }
-
-  function renderAssignControl(cell, ticket, plan, state) {
-    const current = ticket.assignee || '';
-    const select = h('select', { style: { padding: '4px 6px', background: '#0d1117', color: C.t, border: `1px solid ${C.bd}`, borderRadius: '4px', fontSize: '11px', maxWidth: '180px' } });
-    // The shared ``el()`` helper sets every non-function prop via
-    // ``setAttribute``, so plain top-level keys are correct — an earlier
-    // ``attr: { value: ... }`` wrapper here was a no-op (stored an attribute
-    // literally named "attr"), which would have made ``select.value`` fall
-    // back to the visible text like "Jane Doe (@jane)" instead of the login.
-    select.append(h('option', { value: '', text: '\u2014 unassigned \u2014' }));
-    for (const e of (plan.engineers || [])) {
-      const opt = h('option', { value: e.github_login, text: `${e.display_name} (@${e.github_login})` });
-      if (current && current === e.github_login) opt.selected = true;
-      select.append(opt);
-    }
-    select.disabled = !state.isAdmin || !ticket.issue_number;
-    if (!state.isAdmin) select.title = 'Sign in as the dashboard admin to assign';
-    else if (!ticket.issue_number) select.title = 'Issue not yet created (dry-run)';
-
-    select.addEventListener('change', async () => {
-      const login = select.value;
-      if (!login) return;
-      const pat = _authPat();
-      if (!pat) { cell.append(h('span', { text: ' ✗ no PAT', style: { color: C.r, marginLeft: '6px', fontSize: '11px' } })); return; }
-      select.disabled = true;
-      const r = await assignIssue(pat, plan.issue_repo, ticket.issue_number, login);
-      if (r.ok) {
-        ticket.assignee = login;
-        cell.append(h('span', { text: ' ✓', style: { color: C.g, marginLeft: '6px', fontSize: '11px' } }));
-      } else {
-        cell.append(h('span', { text: ` ✗ ${r.status}`, style: { color: C.r, marginLeft: '6px', fontSize: '11px' } }));
-      }
-      select.disabled = false;
-    });
-    cell.append(select);
   }
 
   function renderSummaryCards(container, plan) {
@@ -548,10 +358,8 @@ window.__OPS_CONTROL_V2_READY__ = true;
     const seq = ++renderSeq;
     const container = document.getElementById('ci-ready-view');
     if (!container) return;
-    // Auth gate — Ready Tickets exposes the engineer roster (via the
-    // token-vault decrypt) and lets admins assign issues. The nav button
-    // is hidden from guests, but any forced panel activation still lands
-    // here, so bail before we run the loadPlan/loadEngineers pipeline.
+    // The nav button is hidden from guests, but a forced panel activation
+    // still lands here, so preserve the tab's access policy.
     const gate = window.__authGate;
     const allowed = !!(gate && typeof gate.canAccessTab === 'function'
       ? gate.canAccessTab('ci-ready')
@@ -586,17 +394,6 @@ window.__OPS_CONTROL_V2_READY__ = true;
     }
     const projectItems = await loadProjectItems();
     if (seq !== renderSeq) return;
-    // Decrypt the roster blob if the vault is unlocked; empty array for
-    // guests and locked sessions. The dropdown is already disabled for
-    // non-admins at renderAssignControl, so an empty list is harmless.
-    plan.engineers = await loadEngineers();
-    if (seq !== renderSeq) return;
-
-    const state = {
-      render,
-      login: gate && gate.getLogin ? gate.getLogin() : '',
-      isAdmin: !!(gate && gate.isAdmin && gate.isAdmin()),
-    };
     renderBanner(container, plan);
     renderSummaryCards(container, plan);
     if (plan.feature_paused || plan.mode === 'paused') {
@@ -606,24 +403,15 @@ window.__OPS_CONTROL_V2_READY__ = true;
       }));
       return;
     }
-    if (plan.issue_mode === 'single_master') {
-      renderMasterIssueCard(container, plan);
-      renderMetricsTable(container, plan, state, projectItems);
-      return;
-    }
-    renderAdminStatus(container, state);
-    renderMetricsTable(container, plan, state, projectItems);
+    renderMasterIssueCard(container, plan);
+    renderMetricsTable(container, plan, projectItems);
   }
 
   window.OpsReadyActions = {
     loadPlan,
     loadProjectItems,
-    loadEngineers,
-    assignIssue,
     buildProjectIssueIndexes,
     pickProjectIssueForTicket,
-    issueSearchUrl: _issueSearchUrl,
-    issueCreateUrl: _issueCreateUrl,
   };
 
   // Lifecycle registration intentionally belongs only to the v2 renderer.
@@ -905,50 +693,22 @@ window.__OPS_CONTROL_V2_READY__ = true;
     ui.dialog(summary.group || 'Group evidence', 'Ready Tickets outcome and source evidence', content);
   }
 
-  function assignmentControl(row, plan, state) {
-    const ticket = row.ticket;
-    if (!ticket) return h('span', { cls: 'ocv2-unavailable', text: 'Not active' });
-    if (plan.issue_mode === 'single_master') return h('span', { cls: 'ocv2-unavailable', text: 'Shared tracker' });
-    if (!state.isAdmin) return h('span', { cls: 'ocv2-unavailable', text: 'Admin only' });
-    if (!ticket.issue_number) return h('span', { cls: 'ocv2-unavailable', text: 'Issue required' });
-    const control = select([{ value: '', label: 'Assign engineer' }].concat((plan.engineers || []).map(function(engineer) {
-      return { value: engineer.github_login, label: engineer.display_name + ' (@' + engineer.github_login + ')' };
-    })), ticket.assignee || '', 'Assign issue');
-    control.addEventListener('change', async function() {
-      if (!control.value) return;
-      const pat = window.__authGate && window.__authGate.getGithubPat ? window.__authGate.getGithubPat() : '';
-      if (!pat) { ui.dialog('Assignment unavailable', '', ui.state('is-warning', 'Session PAT unavailable', 'Sign in again before assigning an issue.')); return; }
-      control.disabled = true;
-      const result = await actions.assignIssue(pat, plan.issue_repo, ticket.issue_number, control.value);
-      control.disabled = false;
-      if (result.ok) {
-        ticket.assignee = control.value;
-        ui.dialog('Assignment updated', 'GitHub issue mutation', ui.state('is-success', 'Issue assigned', '@' + control.value + ' was assigned to issue #' + ticket.issue_number, ui.external('Open audit issue', ticket.issue_url)));
-      } else {
-        ui.dialog('Assignment failed', '', ui.state('is-danger', 'GitHub rejected the assignment', 'HTTP ' + result.status, ui.external('Open issue', ticket.issue_url)));
-      }
-    });
-    return control;
-  }
-
-  function issueEvidence(row, plan, indexes, state) {
+  function issueEvidence(row, plan, indexes) {
     const ticket = row.ticket;
     const linked = projectIssue(ticket, indexes);
     if (linked && linked.url) return ui.external('#' + linked.issue_number, linked.url, '', linked.status || 'Open project issue');
     if (ticket && ticket.issue_url) {
-      const label = plan.issue_mode === 'single_master' ? 'Shared #' + ticket.issue_number : '#' + ticket.issue_number;
+      const masterNumber = plan.master_issue && plan.master_issue.number;
+      const label = ticket.issue_number === masterNumber ? 'Shared #' + ticket.issue_number : '#' + ticket.issue_number;
       return ui.external(label, ticket.issue_url);
     }
-    if (!ticket) return h('span', { cls: 'ocv2-unavailable', text: 'No ticket' });
-    const repo = plan.issue_repo || 'vllm-project/vllm';
-    const search = ui.external('Search', actions.issueSearchUrl(repo, ticket.title || ''), '', 'Search for an existing issue');
-    if (!state.isAdmin) return search;
-    const root = h('div', { cls: 'ocv2-source-list' });
-    root.append(search, ui.external('Review draft', actions.issueCreateUrl(repo, ticket.title || '', ticket.body || '', ticket.labels || []), '', 'Open prefilled GitHub issue draft'));
-    return root;
+    if (plan.master_issue && plan.master_issue.url) {
+      return ui.external('Shared #' + plan.master_issue.number, plan.master_issue.url);
+    }
+    return h('span', { cls: 'ocv2-unavailable', text: 'No issue evidence' });
   }
 
-  function renderEvidence(container, plan, projectItems, operations, state) {
+  function renderEvidence(container, plan, projectItems, operations) {
     const rows = groupRows(plan, operations);
     const masterNumber = Number(plan.master_issue && plan.master_issue.number) || 40554;
     const indexes = actions.buildProjectIssueIndexes(projectItems, masterNumber);
@@ -1038,8 +798,7 @@ window.__OPS_CONTROL_V2_READY__ = true;
         { label: 'Last success', nowrap: true, render: function(row) { return ui.linkButton(row.summary.last_successful || 'Not observed', function() { inspectGroup(row, plan, indexes); }); } },
         { label: 'State changes', numeric: true, render: function(row) { return ui.linkButton(String(row.summary.break_frequency || 0), function() { inspectGroup(row, plan, indexes); }); } },
         { label: 'Group evidence', render: groupEvidenceLinks },
-        { label: 'Issue', render: function(row) { return issueEvidence(row, plan, indexes, state); } },
-        { label: 'Assignment', render: function(row) { return assignmentControl(row, plan, state); } },
+        { label: 'Issue evidence', render: function(row) { return issueEvidence(row, plan, indexes); } },
       ], shown, {
         caption: shown.length + ' of ' + filtered.length + ' matching groups',
         empty: 'No groups match the selected status, name, and build filters.',
@@ -1065,7 +824,7 @@ window.__OPS_CONTROL_V2_READY__ = true;
     renderRows();
   }
 
-  function renderSourceBanner(container, plan, state) {
+  function renderSourceBanner(container, plan) {
     const live = plan.mode === 'live';
     const paused = plan.feature_paused || plan.mode === 'paused';
     const banner = ui.state(
@@ -1073,13 +832,12 @@ window.__OPS_CONTROL_V2_READY__ = true;
       paused ? 'Automation paused' : live ? 'Live evidence snapshot' : 'Dry-run evidence snapshot',
       paused
         ? (plan.pause_reason || 'No upstream mutations are being performed.')
-        : 'Read-only failure evidence is public. Current failures share one master tracker; the dedicated-issues count excludes that shared issue. Mutations remain admin-only.'
+        : 'Read-only failure evidence is public. Current failures share one master tracker; manually filed issues are linked as evidence and never modified.'
     );
     const sources = h('div', { cls: 'ocv2-actions' });
     if (plan.master_issue && plan.master_issue.url) sources.append(ui.external('Shared master tracker #' + plan.master_issue.number, plan.master_issue.url));
     if (plan.master_issue_comment && plan.master_issue_comment.url) sources.append(ui.external('Latest automation update', plan.master_issue_comment.url));
-    if (state.isAdmin) sources.append(ui.badge('Admin controls enabled', 'is-success'));
-    else sources.append(ui.badge('Read only', 'is-info'));
+    sources.append(ui.badge('Read only', 'is-info'));
     banner.append(sources);
     container.append(banner);
   }
@@ -1092,7 +850,7 @@ window.__OPS_CONTROL_V2_READY__ = true;
     ui.page(container, {
       id: 'ready-tickets',
       title: 'Ready Tickets',
-      description: 'Public AMD nightly failure evidence with exact Buildkite sources and admin-gated issue controls.',
+      description: 'Public AMD nightly failure evidence with exact Buildkite and issue sources.',
     });
     const loading = ui.state('', 'Loading Ready Tickets evidence', 'Fetching the retained summary, strict operations catalog, and project links.');
     container.append(loading);
@@ -1107,16 +865,9 @@ window.__OPS_CONTROL_V2_READY__ = true;
       loadOperations(),
     ]);
     if (seq !== renderSeq) return;
-    const gate = window.__authGate;
-    const state = {
-      isAdmin: !!(gate && gate.isAdmin && gate.isAdmin()),
-      login: gate && gate.getLogin ? gate.getLogin() : '',
-    };
-    plan.engineers = state.isAdmin ? await actions.loadEngineers() : [];
-    if (seq !== renderSeq) return;
     loading.remove();
-    renderSourceBanner(container, plan, state);
-    renderEvidence(container, plan, projectItems || {}, operations || {}, state);
+    renderSourceBanner(container, plan);
+    renderEvidence(container, plan, projectItems || {}, operations || {});
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', render);

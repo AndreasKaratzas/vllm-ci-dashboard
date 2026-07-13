@@ -3,7 +3,7 @@
 The dashboard is a static GitHub Pages site, so these aren't Selenium tests.
 They're static-analysis tests on the committed source files:
 
-    1. Admin tokens (BUILDKITE_TOKEN, PROJECTS_TOKEN) are never used on any
+    1. Admin tokens (BUILDKITE_TOKEN, UPSTREAM_COMMENT_TOKEN) are never used on any
        per-user write path. User-initiated writes must use the user's own
        tokens, never the admin's.
     2. The Test Build browser flow uses the user's BK token to create the
@@ -17,9 +17,8 @@ They're static-analysis tests on the committed source files:
     4. The signup workflow uses github.event.issue.user.id as the anti-spoof
        anchor (GitHub itself authenticates the issue author). Without that,
        anyone could spoof another engineer's signup.
-    5. The Ready Tickets live sync requires PROJECTS_TOKEN which only the
-       admin can set at the repo secrets level; the script fails open into
-       dry-run otherwise.
+    5. Ready Tickets separates read-only project access from its one protected,
+       pinned umbrella-comment write and fails into dry-run without that token.
 
 If any of these asserts break, security review the change before merging.
 """
@@ -241,47 +240,53 @@ class TestBuildkiteTokenIsolation:
 
 
 # ---------------------------------------------------------------------------
-# 2. PROJECTS_TOKEN — admin-only, never user-reachable.
+# 2. GitHub token capabilities are split and fail closed.
 # ---------------------------------------------------------------------------
 
-class TestProjectsTokenIsolation:
-    def test_projects_token_only_in_ready_tickets_script(self):
-        # Only sync_ready_tickets.py should read PROJECTS_TOKEN.
-        hits = []
-        for py in SCRIPTS.rglob("*.py"):
-            if "PROJECTS_TOKEN" in _read(py):
-                hits.append(py.name)
-        assert hits == ["sync_ready_tickets.py"], (
-            f"Unexpected PROJECTS_TOKEN consumers: {hits}"
-        )
+class TestGitHubTokenIsolation:
+    def test_legacy_combined_projects_token_is_gone(self):
+        for path in [*(ROOT / "scripts").rglob("*.py"), *WORKFLOWS.glob("*.yml")]:
+            assert "PROJECTS" + "_TOKEN" not in _read(path), path
 
-    def test_projects_token_only_in_scheduled_workflow(self):
-        # PROJECTS_TOKEN must only appear in workflows that are cron/scheduled
-        # — never in ones that users can trigger via workflow_dispatch with
-        # untrusted inputs.
-        for wf in WORKFLOWS.glob("*.yml"):
-            text = _read(wf)
-            if "PROJECTS_TOKEN" not in text:
-                continue
-            data = yaml.safe_load(text)
-            triggers = data.get(True) or data.get("on") or {}
-            assert isinstance(triggers, dict), (
-                f"{wf.name}: PROJECTS_TOKEN-using workflow should have a "
-                "structured on: trigger list"
-            )
-            # The only acceptable triggers for a PROJECTS_TOKEN-carrying workflow
-            # are schedule, workflow_dispatch (admin-only), and repository_dispatch.
-            allowed = {"schedule", "workflow_dispatch", "repository_dispatch"}
-            disallowed = set(triggers.keys()) - allowed
-            assert not disallowed, (
-                f"{wf.name}: PROJECTS_TOKEN-carrying workflow cannot be triggered by {disallowed}"
-            )
+    def test_upstream_write_token_has_exactly_two_consumers(self):
+        hits = []
+        for path in [*(ROOT / "scripts").rglob("*.py"), *WORKFLOWS.glob("*.yml")]:
+            if "UPSTREAM_COMMENT_TOKEN" in _read(path):
+                hits.append(path.relative_to(ROOT).as_posix())
+        assert sorted(hits) == [
+            ".github/workflows/ready-tickets-live.yml",
+            "scripts/vllm/sync_ready_tickets.py",
+        ]
+
+    def test_live_workflow_is_environment_protected_and_pinned_to_main(self):
+        workflow = yaml.safe_load(_read(WORKFLOWS / "ready-tickets-live.yml"))
+        job = workflow["jobs"]["sync"]
+        assert job["environment"] == "upstream-comment-write"
+        assert job["if"] == "github.ref == 'refs/heads/main'"
+        checkout = next(
+            step for step in job["steps"] if str(step.get("uses", "")).startswith("actions/checkout@")
+        )
+        assert checkout["with"]["ref"] == "main"
+        sync_step = next(step for step in job["steps"] if step.get("name") == "Refresh AMD nightly master issue")
+        assert sync_step["env"]["UPSTREAM_COMMENT_TOKEN"] == "${{ secrets.UPSTREAM_COMMENT_TOKEN }}"
+        assert sync_step["env"]["PROJECTS_READ_TOKEN"] == "${{ secrets.PROJECTS_READ_TOKEN }}"
+
+    def test_collectors_only_receive_the_read_token(self):
+        for name in ("manual-update.yml", "daily-update.yml", "hourly-master.yml"):
+            text = _read(WORKFLOWS / name)
+            assert "PROJECTS_READ_TOKEN" in text
+            assert "UPSTREAM_COMMENT_TOKEN" not in text
+
+    def test_graphql_collectors_reject_mutations(self):
+        collect = _read(ROOT / "scripts" / "collect.py")
+        ready = _read(SCRIPTS / "sync_ready_tickets.py")
+        assert "does not permit GraphQL mutations" in collect
+        assert "GraphQL is read-only" in ready
 
     def test_sync_ready_tickets_falls_back_to_dry_run_without_token(self):
         src = _read(SCRIPTS / "sync_ready_tickets.py")
-        # The script must check for the PAT and force dry-run if missing.
         assert "READY_TICKETS_LIVE" in src
-        assert "PROJECTS_TOKEN not set" in src or "PROJECTS_TOKEN" in src
+        assert "UPSTREAM_COMMENT_TOKEN is not set" in src
         assert "dry_run_forced" in src
 
 

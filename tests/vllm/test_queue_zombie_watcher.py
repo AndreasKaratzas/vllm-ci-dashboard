@@ -9,6 +9,12 @@ import pytest
 from vllm import queue_zombie_watcher as qzw
 
 
+def test_issue_writes_are_restricted_to_dashboard_repo():
+    qzw._validate_target_repo(qzw.DASHBOARD_REPO)
+    with pytest.raises(RuntimeError, match="restricted"):
+        qzw._validate_target_repo("vllm-project/vllm")
+
+
 @pytest.fixture
 def isolated_state(tmp_path, monkeypatch):
     jobs = tmp_path / "queue_jobs.json"

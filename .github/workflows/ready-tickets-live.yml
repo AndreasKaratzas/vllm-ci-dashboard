@@ -1,8 +1,8 @@
 name: Ready Tickets (live sync)
 
-# Triple-daily sync of AMD nightly failures into one upstream master issue.
-# This workflow no longer creates one issue per failing group; it updates the
-# single umbrella issue managed by sync_ready_tickets.py.
+# Triple-daily sync of AMD nightly failures into one pinned umbrella comment.
+# This workflow cannot create or close issues; sync_ready_tickets.py validates
+# the exact issue, comment ID, marker, and owner before its sole PATCH request.
 #
 # GitHub Actions crons are UTC. These keep the prior cadence:
 #   10:00 CDT = 15:00 UTC
@@ -27,9 +27,13 @@ permissions:
 
 jobs:
   sync:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: upstream-comment-write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
 
       - uses: actions/setup-python@v5
         with:
@@ -41,9 +45,11 @@ jobs:
 
       - name: Refresh AMD nightly master issue
         env:
-          PROJECTS_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
+          PROJECTS_READ_TOKEN: ${{ secrets.PROJECTS_READ_TOKEN }}
+          UPSTREAM_COMMENT_TOKEN: ${{ secrets.UPSTREAM_COMMENT_TOKEN }}
           READY_TICKETS_LIVE: '1'
           READY_TICKETS_ALLOW_UPSTREAM_WRITES: '1'
+          READY_TICKETS_WRITE_SCOPE: 'master_comment_only'
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: python scripts/vllm/sync_ready_tickets.py
 

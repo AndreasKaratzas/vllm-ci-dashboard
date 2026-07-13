@@ -226,6 +226,11 @@ def _set_issue_env(
 
 
 class TestRun:
+    def test_issue_writes_are_restricted_to_dashboard_repo(self):
+        ps._validate_target_repo(ps.DASHBOARD_REPO)
+        with pytest.raises(RuntimeError, match="restricted"):
+            ps._validate_target_repo("vllm-project/vllm")
+
     def test_request_path_marks_issue_pending_without_commit(self, monkeypatch):
         calls, state = _stub_requests(monkeypatch)
         _set_issue_env(monkeypatch)

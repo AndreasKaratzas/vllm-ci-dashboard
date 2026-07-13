@@ -848,6 +848,10 @@ class TestWorkflowPipInstallMatchesImports:
             "ready-tickets-live.yml must set the second explicit allow flag "
             "before sync_ready_tickets.py can touch upstream"
         )
+        assert "READY_TICKETS_WRITE_SCOPE: 'master_comment_only'" in wf, (
+            "ready-tickets-live.yml must restrict upstream writes to the "
+            "validated umbrella comment"
+        )
         assert "sync master issue" in wf.lower(), (
             "ready-tickets-live.yml should describe the single-master-issue "
             "mode in its commit message or comments"

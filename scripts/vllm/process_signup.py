@@ -50,6 +50,7 @@ PENDING_LABEL = "signup-pending"
 APPROVED_LABEL = "signup-approved"
 REJECTED_LABEL = "signup-rejected"
 PROCESSED_LABEL = "signup-processed"
+DASHBOARD_REPO = "AndreasKaratzas/vllm-ci-dashboard"
 
 log = logging.getLogger("process_signup")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -57,6 +58,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 JSON_BLOCK_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
+
+
+def _validate_target_repo(repo: str) -> None:
+    if repo.strip().lower() != DASHBOARD_REPO.lower():
+        raise RuntimeError(f"Signup automation is restricted to {DASHBOARD_REPO}")
 
 
 def _gh_headers(token: str) -> dict:
@@ -514,6 +520,8 @@ def run() -> int:
     except ValueError:
         log.error("Bad ISSUE_SENDER_ID: %r", sender_id_raw)
         return 1
+
+    _validate_target_repo(repo)
 
     if _has_label(labels, PROCESSED_LABEL) and trigger_label != APPROVED_LABEL and trigger_label != REJECTED_LABEL:
         log.info("Issue #%d already has %s; skipping", number, PROCESSED_LABEL)

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import ast
+import inspect
 import json
+
+import pytest
 
 from vllm import backfill_ready_ticket_comments as backfill
 
@@ -23,6 +27,38 @@ class TestGeneratedCommentDetection:
 
     def test_ignores_human_comment(self):
         assert backfill.is_generated_ready_ticket_comment("Human triage note") is False
+
+
+class TestReadOnlyPolicy:
+    def test_graphql_rejects_mutation_before_network(self, monkeypatch):
+        def _unexpected_post(*args, **kwargs):
+            raise AssertionError("a rejected mutation reached the network")
+
+        monkeypatch.setattr(backfill.requests, "post", _unexpected_post)
+        with pytest.raises(RuntimeError, match="GraphQL is read-only"):
+            backfill._graphql("fake-token", "mutation { deleteProjectV2Item {} }", {})
+
+    def test_only_graphql_query_uses_an_http_write_verb(self):
+        tree = ast.parse(inspect.getsource(backfill))
+        write_methods = {"delete", "patch", "post", "put"}
+        writers: dict[str, set[str]] = {}
+
+        for function in (
+            node for node in tree.body if isinstance(node, ast.FunctionDef)
+        ):
+            methods = {
+                call.func.attr
+                for call in ast.walk(function)
+                if isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and isinstance(call.func.value, ast.Name)
+                and call.func.value.id == "requests"
+                and call.func.attr in write_methods
+            }
+            if methods:
+                writers[function.name] = methods
+
+        assert writers == {"_graphql": {"post"}}
 
 
 class TestDesiredBodyLoading:

@@ -51,6 +51,12 @@ MIN_WAITING_SAMPLES = QUEUE_MIN_WAITING_SAMPLES
 LABEL = "queue-latency"
 
 GH_API = "https://api.github.com"
+DASHBOARD_REPO = "AndreasKaratzas/vllm-ci-dashboard"
+
+
+def _validate_target_repo(repo: str) -> None:
+    if repo.strip().lower() != DASHBOARD_REPO.lower():
+        raise RuntimeError(f"Issue automation is restricted to {DASHBOARD_REPO}")
 
 
 def _gh_headers(token: str) -> dict:
@@ -255,7 +261,8 @@ def _issue_age_minutes(opened_ts: str, snapshot_ts: str) -> float:
 
 def run() -> int:
     token = os.getenv("GITHUB_TOKEN")
-    repo = os.getenv("GITHUB_REPOSITORY") or "AndreasKaratzas/vllm-ci-dashboard"
+    repo = os.getenv("GITHUB_REPOSITORY") or DASHBOARD_REPO
+    _validate_target_repo(repo)
     run_id = os.getenv("GITHUB_RUN_ID", "")
     run_url = f"https://github.com/{repo}/actions/runs/{run_id}" if run_id else f"https://github.com/{repo}"
 

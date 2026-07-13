@@ -26,6 +26,12 @@ from vllm.constants import (
 )
 
 
+def test_issue_writes_are_restricted_to_dashboard_repo():
+    osw._validate_target_repo(osw.DASHBOARD_REPO)
+    with pytest.raises(RuntimeError, match="restricted"):
+        osw._validate_target_repo("vllm-project/vllm")
+
+
 @pytest.fixture
 def isolated_paths(tmp_path, monkeypatch):
     snaps = tmp_path / "queue_timeseries.jsonl"

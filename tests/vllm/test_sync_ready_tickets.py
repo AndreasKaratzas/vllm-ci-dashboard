@@ -5,25 +5,26 @@ We isolate the script from disk + GitHub by:
     * Pointing ``RESULTS_DIR``, ``OUT`` and ``STATE`` at tmp_path.
     * Seeding synthetic AMD nightly JSONL files across dates so the history
       aggregator has real input.
-    * Never supplying ``PROJECTS_TOKEN`` so the ``live`` branch never fires.
+    * Never supplying ``UPSTREAM_COMMENT_TOKEN`` unless a test exercises live mode.
       The live branch talks to GitHub GraphQL and REST — we exercise it
       indirectly via the dry-run plan instead. Integration against the real
       projects API is not something unit tests should do.
 
 The tests focus on the *logic* the team lead pushed back on:
     - canonical title format is locked to upstream's ``[CI Failure]: <agent>: <test>``
-      convention — the exact string vllm-project engineers grep for on board #39
-    - hardware prefix is PRESERVED so each (agent, test) pair gets its own
-      ticket (matching how the board is already populated by hand)
+      convention so manually filed issues can be linked read-only
+    - hardware prefix is PRESERVED so each (agent, test) pair stays distinct
     - summary metrics (first failure, streak start, last success, break count)
       match what a human would draw from a timeline
     - plan JSON only contains currently-failing groups
-    - dry-run writes a plan WITHOUT touching the network even if PROJECTS_TOKEN
+    - dry-run writes a plan WITHOUT touching the network even if the read token
       is set to garbage (we still force dry-run via READY_TICKETS_LIVE unset)
 """
 
 from __future__ import annotations
 
+import ast
+import inspect
 import json
 from pathlib import Path
 
@@ -39,6 +40,15 @@ def _no_upstream_yaml_fetch(monkeypatch):
     # must not touch the network — default to no templates so grouping is
     # an identity function, and individual tests can override as needed.
     monkeypatch.setattr(srt, "_fetch_shard_templates", lambda: [])
+    for name in (
+        "PROJECTS_READ_TOKEN",
+        "UPSTREAM_COMMENT_TOKEN",
+        "READY_TICKETS_LIVE",
+        "READY_TICKETS_ALLOW_UPSTREAM_WRITES",
+        "READY_TICKETS_WRITE_SCOPE",
+        "GITHUB_TOKEN",
+    ):
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture
@@ -47,9 +57,11 @@ def isolated_paths(tmp_path, monkeypatch):
     results.mkdir()
     out = tmp_path / "ready_tickets.json"
     state = tmp_path / "ready_tickets_state.json"
+    project_items = tmp_path / "project_items.json"
     monkeypatch.setattr(srt, "RESULTS_DIR", results, raising=False)
     monkeypatch.setattr(srt, "OUT", out, raising=False)
     monkeypatch.setattr(srt, "STATE", state, raising=False)
+    monkeypatch.setattr(srt, "PROJECT_ITEMS_OUT", project_items, raising=False)
     return results, out, state
 
 
@@ -336,18 +348,22 @@ class TestNormalizedMatchCompatible:
         }
         plan = [
             {"title": "[CI Failure]: mi325_1: Kernels MoE Test %N",
-             "action": "would_create", "issue_number": None, "issue_url": None},
+             "action": "would_update_master_issue_comment",
+             "issue_number": srt.MASTER_ISSUE_NUMBER,
+             "issue_url": srt.MASTER_ISSUE_URL},
             {"title": "[CI Failure]: mi355_1: Kernels MoE Test %N",
-             "action": "would_create", "issue_number": None, "issue_url": None},
+             "action": "would_update_master_issue_comment",
+             "issue_number": srt.MASTER_ISSUE_NUMBER,
+             "issue_url": srt.MASTER_ISSUE_URL},
         ]
         srt._enrich_dry_run_plan(plan, existing)
         # mi325 — exact match, wired to the post-tracker issue.
         assert plan[0]["issue_number"] == 40562
-        assert plan[0]["action"] == "would_update_existing"
-        # mi355 — would have hit the bug, must remain unmatched so the
-        # live sync creates a fresh ticket for the mi355 pool.
-        assert plan[1]["issue_number"] is None
-        assert plan[1]["action"] == "would_create"
+        assert plan[0]["action"] == "would_track_manual_issue"
+        # mi355 must remain unmatched; the automation will represent it only
+        # in the umbrella comment.
+        assert plan[1]["issue_number"] == srt.MASTER_ISSUE_NUMBER
+        assert plan[1]["action"] == "would_update_master_issue_comment"
 
     def test_enrich_dry_run_plan_picks_same_pool_with_whitespace_quirk(self):
         # The production bug that shipped: issue #35126 exists on upstream
@@ -370,14 +386,16 @@ class TestNormalizedMatchCompatible:
         }
         plan = [
             {"title": "[CI Failure]: mi355_1: Kernels MoE Test %N",  # single space
-             "action": "would_create", "issue_number": None, "issue_url": None},
+             "action": "would_update_master_issue_comment",
+             "issue_number": srt.MASTER_ISSUE_NUMBER,
+             "issue_url": srt.MASTER_ISSUE_URL},
         ]
         srt._enrich_dry_run_plan(plan, existing)
         assert plan[0]["issue_number"] == 40563, (
             "mi355 plan entry must adopt #40563 (the mi355 existing title), "
             "not #40562 (the mi325 one)"
         )
-        assert plan[0]["action"] == "would_update_existing"
+        assert plan[0]["action"] == "would_track_manual_issue"
 
 
 class TestPickNormalizedCandidate:
@@ -582,7 +600,7 @@ class TestSummarizeGroup:
         assert s["first_failure_in_window"] == "2026-04-15"
 
 
-class TestBuildkiteIssueRendering:
+class TestBuildkiteEvidenceRendering:
     def _summary(self):
         return {
             "group": "mi250_1: Entrypoints Integration (API Server 2)",
@@ -602,59 +620,62 @@ class TestBuildkiteIssueRendering:
             ],
         }
 
-    def test_issue_body_links_buildkite_builds(self):
-        body = srt._issue_body(
-            self._summary(),
-            "https://github.com/AndreasKaratzas/vllm-ci-dashboard/actions/runs/24641501904",
-        )
-        assert "[amd-ci #7806](https://buildkite.com/vllm/amd-ci/builds/7806)" in body
-        assert "**Latest build(s):** #7806" not in body
+    def test_umbrella_evidence_links_buildkite_builds(self):
+        refs = srt._format_build_refs(self._summary())
+        assert refs == "[amd-ci #7806](https://buildkite.com/vllm/amd-ci/builds/7806)"
 
 
-class TestFindOrCreateIssue:
-    def test_existing_issue_refreshes_body(self, monkeypatch):
-        calls = []
+class TestUpstreamWritePolicy:
+    def test_graphql_transport_rejects_mutations_before_network(self, monkeypatch):
+        def _unexpected_post(*args, **kwargs):
+            raise AssertionError("a rejected GraphQL mutation reached the network")
 
-        def _fake_sync(token, repo, issue_number, body, reopen=False):
-            calls.append({
-                "token": token,
-                "repo": repo,
-                "issue_number": issue_number,
-                "body": body,
-                "reopen": reopen,
-            })
+        monkeypatch.setattr(srt.requests, "post", _unexpected_post)
 
-        monkeypatch.setattr(srt, "_sync_issue_body", _fake_sync)
-        project_items = {
-            "[CI Failure]: mi250_1: Broken Group": {
-                "issueState": "open",
-                "repo": "vllm-project/vllm",
-                "issueNumber": 77777,
-                "url": "https://github.com/vllm-project/vllm/issues/77777",
-            }
+        with pytest.raises(RuntimeError, match="GraphQL is read-only"):
+            srt._graphql_query(
+                "fake-token",
+                "mutation { addProjectV2ItemById(input: {}) { item { id } } }",
+                {},
+            )
+
+    def test_module_exposes_no_individual_issue_mutators(self):
+        prohibited = {
+            "_close_issue",
+            "_comment_issue",
+            "_find_or_create_issue",
+            "_issue_node_id",
+            "_should_move_to_ready",
+            "_sync_issue_body",
+            "ADD_ITEM_MUT",
+            "SET_STATUS_MUT",
         }
+        assert not {name for name in prohibited if hasattr(srt, name)}
 
-        issue_number, issue_url, created, matched_title = srt._find_or_create_issue(
-            "fake-token",
-            "[CI Failure]: mi250_1: Broken Group",
-            "fresh body",
-            project_items,
-            {},
-        )
+    def test_http_writes_are_limited_to_graphql_reads_and_master_comment(self):
+        tree = ast.parse(inspect.getsource(srt))
+        write_methods = {"delete", "patch", "post", "put"}
+        writers: dict[str, set[str]] = {}
 
-        assert (issue_number, issue_url, created, matched_title) == (
-            77777,
-            "https://github.com/vllm-project/vllm/issues/77777",
-            False,
-            "[CI Failure]: mi250_1: Broken Group",
-        )
-        assert calls == [{
-            "token": "fake-token",
-            "repo": "vllm-project/vllm",
-            "issue_number": 77777,
-            "body": "fresh body",
-            "reopen": False,
-        }]
+        for function in (
+            node for node in tree.body if isinstance(node, ast.FunctionDef)
+        ):
+            methods = {
+                call.func.attr
+                for call in ast.walk(function)
+                if isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and isinstance(call.func.value, ast.Name)
+                and call.func.value.id == "requests"
+                and call.func.attr in write_methods
+            }
+            if methods:
+                writers[function.name] = methods
+
+        assert writers == {
+            "_graphql_query": {"post"},
+            "_update_pinned_master_comment": {"patch"},
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -674,10 +695,10 @@ class TestRunDryRun:
              "status": "passed", "build_number": 200},
         ])
 
-        # Explode if _graphql is called — dry-run must not touch GitHub.
+        # Explode if GraphQL is called — dry-run must not touch GitHub.
         def _boom(*a, **kw):
             raise AssertionError("dry-run must not call GitHub GraphQL")
-        monkeypatch.setattr(srt, "_graphql", _boom)
+        monkeypatch.setattr(srt, "_graphql_query", _boom)
         monkeypatch.setattr(srt, "_fetch_project_meta", _boom)
         # And the REST preflight must not fire either when no token is set.
         def _boom_rest(*a, **kw):
@@ -685,9 +706,6 @@ class TestRunDryRun:
         monkeypatch.setattr(srt, "_fetch_existing_ci_failure_issues", _boom_rest)
 
         monkeypatch.delenv("READY_TICKETS_LIVE", raising=False)
-        monkeypatch.delenv("PROJECTS_TOKEN", raising=False)
-        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-
         rc = srt.run()
         assert rc == 0
         data = json.loads(out.read_text())
@@ -697,21 +715,11 @@ class TestRunDryRun:
         assert titles == {"[CI Failure]: mi250_1: Broken Group"}
         # Canonical shape of a dry-run ticket.
         ticket = data["tickets"][0]
-        assert ticket["action"] == "would_create_or_update"
-        assert ticket["issue_number"] is None
-        # The dashboard's "create ↗" link builds a pre-filled GitHub
-        # ``issues/new?title=&body=&labels=`` URL from these three fields.
-        # If any go missing the admin would land on an empty compose form
-        # and file a ticket without the hardware / streak / build context.
-        assert ticket["labels"] == ["ci-failure"]
-        assert ticket["body"], "dry-run ticket must carry a ready-to-post body"
-        assert "mi250_1: Broken Group" in ticket["body"]
-        # The body must identify it as a CI-failure template so we're not
-        # pre-filling the compose form with something unrelated.
-        assert "AMD nightly" in ticket["body"]
-        # PII guarantee: the roster must NOT be in this file. The plan is
-        # served publicly on gh-pages; the admin dropdown reads the roster
-        # from the encrypted engineers.enc.json instead.
+        assert ticket["action"] == "would_update_master_issue_comment"
+        assert ticket["issue_number"] == srt.MASTER_ISSUE_NUMBER
+        assert ticket["issue_url"] == srt.MASTER_ISSUE_URL
+        assert "labels" not in ticket
+        assert "body" not in ticket
         assert "engineers" not in data
         assert data["failing_groups_total"] == 1
 
@@ -726,13 +734,13 @@ class TestRunDryRun:
         ])
 
         def _boom(*a, **kw):
-            raise AssertionError("must not reach GitHub without PROJECTS_TOKEN")
-        monkeypatch.setattr(srt, "_graphql", _boom)
+            raise AssertionError("must not reach GitHub without the write token")
+        monkeypatch.setattr(srt, "_graphql_query", _boom)
         monkeypatch.setattr(srt, "_fetch_existing_ci_failure_issues", _boom)
 
         monkeypatch.setenv("READY_TICKETS_LIVE", "1")
-        monkeypatch.delenv("PROJECTS_TOKEN", raising=False)
-        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        monkeypatch.setenv("READY_TICKETS_ALLOW_UPSTREAM_WRITES", "1")
+        monkeypatch.setenv("READY_TICKETS_WRITE_SCOPE", "master_comment_only")
 
         rc = srt.run()
         assert rc == 0
@@ -754,12 +762,13 @@ class TestRunDryRun:
 
         def _boom(*a, **kw):
             raise AssertionError("paused mode must not reach upstream GitHub")
-        monkeypatch.setattr(srt, "_graphql", _boom)
+        monkeypatch.setattr(srt, "_graphql_query", _boom)
         monkeypatch.setattr(srt, "_fetch_existing_ci_failure_issues", _boom)
 
         monkeypatch.setenv("READY_TICKETS_LIVE", "1")
-        monkeypatch.setenv("PROJECTS_TOKEN", "dummy-token")
+        monkeypatch.setenv("UPSTREAM_COMMENT_TOKEN", "dummy-write-token")
         monkeypatch.delenv("READY_TICKETS_ALLOW_UPSTREAM_WRITES", raising=False)
+        monkeypatch.delenv("READY_TICKETS_WRITE_SCOPE", raising=False)
 
         rc = srt.run()
         assert rc == 0
@@ -772,6 +781,38 @@ class TestRunDryRun:
         assert project_items["feature_paused"] is True
         assert project_items["items_by_number"] == {}
 
+    def test_live_requested_without_exact_comment_scope_stays_paused(
+        self, isolated_paths, monkeypatch, tmp_path
+    ):
+        results, out, _ = isolated_paths
+        monkeypatch.setattr(
+            srt, "PROJECT_ITEMS_OUT", tmp_path / "project_items.json", raising=False
+        )
+        d = _today_minus(1)
+        _write_jsonl(results / f"{d}_amd.jsonl", [
+            {"job_name": "mi250_1: G", "classname": "mi250_1: c",
+             "status": "failed", "build_number": 1},
+        ])
+
+        def _boom(*args, **kwargs):
+            raise AssertionError("invalid write scope must not reach upstream GitHub")
+
+        monkeypatch.setattr(srt, "_graphql_query", _boom)
+        monkeypatch.setattr(srt, "_update_pinned_master_comment", _boom)
+        monkeypatch.setenv("READY_TICKETS_LIVE", "1")
+        monkeypatch.setenv("UPSTREAM_COMMENT_TOKEN", "dummy-write-token")
+        monkeypatch.setenv("READY_TICKETS_ALLOW_UPSTREAM_WRITES", "1")
+        monkeypatch.setenv("READY_TICKETS_WRITE_SCOPE", "issues_and_project")
+
+        rc = srt.run()
+
+        assert rc == 0
+        data = json.loads(out.read_text())
+        assert data["mode"] == "paused"
+        assert data["feature_paused"] is True
+        assert data["write_scope"] == "master_comment_only"
+        assert data["tickets"] == []
+
     def test_no_failing_groups_produces_empty_plan(self, isolated_paths, monkeypatch):
         results, out, _ = isolated_paths
         d = _today_minus(1)
@@ -780,7 +821,6 @@ class TestRunDryRun:
              "status": "passed", "build_number": 1},
         ])
         monkeypatch.delenv("READY_TICKETS_LIVE", raising=False)
-        monkeypatch.delenv("PROJECTS_TOKEN", raising=False)
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
         rc = srt.run()
         assert rc == 0
@@ -802,7 +842,6 @@ class TestRunDryRun:
              "status": "failed", "build_number": 1},
         ])
         monkeypatch.delenv("READY_TICKETS_LIVE", raising=False)
-        monkeypatch.delenv("PROJECTS_TOKEN", raising=False)
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
         srt.run()
         data = json.loads(out.read_text())
@@ -841,7 +880,6 @@ class TestRunDryRun:
             srt, "_fetch_shard_templates", lambda: ["Kernels MoE Test %N"]
         )
         monkeypatch.delenv("READY_TICKETS_LIVE", raising=False)
-        monkeypatch.delenv("PROJECTS_TOKEN", raising=False)
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
         rc = srt.run()
@@ -886,11 +924,10 @@ class TestDryRunPreflight:
              "status": "failed", "build_number": 200},
         ])
         monkeypatch.delenv("READY_TICKETS_LIVE", raising=False)
-        monkeypatch.delenv("PROJECTS_TOKEN", raising=False)
-        # Graphql must never be touched; only the REST preflight runs.
+        # GraphQL must never be touched; only the REST preflight runs.
         def _boom(*a, **kw):
             raise AssertionError("dry-run preflight must not call GraphQL")
-        monkeypatch.setattr(srt, "_graphql", _boom)
+        monkeypatch.setattr(srt, "_graphql_query", _boom)
         monkeypatch.setattr(srt, "_fetch_project_meta", _boom)
         return out
 
@@ -920,9 +957,8 @@ class TestDryRunPreflight:
         # The enrichment must link the exact issue we returned.
         assert ticket["issue_number"] == 77777
         assert ticket["issue_url"].endswith("/issues/77777")
-        # The action flips to surface the distinction to readers: the
-        # live syncer would reopen/update, not create anew.
-        assert ticket["action"] == "would_update_existing"
+        # Existing per-group issues are linked as read-only evidence.
+        assert ticket["action"] == "would_track_manual_issue"
 
     def test_normalized_title_fallback_matches_hand_filed_ticket(
         self, isolated_paths, monkeypatch
@@ -951,7 +987,7 @@ class TestDryRunPreflight:
         assert rc == 0
         ticket = json.loads(out.read_text())["tickets"][0]
         assert ticket["issue_number"] == 88888
-        assert ticket["action"] == "would_update_existing"
+        assert ticket["action"] == "would_track_manual_issue"
 
     def test_preflight_network_failure_falls_through_silently(
         self, isolated_paths, monkeypatch
@@ -974,9 +1010,10 @@ class TestDryRunPreflight:
         rc = srt.run()
         assert rc == 0
         ticket = json.loads(out.read_text())["tickets"][0]
-        # Falls back to pending shape, not a crash.
-        assert ticket["issue_number"] is None
-        assert ticket["action"] == "would_create_or_update"
+        # Falls back to the shared tracker, not a create-issue draft.
+        assert ticket["issue_number"] == srt.MASTER_ISSUE_NUMBER
+        assert ticket["issue_url"] == srt.MASTER_ISSUE_URL
+        assert ticket["action"] == "would_update_master_issue_comment"
 
     def test_no_match_leaves_ticket_pending(
         self, isolated_paths, monkeypatch
@@ -998,8 +1035,9 @@ class TestDryRunPreflight:
         rc = srt.run()
         assert rc == 0
         ticket = json.loads(out.read_text())["tickets"][0]
-        assert ticket["issue_number"] is None
-        assert ticket["action"] == "would_create_or_update"
+        assert ticket["issue_number"] == srt.MASTER_ISSUE_NUMBER
+        assert ticket["issue_url"] == srt.MASTER_ISSUE_URL
+        assert ticket["action"] == "would_update_master_issue_comment"
 
     def test_live_mode_updates_one_master_issue_and_writes_minimal_snapshot(
         self, isolated_paths, monkeypatch, tmp_path
@@ -1022,20 +1060,21 @@ class TestDryRunPreflight:
         calls = []
         monkeypatch.setattr(
             srt,
-            "_upsert_master_issue_comment",
+            "_update_pinned_master_comment",
             lambda token, **kw: calls.append(kw) or {
                 "id": 321,
                 "url": "https://github.com/vllm-project/vllm/issues/40554#issuecomment-321",
                 "action": "updated",
             },
         )
-        monkeypatch.setattr(srt, "_comment_issue", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("must not comment")))
-        monkeypatch.setattr(srt, "_close_issue", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("must not close")))
-        monkeypatch.setattr(srt, "_find_or_create_issue", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("must not create per-group issues")))
-
+        monkeypatch.setattr(
+            srt, "_expected_master_comment_id", lambda: srt.MASTER_COMMENT_ID
+        )
         monkeypatch.setenv("READY_TICKETS_LIVE", "1")
-        monkeypatch.setenv("PROJECTS_TOKEN", "dummy-token")
+        monkeypatch.setenv("PROJECTS_READ_TOKEN", "dummy-read-token")
+        monkeypatch.setenv("UPSTREAM_COMMENT_TOKEN", "dummy-write-token")
         monkeypatch.setenv("READY_TICKETS_ALLOW_UPSTREAM_WRITES", "1")
+        monkeypatch.setenv("READY_TICKETS_WRITE_SCOPE", "master_comment_only")
 
         rc = srt.run()
         assert rc == 0
@@ -1065,7 +1104,7 @@ class TestDryRunPreflight:
         assert state_data["master_issue"]["issue_number"] == 40554
         assert state_data["master_issue"]["comment_id"] == 321
 
-    def test_live_mode_master_issue_body_clears_when_nothing_is_failing(
+    def test_live_mode_master_comment_clears_when_nothing_is_failing(
         self, isolated_paths, monkeypatch
     ):
         results, out, _ = isolated_paths
@@ -1082,17 +1121,22 @@ class TestDryRunPreflight:
         calls = []
         monkeypatch.setattr(
             srt,
-            "_upsert_master_issue_comment",
+            "_update_pinned_master_comment",
             lambda token, **kw: calls.append(kw) or {
                 "id": 321,
                 "url": "https://github.com/vllm-project/vllm/issues/40554#issuecomment-321",
                 "action": "updated",
             },
         )
+        monkeypatch.setattr(
+            srt, "_expected_master_comment_id", lambda: srt.MASTER_COMMENT_ID
+        )
 
         monkeypatch.setenv("READY_TICKETS_LIVE", "1")
-        monkeypatch.setenv("PROJECTS_TOKEN", "dummy-token")
+        monkeypatch.setenv("PROJECTS_READ_TOKEN", "dummy-read-token")
+        monkeypatch.setenv("UPSTREAM_COMMENT_TOKEN", "dummy-write-token")
         monkeypatch.setenv("READY_TICKETS_ALLOW_UPSTREAM_WRITES", "1")
+        monkeypatch.setenv("READY_TICKETS_WRITE_SCOPE", "master_comment_only")
 
         rc = srt.run()
         assert rc == 0
@@ -1121,7 +1165,7 @@ class TestDryRunPreflight:
 
         monkeypatch.setattr(
             srt,
-            "_upsert_master_issue_comment",
+            "_update_pinned_master_comment",
             lambda token, **kw: {
                 "id": 321,
                 "url": "https://github.com/vllm-project/vllm/issues/40554#issuecomment-321",
@@ -1158,10 +1202,15 @@ class TestDryRunPreflight:
                 "assignee": "AndreasKaratzas",
             },
         )
+        monkeypatch.setattr(
+            srt, "_expected_master_comment_id", lambda: srt.MASTER_COMMENT_ID
+        )
 
         monkeypatch.setenv("READY_TICKETS_LIVE", "1")
-        monkeypatch.setenv("PROJECTS_TOKEN", "dummy-token")
+        monkeypatch.setenv("PROJECTS_READ_TOKEN", "dummy-read-token")
+        monkeypatch.setenv("UPSTREAM_COMMENT_TOKEN", "dummy-write-token")
         monkeypatch.setenv("READY_TICKETS_ALLOW_UPSTREAM_WRITES", "1")
+        monkeypatch.setenv("READY_TICKETS_WRITE_SCOPE", "master_comment_only")
 
         rc = srt.run()
         assert rc == 0
@@ -1201,7 +1250,7 @@ class TestDryRunPreflight:
 
         monkeypatch.setattr(
             srt,
-            "_upsert_master_issue_comment",
+            "_update_pinned_master_comment",
             lambda token, **kw: {
                 "id": 321,
                 "url": "https://github.com/vllm-project/vllm/issues/40554#issuecomment-321",
@@ -1227,10 +1276,15 @@ class TestDryRunPreflight:
                 }
             },
         )
+        monkeypatch.setattr(
+            srt, "_expected_master_comment_id", lambda: srt.MASTER_COMMENT_ID
+        )
 
         monkeypatch.setenv("READY_TICKETS_LIVE", "1")
-        monkeypatch.setenv("PROJECTS_TOKEN", "dummy-token")
+        monkeypatch.setenv("PROJECTS_READ_TOKEN", "dummy-read-token")
+        monkeypatch.setenv("UPSTREAM_COMMENT_TOKEN", "dummy-write-token")
         monkeypatch.setenv("READY_TICKETS_ALLOW_UPSTREAM_WRITES", "1")
+        monkeypatch.setenv("READY_TICKETS_WRITE_SCOPE", "master_comment_only")
 
         rc = srt.run()
         assert rc == 0
@@ -1261,7 +1315,30 @@ class TestDryRunPreflight:
         with pytest.raises(RuntimeError, match="Refusing to update the configured master issue"):
             srt._validate_master_issue_target("dummy-token")
 
-    def test_upsert_master_issue_comment_fails_if_github_returns_any_comment_other_than_written_one(
+    def test_expected_comment_id_requires_the_committed_allowlist(
+        self, isolated_paths
+    ):
+        _, _, state = isolated_paths
+        state.write_text(json.dumps({
+            "master_issue": {
+                "issue_number": srt.MASTER_ISSUE_NUMBER,
+                "comment_id": srt.MASTER_COMMENT_ID,
+            }
+        }))
+        assert srt._expected_master_comment_id() == srt.MASTER_COMMENT_ID
+
+    def test_expected_comment_id_rejects_state_drift(self, isolated_paths):
+        _, _, state = isolated_paths
+        state.write_text(json.dumps({
+            "master_issue": {
+                "issue_number": srt.MASTER_ISSUE_NUMBER,
+                "comment_id": srt.MASTER_COMMENT_ID + 1,
+            }
+        }))
+        with pytest.raises(RuntimeError, match="write allowlist"):
+            srt._expected_master_comment_id()
+
+    def test_pinned_comment_update_fails_if_github_returns_other_content(
         self, monkeypatch
     ):
         class _PatchResp:
@@ -1273,34 +1350,46 @@ class TestDryRunPreflight:
 
             def json(self):
                 return {
-                    "id": 99999,
-                    "html_url": "https://github.com/vllm-project/vllm/issues/27680#issuecomment-99999",
+                    "id": srt.MASTER_COMMENT_ID,
+                    "html_url": srt.MASTER_ISSUE_URL + "#issuecomment-" + str(srt.MASTER_COMMENT_ID),
                 }
 
         calls = {"comments": 0}
         def _fake_issue_comments(*a, **kw):
             calls["comments"] += 1
             if calls["comments"] == 1:
-                return []
-            return [{"id": 123, "body": "other body", "html_url": "https://example.com"}]
+                return [{
+                    "id": srt.MASTER_COMMENT_ID,
+                    "body": f"{srt.MASTER_COMMENT_MARKER}\n\nold",
+                    "html_url": "https://example.com/old",
+                    "user": {"login": srt.MASTER_COMMENT_OWNER},
+                }]
+            return [{
+                "id": srt.MASTER_COMMENT_ID,
+                "body": "other body",
+                "html_url": "https://example.com",
+                "user": {"login": srt.MASTER_COMMENT_OWNER},
+            }]
 
         monkeypatch.setattr(srt, "_validate_master_issue_target", lambda token: {})
         monkeypatch.setattr(srt, "_issue_comments", _fake_issue_comments)
-        monkeypatch.setattr(srt.requests, "post", lambda *a, **kw: _PatchResp())
+        monkeypatch.setattr(srt.requests, "patch", lambda *a, **kw: _PatchResp())
 
         with pytest.raises(RuntimeError, match="verification failed"):
-            srt._upsert_master_issue_comment(
+            srt._update_pinned_master_comment(
                 "dummy-token",
                 body="body",
+                expected_comment_id=srt.MASTER_COMMENT_ID,
             )
 
-    def test_upsert_master_issue_comment_updates_existing_managed_comment(
+    def test_pinned_comment_update_updates_existing_managed_comment(
         self, monkeypatch
     ):
         existing = [{
-            "id": 321,
+            "id": srt.MASTER_COMMENT_ID,
             "body": f"{srt.MASTER_COMMENT_MARKER}\n\nold",
-            "html_url": "https://github.com/vllm-project/vllm/issues/27680#issuecomment-321",
+            "html_url": srt.MASTER_ISSUE_URL + "#issuecomment-" + str(srt.MASTER_COMMENT_ID),
+            "user": {"login": srt.MASTER_COMMENT_OWNER},
         }]
 
         class _PatchResp:
@@ -1312,8 +1401,8 @@ class TestDryRunPreflight:
 
             def json(self):
                 return {
-                    "id": 321,
-                    "html_url": "https://github.com/vllm-project/vllm/issues/27680#issuecomment-321",
+                    "id": srt.MASTER_COMMENT_ID,
+                    "html_url": srt.MASTER_ISSUE_URL + "#issuecomment-" + str(srt.MASTER_COMMENT_ID),
                 }
 
         calls = {"patch": 0}
@@ -1321,9 +1410,10 @@ class TestDryRunPreflight:
             srt,
             "_issue_comments",
             lambda *a, **kw: existing if not calls["patch"] else [{
-                "id": 321,
+                "id": srt.MASTER_COMMENT_ID,
                 "body": "expected body",
-                "html_url": "https://github.com/vllm-project/vllm/issues/27680#issuecomment-321",
+                "html_url": srt.MASTER_ISSUE_URL + "#issuecomment-" + str(srt.MASTER_COMMENT_ID),
+                "user": {"login": srt.MASTER_COMMENT_OWNER},
             }],
         )
         monkeypatch.setattr(
@@ -1333,12 +1423,77 @@ class TestDryRunPreflight:
         )
         monkeypatch.setattr(srt, "_validate_master_issue_target", lambda token: {})
 
-        result = srt._upsert_master_issue_comment("dummy-token", body="expected body")
+        result = srt._update_pinned_master_comment(
+            "dummy-token",
+            body="expected body",
+            expected_comment_id=srt.MASTER_COMMENT_ID,
+        )
         assert result == {
-            "id": 321,
-            "url": "https://github.com/vllm-project/vllm/issues/27680#issuecomment-321",
+            "id": srt.MASTER_COMMENT_ID,
+            "url": srt.MASTER_ISSUE_URL + "#issuecomment-" + str(srt.MASTER_COMMENT_ID),
             "action": "updated",
         }
+
+    def test_pinned_comment_rejects_marker_owned_by_another_account(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(srt, "_validate_master_issue_target", lambda token: {})
+        monkeypatch.setattr(
+            srt,
+            "_issue_comments",
+            lambda *args, **kwargs: [{
+                "id": srt.MASTER_COMMENT_ID,
+                "body": f"{srt.MASTER_COMMENT_MARKER}\n\nforeign",
+                "user": {"login": "someone-else"},
+            }],
+        )
+
+        def _unexpected_write(*args, **kwargs):
+            raise AssertionError("foreign marker must fail before an HTTP write")
+
+        monkeypatch.setattr(srt.requests, "patch", _unexpected_write)
+        monkeypatch.setattr(srt.requests, "post", _unexpected_write)
+
+        with pytest.raises(RuntimeError, match="owned by another account"):
+            srt._update_pinned_master_comment(
+                "dummy-token",
+                body="expected body",
+                expected_comment_id=srt.MASTER_COMMENT_ID,
+            )
+
+    def test_pinned_comment_rejects_duplicate_managed_markers(self, monkeypatch):
+        monkeypatch.setattr(srt, "_validate_master_issue_target", lambda token: {})
+        monkeypatch.setattr(
+            srt,
+            "_issue_comments",
+            lambda *args, **kwargs: [
+                {
+                    "id": srt.MASTER_COMMENT_ID,
+                    "body": srt.MASTER_COMMENT_MARKER,
+                    "user": {"login": srt.MASTER_COMMENT_OWNER},
+                },
+                {
+                    "id": srt.MASTER_COMMENT_ID + 1,
+                    "body": srt.MASTER_COMMENT_MARKER,
+                    "user": {"login": srt.MASTER_COMMENT_OWNER},
+                },
+            ],
+        )
+        with pytest.raises(RuntimeError, match="exactly one"):
+            srt._update_pinned_master_comment(
+                "dummy-token",
+                body="expected body",
+                expected_comment_id=srt.MASTER_COMMENT_ID,
+            )
+
+    def test_pinned_comment_rejects_unapproved_id_before_write(self, monkeypatch):
+        monkeypatch.setattr(srt, "_validate_master_issue_target", lambda token: {})
+        with pytest.raises(RuntimeError, match="unapproved"):
+            srt._update_pinned_master_comment(
+                "dummy-token",
+                body="expected body",
+                expected_comment_id=srt.MASTER_COMMENT_ID + 1,
+            )
 
     def test_pagination_stops_at_short_page(
         self, isolated_paths, monkeypatch

@@ -71,7 +71,9 @@ def gh_api(endpoint, method="GET", paginate=False):
 
 
 def gh_graphql(query, variables=None):
-    """Call GitHub GraphQL via gh CLI."""
+    """Call a read-only GitHub GraphQL query via gh CLI."""
+    if re.search(r"\bmutation\b", query, flags=re.IGNORECASE):
+        raise ValueError("scripts/collect.py does not permit GraphQL mutations")
     variables = variables or {}
     cmd = ["gh", "api", "graphql", "-f", f"query={query}"]
     for key, value in variables.items():
@@ -80,8 +82,8 @@ def gh_graphql(query, variables=None):
         cmd.extend(["-F", f"{key}={value}"])
     try:
         env = os.environ.copy()
-        if os.getenv("PROJECTS_TOKEN"):
-            env["GH_TOKEN"] = os.getenv("PROJECTS_TOKEN")
+        if os.getenv("PROJECTS_READ_TOKEN"):
+            env["GH_TOKEN"] = os.getenv("PROJECTS_READ_TOKEN")
         result = subprocess.run(cmd, capture_output=True, text=True, check=True, env=env)
         return json.loads(result.stdout) if result.stdout.strip() else {}
     except subprocess.CalledProcessError as e:

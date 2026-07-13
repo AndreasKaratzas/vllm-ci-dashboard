@@ -5,11 +5,10 @@ For every AMD test group that is currently failing in the most recent nightly,
 this script derives summary metrics and writes them to
 ``data/vllm/ci/ready_tickets.json`` for the dashboard.
 
-Live mode no longer creates one GitHub issue per failing group. Instead it
-updates one managed comment on a single upstream umbrella issue with grouped
-sections for every currently failing test group. That keeps the upstream repo
-on one stable issue while preserving the detailed per-group diagnostics in a
-single automation-owned surface we can safely edit on every run.
+Live mode has exactly one upstream write capability: update one pinned,
+pre-existing comment on a validated umbrella issue. Individual issues and
+project fields are read-only. This module cannot create, close, reopen,
+relabel, reassign, or rewrite any issue, including the umbrella issue itself.
 
 A 2-month Buildkite backfill is done from the on-disk nightly JSONLs in
 ``data/vllm/ci/test_results/*_amd.jsonl`` — so we can report first-failure,
@@ -18,18 +17,22 @@ API calls.
 
 Defaults to **dry-run**. Dry-run writes a plan to
 ``data/vllm/ci/ready_tickets.json`` so the dashboard shows the same grouped
-data it would publish live. Live mode updates the one upstream master issue and
-then writes the resulting metadata back into the same JSON so the dashboard
-stays in sync.
+data it would publish live. Live mode updates the managed umbrella comment and
+then writes the resulting comment metadata back into the same JSON so the
+dashboard stays in sync.
 
 Env:
-  PROJECTS_TOKEN  PAT with write access to ``vllm-project/vllm``. The old
-                  name is kept so we can reuse the existing secret.
-  READY_TICKETS_LIVE  ``"1"`` → actually mutate; anything else → dry run.
+  PROJECTS_READ_TOKEN  read-only token used for Projects V2 evidence.
+  UPSTREAM_COMMENT_TOKEN  environment-protected token used only to update the
+                  pinned umbrella comment. It is never passed to collectors.
+  READY_TICKETS_LIVE  ``"1"`` → request the scoped live write; anything
+                  else → dry run.
   READY_TICKETS_ALLOW_UPSTREAM_WRITES  second explicit ack required for live
                   mutation. Without this the script refuses to touch upstream
                   issues even if ``READY_TICKETS_LIVE=1`` and a token exists.
-  GITHUB_RUN_ID   link-back URL for issue bodies, set by Actions.
+  READY_TICKETS_WRITE_SCOPE  must equal ``"master_comment_only"``. Any other
+                  value fails closed before an upstream write is attempted.
+  GITHUB_RUN_ID   link-back URL for generated diagnostics, set by Actions.
 """
 
 from __future__ import annotations
@@ -66,15 +69,16 @@ PROJECT_ORG = "vllm-project"
 PROJECT_NUMBER = 39
 ISSUE_REPO = "vllm-project/vllm"
 LABEL = "ci-failure"
-READY_COLUMN = "Ready"
-DONE_COLUMN = "Done"
 ISSUE_MODE = "single_master"
 MASTER_ISSUE_NUMBER = 40554
 MASTER_ISSUE_TITLE = "[AMD][CI Failure][Tracker] Static dashboard tracker for current CI failures"
 MASTER_ISSUE_URL = f"https://github.com/{ISSUE_REPO}/issues/{MASTER_ISSUE_NUMBER}"
 MASTER_COMMENT_MARKER = "<!-- ready-tickets-master-comment -->"
+MASTER_COMMENT_ID = 4291606592
 MASTER_ISSUE_OWNER = "AndreasKaratzas"
+MASTER_COMMENT_OWNER = "AndreasKaratzas"
 MASTER_ISSUE_BODY_SENTINEL = "single dashboard-managed umbrella issue"
+MASTER_COMMENT_WRITE_SCOPE = "master_comment_only"
 
 # 2-month backfill window for break-frequency / first-failure metrics.
 BACKFILL_DAYS = 60
@@ -85,8 +89,9 @@ TEST_AMD_YAML_URL = (
     "https://raw.githubusercontent.com/vllm-project/vllm/main/.buildkite/test-amd.yaml"
 )
 PAUSE_REASON = (
-    "Ready Tickets / project #39 automation is paused. This repo must not "
-    "create or update vllm-project/vllm issues until explicitly re-enabled."
+    "Ready Tickets upstream writes are paused. Live mode requires the exact "
+    "master_comment_only scope; individual issues and project fields are "
+    "always read-only."
 )
 
 
@@ -454,7 +459,16 @@ def _rest_headers(token: str) -> dict:
     }
 
 
-def _graphql(token: str, query: str, variables: dict) -> dict:
+def _graphql_query(token: str, query: str, variables: dict) -> dict:
+    """Execute a read-only GitHub GraphQL query.
+
+    Keep this guard next to the transport call so a future caller cannot turn
+    the project snapshot reader into a mutation path by passing a new string.
+    """
+    if re.search(r"\bmutation\b", query, flags=re.IGNORECASE):
+        raise RuntimeError(
+            "Ready Tickets GraphQL is read-only; mutations are prohibited"
+        )
     resp = requests.post(
         GH_GRAPHQL,
         headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
@@ -514,27 +528,8 @@ query($projectId: ID!, $cursor: String) {
 """
 
 
-ADD_ITEM_MUT = """
-mutation($projectId: ID!, $contentId: ID!) {
-  addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
-    item { id }
-  }
-}
-"""
-
-
-SET_STATUS_MUT = """
-mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: $projectId, itemId: $itemId, fieldId: $fieldId,
-    value: { singleSelectOptionId: $optionId }
-  }) { projectV2Item { id } }
-}
-"""
-
-
 def _fetch_project_meta(token: str) -> tuple[str, str, dict[str, str]]:
-    data = _graphql(token, PROJECT_META_Q, {"org": PROJECT_ORG, "number": PROJECT_NUMBER})
+    data = _graphql_query(token, PROJECT_META_Q, {"org": PROJECT_ORG, "number": PROJECT_NUMBER})
     proj = data["organization"]["projectV2"]
     status_field = proj["field"]
     options = {o["name"]: o["id"] for o in status_field["options"]}
@@ -546,7 +541,7 @@ def _fetch_project_items_by_title(token: str, project_id: str) -> dict[str, dict
     out: dict[str, dict] = {}
     cursor = None
     while True:
-        data = _graphql(token, PROJECT_ITEMS_Q, {"projectId": project_id, "cursor": cursor})
+        data = _graphql_query(token, PROJECT_ITEMS_Q, {"projectId": project_id, "cursor": cursor})
         page = data["node"]["items"]
         for it in page["nodes"]:
             content = it.get("content") or {}
@@ -691,7 +686,7 @@ def _pick_normalized_candidate(
 
 
 def _normalize_title(title: str) -> str:
-    """Strip decoration so titles filed by-hand and by-this-script collide.
+    """Strip decoration so plan entries match manually filed issue titles.
 
     Upstream has a habit of filing one ``[CI Failure]: Transformers Nightly
     Models Test`` with no HW prefix, while we'd synthesize
@@ -701,8 +696,8 @@ def _normalize_title(title: str) -> str:
     Normalization: drop ``[CI Failure]:`` prefix, drop ``mi{N}_{M}:``
     hardware prefix, drop trailing ``%N`` shard marker, collapse whitespace,
     lowercase. Deliberately conservative — only used as a *fallback* after
-    exact-title match fails, so a false positive just means we reuse a
-    ticket for a closely-named test instead of creating a twin.
+    exact-title match fails. The hardware compatibility check then prevents a
+    closely named issue from being linked as evidence for the wrong group.
     """
     s = _CI_PREFIX_RE.sub("", title or "")
     s = _HW_PREFIX_RE.sub("", s)
@@ -742,28 +737,6 @@ def _format_build_refs(summary: dict, limit: int = 5) -> str:
     return ", ".join(f"build #{n}" for n in builds[:limit]) or "—"
 
 
-def _issue_body(summary: dict, run_url: str) -> str:
-    hw_rows = "\n".join(
-        f"| `{hw}` | {state} |" for hw, state in sorted(summary["hardware_latest"].items())
-    ) or "| — | — |"
-    builds = _format_build_refs(summary)
-    return (
-        f"## AMD nightly — failing test group\n\n"
-        f"**Group:** `{summary['group']}`\n\n"
-        f"**Current streak start:** {summary['current_streak_started'] or '—'}\n"
-        f"**First failure in {BACKFILL_DAYS}d window:** {summary['first_failure_in_window'] or '—'}\n"
-        f"**Last successful nightly:** {summary['last_successful'] or '—'}\n"
-        f"**Break frequency ({BACKFILL_DAYS}d, pass↔fail flips):** {summary['break_frequency']}\n"
-        f"**Latest nightly date:** {summary['latest_date'] or '—'}\n"
-        f"**Latest build(s):** {builds}\n\n"
-        f"### Hardware status in latest nightly\n\n"
-        f"| hardware | status |\n|---|---|\n{hw_rows}\n\n"
-        f"Auto-managed by `sync_ready_tickets.py`. Closed + moved to Done "
-        f"when this group passes on all AMD hardware.\n\n"
-        f"*Last sync: {run_url}*\n"
-    )
-
-
 def _summary_arch(summary: dict) -> str:
     group = (summary.get("group") or "").strip()
     m = _HW_PREFIX_CAPTURE_RE.match(group)
@@ -772,7 +745,7 @@ def _summary_arch(summary: dict) -> str:
     return m.group(1).split("_", 1)[0].upper()
 
 
-def _master_issue_body(failing: list[dict], run_url: str) -> str:
+def _master_comment_body(failing: list[dict], run_url: str) -> str:
     latest_dates = sorted({s.get("latest_date") for s in failing if s.get("latest_date")})
     latest_date = latest_dates[-1] if latest_dates else "—"
     grouped: dict[str, list[dict]] = defaultdict(list)
@@ -785,7 +758,7 @@ def _master_issue_body(failing: list[dict], run_url: str) -> str:
         "## AMD nightly CI summary",
         "",
         "This umbrella issue tracks every AMD nightly test group that is currently failing.",
-        "The dashboard automation updates this issue three times per day; it does not create per-group upstream tickets anymore.",
+        "The dashboard automation updates one managed comment three times per day; it does not mutate per-group upstream issues.",
         "",
         "### Snapshot",
         f"- Current failing groups: **{len(failing)}**",
@@ -846,29 +819,49 @@ def _master_issue_body(failing: list[dict], run_url: str) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def _upsert_master_issue_comment(token: str, *, body: str) -> dict:
+def _expected_master_comment_id() -> int:
+    """Validate that committed state still points at the pinned comment."""
+    try:
+        state = json.loads(STATE.read_text())
+        master = state["master_issue"]
+        issue_number = int(master["issue_number"])
+        comment_id = int(master["comment_id"])
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise RuntimeError("Pinned umbrella-comment state is missing or invalid") from exc
+    if issue_number != MASTER_ISSUE_NUMBER or comment_id != MASTER_COMMENT_ID:
+        raise RuntimeError("Pinned umbrella-comment state does not match the write allowlist")
+    return comment_id
+
+
+def _update_pinned_master_comment(
+    token: str, *, body: str, expected_comment_id: int
+) -> dict:
     _validate_master_issue_target(token)
+    if int(expected_comment_id) != MASTER_COMMENT_ID:
+        raise RuntimeError("Refusing to update an unapproved umbrella comment")
     comments = _issue_comments(token, ISSUE_REPO, MASTER_ISSUE_NUMBER)
-    existing = next(
-        (c for c in reversed(comments) if MASTER_COMMENT_MARKER in (c.get("body") or "")),
-        None,
+    marked = [
+        comment
+        for comment in comments
+        if MASTER_COMMENT_MARKER in (comment.get("body") or "")
+    ]
+    if len(marked) != 1:
+        raise RuntimeError(
+            "Expected exactly one managed umbrella comment; refusing to write"
+        )
+    existing = marked[0]
+    existing_owner = ((existing.get("user") or {}).get("login") or "").strip()
+    if int(existing.get("id") or 0) != expected_comment_id:
+        raise RuntimeError("Managed marker is not on the pinned umbrella comment")
+    if existing_owner != MASTER_COMMENT_OWNER:
+        raise RuntimeError("Pinned umbrella comment is owned by another account")
+    resp = requests.patch(
+        f"{GH_API}/repos/{ISSUE_REPO}/issues/comments/{expected_comment_id}",
+        headers=_rest_headers(token),
+        json={"body": body},
+        timeout=30,
     )
-    if existing:
-        resp = requests.patch(
-            f"{GH_API}/repos/{ISSUE_REPO}/issues/comments/{existing['id']}",
-            headers=_rest_headers(token),
-            json={"body": body},
-            timeout=30,
-        )
-        action = "updated"
-    else:
-        resp = requests.post(
-            f"{GH_API}/repos/{ISSUE_REPO}/issues/{MASTER_ISSUE_NUMBER}/comments",
-            headers=_rest_headers(token),
-            json={"body": body},
-            timeout=30,
-        )
-        action = "created"
+    action = "updated"
     if resp.status_code >= 400:
         log.error(
             "%s master issue comment on #%s returned %d: %s",
@@ -885,7 +878,14 @@ def _upsert_master_issue_comment(token: str, *, body: str) -> dict:
         (c for c in reversed(verified) if int(c.get("id") or 0) == comment_id),
         None,
     )
-    if not verified_comment or verified_comment.get("body") != body:
+    verified_owner = (
+        ((verified_comment or {}).get("user") or {}).get("login") or ""
+    ).strip()
+    if (
+        not verified_comment
+        or verified_comment.get("body") != body
+        or verified_owner != MASTER_COMMENT_OWNER
+    ):
         raise RuntimeError(
             "Master issue comment verification failed: GitHub did not persist "
             "the expected automation comment body"
@@ -895,23 +895,6 @@ def _upsert_master_issue_comment(token: str, *, body: str) -> dict:
         "url": verified_comment.get("html_url") or comment.get("html_url"),
         "action": action,
     }
-
-
-def _sync_issue_body(
-    token: str, repo: str, issue_number: int, body: str, *, reopen: bool = False
-) -> None:
-    payload: dict[str, str] = {"body": body}
-    if reopen:
-        payload["state"] = "open"
-    r = requests.patch(
-        f"{GH_API}/repos/{repo}/issues/{issue_number}",
-        headers=_rest_headers(token),
-        json=payload,
-        timeout=30,
-    )
-    if r.status_code >= 300:
-        action = "reopen+refresh" if reopen else "refresh"
-        log.warning("Issue %s #%s failed: %s", action, issue_number, r.text[:200])
 
 
 def _issue_details(token: str, repo_full_name: str, issue_number: int) -> dict:
@@ -1035,123 +1018,12 @@ def _collect_issue_metadata(token: str, repo_full_name: str, issue_number: int) 
     }
 
 
-def _should_move_to_ready(*, created: bool, issue_state: str, current_status: str) -> bool:
-    status = (current_status or "").strip()
-    state = (issue_state or "").strip().lower()
-    if created:
-        return True
-    if state == "closed":
-        return True
-    return status in ("", "Backlog", DONE_COLUMN)
-
-
-def _find_or_create_issue(
-    token: str,
-    title: str,
-    body: str,
-    project_items: dict[str, dict],
-    project_items_by_norm: dict[str, list[str]] | None = None,
-) -> tuple[int, str, bool, str | None]:
-    """Return ``(issue_number, url, created, matched_existing_title)``.
-
-    Lookup order:
-      1. Exact title match in ``project_items``.
-      2. ``_normalize_title(title)`` lookup in ``project_items_by_norm`` →
-         resolves to an existing project item (filed by hand, differently
-         capitalized, or with no HW prefix).
-      3. Create a fresh issue on ``ISSUE_REPO``.
-
-    ``matched_existing_title`` is the key in ``project_items`` that was
-    adopted (exact or normalized) — ``None`` if we created a fresh issue.
-    Callers use it for item-id lookup and for keying state so future runs
-    dedup against the upstream title, not ours.
-    """
-    # 1. Exact match.
-    if title in project_items:
-        it = project_items[title]
-        _sync_issue_body(
-            token,
-            it["repo"],
-            it["issueNumber"],
-            body,
-            reopen=it["issueState"].lower() == "closed",
-        )
-        return it["issueNumber"], it["url"], False, title
-
-    # 2. Normalized fallback — adopt a pre-existing ticket with a slightly
-    # different title. Reject if the existing ticket is pinned to a
-    # different GPU pool; those are different tickets by definition.
-    if project_items_by_norm:
-        norm = _normalize_title(title)
-        candidates = project_items_by_norm.get(norm, []) if norm else []
-        existing_title = _pick_normalized_candidate(candidates, title)
-        if (existing_title and existing_title in project_items):
-            it = project_items[existing_title]
-            log.info(
-                "Adopting existing ticket #%s %r for group %r (normalized match)",
-                it["issueNumber"], existing_title, title,
-            )
-            _sync_issue_body(
-                token,
-                it["repo"],
-                it["issueNumber"],
-                body,
-                reopen=it["issueState"].lower() == "closed",
-            )
-            return it["issueNumber"], it["url"], False, existing_title
-
-    # 3. Create fresh.
-    resp = requests.post(
-        f"{GH_API}/repos/{ISSUE_REPO}/issues",
-        headers=_rest_headers(token),
-        json={"title": title, "body": body, "labels": [LABEL]},
-        timeout=30,
-    )
-    if resp.status_code >= 400:
-        # Surface GitHub's own error body — a bare raise_for_status() only
-        # prints the URL and status, so 403 "Resource not accessible by
-        # integration" reads identically to 403 "blank_issues_enabled is
-        # false" without context. Truncated to keep logs readable.
-        log.error(
-            "POST /issues on %s returned %d: %s",
-            ISSUE_REPO, resp.status_code, resp.text[:500],
-        )
-    resp.raise_for_status()
-    data = resp.json()
-    return data["number"], data["html_url"], True, None
-
-
-def _comment_issue(token: str, repo: str, number: int, body: str) -> None:
-    requests.post(
-        f"{GH_API}/repos/{repo}/issues/{number}/comments",
-        headers=_rest_headers(token), json={"body": body}, timeout=30,
-    )
-
-
-def _close_issue(token: str, repo: str, number: int) -> None:
-    requests.patch(
-        f"{GH_API}/repos/{repo}/issues/{number}",
-        headers=_rest_headers(token),
-        json={"state": "closed", "state_reason": "completed"},
-        timeout=30,
-    )
-
-
-def _issue_node_id(token: str, repo: str, number: int) -> str:
-    r = requests.get(
-        f"{GH_API}/repos/{repo}/issues/{number}",
-        headers=_rest_headers(token), timeout=30,
-    )
-    r.raise_for_status()
-    return r.json()["node_id"]
-
-
 # ---------------------------------------------------------------------------
 # Dry-run preflight — read-only lookup of already-filed issues
 # ---------------------------------------------------------------------------
 #
 # The live path learns about existing tickets via Projects V2 GraphQL (needs
-# ``PROJECTS_TOKEN``). Dry-run runs hourly without that PAT, so it used to
+# ``PROJECTS_READ_TOKEN``). Dry-run runs hourly without that token, so it used to
 # emit ``pending`` for every failing group even when an upstream engineer had
 # already filed an issue. To keep the dashboard honest, we do a single
 # REST search call here — it needs only the default ``GITHUB_TOKEN`` (public
@@ -1211,8 +1083,8 @@ def _fetch_existing_ci_failure_issues(
 
 def _enrich_dry_run_plan(plan: list[dict], existing: dict[str, dict]) -> None:
     """Populate ``issue_number``/``issue_url`` on plan entries that already
-    have a live upstream issue. Uses the same exact + normalized-title
-    lookup ``_find_or_create_issue`` uses in live mode, so the two agree.
+    have a manually filed upstream issue. Matching is read-only and never
+    changes the issue or its project status.
     """
     existing = _filter_matchable_existing(existing)
     if not existing:
@@ -1229,7 +1101,7 @@ def _enrich_dry_run_plan(plan: list[dict], existing: dict[str, dict]) -> None:
         if matched:
             p["issue_number"] = matched["number"]
             p["issue_url"] = matched["html_url"]
-            p["action"] = "would_update_existing"
+            p["action"] = "would_track_manual_issue"
 
 
 # ---------------------------------------------------------------------------
@@ -1238,9 +1110,15 @@ def _enrich_dry_run_plan(plan: list[dict], existing: dict[str, dict]) -> None:
 
 def run() -> int:
     live_requested = os.getenv("READY_TICKETS_LIVE", "").strip() == "1"
-    allow_live = os.getenv("READY_TICKETS_ALLOW_UPSTREAM_WRITES", "").strip() == "1"
-    live = live_requested and allow_live
-    token = os.getenv("PROJECTS_TOKEN")
+    write_acknowledged = (
+        os.getenv("READY_TICKETS_ALLOW_UPSTREAM_WRITES", "").strip() == "1"
+    )
+    requested_write_scope = os.getenv("READY_TICKETS_WRITE_SCOPE", "").strip()
+    scope_allowed = requested_write_scope == MASTER_COMMENT_WRITE_SCOPE
+    allow_live = write_acknowledged and scope_allowed
+    read_token = os.getenv("PROJECTS_READ_TOKEN") or os.getenv("GITHUB_TOKEN")
+    write_token = os.getenv("UPSTREAM_COMMENT_TOKEN")
+    live = live_requested and allow_live and bool(write_token)
     run_id = os.getenv("GITHUB_RUN_ID", "")
     run_url = f"https://github.com/AndreasKaratzas/vllm-ci-dashboard/actions/runs/{run_id}" if run_id else ""
 
@@ -1282,23 +1160,15 @@ def run() -> int:
         BACKFILL_DAYS,
     )
 
-    # The body is included in every plan entry so the dashboard can build a
-    # pre-filled ``issues/new?title=&body=&labels=`` URL for admins who want
-    # to review/file a ticket by hand while the syncer is in dry-run. Using
-    # the same ``_issue_body`` helper that live mode uses keeps the preview
-    # byte-identical to what the syncer would POST.
-    _dryrun_body_run_url = run_url or f"https://github.com/{ISSUE_REPO}"
     plan: list[dict] = []
     for s in failing:
         plan.append({
             "title": _canonical_title(s["group"]),
-            "body": _issue_body(s, _dryrun_body_run_url),
-            "labels": [LABEL],
             "summary": s,
-            "action": "pending",          # will be overwritten below
-            "issue_number": None,
-            "issue_url": None,
-            "project_status": None,
+            "action": "pending_master_comment",
+            "issue_number": MASTER_ISSUE_NUMBER,
+            "issue_url": MASTER_ISSUE_URL,
+            "project_status": "Tracked in master issue",
             "linked_prs": [],
             "assignees": [],
             "assignee": None,
@@ -1309,7 +1179,7 @@ def run() -> int:
         "title": MASTER_ISSUE_TITLE,
         "url": MASTER_ISSUE_URL,
     }
-    master_issue_body = _master_issue_body(failing, run_url or MASTER_ISSUE_URL)
+    master_comment_body = _master_comment_body(failing, run_url or MASTER_ISSUE_URL)
 
     output = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -1319,22 +1189,19 @@ def run() -> int:
         "issue_mode": ISSUE_MODE,
         "master_issue": master_issue,
         "master_issue_comment": None,
-        "master_issue_body": master_issue_body,
+        "write_scope": MASTER_COMMENT_WRITE_SCOPE,
         "mode": "live" if live else "dry_run",
-        # NOTE: the engineer roster is intentionally NOT serialized here.
-        # This file is served publicly on gh-pages; any PII (names, logins)
-        # goes out to the internet. The admin-only assignee dropdown fetches
-        # `data/vllm/ci/engineers.enc.json` (AES-GCM ciphertext, decrypted
-        # client-side with the admin's vault key) instead.
         "failing_groups_total": len(failing),
         "groups_all": summaries,
         "tickets": plan,
     }
 
-    if live_requested and token and not allow_live:
+    if live_requested and not allow_live:
         log.warning(
-            "READY_TICKETS_LIVE=1 but READY_TICKETS_ALLOW_UPSTREAM_WRITES!=1 — "
-            "forcing paused mode with no upstream GitHub calls"
+            "READY_TICKETS_LIVE=1 without both the explicit write ack and "
+            "READY_TICKETS_WRITE_SCOPE=%s — forcing paused mode with no "
+            "upstream GitHub calls",
+            MASTER_COMMENT_WRITE_SCOPE,
         )
         paused_output = dict(output)
         paused_output.update({
@@ -1358,20 +1225,25 @@ def run() -> int:
         log.info("Wrote paused Ready Tickets snapshot to %s", OUT)
         return 0
 
-    if not live or not token:
-        if live_requested and not token:
-            log.warning("READY_TICKETS_LIVE=1 but PROJECTS_TOKEN not set — forcing dry-run")
+    if not live:
+        if live_requested and not write_token:
+            log.warning(
+                "READY_TICKETS_LIVE=1 but UPSTREAM_COMMENT_TOKEN is not set; "
+                "forcing read-only dry-run"
+            )
             output["mode"] = "dry_run_forced"
         for p in plan:
-            p["action"] = "would_create_or_update"
+            p["action"] = "would_update_master_issue_comment"
         # Read-only preflight: if any token is available (the default
         # ``GITHUB_TOKEN`` is enough — public read), annotate each plan
         # entry that already has an open issue on the target repo.
-        preflight_token = os.getenv("GITHUB_TOKEN") or token
+        preflight_token = read_token
         if preflight_token and plan:
             existing = _fetch_existing_ci_failure_issues(preflight_token, ISSUE_REPO)
             _enrich_dry_run_plan(plan, existing)
-            matched = sum(1 for p in plan if p["issue_number"])
+            matched = sum(
+                1 for p in plan if p["action"] == "would_track_manual_issue"
+            )
             log.info("Dry-run preflight: %d of %d plan entries match existing %s issues",
                      matched, len(plan), ISSUE_REPO)
         OUT.parent.mkdir(parents=True, exist_ok=True)
@@ -1384,8 +1256,10 @@ def run() -> int:
     project_items_by_title: dict[str, dict] = {}
     project_items_by_number: dict[str, dict] = {}
     try:
-        project_id, _, _ = _fetch_project_meta(token)
-        project_items_by_title = _fetch_project_items_by_title(token, project_id)
+        if not read_token:
+            raise RuntimeError("PROJECTS_READ_TOKEN is not configured")
+        project_id, _, _ = _fetch_project_meta(read_token)
+        project_items_by_title = _fetch_project_items_by_title(read_token, project_id)
         for title, it in project_items_by_title.items():
             matchable = _is_post_umbrella_project_issue(it.get("issueNumber"))
             if (it.get("issueState") or "").lower() == "open":
@@ -1415,9 +1289,10 @@ def run() -> int:
     # ignored now.
     _enrich_dry_run_plan(plan, existing_manual_issues)
 
-    master_comment = _upsert_master_issue_comment(
-        token,
-        body=master_issue_body,
+    master_comment = _update_pinned_master_comment(
+        write_token,
+        body=master_comment_body,
+        expected_comment_id=_expected_master_comment_id(),
     )
     output["master_issue"] = master_issue
     output["master_issue_comment"] = master_comment
@@ -1427,7 +1302,11 @@ def run() -> int:
         if manual_issue_number and int(manual_issue_number) != master_issue["number"]:
             issue_url = entry.get("issue_url") or f"https://github.com/{ISSUE_REPO}/issues/{manual_issue_number}"
             try:
-                metadata = _collect_issue_metadata(token, ISSUE_REPO, int(manual_issue_number))
+                if not read_token:
+                    raise RuntimeError("No read token available for issue metadata")
+                metadata = _collect_issue_metadata(
+                    read_token, ISSUE_REPO, int(manual_issue_number)
+                )
             except requests.RequestException as e:
                 log.warning("Could not refresh metadata for issue #%s: %s", manual_issue_number, e)
                 metadata = {"linked_prs": [], "assignees": [], "assignee": None}
