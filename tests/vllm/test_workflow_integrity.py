@@ -36,6 +36,7 @@ def _load_workflow_text(name):
 # 3a. Workflow YAML validation
 # ---------------------------------------------------------------------------
 
+
 class TestWorkflowYAML:
     """Validate all workflow files parse and have required fields."""
 
@@ -130,12 +131,15 @@ class TestWorkflowYAML:
             data = yaml.safe_load(f.read_text())
             for job in (data.get("jobs") or {}).values():
                 steps = job.get("steps") or []
-                if not any(step.get("name", "").startswith("Redeploy if corrupted") for step in steps):
+                if not any(
+                    step.get("name", "").startswith("Redeploy if corrupted") for step in steps
+                ):
                     continue
 
                 validation = next(
                     (
-                        step for step in steps
+                        step
+                        for step in steps
                         if step.get("name", "").startswith("Post-deploy validation")
                     ),
                     None,
@@ -145,7 +149,8 @@ class TestWorkflowYAML:
                 )
 
                 redeploy = next(
-                    step for step in steps
+                    step
+                    for step in steps
                     if step.get("name", "").startswith("Redeploy if corrupted")
                 )
                 condition = str(redeploy.get("if", ""))
@@ -161,6 +166,7 @@ class TestWorkflowYAML:
 # ---------------------------------------------------------------------------
 # 3b. CI Collect workflow completeness
 # ---------------------------------------------------------------------------
+
 
 class TestHourlyMasterWorkflow:
     """Validate hourly-master.yml runs all collection, tests, and deploys."""
@@ -301,6 +307,7 @@ class TestNightlyCIWorkflow:
 # 3c. Framework isolation
 # ---------------------------------------------------------------------------
 
+
 class TestFrameworkIsolation:
     """Validate workflows don't clobber other frameworks' data."""
 
@@ -330,7 +337,13 @@ class TestFrameworkIsolation:
     def test_shard_bases_available_at_deploy(self):
         """shard_bases.json must be on the main branch (committed by hourly-master)
         so deploy workflows can include it in _site/. No gh-pages sync needed."""
-        shard_path = Path(__file__).resolve().parent.parent.parent / "data" / "vllm" / "ci" / "shard_bases.json"
+        shard_path = (
+            Path(__file__).resolve().parent.parent.parent
+            / "data"
+            / "vllm"
+            / "ci"
+            / "shard_bases.json"
+        )
         assert shard_path.exists(), (
             "shard_bases.json not found on main branch. "
             "hourly-master should generate and commit it."
@@ -366,6 +379,7 @@ class TestFrameworkIsolation:
 # ---------------------------------------------------------------------------
 # 3d. Cron schedule safety
 # ---------------------------------------------------------------------------
+
 
 class TestCronSchedules:
     """Validate no cron schedule conflicts between hourly workflows."""
@@ -436,6 +450,74 @@ class TestCronSchedules:
 class TestDeployDataFreshness:
     """Ensure deploy workflows don't overwrite fresh main data with stale gh-pages data."""
 
+    @pytest.mark.parametrize(
+        "workflow",
+        ["hourly-master.yml", "queue-monitor.yml", "daily-update.yml", "deploy-pages.yml"],
+    )
+    def test_queue_history_is_merged_by_timestamp(self, workflow):
+        text = _load_workflow_text(workflow)
+        assert "collect_queue_snapshot.py --merge-history-git-ref origin/gh-pages" in text, (
+            f"{workflow} must merge queue history rather than replace by line count"
+        )
+        assert "take the longer file" not in text
+
+    @pytest.mark.parametrize(
+        "workflow",
+        ["hourly-master.yml", "queue-monitor.yml", "daily-update.yml", "deploy-pages.yml"],
+    )
+    def test_queue_history_merge_precedes_retention_prune(self, workflow):
+        data = _load_workflow(workflow)
+        jobs_with_history = 0
+        for job in data["jobs"].values():
+            steps = job.get("steps", [])
+            merge_indexes = [
+                index
+                for index, step in enumerate(steps)
+                if "collect_queue_snapshot.py --merge-history-git-ref origin/gh-pages"
+                in (step.get("run", "") or "")
+            ]
+            if not merge_indexes:
+                continue
+            jobs_with_history += 1
+            prune_indexes = [
+                index
+                for index, step in enumerate(steps)
+                if "collect_queue_snapshot.py --prune-only" in (step.get("run", "") or "")
+            ]
+            assert prune_indexes, f"{workflow} merges queue history but never applies retention"
+            assert max(merge_indexes) < min(prune_indexes), (
+                f"{workflow} must merge all append-only history before applying retention"
+            )
+
+        assert jobs_with_history == 1
+
+    def test_hourly_hotness_collection_follows_stale_data_sync(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        sync_idx = next(
+            i for i, step in enumerate(steps) if step.get("name") == "Sync CI data from gh-pages"
+        )
+        hotness_idx = next(
+            i
+            for i, step in enumerate(steps)
+            if step.get("name", "").startswith("Collect AMD hotness")
+        )
+
+        assert sync_idx < hotness_idx
+        for step in steps[hotness_idx + 1 :]:
+            run = step.get("run", "") or ""
+            assert "git show origin/gh-pages:data/vllm/ci/hotness.json" not in run
+
+    def test_hourly_history_sync_precedes_prune_and_collection(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        names = [step.get("name", "") for step in steps]
+        assert (
+            names.index("Sync queue data from gh-pages")
+            < names.index("Normalize and prune queue history")
+            < names.index("Collect queue snapshot")
+        )
+
     def test_deploy_pages_does_not_sync_ci_json_from_ghpages(self):
         """deploy-pages.yml must NOT overwrite CI analysis JSON files from gh-pages.
 
@@ -452,13 +534,18 @@ class TestDeployDataFreshness:
         # Pattern: echo "$LIVE" > data/vllm/ci/<file>  (overwrite with gh-pages data)
         # Reading gh-pages for corruption checks is OK; WRITING is not.
         import re as _re
+
         ci_files = [
-            "ci_health.json", "parity_report.json", "analytics.json",
-            "shard_bases.json", "group_changes.json", "amd_test_matrix.json",
+            "ci_health.json",
+            "parity_report.json",
+            "analytics.json",
+            "shard_bases.json",
+            "group_changes.json",
+            "amd_test_matrix.json",
         ]
         for f in ci_files:
             # Match: > data/vllm/ci/<file>  (redirect/write to local file)
-            write_pattern = _re.compile(r'>\s*data/vllm/ci/' + _re.escape(f))
+            write_pattern = _re.compile(r">\s*data/vllm/ci/" + _re.escape(f))
             assert not write_pattern.search(wf_text), (
                 f"deploy-pages.yml writes {f} from gh-pages to local, which "
                 f"overwrites fresh main data with stale copies. Remove the sync."
@@ -524,14 +611,21 @@ class TestDeployDataFreshness:
         # These are the files ``collect_ci.py`` produces — the ones it would
         # be a bug to overwrite with stale gh-pages copies after collection.
         CI_ANALYSIS_FILES = {
-            "ci_health.json", "parity_report.json", "config_parity.json",
-            "flaky_tests.json", "failure_trends.json", "quarantine.json",
-            "analytics.json", "shard_bases.json", "group_changes.json",
+            "ci_health.json",
+            "parity_report.json",
+            "config_parity.json",
+            "flaky_tests.json",
+            "failure_trends.json",
+            "quarantine.json",
+            "analytics.json",
+            "shard_bases.json",
+            "group_changes.json",
             "amd_test_matrix.json",
-            "hotness.json", "open_queue_issues.json",
+            "hotness.json",
+            "open_queue_issues.json",
         }
 
-        for step in steps[collect_idx + 1:]:
+        for step in steps[collect_idx + 1 :]:
             run = step.get("run", "") or ""
             if "git show origin/gh-pages:data/vllm/ci/" not in run:
                 continue
@@ -546,9 +640,7 @@ class TestDeployDataFreshness:
                     "fresh main-branch data with stale copies."
                 )
             # Direct references (no loop): check the literal path.
-            for m in re.finditer(
-                r"git show origin/gh-pages:data/vllm/ci/([^\s]+)", run
-            ):
+            for m in re.finditer(r"git show origin/gh-pages:data/vllm/ci/([^\s]+)", run):
                 target = m.group(1)
                 # Allow sync into non-CI-analysis paths (test_builds/index.json,
                 # ready_tickets*.json, queue_timeseries.jsonl, etc.).
@@ -562,6 +654,7 @@ class TestDeployDataFreshness:
 # ---------------------------------------------------------------------------
 # 3e. Script import ↔ workflow ``pip install`` parity
 # ---------------------------------------------------------------------------
+
 
 class TestWorkflowPipInstallMatchesImports:
     """Every script a workflow invokes must have its third-party imports
@@ -585,17 +678,60 @@ class TestWorkflowPipInstallMatchesImports:
     # Stdlib (rough allowlist — any module not in this set is assumed to
     # need pip installation). Scoped to the modules we actually use across
     # this repo's scripts to keep the list tight.
-    STDLIB = frozenset({
-        "__future__", "abc", "argparse", "ast", "base64", "collections",
-        "concurrent", "contextlib", "copy", "csv", "dataclasses", "datetime",
-        "email", "enum", "functools", "glob", "hashlib", "hmac", "html",
-        "http", "io", "itertools", "json", "logging", "math",
-        "operator", "os", "pathlib", "random", "re", "shutil",
-        "socket", "ssl", "string", "subprocess", "sys", "tempfile",
-        "textwrap", "time", "traceback", "types", "typing",
-        "unittest", "urllib", "uuid", "warnings", "xml", "zipfile",
-        "statistics", "importlib",
-    })
+    STDLIB = frozenset(
+        {
+            "__future__",
+            "abc",
+            "argparse",
+            "ast",
+            "base64",
+            "collections",
+            "concurrent",
+            "contextlib",
+            "copy",
+            "csv",
+            "dataclasses",
+            "datetime",
+            "email",
+            "enum",
+            "functools",
+            "glob",
+            "hashlib",
+            "hmac",
+            "html",
+            "http",
+            "io",
+            "itertools",
+            "json",
+            "logging",
+            "math",
+            "operator",
+            "os",
+            "pathlib",
+            "random",
+            "re",
+            "shutil",
+            "socket",
+            "ssl",
+            "string",
+            "subprocess",
+            "sys",
+            "tempfile",
+            "textwrap",
+            "time",
+            "traceback",
+            "types",
+            "typing",
+            "unittest",
+            "urllib",
+            "uuid",
+            "warnings",
+            "xml",
+            "zipfile",
+            "statistics",
+            "importlib",
+        }
+    )
 
     def _iter_workflow_pip_installs(self):
         """Yield (workflow_name, step_name, pip_packages_set, scripts_list).
@@ -615,9 +751,7 @@ class TestWorkflowPipInstallMatchesImports:
                 for step in steps:
                     run = step.get("run", "") or ""
                     # Accumulate every ``pip install`` we encounter.
-                    for m in re.finditer(
-                        r"pip install\s+((?:[^\n&|<>;]|\s(?!\-))+)", run
-                    ):
+                    for m in re.finditer(r"pip install\s+((?:[^\n&|<>;]|\s(?!\-))+)", run):
                         line = m.group(1).strip()
                         for tok in line.split():
                             if tok.startswith("-") or tok == "pip":

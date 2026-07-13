@@ -136,16 +136,9 @@ jobs:
           # gh-pages has the latest CI + queue data (ci-collect and queue-monitor
           # push there directly since branch protection blocks pushes to main).
           git fetch origin gh-pages --depth=1 || true
-          # Sync queue timeseries (append-only, take the longer file)
-          LIVE_FILE=$(git show origin/gh-pages:data/vllm/ci/queue_timeseries.jsonl 2>/dev/null || true)
-          if [ -n "$LIVE_FILE" ]; then
-            LIVE_LINES=$(echo "$LIVE_FILE" | wc -l)
-            LOCAL_LINES=$(wc -l < data/vllm/ci/queue_timeseries.jsonl)
-            if [ "$LIVE_LINES" -gt "$LOCAL_LINES" ]; then
-              echo "Using gh-pages queue data ($LIVE_LINES lines vs $LOCAL_LINES on main)"
-              echo "$LIVE_FILE" > data/vllm/ci/queue_timeseries.jsonl
-            fi
-          fi
+          # Merge append-only queue history by timestamp; line counts cannot
+          # detect divergent snapshots of the same length.
+          python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/gh-pages
           # Sync CI analysis JSON files
           for f in ci_health.json parity_report.json config_parity.json flaky_tests.json failure_trends.json quarantine.json analytics.json gating_nightlies.json gating_targets.json gating_target_candidates.json gating_proposals.json hotness.json shard_bases.json group_changes.json amd_test_matrix.json operations_v2.json; do
             LIVE=$(git show origin/gh-pages:data/vllm/ci/$f 2>/dev/null || true)

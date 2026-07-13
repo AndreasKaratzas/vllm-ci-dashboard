@@ -50,18 +50,7 @@ jobs:
       - name: Sync queue data from gh-pages
         run: |
           git fetch origin gh-pages --depth=1 || true
-          LIVE_FILE=$(git show origin/gh-pages:data/vllm/ci/queue_timeseries.jsonl 2>/dev/null || true)
-          if [ -n "$LIVE_FILE" ]; then
-            if echo "$LIVE_FILE" | grep -q "^>>>>>>>\|^<<<<<<<\|^======="; then
-              echo "WARNING: gh-pages queue data has conflict markers, skipping sync"
-            else
-              LIVE_LINES=$(echo "$LIVE_FILE" | wc -l)
-              LOCAL_LINES=$(wc -l < data/vllm/ci/queue_timeseries.jsonl)
-              if [ "$LIVE_LINES" -gt "$LOCAL_LINES" ]; then
-                echo "$LIVE_FILE" > data/vllm/ci/queue_timeseries.jsonl
-              fi
-            fi
-          fi
+          python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/gh-pages
 
       - name: Sync queue issue state from gh-pages
         run: |
@@ -73,9 +62,8 @@ jobs:
             fi
           done
 
-      - name: Truncate queue timeseries to 90 days
-        run: |
-          python scripts/vllm/collect_queue_snapshot.py --prune-only
+      - name: Normalize and prune queue history
+        run: python scripts/vllm/collect_queue_snapshot.py --prune-only
 
       - name: Collect queue snapshot
         env:
@@ -90,11 +78,6 @@ jobs:
 
       - name: Collect AMD gating target list
         run: python scripts/vllm/collect_gating_targets.py --output data/vllm/ci/
-
-      - name: Collect AMD hotness (3d window)
-        env:
-          BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
-        run: python scripts/vllm/collect_hotness.py
 
       - name: Watch queue latency (open/close issues)
         env:
@@ -126,6 +109,11 @@ jobs:
               echo "$LIVE" > data/vllm/ci/$f
             fi
           done
+
+      - name: Collect AMD hotness (3d window)
+        env:
+          BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
+        run: python scripts/vllm/collect_hotness.py
 
       - name: Collect CI data
         run: |

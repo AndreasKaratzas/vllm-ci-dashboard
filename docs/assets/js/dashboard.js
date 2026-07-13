@@ -232,6 +232,19 @@ function renderStartupError(message,detail){
     }
   }
 
+  function _resetRouteScroll(panel) {
+    var main = document.getElementById('main-content');
+    var reset = function() {
+      window.scrollTo(0, 0);
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      if (main) { main.scrollTop = 0; main.scrollLeft = 0; }
+      if (panel) { panel.scrollTop = 0; panel.scrollLeft = 0; }
+    };
+    reset();
+    if (window.requestAnimationFrame) window.requestAnimationFrame(reset);
+  }
+
   function switchTab(target) {
     if (!_hasTab(target)) {
       target = 'projects';
@@ -242,6 +255,7 @@ function renderStartupError(message,detail){
     if (btn) btn.classList.add("active");
     var panel = document.getElementById("tab-" + target);
     if (panel) panel.classList.add("active");
+    _resetRouteScroll(panel);
     if (window.OpsV2 && typeof window.OpsV2.render === 'function') {
       window.OpsV2.render(target);
     }
@@ -254,7 +268,7 @@ function renderStartupError(message,detail){
       opts = opts || {};
       var next = switchTab(target);
       if (opts.updateHash !== false) {
-        history.replaceState(null, "", "#" + next);
+        history.replaceState(null, "", location.pathname + location.search + "#" + next);
       }
       if (next === "builds" && window._onBuildTabShown) {
         window._onBuildTabShown();

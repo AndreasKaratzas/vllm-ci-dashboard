@@ -11,6 +11,8 @@
  * All other users (non-admins, guests) can still discover the tab, but
  * the renderer itself stays read-only and explains the access rule.
  */
+window.__OPS_CONTROL_V2_ADMIN__ = true;
+
 (function() {
   const _s = getComputedStyle(document.documentElement);
   const C = {
@@ -66,7 +68,6 @@
       const parsed = JSON.parse(match[1]);
       if (!parsed || typeof parsed !== 'object') return null;
       return {
-        email: String(parsed.email || '').trim(),
         requested_at: String(parsed.requested_at || '').trim(),
       };
     } catch (e) {
@@ -98,7 +99,6 @@
           html_url: issue.html_url || '',
           login: (issue.user && issue.user.login) || '',
           github_id: (issue.user && issue.user.id) || 0,
-          email: audit && audit.email || '',
           requested_at: audit && audit.requested_at || issue.created_at || '',
           labels: ((issue.labels || []).map((entry) => typeof entry === 'string' ? entry : entry.name)).filter(Boolean),
         };
@@ -210,7 +210,7 @@
     const table = h('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '12px' } });
     const thead = h('thead');
     const hr = h('tr');
-    ['Issue', 'Requester', 'GitHub id', 'Email', 'Requested', 'Action'].forEach((c) => {
+    ['Issue', 'Requester', 'GitHub id', 'Requested', 'Action'].forEach((c) => {
       hr.append(h('th', { text: c, style: { textAlign: 'left', padding: '6px 8px', borderBottom: `1px solid ${C.bd}`, color: C.m, fontWeight: '600', textTransform: 'uppercase', fontSize: '10px', letterSpacing: '0.04em' } }));
     });
     thead.append(hr);
@@ -233,7 +233,6 @@
       tr.append(issueCell);
       tr.append(h('td', { text: req.login ? '@' + req.login : '—', style: { padding: '6px 8px', borderBottom: `1px solid ${C.bd}`, fontFamily: 'monospace', fontSize: '11px' } }));
       tr.append(h('td', { text: String(req.github_id || '—'), style: { padding: '6px 8px', borderBottom: `1px solid ${C.bd}`, fontFamily: 'monospace', fontSize: '11px', color: C.m } }));
-      tr.append(h('td', { text: req.email || '—', style: { padding: '6px 8px', borderBottom: `1px solid ${C.bd}` } }));
       tr.append(h('td', { text: (req.requested_at || '').slice(0, 10) || '—', style: { padding: '6px 8px', borderBottom: `1px solid ${C.bd}`, color: C.m } }));
 
       const actionCell = h('td', { style: { padding: '6px 8px', borderBottom: `1px solid ${C.bd}`, whiteSpace: 'nowrap' } });
@@ -292,7 +291,7 @@
     const table = h('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '12px' } });
     const thead = h('thead');
     const hr = h('tr');
-    ['GitHub login', 'GitHub id', 'Email', 'Signed up', 'Action'].forEach((c) => {
+    ['GitHub login', 'GitHub id', 'Signed up', 'Action'].forEach((c) => {
       hr.append(h('th', { text: c, style: { textAlign: 'left', padding: '6px 8px', borderBottom: `1px solid ${C.bd}`, color: C.m, fontWeight: '600', textTransform: 'uppercase', fontSize: '10px', letterSpacing: '0.04em' } }));
     });
     thead.append(hr);
@@ -308,7 +307,6 @@
         style: { padding: '6px 8px', borderBottom: `1px solid ${C.bd}`, fontFamily: 'monospace', fontSize: '11px' },
       }));
       tr.append(h('td', { text: String(u.github_id || '—'), style: { padding: '6px 8px', borderBottom: `1px solid ${C.bd}`, fontFamily: 'monospace', fontSize: '11px', color: C.m } }));
-      tr.append(h('td', { text: u.email || '—', style: { padding: '6px 8px', borderBottom: `1px solid ${C.bd}` } }));
       tr.append(h('td', { text: (u.requested_at || '').slice(0, 10) || '—', style: { padding: '6px 8px', borderBottom: `1px solid ${C.bd}`, color: C.m } }));
 
       const actionCell = h('td', { style: { padding: '6px 8px', borderBottom: `1px solid ${C.bd}` } });
@@ -351,6 +349,7 @@
   }
 
   async function render() {
+    if (window.__OPS_CONTROL_V2_ADMIN__) return;
     const container = document.getElementById('ci-admin-view');
     if (!container) return;
 
@@ -379,15 +378,424 @@
     renderUsersTable(container, state);
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', render);
-  } else {
-    render();
+  window.OpsAdminActions = {
+    DASHBOARD_REPO,
+    USERS_PATH,
+    SIGNUP_APPROVED,
+    SIGNUP_REJECTED,
+    loadUsers,
+    loadPendingSignups,
+    resolveLogins,
+    writeUsersJson,
+    labelIssue,
+  };
+
+  // Lifecycle registration intentionally belongs only to the v2 renderer.
+})();
+
+(function renderAdminControlV2() {
+  'use strict';
+  window.__OPS_CONTROL_V2_ADMIN__ = true;
+
+  const ui = window.OpsControlV2;
+  const actions = window.OpsAdminActions;
+  if (!ui || !actions) return;
+
+  const h = ui.h;
+  const PENDING_SOURCE = `https://github.com/${actions.DASHBOARD_REPO}/issues?q=is%3Aissue+is%3Aopen+label%3Asignup-pending+-label%3Asignup-processed`;
+  const loginCache = new Map();
+  let renderSeq = 0;
+
+  function dateOnly(value) {
+    return value ? String(value).slice(0, 10) : 'Unavailable';
   }
 
-  document.addEventListener('click', (e) => {
-    const btn = e.target.closest && e.target.closest('[data-tab="ci-admin"]');
-    if (btn) setTimeout(render, 50);
+  function profileSource(login, githubId) {
+    if (login) return ui.githubUser(login);
+    return githubId ? `https://api.github.com/user/${encodeURIComponent(githubId)}` : '';
+  }
+
+  function focusSection(id) {
+    const node = document.getElementById(id);
+    if (!node) return;
+    node.hidden = false;
+    node.setAttribute('tabindex', '-1');
+    node.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    node.focus({ preventScroll: true });
+  }
+
+  function inspectRequest(request) {
+    const sources = h('div', { cls: 'ocv2-source-list' });
+    ui.append(sources, [
+      ui.external('Open audit issue', request.html_url),
+      ui.external('Requester profile', ui.githubUser(request.login)),
+    ]);
+    ui.dialog(
+      `Signup audit #${request.number}`,
+      request.login ? `Requested by @${request.login}` : 'Requester profile could not be resolved',
+      [
+        ui.definitionList([
+          { label: 'State', value: ui.badge('pending', 'is-warning') },
+          { label: 'GitHub id', value: request.github_id || 'Unavailable' },
+          { label: 'Requested', value: dateOnly(request.requested_at) },
+          { label: 'Audit title', value: request.title || 'Signup request' },
+        ]),
+        ui.state('is-info', 'Exact audit evidence', 'Approval and rejection add a label to this issue; the issue remains the durable audit source.'),
+        sources,
+      ]
+    );
+  }
+
+  function inspectUser(user, login, isAdmin) {
+    const sources = h('div', { cls: 'ocv2-source-list' });
+    sources.append(ui.external('GitHub profile', profileSource(login, user.github_id)));
+    ui.dialog(
+      login ? `@${login}` : `GitHub user ${user.github_id}`,
+      isAdmin ? 'Protected dashboard administrator' : 'Dashboard allowlist member',
+      [
+        ui.definitionList([
+          { label: 'GitHub id', value: user.github_id || 'Unavailable' },
+          { label: 'Role', value: ui.badge(isAdmin ? 'admin' : 'member', isAdmin ? 'is-info' : '') },
+          { label: 'Added', value: dateOnly(user.requested_at) },
+          { label: 'Mutation policy', value: isAdmin ? 'Protected from deletion' : 'Admin PAT required for deletion' },
+        ]),
+        ui.state('is-info', 'Control identity', 'Access operations use the GitHub profile and numeric id shown above.'),
+        sources,
+      ]
+    );
+  }
+
+  function resultDialog(title, message, tone, sourceLabel, sourceUrl) {
+    const content = [ui.state(tone, title, message)];
+    if (sourceUrl) content.push(h('div', { cls: 'ocv2-source-list' }, [ui.external(sourceLabel, sourceUrl)]));
+    ui.dialog(title, 'Admin mutation result', content);
+  }
+
+  function renderAccess(container, gate) {
+    const signedIn = !!(gate && gate.isAuthed && gate.isAuthed());
+    ui.page(container, {
+      id: 'admin',
+      title: 'Admin Control',
+      eyebrow: 'AMD CI OPERATIONS',
+      description: 'Audit signup requests and manage dashboard access through repository-backed GitHub records.',
+    });
+
+    if (!signedIn) {
+      const signIn = ui.button('Sign in', function() {
+        if (gate && gate.promptSignIn) gate.promptSignIn();
+      }, 'is-primary');
+      container.append(ui.state('is-warning', 'Admin authentication required', 'Read-only operational views remain public; access mutations require the configured dashboard administrator.', signIn));
+      return true;
+    }
+    if (!gate.isAdmin || !gate.isAdmin()) {
+      container.append(ui.state(
+        'is-warning',
+        'Administrator role required',
+        `Signed in as @${gate.getLogin ? gate.getLogin() : 'unknown'}. This view does not load its user or audit inventory for non-admin sessions.`
+      ));
+      return true;
+    }
+    return false;
+  }
+
+  function renderAdminDashboard(container, state, seq) {
+    const users = Array.isArray(state.db.users) ? state.db.users : [];
+    const pending = Array.isArray(state.pending) ? state.pending : [];
+    const adminCount = users.filter((user) => Number(user.github_id) === Number(state.db.admin_id)).length;
+    let scope = 'all';
+    let role = 'all';
+
+    const search = h('input', {
+      cls: 'ocv2-input',
+      type: 'search',
+      placeholder: 'Search login, id, issue, or title',
+      'aria-label': 'Search admin evidence',
+    });
+    const scopeSelect = h('select', { cls: 'ocv2-select', 'aria-label': 'Evidence scope' }, [
+      h('option', { value: 'all', text: 'All evidence' }),
+      h('option', { value: 'pending', text: 'Pending audits' }),
+      h('option', { value: 'users', text: 'Current users' }),
+    ]);
+    const roleSelect = h('select', { cls: 'ocv2-select', 'aria-label': 'User role' }, [
+      h('option', { value: 'all', text: 'All roles' }),
+      h('option', { value: 'admin', text: 'Administrators' }),
+      h('option', { value: 'member', text: 'Members' }),
+    ]);
+
+    let pendingPanel;
+    let usersPanel;
+
+    function selectEvidence(nextScope, sectionId, nextRole) {
+      scope = nextScope;
+      scopeSelect.value = nextScope;
+      if (nextRole) {
+        role = nextRole;
+        roleSelect.value = nextRole;
+      }
+      refreshTables();
+      window.requestAnimationFrame(() => focusSection(sectionId));
+    }
+
+    container.append(ui.kpis([
+      {
+        label: 'Pending audits',
+        value: pending.length,
+        meta: 'open signup requests',
+        tone: pending.length ? 'is-warning' : 'is-success',
+        onClick: () => selectEvidence('pending', 'ocv2-admin-pending'),
+      },
+      {
+        label: 'Allowlisted users',
+        value: users.length,
+        meta: 'inspect current directory',
+        onClick: () => selectEvidence('users', 'ocv2-admin-users', 'all'),
+      },
+      {
+        label: 'Administrators',
+        value: adminCount,
+        meta: 'protected identities',
+        tone: 'is-info',
+        onClick: () => selectEvidence('users', 'ocv2-admin-users', 'admin'),
+      },
+      {
+        label: 'Audit source',
+        value: 'GitHub',
+        meta: 'open pending issue log',
+        href: PENDING_SOURCE,
+        external: true,
+      },
+    ]));
+
+    const patAvailable = !!state.pat;
+    container.append(ui.state(
+      patAvailable ? 'is-info' : 'is-warning',
+      patAvailable ? 'Admin mutation session ready' : 'Mutation credential unavailable',
+      patAvailable
+        ? 'Actions use the signed-in PAT directly. GitHub issues and commits are repository records, not protected storage.'
+        : 'This authenticated session has no PAT in memory. Sign out and back in before attempting an approval, rejection, or deletion.',
+      ui.external('Pending issue log', PENDING_SOURCE)
+    ));
+
+    const controls = h('div', { cls: 'ocv2-toolbar' });
+    ui.append(controls, [ui.field('Search', search), ui.field('Evidence', scopeSelect), ui.field('User role', roleSelect)]);
+    const filterPanel = ui.panel('Evidence controls', 'Filters are local to the loaded sources', controls);
+    container.append(filterPanel.root);
+
+    pendingPanel = ui.panel('Pending signup audits', 'GitHub issues awaiting an explicit decision', []);
+    pendingPanel.root.id = 'ocv2-admin-pending';
+    usersPanel = ui.panel('Dashboard users', 'GitHub identities used by the access controls', []);
+    usersPanel.root.id = 'ocv2-admin-users';
+    container.append(pendingPanel.root, usersPanel.root);
+
+    function pendingActions(request) {
+      const cell = h('div', { cls: 'ocv2-actions' });
+      const approve = ui.button('Approve', () => mutateRequest(actions.SIGNUP_APPROVED, 'Approval', request, approve, reject), 'is-primary');
+      const reject = ui.button('Reject', () => mutateRequest(actions.SIGNUP_REJECTED, 'Rejection', request, reject, approve), 'is-danger');
+      approve.disabled = !patAvailable;
+      reject.disabled = !patAvailable;
+      if (!patAvailable) {
+        approve.title = 'Sign in again to restore the in-memory PAT';
+        reject.title = 'Sign in again to restore the in-memory PAT';
+      }
+      ui.append(cell, [approve, reject]);
+      return cell;
+    }
+
+    async function mutateRequest(label, noun, request, primary, secondary) {
+      if (seq !== renderSeq || !state.pat) return;
+      if (!window.confirm(`${noun} for @${request.login || request.github_id}? This labels audit issue #${request.number}.`)) return;
+      primary.disabled = true;
+      secondary.disabled = true;
+      primary.textContent = noun + ' pending';
+      const response = await actions.labelIssue(state.pat, request.number, label);
+      if (seq !== renderSeq) return;
+      if (response.ok) {
+        resultDialog(
+          `${noun} queued`,
+          `Audit issue #${request.number} received the ${label} label. The signup workflow owns the resulting allowlist update.`,
+          'is-success',
+          'Open audit issue',
+          request.html_url
+        );
+        window.setTimeout(() => { if (seq === renderSeq) render(); }, 900);
+        return;
+      }
+      primary.disabled = false;
+      secondary.disabled = false;
+      primary.textContent = noun === 'Approval' ? 'Approve' : 'Reject';
+      resultDialog(
+        `${noun} failed`,
+        `GitHub returned HTTP ${response.status}. No successful state change is being claimed.`,
+        'is-danger',
+        'Inspect audit issue',
+        request.html_url
+      );
+    }
+
+    async function removeUser(user, login, button) {
+      if (seq !== renderSeq || !state.pat) return;
+      const identity = login ? `@${login}` : `GitHub id ${user.github_id}`;
+      if (!window.confirm(`Remove ${identity} from the dashboard allowlist? This commits ${actions.USERS_PATH} to main.`)) return;
+      button.disabled = true;
+      button.textContent = 'Removing';
+      const nextDb = Object.assign({}, state.db, {
+        users: users.filter((candidate) => Number(candidate.github_id) !== Number(user.github_id)),
+      });
+      const response = await actions.writeUsersJson(state.pat, nextDb, `admin: remove user ${identity}`);
+      if (seq !== renderSeq) return;
+      if (response.ok) {
+        const sourceUrl = response.data && response.data.commit && response.data.commit.html_url
+          || response.data && response.data.content && response.data.content.html_url
+          || '';
+        resultDialog('User removed', `${identity} was removed from the allowlist on main.`, 'is-success', 'Open mutation source', sourceUrl);
+        render();
+        return;
+      }
+      button.disabled = false;
+      button.textContent = 'Remove';
+      resultDialog('Removal failed', `GitHub returned HTTP ${response.status}. The loaded allowlist remains unchanged.`, 'is-danger');
+    }
+
+    function refreshTables() {
+      const query = search.value.trim().toLowerCase();
+      scope = scopeSelect.value;
+      role = roleSelect.value;
+
+      const visiblePending = pending.filter((request) => {
+        const haystack = [request.number, request.title, request.login, request.github_id].join(' ').toLowerCase();
+        return !query || haystack.includes(query);
+      });
+      const visibleUsers = users.filter((user) => {
+        const login = state.loginsById[user.github_id] || '';
+        const isAdmin = Number(user.github_id) === Number(state.db.admin_id);
+        if (role === 'admin' && !isAdmin) return false;
+        if (role === 'member' && isAdmin) return false;
+        return !query || [login, user.github_id, isAdmin ? 'admin' : 'member'].join(' ').toLowerCase().includes(query);
+      });
+
+      pendingPanel.root.hidden = scope === 'users';
+      usersPanel.root.hidden = scope === 'pending';
+      pendingPanel.header.querySelector('.ocv2-panel-meta').textContent = `${visiblePending.length} of ${pending.length} open audits`;
+      usersPanel.header.querySelector('.ocv2-panel-meta').textContent = `${visibleUsers.length} of ${users.length} identities`;
+
+      pendingPanel.body.replaceChildren(ui.table([
+        {
+          label: 'Audit',
+          render: (request) => ui.linkButton(`#${request.number} ${request.title || 'Signup request'}`, () => inspectRequest(request), 'Inspect signup audit'),
+        },
+        {
+          label: 'Requester',
+          render: (request) => ui.external(request.login ? `@${request.login}` : `GitHub id ${request.github_id}`, profileSource(request.login, request.github_id)),
+        },
+        { label: 'GitHub id', key: 'github_id', nowrap: true },
+        { label: 'Requested', nowrap: true, render: (request) => dateOnly(request.requested_at) },
+        { label: 'Audit source', nowrap: true, render: (request) => ui.external('Open issue', request.html_url) },
+        { label: 'Decision', nowrap: true, render: pendingActions },
+      ], visiblePending, {
+        compact: true,
+        scrollCue: true,
+        caption: 'Open signup audit issues and their exact GitHub action records.',
+        empty: 'No pending audit matches the current search.',
+      }));
+
+      usersPanel.body.replaceChildren(ui.table([
+        {
+          label: 'Identity',
+          render: (user) => {
+            const login = state.loginsById[user.github_id] || '';
+            const isAdmin = Number(user.github_id) === Number(state.db.admin_id);
+            return ui.linkButton(login ? `@${login}` : `GitHub user ${user.github_id}`, () => inspectUser(user, login, isAdmin), 'Inspect allowlist identity');
+          },
+        },
+        {
+          label: 'Profile',
+          render: (user) => {
+            const login = state.loginsById[user.github_id] || '';
+            return ui.external(login ? 'GitHub profile' : `Resolve id ${user.github_id}`, profileSource(login, user.github_id));
+          },
+        },
+        {
+          label: 'Role',
+          render: (user) => {
+            const isAdmin = Number(user.github_id) === Number(state.db.admin_id);
+            return ui.badge(isAdmin ? 'admin' : 'member', isAdmin ? 'is-info' : '');
+          },
+        },
+        { label: 'Added', nowrap: true, render: (user) => dateOnly(user.requested_at) },
+        {
+          label: 'Action',
+          nowrap: true,
+          render: (user) => {
+            const isAdmin = Number(user.github_id) === Number(state.db.admin_id);
+            if (isAdmin) return ui.badge('protected', 'is-info');
+            const login = state.loginsById[user.github_id] || '';
+            const button = ui.button('Remove', () => removeUser(user, login, button), 'is-danger');
+            button.disabled = !patAvailable;
+            if (!patAvailable) button.title = 'Sign in again to restore the in-memory PAT';
+            return button;
+          },
+        },
+      ], visibleUsers, {
+        compact: true,
+        scrollCue: true,
+        caption: 'Current dashboard identities available to access controls.',
+        empty: 'No allowlist identity matches the current filters.',
+      }));
+    }
+
+    search.addEventListener('input', refreshTables);
+    scopeSelect.addEventListener('change', refreshTables);
+    roleSelect.addEventListener('change', refreshTables);
+    refreshTables();
+  }
+
+  async function render() {
+    const seq = ++renderSeq;
+    const container = document.getElementById('ci-admin-view');
+    if (!container) return;
+    const gate = window.__authGate;
+    if (renderAccess(container, gate)) return;
+
+    const loading = ui.state('', 'Loading admin evidence', 'Reading the allowlist, open signup audits, and GitHub profile identities.');
+    container.append(loading);
+    try {
+      const pat = gate.getGithubPat ? gate.getGithubPat() : '';
+      const [db, pending] = await Promise.all([
+        actions.loadUsers(),
+        actions.loadPendingSignups(pat),
+      ]);
+      if (seq !== renderSeq) return;
+
+      for (const request of pending) {
+        if (request.github_id && request.login) loginCache.set(Number(request.github_id), request.login);
+      }
+      const ids = Array.from(new Set([
+        ...(db.users || []).map((user) => Number(user.github_id)).filter(Boolean),
+        Number(db.admin_id) || 0,
+      ].filter(Boolean)));
+      const missingIds = ids.filter((id) => !loginCache.has(id));
+      if (missingIds.length) {
+        const resolved = await actions.resolveLogins(missingIds, pat);
+        if (seq !== renderSeq) return;
+        for (const [id, login] of Object.entries(resolved)) loginCache.set(Number(id), login);
+      }
+
+      const loginsById = {};
+      for (const id of ids) if (loginCache.has(id)) loginsById[id] = loginCache.get(id);
+      loading.remove();
+      renderAdminDashboard(container, { db, pending, loginsById, pat }, seq);
+    } catch (error) {
+      if (seq !== renderSeq) return;
+      loading.replaceWith(ui.state('is-danger', 'Admin evidence unavailable', error && error.message ? error.message : 'The source requests did not complete.'));
+    }
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', render);
+  else render();
+
+  document.addEventListener('click', function(event) {
+    const tab = event.target.closest && event.target.closest('[data-tab="ci-admin"]');
+    if (tab) window.setTimeout(render, 50);
   });
   document.addEventListener('auth:changed', render);
 })();

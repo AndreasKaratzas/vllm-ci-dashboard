@@ -33,20 +33,9 @@ jobs:
           if [ "$CORRUPT" -gt 0 ]; then
             echo "WARNING: gh-pages data is corrupted (merge conflict markers). Skipping all sync — deploying from main only."
           else
-            # Sync queue timeseries (append-only, take the longer file)
-            LIVE_FILE=$(git show origin/gh-pages:data/vllm/ci/queue_timeseries.jsonl 2>/dev/null || true)
-            if [ -n "$LIVE_FILE" ]; then
-              if echo "$LIVE_FILE" | grep -q "^>>>>>>>\|^<<<<<<<\|^======="; then
-                echo "WARNING: gh-pages queue data has conflict markers, using main branch copy"
-              else
-                LIVE_LINES=$(echo "$LIVE_FILE" | wc -l)
-                LOCAL_LINES=$(wc -l < data/vllm/ci/queue_timeseries.jsonl)
-                if [ "$LIVE_LINES" -gt "$LOCAL_LINES" ]; then
-                  echo "Using gh-pages queue data ($LIVE_LINES lines vs $LOCAL_LINES on main)"
-                  echo "$LIVE_FILE" > data/vllm/ci/queue_timeseries.jsonl
-                fi
-              fi
-            fi
+            # Merge data/vllm/ci/queue_timeseries.jsonl by timestamp. The
+            # collector rejects conflict markers and normalizes legacy rows.
+            python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/gh-pages
             # CI analysis JSON files are committed to main by hourly-master.
             # Do NOT sync from gh-pages — main always has the latest data.
             echo "Skipping CI JSON sync — main branch is authoritative."

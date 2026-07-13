@@ -46,6 +46,61 @@ def _build(number: int, days_ago: float, jobs: list[dict], state: str = "passed"
 
 
 class TestWindowedAnalytics:
+    def test_fetch_pipeline_builds_includes_page_two_and_deduplicates(self, monkeypatch):
+        page_one = [
+            {"number": number, "created_at": f"2026-04-20T09:{number % 60:02d}:00Z"}
+            for number in range(1, 101)
+        ]
+        page_two = [
+            {"number": number, "created_at": f"2026-04-21T09:{number % 60:02d}:00Z"}
+            for number in range(100, 121)
+        ]
+        calls = []
+
+        def fake_get(path, token, params=None):
+            calls.append(dict(params or {}))
+            return page_one if params["page"] == 1 else page_two
+
+        monkeypatch.setattr(ca, "bk_get", fake_get)
+
+        builds = ca.fetch_pipeline_builds("amd-ci", "fake-token", 30)
+
+        assert len(builds) == 120
+        assert {build["number"] for build in builds} == set(range(1, 121))
+        assert [call["page"] for call in calls] == [1, 2]
+        assert all(call["per_page"] == 100 for call in calls)
+        assert all(call["branch"] == "main" for call in calls)
+        assert all(call["include_retried_jobs"] == "true" for call in calls)
+
+    def test_fetch_pipeline_builds_stops_when_a_full_page_adds_no_builds(self, monkeypatch):
+        repeated_page = [{"number": number} for number in range(1, 101)]
+        pages = []
+
+        def fake_get(path, token, params=None):
+            pages.append(params["page"])
+            return repeated_page
+
+        monkeypatch.setattr(ca, "bk_get", fake_get)
+
+        builds = ca.fetch_pipeline_builds("amd-ci", "fake-token", 30)
+
+        assert len(builds) == 100
+        assert pages == [1, 2]
+
+    def test_upstream_parity_fetch_is_bounded_to_one_page(self, monkeypatch):
+        pages = []
+
+        def fake_get(path, token, params=None):
+            pages.append(params["page"])
+            return [{"number": number} for number in range(1, 101)]
+
+        monkeypatch.setattr(ca, "bk_get", fake_get)
+
+        builds = ca.fetch_pipeline_builds("ci", "fake-token", 30)
+
+        assert pages == [1]
+        assert len(builds) == 100
+
     def test_analytics_uses_exact_amd_nightly_pattern(self, monkeypatch):
         builds = [
             {
@@ -289,7 +344,42 @@ class TestParsedResultFallback:
             "Broken Group": "failed",
             "Skipped Group": "skipped",
         }
-        assert {job["name"]: job["dur"] for job in build["jobs"]}["Passing Group"] == 2.0
+        passing = {job["name"]: job for job in build["jobs"]}["Passing Group"]
+        assert passing["test_duration_mins"] == 2.0
+        assert "dur" not in passing
+
+    def test_buildkite_summary_labels_wall_queue_and_end_to_end_durations(self):
+        raw = [{
+            "number": 777,
+            "branch": "main",
+            "commit": "abc123",
+            "message": "post-merge validation",
+            "state": "passed",
+            "created_at": "2026-04-20T09:00:00Z",
+            "finished_at": "2026-04-20T09:30:00Z",
+            "jobs": [{
+                "id": "job-777",
+                "type": "script",
+                "name": "mi300_1: Duration Group",
+                "state": "passed",
+                "runnable_at": "2026-04-20T09:01:00Z",
+                "started_at": "2026-04-20T09:06:00Z",
+                "finished_at": "2026-04-20T09:26:00Z",
+                "step": {"id": "step-777", "key": "duration-group"},
+                "agent_query_rules": ["queue=amd_mi300_1"],
+            }],
+        }]
+
+        build = ca.summarize_pipeline_builds("amd-ci", raw)[0]
+        job = build["jobs"][0]
+
+        assert build["branch"] == "main"
+        assert build["commit"] == "abc123"
+        assert job["dur"] == job["wall_completion_mins"] == 20.0
+        assert job["queue_wait_mins"] == 5.0
+        assert job["end_to_end_mins"] == 25.0
+        assert job["duration_source"] == "buildkite_wall"
+        assert "test_duration_mins" not in job
 
     def test_test_result_builds_emit_buildkite_job_urls(self, tmp_path):
         results_dir = tmp_path / "test_results"

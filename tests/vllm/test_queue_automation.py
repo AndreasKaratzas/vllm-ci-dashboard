@@ -7,6 +7,7 @@ Validates that:
 3. The queue_timeseries.jsonl data has the correct schema
 4. The queue-monitor workflow includes a deploy step
 """
+
 import json
 import re
 import subprocess
@@ -16,6 +17,8 @@ from pathlib import Path
 
 import pytest
 import yaml
+
+from vllm import collect_queue_snapshot as cqs
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 DATA = ROOT / "data"
@@ -57,7 +60,7 @@ class TestQueueTimeseriesSchema:
             try:
                 json.loads(line)
             except json.JSONDecodeError as e:
-                pytest.fail(f"Line {i+1} is not valid JSON: {e}")
+                pytest.fail(f"Line {i + 1} is not valid JSON: {e}")
 
     def test_snapshots_have_required_keys(self, snapshots):
         for i, snap in enumerate(snapshots):
@@ -68,16 +71,21 @@ class TestQueueTimeseriesSchema:
     def test_timestamps_are_iso_format(self, snapshots):
         for i, snap in enumerate(snapshots):
             ts = snap["ts"]
-            assert re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", ts), \
+            assert re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", ts), (
                 f"Snapshot {i} timestamp '{ts}' not in ISO format"
+            )
 
     def test_queues_have_job_counts(self, snapshots):
         for i, snap in enumerate(snapshots):
             for qname, qdata in snap["queues"].items():
                 assert "waiting" in qdata, f"Snapshot {i}, queue '{qname}' missing 'waiting'"
                 assert "running" in qdata, f"Snapshot {i}, queue '{qname}' missing 'running'"
-                assert isinstance(qdata["waiting"], int), f"Snapshot {i}, queue '{qname}' waiting must be int"
-                assert isinstance(qdata["running"], int), f"Snapshot {i}, queue '{qname}' running must be int"
+                assert isinstance(qdata["waiting"], int), (
+                    f"Snapshot {i}, queue '{qname}' waiting must be int"
+                )
+                assert isinstance(qdata["running"], int), (
+                    f"Snapshot {i}, queue '{qname}' running must be int"
+                )
                 assert qdata["waiting"] >= 0, f"Snapshot {i}, queue '{qname}' waiting < 0"
                 assert qdata["running"] >= 0, f"Snapshot {i}, queue '{qname}' running < 0"
 
@@ -90,15 +98,35 @@ class TestQueueTimeseriesSchema:
         for i, snap in enumerate(snapshots):
             expected_waiting = sum(q["waiting"] for q in snap["queues"].values())
             expected_running = sum(q["running"] for q in snap["queues"].values())
-            assert snap["total_waiting"] == expected_waiting, \
+            assert snap["total_waiting"] == expected_waiting, (
                 f"Snapshot {i}: total_waiting {snap['total_waiting']} != sum {expected_waiting}"
-            assert snap["total_running"] == expected_running, \
+            )
+            assert snap["total_running"] == expected_running, (
                 f"Snapshot {i}: total_running {snap['total_running']} != sum {expected_running}"
+            )
 
     def test_timestamps_are_chronological(self, snapshots):
         for i in range(1, len(snapshots)):
-            assert snapshots[i]["ts"] >= snapshots[i-1]["ts"], \
-                f"Snapshots not chronological: {snapshots[i-1]['ts']} > {snapshots[i]['ts']}"
+            assert snapshots[i]["ts"] >= snapshots[i - 1]["ts"], (
+                f"Snapshots not chronological: {snapshots[i - 1]['ts']} > {snapshots[i]['ts']}"
+            )
+
+    def test_release_normalizer_prevents_workload_history_overstatement(self, snapshots):
+        warnings = []
+        for snapshot in snapshots:
+            normalized = cqs.normalize_history_snapshot(snapshot)
+            assert normalized is not None
+            for queue, row in normalized["queues"].items():
+                assert not cqs.is_excluded_queue(queue)
+                for split_key, total_key in (
+                    ("waiting_by_workload", "waiting"),
+                    ("running_by_workload", "running"),
+                ):
+                    split = row.get(split_key)
+                    if isinstance(split, dict) and sum(split.values()) > row[total_key]:
+                        warnings.append(f"{normalized['ts']} {queue} {split_key}")
+
+        assert warnings == []
 
 
 class TestCollectQueueSnapshotScript:
@@ -113,8 +141,7 @@ class TestCollectQueueSnapshotScript:
         if not script.exists():
             pytest.skip("script not present")
         content = script.read_text()
-        assert "queue_timeseries.jsonl" in content, \
-            "Script must write to queue_timeseries.jsonl"
+        assert "queue_timeseries.jsonl" in content, "Script must write to queue_timeseries.jsonl"
 
     def test_script_appends_jsonl(self):
         """Verify the script opens file in append mode, not write mode."""
@@ -122,16 +149,16 @@ class TestCollectQueueSnapshotScript:
         if not script.exists():
             pytest.skip("script not present")
         content = script.read_text()
-        assert '"a"' in content or "'a'" in content, \
+        assert '"a"' in content or "'a'" in content, (
             "Script must open file in append mode to preserve history"
+        )
 
     def test_script_syntax_valid(self):
         script = ROOT / "scripts" / "vllm" / "collect_queue_snapshot.py"
         if not script.exists():
             pytest.skip("script not present")
         result = subprocess.run(
-            [sys.executable, "-m", "py_compile", str(script)],
-            capture_output=True, text=True
+            [sys.executable, "-m", "py_compile", str(script)], capture_output=True, text=True
         )
         assert result.returncode == 0, f"Script has syntax errors: {result.stderr}"
 
@@ -155,8 +182,9 @@ class TestSiteAssemblyCorrectness:
         content = wf_path.read_text()
         # Count occurrences of 'rm -rf _site' — should be at most 1
         matches = re.findall(r"rm\s+-rf\s+_site", content)
-        assert len(matches) <= 1, \
+        assert len(matches) <= 1, (
             f"{wf_name} has {len(matches)} 'rm -rf _site' — second one nukes docs content"
+        )
 
     @pytest.mark.parametrize("wf_name", ASSEMBLY_WORKFLOWS)
     def test_assembly_copies_docs_then_data(self, wf_name):
@@ -177,8 +205,9 @@ class TestSiteAssemblyCorrectness:
                     # with NO second rm -rf _site between them
                     lines = [l.strip() for l in run_block.split("\n") if l.strip()]
                     rm_count = sum(1 for l in lines if "rm -rf _site" in l)
-                    assert rm_count <= 1, \
+                    assert rm_count <= 1, (
                         f"{wf_name}: assembly has {rm_count} 'rm -rf _site' commands"
+                    )
 
 
 class TestQueueMonitorWorkflow:
@@ -194,35 +223,39 @@ class TestQueueMonitorWorkflow:
     def test_has_trigger(self, workflow):
         """queue-monitor must have workflow_dispatch (schedule moved to hourly-master)."""
         triggers = workflow.get(True, {})  # 'on' parses as True in yaml
-        assert "workflow_dispatch" in triggers or "schedule" in triggers, \
+        assert "workflow_dispatch" in triggers or "schedule" in triggers, (
             "queue-monitor must have workflow_dispatch or schedule trigger"
+        )
 
     def test_has_deploy_step(self, workflow):
         """Queue monitor must deploy to gh-pages so data reaches the dashboard."""
         steps = workflow["jobs"]["snapshot"]["steps"]
         step_names = [s.get("name", "") for s in steps]
         has_deploy = any("deploy" in n.lower() or "pages" in n.lower() for n in step_names)
-        has_deploy = has_deploy or any("peaceiris/actions-gh-pages" in str(s.get("uses", "")) for s in steps)
+        has_deploy = has_deploy or any(
+            "peaceiris/actions-gh-pages" in str(s.get("uses", "")) for s in steps
+        )
         assert has_deploy, "queue-monitor.yml must include a deploy step to push data to gh-pages"
 
     def test_has_assemble_step(self, workflow):
         steps = workflow["jobs"]["snapshot"]["steps"]
         step_names = [s.get("name", "") for s in steps]
-        assert any("assemble" in n.lower() for n in step_names), \
+        assert any("assemble" in n.lower() for n in step_names), (
             "queue-monitor.yml must assemble the site before deploying"
+        )
 
     def test_workflow_references_correct_script(self):
         path = WORKFLOWS / "queue-monitor.yml"
         if not path.exists():
             pytest.skip("queue-monitor.yml not present")
         content = path.read_text()
-        assert "collect_queue_snapshot.py" in content, \
+        assert "collect_queue_snapshot.py" in content, (
             "Workflow must reference collect_queue_snapshot.py"
+        )
 
     def test_workflow_has_contents_write_permission(self, workflow):
         perms = workflow.get("permissions", {})
-        assert perms.get("contents") == "write", \
-            "queue-monitor needs contents:write to push data"
+        assert perms.get("contents") == "write", "queue-monitor needs contents:write to push data"
 
     def test_push_failure_does_not_block_deploy(self):
         """The push to main may fail due to branch protection. The workflow must
@@ -290,7 +323,9 @@ class TestQueueDashboardControls:
             "{key:'p99_wait',label:'p99'}",
             "{key:'avg_wait',label:'Avg'}",
         ):
-            assert token not in js, f"Queue dashboard should not expose removed wait metric control {token}"
+            assert token not in js, (
+                f"Queue dashboard should not expose removed wait metric control {token}"
+            )
 
     def test_wait_dashboard_does_not_flatten_unsampled_backlog_to_zero(self):
         js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
@@ -353,7 +388,19 @@ class TestQueueDashboardControls:
 
     def test_capacity_monitor_chart_has_interval_selector(self):
         js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
-        for label in ("'1h'", "'3h'", "'6h'", "'12h'", "'24h'", "'2d'", "'3d'", "'5d'", "'7d'", "'14d'", "'1m'"):
+        for label in (
+            "'1h'",
+            "'3h'",
+            "'6h'",
+            "'12h'",
+            "'24h'",
+            "'2d'",
+            "'3d'",
+            "'5d'",
+            "'7d'",
+            "'14d'",
+            "'1m'",
+        ):
             assert f"label:{label}" in js
         assert "label:'3m'" not in js
         assert "hours:2160" not in js
@@ -382,8 +429,7 @@ class TestCollectorPagination:
             pytest.skip("script not present")
         content = script.read_text()
         assert "paginated" in content.lower() or "page" in content, (
-            "Collector must paginate API calls to avoid missing builds "
-            "beyond the first 100"
+            "Collector must paginate API calls to avoid missing builds beyond the first 100"
         )
 
     def test_collector_handles_scheduled_state(self):
@@ -406,13 +452,14 @@ class TestCIQueueFrontend:
 
     def test_ci_queue_fetches_correct_path(self):
         js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
-        assert "queue_timeseries.jsonl" in js, \
-            "ci-queue.js must fetch queue_timeseries.jsonl"
+        assert "queue_timeseries.jsonl" in js, "ci-queue.js must fetch queue_timeseries.jsonl"
 
     def test_ci_queue_has_admin_amd_triage(self):
         js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
         assert "AMD Queue Triage" in js, "Queue monitor should expose an AMD triage panel"
-        assert "run_min" in js, "Queue monitor should inspect long-running jobs, not just queued jobs"
+        assert "run_min" in js, (
+            "Queue monitor should inspect long-running jobs, not just queued jobs"
+        )
         assert "isAdmin()" in js or "isAdminUser" in js, "AMD triage actions should be admin-gated"
         assert "Copy curl" in js, "Queue monitor should expose a copyable Buildkite cancel command"
 
@@ -472,8 +519,15 @@ class TestCIQueueFrontend:
         for line in lines:
             snap = json.loads(line)
             for qname, qdata in snap["queues"].items():
-                vals = [qdata.get(k, 0) for k in ["p50_wait", "p75_wait", "p90_wait", "p99_wait", "max_wait"]]
+                vals = [
+                    qdata.get(k)
+                    for k in ["p50_wait", "p75_wait", "p90_wait", "p99_wait", "max_wait"]
+                ]
                 for i in range(len(vals) - 1):
+                    # Missing percentiles are explicitly null when Buildkite
+                    # exposes neither queue-native metrics nor a job sample.
+                    if vals[i] is None or vals[i + 1] is None:
+                        continue
                     if vals[i] > vals[i + 1] + 0.01:  # small tolerance for rounding
                         bad.append(f"{snap['ts']} queue '{qname}': {vals}")
                         break
@@ -522,6 +576,7 @@ class TestIntervalFilteringLogic:
     @staticmethod
     def _parse_ts(ts_str):
         from datetime import datetime, timezone
+
         return datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
 
     @staticmethod
@@ -529,6 +584,7 @@ class TestIntervalFilteringLogic:
         first_ts = TestIntervalFilteringLogic._parse_ts(snapshots[0]["ts"])
         last_ts = TestIntervalFilteringLogic._parse_ts(snapshots[-1]["ts"])
         import math
+
         return max(1, math.ceil((last_ts - first_ts).total_seconds() / 3600))
 
     @staticmethod
@@ -536,11 +592,9 @@ class TestIntervalFilteringLogic:
         """Re-implements the JS filtering: cutoff relative to LAST snapshot."""
         last_ts = TestIntervalFilteringLogic._parse_ts(snapshots[-1]["ts"])
         from datetime import timedelta
+
         cutoff = last_ts - timedelta(hours=interval_hours)
-        return [
-            s for s in snapshots
-            if TestIntervalFilteringLogic._parse_ts(s["ts"]) >= cutoff
-        ]
+        return [s for s in snapshots if TestIntervalFilteringLogic._parse_ts(s["ts"]) >= cutoff]
 
     @staticmethod
     def _snapshots_in_interval(snapshots, hours):
@@ -551,7 +605,8 @@ class TestIntervalFilteringLogic:
     def _enabled_intervals(snapshots):
         """An interval is enabled only if it contains >= 2 snapshots (matches JS logic)."""
         return [
-            iv for iv in TestIntervalFilteringLogic.INTERVALS
+            iv
+            for iv in TestIntervalFilteringLogic.INTERVALS
             if TestIntervalFilteringLogic._snapshots_in_interval(snapshots, iv["hours"]) >= 2
         ]
 
@@ -559,8 +614,9 @@ class TestIntervalFilteringLogic:
         """Verify that our INTERVALS list matches what ci-queue.js defines."""
         js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
         for iv in self.INTERVALS:
-            assert f"label:'{iv['label']}'" in js or f"label: '{iv['label']}'" in js, \
+            assert f"label:'{iv['label']}'" in js or f"label: '{iv['label']}'" in js, (
                 f"Interval {iv['label']} not found in ci-queue.js"
+            )
 
     def test_cutoff_uses_last_snapshot_not_now(self):
         """The cutoff computation in updateChart must NOT use Date.now().
@@ -581,17 +637,16 @@ class TestIntervalFilteringLogic:
                 if depth == 0:
                     break
             i += 1
-        fn_body = js[body_start:i + 1]
+        fn_body = js[body_start : i + 1]
         # Strip single-line comments before checking — comments may mention Date.now()
-        code_lines = [
-            l for l in fn_body.split("\n")
-            if not l.strip().startswith("//")
-        ]
+        code_lines = [l for l in fn_body.split("\n") if not l.strip().startswith("//")]
         code_only = "\n".join(code_lines)
-        assert "Date.now()" not in code_only, \
+        assert "Date.now()" not in code_only, (
             "updateChart must NOT use Date.now() for cutoff — use last snapshot timestamp"
-        assert "lastSnapshotTs" in fn_body or "snapshots[snapshots.length" in fn_body, \
+        )
+        assert "lastSnapshotTs" in fn_body or "snapshots[snapshots.length" in fn_body, (
             "updateChart must reference the last snapshot timestamp for cutoff"
+        )
 
     def test_every_enabled_interval_returns_data(self, snapshots):
         """For each interval that the UI marks as enabled (hours <= availableHours),
@@ -628,7 +683,7 @@ class TestIntervalFilteringLogic:
             small_ts = {s["ts"] for s in small}
             large_ts = {s["ts"] for s in large}
             assert small_ts <= large_ts, (
-                f"Interval {enabled[i+1]['label']} must include all snapshots "
+                f"Interval {enabled[i + 1]['label']} must include all snapshots "
                 f"from {enabled[i]['label']}"
             )
 
@@ -653,6 +708,7 @@ class TestIntervalFilteringLogic:
     def test_filtered_timestamps_are_after_cutoff(self, snapshots):
         """Every snapshot in filtered results must have ts >= cutoff."""
         from datetime import timedelta
+
         for iv in self._enabled_intervals(snapshots):
             last_ts = self._parse_ts(snapshots[-1]["ts"])
             cutoff = last_ts - timedelta(hours=iv["hours"])
@@ -667,6 +723,7 @@ class TestIntervalFilteringLogic:
     def test_excluded_snapshots_are_before_cutoff(self, snapshots):
         """Snapshots NOT in filtered results must have ts < cutoff."""
         from datetime import timedelta
+
         for iv in self._enabled_intervals(snapshots):
             last_ts = self._parse_ts(snapshots[-1]["ts"])
             cutoff = last_ts - timedelta(hours=iv["hours"])
@@ -691,8 +748,9 @@ class TestIntervalFilteringLogic:
             "If this fails, the cutoff is likely using wall-clock time instead of "
             "the last snapshot timestamp."
         )
-        assert len(filtered) <= len(snapshots), \
+        assert len(filtered) <= len(snapshots), (
             "3h filter should not return more than total snapshots"
+        )
 
     def test_enabled_intervals_require_at_least_2_snapshots(self, snapshots):
         """Regression: intervals must be enabled only if >= 2 snapshots exist in range.
@@ -728,8 +786,9 @@ class TestIntervalEnablementSynthetic:
     @staticmethod
     def _make_snapshots(timestamps):
         """Create minimal snapshots from a list of ISO timestamp strings."""
-        return [{"ts": ts, "queues": {}, "total_waiting": 0, "total_running": 0}
-                for ts in timestamps]
+        return [
+            {"ts": ts, "queues": {}, "total_waiting": 0, "total_running": 0} for ts in timestamps
+        ]
 
     @staticmethod
     def _filter(snapshots, hours):
@@ -738,7 +797,8 @@ class TestIntervalEnablementSynthetic:
     @staticmethod
     def _enabled(snapshots):
         return [
-            iv for iv in TestIntervalFilteringLogic.INTERVALS
+            iv
+            for iv in TestIntervalFilteringLogic.INTERVALS
             if len(TestIntervalFilteringLogic._filter_snapshots(snapshots, iv["hours"])) >= 2
         ]
 
@@ -747,16 +807,17 @@ class TestIntervalEnablementSynthetic:
         snaps = self._make_snapshots(["2025-01-01T12:00:00Z"])
         enabled = self._enabled(snaps)
         assert len(enabled) == 0, (
-            f"Single snapshot should enable no intervals, got: "
-            f"{[iv['label'] for iv in enabled]}"
+            f"Single snapshot should enable no intervals, got: {[iv['label'] for iv in enabled]}"
         )
 
     def test_two_snapshots_1min_apart_enables_only_1h(self):
         """Two snapshots 1 minute apart: only 1h (and larger if they still capture both) enabled."""
-        snaps = self._make_snapshots([
-            "2025-01-01T12:00:00Z",
-            "2025-01-01T12:01:00Z",
-        ])
+        snaps = self._make_snapshots(
+            [
+                "2025-01-01T12:00:00Z",
+                "2025-01-01T12:01:00Z",
+            ]
+        )
         enabled = self._enabled(snaps)
         # All intervals >= 1h should include both snapshots (span is only 1 min)
         # so all intervals should be enabled
@@ -769,9 +830,12 @@ class TestIntervalEnablementSynthetic:
         the span is truly < 6h. With 5h span, 6h captures all 6 — so it IS enabled.
         But 1m, 14d, etc. that span more than the data should still be enabled too
         since they capture all snapshots."""
-        snaps = self._make_snapshots([
-            f"2025-01-01T{10+i:02d}:00:00Z" for i in range(6)  # 10:00 to 15:00
-        ])
+        snaps = self._make_snapshots(
+            [
+                f"2025-01-01T{10 + i:02d}:00:00Z"
+                for i in range(6)  # 10:00 to 15:00
+            ]
+        )
         enabled_labels = {iv["label"] for iv in self._enabled(snaps)}
         # 1h: cutoff at 14:00, captures 14:00 and 15:00 = 2 snapshots => enabled
         assert "1h" in enabled_labels
@@ -783,10 +847,12 @@ class TestIntervalEnablementSynthetic:
     def test_2_snapshots_4h_apart_disables_3h_if_only_1_in_range(self):
         """Two snapshots 4 hours apart: the 3h interval cutoff is at last-3h,
         which only captures the last snapshot (1 point) — should be disabled."""
-        snaps = self._make_snapshots([
-            "2025-01-01T10:00:00Z",
-            "2025-01-01T14:00:00Z",
-        ])
+        snaps = self._make_snapshots(
+            [
+                "2025-01-01T10:00:00Z",
+                "2025-01-01T14:00:00Z",
+            ]
+        )
         enabled_labels = {iv["label"] for iv in self._enabled(snaps)}
         # 3h: cutoff at 11:00, only 14:00 is after => 1 snapshot => disabled
         assert "3h" not in enabled_labels, (
@@ -799,14 +865,16 @@ class TestIntervalEnablementSynthetic:
         """Regression: the info banner must show the filtered data span, not the total.
         This test verifies the logic by checking that the filtered span for a small
         interval is less than the total span."""
-        snaps = self._make_snapshots([
-            "2025-01-01T10:00:00Z",
-            "2025-01-01T11:00:00Z",
-            "2025-01-01T12:00:00Z",
-            "2025-01-01T13:00:00Z",
-            "2025-01-01T14:00:00Z",
-            "2025-01-01T15:00:00Z",
-        ])
+        snaps = self._make_snapshots(
+            [
+                "2025-01-01T10:00:00Z",
+                "2025-01-01T11:00:00Z",
+                "2025-01-01T12:00:00Z",
+                "2025-01-01T13:00:00Z",
+                "2025-01-01T14:00:00Z",
+                "2025-01-01T15:00:00Z",
+            ]
+        )
         total_span_h = 5  # 10:00 to 15:00
         # 1h filter: cutoff at 14:00, gets 14:00 + 15:00
         filtered_1h = self._filter(snaps, 1)
@@ -843,7 +911,7 @@ class TestIntervalEnablementSynthetic:
                 if depth == 0:
                     break
             i += 1
-        fn_body = js[body_start:i + 1]
+        fn_body = js[body_start : i + 1]
         assert "infoBanner" in fn_body, (
             "updateChart() must update the infoBanner element. "
             "The banner should reflect the filtered data, not total."

@@ -21,6 +21,288 @@
  * is simpler and arguably safer than encryption keyed on a low-entropy
  * passphrase.
  */
+
+window.__OPS_CONTROL_V2_TESTBUILD__ = true;
+
+// Shared control-plane primitives. This module is loaded before Ready Tickets
+// and Admin, so all three views use one DOM, evidence, and accessibility
+// contract without adding a second global application framework.
+(function bootstrapOpsControlV2() {
+  if (window.OpsControlV2) return;
+  const h = window.el;
+  let activeDialog = null;
+
+  function append(parent, children) {
+    for (const child of (Array.isArray(children) ? children : [children])) {
+      if (child === null || child === undefined) continue;
+      parent.append(child && child.nodeType ? child : document.createTextNode(String(child)));
+    }
+    return parent;
+  }
+
+  function external(label, url, cls, title) {
+    if (!url) return h('span', { cls: 'ocv2-unavailable', text: label || 'Source unavailable' });
+    return h('a', {
+      cls: 'ocv2-source-link ' + (cls || ''),
+      text: label || 'Open source',
+      href: url,
+      target: '_blank',
+      rel: 'noopener',
+      title: title || ('Open ' + (label || 'source')),
+    });
+  }
+
+  function internal(label, url, cls, title) {
+    if (!url) return h('span', { cls: 'ocv2-unavailable', text: label || 'Destination unavailable' });
+    return h('a', {
+      cls: 'ocv2-button ' + (cls || ''),
+      text: label,
+      href: url,
+      title: title || label,
+    });
+  }
+
+  function button(label, onClick, tone, title) {
+    const node = h('button', {
+      cls: 'ocv2-button ' + (tone || ''),
+      text: label,
+      type: 'button',
+      title: title || label,
+    });
+    if (onClick) node.addEventListener('click', onClick);
+    return node;
+  }
+
+  function linkButton(label, onClick, title) {
+    const node = h('button', {
+      cls: 'ocv2-link-button',
+      text: label,
+      type: 'button',
+      title: title || label,
+    });
+    node.addEventListener('click', onClick);
+    return node;
+  }
+
+  function toneForState(raw) {
+    const state = String(raw || '').toLowerCase();
+    if (['passed', 'success', 'green', 'live', 'fixed', 'recovered'].includes(state)) return 'is-success';
+    if (['failed', 'broken', 'timed_out', 'red', 'paused', 'rejected'].includes(state)) return 'is-danger';
+    if (['scheduled', 'running', 'waiting', 'warning', 'dry_run', 'pending'].includes(state)) return 'is-warning';
+    if (['info', 'approved', 'tracked'].includes(state)) return 'is-info';
+    return '';
+  }
+
+  function badge(label, tone) {
+    return h('span', {
+      cls: 'ocv2-badge ' + (tone || toneForState(label)),
+      text: label || 'unknown',
+    });
+  }
+
+  function page(container, options) {
+    const panel = container.closest('.tab-panel');
+    if (panel) panel.classList.add('ops-page', 'ops-control-page');
+    container.className = 'ocv2-view';
+    container.setAttribute('data-ops-control-view', options.id || 'control');
+    container.innerHTML = '';
+
+    const header = h('header', { cls: 'ocv2-header' });
+    const main = h('div', { cls: 'ocv2-header-main' });
+    append(main, [
+      h('div', { cls: 'ocv2-eyebrow', text: options.eyebrow || 'AMD CI OPERATIONS' }),
+      h('h1', { cls: 'ocv2-title', text: options.title }),
+      options.description ? h('p', { cls: 'ocv2-description', text: options.description }) : null,
+      options.observed ? h('div', { cls: 'ocv2-observed', text: options.observed }) : null,
+    ]);
+    header.append(main);
+    if (options.actions) {
+      append(header, h('div', { cls: 'ocv2-header-actions' }, Array.isArray(options.actions) ? options.actions : [options.actions]));
+    }
+    container.append(header);
+    return container;
+  }
+
+  function panel(title, meta, content, extraClass) {
+    const root = h('section', { cls: 'ocv2-panel ' + (extraClass || '') });
+    const header = h('div', { cls: 'ocv2-panel-header' });
+    append(header, [
+      h('h2', { cls: 'ocv2-panel-title', text: title }),
+      meta ? h('div', { cls: 'ocv2-panel-meta', text: meta }) : null,
+    ]);
+    const body = h('div', { cls: 'ocv2-panel-body' });
+    append(body, content || []);
+    append(root, [header, body]);
+    return { root, body, header };
+  }
+
+  function state(kind, title, message, actions) {
+    const root = h('div', { cls: 'ocv2-state ' + (kind || '') });
+    append(root, [h('strong', { text: title }), h('span', { text: message })]);
+    if (actions) append(root, h('div', { cls: 'ocv2-actions' }, Array.isArray(actions) ? actions : [actions]));
+    return root;
+  }
+
+  function kpis(items) {
+    const root = h('section', { cls: 'ocv2-kpis', 'aria-label': 'Operational summary' });
+    for (const item of items) {
+      let cell;
+      if (item.onClick) {
+        cell = h('button', { cls: 'ocv2-kpi ' + (item.tone || ''), type: 'button', title: item.title || item.label });
+        cell.addEventListener('click', item.onClick);
+      } else if (item.href) {
+        cell = h('a', { cls: 'ocv2-kpi ' + (item.tone || ''), href: item.href, target: item.external ? '_blank' : null, rel: item.external ? 'noopener' : null });
+      } else {
+        cell = h('div', { cls: 'ocv2-kpi ' + (item.tone || '') });
+      }
+      append(cell, [
+        h('span', { cls: 'ocv2-kpi-label', text: item.label }),
+        h('strong', { cls: 'ocv2-kpi-value', text: item.value === null || item.value === undefined ? '-' : String(item.value) }),
+        item.meta ? h('span', { cls: 'ocv2-kpi-meta', text: item.meta }) : null,
+      ]);
+      root.append(cell);
+    }
+    return root;
+  }
+
+  function table(columns, rows, options) {
+    options = options || {};
+    const wrap = h('div', { cls: 'ocv2-table-wrap' });
+    if (options.scrollCue) {
+      wrap.classList.add('has-scroll-cue');
+      wrap.append(h('div', {
+        cls: 'ocv2-scroll-cue',
+        text: 'Scroll horizontally for all columns \u2192',
+      }));
+    }
+    const node = h('table', { cls: 'ocv2-table ' + (options.compact ? 'is-compact' : '') });
+    if (options.caption) node.append(h('caption', { text: options.caption }));
+    const head = h('thead');
+    const headerRow = h('tr');
+    for (const column of columns) {
+      const th = h('th', { cls: column.numeric ? 'is-numeric' : '', scope: 'col' });
+      append(th, column.header ? column.header() : column.label);
+      headerRow.append(th);
+    }
+    head.append(headerRow);
+    const body = h('tbody');
+    for (const row of rows) {
+      const tr = h('tr');
+      for (const column of columns) {
+        const td = h('td', { cls: [column.numeric ? 'is-numeric' : '', column.nowrap ? 'is-nowrap' : '', column.cls || ''].join(' ') });
+        const value = column.render ? column.render(row) : row[column.key];
+        append(td, value === null || value === undefined || value === '' ? h('span', { cls: 'ocv2-unavailable', text: '-' }) : value);
+        tr.append(td);
+      }
+      body.append(tr);
+    }
+    append(node, [head, body]);
+    wrap.append(node);
+    if (!rows.length) wrap.append(state('', 'No matching evidence', options.empty || 'Adjust the filters or wait for the next collector run.'));
+    return wrap;
+  }
+
+  function closeDialog() {
+    if (!activeDialog) return;
+    const prior = activeDialog.trigger;
+    activeDialog.root.remove();
+    activeDialog = null;
+    document.body.classList.remove('ocv2-dialog-open');
+    if (prior && prior.focus) prior.focus();
+  }
+
+  function dialog(title, subtitle, content) {
+    closeDialog();
+    const trigger = document.activeElement;
+    const backdrop = h('div', { cls: 'ocv2-dialog-backdrop' });
+    const shell = h('section', { cls: 'ocv2-dialog', role: 'dialog', 'aria-modal': 'true' });
+    const titleId = 'ocv2-dialog-title-' + Date.now();
+    shell.setAttribute('aria-labelledby', titleId);
+    const header = h('header', { cls: 'ocv2-dialog-header' });
+    const heading = h('div');
+    append(heading, [
+      h('h2', { cls: 'ocv2-dialog-title', text: title, id: titleId }),
+      subtitle ? h('p', { cls: 'ocv2-dialog-subtitle', text: subtitle }) : null,
+    ]);
+    const close = h('button', { cls: 'ocv2-dialog-close', text: '\u00d7', type: 'button', 'aria-label': 'Close dialog', title: 'Close dialog' });
+    close.addEventListener('click', closeDialog);
+    append(header, [heading, close]);
+    const body = h('div', { cls: 'ocv2-dialog-body ops-page' });
+    append(body, content);
+    append(shell, [header, body]);
+    backdrop.append(shell);
+    backdrop.addEventListener('click', function(event) { if (event.target === backdrop) closeDialog(); });
+    backdrop.addEventListener('keydown', function(event) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeDialog();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = Array.from(shell.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    });
+    document.body.append(backdrop);
+    document.body.classList.add('ocv2-dialog-open');
+    activeDialog = { root: backdrop, trigger };
+    close.focus();
+    return { root: backdrop, body, close: closeDialog };
+  }
+
+  function definitionList(items) {
+    const list = h('dl', { cls: 'ocv2-definition-list' });
+    for (const item of items) append(list, [h('dt', { text: item.label }), h('dd', {}, [item.value && item.value.nodeType ? item.value : String(item.value || '-')])]);
+    return list;
+  }
+
+  function timeline(items) {
+    const root = h('div', { cls: 'ocv2-timeline' });
+    for (const item of items) {
+      const row = h('div', { cls: 'ocv2-timeline-row' });
+      append(row, [
+        h('span', { cls: 'ocv2-timeline-date', text: item.date || 'Unavailable' }),
+        h('span', { cls: 'ocv2-timeline-dot ' + (item.tone || ''), 'aria-hidden': 'true' }),
+        h('span', { text: item.label }),
+      ]);
+      root.append(row);
+    }
+    return root;
+  }
+
+  function field(label, control, wide) {
+    const root = h('label', { cls: 'ocv2-field ' + (wide ? 'is-wide' : '') });
+    append(root, [h('span', { cls: 'ocv2-field-label', text: label }), control]);
+    return root;
+  }
+
+  function setStatus(node, message, tone) {
+    node.className = 'ocv2-status-line ' + (tone || '');
+    node.textContent = message || '';
+  }
+
+  function githubUser(login) {
+    return login ? 'https://github.com/' + encodeURIComponent(String(login).replace(/^@/, '')) : '';
+  }
+
+  function githubCommit(repo, sha) {
+    return repo && sha && sha !== 'HEAD' ? 'https://github.com/' + repo + '/commit/' + encodeURIComponent(sha) : '';
+  }
+
+  function githubBranch(repo, branch) {
+    return repo && branch ? 'https://github.com/' + repo + '/tree/' + encodeURIComponent(branch) : '';
+  }
+
+  window.OpsControlV2 = {
+    h, append, external, internal, button, linkButton, badge, toneForState, page, panel,
+    state, kpis, table, dialog, closeDialog, definitionList, timeline, field,
+    setStatus, githubUser, githubCommit, githubBranch,
+  };
+})();
+
 (function() {
   const _s = getComputedStyle(document.documentElement);
   const C = {
@@ -676,6 +958,7 @@
   }
 
   async function render() {
+    if (window.__OPS_CONTROL_V2_TESTBUILD__) return;
     const container = document.getElementById('ci-testbuild-view');
     if (!container) return;
     // Auth gate — Test Build dispatches real Buildkite builds via the
@@ -716,16 +999,590 @@
     await renderRegistryList(container, state);
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', render);
-  } else {
-    render();
+  window.OpsTestBuildActions = {
+    BK_NAME,
+    DEFAULT_ENV,
+    getPAT,
+    getBKToken,
+    setBKToken,
+    clearBKToken,
+    vaultReady,
+    vault: _vault,
+    ghJson,
+    patchBaseImage,
+    createBuildkiteBuild,
+    dispatchWorkflow,
+    loadRegistry,
+    loadComparison,
+    deleteBranch,
+  };
+
+  // Lifecycle registration intentionally belongs only to the v2 renderer.
+})();
+
+(function renderTestBuildControlV2() {
+  'use strict';
+  window.__OPS_CONTROL_V2_TESTBUILD__ = true;
+
+  const ui = window.OpsControlV2;
+  const h = window.el;
+  const actions = window.OpsTestBuildActions;
+  const BK_NAME = actions.BK_NAME;
+  const DEFAULT_ENV = actions.DEFAULT_ENV;
+  const getPAT = actions.getPAT;
+  const getBKToken = actions.getBKToken;
+  const setBKToken = actions.setBKToken;
+  const clearBKToken = actions.clearBKToken;
+  const vaultReady = actions.vaultReady;
+  const _vault = actions.vault;
+  const ghJson = actions.ghJson;
+  const patchBaseImage = actions.patchBaseImage;
+  const createBuildkiteBuild = actions.createBuildkiteBuild;
+  const dispatchWorkflow = actions.dispatchWorkflow;
+  const loadRegistry = actions.loadRegistry;
+  const loadComparison = actions.loadComparison;
+  const deleteBranch = actions.deleteBranch;
+  const UPSTREAM_REPO = 'vllm-project/vllm';
+  const BK_PIPELINE_URL = 'https://buildkite.com/vllm/amd-ci';
+  let renderSeq = 0;
+  const ledgerState = { query: '', state: 'all', result: 'all', limit: 25 };
+
+  function input(props) {
+    return h('input', Object.assign({ cls: 'ocv2-input' }, props || {}));
   }
 
-  // Re-render when the tab becomes active.
-  document.addEventListener('click', (e) => {
-    const btn = e.target.closest && e.target.closest('[data-tab="ci-testbuild"]');
-    if (btn) setTimeout(render, 50);
+  function select(options, value, label) {
+    const node = h('select', { cls: 'ocv2-select', 'aria-label': label });
+    for (const option of options) {
+      const item = h('option', { value: option.value, text: option.label });
+      item.selected = option.value === value;
+      node.append(item);
+    }
+    return node;
+  }
+
+  function textarea(props) {
+    return h('textarea', Object.assign({ cls: 'ocv2-textarea' }, props || {}));
+  }
+
+  function isActiveState(raw) {
+    return ['running', 'scheduled', 'creating', 'assigned', 'waiting', 'limiting', 'canceling'].includes(String(raw || '').toLowerCase());
+  }
+
+  function entryRepo(entry) {
+    return entry.fork_repo || UPSTREAM_REPO;
+  }
+
+  function imageSourceUrl(image) {
+    const raw = String(image || '').trim();
+    if (!raw) return '';
+    if (/^https?:\/\//i.test(raw)) return raw;
+    const withoutDigest = raw.split('@')[0];
+    const lastSlash = withoutDigest.lastIndexOf('/');
+    const colon = withoutDigest.lastIndexOf(':');
+    const path = colon > lastSlash ? withoutDigest.slice(0, colon) : withoutDigest;
+    const tag = colon > lastSlash ? withoutDigest.slice(colon + 1) : '';
+    if (path.startsWith('ghcr.io/')) {
+      const bits = path.slice('ghcr.io/'.length).split('/');
+      if (bits.length >= 2) return 'https://github.com/orgs/' + encodeURIComponent(bits[0]) + '/packages/container/package/' + encodeURIComponent(bits.slice(1).join('/'));
+    }
+    if (!path.includes('.') && path.includes('/')) {
+      return 'https://hub.docker.com/r/' + path + '/tags' + (tag ? '?name=' + encodeURIComponent(tag) : '');
+    }
+    return '';
+  }
+
+  function revisionLinks(entry) {
+    const root = h('div', { cls: 'ocv2-source-list' });
+    const repo = entryRepo(entry);
+    if (entry.commit && entry.commit !== 'HEAD') {
+      root.append(ui.external(String(entry.commit).slice(0, 10), ui.githubCommit(repo, entry.commit), 'ocv2-mono', 'Open commit'));
+    } else {
+      root.append(h('span', { cls: 'ocv2-unavailable', text: 'Commit unresolved' }));
+    }
+    if (entry.branch) root.append(ui.external(entry.branch, ui.githubBranch(repo, entry.branch), 'ocv2-mono', 'Open branch'));
+    const prUrl = entry.pr_url || entry.pull_request_url || '';
+    if (prUrl) root.append(ui.external('PR', prUrl, '', 'Open pull request'));
+    return root;
+  }
+
+  function baseImageEvidence(entry) {
+    if (!entry.base_image) return h('span', { cls: 'ocv2-unavailable', text: 'No override' });
+    const url = entry.base_image_url || imageSourceUrl(entry.base_image);
+    if (url) return ui.external(entry.base_image, url, 'ocv2-mono', 'Open image source');
+    const root = h('div');
+    ui.append(root, [
+      h('code', { cls: 'ocv2-mono', text: entry.base_image }),
+      h('div', { cls: 'ocv2-unavailable', text: 'Registry source URL unavailable' }),
+    ]);
+    return root;
+  }
+
+  async function credentialReadiness() {
+    const pat = getPAT();
+    const unlocked = vaultReady();
+    const vault = _vault();
+    const stored = !!(unlocked && vault && vault.has(BK_NAME));
+    const bkToken = stored ? await getBKToken() : '';
+    if (!pat) {
+      return {
+        ready: false,
+        pat: '',
+        bkToken,
+        unlocked,
+        stored,
+        message: 'Launch unavailable: the GitHub credential is not in memory. Sign in again.',
+      };
+    }
+    if (!unlocked) {
+      return {
+        ready: false,
+        pat,
+        bkToken: '',
+        unlocked: false,
+        stored: false,
+        message: 'Launch unavailable: the credential vault is locked. Sign in again.',
+      };
+    }
+    if (!bkToken) {
+      return {
+        ready: false,
+        pat,
+        bkToken: '',
+        unlocked: true,
+        stored: false,
+        message: 'Launch unavailable: save a Buildkite token with write_builds access.',
+      };
+    }
+    return {
+      ready: true,
+      pat,
+      bkToken,
+      unlocked: true,
+      stored: true,
+      message: 'Launch credentials ready: GitHub and Buildkite tokens are available in memory.',
+    };
+  }
+
+  function credentialPanel(state) {
+    const stack = h('div', { cls: 'ocv2-stack' });
+    const credentials = state.credentials;
+    const pat = credentials.pat;
+    const patState = ui.state(
+      pat ? 'is-success' : 'is-warning',
+      'GitHub session token',
+      pat ? 'Available in memory for workflow dispatch and optional fork operations.' : 'Unavailable after reload. Sign in again before launching.'
+    );
+    stack.append(patState);
+
+    const unlocked = credentials.unlocked;
+    const present = credentials.stored && !!credentials.bkToken;
+    const tokenPanel = ui.panel('Buildkite credential', present ? 'Encrypted in the local vault' : 'Required to launch', []);
+    if (!unlocked) {
+      tokenPanel.body.append(ui.state('is-warning', 'Vault locked', 'Sign in again to unlock the local Buildkite credential vault.'));
+    } else if (present) {
+      tokenPanel.body.append(ui.state('is-success', 'Buildkite token available', 'Build creation will use your Buildkite identity.'));
+      tokenPanel.body.append(ui.button('Clear saved token', async function() {
+        try { await clearBKToken(); } catch (_) {}
+        state.render();
+      }, '', 'Remove the encrypted Buildkite token'));
+    } else {
+      const tokenInput = input({ type: 'password', placeholder: 'Buildkite API token', autocomplete: 'off', 'aria-label': 'Buildkite API token' });
+      const save = ui.button('Save token', async function() {
+        const value = tokenInput.value.trim();
+        if (!value) return;
+        save.disabled = true;
+        try { await setBKToken(value); state.render(); }
+        catch (error) { ui.dialog('Credential error', 'Buildkite token was not saved', ui.state('is-danger', 'Could not save token', error.message || 'Unknown vault error.')); }
+        finally { save.disabled = false; }
+      }, 'is-primary');
+      ui.append(tokenPanel.body, [
+        ui.field('Buildkite API token', tokenInput, true),
+        h('p', { cls: 'ocv2-help', text: 'Requires write_builds access to vllm/amd-ci. It remains AES-GCM encrypted in the local vault.' }),
+        h('div', { cls: 'ocv2-actions' }, [save]),
+      ]);
+    }
+    stack.append(tokenPanel.root);
+    return stack;
+  }
+
+  function launchPanel(state) {
+    const formPanel = ui.panel('Launch a test build', 'Creates a vllm/amd-ci build under your Buildkite identity', []);
+    const form = h('form');
+    const grid = h('div', { cls: 'ocv2-form-grid' });
+    const message = input({ placeholder: 'Describe the hypothesis or patch being tested' });
+    const commit = input({ value: 'HEAD', placeholder: 'HEAD or commit SHA' });
+    const branch = input({ value: 'main', placeholder: 'Branch name' });
+    const env = textarea({ value: DEFAULT_ENV, 'aria-label': 'Environment variables' });
+    const forkRepo = input({ placeholder: UPSTREAM_REPO });
+    const baseImage = input({ placeholder: 'rocm/vllm-dev:tag' });
+    const forkField = ui.field('Fork repository', forkRepo, true);
+    forkField.classList.add('ocv2-hidden');
+
+    ui.append(grid, [
+      ui.field('Message', message, true),
+      ui.field('Commit', commit),
+      ui.field('Branch', branch),
+      forkField,
+      ui.field('Environment variables', env, true),
+    ]);
+    form.append(grid);
+
+    const clean = h('input', { type: 'checkbox' });
+    const cleanup = select([
+      { value: 'never', label: 'Never' },
+      { value: 'on_success', label: 'After a passing build' },
+      { value: 'always', label: 'After any terminal build' },
+    ], 'never', 'Cleanup branch policy');
+    const options = h('div', { cls: 'ocv2-form-grid ocv2-build-options' });
+    const cleanLabel = h('label', { cls: 'ocv2-check-row' });
+    ui.append(cleanLabel, [clean, h('span', { text: 'Clean checkout' })]);
+    const cleanField = h('div', { cls: 'ocv2-field' });
+    ui.append(cleanField, [h('span', { cls: 'ocv2-field-label', text: 'Checkout' }), cleanLabel]);
+    ui.append(options, [cleanField, ui.field('Cleanup policy', cleanup)]);
+    form.append(options);
+
+    const imageSection = h('section', { cls: 'ocv2-subsection' });
+    const imageHeader = h('div', { cls: 'ocv2-subsection-header' });
+    imageHeader.append(h('strong', { text: 'Base image override' }));
+    const imageToggle = ui.button('Enable', null, '', 'Enable base image patch workflow');
+    imageHeader.append(imageToggle);
+    const imageBody = h('div', { cls: 'ocv2-hidden' });
+    ui.append(imageBody, [
+      h('p', { cls: 'ocv2-help', text: 'This can create a fork branch that patches docker/Dockerfile.rocm. The dashboard records the requested branch and commit; verify the checked-out revision in Buildkite because fork access is controlled by the pipeline.' }),
+      ui.field('Base image', baseImage, true),
+    ]);
+    ui.append(imageSection, [imageHeader, imageBody]);
+    form.append(imageSection);
+
+    let imageEnabled = false;
+    imageToggle.addEventListener('click', function() {
+      imageEnabled = !imageEnabled;
+      imageToggle.textContent = imageEnabled ? 'Disable' : 'Enable';
+      imageBody.classList.toggle('ocv2-hidden', !imageEnabled);
+      forkField.classList.toggle('ocv2-hidden', !imageEnabled);
+    });
+
+    const status = h('div', { cls: 'ocv2-status-line', role: 'status', 'aria-live': 'polite' });
+    const submit = ui.button('Launch build', null, 'is-primary');
+    submit.disabled = !state.credentials.ready;
+    submit.title = state.credentials.ready ? 'Launch the configured Buildkite build' : state.credentials.message;
+    ui.setStatus(status, state.credentials.message, state.credentials.ready ? 'is-success' : 'is-danger');
+    form.addEventListener('submit', async function(event) {
+      event.preventDefault();
+      const credentials = await credentialReadiness();
+      if (!credentials.ready) {
+        submit.disabled = true;
+        submit.title = credentials.message;
+        ui.setStatus(status, credentials.message, 'is-danger');
+        return;
+      }
+      const pat = credentials.pat;
+      const bkToken = credentials.bkToken;
+      submit.disabled = true;
+      submit.textContent = 'Launching...';
+      ui.setStatus(status, 'Preparing build request...', '');
+      try {
+        let finalBranch = (branch.value || 'main').trim();
+        let finalCommit = (commit.value || 'HEAD').trim();
+        const image = imageEnabled ? baseImage.value.trim() : '';
+        let finalForkRepo = image ? forkRepo.value.trim() : '';
+        if (image) {
+          if (!finalForkRepo) {
+            ui.setStatus(status, 'Resolving authenticated GitHub account...', '');
+            const me = await ghJson(pat, '/user');
+            if (!me.ok) throw new Error('Could not resolve the authenticated GitHub account: HTTP ' + me.status);
+            finalForkRepo = me.data.login + '/vllm';
+          }
+          ui.setStatus(status, 'Creating the requested fork patch...', '');
+          const patched = await patchBaseImage(pat, finalForkRepo, image, finalBranch, finalCommit);
+          finalBranch = patched.branch;
+          finalCommit = patched.commit;
+        }
+
+        const envMap = { NIGHTLY: '1', DOCS_ONLY_DISABLE: '1', AMD_MIRROR_HW: 'amdexperimental' };
+        for (const line of (env.value || '').split('\n')) {
+          const raw = line.trim();
+          if (!raw || raw.startsWith('#')) continue;
+          const separator = raw.indexOf('=');
+          if (separator < 0) continue;
+          envMap[raw.slice(0, separator).trim()] = raw.slice(separator + 1).trim();
+        }
+        if (image) envMap.BASE_IMAGE_OVERRIDE = image;
+
+        ui.setStatus(status, 'Creating Buildkite build...', '');
+        const build = await createBuildkiteBuild(bkToken, {
+          commit: finalCommit || 'HEAD',
+          branch: finalBranch || 'main',
+          message: message.value || 'Test build (project-dashboard)',
+          env: envMap,
+          clean_checkout: !!clean.checked,
+        });
+        const branchRef = (finalForkRepo || UPSTREAM_REPO) + ':' + finalBranch;
+        ui.setStatus(status, 'Registering Buildkite #' + build.number + '...', '');
+        await dispatchWorkflow(pat, {
+          build_number: String(build.number),
+          web_url: build.web_url || '',
+          commit: build.commit || finalCommit,
+          message: message.value || 'Test build',
+          branch: finalBranch,
+          env_vars: env.value || '',
+          clean_checkout: clean.checked,
+          fork_repo: finalForkRepo,
+          branch_ref: branchRef,
+          base_image: image,
+          cleanup_mode: cleanup.value,
+        });
+        ui.setStatus(status, 'Buildkite #' + build.number + ' launched. Registry evidence appears after the next collector refresh.', 'is-success');
+        state.reloadLedger();
+      } catch (error) {
+        console.error(error);
+        ui.setStatus(status, 'Launch failed: ' + (error.message || 'Unknown error'), 'is-danger');
+      } finally {
+        const currentCredentials = await credentialReadiness();
+        submit.disabled = !currentCredentials.ready;
+        submit.title = currentCredentials.ready ? 'Launch the configured Buildkite build' : currentCredentials.message;
+        submit.textContent = 'Launch build';
+        if (!currentCredentials.ready) ui.setStatus(status, currentCredentials.message, 'is-danger');
+      }
+    });
+    submit.type = 'submit';
+    ui.append(form, [status, h('div', { cls: 'ocv2-actions' }, [submit])]);
+    formPanel.body.append(form);
+    return formPanel.root;
+  }
+
+  function categoryRows(comparison, key) {
+    const map = {
+      new_fail: comparison.new_fail_tests,
+      new_pass: comparison.new_pass_tests,
+      common_fail: comparison.common_fail_tests,
+    };
+    return Array.isArray(map[key]) ? map[key] : [];
+  }
+
+  function renderComparisonDialogBody(body, entry, comparison) {
+    body.innerHTML = '';
+    const summary = comparison.summary || {};
+    const evidenceHost = h('div', { cls: 'ocv2-stack' });
+
+    function showCategory(key, label) {
+      evidenceHost.innerHTML = '';
+      const rows = categoryRows(comparison, key);
+      if (!rows.length) {
+        evidenceHost.append(ui.state('is-info', label, 'This collector snapshot retains the aggregate count but no item-level records for this category. Use the source build for exact logs.', [ui.external('Open source build', entry.web_url)]));
+        return;
+      }
+      evidenceHost.append(ui.table([
+        { label: 'Test identifier', render: function(row) { return h('code', { cls: 'ocv2-mono', text: row }); } },
+        { label: 'Source', render: function() { return ui.external('Build #' + entry.build_number, entry.web_url); } },
+      ], rows, { compact: true, caption: rows.length + ' retained test identifiers' }));
+    }
+
+    body.append(ui.kpis([
+      { label: 'Common pass', value: summary.common_pass || 0, meta: 'green in both', onClick: function() { showCategory('common_pass', 'Common passing tests'); } },
+      { label: 'Common fail', value: summary.common_fail || 0, meta: 'failed in both', tone: Number(summary.common_fail) ? 'is-warning' : '', onClick: function() { showCategory('common_fail', 'Common failing tests'); } },
+      { label: 'New fail', value: summary.new_fail || 0, meta: 'test-build regressions', tone: Number(summary.new_fail) ? 'is-danger' : 'is-success', onClick: function() { showCategory('new_fail', 'New failing tests'); } },
+      { label: 'New pass', value: summary.new_pass || 0, meta: 'recovered versus baseline', tone: Number(summary.new_pass) ? 'is-success' : '', onClick: function() { showCategory('new_pass', 'New passing tests'); } },
+      { label: 'Only in test', value: summary.only_in_test || 0, meta: 'aggregate only', onClick: function() { showCategory('only_in_test', 'Tests only in this build'); } },
+      { label: 'Only in nightly', value: summary.only_in_nightly || 0, meta: 'aggregate only', onClick: function() { showCategory('only_in_nightly', 'Tests only in the nightly baseline'); } },
+    ]));
+
+    const sourcePanel = ui.panel('Source provenance', 'Known source links from the registry', []);
+    const sourceLinks = h('div', { cls: 'ocv2-source-list' });
+    sourceLinks.append(ui.external('Build #' + entry.build_number, entry.web_url));
+    const repo = entryRepo(entry);
+    if (entry.commit && entry.commit !== 'HEAD') sourceLinks.append(ui.external('Commit ' + String(entry.commit).slice(0, 10), ui.githubCommit(repo, entry.commit), 'ocv2-mono'));
+    if (entry.branch) sourceLinks.append(ui.external('Branch ' + entry.branch, ui.githubBranch(repo, entry.branch), 'ocv2-mono'));
+    if (entry.pr_url || entry.pull_request_url) sourceLinks.append(ui.external('Pull request', entry.pr_url || entry.pull_request_url));
+    sourcePanel.body.append(sourceLinks);
+    sourcePanel.body.append(ui.state('is-info', 'Nightly baseline: ' + (comparison.baseline_date || entry.baseline_date || 'unavailable'), 'The comparison payload does not retain an exact baseline Buildkite URL. The date and aggregate are shown without inventing a source link.'));
+    body.append(sourcePanel.root);
+
+    const groups = (comparison.groups || []).slice().sort(function(a, b) {
+      return Number(b.new_fail || 0) - Number(a.new_fail || 0) || Number(b.test_total || 0) - Number(a.test_total || 0);
+    });
+    const groupPanel = ui.panel('Group comparison', groups.length + ' retained groups', []);
+    groupPanel.body.classList.add('is-flush');
+    groupPanel.body.append(ui.table([
+      { label: 'Test group', render: function(row) { return ui.external(row.group || 'Unknown group', entry.web_url); } },
+      { label: 'Test pass/fail', numeric: true, render: function(row) { return (row.test_pass || 0) + ' / ' + (row.test_fail || 0); } },
+      { label: 'Nightly pass/fail', numeric: true, render: function(row) { return (row.nightly_pass || 0) + ' / ' + (row.nightly_fail || 0); } },
+      { label: 'New fail', numeric: true, render: function(row) { return ui.linkButton(String(row.new_fail || 0), function() { showCategory('new_fail', 'New failing tests'); }); } },
+      { label: 'New pass', numeric: true, render: function(row) { return ui.linkButton(String(row.new_pass || 0), function() { showCategory('new_pass', 'New passing tests'); }); } },
+      { label: 'Test time', numeric: true, render: function(row) { return row.test_duration ? (row.test_duration / 60).toFixed(1) + 'm' : h('span', { cls: 'ocv2-unavailable', text: '-' }); } },
+      { label: 'Delta', numeric: true, render: function(row) { const delta = Number(row.duration_delta || 0); return delta ? (delta > 0 ? '+' : '') + (delta / 60).toFixed(1) + 'm' : '-'; } },
+      { label: 'Evidence', render: function() { return ui.external('Logs', entry.web_url); } },
+    ], groups, { caption: 'Per-group aggregates. Exact job URLs are not retained in this comparison payload.' }));
+    body.append(groupPanel.root, evidenceHost);
+    if (Number(summary.new_fail || 0)) showCategory('new_fail', 'New failing tests');
+    else if (Number(summary.common_fail || 0)) showCategory('common_fail', 'Common failing tests');
+  }
+
+  async function inspectComparison(entry) {
+    const loading = ui.state('', 'Loading comparison evidence', 'Fetching the retained comparison payload.');
+    const opened = ui.dialog('Test Build #' + entry.build_number, entry.message || 'Nightly comparison evidence', loading);
+    const comparison = await loadComparison(entry.id);
+    if (!opened.root.isConnected) return;
+    if (!comparison) {
+      opened.body.innerHTML = '';
+      opened.body.append(ui.state('is-warning', 'Comparison evidence unavailable', 'The registry marks this build as collected, but comparison.json could not be loaded.', [ui.external('Open Buildkite build', entry.web_url)]));
+      return;
+    }
+    renderComparisonDialogBody(opened.body, entry, comparison);
+  }
+
+  async function cleanupEntry(entry, trigger) {
+    const pat = getPAT();
+    if (!pat) { ui.dialog('Cleanup unavailable', '', ui.state('is-warning', 'GitHub session token unavailable', 'Sign in again before deleting a managed branch.')); return; }
+    if (!entry.fork_repo || !entry.branch || !String(entry.branch).startsWith('test-image/')) return;
+    if (!confirm('Delete managed branch ' + entry.fork_repo + ':' + entry.branch + '?')) return;
+    trigger.disabled = true;
+    try {
+      await deleteBranch(pat, entry.fork_repo, entry.branch);
+      ui.dialog('Branch cleanup complete', 'Explicit operator action', ui.state('is-success', 'Managed branch deleted', entry.fork_repo + ':' + entry.branch, [ui.external('Open repository', 'https://github.com/' + entry.fork_repo)]));
+    } catch (error) {
+      ui.dialog('Branch cleanup failed', '', ui.state('is-danger', 'GitHub rejected the deletion', error.message || 'Unknown cleanup error.'));
+      trigger.disabled = false;
+    }
+  }
+
+  function ledgerPanel(rows) {
+    const total = rows.length;
+    const active = rows.filter(function(row) { return isActiveState(row.state); }).length;
+    const ready = rows.filter(function(row) { return row.results_fetched && row.comparison; }).length;
+    const regressions = rows.filter(function(row) { return Number((row.comparison || {}).new_fail || 0) > 0; }).length;
+    const root = h('div', { cls: 'ocv2-stack' });
+    const tableHost = h('div');
+
+    function setFilter(kind) {
+      if (kind === 'all') { ledgerState.state = 'all'; ledgerState.result = 'all'; }
+      if (kind === 'active') ledgerState.state = 'active';
+      if (kind === 'ready') ledgerState.result = 'ready';
+      if (kind === 'regression') ledgerState.result = 'regression';
+      stateFilter.value = ledgerState.state;
+      resultFilter.value = ledgerState.result;
+      renderRows();
+      tableHost.scrollIntoView({ block: 'nearest' });
+    }
+
+    root.append(ui.kpis([
+      { label: 'Registered builds', value: total, meta: 'retained ledger', onClick: function() { setFilter('all'); } },
+      { label: 'Active', value: active, meta: 'scheduled or running', tone: active ? 'is-warning' : 'is-success', onClick: function() { setFilter('active'); } },
+      { label: 'Comparisons ready', value: ready, meta: 'inspectable evidence', tone: ready ? 'is-info' : '', onClick: function() { setFilter('ready'); } },
+      { label: 'With regressions', value: regressions, meta: 'new failing tests', tone: regressions ? 'is-danger' : 'is-success', onClick: function() { setFilter('regression'); } },
+    ]));
+
+    const panel = ui.panel('Build ledger', total + ' registered custom builds', []);
+    const toolbar = h('div', { cls: 'ocv2-toolbar' });
+    const search = input({ type: 'search', placeholder: 'Filter build, message, revision, requester', value: ledgerState.query, 'aria-label': 'Filter test builds' });
+    const stateFilter = select([
+      { value: 'all', label: 'All states' }, { value: 'active', label: 'Active' },
+      { value: 'passed', label: 'Passed' }, { value: 'failed', label: 'Failed' },
+    ], ledgerState.state, 'Filter by build state');
+    const resultFilter = select([
+      { value: 'all', label: 'All evidence' }, { value: 'ready', label: 'Comparison ready' },
+      { value: 'regression', label: 'Has regressions' }, { value: 'unavailable', label: 'Evidence unavailable' },
+    ], ledgerState.result, 'Filter by comparison evidence');
+    const limit = select([
+      { value: '25', label: '25 rows' }, { value: '50', label: '50 rows' }, { value: 'all', label: 'All rows' },
+    ], String(ledgerState.limit), 'Rows to display');
+    ui.append(toolbar, [search, stateFilter, resultFilter, limit]);
+    panel.body.append(toolbar, tableHost);
+
+    function renderRows() {
+      ledgerState.query = search.value.trim().toLowerCase();
+      ledgerState.state = stateFilter.value;
+      ledgerState.result = resultFilter.value;
+      ledgerState.limit = limit.value === 'all' ? 'all' : Number(limit.value);
+      let filtered = rows.filter(function(entry) {
+        if (ledgerState.state === 'active' && !isActiveState(entry.state)) return false;
+        if (ledgerState.state === 'passed' && String(entry.state).toLowerCase() !== 'passed') return false;
+        if (ledgerState.state === 'failed' && !['failed', 'broken', 'timed_out'].includes(String(entry.state).toLowerCase())) return false;
+        const hasComparison = !!(entry.results_fetched && entry.comparison);
+        if (ledgerState.result === 'ready' && !hasComparison) return false;
+        if (ledgerState.result === 'regression' && !(hasComparison && Number(entry.comparison.new_fail || 0) > 0)) return false;
+        if (ledgerState.result === 'unavailable' && hasComparison) return false;
+        if (!ledgerState.query) return true;
+        return [entry.build_number, entry.message, entry.branch, entry.commit, entry.requested_by, entry.base_image]
+          .some(function(value) { return String(value || '').toLowerCase().includes(ledgerState.query); });
+      });
+      const shown = ledgerState.limit === 'all' ? filtered : filtered.slice(0, ledgerState.limit);
+      tableHost.innerHTML = '';
+      tableHost.append(ui.table([
+        { label: 'Build', nowrap: true, render: function(entry) { return ui.external('#' + entry.build_number, entry.web_url, 'ocv2-mono', 'Open Buildkite build'); } },
+        { label: 'State', render: function(entry) { return entry.web_url ? ui.external(String(entry.state || 'unknown'), entry.web_url, 'ocv2-badge ' + ui.toneForState(entry.state), 'Open build state evidence') : ui.badge(entry.state); } },
+        { label: 'Message', render: function(entry) { return entry.message || h('span', { cls: 'ocv2-unavailable', text: 'No message' }); } },
+        { label: 'Revision', render: revisionLinks },
+        { label: 'Requested by', render: function(entry) { return entry.requested_by ? ui.external('@' + entry.requested_by, ui.githubUser(entry.requested_by), 'ocv2-mono', 'Open GitHub profile') : h('span', { cls: 'ocv2-unavailable', text: 'Unknown' }); } },
+        { label: 'Base image', render: baseImageEvidence },
+        { label: 'Result', render: function(entry) {
+          if (entry.results_fetched && entry.comparison) {
+            const regressions = Number(entry.comparison.new_fail || 0);
+            return ui.linkButton(regressions ? regressions + ' regressions' : 'Inspect comparison', function() { inspectComparison(entry); }, 'Open retained comparison evidence');
+          }
+          return entry.web_url ? ui.external(isActiveState(entry.state) ? 'Build in progress' : 'Evidence unavailable', entry.web_url) : h('span', { cls: 'ocv2-unavailable', text: 'Evidence unavailable' });
+        } },
+        { label: 'Actions', render: function(entry) {
+          if (!(entry.pending_cleanup && entry.fork_repo && String(entry.branch || '').startsWith('test-image/'))) return h('span', { cls: 'ocv2-unavailable', text: '-' });
+          const action = ui.button('Clean branch', null, 'is-danger', 'Delete the managed fork branch');
+          action.addEventListener('click', function() { cleanupEntry(entry, action); });
+          return action;
+        } },
+      ], shown, { caption: shown.length + ' of ' + filtered.length + ' matching builds', empty: 'No registered builds match these filters.' }));
+    }
+
+    search.addEventListener('input', renderRows);
+    stateFilter.addEventListener('change', renderRows);
+    resultFilter.addEventListener('change', renderRows);
+    limit.addEventListener('change', renderRows);
+    renderRows();
+    root.append(panel.root);
+    return root;
+  }
+
+  async function render() {
+    const seq = ++renderSeq;
+    const container = document.getElementById('ci-testbuild-view');
+    if (!container) return;
+    const gate = window.__authGate;
+    const allowed = !!(gate && typeof gate.canAccessTab === 'function' ? gate.canAccessTab('ci-testbuild') : gate && gate.isAuthed && gate.isAuthed());
+    ui.page(container, {
+      id: 'test-build',
+      title: 'Test Build',
+      description: 'Launch controlled vllm/amd-ci experiments and inspect their retained nightly comparison evidence.',
+      actions: ui.external('Open amd-ci pipeline', BK_PIPELINE_URL),
+    });
+    if (!allowed) {
+      container.append(ui.state('is-warning', 'Sign in required', 'Launching builds uses your in-memory GitHub PAT and encrypted Buildkite credential.', ui.button('Sign in', function() { if (gate && gate.promptSignIn) gate.promptSignIn(); }, 'is-primary')));
+      return;
+    }
+
+    const credentials = await credentialReadiness();
+    if (seq !== renderSeq) return;
+    const state = { render, reloadLedger: render, credentials };
+    const grid = h('div', { cls: 'ocv2-grid' });
+    ui.append(grid, [launchPanel(state), credentialPanel(state)]);
+    container.append(grid);
+    const ledgerHost = h('div', { cls: 'ocv2-stack' });
+    ledgerHost.append(ui.state('', 'Loading build ledger', 'Fetching registered custom-build evidence.'));
+    container.append(ledgerHost);
+    const rows = await loadRegistry();
+    if (seq !== renderSeq) return;
+    ledgerHost.innerHTML = '';
+    if (!rows.length) {
+      ledgerHost.append(ui.state('is-info', 'No registered test builds', 'Launch a build above. Evidence appears after the registry workflow and collector complete.'));
+      return;
+    }
+    rows.sort(function(a, b) { return Number(b.build_number || 0) - Number(a.build_number || 0); });
+    ledgerHost.append(ledgerPanel(rows));
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', render);
+  else render();
+  document.addEventListener('click', function(event) {
+    const target = event.target.closest && event.target.closest('[data-tab="ci-testbuild"]');
+    if (target) setTimeout(render, 0);
   });
   document.addEventListener('auth:changed', render);
 })();

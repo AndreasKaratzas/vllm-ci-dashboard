@@ -28,31 +28,78 @@ AMD_PIPELINES: tuple[str, ...] = ("amd-ci",)
 # Queue taxonomy
 # ---------------------------------------------------------------------------
 
+# Queues in this family are intentionally outside the dashboard's operational
+# scope. Keep the predicate central because Buildkite queue keys are
+# case-sensitive strings while operators have used both ``mi355B`` and
+# ``mi355b`` spellings, with several numeric suffixes.
+EXCLUDED_QUEUE_PREFIXES: tuple[str, ...] = ("amd_mi355b",)
+
+
+def is_excluded_queue(queue: str | None) -> bool:
+    """Return whether ``queue`` belongs to an excluded queue family."""
+    normalized = (queue or "").strip().casefold()
+    return any(normalized.startswith(prefix) for prefix in EXCLUDED_QUEUE_PREFIXES)
+
+
+def is_amd_queue(queue: str | None) -> bool:
+    """Return whether ``queue`` belongs to the active AMD queue scope."""
+    normalized = (queue or "").strip().casefold()
+    return (normalized.startswith("amd_") or normalized == "amd-cpu") and not is_excluded_queue(
+        normalized
+    )
+
+
 # Every tracked queue is emitted in every snapshot — zero-filled if no jobs
 # referenced it during the poll — so the queue timeseries chart never shows
 # gaps for queues we actively monitor. Untracked queues that show up with
 # activity are still recorded on the fly by the collector.
-TRACKED_QUEUES: frozenset[str] = frozenset({
+_TRACKED_QUEUE_NAMES = {
     # AMD MI250
-    "amd_mi250_1", "amd_mi250_2", "amd_mi250_4", "amd_mi250_8",
+    "amd_mi250_1",
+    "amd_mi250_2",
+    "amd_mi250_4",
+    "amd_mi250_8",
     # AMD MI300 (legacy / partner agents, still active)
-    "amd_mi300_1", "amd_mi300_2", "amd_mi300_4", "amd_mi300_8",
+    "amd_mi300_1",
+    "amd_mi300_2",
+    "amd_mi300_4",
+    "amd_mi300_8",
     # AMD MI325
-    "amd_mi325_1", "amd_mi325_2", "amd_mi325_4", "amd_mi325_8",
-    # AMD MI355 (+ B variant)
-    "amd_mi355_1", "amd_mi355_2", "amd_mi355_4", "amd_mi355_8",
-    "amd_mi355B_1", "amd_mi355B_2", "amd_mi355B_4", "amd_mi355B_8",
+    "amd_mi325_1",
+    "amd_mi325_2",
+    "amd_mi325_4",
+    "amd_mi325_8",
+    # AMD MI355
+    "amd_mi355_1",
+    "amd_mi355_2",
+    "amd_mi355_4",
+    "amd_mi355_8",
     # NVIDIA
-    "gpu_1_queue", "gpu_4_queue", "B200", "H200", "a100_queue",
-    "mithril-h100-pool", "nebius-h200",
+    "gpu_1_queue",
+    "gpu_4_queue",
+    "B200",
+    "H200",
+    "a100_queue",
+    "mithril-h100-pool",
+    "nebius-h200",
     # CPU
-    "cpu_queue_postmerge", "cpu_queue_premerge",
-    "cpu_queue_postmerge_us_east_1", "cpu_queue_premerge_us_east_1",
+    "cpu_queue_postmerge",
+    "cpu_queue_premerge",
+    "cpu_queue_postmerge_us_east_1",
+    "cpu_queue_premerge_us_east_1",
     # Other hardware partners
-    "intel-gpu", "intel-hpu", "intel-cpu", "arm-cpu", "ascend",
+    "intel-gpu",
+    "intel-hpu",
+    "intel-cpu",
+    "arm-cpu",
+    "ascend",
     # vLLM-Omni workload identifiers (same BK org / pipelines; separate queues)
     "intel-gpu-omni",
-})
+}
+
+TRACKED_QUEUES: frozenset[str] = frozenset(
+    queue for queue in _TRACKED_QUEUE_NAMES if not is_excluded_queue(queue)
+)
 
 AMD_QUEUE_PREFIX = "amd_"
 
@@ -82,8 +129,8 @@ QUEUE_ZOMBIE_THRESHOLD_MIN = 240  # 4 hours
 # prune them from history on every collector run.
 QUEUE_HISTORY_RESET_TS = "2026-04-20T23:40:00Z"
 
-# Keep queue history bounded even after the reset so the append-only log stays
-# small and deploys remain predictable.
+# Keep the published queue history to the same one-month window offered by
+# the dashboard controls.
 QUEUE_HISTORY_RETENTION_DAYS = 30
 
 # ---------------------------------------------------------------------------
@@ -126,7 +173,7 @@ HOTNESS_WINDOWS_HOURS: tuple[int, ...] = (1, 3, 24, 72)
 # the omni test YAMLs' group count. Healthy threshold derives as 70% of the
 # active trigger to give hysteresis.
 OMNI_SURGE_FLOOR_TRIGGER = 30
-OMNI_SURGE_MULTIPLIER = 1.3     # dynamic trigger = ceil(multiplier * total_groups)
+OMNI_SURGE_MULTIPLIER = 1.3  # dynamic trigger = ceil(multiplier * total_groups)
 OMNI_SURGE_HEALTHY_RATIO = 0.7  # healthy threshold = floor(trigger * ratio)
 
 OMNI_REPO = "vllm-project/vllm-omni"
@@ -147,4 +194,6 @@ BK_GRAPHQL_URL = "https://graphql.buildkite.com/v1"
 
 def queue_history_reset_datetime() -> datetime:
     """Return the UTC datetime that marks the start of trustworthy queue history."""
-    return datetime.fromisoformat(QUEUE_HISTORY_RESET_TS.replace("Z", "+00:00")).astimezone(timezone.utc)
+    return datetime.fromisoformat(QUEUE_HISTORY_RESET_TS.replace("Z", "+00:00")).astimezone(
+        timezone.utc
+    )

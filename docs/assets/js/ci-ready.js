@@ -5,6 +5,8 @@
  * ``scripts/vllm/sync_ready_tickets.py`` and renders the one upstream master
  * issue plus the per-group failure table that feeds that issue body.
  */
+
+window.__OPS_CONTROL_V2_READY__ = true;
 (function() {
   const _s = getComputedStyle(document.documentElement);
   let renderSeq = 0;
@@ -542,6 +544,7 @@
   }
 
   async function render() {
+    if (window.__OPS_CONTROL_V2_READY__) return;
     const seq = ++renderSeq;
     const container = document.getElementById('ci-ready-view');
     if (!container) return;
@@ -612,15 +615,515 @@
     renderMetricsTable(container, plan, state, projectItems);
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', render);
-  } else {
-    render();
+  window.OpsReadyActions = {
+    loadPlan,
+    loadProjectItems,
+    loadEngineers,
+    assignIssue,
+    buildProjectIssueIndexes,
+    pickProjectIssueForTicket,
+    issueSearchUrl: _issueSearchUrl,
+    issueCreateUrl: _issueCreateUrl,
+  };
+
+  // Lifecycle registration intentionally belongs only to the v2 renderer.
+})();
+
+(function renderReadyControlV2() {
+  'use strict';
+  window.__OPS_CONTROL_V2_READY__ = true;
+
+  const ui = window.OpsControlV2;
+  const h = window.el;
+  const actions = window.OpsReadyActions;
+  let renderSeq = 0;
+  let operationsPromise = null;
+  const viewState = {
+    query: '',
+    status: 'failing',
+    build: '',
+    page: 0,
+    pageSize: 25,
+  };
+
+  function input(props) {
+    return h('input', Object.assign({ cls: 'ocv2-input' }, props || {}));
   }
 
-  document.addEventListener('click', (e) => {
-    const btn = e.target.closest && e.target.closest('[data-tab="ci-ready"]');
-    if (btn) setTimeout(render, 50);
+  function select(options, value, label) {
+    const node = h('select', { cls: 'ocv2-select', 'aria-label': label });
+    for (const option of options) {
+      const item = h('option', { value: option.value, text: option.label });
+      item.selected = option.value === value;
+      node.append(item);
+    }
+    return node;
+  }
+
+  function loadOperations() {
+    if (!operationsPromise) {
+      operationsPromise = fetch('data/vllm/ci/operations_v2.json?_=' + Math.floor(Date.now() / 300000))
+        .then(function(response) { return response.ok ? response.json() : null; })
+        .catch(function() { return null; });
+    }
+    return operationsPromise;
+  }
+
+  function exposeReadyNavigation() {
+    const button = document.querySelector('[data-tab="ci-ready"]');
+    if (!button) return;
+    button.classList.remove('__gate-locked');
+    button.setAttribute('title', 'View Ready Tickets evidence');
+    button.setAttribute('aria-disabled', 'false');
+  }
+
+  function buildRefs(summary) {
+    const refs = summary && Array.isArray(summary.build_refs_latest) ? summary.build_refs_latest : [];
+    if (refs.length) return refs;
+    return (summary && Array.isArray(summary.builds_latest) ? summary.builds_latest : []).map(function(number) {
+      return { build_number: number, pipeline: 'amd-ci', url: '' };
+    });
+  }
+
+  function buildLinks(summary) {
+    const root = h('div', { cls: 'ocv2-source-list' });
+    const refs = buildRefs(summary);
+    if (!refs.length) return h('span', { cls: 'ocv2-unavailable', text: 'No retained build reference' });
+    for (const ref of refs.slice(0, 4)) {
+      const label = (ref.pipeline || 'build') + ' #' + (ref.build_number || '?');
+      root.append(ui.external(label, ref.url || ref.build_url, 'ocv2-mono', 'Open exact Buildkite build'));
+    }
+    return root;
+  }
+
+  function buildNumberText(summary) {
+    return buildRefs(summary).map(function(ref) { return String(ref.build_number || ''); }).join(' ');
+  }
+
+  function normalizeGroupIdentity(group) {
+    return String(group || '')
+      .replace(/\s*%N(?=\s|$)/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function groupIdentity(group) {
+    const raw = String(group || '').trim();
+    const normalized = normalizeGroupIdentity(raw);
+    const match = normalized.match(/^((?:amd_)?mi\d+[a-z0-9]*_\d+):\s*(.+)$/i);
+    const prefix = match ? match[1] : '';
+    return {
+      raw,
+      normalized,
+      name: match ? match[2] : normalized,
+      queue: prefix ? (prefix.toLowerCase().startsWith('amd_') ? prefix : 'amd_' + prefix) : '',
+      hasPlaceholder: /%N\b/i.test(raw),
+    };
+  }
+
+  function analyticsGroupQuery(group) {
+    return groupIdentity(group).normalized;
+  }
+
+  function analyticsHistoryUrl(group) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('ops_analytics_search', analyticsGroupQuery(group));
+    url.hash = 'ci-analytics';
+    return url.toString();
+  }
+
+  function resolveOperationsGroups(summary, operations) {
+    const catalog = operations && operations.reliability && Array.isArray(operations.reliability.group_catalog)
+      ? operations.reliability.group_catalog
+      : [];
+    const identity = groupIdentity(summary && summary.group);
+    if (!identity.normalized) return [];
+    return catalog.filter(function(entry) {
+      const queues = Array.isArray(entry.queues) ? entry.queues : [];
+      if (identity.queue && !queues.includes(identity.queue)) return false;
+      const rawNames = Array.isArray(entry.raw_names) ? entry.raw_names : [];
+      const exactRawMatch = rawNames.some(function(rawName) {
+        const candidate = String(rawName || '').replace(/\s+/g, ' ').trim();
+        if (candidate === identity.normalized) return true;
+        if (!identity.hasPlaceholder || !candidate.startsWith(identity.normalized + ' ')) return false;
+        return /^\d+$/.test(candidate.slice(identity.normalized.length + 1));
+      });
+      if (exactRawMatch) return true;
+      return !identity.hasPlaceholder && String(entry.name || '').trim() === identity.name;
+    });
+  }
+
+  function exactGroupEvidence(summary, operationGroups) {
+    const readyBuilds = new Set(buildRefs(summary).map(function(ref) { return Number(ref.build_number); }).filter(Boolean));
+    return operationGroups.map(function(entry) {
+      const observations = Array.isArray(entry.observations) ? entry.observations : [];
+      const observation = observations.find(function(item) {
+        return readyBuilds.has(Number(item.build_number)) && item.build_kind === 'nightly';
+      }) || observations.find(function(item) {
+        return readyBuilds.has(Number(item.build_number));
+      }) || observations[0] || entry.last_incident || {};
+      return {
+        groupId: entry.id || observation.group_id || '',
+        variant: entry.name || (entry.raw_names && entry.raw_names[0]) || summary.group,
+        queue: observation.queue || (entry.queues && entry.queues[0]) || '',
+        state: observation.state || entry.latest_state || 'unknown',
+        observedAt: observation.observed_at || entry.latest_observed_at || '',
+        buildNumber: observation.build_number || '',
+        buildKind: observation.build_kind || '',
+        buildUrl: observation.build_url || '',
+        jobUrl: observation.job_url || entry.latest_url || '',
+        stepUrl: observation.step_url || '',
+        matchedReadyBuild: readyBuilds.has(Number(observation.build_number)),
+      };
+    }).filter(function(item) { return item.jobUrl || item.stepUrl || item.buildUrl; });
+  }
+
+  function projectIssue(ticket, indexes) {
+    return ticket ? actions.pickProjectIssueForTicket(ticket, indexes) : null;
+  }
+
+  function groupRows(plan, operations) {
+    const tickets = Array.isArray(plan.tickets) ? plan.tickets : [];
+    const ticketByGroup = new Map();
+    tickets.forEach(function(ticket) {
+      const group = ticket && ticket.summary && ticket.summary.group;
+      if (group) ticketByGroup.set(group, ticket);
+    });
+    const summaries = Array.isArray(plan.groups_all) && plan.groups_all.length
+      ? plan.groups_all.slice()
+      : tickets.map(function(ticket) { return ticket.summary || {}; });
+    const summaryGroups = new Set(summaries.map(function(summary) { return summary.group; }));
+    tickets.forEach(function(ticket) {
+      const summary = ticket.summary || {};
+      if (summary.group && !summaryGroups.has(summary.group)) summaries.push(summary);
+    });
+    return summaries.map(function(summary) {
+      const ticket = ticketByGroup.get(summary.group) || null;
+      const operationGroups = resolveOperationsGroups(summary, operations);
+      return {
+        summary,
+        ticket,
+        cohort: ticket ? 'current' : summary.currently_failing ? 'stale' : 'recovered',
+        operationGroups,
+        evidence: exactGroupEvidence(summary, operationGroups),
+      };
+    });
+  }
+
+  function groupEvidenceLinks(row) {
+    if (!row.evidence.length) return buildLinks(row.summary);
+    const root = h('div', { cls: 'ocv2-source-list' });
+    row.evidence.slice(0, 2).forEach(function(item, index) {
+      const suffix = String(item.variant || '').match(/\b(\d+)$/);
+      const label = row.evidence.length > 1
+        ? 'Job ' + (suffix ? suffix[1] : index + 1) + (item.buildNumber ? ' #' + item.buildNumber : '')
+        : 'Exact job' + (item.buildNumber ? ' #' + item.buildNumber : '');
+      root.append(ui.external(label, item.jobUrl || item.stepUrl || item.buildUrl, 'ocv2-mono', 'Open exact Buildkite group evidence'));
+    });
+    if (row.evidence.length > 2) {
+      root.append(h('span', { cls: 'ocv2-muted', text: '+' + (row.evidence.length - 2) + ' exact logs in drawer' }));
+    }
+    return root;
+  }
+
+  function hardwareEvidence(summary) {
+    const root = h('div', { cls: 'ocv2-source-list' });
+    const rows = Object.entries(summary.hardware_latest || {});
+    if (!rows.length) return h('span', { cls: 'ocv2-unavailable', text: 'No hardware state retained' });
+    rows.forEach(function(entry) { root.append(ui.badge(entry[0] + ' ' + entry[1], ui.toneForState(entry[1]))); });
+    return root;
+  }
+
+  function inspectGroup(row, plan, indexes) {
+    const summary = row.summary || {};
+    const ticket = row.ticket;
+    const issue = projectIssue(ticket, indexes);
+    const content = h('div', { cls: 'ocv2-stack' });
+    content.append(ui.state(
+      'is-info',
+      (plan.window_days || 60) + '-day retained summary',
+      'Use the all-main Test Groups history for the authoritative run timeline. The query preserves the full queue identity and this drawer retains exact Ready and operations evidence.',
+      ui.internal(
+        'Open all-main Test Groups history',
+        analyticsHistoryUrl(summary.group),
+        '',
+        'Open CI Analytics Groups filtered to ' + analyticsGroupQuery(summary.group)
+      )
+    ));
+    const stateLabel = row.cohort === 'current' ? 'Failing' : row.cohort === 'stale' ? 'Stale' : 'Recovered';
+    const stateMeta = (row.cohort === 'stale' ? 'last-known failure; ' : '') + (summary.latest_date || 'no latest date');
+    content.append(ui.kpis([
+      { label: 'Latest-build status', value: stateLabel, meta: stateMeta, tone: row.cohort === 'current' ? 'is-danger' : row.cohort === 'stale' ? 'is-warning' : 'is-success', onClick: function() { groupEvidenceLinks(row).querySelector('a')?.click(); } },
+      { label: 'State changes', value: summary.break_frequency || 0, meta: 'pass/fail flips in window', tone: Number(summary.break_frequency || 0) >= 2 ? 'is-warning' : '', onClick: function() { document.getElementById('ocv2-ready-timeline')?.scrollIntoView({ block: 'nearest' }); } },
+      { label: 'Exact group logs', value: row.evidence.length, meta: row.operationGroups.length + ' strict identities matched', onClick: function() { document.getElementById('ocv2-ready-exact')?.scrollIntoView({ block: 'nearest' }); } },
+      { label: 'Project issue', value: issue && issue.issue_number ? '#' + issue.issue_number : 'None', meta: issue && issue.status ? issue.status : 'No per-group issue', onClick: issue && issue.url ? function() { window.open(issue.url, '_blank', 'noopener'); } : function() { document.getElementById('ocv2-ready-issue')?.scrollIntoView({ block: 'nearest' }); } },
+    ]));
+    const history = ui.panel('Outcome milestones', 'Available ' + (plan.window_days || 60) + '-day summary evidence', []);
+    history.root.id = 'ocv2-ready-timeline';
+    history.body.append(ui.timeline([
+      { date: summary.first_failure_in_window, label: 'First observed failure in the retained window', tone: 'is-danger' },
+      { date: summary.last_successful, label: 'Most recent successful nightly observation', tone: 'is-success' },
+      { date: summary.current_streak_started, label: summary.currently_failing ? 'Current failing streak began' : 'No active failing streak', tone: summary.currently_failing ? 'is-warning' : 'is-success' },
+      { date: summary.latest_date, label: 'Latest retained group observation', tone: summary.currently_failing ? 'is-danger' : 'is-success' },
+    ]));
+    content.append(history.root);
+
+    const exact = ui.panel('Exact Buildkite group evidence', row.evidence.length + ' operations records matched by queue and raw identity', []);
+    exact.root.id = 'ocv2-ready-exact';
+    if (row.evidence.length) {
+      exact.body.classList.add('is-flush');
+      exact.body.append(ui.table([
+        { label: 'Strict variant', render: function(item) { return ui.external(item.variant, item.jobUrl || item.stepUrl || item.buildUrl); } },
+        { label: 'Queue', nowrap: true, render: function(item) { return h('code', { cls: 'ocv2-mono', text: item.queue || 'Unavailable' }); } },
+        { label: 'State', nowrap: true, render: function(item) { return ui.badge(item.state, ui.toneForState(item.state)); } },
+        { label: 'Observed', nowrap: true, render: function(item) { return item.observedAt ? String(item.observedAt).replace('T', ' ').slice(0, 16) + ' UTC' : 'Unavailable'; } },
+        { label: 'Build', nowrap: true, render: function(item) { return ui.external((item.buildKind || 'build') + ' #' + (item.buildNumber || '?'), item.buildUrl); } },
+        { label: 'Job log', nowrap: true, render: function(item) { return ui.external(item.matchedReadyBuild ? 'Ready job' : 'Latest job', item.jobUrl); } },
+        { label: 'Step output', nowrap: true, render: function(item) { return ui.external('Open step', item.stepUrl); } },
+      ], row.evidence, {
+        compact: true,
+        scrollCue: true,
+        caption: 'Strict queue and raw-name matches. Ready-build observations are preferred; otherwise the latest all-main observation is labeled explicitly.',
+      }));
+    } else {
+      exact.body.append(ui.state('is-warning', 'Exact group evidence unavailable', 'The operations snapshot did not retain a strict queue and raw-name match for this Ready group.'));
+    }
+    content.append(exact.root);
+
+    const evidence = ui.panel('Latest source evidence', 'Exact sources where the snapshot provides them', []);
+    const builds = h('div', { id: 'ocv2-ready-builds', cls: 'ocv2-source-list' });
+    builds.append(buildLinks(summary));
+    evidence.body.append(builds);
+    evidence.body.append(hardwareEvidence(summary));
+    const issueRow = h('div', { id: 'ocv2-ready-issue', cls: 'ocv2-source-list' });
+    if (issue && issue.url) issueRow.append(ui.external('Project issue #' + issue.issue_number, issue.url));
+    if (plan.master_issue && plan.master_issue.url) issueRow.append(ui.external('Master issue #' + plan.master_issue.number, plan.master_issue.url));
+    if (plan.master_issue_comment && plan.master_issue_comment.url) issueRow.append(ui.external('Latest automation update', plan.master_issue_comment.url));
+    if (!issueRow.childNodes.length) issueRow.append(h('span', { cls: 'ocv2-unavailable', text: 'No issue source retained' }));
+    evidence.body.append(issueRow);
+    content.append(evidence.root);
+    ui.dialog(summary.group || 'Group evidence', 'Ready Tickets outcome and source evidence', content);
+  }
+
+  function assignmentControl(row, plan, state) {
+    const ticket = row.ticket;
+    if (!ticket) return h('span', { cls: 'ocv2-unavailable', text: 'Not active' });
+    if (plan.issue_mode === 'single_master') return h('span', { cls: 'ocv2-unavailable', text: 'Shared tracker' });
+    if (!state.isAdmin) return h('span', { cls: 'ocv2-unavailable', text: 'Admin only' });
+    if (!ticket.issue_number) return h('span', { cls: 'ocv2-unavailable', text: 'Issue required' });
+    const control = select([{ value: '', label: 'Assign engineer' }].concat((plan.engineers || []).map(function(engineer) {
+      return { value: engineer.github_login, label: engineer.display_name + ' (@' + engineer.github_login + ')' };
+    })), ticket.assignee || '', 'Assign issue');
+    control.addEventListener('change', async function() {
+      if (!control.value) return;
+      const pat = window.__authGate && window.__authGate.getGithubPat ? window.__authGate.getGithubPat() : '';
+      if (!pat) { ui.dialog('Assignment unavailable', '', ui.state('is-warning', 'Session PAT unavailable', 'Sign in again before assigning an issue.')); return; }
+      control.disabled = true;
+      const result = await actions.assignIssue(pat, plan.issue_repo, ticket.issue_number, control.value);
+      control.disabled = false;
+      if (result.ok) {
+        ticket.assignee = control.value;
+        ui.dialog('Assignment updated', 'GitHub issue mutation', ui.state('is-success', 'Issue assigned', '@' + control.value + ' was assigned to issue #' + ticket.issue_number, ui.external('Open audit issue', ticket.issue_url)));
+      } else {
+        ui.dialog('Assignment failed', '', ui.state('is-danger', 'GitHub rejected the assignment', 'HTTP ' + result.status, ui.external('Open issue', ticket.issue_url)));
+      }
+    });
+    return control;
+  }
+
+  function issueEvidence(row, plan, indexes, state) {
+    const ticket = row.ticket;
+    const linked = projectIssue(ticket, indexes);
+    if (linked && linked.url) return ui.external('#' + linked.issue_number, linked.url, '', linked.status || 'Open project issue');
+    if (ticket && ticket.issue_url) {
+      const label = plan.issue_mode === 'single_master' ? 'Shared #' + ticket.issue_number : '#' + ticket.issue_number;
+      return ui.external(label, ticket.issue_url);
+    }
+    if (!ticket) return h('span', { cls: 'ocv2-unavailable', text: 'No ticket' });
+    const repo = plan.issue_repo || 'vllm-project/vllm';
+    const search = ui.external('Search', actions.issueSearchUrl(repo, ticket.title || ''), '', 'Search for an existing issue');
+    if (!state.isAdmin) return search;
+    const root = h('div', { cls: 'ocv2-source-list' });
+    root.append(search, ui.external('Review draft', actions.issueCreateUrl(repo, ticket.title || '', ticket.body || '', ticket.labels || []), '', 'Open prefilled GitHub issue draft'));
+    return root;
+  }
+
+  function renderEvidence(container, plan, projectItems, operations, state) {
+    const rows = groupRows(plan, operations);
+    const masterNumber = Number(plan.master_issue && plan.master_issue.number) || 40554;
+    const indexes = actions.buildProjectIssueIndexes(projectItems, masterNumber);
+    const currentRows = rows.filter(function(row) { return row.cohort === 'current'; });
+    const reportedCurrent = Number(plan.failing_groups_total);
+    const failing = Number.isFinite(reportedCurrent) ? reportedCurrent : currentRows.length;
+    const stale = rows.filter(function(row) { return row.cohort === 'stale'; }).length;
+    const recovered = rows.filter(function(row) { return row.cohort === 'recovered'; }).length;
+    const volatile = rows.filter(function(row) { return Number(row.summary.break_frequency || 0) >= 2; }).length;
+    const linked = rows.filter(function(row) { return !!projectIssue(row.ticket, indexes); }).length;
+    const tableHost = h('div');
+
+    const toolbar = h('div', { cls: 'ocv2-toolbar' });
+    const query = input({ type: 'search', value: viewState.query, placeholder: 'Filter group name or hardware', 'aria-label': 'Filter Ready Ticket groups' });
+    const status = select([
+      { value: 'failing', label: 'Currently failing' },
+      { value: 'stale', label: 'Stale last-known failures' },
+      { value: 'recovered', label: 'Recovered in window' },
+      { value: 'volatile', label: 'Multiple state changes' },
+      { value: 'linked', label: 'Has project issue' },
+      { value: 'all', label: 'All tracked groups' },
+    ], viewState.status, 'Filter by group status');
+    const build = input({ type: 'search', value: viewState.build, placeholder: 'Build number', 'aria-label': 'Filter by Buildkite build number' });
+    const pageSize = select([
+      { value: '25', label: '25 rows' }, { value: '50', label: '50 rows' },
+    ], String(viewState.pageSize), 'Rows per page');
+    ui.append(toolbar, [query, status, build, pageSize]);
+
+    function chooseStatus(next) {
+      viewState.status = next;
+      viewState.page = 0;
+      status.value = next;
+      renderRows();
+      tableHost.scrollIntoView({ block: 'nearest' });
+    }
+
+    container.append(ui.kpis([
+      { label: 'Currently failing', value: failing, meta: 'latest AMD nightly', tone: failing ? 'is-danger' : 'is-success', onClick: function() { chooseStatus('failing'); } },
+      { label: 'Stale last-known', value: stale, meta: 'absent from latest AMD summary', tone: stale ? 'is-warning' : '', onClick: function() { chooseStatus('stale'); } },
+      { label: 'Recovered', value: recovered, meta: 'tracked but green latest', tone: 'is-success', onClick: function() { chooseStatus('recovered'); } },
+      { label: 'Mixed outcomes', value: volatile, meta: '2+ flips in ' + (plan.window_days || 60) + 'd', tone: volatile ? 'is-warning' : '', onClick: function() { chooseStatus('volatile'); } },
+      { label: 'Dedicated issues', value: linked, meta: 'shared master #' + masterNumber + ' excluded', tone: linked ? 'is-info' : '', onClick: function() { chooseStatus('linked'); } },
+    ]));
+
+    const evidencePanel = ui.panel('Group evidence', failing + ' current, ' + stale + ' stale, ' + recovered + ' recovered', []);
+    evidencePanel.body.append(toolbar, tableHost);
+    container.append(evidencePanel.root);
+
+    function renderRows() {
+      viewState.query = query.value.trim().toLowerCase();
+      viewState.status = status.value;
+      viewState.build = build.value.trim().toLowerCase().replace(/^#/, '');
+      viewState.pageSize = Number(pageSize.value) || 25;
+      let filtered = rows.filter(function(row) {
+        const summary = row.summary || {};
+        if (viewState.status === 'failing' && row.cohort !== 'current') return false;
+        if (viewState.status === 'stale' && row.cohort !== 'stale') return false;
+        if (viewState.status === 'recovered' && row.cohort !== 'recovered') return false;
+        if (viewState.status === 'volatile' && Number(summary.break_frequency || 0) < 2) return false;
+        if (viewState.status === 'linked' && !projectIssue(row.ticket, indexes)) return false;
+        if (viewState.query && ![
+          summary.group,
+          JSON.stringify(summary.hardware_latest || {}),
+          row.evidence.map(function(item) { return item.queue + ' ' + item.variant; }).join(' '),
+        ].some(function(value) { return String(value || '').toLowerCase().includes(viewState.query); })) return false;
+        const evidenceBuilds = row.evidence.map(function(item) { return String(item.buildNumber || ''); }).join(' ');
+        if (viewState.build && !(buildNumberText(summary) + ' ' + evidenceBuilds).includes(viewState.build)) return false;
+        return true;
+      });
+      filtered.sort(function(a, b) {
+        const order = { current: 0, stale: 1, recovered: 2 };
+        return order[a.cohort] - order[b.cohort]
+          || String(a.summary.group || '').localeCompare(String(b.summary.group || ''));
+      });
+      const pageCount = Math.max(1, Math.ceil(filtered.length / viewState.pageSize));
+      viewState.page = Math.min(viewState.page, pageCount - 1);
+      const start = viewState.page * viewState.pageSize;
+      const shown = filtered.slice(start, start + viewState.pageSize);
+      tableHost.innerHTML = '';
+      tableHost.append(ui.table([
+        { label: 'Group', render: function(row) { return ui.linkButton(row.summary.group || 'Unknown group', function() { inspectGroup(row, plan, indexes); }, 'Inspect retained group history'); } },
+        { label: 'Latest state', render: function(row) {
+          const label = row.cohort === 'current' ? 'Current failure' : row.cohort === 'stale' ? 'Stale last-known' : 'Recovered';
+          return ui.linkButton(label, function() { inspectGroup(row, plan, indexes); }, 'Inspect state evidence');
+        } },
+        { label: 'Streak start', nowrap: true, render: function(row) { return ui.linkButton(row.summary.current_streak_started || 'No active streak', function() { inspectGroup(row, plan, indexes); }); } },
+        { label: 'Last success', nowrap: true, render: function(row) { return ui.linkButton(row.summary.last_successful || 'Not observed', function() { inspectGroup(row, plan, indexes); }); } },
+        { label: 'State changes', numeric: true, render: function(row) { return ui.linkButton(String(row.summary.break_frequency || 0), function() { inspectGroup(row, plan, indexes); }); } },
+        { label: 'Group evidence', render: groupEvidenceLinks },
+        { label: 'Issue', render: function(row) { return issueEvidence(row, plan, indexes, state); } },
+        { label: 'Assignment', render: function(row) { return assignmentControl(row, plan, state); } },
+      ], shown, {
+        caption: shown.length + ' of ' + filtered.length + ' matching groups',
+        empty: 'No groups match the selected status, name, and build filters.',
+        scrollCue: true,
+      }));
+
+      const pager = h('div', { cls: 'ocv2-pager' });
+      const text = h('span', { text: 'Page ' + (viewState.page + 1) + ' of ' + pageCount + ' - ' + filtered.length + ' matching groups' });
+      const actionsRow = h('div', { cls: 'ocv2-actions' });
+      const previous = ui.button('Previous', function() { viewState.page -= 1; renderRows(); }, '', 'Previous group page');
+      const next = ui.button('Next', function() { viewState.page += 1; renderRows(); }, '', 'Next group page');
+      previous.disabled = viewState.page <= 0;
+      next.disabled = viewState.page >= pageCount - 1;
+      actionsRow.append(previous, next);
+      pager.append(text, actionsRow);
+      tableHost.append(pager);
+    }
+
+    query.addEventListener('input', function() { viewState.page = 0; renderRows(); });
+    status.addEventListener('change', function() { viewState.page = 0; renderRows(); });
+    build.addEventListener('input', function() { viewState.page = 0; renderRows(); });
+    pageSize.addEventListener('change', function() { viewState.page = 0; renderRows(); });
+    renderRows();
+  }
+
+  function renderSourceBanner(container, plan, state) {
+    const live = plan.mode === 'live';
+    const paused = plan.feature_paused || plan.mode === 'paused';
+    const banner = ui.state(
+      paused ? 'is-danger' : live ? 'is-success' : 'is-warning',
+      paused ? 'Automation paused' : live ? 'Live evidence snapshot' : 'Dry-run evidence snapshot',
+      paused
+        ? (plan.pause_reason || 'No upstream mutations are being performed.')
+        : 'Read-only failure evidence is public. Current failures share one master tracker; the dedicated-issues count excludes that shared issue. Mutations remain admin-only.'
+    );
+    const sources = h('div', { cls: 'ocv2-actions' });
+    if (plan.master_issue && plan.master_issue.url) sources.append(ui.external('Shared master tracker #' + plan.master_issue.number, plan.master_issue.url));
+    if (plan.master_issue_comment && plan.master_issue_comment.url) sources.append(ui.external('Latest automation update', plan.master_issue_comment.url));
+    if (state.isAdmin) sources.append(ui.badge('Admin controls enabled', 'is-success'));
+    else sources.append(ui.badge('Read only', 'is-info'));
+    banner.append(sources);
+    container.append(banner);
+  }
+
+  async function render() {
+    const seq = ++renderSeq;
+    const container = document.getElementById('ci-ready-view');
+    if (!container) return;
+    exposeReadyNavigation();
+    ui.page(container, {
+      id: 'ready-tickets',
+      title: 'Ready Tickets',
+      description: 'Public AMD nightly failure evidence with exact Buildkite sources and admin-gated issue controls.',
+    });
+    const loading = ui.state('', 'Loading Ready Tickets evidence', 'Fetching the retained summary, strict operations catalog, and project links.');
+    container.append(loading);
+    const plan = await actions.loadPlan();
+    if (seq !== renderSeq) return;
+    if (!plan) {
+      loading.replaceWith(ui.state('is-warning', 'Ready Tickets snapshot unavailable', 'The collector has not published ready_tickets.json yet.'));
+      return;
+    }
+    const [projectItems, operations] = await Promise.all([
+      actions.loadProjectItems(),
+      loadOperations(),
+    ]);
+    if (seq !== renderSeq) return;
+    const gate = window.__authGate;
+    const state = {
+      isAdmin: !!(gate && gate.isAdmin && gate.isAdmin()),
+      login: gate && gate.getLogin ? gate.getLogin() : '',
+    };
+    plan.engineers = state.isAdmin ? await actions.loadEngineers() : [];
+    if (seq !== renderSeq) return;
+    loading.remove();
+    renderSourceBanner(container, plan, state);
+    renderEvidence(container, plan, projectItems || {}, operations || {}, state);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', render);
+  else render();
+  document.addEventListener('click', function(event) {
+    const target = event.target.closest && event.target.closest('[data-tab="ci-ready"]');
+    if (target) setTimeout(render, 0);
   });
   document.addEventListener('auth:changed', render);
 })();

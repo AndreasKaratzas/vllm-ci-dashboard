@@ -37,11 +37,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vllm.constants import (  # noqa: E402
     AMD_PIPELINES,
-    AMD_QUEUE_PREFIX,
     BK_API_BASE,
     BK_ORG,
     HOTNESS_WINDOW_HOURS,
     HOTNESS_WINDOWS_HOURS,
+    is_amd_queue,
+    is_excluded_queue,
 )
 from vllm.ci.utils import (  # noqa: E402
     classify_workload,
@@ -51,7 +52,9 @@ from vllm.ci.utils import (  # noqa: E402
     queue_from_rules,
 )
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S"
+)
 log = logging.getLogger(__name__)
 
 OUTPUT = Path(__file__).resolve().parent.parent.parent / "data" / "vllm" / "ci" / "hotness.json"
@@ -129,6 +132,55 @@ def _normalize_group(job_name: str) -> str:
     return name.strip() or job_name or "unknown"
 
 
+def _build_url(slug: str, build: dict) -> tuple[str | None, str]:
+    web_url = str(build.get("web_url") or "")
+    if web_url:
+        return web_url, "build.web_url"
+    number = build.get("number")
+    if number:
+        return f"https://buildkite.com/{BK_ORG}/{slug}/builds/{number}", "pipeline_build_number"
+    return None, "unavailable"
+
+
+def _job_url(build_url: str | None, job: dict) -> tuple[str | None, str]:
+    web_url = str(job.get("web_url") or "")
+    if web_url:
+        return web_url, "job.web_url"
+    job_id = str(job.get("id") or "")
+    if build_url and job_id:
+        return f"{build_url}/steps/canvas?jid={job_id}&tab=output", "job.id"
+    return None, "unavailable"
+
+
+def _record_order(record: dict) -> tuple:
+    return (
+        record["finished_at"],
+        int(record.get("build_number") or 0),
+        str(record.get("job_id") or ""),
+    )
+
+
+def _latest_record(current: dict | None, candidate: dict) -> dict:
+    if current is None or _record_order(candidate) > _record_order(current):
+        return candidate
+    return current
+
+
+def _latest_evidence(record: dict) -> dict:
+    return {
+        "observed_at": record["finished_at"].strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "pipeline": record["slug"],
+        "build_number": record["build_number"],
+        "build_url": record.get("build_url"),
+        "build_url_source": record.get("build_url_source") or "unavailable",
+        "job_name": record["job_name"],
+        "job_id": record.get("job_id") or None,
+        "job_url": record.get("job_url"),
+        "job_url_source": record.get("job_url_source") or "unavailable",
+        "state": record["state"],
+    }
+
+
 def _collect_job_records(token: str, max_window_hours: int) -> tuple[list[dict], int]:
     """Walk every build in the widest window; return (job_records, builds_examined).
 
@@ -158,12 +210,13 @@ def _collect_job_records(token: str, max_window_hours: int) -> tuple[list[dict],
             source = build.get("source", "") or ""
             workload = classify_workload(slug, branch)
             build_number = build.get("number", 0)
+            build_url, build_url_source = _build_url(slug, build)
 
             for job in build.get("jobs") or []:
                 if job.get("type") != "script":
                     continue
                 queue = queue_from_rules(job.get("agent_query_rules"))
-                if not queue or not queue.startswith(AMD_QUEUE_PREFIX):
+                if not queue or is_excluded_queue(queue) or not is_amd_queue(queue):
                     continue
                 started = parse_iso(job.get("started_at", ""))
                 finished = parse_iso(job.get("finished_at", ""))
@@ -174,21 +227,30 @@ def _collect_job_records(token: str, max_window_hours: int) -> tuple[list[dict],
                     continue  # zombie / stuck job
 
                 job_name = job.get("name", "") or ""
-                records.append({
-                    "group": _normalize_group(job_name),
-                    "hw": hardware_from_job_name(job_name, queue),
-                    "workload": workload,
-                    "queue": queue,
-                    "duration_min": dur_min,
-                    "state": job.get("state", "") or "",
-                    "finished_at": finished,
-                    "branch": branch,
-                    "commit": commit,
-                    "fork_url": fork_url,
-                    "source": source,
-                    "slug": slug,
-                    "build_number": build_number,
-                })
+                job_url, job_url_source = _job_url(build_url, job)
+                records.append(
+                    {
+                        "group": _normalize_group(job_name),
+                        "hw": hardware_from_job_name(job_name, queue),
+                        "workload": workload,
+                        "queue": queue,
+                        "duration_min": dur_min,
+                        "state": job.get("state", "") or "",
+                        "finished_at": finished,
+                        "branch": branch,
+                        "commit": commit,
+                        "fork_url": fork_url,
+                        "source": source,
+                        "slug": slug,
+                        "build_number": build_number,
+                        "build_url": build_url,
+                        "build_url_source": build_url_source,
+                        "job_name": job_name,
+                        "job_id": str(job.get("id") or ""),
+                        "job_url": job_url,
+                        "job_url_source": job_url_source,
+                    }
+                )
 
     return records, builds_examined
 
@@ -197,74 +259,66 @@ def _aggregate(records: list[dict]) -> dict:
     """Aggregate a pre-filtered list of job records into group/branch/queue rows."""
     group_durations: dict[tuple[str, str], list[float]] = defaultdict(list)
     group_failures: dict[tuple[str, str], int] = defaultdict(int)
-    group_last_seen: dict[tuple[str, str], datetime] = {}
-    group_workload: dict[tuple[str, str], str] = {}
+    group_latest: dict[tuple[str, str], dict] = {}
 
     queue_durations: dict[str, list[float]] = defaultdict(list)
+    queue_latest: dict[str, dict] = {}
 
     branch_durations: dict[str, list[float]] = defaultdict(list)
-    branch_meta: dict[str, dict] = {}
+    branch_latest: dict[str, dict] = {}
     branch_builds: dict[str, set] = defaultdict(set)
 
     for j in records:
         key = (j["group"], j["hw"])
         group_durations[key].append(j["duration_min"])
-        group_workload[key] = j["workload"]
         if j["state"] in ("failed", "timed_out", "broken"):
             group_failures[key] += 1
-        seen = group_last_seen.get(key)
-        if not seen or j["finished_at"] > seen:
-            group_last_seen[key] = j["finished_at"]
+        group_latest[key] = _latest_record(group_latest.get(key), j)
 
         queue_durations[j["queue"]].append(j["duration_min"])
+        queue_latest[j["queue"]] = _latest_record(queue_latest.get(j["queue"]), j)
         branch_durations[j["branch"]].append(j["duration_min"])
         branch_builds[j["branch"]].add(f"{j['slug']}#{j['build_number']}")
-
-        meta = branch_meta.get(j["branch"])
-        if not meta:
-            branch_meta[j["branch"]] = {
-                "commit": j["commit"],
-                "fork_url": j["fork_url"],
-                "workload": j["workload"],
-                "source": j["source"],
-                "last_seen_dt": j["finished_at"],
-            }
-        else:
-            if j["finished_at"] > meta["last_seen_dt"]:
-                meta["last_seen_dt"] = j["finished_at"]
-                meta["commit"] = j["commit"]
-                meta["fork_url"] = j["fork_url"] or meta["fork_url"]
-                meta["source"] = j["source"] or meta["source"]
+        branch_latest[j["branch"]] = _latest_record(branch_latest.get(j["branch"]), j)
 
     group_rows = []
     for (group, hw), durs in group_durations.items():
         stats = _stats(durs)
         fails = group_failures.get((group, hw), 0)
-        stats.update({
-            "group": group,
-            "hw": hw,
-            "workload": group_workload.get((group, hw), "vllm"),
-            "fail_rate": round(fails / stats["count"], 3) if stats["count"] else 0.0,
-            "failures": fails,
-            "last_seen": group_last_seen[(group, hw)].strftime("%Y-%m-%dT%H:%M:%SZ"),
-        })
+        fail_rate = fails / stats["count"] if stats["count"] else 0.0
+        latest = group_latest[(group, hw)]
+        stats.update(
+            {
+                "group": group,
+                "hw": hw,
+                "workload": latest["workload"],
+                "fail_rate_pct": round(fail_rate * 100, 1),
+                # Fraction retained for the legacy ci-hotness.js consumer.
+                "fail_rate": round(fail_rate, 3),
+                "failures": fails,
+                "last_seen": latest["finished_at"].strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "latest_evidence": _latest_evidence(latest),
+            }
+        )
         group_rows.append(stats)
     group_rows.sort(key=lambda r: (-r["count"], -r["p90_min"]))
 
     branch_rows = []
     for branch, durs in branch_durations.items():
         stats = _stats(durs)
-        meta = branch_meta.get(branch, {})
-        last_dt = meta.get("last_seen_dt")
-        stats.update({
-            "branch": branch,
-            "commit": meta.get("commit", ""),
-            "fork_url": meta.get("fork_url", ""),
-            "source": meta.get("source", ""),
-            "workload": meta.get("workload", "vllm"),
-            "last_seen": last_dt.strftime("%Y-%m-%dT%H:%M:%SZ") if last_dt else "",
-            "builds": len(branch_builds.get(branch, set())),
-        })
+        latest = branch_latest[branch]
+        stats.update(
+            {
+                "branch": branch,
+                "commit": latest["commit"],
+                "fork_url": latest["fork_url"],
+                "source": latest["source"],
+                "workload": latest["workload"],
+                "last_seen": latest["finished_at"].strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "builds": len(branch_builds.get(branch, set())),
+                "latest_evidence": _latest_evidence(latest),
+            }
+        )
         branch_rows.append(stats)
     branch_rows.sort(key=lambda r: (-r["builds"], -r["count"]))
 
@@ -272,6 +326,8 @@ def _aggregate(records: list[dict]) -> dict:
     for queue, durs in queue_durations.items():
         stats = _stats(durs)
         stats["queue"] = queue
+        stats["last_seen"] = queue_latest[queue]["finished_at"].strftime("%Y-%m-%dT%H:%M:%SZ")
+        stats["latest_evidence"] = _latest_evidence(queue_latest[queue])
         queue_rows.append(stats)
     queue_rows.sort(key=lambda r: -r["count"])
 
@@ -322,8 +378,13 @@ def main():
     data = collect_hotness(token)
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT.write_text(json.dumps(data, indent=2))
-    log.info("Wrote hotness: %d groups, %d branches, %d queues -> %s",
-             len(data["test_groups"]), len(data["branches"]), len(data["queues"]), OUTPUT)
+    log.info(
+        "Wrote hotness: %d groups, %d branches, %d queues -> %s",
+        len(data["test_groups"]),
+        len(data["branches"]),
+        len(data["queues"]),
+        OUTPUT,
+    )
 
 
 if __name__ == "__main__":

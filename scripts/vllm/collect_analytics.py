@@ -33,6 +33,13 @@ from vllm.ci.utils import (  # noqa: E402
     percentile,
     queue_from_rules as _queue_from_rules,
 )
+from vllm.ci.reliability_history import (  # noqa: E402
+    BUILD_FETCH_MAX_PAGES,
+    BUILD_FETCH_PAGE_SIZE,
+    build_all_main_reliability,
+    compact_main_builds,
+    compute_nightly_change_history,
+)
 from vllm.pipelines import NIGHTLY_NAME_PATTERNS_BY_SLUG  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
@@ -133,30 +140,30 @@ def nightly_date(iso_str):
 
 
 def bk_get(path, token, params=None):
+    """Fetch one Buildkite REST page with timeout and rate-limit retries."""
     headers = {"Authorization": f"Bearer {token}"}
-    results = []
     url = f"{BK_API_BASE}{path}"
     p = dict(params or {})
-    while url:
-        for attempt in range(3):
-            try:
-                resp = requests.get(url, headers=headers, params=p if not results else None, timeout=30)
-                if resp.status_code == 429:
-                    import time
-                    wait = int(resp.headers.get("Retry-After", 5 * (attempt + 1)))
-                    log.warning("Rate limited, waiting %ds", wait)
-                    time.sleep(wait)
-                    continue
-                resp.raise_for_status()
-                break
-            except requests.exceptions.Timeout:
-                if attempt < 2:
-                    import time; time.sleep(3)
-                    continue
+    for attempt in range(3):
+        try:
+            resp = requests.get(url, headers=headers, params=p, timeout=30)
+            if resp.status_code == 429:
+                import time
+                wait = int(resp.headers.get("Retry-After", 5 * (attempt + 1)))
+                log.warning("Rate limited, waiting %ds", wait)
+                if attempt == 2:
+                    resp.raise_for_status()
+                time.sleep(wait)
+                continue
+            resp.raise_for_status()
+            payload = resp.json()
+            return payload if isinstance(payload, list) else [payload]
+        except requests.exceptions.Timeout:
+            if attempt == 2:
                 raise
-        results.extend(resp.json() if isinstance(resp.json(), list) else [resp.json()])
-        url = resp.links.get("next", {}).get("url")
-    return results
+            import time
+            time.sleep(3)
+    return []
 
 
 def queue_from_rules(rules):
@@ -207,9 +214,23 @@ def _build_job_metadata(builds: list[dict]) -> dict[int, dict[str, dict]]:
         for job in build.get("jobs") or []:
             payload = {
                 k: job[k]
-                for k in ("dur", "wait", "q", "state", "soft_failed", "job_id", "step_id", "url")
+                for k in (
+                    "wait", "q", "state", "soft_failed", "job_id", "step_id", "url",
+                    "started_at", "finished_at", "runnable_at", "wall_completion_mins",
+                    "queue_wait_mins", "end_to_end_mins", "duration_source",
+                )
                 if k in job and job[k] is not None
             }
+            # Historical parsed-result payloads used ``dur`` for summed pytest
+            # time. Do not silently recycle that value as Buildkite wall time.
+            duration_is_wall = (
+                job.get("duration_source") == "buildkite_wall"
+                or build.get("source") != "test_results"
+            )
+            if duration_is_wall and isinstance(job.get("dur"), (int, float)):
+                payload["dur"] = job["dur"]
+                payload.setdefault("wall_completion_mins", job["dur"])
+                payload.setdefault("duration_source", "buildkite_wall")
             payload.update({k: job[k] for k in RETRY_FIELDS if k in job})
             for key in job_metadata_keys(job):
                 by_name[key] = payload
@@ -333,7 +354,7 @@ def load_test_result_builds(output: Path, pipeline_slug: str, days: int, buildki
                 "name": raw_job["name"],
                 "raw_name": raw_job["raw_name"],
                 "state": state,
-                "dur": round(raw_job["dur"], 1),
+                "test_duration_mins": round(raw_job["dur"], 1),
                 "tests": raw_job["tests"],
                 "passed_tests": raw_job["passed_tests"],
                 "failed_tests": raw_job["failed_tests"],
@@ -357,8 +378,6 @@ def load_test_result_builds(output: Path, pipeline_slug: str, days: int, buildki
             if queue:
                 entry["q"] = queue
             for k, v in metadata.items():
-                if k == "dur" and entry["dur"] > 0:
-                    continue
                 if k == "q" and entry.get("q"):
                     continue
                 if k in ("state", "soft_failed", "job_id", "step_id", "url"):
@@ -374,6 +393,8 @@ def load_test_result_builds(output: Path, pipeline_slug: str, days: int, buildki
             "created_at": created,
             "date": bucket["date"] or nightly_date(created),
             "message": meta.get("message") or "nightly",
+            "branch": meta.get("branch") or "main",
+            "commit": meta.get("commit") or "",
             "author": meta.get("author") or "",
             "wall_mins": meta.get("wall_mins"),
             "passed": passed,
@@ -539,16 +560,84 @@ def compute_retry_analysis(builds: list[dict]) -> dict:
     }
 
 
-def collect_pipeline(pipeline_slug, token, days, nightly_only=False, name_pattern=None):
-    """Collect nightly builds and preserve per-job detail for later windows."""
+def attach_main_reliability(pipeline_data: dict, reliability: dict) -> None:
+    """Attach the bounded all-main cohort and its compatibility stream."""
+    main_builds = compact_main_builds(reliability)
+    retained = sum(len(build.get("jobs") or []) for build in main_builds)
+    cohort = reliability.get("cohort") or {}
+    provenance = reliability.get("provenance") or {}
+    denominator = reliability.get("denominator") or {}
+    pipeline_data["all_main_reliability"] = reliability
+    pipeline_data["main_builds"] = main_builds
+    pipeline_data["main_builds_provenance"] = {
+        "schema_version": reliability.get("schema_version"),
+        "cohort": cohort,
+        "window": {
+            key: cohort.get(key)
+            for key in ("window_days", "requested_from", "observed_from", "observed_to")
+        },
+        "denominator": denominator,
+        "source": provenance,
+        "retention": {
+            "eligible_observations_in_denominator": denominator.get("eligible_observations", 0),
+            "eligible_observations_in_main_builds": retained,
+            "observation_limit_per_group": provenance.get("observation_limit_per_group"),
+        },
+        "authoritative_evidence_key": "all_main_reliability",
+    }
+    pipeline_data["main_retry_analysis"] = compute_retry_analysis(main_builds)
+
+
+def fetch_pipeline_builds(pipeline_slug, token, days, max_pages=None):
+    """Fetch Buildkite ``main`` builds, exhaustive for AMD and bounded for parity."""
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     log.info("Fetching %s builds (last %d days)...", pipeline_slug, days)
-
-    builds_raw = bk_get(
-        f"/organizations/{BK_ORG}/pipelines/{pipeline_slug}/builds",
-        token, {"branch": "main", "created_from": since, "per_page": 100, "include_retried_jobs": "true"}
+    path = f"/organizations/{BK_ORG}/pipelines/{pipeline_slug}/builds"
+    page_limit = max_pages if max_pages is not None else (
+        BUILD_FETCH_MAX_PAGES if pipeline_slug == "amd-ci" else 1
     )
-    log.info("  %d total builds fetched", len(builds_raw))
+    by_number: dict[int, dict] = {}
+    for page in range(1, page_limit + 1):
+        rows = bk_get(path, token, {
+            "branch": "main",
+            "created_from": since,
+            "per_page": BUILD_FETCH_PAGE_SIZE,
+            "page": page,
+            "include_retried_jobs": "true",
+        })
+        if not rows:
+            break
+        before = len(by_number)
+        for build in rows:
+            number = int(build.get("number") or 0)
+            if number:
+                by_number.setdefault(number, build)
+        if len(rows) < BUILD_FETCH_PAGE_SIZE:
+            break
+        if len(by_number) == before:
+            log.warning("  stopping pagination at page %d: no new build numbers", page)
+            break
+    else:
+        log.warning(
+            "  reached Buildkite pagination safety cap (%d pages, %d builds)",
+            page_limit,
+            len(by_number),
+        )
+    builds_raw = sorted(
+        by_number.values(),
+        key=lambda build: (
+            str(build.get("created_at") or ""),
+            int(build.get("number") or 0),
+        ),
+        reverse=True,
+    )
+    log.info("  %d unique builds fetched", len(builds_raw))
+    return builds_raw
+
+
+def summarize_pipeline_builds(pipeline_slug, builds_raw, nightly_only=False, name_pattern=None):
+    """Normalize Buildkite builds while retaining per-attempt provenance."""
+    builds_raw = list(builds_raw or [])
 
     # Filter to nightly if requested
     if nightly_only and name_pattern:
@@ -581,6 +670,7 @@ def collect_pipeline(pipeline_slug, token, days, nightly_only=False, name_patter
 
             dur = duration_mins(j.get("started_at"), j.get("finished_at"))
             wait = duration_mins(j.get("runnable_at"), j.get("started_at"))
+            end_to_end = duration_mins(j.get("runnable_at"), j.get("finished_at"))
 
             if state == "passed":
                 passed += 1
@@ -596,6 +686,13 @@ def collect_pipeline(pipeline_slug, token, days, nightly_only=False, name_patter
                 "raw_name": name,
                 "state": "soft_fail" if sf else state,
                 "dur": dur,
+                "wall_completion_mins": dur,
+                "queue_wait_mins": wait,
+                "end_to_end_mins": end_to_end,
+                "duration_source": "buildkite_wall",
+                "started_at": j.get("started_at") or "",
+                "finished_at": j.get("finished_at") or "",
+                "runnable_at": j.get("runnable_at") or "",
             }
             for key in RETRY_FIELDS:
                 value = j.get(key, (j.get("step") or {}).get("key") if key == "step_key" else None)
@@ -622,6 +719,8 @@ def collect_pipeline(pipeline_slug, token, days, nightly_only=False, name_patter
             "created_at": created,
             "date": nightly_date(created),
             "message": message,
+            "branch": b.get("branch") or "",
+            "commit": b.get("commit") or "",
             "author": author,
             "wall_mins": wall_mins,
             "passed": passed,
@@ -635,6 +734,13 @@ def collect_pipeline(pipeline_slug, token, days, nightly_only=False, name_patter
     # Sort builds newest first
     builds.sort(key=lambda x: x.get("created_at", ""), reverse=True)
     return builds
+
+
+def collect_pipeline(pipeline_slug, token, days, nightly_only=False, name_pattern=None, builds_raw=None):
+    """Fetch and normalize builds, preserving the historical public API."""
+    if builds_raw is None:
+        builds_raw = fetch_pipeline_builds(pipeline_slug, token, days)
+    return summarize_pipeline_builds(pipeline_slug, builds_raw, nightly_only, name_pattern)
 
 
 def compute_job_rankings(builds):
@@ -864,15 +970,24 @@ def main():
             log.warning("Ignoring malformed previous analytics at %s", previous_path)
 
     pipelines = ["amd-ci", "ci"] if args.pipeline == "both" else [args.pipeline]
-    all_data = {}
+    # A targeted refresh must not erase the other pipeline. This is useful for
+    # AMD-only reliability refreshes while upstream remains a parity reference.
+    all_data = {
+        slug: block
+        for slug, block in previous_data.items()
+        if slug not in pipelines and isinstance(block, dict)
+    }
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     ref_now = datetime.now(timezone.utc)
 
     for slug in pipelines:
         log.info("=== %s ===", PIPELINES.get(slug, slug))
 
-        # Collect nightly builds only for analytics
+        # Fetch branch=main once. The canonical nightly stream remains
+        # message-matched for regressions, while AMD reliability retains every
+        # trustworthy terminal main build in a separate cohort.
         previous_builds = (previous_data.get(slug) or {}).get("builds") or []
+        raw_builds = fetch_pipeline_builds(slug, token, args.days) if token else []
         buildkite_builds = (
             collect_pipeline(
                 slug,
@@ -880,6 +995,7 @@ def main():
                 args.days,
                 nightly_only=True,
                 name_pattern=NIGHTLY_NAME_PATTERNS_BY_SLUG.get(slug),
+                builds_raw=raw_builds,
             )
             if token
             else []
@@ -900,11 +1016,25 @@ def main():
         failure_ranking = sorted(job_rankings, key=lambda x: x["fail_rate"], reverse=True)
         duration_ranking = sorted(job_rankings, key=lambda x: x.get("median_dur") or 0, reverse=True)
 
+        nightly_change_history = compute_nightly_change_history(builds)
         all_data[slug] = {
             "pipeline": slug,
             "display_name": PIPELINES.get(slug, slug),
             "days": args.days,
             "generated_at": generated_at,
+            "cohort": {
+                "name": "canonical message-matched nightlies",
+                "pipeline": slug,
+                "branch": "main",
+                "window_days": args.days,
+                "build_count": len(builds),
+                "name_pattern": NIGHTLY_NAME_PATTERNS_BY_SLUG.get(slug) or "",
+            },
+            "transition_basis": (
+                "canonical nightly job variants; fixed requires a current observed pass, "
+                "and absence is reported as not_observed"
+            ),
+            "nightly_change_history": nightly_change_history,
             "summary": compute_summary(builds, job_rankings),
             "daily_stats": daily,
             "builds": builds[:ANALYTICS_BUILD_LIMIT],  # Long enough for 3-month trend views
@@ -918,6 +1048,22 @@ def main():
         if slug == "amd-ci":
             retry_builds = buildkite_builds or previous_builds or builds
             all_data[slug]["retry_analysis"] = compute_retry_analysis(retry_builds)
+            previous_all_main = (previous_data.get(slug) or {}).get("all_main_reliability")
+            all_main_reliability = None
+            if token:
+                all_main_reliability = build_all_main_reliability(
+                    raw_builds,
+                    pipeline_slug=slug,
+                    window_days=args.days,
+                    generated_at=generated_at,
+                    nightly_pattern=NIGHTLY_NAME_PATTERNS_BY_SLUG.get(slug) or "",
+                    test_result_builds=result_builds,
+                )
+            elif isinstance(previous_all_main, dict):
+                log.warning("  preserving previous all-main reliability: BUILDKITE_TOKEN is unavailable")
+                all_main_reliability = previous_all_main
+            if all_main_reliability:
+                attach_main_reliability(all_data[slug], all_main_reliability)
 
         log.info("  %d builds, %d jobs tracked, %d with failures",
                  len(builds), len(job_rankings),

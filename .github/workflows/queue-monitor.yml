@@ -33,16 +33,7 @@ jobs:
           # The push to main may fail due to branch protection, so gh-pages
           # may have newer queue data than main. Fetch the live version.
           git fetch origin gh-pages --depth=1 || true
-          LIVE_FILE=$(git show origin/gh-pages:data/vllm/ci/queue_timeseries.jsonl 2>/dev/null || true)
-          if [ -n "$LIVE_FILE" ]; then
-            LIVE_LINES=$(echo "$LIVE_FILE" | wc -l)
-            LOCAL_LINES=$(wc -l < data/vllm/ci/queue_timeseries.jsonl)
-            echo "gh-pages has $LIVE_LINES lines, main has $LOCAL_LINES lines"
-            if [ "$LIVE_LINES" -gt "$LOCAL_LINES" ]; then
-              echo "Using gh-pages version (more recent data)"
-              echo "$LIVE_FILE" > data/vllm/ci/queue_timeseries.jsonl
-            fi
-          fi
+          python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/gh-pages
 
       - name: Sync queue issue state from gh-pages
         run: |

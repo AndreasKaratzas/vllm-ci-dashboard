@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from vllm import build_operations_snapshot as ops
@@ -250,12 +251,27 @@ def test_v2_snapshot_transition_math_links_and_queue_provenance(tmp_path):
     assert payload["queue"]["snapshot"]["total_waiting"] == 2
     assert payload["queue"]["provenance"]["snapshot"]["sources"]["counts"] == "cluster_metrics"
     assert payload["queue"]["provenance"]["jobs"]["source_counts"] == {"webhook": 2}
+    assert payload["queue"]["history_summary"]["source_path"] == "queue_timeseries.jsonl"
+    assert payload["queue"]["provenance"]["source_paths"] == {
+        "history": "queue_timeseries.jsonl",
+        "jobs": "queue_jobs.json",
+    }
     assert payload["omni"]["status"] == "elevated"
     assert payload["omni"]["current"] == {
         "waiting": 2,
         "running": 1,
         "waiting_by_queue": {"amd_mi300_1": 2},
         "running_by_queue": {"amd_mi300_1": 1},
+    }
+    assert payload["omni"]["provenance"]["source_paths"] == {
+        "queue_aggregates": "queue_timeseries.jsonl",
+        "queue_jobs": "queue_jobs.json",
+        "heuristic": "omni_surge_heuristic.json",
+        "issue_state": "open_omni_surge_issues.json",
+    }
+    assert payload["trajectory"]["provenance"]["source_paths"] == {
+        "build_history": "ci_health.json",
+        "group_changes": "group_changes.json",
     }
     assert all("timestamp" in source for source in payload["sources"].values())
 
@@ -264,18 +280,23 @@ def test_reliability_only_marks_mixed_pass_failure_jobs_flaky(tmp_path):
     payload = ops.build_snapshot(_fixture_data(tmp_path), generated_at=GENERATED_AT)
 
     flaky = payload["reliability"]["flaky_candidates"]
-    assert {row["name"] for row in flaky} == {"Mixed hard", "Mixed soft"}
+    assert {row["name"] for row in flaky} == {"Fixed", "Mixed hard", "Mixed soft"}
     assert "Always failing" not in {row["name"] for row in flaky}
     assert "Stable" not in {row["name"] for row in flaky}
     assert {row["evidence_type"] for row in flaky} == {"mixed_outcome_history"}
-    assert payload["reliability"]["latency_rankings"]["by_p90_duration"][0]["name"] == "Mixed hard"
+    assert payload["reliability"]["latency_rankings"]["by_p90_duration"][0]["name"] == "New hard"
+    assert payload["reliability"]["denominator"]["unit"] == (
+        "terminal amd-ci branch=main job observations"
+    )
+    assert payload["reliability"]["denominator"]["unknown_observations_excluded"] == 1
     assert payload["gating"]["denominators"]["target_signal_counts"]["value"] == 2
     assert payload["gating"]["denominators"]["matrix_cell_states"]["value"] == 4
+    assert all("owner" not in row for row in payload["gating"]["active_target_groups"])
 
 
-def test_mixed_outcome_candidates_include_each_nightly_observation(tmp_path):
+def test_group_catalog_retains_linked_terminal_main_observations(tmp_path):
     reliability = ops.build_snapshot(_fixture_data(tmp_path), generated_at=GENERATED_AT)["reliability"]
-    candidates = {row["name"]: row for row in reliability["flaky_candidates"]}
+    candidates = {row["name"]: row for row in reliability["group_catalog"]}
 
     hard = candidates["Mixed hard"]
     assert hard["observation_count"] == hard["runs"] == 3
@@ -316,14 +337,335 @@ def test_mixed_outcome_candidates_include_each_nightly_observation(tmp_path):
     }
 
     soft = candidates["Mixed soft"]
-    assert soft["observation_count"] == soft["runs"] == 3
-    assert [row["state"] for row in soft["observations"]] == ["soft", "passed", "unknown"]
+    assert soft["observation_count"] == soft["runs"] == 2
+    assert [row["state"] for row in soft["observations"]] == ["soft", "passed"]
     assert all("retry_evidence" not in row for row in soft["observations"])
-    assert "job_url" not in soft["observations"][-1]
 
     assert reliability["retry_analysis"]["evidence_type"] == "explicit_retry_recovery"
     assert reliability["retry_analysis"]["summary"]["failed_then_passed_recovery_count"] == 1
-    assert "not proof of a retry recovery" in reliability["evidence_definitions"]["mixed_outcome_history"]
+    assert "not proof that a retry recovered" in reliability["evidence_definitions"]["mixed_outcome_history"]
+
+
+def test_nightly_fixed_requires_an_observed_pass():
+    previous = _build(10, "2026-04-20", [
+        _job("Missing now", "failed", "https://buildkite.com/vllm/amd-ci/builds/10/steps/missing"),
+        _job("Actually fixed", "failed", "https://buildkite.com/vllm/amd-ci/builds/10/steps/fixed"),
+    ])
+    current = _build(11, "2026-04-21", [
+        _job("Actually fixed", "passed", "https://buildkite.com/vllm/amd-ci/builds/11/steps/fixed"),
+    ])
+
+    row = ops._nightly_pipeline("amd-ci", {"builds": [current, previous]})["builds"][0]
+
+    assert [item["name"] for item in row["transitions"]["fixed"]] == ["Actually fixed"]
+    assert [item["name"] for item in row["transitions"]["not_observed"]] == ["Missing now"]
+
+
+def test_gating_keeps_four_gpu_and_h100_mirror_evidence_distinct():
+    targets = {
+        "summary": {"target_group_count": 2},
+        "groups": [
+            {"id": 1, "label": "V1 e2e (4 GPUs)", "area": "engine"},
+            {"id": 2, "label": "V1 e2e (4xH100)", "area": "engine"},
+        ],
+    }
+    matrix = {
+        "generated_at": GENERATED_AT,
+        "source": {"latest_build_number": 10649},
+        "summary": {"unique_groups": 2, "hardware_cells": 2},
+        "rows": [
+            {
+                "title": "V1 e2e (4 GPUs)",
+                "cells": {"mi300": {
+                    "exists": True,
+                    "latest_state": "soft_fail",
+                    "latest_build_number": 10649,
+                    "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10649/steps/canvas?sid=soft",
+                }},
+            },
+            {
+                "title": "V1 e2e (4xH100-4xMI300)",
+                "cells": {"mi300": {
+                    "exists": True,
+                    "latest_state": "passed",
+                    "latest_build_number": 10649,
+                    "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10649/steps/canvas?sid=passed",
+                }},
+            },
+        ],
+    }
+
+    reliability = {"group_catalog": [
+        {
+            "id": "four-gpu-mi300",
+            "group_ids": ["four-gpu-mi300"],
+            "name": "V1 e2e (4 GPUs)",
+            "hardware": "mi300",
+            "queues": ["amd_mi300_4"],
+            "runs": 2,
+            "passed": 1,
+            "failed": 1,
+            "soft_failed": 0,
+        },
+        {
+            "id": "four-gpu-mi325",
+            "group_ids": ["four-gpu-mi325"],
+            "name": "V1 e2e (4 GPUs)",
+            "hardware": "mi325",
+            "queues": ["amd_mi325_4"],
+            "runs": 1,
+            "passed": 1,
+            "failed": 0,
+            "soft_failed": 0,
+        },
+    ]}
+    result = ops._gating(targets, {"rows": []}, matrix, {}, reliability)
+    by_label = {row["label"]: row for row in result["active_target_groups"]}
+
+    assert by_label["V1 e2e (4 GPUs)"]["latest_amd_result"]["state"] == "soft"
+    assert by_label["V1 e2e (4 GPUs)"]["evidence"][0]["url"].endswith("sid=soft")
+    assert by_label["V1 e2e (4xH100)"]["latest_amd_result"]["state"] == "passed"
+    assert by_label["V1 e2e (4xH100)"]["evidence"][0]["url"].endswith("sid=passed")
+    assert by_label["V1 e2e (4 GPUs)"]["main_reliability"]["group_ids"] == [
+        "four-gpu-mi300",
+        "four-gpu-mi325",
+    ]
+    assert {
+        (row["hardware"], tuple(row["queues"]))
+        for row in by_label["V1 e2e (4 GPUs)"]["main_reliability"]["variants"]
+    } == {
+        ("mi300", ("amd_mi300_4",)),
+        ("mi325", ("amd_mi325_4",)),
+    }
+
+
+def test_snapshot_prefers_collector_all_main_variant_catalog(tmp_path):
+    data_dir = _fixture_data(tmp_path)
+    analytics_payload = json.loads((data_dir / "analytics.json").read_text())
+    analytics_payload["amd-ci"]["all_main_reliability"] = {
+        "cohort": {
+            "build_count": 2,
+            "canonical_nightly_build_count": 1,
+            "non_nightly_main_build_count": 1,
+            "window_days": 30,
+        },
+        "denominator": {"eligible_observations": 2, "excluded_observations": 1},
+        "provenance": {"query": {"branch": "main"}},
+        "summary": {"retry_evidence_observations": 0},
+        "builds": [
+            {"number": 201, "is_canonical_nightly": False},
+            {"number": 200, "is_canonical_nightly": True},
+        ],
+        "groups": [{
+            "group_id": "strict-variant-id",
+            "name": "Non-nightly main group (4 GPUs)",
+            "raw_name": "mi300_4: Non-nightly main group (4 GPUs)",
+            "step_key": "strict-step",
+            "hardware": "mi300",
+            "queue": "amd_mi300_4",
+            "denominator": 2,
+            "passed": 1,
+            "failed": 1,
+            "soft_failed": 0,
+            "incident_rate": 50.0,
+            "excluded_observations": 1,
+            "retry_evidence_observations": 0,
+            "duration": {
+                "wall_completion": {
+                    "samples": 2, "p50_mins": 12.0, "p90_mins": 14.0, "max_mins": 16.0,
+                },
+                "test_reported": {
+                    "samples": 2, "p50_mins": 7.0, "p90_mins": 8.0, "max_mins": 9.0,
+                },
+                "queue_wait": {
+                    "samples": 2, "p50_mins": 3.0, "p90_mins": 4.0, "max_mins": 5.0,
+                },
+                "end_to_end": {
+                    "samples": 2, "p50_mins": 15.0, "p90_mins": 18.0, "max_mins": 21.0,
+                },
+            },
+            "observations_truncated": False,
+            "observations": [
+                {
+                    "build_number": 201,
+                    "build_url": "https://buildkite.com/vllm/amd-ci/builds/201",
+                    "build_commit": "abc",
+                    "build_message": "regular main change",
+                    "job_id": "job-201",
+                    "job_url": "https://buildkite.com/vllm/amd-ci/builds/201/steps/canvas?jid=job-201",
+                    "observed_at": "2026-04-22T12:00:00Z",
+                    "result": "failed",
+                    "terminal_state": "failed",
+                    "eligible_for_reliability": True,
+                    "wall_completion_mins": 14.0,
+                    "queue_wait_mins": 4.0,
+                },
+                {
+                    "build_number": 200,
+                    "build_url": "https://buildkite.com/vllm/amd-ci/builds/200",
+                    "build_commit": "def",
+                    "build_message": "nightly",
+                    "job_id": "job-200",
+                    "job_url": "https://buildkite.com/vllm/amd-ci/builds/200/steps/canvas?jid=job-200",
+                    "observed_at": "2026-04-21T12:00:00Z",
+                    "result": "passed",
+                    "terminal_state": "passed",
+                    "eligible_for_reliability": True,
+                    "wall_completion_mins": 10.0,
+                    "queue_wait_mins": 2.0,
+                },
+            ],
+        }],
+    }
+    _write_json(data_dir / "analytics.json", analytics_payload)
+
+    reliability = ops.build_snapshot(data_dir, generated_at=GENERATED_AT)["reliability"]
+
+    assert reliability["denominator"]["builds"] == 2
+    assert reliability["denominator"]["observations"] == 2
+    assert reliability["denominator"]["unknown_observations_excluded"] == 1
+    assert [row["name"] for row in reliability["group_catalog"]] == [
+        "Non-nightly main group (4 GPUs)"
+    ]
+    group = reliability["group_catalog"][0]
+    assert group["id"] == "strict-variant-id"
+    assert group["group_ids"] == ["strict-variant-id"]
+    assert group["hardware"] == "mi300"
+    assert group["queues"] == ["amd_mi300_4"]
+    assert group["duration_basis"] == "job_wall"
+    assert group["max_wall_mins"] == 16.0
+    assert group["max_test_mins"] == 9.0
+    assert group["max_wait_mins"] == 5.0
+    assert group["max_end_to_end_mins"] == 21.0
+    assert group["max_dur"] == 16.0
+    assert group["observations"][0]["build_kind"] == "main"
+    assert group["observations"][0]["job_url"].endswith("jid=job-201")
+    assert reliability["latency_rankings"]["by_p90_duration"][0]["max_dur"] == 16.0
+    assert reliability["latency_rankings"]["by_max_duration"][0]["id"] == "strict-variant-id"
+    assert reliability["cohort"]["composition"] == {
+        "all_main_builds": 2,
+        "canonical_nightlies": 1,
+        "other_main_builds": 1,
+    }
+
+
+def test_snapshot_retains_thirty_amd_nightlies_and_separates_upstream_parity(tmp_path):
+    data_dir = _fixture_data(tmp_path)
+    analytics_payload = json.loads((data_dir / "analytics.json").read_text())
+    start = datetime(2026, 3, 1)
+    amd_builds = [
+        _build(
+            1000 + index,
+            (start + timedelta(days=index)).strftime("%Y-%m-%d"),
+            [_job(f"Group {index}", "passed", f"https://buildkite.com/vllm/amd-ci/builds/{1000 + index}")],
+        )
+        for index in range(35)
+    ]
+    upstream_builds = [
+        _build(
+            2000 + index,
+            (start + timedelta(days=index)).strftime("%Y-%m-%d"),
+            [],
+            pipeline="ci",
+        )
+        for index in range(4)
+    ]
+    analytics_payload["amd-ci"].update({"days": 30, "builds": amd_builds})
+    analytics_payload["ci"].update({"days": 30, "builds": upstream_builds})
+    _write_json(data_dir / "analytics.json", analytics_payload)
+
+    nightly = ops.build_snapshot(data_dir, generated_at=GENERATED_AT)["nightly"]
+
+    canonical = nightly["canonical_history"]
+    assert canonical["pipeline"] == "amd-ci"
+    assert canonical["role"] == "canonical_nightly_comparison"
+    assert canonical["builds_available"] == 35
+    assert len(canonical["builds"]) == 30
+    assert [row["number"] for row in canonical["builds"][:2]] == [1034, 1033]
+    assert canonical["builds"][-1]["number"] == 1005
+    assert nightly["pipelines"][0]["builds"] == canonical["builds"]
+
+    parity = nightly["upstream_parity"]
+    assert parity["pipeline"] == "ci"
+    assert parity["role"] == "upstream_parity"
+    assert len(parity["builds"]) == 4
+
+
+def test_retry_analysis_retains_all_attempts_recoveries_and_exact_urls():
+    attempts = [
+        {
+            "build_number": 3000 + index,
+            "name": f"Retry group {index}",
+            "job_id": f"retry-{index}",
+            "url": (
+                f"https://buildkite.com/vllm/amd-ci/builds/{3000 + index}/steps/canvas"
+                f"?jid=retry-{index}&tab=output"
+            ),
+        }
+        for index in range(80)
+    ]
+    recoveries = [
+        {
+            "build_number": 4000 + index,
+            "name": f"Recovered group {index}",
+            "failed_job_id": f"failed-{index}",
+            "passed_job_id": f"passed-{index}",
+            "failed_url": (
+                f"https://buildkite.com/vllm/amd-ci/builds/{4000 + index}/steps/canvas"
+                f"?jid=failed-{index}&tab=output"
+            ),
+            "passed_url": (
+                f"https://buildkite.com/vllm/amd-ci/builds/{4000 + index}/steps/canvas"
+                f"?jid=passed-{index}&tab=output"
+            ),
+        }
+        for index in range(21)
+    ]
+    analytics_payload = {
+        "all_main_reliability": {
+            "cohort": {
+                "build_count": 34,
+                "canonical_nightly_build_count": 30,
+                "non_nightly_main_build_count": 4,
+                "window_days": 30,
+            },
+            "denominator": {"eligible_observations": 0, "excluded_observations": 0},
+            "provenance": {"query": {"branch": "main"}},
+            "summary": {"retry_evidence_observations": 80},
+            "builds": [],
+            "groups": [],
+        },
+        "main_retry_analysis": {
+            "summary": {
+                "builds_evaluated": 34,
+                "builds_with_retries": 11,
+                "retry_attempt_count": 80,
+                "failed_then_passed_recovery_count": 21,
+            },
+            "retry_attempts": attempts,
+            "failed_then_passed_recoveries": recoveries,
+        },
+    }
+
+    reliability = ops._reliability(analytics_payload)
+    retry = reliability["retry_analysis"]
+
+    assert retry["summary"]["retry_attempt_count"] == len(retry["retry_attempts"]) == 80
+    assert retry["summary"]["failed_then_passed_recovery_count"] == 21
+    assert len(retry["failed_then_passed_recoveries"]) == 21
+    assert retry["summary"]["linked_retry_attempt_count"] == 80
+    assert retry["summary"]["linked_recovery_count"] == 21
+    assert all("?jid=retry-" in row["job_url"] for row in retry["retry_attempts"])
+    assert all(
+        "?jid=failed-" in row["failed_url"] and "?jid=passed-" in row["passed_url"]
+        for row in retry["failed_then_passed_recoveries"]
+    )
+    assert retry["provenance"]["source_path"] == "analytics.json"
+    assert reliability["cohort"]["composition"] == {
+        "all_main_builds": 34,
+        "canonical_nightlies": 30,
+        "other_main_builds": 4,
+    }
 
 
 def test_retry_analysis_and_collector_retry_fields(monkeypatch):

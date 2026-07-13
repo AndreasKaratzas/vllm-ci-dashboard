@@ -82,9 +82,9 @@ DATA_SPECS: tuple[DataSpec, ...] = (
     DataSpec(
         "data/vllm/ci/analytics.json",
         ("scripts/vllm/collect_analytics.py",),
-        ("docs/assets/js/ci-analytics.js",),
+        ("scripts/vllm/build_operations_snapshot.py", "docs/assets/js/ci-analytics.js"),
         ("amd-ci", "ci"),
-        "CI Analytics comparison, recent builds, trends, rankings",
+        "Nightly comparison plus all-main reliability evidence",
     ),
     DataSpec(
         "data/vllm/ci/gating_nightlies.json",
@@ -147,7 +147,14 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         ("scripts/vllm/build_operations_snapshot.py",),
         ("docs/assets/js/ops-v2.js",),
         ("schema_version", "generated_at", "nightly", "reliability", "gating", "queue"),
-        "Versioned AMD-first read model for Signal Desk v2",
+        "Versioned AMD-first evidence and history read model",
+    ),
+    DataSpec(
+        "data/vllm/ci/ready_tickets.json",
+        ("scripts/vllm/sync_ready_tickets.py",),
+        ("docs/assets/js/ci-ready.js",),
+        ("generated_at", "failing_groups_total", "tickets", "groups_all"),
+        "Ready-ticket triage and per-group build evidence",
     ),
     DataSpec(
         "data/vllm/perf_eval/perf_eval.json",
@@ -240,6 +247,7 @@ class DashboardAudit:
         self.audit_analytics()
         self.audit_amd_matrix()
         self.audit_queue_data()
+        self.audit_ready_tickets()
         self.audit_frontend_contracts()
         self.audit_workflows()
         return self.report
@@ -410,19 +418,145 @@ class DashboardAudit:
                 relpath,
             )
 
-        candidates = ((payload.get("reliability") or {}).get("flaky_candidates") or [])
+        unsupported_owners = [
+            row.get("label")
+            for row in active
+            if row.get("owner") or "owner" in row
+        ]
+        if unsupported_owners:
+            self.error(
+                "operations-unsupported-owners",
+                f"{len(unsupported_owners)} gating rows publish an unsupported owner field",
+                relpath,
+            )
+
+        linked_gating = 0
+        observed_gating = 0
+        for row in active:
+            latest = row.get("latest_amd_result") or {}
+            if latest.get("state") in {"passed", "soft", "hard"}:
+                observed_gating += 1
+                if any(item.get("url") for item in latest.get("evidence") or []):
+                    linked_gating += 1
+        if observed_gating != linked_gating:
+            self.error(
+                "operations-gating-missing-links",
+                f"{observed_gating - linked_gating} of {observed_gating} observed gating rows lack exact AMD evidence",
+                relpath,
+            )
+
+        reliability = payload.get("reliability") or {}
+        cohort = reliability.get("cohort") or {}
+        if cohort.get("id") != "main":
+            self.error(
+                "operations-reliability-cohort",
+                "Reliability must identify the all-main cohort separately from nightlies",
+                relpath,
+            )
+        composition = cohort.get("composition") or {}
+        cohort_builds = int(composition.get("all_main_builds") or cohort.get("build_count") or 0)
+        cohort_nightlies = int(
+            composition.get("canonical_nightlies")
+            or cohort.get("canonical_nightly_build_count")
+            or 0
+        )
+        cohort_other_main = int(
+            composition.get("other_main_builds")
+            or cohort.get("other_main_build_count")
+            or cohort.get("non_nightly_main_build_count")
+            or 0
+        )
+        if cohort_builds != cohort_nightlies + cohort_other_main:
+            self.error(
+                "operations-reliability-cohort-composition",
+                (
+                    f"all-main builds={cohort_builds} but canonical nightlies + other main "
+                    f"builds={cohort_nightlies + cohort_other_main}"
+                ),
+                relpath,
+            )
+
+        nightly = payload.get("nightly") or {}
+        canonical = nightly.get("canonical_history") or next(
+            (
+                row for row in nightly.get("pipelines") or []
+                if row.get("pipeline") == "amd-ci"
+            ),
+            {},
+        )
+        canonical_rows = canonical.get("builds") or []
+        expected_nightlies = min(30, int(canonical.get("builds_available") or 0))
+        if len(canonical_rows) != expected_nightlies:
+            self.error(
+                "operations-nightly-retention",
+                f"canonical AMD history retains {len(canonical_rows)} builds, expected {expected_nightlies}",
+                relpath,
+            )
+        upstream_parity = nightly.get("upstream_parity") or {}
+        if upstream_parity.get("pipeline") != "ci" or canonical.get("pipeline") != "amd-ci":
+            self.error(
+                "operations-upstream-parity-scope",
+                "Canonical AMD nightly history and upstream parity must be published separately",
+                relpath,
+            )
+        if "branch=main" not in str((reliability.get("denominator") or {}).get("unit") or ""):
+            self.error(
+                "operations-reliability-denominator",
+                "Reliability denominator must explicitly describe amd-ci branch=main observations",
+                relpath,
+            )
+
+        catalog = reliability.get("group_catalog") or []
+        catalog_by_id = {row.get("id"): row for row in catalog if row.get("id")}
+        candidates = reliability.get("flaky_candidates") or []
         observations = 0
         linked_observations = 0
-        for candidate in candidates:
-            rows = candidate.get("observations") or []
+        denominator_observations = 0
+        for group in catalog:
+            rows = group.get("observations") or []
             observations += len(rows)
             linked_observations += sum(bool(row.get("job_url")) for row in rows)
-            expected = int(candidate.get("observation_count") or 0)
-            runs = int(candidate.get("runs") or 0)
-            if len(rows) != expected or expected != runs:
+            runs = int(group.get("runs") or 0)
+            denominator_observations += runs
+            retained = int(group.get("retained_observation_count") or 0)
+            if len(rows) != retained or retained > runs:
                 self.error(
                     "operations-reliability-evidence-count",
-                    f"{candidate.get('name')}: runs={runs}, observation_count={expected}, rows={len(rows)}",
+                    f"{group.get('name')}: runs={runs}, retained={retained}, rows={len(rows)}",
+                    relpath,
+                )
+            group_ids = group.get("group_ids") or []
+            if not group.get("id") or group.get("id") not in group_ids:
+                self.error(
+                    "operations-reliability-group-identity",
+                    f"{group.get('name')}: strict id is absent from aggregate group_ids",
+                    relpath,
+                )
+            if "hardware" not in group or "queues" not in group:
+                self.error(
+                    "operations-reliability-hardware-identity",
+                    f"{group.get('name')}: hardware/queue identity is missing",
+                    relpath,
+                )
+            if group.get("median_dur") is not None and group.get("max_dur") is None:
+                self.error(
+                    "operations-reliability-max-duration",
+                    f"{group.get('name')}: median duration is published without a maximum",
+                    relpath,
+                )
+        expected_denominator = int((reliability.get("denominator") or {}).get("observations") or 0)
+        if denominator_observations != expected_denominator:
+            self.error(
+                "operations-reliability-denominator-sum",
+                f"catalog runs={denominator_observations} but denominator observations={expected_denominator}",
+                relpath,
+            )
+        for candidate in candidates:
+            evidence_ref = candidate.get("evidence_ref") or candidate.get("id")
+            if evidence_ref not in catalog_by_id:
+                self.error(
+                    "operations-reliability-evidence-ref",
+                    f"{candidate.get('name')}: missing catalog evidence reference {evidence_ref!r}",
                     relpath,
                 )
             if candidate.get("evidence_type") != "mixed_outcome_history":
@@ -432,17 +566,117 @@ class DashboardAudit:
                     relpath,
                 )
         if observations and linked_observations != observations:
-            self.warning(
+            self.error(
                 "operations-reliability-missing-links",
-                f"{observations - linked_observations} of {observations} reliability observations lack an exact job URL",
+                f"{observations - linked_observations} of {observations} retained observations lack an exact job URL",
+                relpath,
+            )
+
+        latency = (reliability.get("latency_rankings") or {}).get("by_p90_duration") or []
+        missing_latency_max = [row.get("name") for row in latency if row.get("max_dur") is None]
+        if missing_latency_max:
+            self.error(
+                "operations-latency-max-duration",
+                f"{len(missing_latency_max)} latency rows omit max_dur",
+                relpath,
+            )
+
+        retry = reliability.get("retry_analysis") or {}
+        retry_summary = retry.get("summary") or {}
+        retry_attempts = retry.get("retry_attempts") or []
+        recoveries = retry.get("failed_then_passed_recoveries") or []
+        if int(retry_summary.get("retry_attempt_count") or 0) != len(retry_attempts):
+            self.error(
+                "operations-retry-attempt-count",
+                (
+                    f"retry summary={retry_summary.get('retry_attempt_count')} but "
+                    f"{len(retry_attempts)} attempt rows are published"
+                ),
+                relpath,
+            )
+        if int(retry_summary.get("failed_then_passed_recovery_count") or 0) != len(recoveries):
+            self.error(
+                "operations-retry-recovery-count",
+                (
+                    f"recovery summary={retry_summary.get('failed_then_passed_recovery_count')} but "
+                    f"{len(recoveries)} chains are published"
+                ),
+                relpath,
+            )
+        missing_retry_urls = sum(not (row.get("job_url") or row.get("url")) for row in retry_attempts)
+        missing_recovery_urls = sum(
+            not (row.get("failed_url") and row.get("passed_url")) for row in recoveries
+        )
+        if missing_retry_urls or missing_recovery_urls:
+            self.error(
+                "operations-retry-links",
+                (
+                    f"{missing_retry_urls} retry attempts and {missing_recovery_urls} recovered chains "
+                    "lack exact retained URLs"
+                ),
+                relpath,
+            )
+
+        expected_source_paths = {
+            "queue history": (
+                ((payload.get("queue") or {}).get("provenance") or {}).get("source_paths") or {}
+            ).get("history"),
+            "trajectory builds": (
+                ((payload.get("trajectory") or {}).get("provenance") or {}).get("source_paths") or {}
+            ).get("build_history"),
+            "trajectory changes": (
+                ((payload.get("trajectory") or {}).get("provenance") or {}).get("source_paths") or {}
+            ).get("group_changes"),
+            "Omni aggregates": (
+                ((payload.get("omni") or {}).get("provenance") or {}).get("source_paths") or {}
+            ).get("queue_aggregates"),
+        }
+        required_source_paths = {
+            "queue history": "queue_timeseries.jsonl",
+            "trajectory builds": "ci_health.json",
+            "trajectory changes": "group_changes.json",
+            "Omni aggregates": "queue_timeseries.jsonl",
+        }
+        mismatched_paths = {
+            label: (expected_source_paths.get(label), expected)
+            for label, expected in required_source_paths.items()
+            if expected_source_paths.get(label) != expected
+        }
+        if mismatched_paths:
+            self.error(
+                "operations-aggregate-provenance",
+                f"Published aggregate source paths are incomplete or incorrect: {mismatched_paths}",
+                relpath,
+            )
+
+        queue_history = ((payload.get("queue") or {}).get("history") or [])
+        if len(queue_history) < 2:
+            self.error(
+                "operations-queue-history",
+                "Queue history must retain more than the current snapshot",
+                relpath,
+            )
+        if "mi355b" in json.dumps(payload, sort_keys=True).lower():
+            self.error(
+                "operations-retired-mi355b",
+                "operations_v2.json still contains retired amd_mi355B queues",
                 relpath,
             )
 
         self.report.metrics["operations_v2"] = {
             "active_targets": len(active),
+            "linked_active_targets": linked_gating,
             "mixed_outcome_candidates": len(candidates),
+            "reliability_groups": len(catalog),
             "reliability_observations": observations,
             "linked_reliability_observations": linked_observations,
+            "queue_history_snapshots": len(queue_history),
+            "canonical_nightlies": len(canonical_rows),
+            "all_main_builds": cohort_builds,
+            "all_main_nightlies": cohort_nightlies,
+            "other_main_builds": cohort_other_main,
+            "retry_attempts": len(retry_attempts),
+            "retry_recoveries": len(recoveries),
         }
 
     def audit_home_pr_issue_data(self) -> None:
@@ -720,6 +954,73 @@ class DashboardAudit:
                     f"{slug} has median job durations over 6h; check seconds/minutes conversion",
                     "data/vllm/ci/analytics.json",
                 )
+            all_main_metrics = None
+            if slug == "amd-ci":
+                all_main = block.get("all_main_reliability") or {}
+                if not isinstance(all_main, dict) or not isinstance(all_main.get("groups"), list):
+                    self.error(
+                        "analytics-all-main-missing",
+                        "amd-ci analytics must retain a separate all-main reliability cohort",
+                        "data/vllm/ci/analytics.json",
+                    )
+                else:
+                    cohort = all_main.get("cohort") or {}
+                    denominator = all_main.get("denominator") or {}
+                    groups = all_main.get("groups") or []
+                    if cohort.get("branch") != "main":
+                        self.error(
+                            "analytics-all-main-branch",
+                            f"all-main cohort branch={cohort.get('branch')!r}, expected 'main'",
+                            "data/vllm/ci/analytics.json",
+                        )
+                    cohort_builds = int(cohort.get("build_count") or 0)
+                    cohort_nightlies = int(cohort.get("canonical_nightly_build_count") or 0)
+                    cohort_other_main = int(cohort.get("non_nightly_main_build_count") or 0)
+                    if cohort_builds != cohort_nightlies + cohort_other_main:
+                        self.error(
+                            "analytics-all-main-cohort-composition",
+                            (
+                                f"all-main builds={cohort_builds}, canonical nightlies={cohort_nightlies}, "
+                                f"other main={cohort_other_main}"
+                            ),
+                            "data/vllm/ci/analytics.json",
+                        )
+                    eligible = sum(int(group.get("denominator") or 0) for group in groups)
+                    expected_eligible = int(denominator.get("eligible_observations") or 0)
+                    if eligible != expected_eligible:
+                        self.error(
+                            "analytics-all-main-denominator",
+                            f"group denominators sum to {eligible}, cohort reports {expected_eligible}",
+                            "data/vllm/ci/analytics.json",
+                        )
+                    retained = [
+                        observation
+                        for group in groups
+                        for observation in group.get("observations") or []
+                        if observation.get("eligible_for_reliability")
+                    ]
+                    missing_links = sum(not observation.get("job_url") for observation in retained)
+                    if missing_links:
+                        self.error(
+                            "analytics-all-main-links",
+                            f"{missing_links} retained all-main observations lack an exact job URL",
+                            "data/vllm/ci/analytics.json",
+                        )
+                    retired = [group.get("name") for group in groups if is_mi355b_queue(group.get("queue"))]
+                    if retired:
+                        self.error(
+                            "analytics-retired-mi355b",
+                            f"all-main reliability contains {len(retired)} retired amd_mi355B variants",
+                            "data/vllm/ci/analytics.json",
+                        )
+                    all_main_metrics = {
+                        "builds": cohort.get("build_count"),
+                        "nightlies": cohort.get("canonical_nightly_build_count"),
+                        "non_nightly_main": cohort.get("non_nightly_main_build_count"),
+                        "groups": len(groups),
+                        "eligible_observations": eligible,
+                        "retained_linked_observations": len(retained) - missing_links,
+                    }
             metrics[slug] = {
                 "builds": len(builds),
                 "latest_build": latest.get("number"),
@@ -728,6 +1029,8 @@ class DashboardAudit:
                 "failure_rankings": len(block.get("failure_ranking") or []),
                 "duration_rankings": len(block.get("duration_ranking") or []),
             }
+            if all_main_metrics is not None:
+                metrics[slug]["all_main"] = all_main_metrics
         self.report.metrics["analytics"] = metrics
 
     def matrix_cell_stats(self, matrix: dict[str, Any]) -> dict[str, Any]:
@@ -1018,6 +1321,12 @@ class DashboardAudit:
         rows = self.load_jsonl("data/vllm/ci/queue_timeseries.jsonl")
         if not rows:
             return
+        if len(rows) < 2:
+            self.error(
+                "queue-history-missing",
+                "Queue timeseries contains only the current snapshot; historical counts must be retained",
+                "data/vllm/ci/queue_timeseries.jsonl",
+            )
         latest = rows[-1]
         latest_ts = parse_iso(latest.get("ts"))
         if latest_ts:
@@ -1030,8 +1339,10 @@ class DashboardAudit:
                 )
 
         workload_mismatches: list[str] = []
+        retired_queue_rows = 0
         for idx, row in enumerate(rows, 1):
             queues = row.get("queues") or {}
+            retired_queue_rows += sum(is_mi355b_queue(queue) for queue in queues)
             total_waiting = sum((q.get("waiting") or 0) for q in queues.values())
             total_running = sum((q.get("running") or 0) for q in queues.values())
             if row.get("total_waiting") != total_waiting:
@@ -1062,6 +1373,12 @@ class DashboardAudit:
             self.warning(
                 "queue-workload-split-drift",
                 f"{len(workload_mismatches)} queue workload split rows exceed their metric snapshot; likely API timing drift. Examples: {examples}",
+                "data/vllm/ci/queue_timeseries.jsonl",
+            )
+        if retired_queue_rows:
+            self.error(
+                "queue-retired-mi355b",
+                f"Queue history contains {retired_queue_rows} retired amd_mi355B queue rows",
                 "data/vllm/ci/queue_timeseries.jsonl",
             )
 
@@ -1111,6 +1428,40 @@ class DashboardAudit:
             "amd_workload_72h": amd_workload,
             "pending_jobs": len(pending) if isinstance(pending, list) else None,
             "running_jobs": len(running) if isinstance(running, list) else None,
+        }
+
+    def audit_ready_tickets(self) -> None:
+        payload = self.load_json("data/vllm/ci/ready_tickets.json", {})
+        if not isinstance(payload, dict):
+            return
+        tickets = payload.get("tickets") or []
+        groups = payload.get("groups_all") or []
+        expected = int(payload.get("failing_groups_total") or 0)
+        if expected != len(tickets):
+            self.error(
+                "ready-ticket-count",
+                f"failing_groups_total={expected} but tickets contains {len(tickets)} rows",
+                "data/vllm/ci/ready_tickets.json",
+            )
+        build_refs = 0
+        invalid_refs = 0
+        for row in groups:
+            refs = row.get("build_refs_latest") or []
+            build_refs += len(refs)
+            invalid_refs += sum(
+                not ref.get("url") or "buildkite.com/" not in str(ref.get("url"))
+                for ref in refs
+            )
+        if invalid_refs:
+            self.error(
+                "ready-ticket-build-links",
+                f"{invalid_refs} ready-ticket build references lack an exact Buildkite URL",
+                "data/vllm/ci/ready_tickets.json",
+            )
+        self.report.metrics["ready_tickets"] = {
+            "failing_tickets": len(tickets),
+            "groups": len(groups),
+            "latest_build_links": build_refs,
         }
 
     def audit_frontend_contracts(self) -> None:
