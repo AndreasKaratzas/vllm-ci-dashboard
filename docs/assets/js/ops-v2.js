@@ -832,7 +832,7 @@
     const available = reliability.available === true
       && reliability.source_pipeline === 'ci'
       && ((reliability.cohort || {}).available === true);
-    const allMain = available && /all[-_ ]main|origin\/main|branch.?main/.test(text) && !/nightly job runs|nightl(?:y|ies)[-_ ]only/.test(text);
+    const allMain = available && /all[-_ ]main|origin\/main|branch.?main/.test(text) && !/nightly job runs|night(?:ly|lies)[-_ ]only/.test(text);
     const pipeline = reliabilitySourcePipeline(reliability);
     const source = pipeline === 'ci' ? 'upstream CI' : pipeline === 'amd-ci' ? 'AMD CI' : 'selected CI';
     return {
