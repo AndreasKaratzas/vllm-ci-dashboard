@@ -2568,6 +2568,10 @@
   background: rgba(4, 7, 8, 0.74);
 }
 
+.ops-v2 .ops-overlay[hidden] {
+  display: none !important;
+}
+
 .ops-v2 .ops-overlay-panel {
   display: flex;
   width: min(760px, 100%);
@@ -2598,6 +2602,7 @@ body.ops-overlay-open {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex: 0 0 auto;
   gap: 12px;
   min-height: 46px;
   padding: 8px 12px;
@@ -2614,6 +2619,7 @@ body.ops-overlay-open {
 
 .ops-v2 .ops-overlay-heading {
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .ops-v2 .ops-overlay-subtitle {
@@ -2633,10 +2639,12 @@ body.ops-overlay-open {
   padding: 12px;
 }
 
+.ops-v2 .ops-overlay-back,
 .ops-v2 .ops-overlay-close {
   display: inline-flex;
   width: 30px;
   height: 30px;
+  flex: 0 0 30px;
   align-items: center;
   justify-content: center;
   padding: 0;
@@ -2647,6 +2655,12 @@ body.ops-overlay-open {
   cursor: pointer;
 }
 
+.ops-v2 .ops-overlay-back {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.ops-v2 .ops-overlay-back:hover,
 .ops-v2 .ops-overlay-close:hover {
   color: var(--ops-text);
   border-color: var(--ops-border);

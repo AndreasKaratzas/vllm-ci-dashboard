@@ -150,6 +150,22 @@ def test_shared_evidence_primitives_are_accessible_and_source_linked():
     assert "Open exact source" in OPS_JS
 
 
+def test_every_shared_popup_has_stack_aware_back_navigation():
+    for contract in (
+        "let overlayStack = []",
+        "function backOverlay()",
+        "Back to previous dialog",
+        "Back to dashboard",
+        "activeOverlay.root.hidden = true",
+        "activeOverlay = overlayStack.pop()",
+        "restoreOverlayCharts(activeOverlay)",
+    ):
+        assert contract in OPS_JS
+    assert "add(header, [back, heading, close])" in OPS_JS
+    assert ".ops-v2 .ops-overlay-back" in OPS_CSS
+    assert ".ops-v2 .ops-overlay[hidden]" in OPS_CSS
+
+
 def test_drawers_and_route_filters_have_namespaced_query_state():
     assert "return 'ops_' + name" in OPS_JS
     assert "url.searchParams.set(queryName(name)" in OPS_JS
@@ -392,6 +408,9 @@ def test_trajectory_uses_current_all_main_observations_not_stale_hotness():
     assert "fetchJSON('data/vllm/ci/hotness.json')" not in OPS_JS
     assert "Recent AMD build trajectory" not in OPS_JS
     assert "trajectoryAmd" not in OPS_JS
+    assert "appendHardwareOptions(hwSelect, hardware, state.trajectoryHardware)" in OPS_JS
+    assert "{label: 'AMD', matches:" in OPS_JS
+    assert "including AMD MI mirror queues" in OPS_JS
 
 
 def test_pipeline_evidence_links_fail_closed_in_the_renderer():

@@ -125,6 +125,40 @@
     return name === 'amd-cpu' || name.startsWith('amd_');
   }
 
+  function hardwareDisplayLabel(hardware) {
+    const id = String(hardware || 'unknown').toLowerCase();
+    if (id === 'unknown') return 'Unknown';
+    if (/^(?:mi\d|[abh]\d|l4$|t4$|cpu$|gpu$|npu$|tpu$)/.test(id)) return id.toUpperCase();
+    return id;
+  }
+
+  function appendHardwareOptions(select, hardware, current) {
+    const all = n('option', '', 'All hardware');
+    all.value = 'all';
+    all.selected = current === 'all';
+    select.append(all);
+    const remaining = new Set(hardware);
+    [
+      {label: 'AMD', matches: function (id) { return /^mi\d/.test(id); }},
+      {label: 'NVIDIA', matches: function (id) { return /^(?:a|b|h)\d/.test(id) || ['l4', 't4'].includes(id); }},
+      {label: 'General', matches: function (id) { return ['cpu', 'gpu', 'npu', 'tpu'].includes(id); }},
+      {label: 'Other', matches: function () { return true; }},
+    ].forEach(function (family) {
+      const matches = Array.from(remaining).filter(family.matches);
+      if (!matches.length) return;
+      const group = n('optgroup');
+      group.label = family.label;
+      matches.forEach(function (id) {
+        const option = n('option', '', hardwareDisplayLabel(id));
+        option.value = id;
+        option.selected = id === current;
+        group.append(option);
+        remaining.delete(id);
+      });
+      select.append(group);
+    });
+  }
+
   function buildUrl(pipeline, number) {
     if (!pipeline || number === null || number === undefined || number === '') return '';
     return 'https://buildkite.com/vllm/' + encodeURIComponent(pipeline) + '/builds/' + encodeURIComponent(number);
@@ -271,29 +305,95 @@
   }
 
   let activeOverlay = null;
+  let overlayStack = [];
   let overlayKeyHandler = null;
 
-  function closeOverlay() {
-    if (!activeOverlay) return;
-    const trigger = activeOverlay.trigger;
+  function destroyOverlay(frame) {
+    if (!frame) return;
     for (const [key, chart] of charts.entries()) {
-      if (chart && chart.canvas && activeOverlay.root.contains(chart.canvas)) {
+      if (chart && chart.canvas && frame.root.contains(chart.canvas)) {
         chart.destroy();
         charts.delete(key);
       }
     }
-    activeOverlay.root.remove();
-    activeOverlay = null;
-    document.body.classList.remove('ops-overlay-open');
+    frame.root.remove();
+  }
+
+  function removeOverlayKeyHandler() {
     if (overlayKeyHandler) document.removeEventListener('keydown', overlayKeyHandler);
     overlayKeyHandler = null;
+  }
+
+  function installOverlayKeyHandler() {
+    if (overlayKeyHandler) return;
+    overlayKeyHandler = function (event) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeOverlay();
+        return;
+      }
+      const shell = activeOverlay && activeOverlay.shell;
+      if (event.key !== 'Tab' || !shell) return;
+      const focusable = Array.from(shell.querySelectorAll('a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])'));
+      if (!focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', overlayKeyHandler);
+  }
+
+  function restoreOverlayCharts(frame) {
+    requestAnimationFrame(function () {
+      for (const chart of charts.values()) {
+        if (chart && chart.canvas && frame.root.contains(chart.canvas) && typeof chart.resize === 'function') chart.resize();
+      }
+    });
+  }
+
+  function backOverlay() {
+    if (!activeOverlay) return;
+    const current = activeOverlay;
+    const trigger = current.trigger;
+    destroyOverlay(current);
+    if (overlayStack.length) {
+      activeOverlay = overlayStack.pop();
+      activeOverlay.root.hidden = false;
+      activeOverlay.root.removeAttribute('aria-hidden');
+      setQueryValue('detail', activeOverlay.detailKey);
+      restoreOverlayCharts(activeOverlay);
+      if (trigger && activeOverlay.root.contains(trigger) && trigger.focus) trigger.focus();
+      else activeOverlay.back.focus();
+      return;
+    }
+    activeOverlay = null;
+    document.body.classList.remove('ops-overlay-open');
+    removeOverlayKeyHandler();
+    setQueryValue('detail', null);
+    if (trigger && trigger.focus) trigger.focus();
+  }
+
+  function closeOverlay() {
+    const frames = overlayStack.concat(activeOverlay ? [activeOverlay] : []);
+    if (!frames.length) return;
+    const trigger = frames[0].trigger;
+    frames.slice().reverse().forEach(destroyOverlay);
+    activeOverlay = null;
+    overlayStack = [];
+    document.body.classList.remove('ops-overlay-open');
+    removeOverlayKeyHandler();
     setQueryValue('detail', null);
     if (trigger && trigger.focus) trigger.focus();
   }
 
   function openOverlay(title, subtitle, content, wide, detailKey) {
-    closeOverlay();
     const trigger = document.activeElement;
+    const hasParent = Boolean(activeOverlay);
+    if (activeOverlay) {
+      activeOverlay.root.hidden = true;
+      activeOverlay.root.setAttribute('aria-hidden', 'true');
+      overlayStack.push(activeOverlay);
+    }
     const root = n('div', 'ops-overlay ops-detail-overlay');
     const shell = n('section', 'ops-overlay-panel ops-detail-drawer' + (wide ? ' is-wide' : ''));
     shell.setAttribute('role', 'dialog');
@@ -302,6 +402,11 @@
     shell.setAttribute('aria-labelledby', titleId);
 
     const header = n('header', 'ops-overlay-header');
+    const back = n('button', 'ops-overlay-back', '\u2190');
+    back.type = 'button';
+    back.setAttribute('aria-label', hasParent ? 'Back to previous dialog' : 'Back to dashboard');
+    back.title = hasParent ? 'Back to previous dialog' : 'Back to dashboard';
+    back.addEventListener('click', backOverlay);
     const heading = n('div', 'ops-overlay-heading');
     const headingText = n('h2', 'ops-overlay-title', title);
     headingText.id = titleId;
@@ -311,7 +416,7 @@
     close.type = 'button';
     close.setAttribute('aria-label', 'Close dialog');
     close.addEventListener('click', closeOverlay);
-    add(header, [heading, close]);
+    add(header, [back, heading, close]);
 
     const body = n('div', 'ops-overlay-body ops-page');
     body.append(content);
@@ -320,25 +425,13 @@
     root.addEventListener('click', function (event) {
       if (event.target === root) closeOverlay();
     });
-    overlayKeyHandler = function (event) {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        closeOverlay();
-        return;
-      }
-      if (event.key !== 'Tab' || !activeOverlay) return;
-      const focusable = Array.from(shell.querySelectorAll('a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])'));
-      if (!focusable.length) return;
-      const first = focusable[0], last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    };
-    document.addEventListener('keydown', overlayKeyHandler);
     document.body.append(root);
     document.body.classList.add('ops-overlay-open');
-    activeOverlay = {root: root, trigger: trigger};
-    setQueryValue('detail', detailKey || title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''));
-    close.focus();
+    const resolvedDetailKey = detailKey || title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    activeOverlay = {root: root, shell: shell, trigger: trigger, back: back, detailKey: resolvedDetailKey};
+    installOverlayKeyHandler();
+    setQueryValue('detail', resolvedDetailKey);
+    back.focus();
   }
 
   function detailFields(fields) {
@@ -2998,14 +3091,14 @@
     workloadSelect.addEventListener('change', function () { state.trajectoryWorkload = workloadSelect.value; render('ci-hotness', true); });
     const hwSelect = n('select', 'ops-select');
     hwSelect.setAttribute('aria-label', 'Filter workload trajectory by hardware');
-    for (const id of ['all'].concat(hardware)) { const o = n('option', '', id === 'all' ? 'All hardware' : id); o.value = id; o.selected = id === state.trajectoryHardware; hwSelect.append(o); }
+    appendHardwareOptions(hwSelect, hardware, state.trajectoryHardware);
     hwSelect.addEventListener('change', function () { state.trajectoryHardware = hwSelect.value; render('ci-hotness', true); });
     const search = n('input', 'ops-input'); search.type = 'search'; search.placeholder = 'Filter test groups'; search.value = state.trajectorySearch;
     search.setAttribute('aria-label', 'Search workload trajectory test groups');
     search.addEventListener('change', function () { state.trajectorySearch = search.value; render('ci-hotness', true); });
     add(toolbar, [workloadSelect, hwSelect, search]); host.append(toolbar);
     const sourceNote = n('div', 'ops-evidence-note is-info');
-    add(sourceNote, [n('strong', '', 'Upstream main terminal history. '), n('span', '', 'Windowed in the browser from ' + shortDate(windowData.observedFrom) + ' through ' + shortDate(windowData.observedTo) + '. Identities remain split by catalog ID, hardware, and queue. The source retains up to 60 observations per group, so longer windows may be truncated.')]);
+    add(sourceNote, [n('strong', '', 'Upstream main terminal history. '), n('span', '', 'Windowed in the browser from ' + shortDate(windowData.observedFrom) + ' through ' + shortDate(windowData.observedTo) + '. Hardware comes from explicit job labels and queue assignment, including AMD MI mirror queues. Identities remain split by catalog ID, hardware, and queue. The source retains up to 60 observations per group, so longer windows may be truncated.')]);
     host.append(sourceNote);
     const totalRuns = rows.reduce(function (sum, row) { return sum + Number(row.count || 0); }, 0);
     const uniqueBuilds = new Set();

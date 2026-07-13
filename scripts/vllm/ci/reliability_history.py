@@ -41,6 +41,10 @@ _UPSTREAM_HW_RE = re.compile(
     r"(?<![a-z0-9])(h100|h200|b100|b200|a100|l4|t4|cpu|npu|tpu)(?![a-z0-9])",
     re.IGNORECASE,
 )
+_UPSTREAM_AMD_MIRROR_HW_RE = re.compile(
+    r"(?<![a-z0-9])(mi\d{3,4}b?)(?:_\d+)?(?![a-z0-9])",
+    re.IGNORECASE,
+)
 
 
 def _iso_now() -> str:
@@ -237,6 +241,13 @@ def _queue(job: dict) -> str:
 def _hardware(job_name: str, queue: str, pipeline_slug: str) -> str:
     if pipeline_slug != "ci":
         return hardware_from_job_name(job_name, queue)
+    amd_hardware = hardware_from_job_name(job_name, (queue or "").lower())
+    if amd_hardware != "unknown":
+        return amd_hardware
+    if re.match(r"^\s*amd\s*:", job_name or "", re.IGNORECASE):
+        amd_match = _UPSTREAM_AMD_MIRROR_HW_RE.search(job_name or "")
+        if amd_match:
+            return amd_match.group(1).lower()
     match = _UPSTREAM_HW_RE.search(job_name or "")
     if match:
         return match.group(1).lower()

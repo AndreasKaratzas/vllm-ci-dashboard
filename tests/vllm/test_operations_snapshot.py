@@ -606,6 +606,59 @@ def test_group_catalog_retains_linked_terminal_main_observations(tmp_path):
     assert "not proof that a retry recovered" in reliability["evidence_definitions"]["mixed_outcome_history"]
 
 
+def test_group_catalog_recovers_amd_hardware_from_queue_when_source_is_unknown():
+    build = _build(104, "2026-04-22", [
+        _job(
+            "AMD: Samplers Test (mi325_1)",
+            "passed",
+            "https://buildkite.com/vllm/ci/builds/104/steps/canvas?jid=mi325&tab=output",
+            q="amd_mi325_1",
+            hardware="unknown",
+            group_id="retained-mi325-group",
+        ),
+    ], pipeline="ci")
+
+    catalog, _ = ops._group_catalog([build], pipeline_slug="ci")
+
+    assert len(catalog) == 1
+    assert catalog[0]["hardware"] == "mi325"
+    assert catalog[0]["id"] == "retained-mi325-group"
+
+
+def test_collector_catalog_recovers_amd_hardware_from_queue_when_source_is_unknown():
+    source = {
+        "group_id": "collector-mi325-group",
+        "name": "AMD: Samplers Test (mi325_1)",
+        "raw_name": "AMD: Samplers Test (mi325_1)",
+        "hardware": "unknown",
+        "queue": "amd_mi325_1",
+        "denominator": 1,
+        "passed": 1,
+        "failed": 0,
+        "soft_failed": 0,
+        "duration": {},
+        "observations": [{
+            "eligible_for_reliability": True,
+            "result": "passed",
+            "build_number": 104,
+            "build_url": "https://buildkite.com/vllm/ci/builds/104",
+            "job_url": (
+                "https://buildkite.com/vllm/ci/builds/104/steps/canvas"
+                "?jid=mi325&tab=output"
+            ),
+            "observed_at": "2026-04-22T10:00:00Z",
+        }],
+    }
+
+    catalog, _, _ = ops._collector_main_catalog(
+        {"groups": [source]},
+        pipeline_slug="ci",
+    )
+
+    assert catalog[0]["hardware"] == "mi325"
+    assert catalog[0]["queues"] == ["amd_mi325_1"]
+
+
 def test_nightly_fixed_requires_an_observed_pass():
     previous = _build(10, "2026-04-20", [
         _job("Missing now", "failed", "https://buildkite.com/vllm/amd-ci/builds/10/steps/missing"),

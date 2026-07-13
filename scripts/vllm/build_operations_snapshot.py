@@ -633,7 +633,7 @@ def _group_id(job: dict, label: str) -> str:
     if explicit:
         return str(explicit)
     queue = str(job.get("q") or job.get("queue") or "")
-    hardware = str(job.get("hardware") or _hardware_from_queue(queue) or "unknown")
+    hardware = _resolved_hardware(job, queue)
     identity = {
         "label": _strict_group_label(label),
         "hardware": hardware,
@@ -647,6 +647,14 @@ def _hardware_from_queue(queue: Any) -> str:
     value = str(queue or "")
     match = re.match(r"^amd_(mi\d{3,4}b?)(?:_|$)", value, re.IGNORECASE)
     return match.group(1).lower() if match else ""
+
+
+def _resolved_hardware(job: dict, queue: Any) -> str:
+    explicit = str(job.get("hardware") or "").strip().lower()
+    queue_hardware = _hardware_from_queue(queue)
+    if explicit in {"", "unknown"} and queue_hardware:
+        return queue_hardware
+    return explicit or queue_hardware or "unknown"
 
 
 def _streak(observations: list[dict], build_kind: str | None = None) -> int:
@@ -714,7 +722,7 @@ def _group_catalog(
                 row["raw_names"].add(raw_name)
             if queue:
                 row["queues"].add(str(queue))
-            hardware = str(job.get("hardware") or _hardware_from_queue(queue) or "")
+            hardware = _resolved_hardware(job, queue)
             if hardware:
                 row["hardware"].add(hardware)
             row["builds"].add(build.get("number") or build.get("build_number"))
@@ -958,7 +966,7 @@ def _collector_main_catalog(
             "name": source.get("name") or source.get("raw_name") or "Unknown group",
             "raw_names": [source.get("raw_name")] if source.get("raw_name") else [],
             "step_key": source.get("step_key") or "",
-            "hardware": source.get("hardware") or "",
+            "hardware": _resolved_hardware(source, source.get("queue")),
             "queues": [source.get("queue")] if source.get("queue") else [],
             "build_count": len({row.get("build_number") for row in observations if row.get("build_number")}),
             "runs": runs,

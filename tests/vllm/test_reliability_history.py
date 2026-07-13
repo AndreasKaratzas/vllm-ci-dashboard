@@ -166,6 +166,36 @@ def test_upstream_identity_reports_explicit_and_generic_hardware_without_conflat
     assert len({row["group_id"] for row in groups}) == 4
 
 
+def test_upstream_amd_mirrors_keep_amd_hardware_identity():
+    jobs = [
+        _job(
+            "mi250-mirror",
+            "AMD: Samplers Test (mi250_1)",
+            queue="amd_mi250_1",
+            step_key="samplers-mi250",
+        ),
+        _job(
+            "mi325-mirror",
+            "AMD: Samplers Test (mi325_1)",
+            queue="amd_mi325_1",
+            step_key="samplers-mi325",
+        ),
+        _job(
+            "mixed-label",
+            "AMD: V1 e2e (4xH100-4xMI300)",
+            queue="amd_mi300_4",
+            step_key="v1-e2e-mi300",
+        ),
+    ]
+
+    groups = _dataset([_build(203, jobs)], pipeline_slug="ci")["groups"]
+
+    assert {row["hardware"] for row in groups} == {"mi250", "mi300", "mi325"}
+    assert all(row["hardware"] != "unknown" for row in groups)
+    mixed = next(row for row in groups if "4xH100" in row["name"])
+    assert mixed["hardware"] == "mi300"
+
+
 def test_reliability_denominator_excludes_non_pass_fail_soft_fail_states():
     jobs = [
         _job("pass", "mi300_1: Denominator", "passed"),
