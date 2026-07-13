@@ -14,24 +14,49 @@ from vllm import collect_queue_snapshot as cqs
 
 
 class TestWaitSummary:
-    def test_empty_returns_zero_block(self):
+    def test_empty_returns_nullable_block(self):
         assert cqs._wait_summary([]) == {
-            "p50_wait": 0,
-            "p75_wait": 0,
-            "p90_wait": 0,
-            "p95_wait": 0,
-            "p99_wait": 0,
-            "max_wait": 0,
-            "avg_wait": 0,
+            "p50": None,
+            "p75": None,
+            "p90": None,
+            "p95": None,
+            "p99": None,
+            "max": None,
+            "avg": None,
         }
 
     def test_values_rounded_to_one_decimal(self):
         out = cqs._wait_summary([1.0, 2.0, 3.0, 4.0, 5.0])
-        assert out["max_wait"] == 5.0
-        assert out["avg_wait"] == 3.0
-        assert out["p50_wait"] == 3.0
-        assert out["p90_wait"] == 5.0
-        assert out["p95_wait"] == 5.0
+        assert out == {
+            "p50": 3.0,
+            "p75": 4.0,
+            "p90": 5.0,
+            "p95": 5.0,
+            "p99": 5.0,
+            "max": 5.0,
+            "avg": 3.0,
+        }
+
+
+class TestOfficialWaitSummary:
+    def test_only_exposes_queue_native_metrics(self):
+        assert cqs._wait_summary_from_queue_metrics({
+            "min": 60,
+            "p50": 120,
+            "p95": 900,
+            "max": 1200,
+        }) == {
+            "p50": 2.0,
+            "p95": 15.0,
+            "max": 20.0,
+        }
+
+    def test_missing_native_metrics_remain_null(self):
+        assert cqs._wait_summary_from_queue_metrics({"p50": 120}) == {
+            "p50": 2.0,
+            "p95": None,
+            "max": None,
+        }
 
 
 class TestRewriteJobUrl:
@@ -89,9 +114,12 @@ class TestGraphqlQueueMetrics:
         metrics = cqs.fetch_cluster_queue_metrics("fake-token")
 
         assert metrics["amd_mi355_1"]["graphql_id"] == "ClusterQueueID"
-        assert metrics["amd_mi355_1"]["wait_summary"]["p50_wait"] == 2.0
-        assert metrics["amd_mi355_1"]["wait_summary"]["p95_wait"] == 15.0
-        assert metrics["amd_mi355_1"]["wait_summary"]["max_wait"] == 20.0
+        assert metrics["amd_mi355_1"]["official_wait"] == {
+            "p50": 2.0,
+            "p95": 15.0,
+            "max": 20.0,
+        }
+        assert "p99" not in metrics["amd_mi355_1"]["official_wait"]
 
     def test_fetches_jobs_by_cluster_queue_graphql_id(self, monkeypatch):
         calls = []
@@ -136,6 +164,42 @@ class TestGraphqlQueueMetrics:
         assert jobs[0]["state"] == "SCHEDULED"
 
 
+def _history_snapshot(ts: str) -> dict:
+    return {
+        "ts": ts,
+        "queues": {"amd_mi250_1": {
+            "waiting": 0,
+            "running": 0,
+            "official_wait": {"p50": None, "p95": None, "max": None},
+            "sample_wait": {
+                "available": True,
+                "count": 0,
+                "p50": None,
+                "p75": None,
+                "p90": None,
+                "p95": None,
+                "p99": None,
+                "max": None,
+                "avg": None,
+            },
+            "current_wait": {
+                "p50": {"value": None, "source": None},
+                "p95": {"value": None, "source": None},
+                "p99": {"value": None, "source": None},
+            },
+            "p50_wait": None,
+            "p50_wait_source": None,
+            "p95_wait": None,
+            "p95_wait_source": None,
+            "p99_wait": None,
+            "p99_wait_source": None,
+        }},
+        "total_waiting": 0,
+        "total_running": 0,
+        "sources": {"counts": "cluster_metrics", "wait_fields": {}},
+    }
+
+
 class TestHistoryPrune:
     def test_drops_pre_reset_and_old_schema_rows(self, tmp_path):
         path = tmp_path / "queue_timeseries.jsonl"
@@ -155,16 +219,7 @@ class TestHistoryPrune:
                 "total_waiting": 0,
                 "total_running": 0,
             }) + "\n"
-            + json.dumps({
-                "ts": "2026-04-20T23:46:00Z",
-                "queues": {"amd_mi250_1": {
-                    "waiting": 0, "running": 0, "p50_wait": 0, "p75_wait": 0,
-                    "p90_wait": 0, "p95_wait": 0, "p99_wait": 0, "max_wait": 0, "avg_wait": 0,
-                }},
-                "total_waiting": 0,
-                "total_running": 0,
-                "sources": {"counts": "cluster_metrics"},
-            }) + "\n"
+            + json.dumps(_history_snapshot("2026-04-20T23:46:00Z")) + "\n"
         )
 
         total, kept = cqs.prune_history_file(path, now=datetime(2026, 4, 21, tzinfo=timezone.utc))
@@ -178,16 +233,7 @@ class TestHistoryPrune:
         path = tmp_path / "queue_timeseries.jsonl"
 
         def snapshot(ts: str) -> str:
-            return json.dumps({
-                "ts": ts,
-                "queues": {"amd_mi250_1": {
-                    "waiting": 0, "running": 0, "p50_wait": 0, "p75_wait": 0,
-                    "p90_wait": 0, "p95_wait": 0, "p99_wait": 0, "max_wait": 0, "avg_wait": 0,
-                }},
-                "total_waiting": 0,
-                "total_running": 0,
-                "sources": {"counts": "cluster_metrics"},
-            })
+            return json.dumps(_history_snapshot(ts))
 
         path.write_text(
             snapshot("2026-05-17T00:00:00Z") + "\n"
@@ -292,7 +338,10 @@ class TestCollectSnapshot:
             row = snap["queues"][q]
             assert row["waiting"] == 0
             assert row["running"] == 0
-            assert row["p95_wait"] == 0
+            assert row["p95_wait"] is None
+            assert row["p99_wait"] is None
+            assert row["official_wait"] == {"p50": None, "p95": None, "max": None}
+            assert row["sample_wait"]["count"] == 0
 
     def test_running_jobs_do_not_inflate_current_wait(self, monkeypatch, tmp_path):
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)
@@ -319,7 +368,27 @@ class TestCollectSnapshot:
         assert row["running"] == 1
         assert row["max_wait"] == 5.0
         assert row["p95_wait"] == 5.0
+        assert row["p99_wait"] == 5.0
         assert row["avg_wait"] == 5.0
+        assert row["sample_wait"] == {
+            "available": True,
+            "count": 1,
+            "p50": 5.0,
+            "p75": 5.0,
+            "p90": 5.0,
+            "p95": 5.0,
+            "p99": 5.0,
+            "max": 5.0,
+            "avg": 5.0,
+        }
+        assert row["p50_wait_source"] == "sample_wait"
+        assert row["p95_wait_source"] == "sample_wait"
+        assert row["p99_wait_source"] == "sample_wait"
+        assert row["current_wait"] == {
+            "p50": {"value": 5.0, "source": "sample_wait"},
+            "p95": {"value": 5.0, "source": "sample_wait"},
+            "p99": {"value": 5.0, "source": "sample_wait"},
+        }
 
     def test_zombie_jobs_are_excluded_from_analysis_counts(self, monkeypatch, tmp_path):
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)
@@ -345,13 +414,16 @@ class TestCollectSnapshot:
             snap = cqs.collect_snapshot("fake-token")
 
         row = snap["queues"]["amd_mi250_1"]
-        assert row["waiting"] == 1
-        assert row["running"] == 1
+        assert row["waiting"] == 2
+        assert row["running"] == 2
         assert row["zombie_waiting"] == 1
         assert row["zombie_running"] == 1
         assert snap["total_zombie_waiting"] == 1
         assert snap["total_zombie_running"] == 1
         assert row["p95_wait"] == 5.0
+        assert row["sample_wait"]["count"] == 1
+        assert row["sample_wait"]["max"] == 5.0
+        assert row["count_source"] == "cluster_metrics"
 
     def test_cluster_metrics_seed_counts_and_agents(self, monkeypatch, tmp_path):
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)
@@ -363,14 +435,10 @@ class TestCollectSnapshot:
                 "metrics_ts": "2026-04-18T12:00:00Z",
                 "queue_url": "https://buildkite.com/organizations/vllm/clusters/cluster/queues/q1",
                 "dispatch_paused": False,
-                "wait_summary": {
-                    "p50_wait": 2.0,
-                    "p75_wait": 12.0,
-                    "p90_wait": 12.0,
-                    "p95_wait": 12.0,
-                    "p99_wait": 20.0,
-                    "max_wait": 20.0,
-                    "avg_wait": 2.0,
+                "official_wait": {
+                    "p50": 2.0,
+                    "p95": 12.0,
+                    "max": 20.0,
                 },
             }
         })
@@ -392,12 +460,166 @@ class TestCollectSnapshot:
         assert row["connected_agents"] == 7
         assert row["queue_url"].endswith("/queues/q1")
         assert row["wait_source"] == "cluster_metrics"
+        assert row["count_source"] == "cluster_metrics"
         assert row["p50_wait"] == 2.0
         assert row["p95_wait"] == 12.0
+        assert row["p99_wait"] == 5.0
         assert row["max_wait"] == 20.0
+        assert row["p50_wait_source"] == "official_wait"
+        assert row["p95_wait_source"] == "official_wait"
+        assert row["p99_wait_source"] == "sample_wait"
+        assert row["max_wait_source"] == "official_wait"
+        assert row["p75_wait"] == 5.0
+        assert row["p75_wait_source"] == "sample_wait"
         assert snap["sources"]["waits"] == "cluster_metrics"
         assert row["waiting_by_workload"] == {"vllm": 1, "omni": 0}
         assert row["running_by_workload"] == {"vllm": 1, "omni": 0}
+
+    def test_official_max_never_becomes_p99_or_sample_only_metrics(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)
+        monkeypatch.setattr(cqs, "fetch_cluster_queue_metrics", lambda token: {
+            "amd_mi250_1": {
+                "waiting": 9,
+                "running": 8,
+                "connected_agents": 7,
+                "official_wait": {"p50": 2.0, "p95": 12.0, "max": 20.0},
+            }
+        })
+        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token, queue_ids_by_key=None: [])
+
+        snap = cqs.collect_snapshot("fake-token")
+        row = snap["queues"]["amd_mi250_1"]
+
+        assert row["official_wait"] == {"p50": 2.0, "p95": 12.0, "max": 20.0}
+        assert row["sample_wait"]["count"] == 0
+        assert row["p50_wait"] == 2.0
+        assert row["p95_wait"] == 12.0
+        assert row["max_wait"] == 20.0
+        assert row["p99_wait"] is None
+        assert row["p99_wait_source"] is None
+        assert row["current_wait"]["p99"] == {"value": None, "source": None}
+        assert row["p75_wait"] is None
+        assert row["p90_wait"] is None
+        assert row["avg_wait"] is None
+        assert "sample_wait.p99" in snap["sources"]["wait_fields"]["p99_wait"]
+
+    def test_sample_wait_contains_all_exact_job_percentiles(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)
+        monkeypatch.setattr(cqs, "fetch_cluster_queue_metrics", lambda token: {})
+        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token, queue_ids_by_key=None: [
+            _active_job("amd_mi250_1", "SCHEDULED", runnable_at=f"2026-04-18T11:{minute:02d}:00Z")
+            for minute in (59, 58, 57, 56, 55)
+        ])
+
+        with patch("vllm.collect_queue_snapshot.datetime") as dt_mock:
+            from datetime import datetime, timezone
+            dt_mock.now.return_value = datetime(2026, 4, 18, 12, 0, 0, tzinfo=timezone.utc)
+            dt_mock.fromisoformat = datetime.fromisoformat
+            snap = cqs.collect_snapshot("fake-token")
+
+        row = snap["queues"]["amd_mi250_1"]
+        assert row["official_wait"] == {"p50": None, "p95": None, "max": None}
+        assert row["sample_wait"] == {
+            "available": True,
+            "count": 5,
+            "p50": 3.0,
+            "p75": 4.0,
+            "p90": 5.0,
+            "p95": 5.0,
+            "p99": 5.0,
+            "max": 5.0,
+            "avg": 3.0,
+        }
+        assert row["p50_wait"] == 3.0
+        assert row["p95_wait"] == 5.0
+        assert row["p99_wait"] == 5.0
+        assert row["p50_wait_source"] == "sample_wait"
+        assert row["p95_wait_source"] == "sample_wait"
+        assert row["p99_wait_source"] == "sample_wait"
+        assert row["current_wait"]["p99"] == {"value": 5.0, "source": "sample_wait"}
+
+    def test_official_p50_and_p95_are_selected_but_sample_supplies_p99(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)
+        monkeypatch.setattr(cqs, "fetch_cluster_queue_metrics", lambda token: {
+            "amd_mi250_1": {
+                "waiting": 2,
+                "running": 0,
+                "connected_agents": 1,
+                "official_wait": {"p50": 2.0, "p95": 12.0, "max": 20.0},
+            }
+        })
+        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token, queue_ids_by_key=None: [
+            _active_job("amd_mi250_1", "SCHEDULED", runnable_at="2026-04-18T11:55:00Z"),
+            _active_job("amd_mi250_1", "SCHEDULED", runnable_at="2026-04-18T11:50:00Z"),
+        ])
+
+        with patch("vllm.collect_queue_snapshot.datetime") as dt_mock:
+            from datetime import datetime, timezone
+            dt_mock.now.return_value = datetime(2026, 4, 18, 12, 0, 0, tzinfo=timezone.utc)
+            dt_mock.fromisoformat = datetime.fromisoformat
+            snap = cqs.collect_snapshot("fake-token")
+
+        row = snap["queues"]["amd_mi250_1"]
+        assert (row["p50_wait"], row["p50_wait_source"]) == (2.0, "official_wait")
+        assert (row["p95_wait"], row["p95_wait_source"]) == (12.0, "official_wait")
+        assert (row["p99_wait"], row["p99_wait_source"]) == (10.0, "sample_wait")
+        assert row["sample_wait"]["p99"] == 10.0
+        assert row["current_wait"] == {
+            "p50": {"value": 2.0, "source": "official_wait"},
+            "p95": {"value": 12.0, "source": "official_wait"},
+            "p99": {"value": 10.0, "source": "sample_wait"},
+        }
+
+    def test_sample_fills_missing_official_percentile_only(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)
+        monkeypatch.setattr(cqs, "fetch_cluster_queue_metrics", lambda token: {
+            "amd_mi250_1": {
+                "waiting": 1,
+                "running": 0,
+                "connected_agents": 1,
+                "official_wait": {"p50": None, "p95": 12.0, "max": 20.0},
+            }
+        })
+        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token, queue_ids_by_key=None: [
+            _active_job("amd_mi250_1", "SCHEDULED", runnable_at="2026-04-18T11:55:00Z"),
+        ])
+
+        with patch("vllm.collect_queue_snapshot.datetime") as dt_mock:
+            from datetime import datetime, timezone
+            dt_mock.now.return_value = datetime(2026, 4, 18, 12, 0, 0, tzinfo=timezone.utc)
+            dt_mock.fromisoformat = datetime.fromisoformat
+            snap = cqs.collect_snapshot("fake-token")
+
+        row = snap["queues"]["amd_mi250_1"]
+        assert (row["p50_wait"], row["p50_wait_source"]) == (5.0, "sample_wait")
+        assert (row["p95_wait"], row["p95_wait_source"]) == (12.0, "official_wait")
+
+    def test_queue_scoped_fetch_marks_other_queue_samples_unavailable(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)
+        monkeypatch.setattr(cqs, "fetch_cluster_queue_metrics", lambda token: {
+            "amd_mi250_1": {
+                "graphql_id": "ClusterQueueID",
+                "waiting": 1,
+                "running": 0,
+                "connected_agents": 1,
+                "official_wait": {"p50": 2.0, "p95": 12.0, "max": 20.0},
+            }
+        })
+        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", lambda token, queue_ids_by_key=None: [])
+
+        snap = cqs.collect_snapshot("fake-token")
+
+        sampled = snap["queues"]["amd_mi250_1"]["sample_wait"]
+        assert sampled["available"] is True
+        assert sampled["count"] == 0
+        unavailable = next(
+            row
+            for queue, row in snap["queues"].items()
+            if queue != "amd_mi250_1" and row["count_source"] == "active_jobs"
+        )["sample_wait"]
+        assert unavailable["available"] is False
+        assert unavailable["count"] is None
+        assert unavailable["p99"] is None
 
     def test_workload_split_from_omni_queue(self, monkeypatch, tmp_path):
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)

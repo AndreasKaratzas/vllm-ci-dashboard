@@ -142,6 +142,20 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         ("generated_at", "changes"),
         "Test-group trend PR attribution",
     ),
+    DataSpec(
+        "data/vllm/ci/operations_v2.json",
+        ("scripts/vllm/build_operations_snapshot.py",),
+        ("docs/assets/js/ops-v2.js",),
+        ("schema_version", "generated_at", "nightly", "reliability", "gating", "queue"),
+        "Versioned AMD-first read model for Signal Desk v2",
+    ),
+    DataSpec(
+        "data/vllm/perf_eval/perf_eval.json",
+        ("scripts/vllm/collect_perf_eval.py",),
+        ("docs/assets/js/ops-v2.js", "docs/assets/js/ci-perf-eval.js"),
+        ("generated_at", "pipeline", "metric_meta", "models", "summary"),
+        "Webhook-fed AMD performance and accuracy series",
+    ),
 )
 
 
@@ -219,6 +233,7 @@ class DashboardAudit:
 
     def run(self) -> AuditReport:
         self.audit_data_inventory()
+        self.audit_operations_v2()
         self.audit_home_pr_issue_data()
         self.audit_ci_health()
         self.audit_gating_target_candidates()
@@ -375,6 +390,60 @@ class DashboardAudit:
                         consumer,
                     )
         self.report.metrics["data_inventory"] = inventory
+
+    def audit_operations_v2(self) -> None:
+        relpath = "data/vllm/ci/operations_v2.json"
+        payload = self.load_json(relpath, {})
+        if not isinstance(payload, dict):
+            return
+        if payload.get("schema_version") != 2:
+            self.error("operations-schema", "operations_v2.json must use schema_version 2", relpath)
+
+        gating = payload.get("gating") or {}
+        active = gating.get("active_target_groups") or []
+        active_summary = gating.get("active_target_summary") or {}
+        expected_active = int(active_summary.get("target_group_count") or 0)
+        if len(active) != expected_active:
+            self.error(
+                "operations-active-target-count",
+                f"active target rows={len(active)} but summary target_group_count={expected_active}",
+                relpath,
+            )
+
+        candidates = ((payload.get("reliability") or {}).get("flaky_candidates") or [])
+        observations = 0
+        linked_observations = 0
+        for candidate in candidates:
+            rows = candidate.get("observations") or []
+            observations += len(rows)
+            linked_observations += sum(bool(row.get("job_url")) for row in rows)
+            expected = int(candidate.get("observation_count") or 0)
+            runs = int(candidate.get("runs") or 0)
+            if len(rows) != expected or expected != runs:
+                self.error(
+                    "operations-reliability-evidence-count",
+                    f"{candidate.get('name')}: runs={runs}, observation_count={expected}, rows={len(rows)}",
+                    relpath,
+                )
+            if candidate.get("evidence_type") != "mixed_outcome_history":
+                self.error(
+                    "operations-reliability-evidence-type",
+                    f"{candidate.get('name')}: missing mixed_outcome_history classification",
+                    relpath,
+                )
+        if observations and linked_observations != observations:
+            self.warning(
+                "operations-reliability-missing-links",
+                f"{observations - linked_observations} of {observations} reliability observations lack an exact job URL",
+                relpath,
+            )
+
+        self.report.metrics["operations_v2"] = {
+            "active_targets": len(active),
+            "mixed_outcome_candidates": len(candidates),
+            "reliability_observations": observations,
+            "linked_reliability_observations": linked_observations,
+        }
 
     def audit_home_pr_issue_data(self) -> None:
         prs_payload = self.load_json("data/vllm/prs.json", {})

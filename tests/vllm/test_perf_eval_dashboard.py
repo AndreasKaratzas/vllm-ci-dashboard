@@ -68,6 +68,29 @@ class TestViewModule:
     def test_excludes_nvidia_in_copy(self):
         assert "NVIDIA workloads are excluded" in self.text
 
+    def test_yields_to_signal_desk_v2(self):
+        assert "window.__DASHBOARD_V2__" in self.text
+
+
+class TestV2PerfEvalView:
+    def setup_method(self):
+        self.text = (JS / "ops-v2.js").read_text(encoding="utf-8")
+
+    def test_owns_and_fetches_perf_eval(self):
+        assert "'ci-perf-eval'" in self.text
+        assert "data/vllm/perf_eval/perf_eval.json" in self.text
+        assert "renderPerf" in self.text
+
+    def test_preserves_semantics_and_provenance(self):
+        for marker in ("block.direction", "block.status", "vllm_commit", "image", "build_url"):
+            assert marker in self.text
+
+    def test_has_performance_accuracy_and_history_drilldown(self):
+        assert "Performance & Evaluation" in self.text
+        assert "Accuracy observations" in self.text
+        assert "openPerfHistory" in self.text
+        assert "Inspect history" in self.text
+
 
 class TestPerfEvalDataContract:
     """The committed perf_eval.json must match what the view reads."""

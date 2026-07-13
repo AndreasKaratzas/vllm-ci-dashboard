@@ -28,7 +28,17 @@ def test_dashboard_audit_covers_core_user_facing_data_files():
         "data/vllm/ci/amd_test_matrix.json",
         "data/vllm/ci/gating_proposals.json",
         "data/vllm/ci/queue_timeseries.jsonl",
+        "data/vllm/ci/operations_v2.json",
+        "data/vllm/perf_eval/perf_eval.json",
     } <= covered
+
+
+def test_dashboard_audit_validates_v2_evidence_and_targets():
+    report = run_audit(ROOT)
+    metrics = report.metrics["operations_v2"]
+    assert metrics["active_targets"] == 127
+    assert metrics["mixed_outcome_candidates"] > 0
+    assert metrics["reliability_observations"] == metrics["linked_reliability_observations"]
 
 
 def test_dashboard_audit_json_cli_is_parseable():

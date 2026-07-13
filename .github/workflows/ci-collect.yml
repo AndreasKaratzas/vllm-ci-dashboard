@@ -75,6 +75,9 @@ jobs:
       - name: Collect AMD gating target candidate audit
         run: python scripts/vllm/collect_gating_target_candidates.py --output data/vllm/ci/
 
+      - name: Build v2 operations snapshot
+        run: python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
+
       - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"

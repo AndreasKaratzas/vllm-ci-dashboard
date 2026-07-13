@@ -52,7 +52,7 @@ class BuildSummary:
     passed: int = 0
     failed: int = 0
     skipped: int = 0
-    errors: int = 0
+    errors: int = 0               # pytest errors; a diagnostic subset of failed
     pass_rate: float = 0.0
     duration_secs: float = 0.0
     wall_clock_secs: float = 0.0

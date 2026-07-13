@@ -14,6 +14,7 @@
  * sparkline shows the trend across nightlies.
  */
 (function() {
+  if (window.__DASHBOARD_V2__) return;
   const _s = getComputedStyle(document.documentElement);
   const C = {
     g: _s.getPropertyValue('--accent-green').trim() || '#238636',

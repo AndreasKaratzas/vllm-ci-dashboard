@@ -256,6 +256,7 @@ def _queue_row() -> dict:
         "zombie_waiting": 0,
         "zombie_running": 0,
         "wait_times": [],
+        "count_source": "active_jobs",
     }
 
 
@@ -265,13 +266,23 @@ def _history_cutoff(now: datetime) -> datetime:
 
 
 def _queue_row_has_current_schema(row: dict) -> bool:
-    return isinstance(row, dict) and "p95_wait" in row
+    if not isinstance(row, dict):
+        return False
+    return (
+        isinstance(row.get("official_wait"), dict)
+        and isinstance(row.get("sample_wait"), dict)
+        and isinstance(row.get("current_wait"), dict)
+        and "p50_wait_source" in row
+        and "p95_wait_source" in row
+        and "p99_wait_source" in row
+    )
 
 
 def _snapshot_has_current_schema(snapshot: dict) -> bool:
     if not isinstance(snapshot, dict):
         return False
-    if "sources" not in snapshot:
+    sources = snapshot.get("sources")
+    if not isinstance(sources, dict) or not isinstance(sources.get("wait_fields"), dict):
         return False
     queues = snapshot.get("queues")
     if not isinstance(queues, dict):
@@ -316,26 +327,26 @@ def prune_history_file(path: Path, now: datetime | None = None) -> tuple[int, in
 
 
 def _wait_summary(times: list[float]) -> dict:
-    """Return the percentile summary the snapshot schema expects."""
+    """Return exact observed-sample statistics in minutes."""
     if not times:
         return {
-            "p50_wait": 0,
-            "p75_wait": 0,
-            "p90_wait": 0,
-            "p95_wait": 0,
-            "p99_wait": 0,
-            "max_wait": 0,
-            "avg_wait": 0,
+            "p50": None,
+            "p75": None,
+            "p90": None,
+            "p95": None,
+            "p99": None,
+            "max": None,
+            "avg": None,
         }
     ordered = sorted(times)
     return {
-        "p50_wait": round(percentile(ordered, 50), 1),
-        "p75_wait": round(percentile(ordered, 75), 1),
-        "p90_wait": round(percentile(ordered, 90), 1),
-        "p95_wait": round(percentile(ordered, 95), 1),
-        "p99_wait": round(percentile(ordered, 99), 1),
-        "max_wait": round(max(ordered), 1),
-        "avg_wait": round(sum(ordered) / len(ordered), 1),
+        "p50": round(percentile(ordered, 50), 1),
+        "p75": round(percentile(ordered, 75), 1),
+        "p90": round(percentile(ordered, 90), 1),
+        "p95": round(percentile(ordered, 95), 1),
+        "p99": round(percentile(ordered, 99), 1),
+        "max": round(max(ordered), 1),
+        "avg": round(sum(ordered) / len(ordered), 1),
     }
 
 
@@ -349,6 +360,7 @@ def _minutes_from_seconds(value) -> float | None:
 
 
 def _wait_summary_from_queue_metrics(wait_time_sec: dict | None) -> dict | None:
+    """Return only wait statistics Buildkite reports natively."""
     if not isinstance(wait_time_sec, dict):
         return None
     p50 = _minutes_from_seconds(wait_time_sec.get("p50"))
@@ -357,17 +369,10 @@ def _wait_summary_from_queue_metrics(wait_time_sec: dict | None) -> dict | None:
     if p50 is None and p95 is None and max_wait is None:
         return None
 
-    # Buildkite exposes min/p50/p95/max for queue-native wait time. Keep the
-    # legacy dashboard schema filled, but point visible controls at official
-    # fields rather than inventing unsupported percentiles.
     return {
-        "p50_wait": p50 if p50 is not None else 0,
-        "p75_wait": p95 if p95 is not None else (p50 if p50 is not None else 0),
-        "p90_wait": p95 if p95 is not None else (max_wait if max_wait is not None else 0),
-        "p95_wait": p95 if p95 is not None else (max_wait if max_wait is not None else 0),
-        "p99_wait": max_wait if max_wait is not None else (p95 if p95 is not None else 0),
-        "max_wait": max_wait if max_wait is not None else (p95 if p95 is not None else 0),
-        "avg_wait": p50 if p50 is not None else 0,
+        "p50": p50,
+        "p95": p95,
+        "max": max_wait,
     }
 
 
@@ -399,10 +404,6 @@ def _run_minutes(now: datetime, started_at: str | None) -> float | None:
     return round((now - started).total_seconds() / 60, 1)
 
 
-def _decrement_stat(stats: dict, key: str, amount: int = 1) -> None:
-    stats[key] = max(0, int(stats.get(key) or 0) - amount)
-
-
 def fetch_cluster_queue_metrics(token: str) -> dict[str, dict]:
     """Fetch queue-native counts from Buildkite cluster metrics."""
     metrics: dict[str, dict] = {}
@@ -426,7 +427,7 @@ def fetch_cluster_queue_metrics(token: str) -> dict[str, dict]:
                 "waiting": int(latest.get("waitingJobsCount") or 0),
                 "running": int(latest.get("runningJobsCount") or 0),
                 "connected_agents": int(latest.get("connectedAgentsCount") or 0),
-                "wait_summary": _wait_summary_from_queue_metrics(latest.get("waitTimeSec")),
+                "official_wait": _wait_summary_from_queue_metrics(latest.get("waitTimeSec")),
                 "metrics_ts": latest.get("timestamp") or "",
                 "queue_url": _queue_web_url(node.get("uuid")),
                 "dispatch_paused": bool(node.get("dispatchPaused")),
@@ -590,15 +591,15 @@ def _seed_queue_metrics(queue_stats: dict, metrics_by_queue: dict[str, dict]) ->
         stats["scheduled"] = int(meta.get("waiting") or 0)
         stats["total"] = stats["waiting"] + stats["running"]
         stats["connected_agents"] = int(meta.get("connected_agents") or 0)
+        stats["count_source"] = "cluster_metrics"
         if meta.get("queue_url"):
             stats["queue_url"] = meta["queue_url"]
         if meta.get("metrics_ts"):
             stats["metrics_ts"] = meta["metrics_ts"]
         if meta.get("dispatch_paused"):
             stats["dispatch_paused"] = True
-        if meta.get("wait_summary"):
-            stats["wait_summary"] = dict(meta["wait_summary"])
-            stats["wait_source"] = "cluster_metrics"
+        if meta.get("official_wait"):
+            stats["official_wait"] = dict(meta["official_wait"])
 
 
 def _apply_active_jobs(
@@ -641,10 +642,6 @@ def _apply_active_jobs(
             is_zombie = wait_mins >= QUEUE_ZOMBIE_THRESHOLD_MIN
             if is_zombie:
                 stats["zombie_waiting"] = int(stats.get("zombie_waiting") or 0) + 1
-                if trust_counts:
-                    _decrement_stat(stats, "waiting")
-                    _decrement_stat(stats, "scheduled")
-                    _decrement_stat(stats, "total")
             else:
                 if not trust_counts:
                     stats["waiting"] += 1
@@ -678,9 +675,6 @@ def _apply_active_jobs(
         is_zombie = (run_mins or 0) >= QUEUE_ZOMBIE_THRESHOLD_MIN
         if is_zombie:
             stats["zombie_running"] = int(stats.get("zombie_running") or 0) + 1
-            if trust_counts:
-                _decrement_stat(stats, "running")
-                _decrement_stat(stats, "total")
         else:
             if not trust_counts:
                 stats["running"] += 1
@@ -721,11 +715,13 @@ def collect_snapshot(token: str) -> dict:
     metrics_by_queue: dict[str, dict] = {}
     counts_source = "active_job_scan"
     active_jobs_source = "legacy_build_scan"
+    sampled_queues: set[str] | None = None
 
     try:
         metrics_by_queue = fetch_cluster_queue_metrics(token)
         _seed_queue_metrics(queue_stats, metrics_by_queue)
-        counts_source = "cluster_metrics"
+        if metrics_by_queue:
+            counts_source = "cluster_metrics"
     except Exception as exc:
         log.warning("Buildkite cluster metrics unavailable, falling back to active job counts: %s", exc)
 
@@ -738,6 +734,7 @@ def collect_snapshot(token: str) -> dict:
     try:
         active_jobs = fetch_active_cluster_jobs(token, active_queue_ids or None)
         active_jobs_source = "cluster_queue_graphql" if active_queue_ids else "organization_jobs_graphql"
+        sampled_queues = set(active_queue_ids) if active_queue_ids else None
     except Exception as exc:
         log.warning("Buildkite GraphQL active jobs unavailable, falling back to build scan: %s", exc)
         active_jobs = _collect_legacy_active_jobs(token)
@@ -745,14 +742,70 @@ def collect_snapshot(token: str) -> dict:
     pending_jobs, running_jobs = _apply_active_jobs(now, queue_stats, active_jobs, set(metrics_by_queue))
 
     queues = {}
+    has_official_wait = False
+    has_sample_wait = False
     for queue, stats in sorted(queue_stats.items()):
         if queue not in TRACKED_QUEUES and not stats["waiting"] and not stats["running"]:
             continue
-        row = {k: v for k, v in stats.items() if k not in {"wait_times", "wait_summary"}}
-        row["wait_sample_count"] = len(stats["wait_times"])
+        row = {k: v for k, v in stats.items() if k not in {"wait_times", "official_wait"}}
+        official_wait = stats.get("official_wait") or {"p50": None, "p95": None, "max": None}
         sample_summary = _wait_summary(stats["wait_times"])
-        row.update(stats.get("wait_summary") or sample_summary)
-        row["wait_source"] = stats.get("wait_source") or ("scheduled_jobs" if stats["wait_times"] else "none")
+        sample_available = sampled_queues is None or queue in sampled_queues
+        sample_wait = {
+            "available": sample_available,
+            "count": len(stats["wait_times"]) if sample_available else None,
+            **sample_summary,
+        }
+        row["official_wait"] = official_wait
+        row["sample_wait"] = sample_wait
+        row["wait_sample_count"] = sample_wait["count"]
+
+        selected: dict[str, tuple[float | None, str | None]] = {}
+        for metric in ("p50", "p95"):
+            if official_wait.get(metric) is not None:
+                selected[metric] = (official_wait[metric], "official_wait")
+            elif sample_wait.get(metric) is not None:
+                selected[metric] = (sample_wait[metric], "sample_wait")
+            else:
+                selected[metric] = (None, None)
+        selected["p99"] = (
+            (sample_wait["p99"], "sample_wait")
+            if sample_wait["p99"] is not None
+            else (None, None)
+        )
+
+        for metric in ("p50", "p95", "p99"):
+            row[f"{metric}_wait"], row[f"{metric}_wait_source"] = selected[metric]
+        row["current_wait"] = {
+            metric: {
+                "value": row[f"{metric}_wait"],
+                "source": row[f"{metric}_wait_source"],
+            }
+            for metric in ("p50", "p95", "p99")
+        }
+
+        # Compatibility fields not supplied by queue-native metrics only carry
+        # values when an actual scheduled-job sample can support them.
+        for metric in ("p75", "p90", "avg"):
+            row[f"{metric}_wait"] = sample_wait[metric]
+            row[f"{metric}_wait_source"] = "sample_wait" if sample_wait[metric] is not None else None
+        if official_wait.get("max") is not None:
+            row["max_wait"] = official_wait["max"]
+            row["max_wait_source"] = "official_wait"
+        else:
+            row["max_wait"] = sample_wait["max"]
+            row["max_wait_source"] = "sample_wait" if sample_wait["max"] is not None else None
+
+        # Legacy consumers treated wait_source as the source of the displayed
+        # wait statistic. p95 is the dashboard default, so mirror its source.
+        row["wait_source"] = {
+            "official_wait": "cluster_metrics",
+            "sample_wait": "scheduled_jobs",
+        }.get(row["p95_wait_source"], "none")
+        has_official_wait = has_official_wait or any(
+            value is not None for value in official_wait.values()
+        )
+        has_sample_wait = has_sample_wait or bool(sample_wait["count"])
         queues[queue] = row
 
     snapshot = {
@@ -764,8 +817,41 @@ def collect_snapshot(token: str) -> dict:
         "total_zombie_running": sum(int(s.get("zombie_running") or 0) for s in queues.values()),
         "sources": {
             "counts": counts_source,
-            "waits": "cluster_metrics" if counts_source == "cluster_metrics" else "scheduled_jobs",
+            "waits": (
+                "cluster_metrics"
+                if has_official_wait
+                else ("scheduled_jobs" if has_sample_wait else "none")
+            ),
             "active_jobs": active_jobs_source,
+            "count_fields": {
+                "waiting_running_scheduled_total": (
+                    "Each queue row uses Buildkite cluster metrics when count_source is cluster_metrics; "
+                    "otherwise counts are derived from fetched active jobs. Queue-native counts include zombies."
+                ),
+                "zombie_waiting_zombie_running": (
+                    "Derived from fetched active jobs and reported separately from queue-native counts."
+                ),
+            },
+            "wait_fields": {
+                "official_wait": (
+                    "Buildkite queue-native waitTimeSec converted to minutes; contains only p50, p95, and max."
+                ),
+                "sample_wait": (
+                    "Exact statistics in minutes from fetched, currently SCHEDULED, non-zombie jobs; "
+                    "available records whether that queue's jobs were fetched, and count is null when they were not."
+                ),
+                "current_wait": (
+                    "Displayed p50, p95, and p99 values paired with their per-field source labels."
+                ),
+                "p50_wait": "official_wait.p50 when available, otherwise sample_wait.p50, otherwise null.",
+                "p95_wait": "official_wait.p95 when available, otherwise sample_wait.p95, otherwise null.",
+                "p99_wait": "sample_wait.p99 when sampled jobs are available, otherwise null.",
+                "p75_wait_p90_wait_avg_wait": "Sample-only compatibility fields; null without sampled jobs.",
+                "max_wait": "official_wait.max when available, otherwise sample_wait.max, otherwise null.",
+                "field_source_labels": (
+                    "Each root wait field has a matching *_wait_source value of official_wait, sample_wait, or null."
+                ),
+            },
             "history_reset_ts": queue_history_reset_datetime().strftime("%Y-%m-%dT%H:%M:%SZ"),
             "zombie_threshold_min": QUEUE_ZOMBIE_THRESHOLD_MIN,
         },

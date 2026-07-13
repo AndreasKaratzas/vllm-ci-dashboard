@@ -84,6 +84,7 @@ function renderStartupError(message,detail){
 }
 
 (async function init() {
+  if (window.__DASHBOARD_V2__) return;
   try {
     const projects = await fetchJSON("data/site/projects.json", { timeoutMs: 6000 });
     if (!projects || !projects.projects) {
@@ -241,6 +242,9 @@ function renderStartupError(message,detail){
     if (btn) btn.classList.add("active");
     var panel = document.getElementById("tab-" + target);
     if (panel) panel.classList.add("active");
+    if (window.OpsV2 && typeof window.OpsV2.render === 'function') {
+      window.OpsV2.render(target);
+    }
     _reapplyVisibility();
     return target;
   }
@@ -287,6 +291,35 @@ function renderStartupError(message,detail){
   });
 
   document.addEventListener('auth:changed', _reapplyVisibility);
+
+  var sidebar = document.getElementById('sidebar');
+  var menuToggle = document.getElementById('ops-menu-toggle');
+  var navBackdrop = document.getElementById('ops-nav-backdrop');
+  function setDrawer(open) {
+    if (!sidebar || !menuToggle) return;
+    sidebar.classList.toggle('open', !!open);
+    document.body.classList.toggle('ops-drawer-open', !!open);
+    menuToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    menuToggle.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+    if (open) {
+      var active = sidebar.querySelector('.nav-btn.active') || sidebar.querySelector('.nav-btn');
+      if (active) active.focus();
+    } else {
+      menuToggle.focus({preventScroll:true});
+    }
+  }
+  if (menuToggle) menuToggle.addEventListener('click', function() {
+    setDrawer(!document.body.classList.contains('ops-drawer-open'));
+  });
+  if (navBackdrop) navBackdrop.addEventListener('click', function() { setDrawer(false); });
+  if (sidebarNav) sidebarNav.addEventListener('click', function(e) {
+    if (e.target.closest && e.target.closest('.nav-btn') && window.matchMedia('(max-width: 767px)').matches) {
+      setDrawer(false);
+    }
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && document.body.classList.contains('ops-drawer-open')) setDrawer(false);
+  });
 })();
 
 function renderWeeklySummary(dataMap) {

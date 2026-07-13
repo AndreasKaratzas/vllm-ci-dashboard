@@ -120,7 +120,7 @@ jobs:
       # ── Phase 2: CI data collection (Buildkite, ~3min) ──
       - name: Sync CI data from gh-pages
         run: |
-          for f in ci_health.json parity_report.json config_parity.json flaky_tests.json failure_trends.json quarantine.json analytics.json gating_nightlies.json gating_targets.json gating_target_candidates.json shard_bases.json group_changes.json amd_test_matrix.json gating_proposals.json hotness.json; do
+          for f in ci_health.json parity_report.json config_parity.json flaky_tests.json failure_trends.json quarantine.json analytics.json gating_nightlies.json gating_targets.json gating_target_candidates.json shard_bases.json group_changes.json amd_test_matrix.json gating_proposals.json hotness.json operations_v2.json; do
             LIVE=$(git show origin/gh-pages:data/vllm/ci/$f 2>/dev/null || true)
             if [ -n "$LIVE" ]; then
               echo "$LIVE" > data/vllm/ci/$f
@@ -156,6 +156,9 @@ jobs:
 
       - name: Collect AMD gating target candidate audit
         run: python scripts/vllm/collect_gating_target_candidates.py --output data/vllm/ci/
+
+      - name: Build v2 operations snapshot
+        run: python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
 
       # ── Perf Eval (AMD nightly perf + accuracy) ──
       # Perf-eval nightlies run once a day, so this data does NOT need the

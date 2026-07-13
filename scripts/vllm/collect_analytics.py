@@ -54,6 +54,15 @@ RESULT_SUFFIX = {"amd-ci": "amd", "ci": "upstream"}
 # Current vLLM nightly slots in UTC. Actual Buildkite ``created_at`` values win
 # whenever they are available; these hours are only for JSONL-only fallbacks.
 FALLBACK_CREATED_HOUR_UTC = {"amd-ci": 9, "ci": 6}
+RETRY_FIELDS = (
+    "retried",
+    "retried_in_job_id",
+    "retries_count",
+    "retry_source",
+    "retry_type",
+    "step_key",
+)
+FAILED_JOB_STATES = {"failed", "soft_fail", "soft_failed", "timed_out", "broken", "canceled", "expired"}
 
 
 def buildkite_job_url(pipeline_slug: str, build_number: int, job_id: str = "", step_id: str = "") -> str:
@@ -201,6 +210,7 @@ def _build_job_metadata(builds: list[dict]) -> dict[int, dict[str, dict]]:
                 for k in ("dur", "wait", "q", "state", "soft_failed", "job_id", "step_id", "url")
                 if k in job and job[k] is not None
             }
+            payload.update({k: job[k] for k in RETRY_FIELDS if k in job})
             for key in job_metadata_keys(job):
                 by_name[key] = payload
     return meta
@@ -401,6 +411,134 @@ def choose_analytics_builds(buildkite_builds: list[dict], result_builds: list[di
     return buildkite_builds
 
 
+def _retry_group_key(job: dict) -> tuple[str, str]:
+    step = str(job.get("step_key") or job.get("step_id") or "")
+    name = str(job.get("raw_name") or job.get("name") or "unknown")
+    return step or name, name
+
+
+def _retry_attempt_summary(build: dict, job: dict) -> dict:
+    out = {
+        "build_number": build.get("number"),
+        "step": str(job.get("step_key") or job.get("step_id") or ""),
+        "name": str(job.get("raw_name") or job.get("name") or "unknown"),
+        "state": job.get("state") or "unknown",
+    }
+    for key in ("job_id", "url", "retries_count", "retry_source", "retry_type"):
+        if job.get(key) not in (None, ""):
+            out[key] = job[key]
+    return out
+
+
+def compute_retry_analysis(builds: list[dict]) -> dict:
+    """Summarize retry attempts and failed-then-passed job recoveries.
+
+    Buildkite's explicit ``retried_in_job_id`` edge is authoritative when it
+    is present. The step/name grouping also handles payloads where Buildkite
+    retained retry counters but omitted the edge from a compact prior row.
+    """
+    retry_attempts: list[dict] = []
+    recoveries: list[dict] = []
+    builds_with_retries: set[int] = set()
+    seen_attempts: set[tuple] = set()
+    seen_recoveries: set[tuple] = set()
+
+    for build in builds:
+        build_number = int(build.get("number") or 0)
+        jobs = list(build.get("jobs") or [])
+        by_id = {str(job.get("job_id")): job for job in jobs if job.get("job_id")}
+        retry_targets = {
+            str(job.get("retried_in_job_id"))
+            for job in jobs
+            if job.get("retried_in_job_id")
+        }
+        grouped: dict[tuple[str, str], list[dict]] = defaultdict(list)
+        for job in jobs:
+            grouped[_retry_group_key(job)].append(job)
+
+        for job in jobs:
+            job_id = str(job.get("job_id") or "")
+            is_attempt = (
+                job_id in retry_targets
+                or bool(job.get("retry_source"))
+                or bool(job.get("retry_type"))
+                or int(job.get("retries_count") or 0) > 0
+            )
+            if not is_attempt:
+                continue
+            attempt_key = (build_number, job_id or _retry_group_key(job))
+            if attempt_key in seen_attempts:
+                continue
+            seen_attempts.add(attempt_key)
+            retry_attempts.append(_retry_attempt_summary(build, job))
+            builds_with_retries.add(build_number)
+
+        for failed_job in jobs:
+            target_id = str(failed_job.get("retried_in_job_id") or "")
+            passed_job = by_id.get(target_id)
+            if not passed_job:
+                continue
+            if failed_job.get("state") not in FAILED_JOB_STATES or passed_job.get("state") != "passed":
+                continue
+            recovery_key = (build_number, target_id, _retry_group_key(failed_job))
+            if recovery_key in seen_recoveries:
+                continue
+            seen_recoveries.add(recovery_key)
+            recoveries.append({
+                "build_number": build_number,
+                "step": str(failed_job.get("step_key") or failed_job.get("step_id") or ""),
+                "name": str(failed_job.get("raw_name") or failed_job.get("name") or "unknown"),
+                "failed_job_id": failed_job.get("job_id") or "",
+                "passed_job_id": passed_job.get("job_id") or "",
+                "failed_url": failed_job.get("url") or "",
+                "passed_url": passed_job.get("url") or "",
+            })
+
+        for group_key, attempts in grouped.items():
+            failed_jobs = [job for job in attempts if job.get("state") in FAILED_JOB_STATES]
+            passed_retries = [
+                job for job in attempts
+                if job.get("state") == "passed"
+                and (
+                    str(job.get("job_id") or "") in retry_targets
+                    or bool(job.get("retry_source"))
+                    or bool(job.get("retry_type"))
+                    or int(job.get("retries_count") or 0) > 0
+                )
+            ]
+            if not failed_jobs:
+                continue
+            failed_job = failed_jobs[-1]
+            for passed_job in passed_retries:
+                passed_id = str(passed_job.get("job_id") or "")
+                recovery_key = (build_number, passed_id, group_key)
+                if recovery_key in seen_recoveries:
+                    continue
+                seen_recoveries.add(recovery_key)
+                recoveries.append({
+                    "build_number": build_number,
+                    "step": group_key[0],
+                    "name": group_key[1],
+                    "failed_job_id": failed_job.get("job_id") or "",
+                    "passed_job_id": passed_job.get("job_id") or "",
+                    "failed_url": failed_job.get("url") or "",
+                    "passed_url": passed_job.get("url") or "",
+                })
+
+    retry_attempts.sort(key=lambda row: (row.get("build_number") or 0, row.get("step", ""), row["name"]), reverse=True)
+    recoveries.sort(key=lambda row: (row.get("build_number") or 0, row.get("step", ""), row["name"]), reverse=True)
+    return {
+        "summary": {
+            "builds_evaluated": len(builds),
+            "builds_with_retries": len(builds_with_retries),
+            "retry_attempt_count": len(retry_attempts),
+            "failed_then_passed_recovery_count": len(recoveries),
+        },
+        "retry_attempts": retry_attempts,
+        "failed_then_passed_recoveries": recoveries,
+    }
+
+
 def collect_pipeline(pipeline_slug, token, days, nightly_only=False, name_pattern=None):
     """Collect nightly builds and preserve per-job detail for later windows."""
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
@@ -459,6 +597,9 @@ def collect_pipeline(pipeline_slug, token, days, nightly_only=False, name_patter
                 "state": "soft_fail" if sf else state,
                 "dur": dur,
             }
+            for key in RETRY_FIELDS:
+                value = j.get(key, (j.get("step") or {}).get("key") if key == "step_key" else None)
+                job_entry[key] = value
             if job_id:
                 job_entry["job_id"] = job_id
             if step_id:
@@ -774,6 +915,9 @@ def main():
             "default_window": default_window_key,
             "windows": windows,
         }
+        if slug == "amd-ci":
+            retry_builds = buildkite_builds or previous_builds or builds
+            all_data[slug]["retry_analysis"] = compute_retry_analysis(retry_builds)
 
         log.info("  %d builds, %d jobs tracked, %d with failures",
                  len(builds), len(job_rankings),

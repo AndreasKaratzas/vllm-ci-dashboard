@@ -276,6 +276,7 @@
     if (p && p.classList.contains('active') && !p.dataset.loaded) { p.dataset.loaded = '1'; render(); }
   });
   document.addEventListener('DOMContentLoaded', () => {
+    if (window.__DASHBOARD_V2__) return;
     const p = document.getElementById('tab-ci-omni');
     if (p) {
       obs.observe(p, { attributes: true, attributeFilter: ['class'] });

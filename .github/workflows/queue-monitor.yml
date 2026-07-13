@@ -112,13 +112,16 @@ jobs:
           # Without this sync, assembling _site from main would overwrite fresh
           # CI data with stale copies from the main branch checkout.
           git fetch origin gh-pages --depth=1 || true
-          for f in ci_health.json parity_report.json config_parity.json flaky_tests.json failure_trends.json quarantine.json analytics.json shard_bases.json group_changes.json amd_test_matrix.json; do
+          for f in ci_health.json parity_report.json config_parity.json flaky_tests.json failure_trends.json quarantine.json analytics.json gating_nightlies.json gating_targets.json gating_target_candidates.json gating_proposals.json hotness.json shard_bases.json group_changes.json amd_test_matrix.json operations_v2.json; do
             LIVE=$(git show origin/gh-pages:data/vllm/ci/$f 2>/dev/null || true)
             if [ -n "$LIVE" ]; then
               echo "$LIVE" > data/vllm/ci/$f
               echo "Synced $f from gh-pages"
             fi
           done
+
+      - name: Rebuild v2 operations snapshot
+        run: python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
 
       - name: Assemble site
         run: python scripts/build_site.py --cache-bust-index

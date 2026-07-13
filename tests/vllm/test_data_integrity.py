@@ -39,7 +39,10 @@ class TestCIHealthData:
 
     def test_test_counts_consistent(self, health):
         lb = health["amd"]["latest_build"]
-        assert lb["passed"] + lb["failed"] + lb.get("errors", 0) <= lb["total_tests"]
+        # ``failed`` is the terminal non-passing count and includes pytest
+        # errors; ``errors`` is retained as a diagnostic subset.
+        assert lb["passed"] + lb["failed"] + lb.get("skipped", 0) <= lb["total_tests"]
+        assert lb.get("errors", 0) <= lb["failed"]
 
     def test_hardware_breakdown_exists(self, health):
         assert len(health["amd"]["latest_build"].get("by_hardware", {})) > 0

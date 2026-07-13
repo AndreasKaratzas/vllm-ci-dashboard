@@ -10,7 +10,7 @@ Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-07-13 
 
 ## Live Dashboard
 
-Interactive dashboard with a **Home** view for PRs, project #39 issues, and test parity, plus CI operations views.
+**Signal Desk v2** is an AMD-first CI operations dashboard. It connects nightly regressions, gating coverage, retry and mixed-outcome evidence, group latency, queue capacity, Omni demand, and performance evaluation through one operational interface. Upstream data appears only where it supplies parity context. Perf Eval keeps its dedicated webhook-fed data path while rendering in the shared v2 shell.
 
 Hosted on GitHub Pages — deployed automatically on every push to main.
 
@@ -24,11 +24,22 @@ Hosted on GitHub Pages — deployed automatically on every push to main.
 
 | View | Description |
 |------|-------------|
-| **Home** | PRs, project #39 issues, and ROCm vs upstream test parity |
-| **CI Health** | Latest Buildkite nightly health, parity details, failures, flakes, and links |
-| **CI Analytics** | Nightly build comparison, recent builds, group trends, AMD hardware matrix, queue comparison |
-| **Queue Monitor** | Buildkite queue workload, wait-time charts, active job overlays, admin triage, and AMD capacity projections |
-| **Hotness / Omni / Ready / Admin** | Focused operational views for workload spikes, Omni queues, ready tickets, and dashboard admin tasks |
+| **Home** | AMD command center, attention queue, nightly movement, and engineering workbench |
+| **CI Health** | Current build state, 127-group active target coverage, hardware-cell matrix, and diagnostics |
+| **CI Analytics** | AMD nightly regressions, new/recurring/fixed groups, retries, flaky candidates, and completion latency |
+| **Queue Monitor** | Queue-native running/waiting counts, official p50/p95, sampled p99, history, and current workloads |
+| **CI Workload Trajectory** | AMD demand composition, execution frequency, latency, and failure pressure |
+| **Omni** | vLLM-Omni demand, surge thresholds, AMD resource distribution, and active jobs |
+| **Perf Eval** | AMD performance and accuracy trends with model/hardware filters, semantic deltas, source-build provenance, and per-metric history |
+
+### Reliability evidence
+
+The dashboard deliberately separates two signals:
+
+- **Mixed-outcome candidate**: the same normalized AMD test group has at least one passing and one hard/soft incident observation in the retained nightly window. The displayed incident rate is incident observations divided by observed group runs; it is not presented as a test-case flake probability.
+- **Explicit retry recovery**: Buildkite retry metadata links a failed attempt to a passing retry in the same build. This is stronger retry evidence, but remains distinct from an individual pytest case proven flaky.
+
+Per-run dialogs list every contributing Buildkite build and job-log URL, normalized result, queue, completion time, parsed test count, and retry metadata. Group outcomes combine Buildkite job state with summaries parsed from collected test logs.
 
 ## Markdown Dashboards
 
@@ -45,10 +56,11 @@ The main data path is `.github/workflows/hourly-master.yml`, which runs every 30
 | `scripts/collect.py` | vLLM PRs, project #39 issues, linked CI PR tags, releases |
 | `scripts/collect_ci.py` | Buildkite nightly test results, CI health, parity, flaky/failure data |
 | `scripts/vllm/collect_analytics.py` | Windowed CI analytics from parsed test-result JSONL plus Buildkite metadata |
+| `scripts/vllm/build_operations_snapshot.py` | Compact v2 read model joining nightly transitions, reliability, gating, queues, trajectory, and Omni |
 | `scripts/vllm/collect_amd_test_matrix.py` | AMD hardware matrix from upstream `test-amd.yaml`, matched against the latest AMD nightly |
 | `scripts/vllm/collect_gating_proposals.py` | Open vLLM PRs from tracked AMD engineers that add new `.buildkite/test_areas` AMD mirrors |
 | `scripts/vllm/collect_gating_target_candidates.py` | Review-only audit of upstream nightly GPU jobs against the canonical AMD gating target list |
-| `scripts/vllm/collect_queue_snapshot.py` | Queue timeseries and active job overlays |
+| `scripts/vllm/collect_queue_snapshot.py` | Queue-native counts and official p50/p95/max plus sampled active-job percentiles; p99 is never fabricated |
 | `scripts/vllm/collect_capacity_monitor.py` | AMD queue capacity limits plus mirror test-group dependency projections |
 | `scripts/vllm/audit_dashboard_data.py` | Cross-surface audit for data totals, frontend assumptions, links, and deploy safety |
 | `scripts/render.py` | Generate markdown dashboards and site data |
@@ -65,6 +77,7 @@ python scripts/vllm/collect_amd_test_matrix.py --output data/vllm/ci/
 python scripts/vllm/collect_gating_proposals.py --output data/vllm/ci/
 python scripts/vllm/collect_gating_target_candidates.py --output data/vllm/ci/
 python scripts/vllm/collect_capacity_monitor.py --output data/vllm/ci/
+python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
 python scripts/vllm/audit_dashboard_data.py
 python scripts/render.py
 python scripts/build_site.py --cache-bust-index

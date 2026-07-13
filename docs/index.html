@@ -22,17 +22,17 @@
           These two are the ONLY outbound origins the user's tokens touch.
           An injected script that tries to POST tokens to ``evil.com``
           gets blocked by the browser even before it reaches the network.
-      - ``frame-ancestors 'none'``      — defeats clickjacking attempts.
       - ``base-uri 'self'``             — stops ``<base>`` injection attacks.
       - ``form-action 'self'``          — no cross-origin form POSTs.
 
     When you add a new outbound host (e.g. a second CI backend), extend
     ``connect-src`` explicitly — do not broaden to ``*``.
   -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com https://github.com; font-src 'self' data:; connect-src 'self' https://api.github.com https://api.buildkite.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com https://github.com; font-src 'self' data:; connect-src 'self' https://api.github.com https://api.buildkite.com; base-uri 'self'; form-action 'self'">
   <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
 
   <link rel="stylesheet" href="assets/css/dashboard.css?v=55">
+  <link rel="stylesheet" href="assets/css/ops-v2.css?v=2">
   <script>
     // Apply theme before first paint to avoid flash
     (function(){
@@ -104,12 +104,24 @@
     })();
   </script>
 </head>
-<body>
+<body class="ops-v2">
+  <header id="ops-mobile-bar" class="ops-mobile-topbar" aria-label="Dashboard navigation">
+    <button id="ops-menu-toggle" class="ops-mobile-menu" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">
+      <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
+    </button>
+    <div class="ops-mobile-title ops-mobile-brand">
+      <strong>vLLM CI</strong>
+      <span>Signal Desk</span>
+    </div>
+    <span id="ops-mobile-freshness">Loading</span>
+  </header>
+  <button id="ops-nav-backdrop" class="ops-drawer-backdrop" type="button" tabindex="-1" aria-label="Close navigation"></button>
   <button id="theme-toggle" title="Toggle light/dark mode" aria-label="Toggle theme"></button>
   <!-- Sidebar Navigation -->
   <aside id="sidebar">
     <div class="sidebar-header">
-      <h1>vLLM CI Dashboard</h1>
+      <span class="ops-brand-kicker">vLLM CI</span>
+      <h1>Signal Desk</h1>
       <p id="last-updated">Loading...</p>
     </div>
     <nav id="sidebar-nav">
@@ -142,9 +154,10 @@
   <script src="assets/js/token-vault.js?v=1"></script>
   <script src="assets/js/utils.js?v=58"></script>
   <script src="assets/js/auth.js?v=3"></script>
+  <script>window.__DASHBOARD_V2__ = true;</script>
   <script src="assets/js/ci-health.js?v=63"></script>
   <script src="assets/js/ci-analytics.js?v=54"></script>
-  <script src="assets/js/ci-perf-eval.js?v=1"></script>
+  <script src="assets/js/ci-perf-eval.js?v=2"></script>
   <script src="assets/js/ci-queue.js?v=63"></script>
   <script src="assets/js/ci-hotness.js?v=53"></script>
   <script src="assets/js/ci-omni.js?v=53"></script>
@@ -152,6 +165,7 @@
   <script src="assets/js/ci-testbuild.js?v=4"></script>
   <script src="assets/js/ci-ready.js?v=3"></script>
   <script src="assets/js/ci-admin.js?v=2"></script>
+  <script src="assets/js/ops-v2.js?v=2"></script>
   <script>
     (function(){
       var btn = document.getElementById('theme-toggle');
