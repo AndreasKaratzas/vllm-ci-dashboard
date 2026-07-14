@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 INDEX = (ROOT / "docs" / "index.html").read_text()
 OPS_JS = (ROOT / "docs" / "assets" / "js" / "ops-v2.js").read_text()
 OPS_CSS = (ROOT / "docs" / "assets" / "css" / "ops-v2.css").read_text()
+DASHBOARD_CSS = (ROOT / "docs" / "assets" / "css" / "dashboard.css").read_text()
 DASHBOARD_JS = (ROOT / "docs" / "assets" / "js" / "dashboard.js").read_text()
 OPS_DATA = json.loads((ROOT / "data" / "vllm" / "ci" / "operations_v2.json").read_text())
 
@@ -59,17 +60,24 @@ def test_reliability_evidence_is_drillable_and_honestly_named():
     assert "Incidents only" in OPS_JS
 
 
-def test_test_group_history_switches_all_main_and_nightly_with_charts():
+def test_test_group_history_switches_cohorts_with_clickable_outcome_evidence():
     for contract in (
         "function isNightlyObservation",
         "function observationHistoryPoint",
+        "function historyOutcomeTone",
+        "function historyRunCell",
+        "function historyIncidentRow",
         "All main",
         "Nightly only",
         "Test-group history cohort",
-        "Test-group history explorer",
+        "Test-group reliability",
         "Select test group for historical analysis",
-        "Pass and incident history",
-        "Rolling reliability",
+        "Outcome timeline",
+        "Incidents to inspect",
+        "RETAINED PASS RATE",
+        "CURRENT SIGNAL",
+        "LAST INCIDENT",
+        "TYPICAL COMPLETION",
         "Outcome history",
         "Completion and queue wait",
         "Historical outcomes, latency, and exact Buildkite evidence",
@@ -77,10 +85,24 @@ def test_test_group_history_switches_all_main_and_nightly_with_charts():
         assert contract in OPS_JS
     assert "observation.build_kind" in OPS_JS
     assert "exactPipelineEvidenceUrl(observation, sourcePipeline)" in OPS_JS
-    assert "spanGaps: false" in OPS_JS
     assert "analytics_group" in OPS_JS
     assert "analytics_cohort" in OPS_JS
-    assert "Each bar is one exact upstream Buildkite job" in OPS_JS
+    assert "The source retains up to 60 exact observations" in OPS_JS
+    assert "Pass and incident history" not in OPS_JS
+    assert "Rolling reliability" not in OPS_JS
+
+    for contract in (
+        ".ops-page .ops-history-snapshot",
+        ".ops-page .ops-history-detail-grid",
+        ".ops-page .ops-history-batches",
+        ".ops-page .ops-run-cell",
+        ".ops-page .ops-incident-row",
+        ".ops-v2:has(#main-content > .ops-page.active) > footer",
+    ):
+        assert contract in OPS_CSS
+    assert ".ops-v2:has(#main-content > .ops-page.active) footer {" not in OPS_CSS
+    assert "body > footer {" in DASHBOARD_CSS
+    assert "\nfooter {" not in DASHBOARD_CSS
 
     groups = OPS_DATA["reliability"]["group_catalog"]
     assert any(

@@ -2105,13 +2105,88 @@
     })[0] || rows.find(function (row) { return groupHistoryObservations(row, 'main').length; }) || rows[0];
   }
 
-  function rollingReliability(observations, windowSize) {
-    return observations.map(function (_, index) {
-      const sample = observations.slice(Math.max(0, index - windowSize + 1), index + 1);
-      const passed = sample.filter(function (row) { return observationState(row) === 'passed'; }).length;
-      const incidents = sample.filter(isIncidentObservation).length;
-      return {passRate: sample.length ? passed / sample.length * 100 : null, incidentRate: sample.length ? incidents / sample.length * 100 : null};
-    });
+  function historyOutcomeTone(observation) {
+    const result = observationState(observation);
+    if (result === 'passed') return 'is-passed';
+    if (['soft', 'soft_fail', 'soft_failed'].includes(result)) return 'is-soft';
+    if (isIncidentObservation(observation)) return 'is-hard';
+    return 'is-unknown';
+  }
+
+  function historyOutcomeLabel(observation) {
+    const result = observationState(observation);
+    if (result === 'passed') return 'Passed';
+    if (['soft', 'soft_fail', 'soft_failed'].includes(result)) return 'Soft incident';
+    if (isIncidentObservation(observation)) return 'Hard incident';
+    return value(result, 'Unknown');
+  }
+
+  function cohortPassStreak(observations) {
+    let streak = 0;
+    for (let index = observations.length - 1; index >= 0; index -= 1) {
+      if (observationState(observations[index]) !== 'passed') break;
+      streak += 1;
+    }
+    return streak;
+  }
+
+  function observationPassRate(observations) {
+    if (!observations.length) return null;
+    const passed = observations.filter(function (row) { return observationState(row) === 'passed'; }).length;
+    return passed / observations.length * 100;
+  }
+
+  function historyRunCell(observation) {
+    const build = observation.build_number ? '#' + observation.build_number : shortDate(observationTimestamp(observation));
+    const outcome = historyOutcomeLabel(observation);
+    const observed = shortDate(observationTimestamp(observation));
+    const link = n('a', 'ops-run-cell ' + historyOutcomeTone(observation));
+    link.href = exactPipelineEvidenceUrl(observation, 'ci');
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.title = build + ' - ' + outcome + ' - ' + observed;
+    link.setAttribute('aria-label', 'Open ' + build + ', ' + outcome + ', observed ' + observed + ' in Buildkite');
+    return link;
+  }
+
+  function historyBatch(observations, startIndex) {
+    const passed = observations.filter(function (row) { return observationState(row) === 'passed'; }).length;
+    const incidents = observations.filter(isIncidentObservation).length;
+    const first = observations[0] || {};
+    const last = observations[observations.length - 1] || {};
+    const card = n('article', 'ops-run-batch');
+    const header = n('header', 'ops-run-batch-header');
+    add(header, [
+      n('strong', '', 'Runs ' + integer(startIndex + 1) + '-' + integer(startIndex + observations.length)),
+      n('span', incidents ? 'is-warning' : 'is-success', percent(passed, observations.length, 0) + ' pass'),
+    ]);
+    const cells = n('div', 'ops-run-cells');
+    observations.forEach(function (observation) { cells.append(historyRunCell(observation)); });
+    const firstBuild = first.build_number ? '#' + first.build_number : shortDate(observationTimestamp(first));
+    const lastBuild = last.build_number ? '#' + last.build_number : shortDate(observationTimestamp(last));
+    add(card, [header, cells, n('div', 'ops-run-batch-range ops-mono', firstBuild + ' to ' + lastBuild)]);
+    return card;
+  }
+
+  function historyIncidentRow(observation) {
+    const row = n('article', 'ops-incident-row');
+    const top = n('div', 'ops-incident-row-head');
+    const build = observation.build_number ? '#' + observation.build_number : shortDate(observationTimestamp(observation));
+    add(top, [
+      externalLink(build, exactPipelineEvidenceUrl(observation, 'ci'), 'ops-history-build ops-mono'),
+      badge(historyOutcomeLabel(observation), historyOutcomeTone(observation) === 'is-soft' ? 'is-warning' : 'is-danger'),
+      n('time', 'ops-incident-time', shortDate(observationTimestamp(observation))),
+    ]);
+    const completion = observationDurationMinutes(observation);
+    const wait = observationWaitMinutes(observation);
+    const facts = [
+      completion !== null ? 'ran ' + duration(completion) : null,
+      wait !== null ? 'waited ' + duration(wait) : null,
+      observation.queue || null,
+    ].filter(Boolean).join(' - ');
+    const message = String(observation.message || observation.build_message || '').split('\n')[0];
+    add(row, [top, facts ? n('div', 'ops-incident-facts', facts) : null, message ? n('div', 'ops-incident-message', message) : null]);
+    return row;
   }
 
   function renderGroupHistoryExplorer(host, rows, ops, reliability) {
@@ -2123,7 +2198,7 @@
     const section = n('section', 'ops-history-explorer');
     const header = n('header', 'ops-section-header');
     const heading = n('div', 'ops-section-heading');
-    add(heading, [n('h2', 'ops-section-title', 'Test-group history explorer'), n('p', 'ops-section-description', 'Choose one strict upstream group and inspect pass, incident, and rolling reliability over exact Buildkite runs.')]);
+    add(heading, [n('h2', 'ops-section-title', 'Test-group reliability'), n('p', 'ops-section-description', 'Choose one strict upstream group. Every outcome below is an exact Buildkite job, ordered from oldest to newest.')]);
     header.append(heading);
     section.append(header);
 
@@ -2168,52 +2243,104 @@
     const soft = observations.filter(function (row) { return ['soft', 'soft_fail', 'soft_failed'].includes(observationState(row)); }).length;
     const incidents = observations.filter(isIncidentObservation);
     const hard = Math.max(0, incidents.length - soft);
-    const summary = n('div', 'ops-evidence-summary');
-    add(summary, [
-      evidenceSummaryItem(state.analyticsGroupCohort === 'nightly' ? 'NIGHTLY RUNS' : 'MAIN RUNS', integer(observations.length)),
-      evidenceSummaryItem('PASSED', integer(passed), 'is-success'),
-      evidenceSummaryItem('HARD INCIDENTS', integer(hard), hard ? 'is-danger' : ''),
-      evidenceSummaryItem('SOFT INCIDENTS', integer(soft), soft ? 'is-warning' : ''),
-      evidenceSummaryItem('PASS RATE', percent(passed, observations.length), passed === observations.length ? 'is-success' : 'is-warning'),
+    const latestResult = observations[observations.length - 1];
+    const streak = cohortPassStreak(observations);
+    const lastIncidentIndex = observations.map(function (row) { return isIncidentObservation(row); }).lastIndexOf(true);
+    const incidentDistance = lastIncidentIndex >= 0 ? observations.length - lastIncidentIndex - 1 : null;
+    const lastIncidentObservation = lastIncidentIndex >= 0 ? observations[lastIncidentIndex] : null;
+    const recentWindow = observations.slice(-Math.min(10, observations.length));
+    const priorWindow = observations.slice(Math.max(0, observations.length - recentWindow.length * 2), observations.length - recentWindow.length);
+    const recentRate = observationPassRate(recentWindow);
+    const priorRate = observationPassRate(priorWindow);
+    const rateDelta = recentRate !== null && priorRate !== null ? recentRate - priorRate : null;
+    const completionValues = observations.map(observationDurationMinutes).filter(function (minutes) { return minutes !== null; });
+    const medianCompletion = percentileValue(completionValues, 0.5);
+    const p90Completion = percentileValue(completionValues, 0.9);
+    const overallTone = passed === observations.length ? 'is-success' : passed / observations.length >= 0.9 ? 'is-warning' : 'is-danger';
+
+    const snapshot = n('div', 'ops-history-snapshot');
+    const score = n('div', 'ops-history-score ' + overallTone);
+    const scoreTrack = n('div', 'ops-history-score-track');
+    const scoreFill = n('div', 'ops-history-score-fill');
+    scoreFill.style.width = passed / observations.length * 100 + '%';
+    scoreTrack.append(scoreFill);
+    add(score, [
+      n('div', 'ops-history-fact-label', 'RETAINED PASS RATE'),
+      n('strong', 'ops-history-score-value', percent(passed, observations.length)),
+      n('div', 'ops-history-score-meta', integer(passed) + ' passed - ' + integer(hard) + ' hard - ' + integer(soft) + ' soft'),
+      scoreTrack,
     ]);
-    section.append(summary);
+    snapshot.append(score);
 
-    const labels = observations.map(function (row) { return row.build_number ? '#' + row.build_number : shortDate(observationTimestamp(row)); });
-    const evidence = observations.map(function (row) { return observationHistoryPoint(row, 'ci'); });
-    const rollingWindow = Math.min(10, observations.length);
-    const rolling = rollingReliability(observations, rollingWindow);
-    const chartGrid = n('div', 'ops-grid ops-grid-2');
-    const key = 'analytics-group-' + selected.id + '-' + state.analyticsGroupCohort;
-    const outcomeChart = chartPanel('Pass and incident history', selected.name + ' - ' + integer(observations.length) + ' exact runs', key + '-outcomes');
-    const rollingChart = chartPanel('Rolling reliability', integer(rollingWindow) + '-run pass and incident rate', key + '-rolling');
-    add(chartGrid, [outcomeChart.root, rollingChart.root]);
-    section.append(chartGrid);
-    section.append(n('p', 'ops-evidence-method', 'Each bar is one exact upstream Buildkite job. Rolling rates use only the visible cohort and do not infer results for runs outside the retained history. Select a chart point or open full run evidence for exact logs.'));
-    host.append(section);
+    const currentSignal = n('div', 'ops-history-fact');
+    add(currentSignal, [n('div', 'ops-history-fact-label', 'CURRENT SIGNAL'), badge(historyOutcomeLabel(latestResult), historyOutcomeTone(latestResult) === 'is-passed' ? 'is-success' : historyOutcomeTone(latestResult) === 'is-soft' ? 'is-warning' : 'is-danger'), n('div', 'ops-history-fact-meta', integer(streak) + '-run passing streak')]);
+    snapshot.append(currentSignal);
 
-    requestAnimationFrame(function () {
-      drawChart(key + '-outcomes', outcomeChart.canvas, {
-        type: 'bar',
-        data: {labels: labels, datasets: [
-          {label: 'Passed', data: observations.map(function (row) { return observationState(row) === 'passed' ? 1 : 0; }), backgroundColor: '#35bb78', barPercentage: 1, categoryPercentage: 1},
-          {label: 'Soft incident', data: observations.map(function (row) { return ['soft', 'soft_fail', 'soft_failed'].includes(observationState(row)) ? 1 : 0; }), backgroundColor: '#e3a63a', barPercentage: 1, categoryPercentage: 1},
-          {label: 'Hard incident', data: observations.map(function (row) { return isIncidentObservation(row) && !['soft', 'soft_fail', 'soft_failed'].includes(observationState(row)) ? 1 : 0; }), backgroundColor: '#e06464', barPercentage: 1, categoryPercentage: 1},
-        ]},
-        options: {scales: {x: {stacked: true, grid: {display: false}, ticks: {maxTicksLimit: 10}}, y: {stacked: true, min: 0, max: 1, ticks: {display: false}, grid: {display: false}}}},
-        evidenceTitle: selected.name + ' pass and incident history',
-        evidence: evidence,
-      });
-      drawChart(key + '-rolling', rollingChart.canvas, {
-        type: 'line',
-        data: {labels: labels, datasets: [
-          {label: 'Pass rate', data: rolling.map(function (point) { return point.passRate; }), borderColor: '#35bb78', backgroundColor: '#35bb78', borderWidth: 2, pointRadius: 1.5, spanGaps: false},
-          {label: 'Incident rate', data: rolling.map(function (point) { return point.incidentRate; }), borderColor: '#e06464', backgroundColor: '#e06464', borderWidth: 1.5, pointRadius: 1.5, spanGaps: false},
-        ]},
-        options: {scales: {x: {grid: {display: false}, ticks: {maxTicksLimit: 10}}, y: {min: 0, max: 100, title: {display: true, text: 'Percent'}, ticks: {callback: function (tick) { return tick + '%'; }}}}},
-        evidenceTitle: selected.name + ' rolling reliability',
-        evidence: evidence,
-      });
+    const incidentFact = n('div', 'ops-history-fact');
+    const incidentValue = lastIncidentObservation
+      ? externalLink('#' + value(lastIncidentObservation.build_number), exactPipelineEvidenceUrl(lastIncidentObservation, 'ci'), 'ops-history-fact-value ops-mono')
+      : n('strong', 'ops-history-fact-value is-success', 'None retained');
+    add(incidentFact, [n('div', 'ops-history-fact-label', 'LAST INCIDENT'), incidentValue, n('div', 'ops-history-fact-meta', lastIncidentObservation ? integer(incidentDistance) + ' runs ago - ' + shortDate(observationTimestamp(lastIncidentObservation)) : 'No incidents in this cohort')]);
+    snapshot.append(incidentFact);
+
+    const recentFact = n('div', 'ops-history-fact');
+    const deltaText = rateDelta === null ? 'No prior comparison window' : (rateDelta > 0 ? '+' : '') + rateDelta.toFixed(1) + ' pp vs prior ' + integer(priorWindow.length);
+    add(recentFact, [n('div', 'ops-history-fact-label', 'RECENT ' + integer(recentWindow.length)), n('strong', 'ops-history-fact-value ' + (rateDelta !== null && rateDelta < 0 ? 'is-warning' : 'is-success'), recentRate === null ? '-' : recentRate.toFixed(1) + '%'), n('div', 'ops-history-fact-meta', deltaText)]);
+    snapshot.append(recentFact);
+
+    const durationFact = n('div', 'ops-history-fact');
+    add(durationFact, [n('div', 'ops-history-fact-label', 'TYPICAL COMPLETION'), n('strong', 'ops-history-fact-value', duration(medianCompletion)), n('div', 'ops-history-fact-meta', 'p90 ' + duration(p90Completion) + ' across ' + integer(completionValues.length) + ' timed runs')]);
+    snapshot.append(durationFact);
+    section.append(snapshot);
+
+    const detailGrid = n('div', 'ops-history-detail-grid');
+    const timeline = n('section', 'ops-history-panel ops-history-timeline');
+    const timelineHeader = n('header', 'ops-history-panel-header');
+    const timelineHeading = n('div');
+    add(timelineHeading, [n('h3', '', 'Outcome timeline'), n('p', '', integer(observations.length) + ' exact runs - oldest to newest')]);
+    const legend = n('div', 'ops-history-legend');
+    [['is-passed', 'Passed'], ['is-soft', 'Soft'], ['is-hard', 'Hard']].forEach(function (entry) {
+      const item = n('span', 'ops-history-legend-item');
+      add(item, [n('i', 'ops-run-cell ' + entry[0]), entry[1]]);
+      legend.append(item);
     });
+    add(timelineHeader, [timelineHeading, legend]);
+    const batches = n('div', 'ops-history-batches');
+    for (let index = 0; index < observations.length; index += 10) {
+      batches.append(historyBatch(observations.slice(index, index + 10), index));
+    }
+    add(timeline, [timelineHeader, batches]);
+
+    const incidentPanel = n('section', 'ops-history-panel ops-history-incidents');
+    const incidentHeader = n('header', 'ops-history-panel-header');
+    const incidentHeading = n('div');
+    add(incidentHeading, [n('h3', '', 'Incidents to inspect'), n('p', '', integer(incidents.length) + ' retained in this cohort')]);
+    incidentHeader.append(incidentHeading);
+    incidentPanel.append(incidentHeader);
+    const incidentList = n('div', 'ops-incident-list');
+    if (incidents.length) {
+      incidents.slice().reverse().slice(0, 6).forEach(function (observation) { incidentList.append(historyIncidentRow(observation)); });
+    } else {
+      incidentList.append(n('div', 'ops-history-all-clear', 'No incident observations are retained for this cohort.'));
+    }
+    incidentPanel.append(incidentList);
+    if (incidents.length) {
+      const inspectAll = button('Inspect all ' + integer(incidents.length) + ' incidents', function () {
+        openHistoryEvidence(
+          selected.name + ' incidents',
+          incidents.slice().reverse().map(function (observation) { return observationHistoryPoint(observation, 'ci'); }),
+          integer(incidents.length) + ' exact incident observations in the selected cohort',
+          SOURCE_ASSETS.operations
+        );
+      });
+      const footer = n('footer', 'ops-history-panel-footer');
+      footer.append(inspectAll);
+      incidentPanel.append(footer);
+    }
+    add(detailGrid, [timeline, incidentPanel]);
+    section.append(detailGrid);
+    section.append(n('p', 'ops-evidence-method', 'The source retains up to 60 exact observations for each strict group. Select any outcome mark or incident build to open its Buildkite job; no missing runs are inferred.'));
+    host.append(section);
   }
 
   function candidateBuildTimeline(rows) {
