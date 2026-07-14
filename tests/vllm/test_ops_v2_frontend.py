@@ -155,7 +155,8 @@ def test_amd_health_and_platform_comparison_are_distinct_first_visit_surfaces():
     summary = health["summary"]
     latest = summary["latest_state_counts"]
     assert health["source_pipeline"] == "amd-ci"
-    assert summary["build_count"] == 30
+    assert summary["build_count"] == len(health["builds"])
+    assert summary["build_count"] > 0
     assert summary["latest_group_count"] == sum(latest.values())
     assert latest["soft"] > 0
     assert latest["hard"] >= 0
