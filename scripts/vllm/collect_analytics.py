@@ -440,11 +440,19 @@ def _retry_group_key(job: dict) -> tuple[str, str]:
 
 
 def _retry_attempt_summary(build: dict, job: dict) -> dict:
+    observed_at = (
+        job.get("finished_at")
+        or job.get("started_at")
+        or build.get("finished_at")
+        or build.get("created_at")
+        or ""
+    )
     out = {
         "build_number": build.get("number"),
         "step": str(job.get("step_key") or job.get("step_id") or ""),
         "name": str(job.get("raw_name") or job.get("name") or "unknown"),
         "state": job.get("state") or "unknown",
+        "observed_at": observed_at,
     }
     for key in ("job_id", "url", "retries_count", "retry_source", "retry_type"):
         if job.get(key) not in (None, ""):
@@ -510,6 +518,14 @@ def compute_retry_analysis(builds: list[dict]) -> dict:
                 "build_number": build_number,
                 "step": str(failed_job.get("step_key") or failed_job.get("step_id") or ""),
                 "name": str(failed_job.get("raw_name") or failed_job.get("name") or "unknown"),
+                "observed_at": (
+                    passed_job.get("finished_at")
+                    or passed_job.get("started_at")
+                    or failed_job.get("finished_at")
+                    or build.get("finished_at")
+                    or build.get("created_at")
+                    or ""
+                ),
                 "failed_job_id": failed_job.get("job_id") or "",
                 "passed_job_id": passed_job.get("job_id") or "",
                 "failed_url": failed_job.get("url") or "",
@@ -541,6 +557,14 @@ def compute_retry_analysis(builds: list[dict]) -> dict:
                     "build_number": build_number,
                     "step": group_key[0],
                     "name": group_key[1],
+                    "observed_at": (
+                        passed_job.get("finished_at")
+                        or passed_job.get("started_at")
+                        or failed_job.get("finished_at")
+                        or build.get("finished_at")
+                        or build.get("created_at")
+                        or ""
+                    ),
                     "failed_job_id": failed_job.get("job_id") or "",
                     "passed_job_id": passed_job.get("job_id") or "",
                     "failed_url": failed_job.get("url") or "",
@@ -876,6 +900,7 @@ def summarize_pipeline_builds(pipeline_slug, builds_raw, nightly_only=False, nam
             "number": build_num,
             "state": build_state,
             "created_at": created,
+            "finished_at": finished,
             "date": nightly_date(created),
             "message": message,
             "branch": b.get("branch") or "",

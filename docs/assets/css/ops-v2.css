@@ -3320,6 +3320,321 @@ body.ops-overlay-open {
 }
 
 /* --------------------------------------------------------------------------
+   Dense operational analysis
+   -------------------------------------------------------------------------- */
+
+.ops-page .ops-analytics-window-toolbar {
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.ops-page .ops-toolbar-label {
+  color: var(--ops-text);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.ops-page .ops-window-context {
+  min-width: 0;
+  margin-left: auto;
+  color: var(--ops-text-muted);
+  font-size: 10px;
+  line-height: 15px;
+  text-align: right;
+}
+
+.ops-page .ops-comparison-empty {
+  display: flex;
+  min-height: 154px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 4px;
+  padding: 24px;
+  text-align: center;
+}
+
+.ops-page .ops-comparison-empty strong {
+  color: var(--ops-text);
+  font-size: 13px;
+}
+
+.ops-page .ops-architecture-scorecard {
+  min-width: 0;
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius);
+  background: var(--ops-surface);
+}
+
+.ops-page .ops-architecture-rows {
+  display: grid;
+  min-width: 0;
+}
+
+.ops-page .ops-architecture-row {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  min-height: 70px;
+  align-items: center;
+  grid-template-columns: minmax(150px, 0.75fr) minmax(220px, 1.55fr) minmax(310px, 1.45fr) 84px;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--ops-divider);
+  color: var(--ops-text);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ops-page .ops-architecture-row:last-child {
+  border-bottom: 0;
+}
+
+.ops-page .ops-architecture-row:hover,
+.ops-page .ops-architecture-row:focus-visible {
+  background: var(--ops-surface-hover);
+}
+
+.ops-page .ops-architecture-row:focus-visible {
+  outline: 2px solid var(--ops-focus);
+  outline-offset: -2px;
+}
+
+.ops-page .ops-architecture-identity,
+.ops-page .ops-architecture-rate {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.ops-page .ops-architecture-identity strong {
+  overflow: hidden;
+  color: var(--ops-text);
+  font-size: 13px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-page .ops-architecture-identity span,
+.ops-page .ops-architecture-rate span {
+  color: var(--ops-text-muted);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+.ops-page .ops-architecture-bar {
+  display: flex;
+  width: 100%;
+  height: 13px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--ops-surface-inset);
+}
+
+.ops-page .ops-architecture-segment {
+  display: block;
+  min-width: 2px;
+  height: 100%;
+}
+
+.ops-page .ops-architecture-segment.is-passed { background: var(--ops-success); }
+.ops-page .ops-architecture-segment.is-incident { background: var(--ops-danger); }
+.ops-page .ops-architecture-segment.is-unknown { background: var(--ops-warning); }
+
+.ops-page .ops-architecture-metrics {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  font-family: var(--ops-font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 15px;
+}
+
+.ops-page .ops-architecture-metrics span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-page .ops-architecture-metrics .is-passed { color: var(--ops-success); }
+.ops-page .ops-architecture-metrics .is-incident { color: var(--ops-danger); }
+.ops-page .ops-architecture-metrics .is-unknown { color: var(--ops-warning); }
+
+.ops-page .ops-architecture-rate {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.ops-page .ops-architecture-rate strong {
+  font-family: var(--ops-font-mono);
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+  line-height: 22px;
+}
+
+.ops-page .ops-architecture-rate.is-success strong { color: var(--ops-success); }
+.ops-page .ops-architecture-rate.is-warning strong { color: var(--ops-warning); }
+.ops-page .ops-architecture-rate.is-danger strong { color: var(--ops-danger); }
+
+.ops-page .ops-history-overview {
+  width: 100%;
+  padding: 14px 12px 12px;
+  overflow-x: auto;
+}
+
+.ops-page .ops-history-track,
+.ops-page .ops-history-track-axis,
+.ops-page .ops-history-track-summary {
+  width: var(--ops-history-track-width, 680px);
+  min-width: var(--ops-history-track-width, 680px);
+}
+
+.ops-page .ops-history-track {
+  display: grid;
+  gap: 3px;
+}
+
+.ops-page .ops-history-track .ops-run-cell {
+  height: 24px;
+}
+
+.ops-page .ops-history-track-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 6px;
+  color: var(--ops-text-subtle);
+  font-size: 9px;
+  line-height: 13px;
+}
+
+.ops-page .ops-history-track-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 10px;
+  color: var(--ops-text-muted);
+  font-family: var(--ops-font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 15px;
+}
+
+.ops-page .ops-history-track-summary .is-passed { color: var(--ops-success); }
+.ops-page .ops-history-track-summary .is-soft { color: var(--ops-warning); }
+.ops-page .ops-history-track-summary .is-hard { color: var(--ops-danger); }
+
+.ops-page .ops-history-map-content {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+}
+
+.ops-page .ops-history-map-controls {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.ops-page .ops-history-map-controls > .ops-input {
+  width: min(340px, 100%);
+}
+
+.ops-page .ops-history-map-viewport {
+  max-height: 62vh;
+  overflow: auto;
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius);
+  background: var(--ops-surface);
+}
+
+.ops-page .ops-history-map {
+  width: 100%;
+  min-width: 1080px;
+}
+
+.ops-page .ops-history-map-row {
+  display: grid;
+  min-height: 45px;
+  align-items: center;
+  grid-template-columns: minmax(330px, 1fr) 92px 112px 470px;
+  gap: 12px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--ops-divider);
+}
+
+.ops-page .ops-history-map-row:last-child {
+  border-bottom: 0;
+}
+
+.ops-page .ops-history-map-row:not(.ops-history-map-header):hover {
+  background: var(--ops-surface-hover);
+}
+
+.ops-page .ops-history-map-header {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  min-height: 34px;
+  color: var(--ops-text-muted);
+  background: var(--ops-surface-raised);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+}
+
+.ops-page .ops-history-map-identity {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.ops-page .ops-history-map-identity .ops-link-button {
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-page .ops-history-map-rate {
+  justify-self: end;
+  font-family: var(--ops-font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.ops-page .ops-history-map-track {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(30, minmax(8px, 1fr));
+  gap: 3px;
+}
+
+.ops-page .ops-history-map-track .ops-run-cell {
+  height: 18px;
+}
+
+.ops-page .ops-run-cell.is-empty {
+  border-color: var(--ops-divider);
+  background: var(--ops-surface-inset);
+  opacity: 0.45;
+}
+
+.ops-page .ops-perf-back {
+  flex: 0 0 auto;
+  border-color: var(--ops-border-strong);
+}
+
+/* --------------------------------------------------------------------------
    Tablet: compact 72px rail
    -------------------------------------------------------------------------- */
 
@@ -3542,6 +3857,34 @@ body.ops-overlay-open {
    -------------------------------------------------------------------------- */
 
 @media (max-width: 767px) {
+  .ops-page .ops-window-context {
+    width: 100%;
+    margin-left: 0;
+    text-align: left;
+  }
+
+  .ops-page .ops-architecture-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 12px;
+  }
+
+  .ops-page .ops-architecture-bar,
+  .ops-page .ops-architecture-metrics {
+    grid-column: 1 / -1;
+  }
+
+  .ops-page .ops-history-map-controls > .ops-input,
+  .ops-page .ops-history-map-controls > .ops-select,
+  .ops-page .ops-history-map-controls > div {
+    width: 100%;
+    max-width: none;
+  }
+
+  .ops-page .ops-history-map-controls .ops-segmented {
+    width: 100%;
+    overflow-x: auto;
+  }
+
   .ops-page .ops-browser-footer,
   .ops-page .ops-browser-pagination {
     flex-wrap: wrap;

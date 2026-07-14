@@ -1078,9 +1078,15 @@ def test_group_catalog_retains_linked_terminal_main_observations(tmp_path):
 
     assert reliability["retry_analysis"]["evidence_type"] == "explicit_retry_recovery"
     assert reliability["retry_analysis"]["summary"]["failed_then_passed_recovery_count"] == 1
-    assert reliability["retry_analysis"]["retry_attempts"][0]["job_url"].startswith(
+    retry_attempt = reliability["retry_analysis"]["retry_attempts"][0]
+    assert retry_attempt["job_url"].startswith(
         "https://buildkite.com/vllm/ci/"
     )
+    assert retry_attempt["observed_at"] == "2026-04-22T10:00:00Z"
+    assert retry_attempt["group_id"] == hard["id"]
+    recovery = reliability["retry_analysis"]["failed_then_passed_recoveries"][0]
+    assert recovery["observed_at"] == "2026-04-22T10:00:00Z"
+    assert recovery["group_id"] == hard["id"]
     assert "not proof that a retry recovered" in reliability["evidence_definitions"]["mixed_outcome_history"]
 
 
@@ -1607,6 +1613,9 @@ def test_retry_analysis_retains_all_attempts_recoveries_and_exact_urls():
     assert len(retry["failed_then_passed_recoveries"]) == 21
     assert retry["summary"]["linked_retry_attempt_count"] == 80
     assert retry["summary"]["linked_recovery_count"] == 21
+    assert all(row["observed_at"] == "2026-04-22T12:00:00Z" for row in retry["retry_attempts"])
+    assert all(row["timestamp_source"] == "completed_build" for row in retry["retry_attempts"])
+    assert all(row["observed_at"] == "2026-04-22T12:00:00Z" for row in retry["failed_then_passed_recoveries"])
     assert all(
         "/vllm/ci/builds/" in row["job_url"] and "?jid=retry-" in row["job_url"]
         for row in retry["retry_attempts"]
@@ -1683,6 +1692,7 @@ def test_retry_analysis_and_collector_retry_fields(monkeypatch):
         "failed_then_passed_recovery_count": 1,
     }
     assert retry_analysis["retry_attempts"][0]["job_id"] == "passed-job"
+    assert retry_analysis["retry_attempts"][0]["observed_at"] == "2026-04-22T10:00:00Z"
     recovery = retry_analysis["failed_then_passed_recoveries"][0]
     assert (recovery["build_number"], recovery["step"], recovery["name"]) == (
         77,
@@ -1691,3 +1701,4 @@ def test_retry_analysis_and_collector_retry_fields(monkeypatch):
     )
     assert recovery["failed_job_id"] == "failed-job"
     assert recovery["passed_job_id"] == "passed-job"
+    assert recovery["observed_at"] == "2026-04-22T10:00:00Z"

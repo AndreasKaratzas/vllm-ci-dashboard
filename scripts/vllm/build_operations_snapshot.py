@@ -1590,6 +1590,8 @@ def _normalize_retry_analysis(
     source: Any,
     cohort_build_numbers: set[int],
     pipeline_slug: str = "ci",
+    catalog: list[dict] | None = None,
+    build_observed_at: dict[int, str] | None = None,
 ) -> dict:
     """Retain only explicit retry records that belong to the strict cohort."""
     selected = source if isinstance(source, dict) else {}
@@ -1624,6 +1626,18 @@ def _normalize_retry_analysis(
                 "cohort_build_numbers": sorted(cohort_build_numbers),
             },
         }
+    evidence_by_job: dict[str, dict] = {}
+    for group in catalog or []:
+        for observation in group.get("observations") or []:
+            job_id = str(observation.get("job_id") or "")
+            if not job_id:
+                continue
+            evidence_by_job[job_id] = {
+                "observed_at": observation.get("observed_at"),
+                "group_id": group.get("id"),
+            }
+    build_observed_at = build_observed_at or {}
+
     attempts = []
     for value in selected.get("retry_attempts") or []:
         if not isinstance(value, dict):
@@ -1641,6 +1655,16 @@ def _normalize_retry_analysis(
         row["job_url"] = job_url
         row["url"] = job_url
         row["source_pipeline"] = pipeline_slug
+        evidence = evidence_by_job.get(str(row.get("job_id") or "")) or {}
+        if not row.get("observed_at"):
+            if evidence.get("observed_at"):
+                row["observed_at"] = evidence["observed_at"]
+                row["timestamp_source"] = "terminal_job"
+            elif build_observed_at.get(build_number):
+                row["observed_at"] = build_observed_at[build_number]
+                row["timestamp_source"] = "completed_build"
+        if not row.get("group_id") and evidence.get("group_id"):
+            row["group_id"] = evidence["group_id"]
         attempts.append(row)
 
     recoveries = []
@@ -1662,6 +1686,20 @@ def _normalize_retry_analysis(
         row["failed_url"] = failed_url
         row["passed_url"] = passed_url
         row["source_pipeline"] = pipeline_slug
+        evidence = (
+            evidence_by_job.get(str(row.get("passed_job_id") or ""))
+            or evidence_by_job.get(str(row.get("failed_job_id") or ""))
+            or {}
+        )
+        if not row.get("observed_at"):
+            if evidence.get("observed_at"):
+                row["observed_at"] = evidence["observed_at"]
+                row["timestamp_source"] = "terminal_job"
+            elif build_observed_at.get(build_number):
+                row["observed_at"] = build_observed_at[build_number]
+                row["timestamp_source"] = "completed_build"
+        if not row.get("group_id") and evidence.get("group_id"):
+            row["group_id"] = evidence["group_id"]
         recoveries.append(row)
 
     summary = dict(selected.get("summary") or {})
@@ -2082,10 +2120,23 @@ def _reliability(pipeline_analytics: Any, pipeline_slug: str = "ci") -> dict:
         for row in (collector_payload.get("builds") or [])
         if isinstance(row, dict) and (number := _strict_int(row.get("number"))) is not None
     } if strict_available else set()
+    cohort_build_observed_at = {
+        number: str(
+            row.get("finished_at")
+            or row.get("started_at")
+            or row.get("created_at")
+            or ""
+        )
+        for row in (collector_payload.get("builds") or [])
+        if isinstance(row, dict)
+        and (number := _strict_int(row.get("number"))) is not None
+    } if strict_available else {}
     retry_analysis = _normalize_retry_analysis(
         retry_source,
         cohort_build_numbers,
         pipeline_slug=pipeline_slug,
+        catalog=catalog,
+        build_observed_at=cohort_build_observed_at,
     )
     platform_comparison = _platform_comparison(
         catalog,

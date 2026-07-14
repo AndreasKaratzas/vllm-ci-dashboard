@@ -126,13 +126,12 @@ def test_amd_health_and_platform_comparison_are_distinct_first_visit_surfaces():
         "Latest health by hardware variant",
         "All AMD test groups",
         "AMD nightly test health",
-        "AMD-first, upstream-only flake evidence",
+        "AMD-first, upstream-only incident evidence",
         "function platformComparison",
         "function openPlatformComparisonDetail",
         "function renderPlatformFlakes",
-        "All AMD groups remain visible",
-        "Browse all ",
-        "AMD flake comparison",
+        "ACTIVE AMD GROUPS",
+        "AMD incident comparison",
     ):
         assert contract in OPS_JS
     for contract in (
@@ -181,12 +180,14 @@ def test_amd_health_and_platform_comparison_are_distinct_first_visit_surfaces():
 
 def test_flake_visualizations_compare_amd_and_exact_cuda_equivalents():
     for contract in (
-        "Highest AMD incident frequencies",
+        "AMD incident frequency - ",
+        "Observation window",
+        "REGRESSED VS PRIOR",
         "AMD INCIDENT FREQUENCY",
-        "PAIRED AMD VS CUDA",
-        "EXACT CUDA PAIRS",
-        "AMD incidents",
-        "CUDA reference",
+        "PAIRED AMD / CUDA",
+        "AMD incidents / attempts",
+        "CUDA incidents / attempts",
+        "vs prior window",
         "AMD attempts / 100 builds",
         "Inspect exact AMD and CUDA variants",
     ):
@@ -196,6 +197,65 @@ def test_flake_visualizations_compare_amd_and_exact_cuda_equivalents():
     assert "openPlatformComparisonDetail" in OPS_JS
     assert "if (raw === null || raw === undefined || raw === '') return '-'" in OPS_JS
     assert "percentileValue(p90Values, 0.5)" in OPS_JS
+
+
+def test_recent_flake_and_retry_windows_are_timestamped_and_route_backed():
+    for contract in (
+        "const ANALYTICS_WINDOW_HOURS = {'1h': 1, '3h': 3, '6h': 6, '24h': 24, '7d': 168, '30d': 720}",
+        "function analyticsWindowBounds",
+        "function platformComparisonForWindow",
+        "function observationInRange",
+        "analytics_window",
+        "Movement compares this window with the immediately preceding equal-length window.",
+        "Movement compares timestamped child retries with the immediately preceding equal-length window.",
+        "AMD child retry share",
+        "AMD recovered share",
+    ):
+        assert contract in OPS_JS
+    assert "observed_at" in OPS_JS
+    assert ".ops-page .ops-analytics-window-toolbar" in OPS_CSS
+
+
+def test_architecture_and_test_group_history_show_exact_counts_at_a_glance():
+    for contract in (
+        "AMD architecture health",
+        "configured groups",
+        "passing",
+        "incident",
+        "unobserved",
+        "Complete test-group history",
+        "Latest 30 exact runs - oldest to newest",
+        "Explore all groups",
+        "MEDIAN PASS RATE",
+        "Outcome timeline",
+        "--ops-history-track-width",
+        "renderGroupHistoryExplorer(host, reliabilityCatalog(reliability), ops, reliability)",
+    ):
+        assert contract in OPS_JS
+    for contract in (
+        ".ops-page .ops-architecture-row",
+        ".ops-page .ops-architecture-bar",
+        ".ops-page .ops-architecture-metrics",
+        ".ops-page .ops-history-map-row",
+        ".ops-page .ops-history-map-track",
+        ".ops-page .ops-history-track",
+    ):
+        assert contract in OPS_CSS
+
+
+def test_operational_routes_prune_unrelated_state_and_perf_has_return_control():
+    for contract in (
+        "const ROUTE_QUERY_KEYS",
+        "const ROUTE_DEFAULTS",
+        "function pruneRouteQuery",
+        "key.startsWith('ops_') && !allowed.has(key)",
+        "Back to all performance models",
+        "\\u2190 All models",
+        "perf_model",
+        "perf_device",
+    ):
+        assert contract in OPS_JS
+    assert ".ops-page .ops-perf-back" in OPS_CSS
 
 
 def test_shared_evidence_primitives_are_accessible_and_source_linked():
