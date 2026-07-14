@@ -38,6 +38,34 @@ ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 BK_TS_RE = re.compile(r"_bk;t=\d+")
 LOG_TS_RE = re.compile(r"^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\]\s*")
 
+# Primary physical-node source: the Buildkite agent's ``k8s:node=<node>`` tag,
+# present in ``job["agent"]["meta_data"]`` for ~all AMD GPU runners
+# (mi250/mi300/mi325/mi355) and available without fetching the log.
+K8S_NODE_PREFIX = "k8s:node="
+
+# Fallback for the rare case the agent tag is missing: the physical-node banner
+# that AMD MI325 runners print into the log:
+#   "=== Pod: buildkite-...-55rwd | Node: chi-mi325x-pod2-032 | Tue Jul 14 ... ==="
+# The "Pod: <pod> | Node: <node>" structure disambiguates the physical node from
+# unrelated "Node: 0" GPU-topology lines elsewhere in the log.
+NODE_BANNER_RE = re.compile(
+    r"Pod:\s*\S+\s*\|\s*Node:\s*([A-Za-z0-9._-]+)", re.IGNORECASE
+)
+
+
+def node_from_agent(job: dict) -> str:
+    """Return the physical node from a job's Buildkite agent ``k8s:node`` tag.
+
+    The agent ``meta_data`` is embedded in the build JSON both the list and
+    detail endpoints already return, so this needs no extra request. Returns ""
+    when the job has no agent tags (e.g. CPU-only steps).
+    """
+    agent = job.get("agent") or {}
+    for tag in agent.get("meta_data") or []:
+        if isinstance(tag, str) and tag.startswith(K8S_NODE_PREFIX):
+            return tag[len(K8S_NODE_PREFIX):].strip()
+    return ""
+
 
 def _clean_line(line: str) -> str:
     """Remove ANSI codes, Buildkite timestamps, and log timestamps."""
@@ -45,6 +73,20 @@ def _clean_line(line: str) -> str:
     line = BK_TS_RE.sub("", line)
     line = LOG_TS_RE.sub("", line)
     return line.strip()
+
+
+def extract_node(log_text: Optional[str]) -> str:
+    """Return the physical CI agent hostname from a job log, or "" if absent.
+
+    Matches the ``Pod: <pod> | Node: <node>`` banner that AMD MI325 runners emit
+    near the start of the log. The search runs against the raw text: the banner
+    body is plain ASCII and any leading Buildkite escape codes precede it, so no
+    line cleaning is required. Returns the first match; runners print it once.
+    """
+    if not log_text:
+        return ""
+    match = NODE_BANNER_RE.search(log_text)
+    return match.group(1).strip() if match else ""
 
 
 # Reusable HTTP session for connection pooling
@@ -326,6 +368,17 @@ def parse_job_results(
     if log_text is None:
         log_text = fetch_job_log(job)
 
+    # Physical CI agent hostname, stamped onto every result this job produces so
+    # downstream per-agent analytics can join test groups to the box that ran
+    # them. Prefer the agent's k8s:node tag (covers all AMD GPU queues, no log
+    # needed); fall back to the MI325 log banner. "" when neither is available.
+    node = node_from_agent(job) or extract_node(log_text)
+
+    def _stamp(results: list[TestResult]) -> list[TestResult]:
+        for r in results:
+            r.node = node
+        return results
+
     if log_text:
         results = parse_pytest_log(
             log_text, job_name, job_id, step_id, build_number, pipeline, date
@@ -394,7 +447,7 @@ def parse_job_results(
                         pipeline=pipeline,
                         date=date,
                     ))
-            return results
+            return _stamp(results)
 
     # Fallback: create a single TestResult from job state
     # Blocked jobs never ran — skip them entirely (not an error)
@@ -410,7 +463,7 @@ def parse_job_results(
     }
     status = status_map.get(job_state, "error")
 
-    return [TestResult(
+    return _stamp([TestResult(
         test_id=f"{job_name}::__job_level__",
         name="__job_level__",
         classname=job_name,
@@ -423,4 +476,4 @@ def parse_job_results(
         build_number=build_number,
         pipeline=pipeline,
         date=date,
-    )]
+    )])

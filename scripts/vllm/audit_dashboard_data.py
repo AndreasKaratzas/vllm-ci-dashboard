@@ -208,7 +208,7 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         ("docs/assets/js/ops-v2.js",),
         (
             "schema_version", "generated_at", "nightly", "reliability",
-            "gating", "queue",
+            "gating", "queue", "amd_agent_health",
         ),
         "Versioned AMD current-signal and upstream reliability read model",
     ),
@@ -988,6 +988,8 @@ class DashboardAudit:
                 relpath,
             )
 
+        self.audit_agent_health(payload, relpath)
+
         self.report.metrics["operations_v2"] = {
             "active_targets": len(active),
             "linked_active_targets": linked_gating,
@@ -1003,6 +1005,84 @@ class DashboardAudit:
             "retry_attempts": len(retry_attempts),
             "retry_recoveries": len(recoveries),
         }
+
+    def audit_agent_health(self, payload: dict, relpath: str) -> None:
+        """Cross-check the per-physical-agent AMD CI health block.
+
+        The block ships raw per-run data plus pre-computed co-failure events; the
+        frontend does range/GPU/search filtering and per-node aggregation. This
+        audits the raw data's AMD scoping and the co-failure event invariants.
+        """
+        agent_health = _mapping(payload.get("amd_agent_health"))
+        if not agent_health:
+            self.error(
+                "operations-agent-health-missing",
+                "operations_v2.json omits the amd_agent_health block",
+                relpath,
+            )
+            return
+        if not _rows(agent_health.get("window_options")):
+            self.error(
+                "operations-agent-health-window-options",
+                "amd_agent_health must publish window_options for the range presets",
+                relpath,
+            )
+
+        def _is_amd_queue(queue: str) -> bool:
+            q = str(queue or "").casefold()
+            return q.startswith("amd_") or q == "amd-cpu"
+
+        # Every emitted run must be AMD-scoped (no NVIDIA leakage now that the
+        # k8s:node tag exists for all runners).
+        runs = _rows(agent_health.get("runs"))
+        non_amd = [
+            _mapping(run).get("queue")
+            for run in runs
+            if not _is_amd_queue(_mapping(run).get("queue"))
+        ]
+        if non_amd:
+            self.error(
+                "operations-agent-health-queue-scope",
+                f"{len(non_amd)} agent-health runs are on non-AMD queues, e.g. {non_amd[:3]}",
+                relpath,
+            )
+
+        # Co-failure event invariants.
+        for raw_event in _rows(agent_health.get("cofailure_events")):
+            event = _mapping(raw_event)
+            pattern = event.get("pattern")
+            if pattern not in ("concurrent", "sequential"):
+                self.error(
+                    "operations-agent-health-cofailure-pattern",
+                    f"{event.get('node')}: invalid co-failure pattern {pattern!r}",
+                    relpath,
+                )
+            if bool(event.get("concurrent")) != (pattern == "concurrent"):
+                self.error(
+                    "operations-agent-health-cofailure-pattern-flag",
+                    f"{event.get('node')}: concurrent flag disagrees with pattern {pattern!r}",
+                    relpath,
+                )
+            pipelines = _rows(event.get("pipelines"))
+            if bool(event.get("cross_pipeline")) != (len(set(pipelines)) > 1):
+                self.error(
+                    "operations-agent-health-cofailure-cross-pipeline",
+                    f"{event.get('node')}: cross_pipeline flag disagrees with pipelines {pipelines}",
+                    relpath,
+                )
+            if _safe_int(event.get("group_count")) < 2:
+                self.error(
+                    "operations-agent-health-cofailure-groups",
+                    f"{event.get('node')}: co-failure event has fewer than 2 groups",
+                    relpath,
+                )
+            event_runs = _rows(event.get("runs"))
+            if any(not _is_amd_queue(_mapping(run).get("queue")) for run in event_runs):
+                self.error(
+                    "operations-agent-health-cofailure-queue-scope",
+                    f"{event.get('node')}: co-failure event references a non-AMD queue",
+                    relpath,
+                )
 
     def audit_home_pr_issue_data(self) -> None:
         prs_payload = self.load_json("data/vllm/prs.json", {})

@@ -20,6 +20,9 @@ class TestResult:
     build_number: int
     pipeline: str          # "amd-ci" or "ci"
     date: str              # ISO date "2026-03-22"
+    node: str = ""         # physical CI agent hostname parsed from the job log
+                           # "Node:" line (e.g. "chi-mi325x-pod2-032"); "" when
+                           # the log did not expose an identifiable node.
 
     def to_dict(self) -> dict:
         return {
@@ -35,6 +38,7 @@ class TestResult:
             "build_number": self.build_number,
             "pipeline": self.pipeline,
             "date": self.date,
+            "node": self.node,
         }
 
 

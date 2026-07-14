@@ -1,12 +1,12 @@
 # Project Dashboard
 
-Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-07-14 04:27 UTC**
+Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-07-14 14:40 UTC**
 
 ## Overview
 
 | Project | Role | Latest Release | Open PRs | Open Issues | Links |
 |---------|------|----------------|----------|-------------|-------|
-| **vllm** | watch | v0.25.0 | - | 4 | [repo](https://github.com/vllm-project/vllm) / [fork](https://github.com/sunway513/vllm) |
+| **vllm** | watch | v0.25.1 | - | 4 | [repo](https://github.com/vllm-project/vllm) / [fork](https://github.com/sunway513/vllm) |
 
 ## Live Dashboard
 
@@ -26,7 +26,7 @@ Hosted on GitHub Pages — deployed automatically on every push to main.
 |------|-------------|
 | **Home** | PRs, project #39 issues, and ROCm vs upstream test parity |
 | **CI Health** | Latest Buildkite nightly health, parity details, failures, flakes, and links |
-| **CI Analytics** | Nightly build comparison, recent builds, group trends, AMD hardware matrix, queue comparison |
+| **CI Analytics** | Nightly build comparison, recent builds, group trends, AMD hardware matrix, queue comparison, and per-physical-node CI Agent Health (flaky/failing groups and co-failure timelines per AMD node) |
 | **Queue Monitor** | Buildkite queue workload, wait-time charts, active job overlays, admin triage, and AMD capacity projections |
 | **Hotness / Omni / Ready / Admin** | Focused operational views for workload spikes, Omni queues, ready tickets, and dashboard admin tasks |
 
@@ -50,6 +50,7 @@ The main data path is `.github/workflows/hourly-master.yml`, which runs every 30
 | `scripts/vllm/collect_gating_target_candidates.py` | Review-only audit of upstream nightly GPU jobs against the canonical AMD gating target list |
 | `scripts/vllm/collect_queue_snapshot.py` | Queue timeseries and active job overlays |
 | `scripts/vllm/collect_capacity_monitor.py` | AMD queue capacity limits plus mirror test-group dependency projections |
+| `scripts/vllm/backfill_agent_nodes.py` | Optional: patch the physical CI `node` (from job-log `Node:` lines) into recent test-result JSONL so CI Agent Health has a full 7-day window immediately |
 | `scripts/vllm/audit_dashboard_data.py` | Cross-surface audit for data totals, frontend assumptions, links, and deploy safety |
 | `scripts/render.py` | Generate markdown dashboards and site data |
 | `scripts/build_site.py` | Assemble `docs/` and `data/` into `_site/` for Pages |
