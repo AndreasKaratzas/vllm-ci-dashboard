@@ -85,22 +85,22 @@ def test_node_from_agent_absent():
 # GPU-type supplementing for bare node names
 # --------------------------------------------------------------------------- #
 
-def test_node_label_supplements_bare_names():
-    # Bare GPU names get the GPU type appended.
-    assert ops._node_label("gpu9124", "MI300", "300") == "gpu9124 (MI300)"
-    assert ops._node_label("mia1-p02-g49", "MI355", "355") == "mia1-p02-g49 (MI355)"
+def test_node_label_always_appends_gpu_type():
+    # Every node name gets the GPU type appended for consistency.
+    assert ops._node_label("gpu9124", "MI300") == "gpu9124 (MI300)"
+    assert ops._node_label("mia1-p02-g49", "MI355") == "mia1-p02-g49 (MI355)"
+    assert ops._node_label("smci250-ccs-aus-c21-08", "MI250") == "smci250-ccs-aus-c21-08 (MI250)"
+    assert ops._node_label("chi-mi325x-pod2-032", "MI325") == "chi-mi325x-pod2-032 (MI325)"
 
 
-def test_node_label_keeps_informative_names():
-    # Names already carrying the model number are left unchanged.
-    assert ops._node_label("smci250-ccs-aus-c21-08", "MI250", "250") == "smci250-ccs-aus-c21-08"
-    assert ops._node_label("chi-mi325x-pod2-032", "MI325", "325") == "chi-mi325x-pod2-032"
+def test_node_label_keeps_raw_when_hardware_unknown():
+    assert ops._node_label("some-node", "") == "some-node"
 
 
 def test_queue_hardware():
-    assert ops._queue_hardware("amd_mi300_1") == ("MI300", "300")
-    assert ops._queue_hardware("amd_mi325_4") == ("MI325", "325")
-    assert ops._queue_hardware("gpu_4_queue") == ("", "")
+    assert ops._queue_hardware("amd_mi300_1") == "MI300"
+    assert ops._queue_hardware("amd_mi325_4") == "MI325"
+    assert ops._queue_hardware("gpu_4_queue") == ""
 
 
 # --------------------------------------------------------------------------- #
@@ -135,7 +135,30 @@ def _analytics(amd_jobs, ci_jobs):
     }
 
 
-def test_agent_health_joins_node_and_scopes_amd(tmp_path):
+def _runs_by_node_raw(result):
+    grouped = {}
+    for run in result["runs"]:
+        grouped.setdefault(run["node_raw"], []).append(run)
+    return grouped
+
+
+def test_agent_health_metadata(tmp_path):
+    _write_nodes(tmp_path, {"j1": "chi-mi325x-a"})
+    analytics = _analytics(
+        amd_jobs=[_job("j1", "Group A", "passed", "amd_mi325_1",
+                       "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z")],
+        ci_jobs=[],
+    )
+    result = ops._amd_agent_health(tmp_path, analytics, NOW)
+    assert result["window_options"] == [1, 3, 7, 14, 30, 60]
+    assert result["default_window_days"] == 7
+    assert result["max_window_days"] == 60
+    assert result["hardware_types"] == ["MI325"]
+    assert isinstance(result["runs"], list)
+    assert isinstance(result["cofailure_events"], list)
+
+
+def test_agent_health_runs_scope_amd(tmp_path):
     # jX is a non-AMD job that also carries a node tag — it must still be excluded
     # because the k8s:node tag now exists for NVIDIA runners too.
     _write_nodes(tmp_path, {
@@ -160,42 +183,17 @@ def test_agent_health_joins_node_and_scopes_amd(tmp_path):
     )
     result = ops._amd_agent_health(tmp_path, analytics, NOW)
 
-    # NVIDIA job excluded; three AMD jobs across both pipelines remain.
-    assert result["coverage"]["in_scope_jobs"] == 3
-    assert result["coverage"]["identified_jobs"] == 3
-    assert result["coverage"]["coverage_pct"] == 100.0
-    assert result["summary"]["nodes"] == 2
-
-    # Names already carrying the model number keep their raw label.
-    nodes = {agent["node_raw"]: agent for agent in result["agents"]}
-    assert set(nodes) == {"chi-mi325x-a", "chi-mi325x-b"}
-    assert nodes["chi-mi325x-a"]["node"] == "chi-mi325x-a"
-    assert nodes["chi-mi325x-a"]["hardware"] == "MI325"
-    assert nodes["chi-mi325x-a"]["runs"] == 2
-    assert nodes["chi-mi325x-a"]["pipelines"] == ["amd-ci"]
-    assert nodes["chi-mi325x-b"]["pipelines"] == ["ci"]
-    assert nodes["chi-mi325x-a"]["soft_failed"] == 1
+    # NVIDIA job excluded; three AMD runs across both pipelines remain.
+    assert len(result["runs"]) == 3
+    assert all(r["queue"].startswith("amd_") for r in result["runs"])
+    grouped = _runs_by_node_raw(result)
+    assert set(grouped) == {"chi-mi325x-a", "chi-mi325x-b"}
+    assert all(r["hardware"] == "MI325" for r in result["runs"])
+    assert {r["pipeline"] for r in grouped["chi-mi325x-b"]} == {"ci"}
 
 
-def test_agent_health_supplements_bare_node_name(tmp_path):
-    # A bare MI300 node name is labelled with its GPU type in the agent record.
-    _write_nodes(tmp_path, {"j1": "gpu9124"})
-    analytics = _analytics(
-        amd_jobs=[
-            _job("j1", "Group A", "failed", "amd_mi300_1",
-                 "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"),
-        ],
-        ci_jobs=[],
-    )
-    result = ops._amd_agent_health(tmp_path, analytics, NOW)
-    agent = result["agents"][0]
-    assert agent["node_raw"] == "gpu9124"
-    assert agent["node"] == "gpu9124 (MI300)"
-    assert agent["hardware"] == "MI300"
-
-
-def test_agent_health_unidentified_bucket(tmp_path):
-    _write_nodes(tmp_path, {"j1": "node-a"})  # j2 has no node
+def test_agent_health_runs_include_unidentified(tmp_path):
+    _write_nodes(tmp_path, {"j1": "chi-mi325x-a"})  # j2 has no node
     analytics = _analytics(
         amd_jobs=[
             _job("j1", "Group A", "passed", "amd_mi325_1",
@@ -206,16 +204,10 @@ def test_agent_health_unidentified_bucket(tmp_path):
         ci_jobs=[],
     )
     result = ops._amd_agent_health(tmp_path, analytics, NOW)
-    assert result["coverage"]["in_scope_jobs"] == 2
-    assert result["coverage"]["identified_jobs"] == 1
-    assert result["coverage"]["unidentified_jobs"] == 1
-    # Identified node count excludes the unidentified bucket.
-    assert result["summary"]["nodes"] == 1
-    unidentified = [a for a in result["agents"] if not a["identified"]]
-    assert len(unidentified) == 1
-    assert unidentified[0]["node"] == "(unidentified)"
-    # The unidentified bucket never produces co-failure events.
-    assert unidentified[0]["cofailure_event_count"] == 0
+    grouped = _runs_by_node_raw(result)
+    assert set(grouped) == {"chi-mi325x-a", "(unidentified)"}
+    # Unidentified runs never produce co-failure events.
+    assert all(e["node_raw"] != "(unidentified)" for e in result["cofailure_events"])
 
 
 def test_agent_health_concurrent_cofailure(tmp_path):
@@ -231,13 +223,33 @@ def test_agent_health_concurrent_cofailure(tmp_path):
         ci_jobs=[],
     )
     result = ops._amd_agent_health(tmp_path, analytics, NOW)
-    assert result["summary"]["cofailure_events"] == 1
-    assert result["summary"]["concurrent_cofailures"] == 1
+    assert len(result["cofailure_events"]) == 1
     event = result["cofailure_events"][0]
-    assert event["node"] == "chi-mi325x-a"
+    assert event["node"] == "chi-mi325x-a (MI325)"
+    assert event["node_raw"] == "chi-mi325x-a"
+    assert event["hardware"] == "MI325"
     assert event["pattern"] == "concurrent"
     assert event["concurrent"] is True
     assert event["group_count"] == 2
+
+
+def test_agent_health_cofailure_supplements_label(tmp_path):
+    # A bare MI300 node name is GPU-type-labelled on the event.
+    _write_nodes(tmp_path, {"j1": "gpu9124", "j2": "gpu9124"})
+    analytics = _analytics(
+        amd_jobs=[
+            _job("j1", "Group A", "failed", "amd_mi300_1",
+                 "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"),
+            _job("j2", "Group B", "failed", "amd_mi300_1",
+                 "2026-07-14T09:02:00Z", "2026-07-14T09:06:00Z"),
+        ],
+        ci_jobs=[],
+    )
+    result = ops._amd_agent_health(tmp_path, analytics, NOW)
+    event = result["cofailure_events"][0]
+    assert event["node"] == "gpu9124 (MI300)"
+    assert event["node_raw"] == "gpu9124"
+    assert event["hardware"] == "MI300"
 
 
 def test_agent_health_sequential_cofailure(tmp_path):
@@ -254,8 +266,7 @@ def test_agent_health_sequential_cofailure(tmp_path):
         ci_jobs=[],
     )
     result = ops._amd_agent_health(tmp_path, analytics, NOW)
-    assert result["summary"]["cofailure_events"] == 1
-    assert result["summary"]["sequential_cofailures"] == 1
+    assert len(result["cofailure_events"]) == 1
     event = result["cofailure_events"][0]
     assert event["pattern"] == "sequential"
     assert event["concurrent"] is False
@@ -275,7 +286,7 @@ def test_agent_health_cofailure_window_boundary(tmp_path):
         ci_jobs=[],
     )
     result = ops._amd_agent_health(tmp_path, analytics, NOW)
-    assert result["summary"]["cofailure_events"] == 0
+    assert result["cofailure_events"] == []
 
 
 def test_agent_health_cross_pipeline_cofailure(tmp_path):
@@ -291,8 +302,7 @@ def test_agent_health_cross_pipeline_cofailure(tmp_path):
         ],
     )
     result = ops._amd_agent_health(tmp_path, analytics, NOW)
-    assert result["summary"]["cofailure_events"] == 1
-    assert result["summary"]["cross_pipeline_cofailures"] == 1
+    assert len(result["cofailure_events"]) == 1
     event = result["cofailure_events"][0]
     assert event["cross_pipeline"] is True
     assert sorted(event["pipelines"]) == ["amd-ci", "ci"]
@@ -309,20 +319,23 @@ def test_agent_health_excludes_retired_queue(tmp_path):
         ci_jobs=[],
     )
     result = ops._amd_agent_health(tmp_path, analytics, NOW)
-    assert result["coverage"]["in_scope_jobs"] == 0
-    assert result["agents"] == []
+    assert result["runs"] == []
 
 
-def test_agent_health_window_excludes_old_builds(tmp_path):
-    _write_nodes(tmp_path, {"j1": "node-a"})
+def test_agent_health_window_keeps_45d_drops_70d(tmp_path):
+    # Max emitted window is 60d: a 45-day-old build is kept, a 70-day-old dropped.
+    _write_nodes(tmp_path, {"j45": "chi-mi325x-a", "j70": "chi-mi325x-b"})
     analytics = {
-        "amd-ci": {"builds": [{
-            "number": 1,
-            "created_at": "2026-07-01T09:00:00Z",  # >7 days before NOW
-            "jobs": [_job("j1", "Group A", "failed", "amd_mi325_1",
-                          "2026-07-01T09:00:00Z", "2026-07-01T09:05:00Z")],
-        }]},
+        "amd-ci": {"builds": [
+            {"number": 1, "created_at": "2026-05-30T09:00:00Z",  # 45d before NOW
+             "jobs": [_job("j45", "Group A", "failed", "amd_mi325_1",
+                           "2026-05-30T09:00:00Z", "2026-05-30T09:05:00Z")]},
+            {"number": 2, "created_at": "2026-05-05T09:00:00Z",  # 70d before NOW
+             "jobs": [_job("j70", "Group B", "failed", "amd_mi325_1",
+                           "2026-05-05T09:00:00Z", "2026-05-05T09:05:00Z")]},
+        ]},
         "ci": {"builds": []},
     }
     result = ops._amd_agent_health(tmp_path, analytics, NOW)
-    assert result["coverage"]["in_scope_jobs"] == 0
+    node_raws = {r["node_raw"] for r in result["runs"]}
+    assert node_raws == {"chi-mi325x-a"}

@@ -1007,7 +1007,12 @@ class DashboardAudit:
         }
 
     def audit_agent_health(self, payload: dict, relpath: str) -> None:
-        """Cross-check the per-physical-agent AMD CI health block."""
+        """Cross-check the per-physical-agent AMD CI health block.
+
+        The block ships raw per-run data plus pre-computed co-failure events; the
+        frontend does range/GPU/search filtering and per-node aggregation. This
+        audits the raw data's AMD scoping and the co-failure event invariants.
+        """
         agent_health = _mapping(payload.get("amd_agent_health"))
         if not agent_health:
             self.error(
@@ -1016,70 +1021,68 @@ class DashboardAudit:
                 relpath,
             )
             return
-        coverage = _mapping(agent_health.get("coverage"))
-        in_scope = _safe_int(coverage.get("in_scope_jobs"))
-        identified = _safe_int(coverage.get("identified_jobs"))
-        unidentified = _safe_int(coverage.get("unidentified_jobs"))
-        if identified + unidentified != in_scope:
+        if not _rows(agent_health.get("window_options")):
             self.error(
-                "operations-agent-health-coverage",
-                f"identified({identified})+unidentified({unidentified}) != in_scope({in_scope})",
+                "operations-agent-health-window-options",
+                "amd_agent_health must publish window_options for the range presets",
                 relpath,
             )
-        agents = _rows(agent_health.get("agents"))
-        identified_agents = [a for a in agents if _mapping(a).get("identified")]
-        summary = _mapping(agent_health.get("summary"))
-        if _safe_int(summary.get("nodes")) != len(identified_agents):
+
+        def _is_amd_queue(queue: str) -> bool:
+            q = str(queue or "").casefold()
+            return q.startswith("amd_") or q == "amd-cpu"
+
+        # Every emitted run must be AMD-scoped (no NVIDIA leakage now that the
+        # k8s:node tag exists for all runners).
+        runs = _rows(agent_health.get("runs"))
+        non_amd = [
+            _mapping(run).get("queue")
+            for run in runs
+            if not _is_amd_queue(_mapping(run).get("queue"))
+        ]
+        if non_amd:
             self.error(
-                "operations-agent-health-node-count",
-                f"summary nodes={summary.get('nodes')} but {len(identified_agents)} identified agents published",
+                "operations-agent-health-queue-scope",
+                f"{len(non_amd)} agent-health runs are on non-AMD queues, e.g. {non_amd[:3]}",
                 relpath,
             )
-        published_events = _rows(agent_health.get("cofailure_events"))
-        total_events = _safe_int(summary.get("cofailure_events"))
-        if len(published_events) > total_events:
-            self.error(
-                "operations-agent-health-cofailure-count",
-                (
-                    f"{len(published_events)} co-failure events published exceeds "
-                    f"summary total {total_events}"
-                ),
-                relpath,
-            )
-        concurrent = _safe_int(summary.get("concurrent_cofailures"))
-        sequential = _safe_int(summary.get("sequential_cofailures"))
-        if concurrent + sequential != total_events:
-            self.error(
-                "operations-agent-health-cofailure-pattern-sum",
-                f"concurrent({concurrent})+sequential({sequential}) != total events({total_events})",
-                relpath,
-            )
-        valid_pipelines = set(_rows(agent_health.get("pipelines"))) or {"amd-ci", "ci"}
-        for raw_agent in agents:
-            agent = _mapping(raw_agent)
-            incidents = _safe_int(agent.get("incidents"))
-            if _safe_int(agent.get("soft_failed")) + _safe_int(agent.get("hard_failed")) != incidents:
+
+        # Co-failure event invariants.
+        for raw_event in _rows(agent_health.get("cofailure_events")):
+            event = _mapping(raw_event)
+            pattern = event.get("pattern")
+            if pattern not in ("concurrent", "sequential"):
                 self.error(
-                    "operations-agent-health-incident-sum",
-                    f"{agent.get('node')}: soft+hard != incidents ({incidents})",
+                    "operations-agent-health-cofailure-pattern",
+                    f"{event.get('node')}: invalid co-failure pattern {pattern!r}",
                     relpath,
                 )
-            bad_pipelines = [p for p in _rows(agent.get("pipelines")) if p not in valid_pipelines]
-            if bad_pipelines:
+            if bool(event.get("concurrent")) != (pattern == "concurrent"):
                 self.error(
-                    "operations-agent-health-pipeline-scope",
-                    f"{agent.get('node')}: unexpected pipelines {bad_pipelines}",
+                    "operations-agent-health-cofailure-pattern-flag",
+                    f"{event.get('node')}: concurrent flag disagrees with pattern {pattern!r}",
                     relpath,
                 )
-            for run in _rows(agent.get("timeline")):
-                queue = str(_mapping(run).get("queue") or "")
-                if queue and not (queue.casefold().startswith("amd_") or queue.casefold() == "amd-cpu"):
-                    self.error(
-                        "operations-agent-health-queue-scope",
-                        f"{agent.get('node')}: non-AMD queue {queue!r} in timeline",
-                        relpath,
-                    )
-                    break
+            pipelines = _rows(event.get("pipelines"))
+            if bool(event.get("cross_pipeline")) != (len(set(pipelines)) > 1):
+                self.error(
+                    "operations-agent-health-cofailure-cross-pipeline",
+                    f"{event.get('node')}: cross_pipeline flag disagrees with pipelines {pipelines}",
+                    relpath,
+                )
+            if _safe_int(event.get("group_count")) < 2:
+                self.error(
+                    "operations-agent-health-cofailure-groups",
+                    f"{event.get('node')}: co-failure event has fewer than 2 groups",
+                    relpath,
+                )
+            event_runs = _rows(event.get("runs"))
+            if any(not _is_amd_queue(_mapping(run).get("queue")) for run in event_runs):
+                self.error(
+                    "operations-agent-health-cofailure-queue-scope",
+                    f"{event.get('node')}: co-failure event references a non-AMD queue",
+                    relpath,
+                )
 
     def audit_home_pr_issue_data(self) -> None:
         prs_payload = self.load_json("data/vllm/prs.json", {})

@@ -4507,6 +4507,58 @@ body.ops-overlay-open {
 }
 
 /* CI Agent Health (per physical node) */
+.ops-page .ops-agent-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px;
+  margin: 12px 0;
+}
+
+.ops-page .ops-agent-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ops-page .ops-agent-search {
+  min-width: 240px;
+}
+
+.ops-page .ops-agent-timeline-section {
+  margin-top: 14px;
+}
+
+/* Cap the reliability table height and scroll it vertically; the sticky
+   .ops-table th keeps the header pinned while scrolling. */
+.ops-page .ops-agent-table .ops-table-scroll {
+  max-height: 460px;
+  overflow-y: auto;
+}
+
+.ops-page .ops-sort-header {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.ops-page .ops-sort-header:hover {
+  color: var(--ops-text, inherit);
+  text-decoration: underline;
+}
+
+.ops-page .ops-sort-header.is-active {
+  color: var(--ops-accent, #4e9ed4);
+  font-weight: 600;
+}
+
 .ops-page .ops-agent-toolbar {
   align-items: center;
   gap: 10px;

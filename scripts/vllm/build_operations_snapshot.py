@@ -30,7 +30,11 @@ AMD_TEST_PIPELINE = "amd-ci"
 # TestResult, so the per-test JSONL carries it. We join that to the analytics
 # job timing (started/finished/state) to attribute test groups to the box that
 # ran them, across BOTH the amd-ci nightly and AMD jobs inside upstream ci.
-AGENT_HEALTH_WINDOW_DAYS = 7
+# Raw per-run data is emitted over the max window; the frontend filters it to the
+# selected preset client-side (so range/GPU/search changes need no rebuild).
+AGENT_HEALTH_MAX_WINDOW_DAYS = 60
+AGENT_HEALTH_DEFAULT_WINDOW_DAYS = 7
+AGENT_HEALTH_WINDOW_OPTIONS = (1, 3, 7, 14, 30, 60)
 AGENT_HEALTH_PIPELINES = ("amd-ci", "ci")
 # Failing groups on the same node cluster into a co-failure event when
 # consecutive failures fall within this window. The window is deliberately wide
@@ -40,7 +44,9 @@ AGENT_HEALTH_PIPELINES = ("amd-ci", "ci")
 #   - "sequential": back-to-back failures that do not overlap -> a prior job may
 #     have left the node in an unclean state that broke the next job on it.
 AGENT_COFAILURE_WINDOW_MINS = 720
-AGENT_TIMELINE_RUN_LIMIT = 400
+# Safety cap on emitted co-failure events (all are kept in practice; this only
+# guards against a pathological blow-up). Events are severity-sorted first.
+AGENT_COFAILURE_EVENT_LIMIT = 5000
 UNIDENTIFIED_NODE = "(unidentified)"
 FAILED_STATES = {"failed", "timed_out", "broken", "canceled"}
 SOFT_FAILED_STATES = {"soft_fail", "soft_failed"}
@@ -2863,24 +2869,18 @@ def _is_amd_queue(queue: Any) -> bool:
 _AMD_QUEUE_MODEL_RE = re.compile(r"^amd_mi(\d{3,4})b?(?:_|$)", re.IGNORECASE)
 
 
-def _queue_hardware(queue: Any) -> tuple[str, str]:
-    """Return (``MI300`` label, ``300`` model digits) for an AMD queue, or ("","")."""
+def _queue_hardware(queue: Any) -> str:
+    """Return the GPU type (``MI300``) for an AMD queue, or "" when non-AMD."""
     match = _AMD_QUEUE_MODEL_RE.match(str(queue or "").strip())
-    if not match:
-        return "", ""
-    return "MI" + match.group(1), match.group(1)
+    return "MI" + match.group(1) if match else ""
 
 
-def _node_label(raw_node: str, hardware: str, model_digits: str) -> str:
-    """Supplement uninformative bare GPU node names with their GPU type.
-
-    Nodes like ``gpu9124`` (MI300) or ``mia1-p02-g49`` (MI355) carry no hardware
-    hint, so we append the GPU type. Names that already contain the model number
-    (``smci250-...``, ``chi-mi325x-...``) are left unchanged.
-    """
+def _node_label(raw_node: str, hardware: str) -> str:
+    """Append the GPU type to every node name for consistency, e.g.
+    ``gpu9124`` -> ``gpu9124 (MI300)`` and ``chi-mi325x-pod2-032`` ->
+    ``chi-mi325x-pod2-032 (MI325)``. Returns the raw name when the GPU type is
+    unknown (e.g. amd-cpu jobs)."""
     if not raw_node or not hardware:
-        return raw_node
-    if model_digits and model_digits in raw_node:
         return raw_node
     return f"{raw_node} ({hardware})"
 
@@ -2937,7 +2937,7 @@ def _agent_run_record(pipeline: str, build: dict, job: dict, node_by_job: dict[s
     finished = _parse_dt(job.get("finished_at"))
     state = _historical_state(job)
     display = _strict_group_label(job.get("name") or job.get("raw_name"))
-    hardware, model_digits = _queue_hardware(queue)
+    hardware = _queue_hardware(queue)
     duration = _number(job.get("dur"))
     if duration is None:
         duration = _number(job.get("wall_completion_mins"))
@@ -2947,7 +2947,6 @@ def _agent_run_record(pipeline: str, build: dict, job: dict, node_by_job: dict[s
         "node": node or UNIDENTIFIED_NODE,
         "identified": bool(node),
         "hardware": hardware,
-        "_model_digits": model_digits,
         "pipeline": pipeline,
         "queue": queue,
         "group": display or str(job.get("name") or job.get("raw_name") or "unknown"),
@@ -2964,14 +2963,15 @@ def _agent_run_record(pipeline: str, build: dict, job: dict, node_by_job: dict[s
     }
 
 
-def _detect_cofailures(node: str, runs: list[dict]) -> list[dict]:
+def _detect_cofailures(node: str, node_raw: str, hardware: str, runs: list[dict]) -> list[dict]:
     """Cluster failing runs on one node into co-failure events.
 
     A run is a failure if hard- or soft-failed. Consecutive failures belong to
     the same event when the next failure starts within
     ``AGENT_COFAILURE_WINDOW_MINS`` of the cluster's running end. Each event is
     classified concurrent vs sequential in ``_cofailure_event``. Only clusters
-    with >= 2 distinct groups are reported.
+    with >= 2 distinct groups are reported. Detection runs over the full emitted
+    window; the frontend filters resulting events by their timestamp.
     """
     failing = [
         run for run in runs
@@ -2987,7 +2987,7 @@ def _detect_cofailures(node: str, runs: list[dict]) -> list[dict]:
         nonlocal cluster
         groups = {run["group"] for run in cluster}
         if len(cluster) >= 2 and len(groups) >= 2:
-            events.append(_cofailure_event(node, cluster))
+            events.append(_cofailure_event(node, node_raw, hardware, cluster))
         cluster = []
 
     for run in failing:
@@ -3014,7 +3014,20 @@ def _cluster_is_concurrent(cluster: list[dict]) -> bool:
     return False
 
 
-def _cofailure_event(node: str, cluster: list[dict]) -> dict:
+def _cofailure_run(run: dict) -> dict:
+    """Compact per-run record embedded in a co-failure event."""
+    return {
+        "group": run["group"],
+        "pipeline": run["pipeline"],
+        "queue": run["queue"],
+        "state": run["state"],
+        "build_number": run["build_number"],
+        "url": run["url"],
+        "started_at": run["started_at"],
+    }
+
+
+def _cofailure_event(node: str, node_raw: str, hardware: str, cluster: list[dict]) -> dict:
     starts = [run["_started_dt"] for run in cluster if run["_started_dt"]]
     ends = [run["_finished_dt"] or run["_started_dt"] for run in cluster if run["_started_dt"]]
     started_at = min(starts) if starts else None
@@ -3027,6 +3040,8 @@ def _cofailure_event(node: str, cluster: list[dict]) -> dict:
     concurrent = _cluster_is_concurrent(cluster)
     return {
         "node": node,
+        "node_raw": node_raw,
+        "hardware": hardware,
         # concurrent -> simultaneous jobs (contention/network); sequential ->
         # back-to-back failures suggesting the node was left in a bad state.
         "pattern": "concurrent" if concurrent else "sequential",
@@ -3040,28 +3055,46 @@ def _cofailure_event(node: str, cluster: list[dict]) -> dict:
         "pipelines": pipelines,
         "hard_failed": sum(1 for run in cluster if run["state"] == "hard"),
         "soft_failed": sum(1 for run in cluster if run["state"] == "soft"),
-        "runs": [_public_run(run) for run in cluster],
+        "runs": [_cofailure_run(run) for run in cluster],
     }
 
 
-def _public_run(run: dict) -> dict:
-    """Strip internal datetime helpers before serialization."""
-    return {key: value for key, value in run.items() if not key.startswith("_")}
+def _public_agent_run(run: dict) -> dict:
+    """Trimmed per-run record for the flat ``runs`` list the frontend aggregates.
+
+    The frontend groups by ``node_raw``, derives the display label from
+    ``hardware``, and filters by window / GPU / node search — so only the fields
+    those computations and the timeline need are emitted.
+    """
+    return {
+        "node_raw": run["node"],
+        "hardware": run["hardware"],
+        "pipeline": run["pipeline"],
+        "queue": run["queue"],
+        "group": run["group"],
+        "state": run["state"],
+        "started_at": run["started_at"],
+        "duration_mins": run["duration_mins"],
+        "build_number": run["build_number"],
+        "url": run["url"],
+    }
 
 
 def _amd_agent_health(data_dir: Path, analytics: dict, now: datetime) -> dict:
-    """Per-physical-agent AMD CI health over a trailing window.
+    """Per-physical-agent AMD CI raw data for the client-side agent-health view.
 
-    Attributes AMD test groups to the node that ran them (from the JSONL
-    ``node`` field), aggregates reliability per node, and flags co-failures —
-    two-plus groups failing near-simultaneously on one box, a contention signal.
+    Attributes AMD test groups to the node that ran them (via the JSONL ``node``
+    field), emits every in-window run as a flat list, and pre-computes co-failure
+    events (two-plus groups failing on one box within the co-failure window). The
+    frontend filters both by the selected date range, GPU type, and node search,
+    and aggregates the per-node reliability table client-side.
     """
     node_by_job, load_stats = _load_job_node_map(data_dir)
-    cutoff = now - timedelta(days=AGENT_HEALTH_WINDOW_DAYS)
+    cutoff = now - timedelta(days=AGENT_HEALTH_MAX_WINDOW_DAYS)
 
     runs_by_node: dict[str, list[dict]] = defaultdict(list)
-    in_scope_jobs = 0
-    identified_jobs = 0
+    flat_runs: list[dict] = []
+    hardware_types: set[str] = set()
     for pipeline in AGENT_HEALTH_PIPELINES:
         block = analytics.get(pipeline) or {}
         for build in block.get("builds") or []:
@@ -3074,96 +3107,20 @@ def _amd_agent_health(data_dir: Path, analytics: dict, now: datetime) -> dict:
                 run_dt = run["_started_dt"] or build_dt
                 if run_dt is not None and run_dt < cutoff:
                     continue
-                in_scope_jobs += 1
-                if run["identified"]:
-                    identified_jobs += 1
                 runs_by_node[run["node"]].append(run)
+                flat_runs.append(_public_agent_run(run))
+                if run["hardware"]:
+                    hardware_types.add(run["hardware"])
 
-    agents = []
     cofailure_events: list[dict] = []
-    for node, runs in runs_by_node.items():
-        runs.sort(key=lambda run: str(run["started_at"]))
-        identified = node != UNIDENTIFIED_NODE
-        # Label the node with its GPU type when the bare hostname omits it.
+    for node_raw, runs in runs_by_node.items():
+        if node_raw == UNIDENTIFIED_NODE:
+            continue
         hw_counts = Counter(run["hardware"] for run in runs if run.get("hardware"))
         hardware = hw_counts.most_common(1)[0][0] if hw_counts else ""
-        model_digits = next(
-            (run.get("_model_digits") for run in runs if run.get("hardware") == hardware),
-            "",
-        )
-        label = _node_label(node, hardware, model_digits) if identified else node
-        passed = sum(1 for run in runs if run["state"] == "passed")
-        soft = sum(1 for run in runs if run["state"] == "soft")
-        hard = sum(1 for run in runs if run["state"] == "hard")
-        unknown = sum(1 for run in runs if run["state"] == "unknown")
-        total = len(runs)
-        incidents = soft + hard
-        graded = passed + incidents  # runs with a definite pass/fail verdict
-        group_states: dict[str, set[str]] = defaultdict(set)
-        group_incidents: Counter = Counter()
-        group_runs: Counter = Counter()
-        for run in runs:
-            group_states[run["group"]].add(run["state"])
-            group_runs[run["group"]] += 1
-            if run["state"] in ("hard", "soft"):
-                group_incidents[run["group"]] += 1
-        flaky_groups = sorted(
-            group
-            for group, states in group_states.items()
-            if "passed" in states and states & {"hard", "soft"}
-        )
-        top_groups = [
-            {
-                "group": group,
-                "runs": group_runs[group],
-                "failed": count,
-                "fail_rate": round(count / group_runs[group], 4) if group_runs[group] else 0.0,
-            }
-            for group, count in group_incidents.most_common(10)
-        ]
-        node_events = [] if not identified else _detect_cofailures(label, runs)
-        cofailure_events.extend(node_events)
-        timeline = [_public_run(run) for run in runs[-AGENT_TIMELINE_RUN_LIMIT:]]
-        agents.append({
-            "node": label,
-            "node_raw": node,
-            "hardware": hardware,
-            "identified": identified,
-            "runs": total,
-            "passed": passed,
-            "soft_failed": soft,
-            "hard_failed": hard,
-            "unknown": unknown,
-            "incidents": incidents,
-            "incident_rate": round(incidents / graded, 4) if graded else 0.0,
-            "hard_fail_rate": round(hard / graded, 4) if graded else 0.0,
-            "distinct_groups": len(group_states),
-            "flaky_group_count": len(flaky_groups),
-            "flaky_groups": flaky_groups[:20],
-            "top_groups": top_groups,
-            "queues": sorted({run["queue"] for run in runs if run["queue"]}),
-            "pipelines": sorted({run["pipeline"] for run in runs}),
-            "first_seen": runs[0]["started_at"] if runs else "",
-            "last_seen": runs[-1]["started_at"] if runs else "",
-            "cofailure_event_count": len(node_events),
-            "timeline_truncated": total > AGENT_TIMELINE_RUN_LIMIT,
-            "timeline": timeline,
-        })
+        label = _node_label(node_raw, hardware)
+        cofailure_events.extend(_detect_cofailures(label, node_raw, hardware, runs))
 
-    # Most unreliable first by absolute failure burden (hard fails, then total
-    # incidents, then rate, then volume) so a node with one 100%-incident run
-    # does not outrank a node failing repeatedly. The unidentified bucket sorts
-    # last (identified=False) so it never masquerades as a top offender.
-    agents.sort(
-        key=lambda agent: (
-            agent["identified"],
-            agent["hard_failed"],
-            agent["incidents"],
-            agent["incident_rate"],
-            agent["runs"],
-        ),
-        reverse=True,
-    )
     # Surface the most serious events first: hard fails, then cross-pipeline
     # (one box breaking both nightly and upstream), then breadth, then recency.
     cofailure_events.sort(
@@ -3175,35 +3132,20 @@ def _amd_agent_health(data_dir: Path, analytics: dict, now: datetime) -> dict:
         ),
         reverse=True,
     )
+    flat_runs.sort(key=lambda run: str(run["started_at"]))
 
-    identified_nodes = [agent for agent in agents if agent["identified"]]
-    unreliable = [agent for agent in identified_nodes if agent["incidents"] > 0]
     return {
         "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "window_days": AGENT_HEALTH_WINDOW_DAYS,
-        "window_start": cutoff.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "pipelines": list(AGENT_HEALTH_PIPELINES),
+        "max_window_days": AGENT_HEALTH_MAX_WINDOW_DAYS,
+        "default_window_days": AGENT_HEALTH_DEFAULT_WINDOW_DAYS,
+        "window_options": list(AGENT_HEALTH_WINDOW_OPTIONS),
         "cofailure_window_mins": AGENT_COFAILURE_WINDOW_MINS,
-        "coverage": {
-            "in_scope_jobs": in_scope_jobs,
-            "identified_jobs": identified_jobs,
-            "unidentified_jobs": in_scope_jobs - identified_jobs,
-            "coverage_pct": round(100 * identified_jobs / in_scope_jobs, 1) if in_scope_jobs else 0.0,
-            "identified_nodes": len(identified_nodes),
-            "jsonl_files_read": load_stats["files_read"],
-            "jsonl_rows_with_node": load_stats["rows_with_node"],
-        },
-        "summary": {
-            "nodes": len(identified_nodes),
-            "unreliable_nodes": len(unreliable),
-            "total_runs": sum(agent["runs"] for agent in identified_nodes),
-            "cofailure_events": len(cofailure_events),
-            "concurrent_cofailures": sum(1 for event in cofailure_events if event["concurrent"]),
-            "sequential_cofailures": sum(1 for event in cofailure_events if not event["concurrent"]),
-            "cross_pipeline_cofailures": sum(1 for event in cofailure_events if event["cross_pipeline"]),
-        },
-        "agents": agents,
-        "cofailure_events": cofailure_events[:RANKING_LIMIT],
+        "pipelines": list(AGENT_HEALTH_PIPELINES),
+        "hardware_types": sorted(hardware_types),
+        "jsonl_files_read": load_stats["files_read"],
+        "jsonl_rows_with_node": load_stats["rows_with_node"],
+        "runs": flat_runs,
+        "cofailure_events": cofailure_events[:AGENT_COFAILURE_EVENT_LIMIT],
     }
 
 
