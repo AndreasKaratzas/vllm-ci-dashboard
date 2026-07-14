@@ -4529,6 +4529,15 @@ body.ops-overlay-open {
   margin-top: 14px;
 }
 
+/* The timeline canvas grows with the number of runs and the time span (set in
+   JS via --ops-chart-height and the viewport min-width). The stage becomes the
+   scroll window so long timelines stay legible instead of being squashed. */
+.ops-page .ops-agent-timeline-section .ops-chart-stage {
+  display: block;
+  max-height: 540px;
+  overflow: auto;
+}
+
 /* Cap the reliability table height and scroll it vertically; the sticky
    .ops-table th keeps the header pinned while scrolling. */
 .ops-page .ops-agent-table .ops-table-scroll {
@@ -4591,6 +4600,10 @@ body.ops-overlay-open {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 12px;
+  /* Bound the events list so it never dominates the page; scroll when it does. */
+  max-height: 560px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .ops-page .ops-cofailure-card {

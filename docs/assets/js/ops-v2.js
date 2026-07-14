@@ -3299,14 +3299,21 @@
       })
       .filter(function (row) { return row.start !== null; })
       .sort(function (a, b) { return a.start - b.start; });
-    chart.frame.style.setProperty('--ops-chart-height', Math.min(1200, Math.max(160, rows.length * 24)) + 'px');
+    // Give each run ~26px of vertical room so labels/bars stay legible; the
+    // .ops-agent-timeline-section stage caps the visible height and scrolls.
+    chart.frame.style.setProperty('--ops-chart-height', Math.max(180, rows.length * 26) + 'px');
     if (!rows.length) {
+      chart.viewport.style.minWidth = '';
       drawChart('analytics-agent-timeline', chart.canvas, {type: 'bar', data: {labels: [], datasets: [{data: []}]}, options: {plugins: {legend: {display: false}}}});
       return;
     }
     const minStart = Math.min.apply(null, rows.map(function (row) { return row.start; }));
     const maxEnd = Math.max.apply(null, rows.map(function (row) { return row.end; }));
     const pad = Math.max(60000, (maxEnd - minStart) * 0.02);
+    // Widen the plot with the time span so bars aren't crushed over long
+    // horizons; the stage scrolls horizontally when this exceeds the panel.
+    const spanDays = (maxEnd - minStart) / 86400000;
+    chart.viewport.style.minWidth = Math.min(2200, Math.max(640, Math.round(spanDays * 60))) + 'px';
     drawChart('analytics-agent-timeline', chart.canvas, {
       type: 'bar',
       data: {
@@ -3339,6 +3346,10 @@
         },
       },
       evidenceTitle: 'Test-group runs on ' + label,
+      // Suppress the chart's built-in "Inspect observations" button (the table's
+      // Evidence column already opens the full run list) so the scroll stage
+      // holds only the plot.
+      evidenceAction: false,
       evidence: rows.map(function (row) {
         const run = row.run;
         const openJob = run.url ? function () { window.open(run.url, '_blank', 'noopener'); } : null;
@@ -3503,7 +3514,7 @@
         {id: 'agent-nodes', label: 'IDENTIFIED AMD NODES', value: integer(identifiedNodes), meta: integer(view.runs.length) + ' runs in ' + windowId, tone: 'is-info'},
         {id: 'agent-unreliable', label: 'UNRELIABLE NODES', value: integer(unreliable), meta: 'nodes with a soft/hard result', tone: unreliable ? 'is-warning' : 'is-success'},
         {id: 'agent-coverage', label: 'NODE COVERAGE', value: coveragePct.toFixed(1) + '%', meta: integer(identifiedRuns) + ' / ' + integer(view.runs.length) + ' runs identified', tone: coveragePct >= 50 ? 'is-success' : coveragePct > 0 ? 'is-warning' : 'is-danger'},
-        {id: 'agent-cofail', label: 'CO-FAILURE EVENTS', value: integer(view.events.length), meta: integer(concurrent) + ' concurrent · ' + integer(cross) + ' cross-pipeline', tone: view.events.length ? 'is-danger' : 'is-success'},
+        {id: 'agent-cofail', label: 'CO-FAILURE EVENTS', value: integer(view.events.length), meta: integer(concurrent) + ' concurrent · ' + integer(cross) + ' cross-pipeline', tone: view.events.length ? 'is-danger' : 'is-success', onOpen: function () { eventsHost.scrollIntoView({behavior: 'smooth', block: 'start'}); }},
       ]));
     }
 
@@ -4329,7 +4340,7 @@
     host.append(segmented([
       {id: 'groups', label: 'AMD test health'}, {id: 'flakes', label: 'Flake comparison'},
       {id: 'retries', label: 'Retry comparison'}, {id: 'latency', label: 'Latency comparison'},
-      {id: 'nightlies', label: 'AMD nightlies'}, {id: 'agent-health', label: 'CI Agent Health'},
+      {id: 'nightlies', label: 'AMD nightlies'}, {id: 'agent-health', label: 'CI agent health'},
     ], state.analyticsView, function (id) { setRouteState('ci-analytics', 'analyticsView', id, 'analytics_view'); }, 'CI Analytics view'));
     if (state.analyticsView === 'groups') {
       renderAmdHealth(host, amdHealth);
