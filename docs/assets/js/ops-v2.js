@@ -278,7 +278,7 @@
     const specs = {
       'ci-health': [['healthView', 'health_view', ['overview', 'gating', 'coverage', 'diagnostics']]],
       'ci-analytics': [
-        ['analyticsView', 'analytics_view', ['groups', 'flakes', 'nightlies', 'retries', 'latency']],
+        ['analyticsView', 'analytics_view', ['groups', 'flakes', 'nightlies', 'retries', 'latency', 'agent-health']],
         ['analyticsPipeline', 'analytics_pipeline', ['ci', 'amd-ci']],
         ['analyticsSearch', 'analytics_search', null],
         ['analyticsGroupId', 'analytics_group', null],
@@ -3107,6 +3107,197 @@
     ], priority, integer(currentIncidents.length) + ' current AMD incident groups; use Browse all for the complete catalog', {name: 'amd-current-incidents', minWidth: '1020px'}), 'ops-amd-priority'));
   }
 
+  function agentStateColor(stateName) {
+    const s = String(stateName || '').toLowerCase();
+    if (s === 'passed') return '#35bb78';
+    if (s === 'soft') return '#e3a63a';
+    if (s === 'hard') return '#e06464';
+    return '#66717d';
+  }
+
+  function agentTruncate(text, max) {
+    const s = String(text || '');
+    return s.length > max ? s.slice(0, max - 1) + '…' : s;
+  }
+
+  function drawAgentTimeline(node, chart) {
+    const parseMs = function (ts) { const t = Date.parse(ts); return Number.isFinite(t) ? t : null; };
+    const rows = (node.timeline || []).slice()
+      .sort(function (a, b) { return String(a.started_at).localeCompare(String(b.started_at)); })
+      .map(function (run) {
+        const start = parseMs(run.started_at);
+        let end = parseMs(run.finished_at);
+        if (start !== null && (end === null || end <= start)) {
+          end = start + Math.max(1, Number(run.duration_mins) || 1) * 60000;
+        }
+        return {run: run, start: start, end: end};
+      })
+      .filter(function (row) { return row.start !== null; });
+    if (!rows.length) return;
+    const minStart = Math.min.apply(null, rows.map(function (row) { return row.start; }));
+    const maxEnd = Math.max.apply(null, rows.map(function (row) { return row.end; }));
+    const pad = Math.max(60000, (maxEnd - minStart) * 0.02);
+    chart.frame.style.setProperty('--ops-chart-height', Math.min(900, Math.max(180, rows.length * 26)) + 'px');
+    drawChart('analytics-agent-timeline', chart.canvas, {
+      type: 'bar',
+      data: {
+        labels: rows.map(function (row, index) { return (index + 1) + '. ' + agentTruncate(row.run.group, 34); }),
+        datasets: [{
+          label: 'Run window',
+          data: rows.map(function (row) { return [row.start, row.end]; }),
+          backgroundColor: rows.map(function (row) { return agentStateColor(row.run.state); }),
+          borderWidth: 0,
+          borderSkipped: false,
+          barPercentage: 0.82,
+          categoryPercentage: 0.92,
+        }],
+      },
+      options: {
+        indexAxis: 'y',
+        scales: {
+          x: {type: 'linear', min: minStart - pad, max: maxEnd + pad, title: {display: true, text: 'Time'}, ticks: {maxTicksLimit: 8, callback: function (v) { return shortDate(new Date(Number(v)).toISOString()); }}},
+          y: {grid: {display: false}, ticks: {autoSkip: false, font: {size: 10}}},
+        },
+        plugins: {
+          legend: {display: false},
+          tooltip: {callbacks: {
+            title: function (items) { return rows[items[0].dataIndex].run.group; },
+            label: function (item) {
+              const run = rows[item.dataIndex].run;
+              return ['State: ' + run.state, 'Pipeline: ' + run.pipeline, 'Queue: ' + (run.queue || '-'), 'Start: ' + shortDate(run.started_at), 'Duration: ' + duration(run.duration_mins)];
+            },
+          }},
+        },
+      },
+      evidenceTitle: 'Test-group runs on ' + node.node,
+      evidence: rows.map(function (row) {
+        const run = row.run;
+        return {label: run.group, url: run.url, timestamp: run.started_at, valueSummary: run.state + ' - ' + duration(run.duration_mins), details: {pipeline: run.pipeline, queue: run.queue, state: run.state, build: '#' + value(run.build_number), duration_mins: run.duration_mins}};
+      }),
+    });
+  }
+
+  function agentCofailureCard(event) {
+    const card = n('div', 'ops-cofailure-card' + (event.cross_pipeline ? ' is-cross' : ''));
+    const head = n('div', 'ops-cofailure-head');
+    add(head, [
+      n('span', 'ops-mono ops-cofailure-node', value(event.node)),
+      n('span', 'ops-cofailure-meta', shortDate(event.started_at) + ' · ' + duration(event.span_mins) + ' span · ' + integer(event.group_count) + ' groups'),
+    ]);
+    const concurrent = event.pattern === 'concurrent' || event.concurrent;
+    head.append(n('span', 'ops-badge ' + (concurrent ? 'is-warning' : 'is-info'), concurrent ? 'concurrent' : 'sequential'));
+    if (event.cross_pipeline) head.append(n('span', 'ops-badge is-danger', 'cross-pipeline'));
+    card.append(head);
+    const list = n('ul', 'ops-cofailure-runs');
+    (event.runs || []).forEach(function (run) {
+      const li = n('li', 'ops-cofailure-run');
+      const chip = n('span', 'ops-state-chip');
+      chip.style.background = agentStateColor(run.state);
+      chip.title = run.state;
+      add(li, [
+        chip,
+        n('span', 'ops-cofailure-group', run.group),
+        n('span', 'ops-cofailure-run-meta', [run.pipeline, run.queue].filter(Boolean).join(' · ')),
+        externalLink('#' + value(run.build_number), run.url, 'ops-mono'),
+      ]);
+      list.append(li);
+    });
+    card.append(list);
+    return card;
+  }
+
+  function renderAmdAgentHealth(host, agentHealth) {
+    const coverage = agentHealth.coverage || {};
+    const summary = agentHealth.summary || {};
+    const agents = Array.isArray(agentHealth.agents) ? agentHealth.agents : [];
+    const identified = agents.filter(function (agent) { return agent.identified; });
+    const events = Array.isArray(agentHealth.cofailure_events) ? agentHealth.cofailure_events : [];
+    const windowDays = agentHealth.window_days || 7;
+
+    host.append(statusStrip([
+      {id: 'agent-nodes', label: 'IDENTIFIED AMD NODES', value: integer(coverage.identified_nodes), meta: integer(summary.total_runs) + ' test-group runs in ' + windowDays + 'd', tone: 'is-info'},
+      {id: 'agent-unreliable', label: 'UNRELIABLE NODES', value: integer(summary.unreliable_nodes), meta: 'nodes with a soft/hard result', tone: Number(summary.unreliable_nodes) ? 'is-warning' : 'is-success'},
+      {id: 'agent-coverage', label: 'NODE COVERAGE', value: (coverage.coverage_pct !== undefined && coverage.coverage_pct !== null ? coverage.coverage_pct + '%' : '-'), meta: integer(coverage.identified_jobs) + ' / ' + integer(coverage.in_scope_jobs) + ' AMD jobs identified', tone: Number(coverage.coverage_pct) >= 50 ? 'is-success' : Number(coverage.coverage_pct) > 0 ? 'is-warning' : 'is-danger'},
+      {id: 'agent-cofail', label: 'CO-FAILURE EVENTS', value: integer(summary.cofailure_events), meta: integer(summary.concurrent_cofailures) + ' concurrent · ' + integer(summary.sequential_cofailures) + ' sequential · ' + integer(summary.cross_pipeline_cofailures) + ' cross-pipeline', tone: Number(summary.cofailure_events) ? 'is-danger' : 'is-success'},
+    ]));
+
+    const note = n('div', 'ops-evidence-note is-info');
+    add(note, [n('strong', '', 'AMD physical CI agent health. '), n('span', '', 'Test groups are attributed to the physical node parsed from each job log’s "Node:" line, across both the AMD nightly and AMD-node jobs inside upstream CI. Node identity is reliable on MI325 queues but not every AMD queue exposes it, so ' + integer(coverage.unidentified_jobs) + ' in-scope job(s) could not be attributed and are grouped as "' + '(unidentified)".')]);
+    host.append(note);
+
+    if (!Number(coverage.in_scope_jobs)) {
+      host.append(n('div', 'ops-evidence-note is-warning', 'No AMD jobs were found in the trailing ' + windowDays + '-day window.'));
+      return;
+    }
+    if (!identified.length) {
+      host.append(n('div', 'ops-evidence-note is-warning', 'No physical node has been identified yet. The "Node:" log line is captured going forward as collectors re-scan recent AMD logs; this view will populate once recent AMD jobs carry node identity.'));
+    }
+
+    host.append(panel('AMD nodes by reliability', integer(identified.length) + ' identified node(s) over ' + windowDays + ' days; the unidentified bucket is always listed last', [dataTable([
+      {label: 'Physical node', sticky: true, width: '240px', render: function (row) { return n('span', row.identified ? 'ops-mono' : 'ops-mono ops-muted', value(row.node)); }},
+      {label: 'GPU', width: '90px', render: function (row) { return value(row.hardware); }},
+      {label: 'Runs', numeric: true, width: '90px', render: function (row) { return integer(row.runs); }},
+      {label: 'Incident rate', numeric: true, width: '130px', render: function (row) { return row.incident_rate !== undefined && row.incident_rate !== null ? (Number(row.incident_rate) * 100).toFixed(1) + '%' : '-'; }},
+      {label: 'Soft / hard', numeric: true, width: '120px', render: function (row) { return integer(row.soft_failed) + ' / ' + integer(row.hard_failed); }},
+      {label: 'Groups', numeric: true, width: '90px', render: function (row) { return integer(row.distinct_groups); }},
+      {label: 'Flaky groups', numeric: true, width: '120px', render: function (row) { return integer(row.flaky_group_count); }},
+      {label: 'Co-failures', numeric: true, width: '110px', render: function (row) { return integer(row.cofailure_event_count); }},
+      {label: 'Queues', width: '210px', render: function (row) { return n('span', '', (row.queues || []).join(', ') || '-'); }},
+      {label: 'Pipelines', width: '140px', render: function (row) { return n('span', '', (row.pipelines || []).join(', ') || '-'); }},
+    ], agents, 'Per-node AMD reliability over the trailing window', {name: 'agent-nodes', minWidth: '1330px'})]));
+
+    const timelineNodes = identified.filter(function (agent) { return (agent.timeline || []).length; });
+    if (timelineNodes.length) {
+      let selectedNode = timelineNodes[0].node;
+      const toolbar = n('div', 'ops-toolbar ops-agent-toolbar');
+      const label = n('label', 'ops-field-label', 'Node');
+      const select = n('select', 'ops-select');
+      select.setAttribute('aria-label', 'Physical node for run timeline');
+      timelineNodes.forEach(function (agent) {
+        const option = n('option', '', agent.node + ' (' + agent.runs + ' runs, ' + agent.cofailure_event_count + ' co-failures)');
+        option.value = agent.node;
+        select.append(option);
+      });
+      label.append(select);
+      toolbar.append(label);
+      const chart = chartPanel('Per-node run timeline', 'Each bar is one test-group run on the selected node; bars that overlap and fail together point to shared-node contention or an ephemeral host/network fault', 'analytics-agent-timeline');
+      const legend = n('div', 'ops-agent-legend');
+      [['Passed', '#35bb78'], ['Soft fail', '#e3a63a'], ['Hard fail', '#e06464'], ['Unknown', '#66717d']].forEach(function (entry) {
+        const item = n('span', 'ops-agent-legend-item');
+        const swatch = n('span', 'ops-agent-legend-swatch');
+        swatch.style.background = entry[1];
+        add(item, [swatch, n('span', '', entry[0])]);
+        legend.append(item);
+      });
+      const redraw = function () {
+        const node = timelineNodes.find(function (agent) { return agent.node === selectedNode; }) || timelineNodes[0];
+        drawAgentTimeline(node, chart);
+      };
+      select.addEventListener('change', function () { selectedNode = select.value; redraw(); });
+      host.append(toolbar);
+      host.append(chart.root);
+      host.append(legend);
+      requestAnimationFrame(redraw);
+    }
+
+    if (events.length) {
+      const section = n('section', 'ops-cluster-section');
+      const header = n('header', 'ops-section-header');
+      const heading = n('div', 'ops-section-heading');
+      const windowHours = Math.round((agentHealth.cofailure_window_mins || 720) / 60);
+      add(heading, [
+        n('h2', 'ops-section-title', 'Co-failure events'),
+        n('p', 'ops-section-description', 'Two or more test groups on the same node failing within ' + integer(windowHours) + 'h of each other. "concurrent" (overlapping runs) points to resource contention or an ephemeral host/network fault; "sequential" (back-to-back) suggests a prior job left the node in an unclean state. Cross-pipeline events (AMD nightly + upstream on one box) are highlighted.'),
+      ]);
+      header.append(heading);
+      section.append(header);
+      const grid = n('div', 'ops-cofailure-grid');
+      events.forEach(function (event) { grid.append(agentCofailureCard(event)); });
+      section.append(grid);
+      host.append(section);
+    }
+  }
+
   function renderGroupOverviewCharts(host, rows, ops, reliability) {
     const risks = reliabilityRiskClusters(rows);
     const hardware = reliabilityHardwareClusters(rows);
@@ -3807,10 +3998,15 @@
     host.append(segmented([
       {id: 'groups', label: 'AMD test health'}, {id: 'flakes', label: 'Flake comparison'},
       {id: 'retries', label: 'Retry comparison'}, {id: 'latency', label: 'Latency comparison'},
-      {id: 'nightlies', label: 'AMD nightlies'},
+      {id: 'nightlies', label: 'AMD nightlies'}, {id: 'agent-health', label: 'CI Agent Health'},
     ], state.analyticsView, function (id) { setRouteState('ci-analytics', 'analyticsView', id, 'analytics_view'); }, 'CI Analytics view'));
     if (state.analyticsView === 'groups') {
       renderAmdHealth(host, amdHealth);
+      return;
+    }
+
+    if (state.analyticsView === 'agent-health') {
+      renderAmdAgentHealth(host, ops.amd_agent_health || {});
       return;
     }
 

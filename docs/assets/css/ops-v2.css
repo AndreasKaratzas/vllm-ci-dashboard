@@ -4506,6 +4506,107 @@ body.ops-overlay-open {
   }
 }
 
+/* CI Agent Health (per physical node) */
+.ops-page .ops-agent-toolbar {
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 6px;
+}
+
+.ops-page .ops-agent-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 8px 2px 4px;
+  font-size: 12px;
+  color: var(--ops-text-muted);
+}
+
+.ops-page .ops-agent-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ops-page .ops-agent-legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.ops-page .ops-cofailure-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.ops-page .ops-cofailure-card {
+  border: 1px solid var(--ops-border, #2a3138);
+  border-left: 3px solid var(--ops-warning, #e3a63a);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--ops-surface-raised, rgba(255, 255, 255, 0.02));
+}
+
+.ops-page .ops-cofailure-card.is-cross {
+  border-left-color: var(--ops-danger);
+}
+
+.ops-page .ops-cofailure-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ops-page .ops-cofailure-node {
+  font-weight: 600;
+}
+
+.ops-page .ops-cofailure-meta {
+  color: var(--ops-text-muted);
+  font-size: 12px;
+}
+
+.ops-page .ops-cofailure-runs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ops-page .ops-cofailure-run {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.ops-page .ops-cofailure-group {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-page .ops-cofailure-run-meta {
+  color: var(--ops-text-muted);
+  flex: 0 0 auto;
+}
+
+.ops-page .ops-state-chip {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: 0 0 auto;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ops-page .ops-skeleton {
     animation: none;

@@ -208,7 +208,7 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         ("docs/assets/js/ops-v2.js",),
         (
             "schema_version", "generated_at", "nightly", "reliability",
-            "gating", "queue",
+            "gating", "queue", "amd_agent_health",
         ),
         "Versioned AMD current-signal and upstream reliability read model",
     ),
@@ -988,6 +988,8 @@ class DashboardAudit:
                 relpath,
             )
 
+        self.audit_agent_health(payload, relpath)
+
         self.report.metrics["operations_v2"] = {
             "active_targets": len(active),
             "linked_active_targets": linked_gating,
@@ -1003,6 +1005,81 @@ class DashboardAudit:
             "retry_attempts": len(retry_attempts),
             "retry_recoveries": len(recoveries),
         }
+
+    def audit_agent_health(self, payload: dict, relpath: str) -> None:
+        """Cross-check the per-physical-agent AMD CI health block."""
+        agent_health = _mapping(payload.get("amd_agent_health"))
+        if not agent_health:
+            self.error(
+                "operations-agent-health-missing",
+                "operations_v2.json omits the amd_agent_health block",
+                relpath,
+            )
+            return
+        coverage = _mapping(agent_health.get("coverage"))
+        in_scope = _safe_int(coverage.get("in_scope_jobs"))
+        identified = _safe_int(coverage.get("identified_jobs"))
+        unidentified = _safe_int(coverage.get("unidentified_jobs"))
+        if identified + unidentified != in_scope:
+            self.error(
+                "operations-agent-health-coverage",
+                f"identified({identified})+unidentified({unidentified}) != in_scope({in_scope})",
+                relpath,
+            )
+        agents = _rows(agent_health.get("agents"))
+        identified_agents = [a for a in agents if _mapping(a).get("identified")]
+        summary = _mapping(agent_health.get("summary"))
+        if _safe_int(summary.get("nodes")) != len(identified_agents):
+            self.error(
+                "operations-agent-health-node-count",
+                f"summary nodes={summary.get('nodes')} but {len(identified_agents)} identified agents published",
+                relpath,
+            )
+        published_events = _rows(agent_health.get("cofailure_events"))
+        total_events = _safe_int(summary.get("cofailure_events"))
+        if len(published_events) > total_events:
+            self.error(
+                "operations-agent-health-cofailure-count",
+                (
+                    f"{len(published_events)} co-failure events published exceeds "
+                    f"summary total {total_events}"
+                ),
+                relpath,
+            )
+        concurrent = _safe_int(summary.get("concurrent_cofailures"))
+        sequential = _safe_int(summary.get("sequential_cofailures"))
+        if concurrent + sequential != total_events:
+            self.error(
+                "operations-agent-health-cofailure-pattern-sum",
+                f"concurrent({concurrent})+sequential({sequential}) != total events({total_events})",
+                relpath,
+            )
+        valid_pipelines = set(_rows(agent_health.get("pipelines"))) or {"amd-ci", "ci"}
+        for raw_agent in agents:
+            agent = _mapping(raw_agent)
+            incidents = _safe_int(agent.get("incidents"))
+            if _safe_int(agent.get("soft_failed")) + _safe_int(agent.get("hard_failed")) != incidents:
+                self.error(
+                    "operations-agent-health-incident-sum",
+                    f"{agent.get('node')}: soft+hard != incidents ({incidents})",
+                    relpath,
+                )
+            bad_pipelines = [p for p in _rows(agent.get("pipelines")) if p not in valid_pipelines]
+            if bad_pipelines:
+                self.error(
+                    "operations-agent-health-pipeline-scope",
+                    f"{agent.get('node')}: unexpected pipelines {bad_pipelines}",
+                    relpath,
+                )
+            for run in _rows(agent.get("timeline")):
+                queue = str(_mapping(run).get("queue") or "")
+                if queue and not (queue.casefold().startswith("amd_") or queue.casefold() == "amd-cpu"):
+                    self.error(
+                        "operations-agent-health-queue-scope",
+                        f"{agent.get('node')}: non-AMD queue {queue!r} in timeline",
+                        relpath,
+                    )
+                    break
 
     def audit_home_pr_issue_data(self) -> None:
         prs_payload = self.load_json("data/vllm/prs.json", {})
