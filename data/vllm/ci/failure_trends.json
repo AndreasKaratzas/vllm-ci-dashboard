@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-14T11:15:01Z",
+  "generated_at": "2026-07-14T14:31:35Z",
   "top_offenders": [
     {
       "test_id": "mi355_1: Kernels MoE Test 2::__unidentified_failures__",
@@ -45,6 +45,29 @@
         "F"
       ],
       "module": "mi355_1: Quantized Models Test",
+      "mean_duration": 0.0
+    },
+    {
+      "test_id": "mi355_2: Distributed Tests (2xH100-2xMI355)::__unidentified_failures__",
+      "label": "failing",
+      "pass_rate": 0.0,
+      "appearances": 31,
+      "last_seen": "2026-07-14",
+      "first_failure": "2026-06-14",
+      "failure_streak": 31,
+      "history": [
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F"
+      ],
+      "module": "mi355_2: Distributed Tests (2xH100-2xMI355)",
       "mean_duration": 0.0
     },
     {
@@ -114,29 +137,6 @@
         "F"
       ],
       "module": "mi355_1: Kernels MoE Test 4",
-      "mean_duration": 0.0
-    },
-    {
-      "test_id": "mi355_2: Distributed Tests (2xH100-2xMI355)::__unidentified_failures__",
-      "label": "failing",
-      "pass_rate": 0.0,
-      "appearances": 30,
-      "last_seen": "2026-07-13",
-      "first_failure": "2026-06-14",
-      "failure_streak": 30,
-      "history": [
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F"
-      ],
-      "module": "mi355_2: Distributed Tests (2xH100-2xMI355)",
       "mean_duration": 0.0
     },
     {
@@ -969,7 +969,7 @@
     },
     {
       "module": "mi355_1: Language Models Test (Extended Generation)",
-      "avg_pass_rate": 0.3214,
+      "avg_pass_rate": 0.3125,
       "total_tests": 4,
       "failing": 1,
       "flaky": 1,
@@ -2234,8 +2234,8 @@
       "build_number": 10836,
       "date": "2026-07-14",
       "pass_rate": 0.1158,
-      "total": 41965,
-      "failed": 29856
+      "total": 41977,
+      "failed": 29865
     },
     {
       "build_number": 10783,
