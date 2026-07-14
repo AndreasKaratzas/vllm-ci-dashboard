@@ -809,6 +809,86 @@ def test_reliability_only_marks_mixed_pass_failure_jobs_flaky(tmp_path):
     assert all(row["url"].startswith("https://buildkite.com/vllm/ci/") for row in fixed["evidence"])
 
 
+def test_platform_comparison_is_amd_first_and_matches_only_exact_cuda_labels():
+    def group(
+        group_id,
+        name,
+        hardware,
+        queue,
+        *,
+        runs,
+        passed,
+        failed=0,
+        soft_failed=0,
+        p90=10,
+    ):
+        incidents = failed + soft_failed
+        return {
+            "id": group_id,
+            "name": name,
+            "raw_names": [name],
+            "hardware": hardware,
+            "queues": [queue],
+            "runs": runs,
+            "build_count": min(runs, 100),
+            "passed": passed,
+            "failed": failed,
+            "soft_failed": soft_failed,
+            "incident_count": incidents,
+            "incident_rate_pct": round(incidents / runs * 100, 1),
+            "mixed_outcomes": bool(passed and incidents),
+            "latest_state": "passed" if passed else "hard",
+            "latest_observed_at": "2026-07-14T00:00:00Z",
+            "latest_url": f"https://buildkite.com/vllm/ci/builds/1/steps/canvas?jid={group_id}",
+            "median_dur": p90 / 2,
+            "p90_dur": p90,
+            "max_dur": p90 + 1,
+            "duration_basis": "job_wall",
+        }
+
+    catalog = [
+        group("amd-samplers", "AMD: Samplers Test (mi325_1)", "mi325", "amd_mi325_1", runs=50, passed=40, soft_failed=10, p90=20),
+        group("cuda-samplers", "Samplers Test", "h200", "h200_35gb", runs=80, passed=76, failed=4, p90=12),
+        group("intel-samplers", "Samplers Test", "gpu", "intel-gpu", runs=90, passed=1, failed=89, p90=99),
+        group("amd-unmatched", "AMD: Exact Name (mi300_1)", "mi300", "amd_mi300_1", runs=10, passed=10),
+        group("cuda-fuzzy", "Exact Names", "h100", "mithril-h100-pool", runs=10, passed=10),
+    ]
+    retry = {
+        "available": True,
+        "retry_attempts": [
+            {"name": "AMD: Samplers Test (mi325_1)", "retry_source": {"job_id": "a"}},
+            {"name": "AMD: Samplers Test (mi325_1)", "retry_source": {"job_id": "b"}},
+            {"name": "Samplers Test", "retry_source": {"job_id": "c"}},
+        ],
+        "failed_then_passed_recoveries": [
+            {"name": "AMD: Samplers Test (mi325_1)"},
+        ],
+    }
+
+    comparison = ops._platform_comparison(catalog, retry, cohort_builds=100)
+
+    assert comparison["available"] is True
+    assert comparison["summary"]["amd_base_group_count"] == 2
+    assert comparison["summary"]["matched_base_group_count"] == 1
+    assert comparison["summary"]["unmatched_amd_base_group_count"] == 1
+    samplers = next(row for row in comparison["rows"] if row["label"] == "Samplers Test")
+    assert samplers["match_status"] == "exact_cuda_pair"
+    assert samplers["comparison_eligible"] is True
+    assert samplers["amd"]["group_ids"] == ["amd-samplers"]
+    assert samplers["cuda"]["group_ids"] == ["cuda-samplers"]
+    assert samplers["amd"]["incident_rate_pct"] == 20.0
+    assert samplers["cuda"]["incident_rate_pct"] == 5.0
+    assert samplers["incident_rate_delta_pp"] == 15.0
+    assert samplers["amd"]["attempts_per_100_builds"] == 50.0
+    assert samplers["amd"]["retry_attempts"] == 2
+    assert samplers["amd"]["retry_frequency_pct"] == 4.0
+    assert samplers["amd"]["retry_recovery_rate_pct"] == 50.0
+    assert samplers["worst_p90_delta_mins"] == 8.0
+    unmatched = next(row for row in comparison["rows"] if row["label"] == "Exact Name")
+    assert unmatched["match_status"] == "no_cuda_equivalent"
+    assert unmatched["cuda"]["variant_count"] == 0
+
+
 def test_upstream_reliability_fails_closed_without_a_strict_main_cohort():
     payload = ops._reliability(
         {

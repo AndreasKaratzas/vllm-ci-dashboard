@@ -66,6 +66,14 @@ AMD_TEST_JOB_PREFIX_RE = re.compile(
 AMD_TEST_INCIDENT_STATUSES = {"failed", "error"}
 AMD_TEST_SOFT_STATES = {"soft", "soft_fail", "soft_failed"}
 AMD_TEST_HARD_STATES = {"failed", "timed_out", "broken", "canceled"}
+AMD_HARDWARE_RE = re.compile(r"^mi\d{3,4}b?$", re.IGNORECASE)
+AMD_QUEUE_RE = re.compile(r"^amd_mi\d{3,4}b?(?:_|$)", re.IGNORECASE)
+CUDA_HARDWARE = {"a100", "b200", "h100", "h200"}
+CUDA_QUEUE_RE = re.compile(
+    r"^(?:gpu_\d+_queue|a100_queue|b200(?:-|_)|h200(?:_|$)|mithril-h100-pool|gh200_queue|dgx-spark)$",
+    re.IGNORECASE,
+)
+HARDWARE_WORD_RE = re.compile(r"(?:mi\d{3,4}b?|[abh]\d{3})", re.IGNORECASE)
 GATING_CONFIG_URL = (
     "https://github.com/AndreasKaratzas/vllm-ci-dashboard/"
     "blob/main/config/vllm_amd_gating_targets.json"
@@ -1712,6 +1720,315 @@ def _cohort_composition(payload: dict, counts: dict, provenance: dict) -> dict:
     }
 
 
+def _comparison_platform(row: dict) -> str:
+    name = str(row.get("name") or "")
+    hardware = str(row.get("hardware") or "").lower()
+    queues = [str(queue) for queue in row.get("queues") or []]
+    if (
+        AMD_PREFIX_RE.match(name)
+        or AMD_HARDWARE_RE.match(hardware)
+        or any(AMD_QUEUE_RE.match(queue) for queue in queues)
+    ):
+        return "amd"
+    if hardware in CUDA_HARDWARE or any(CUDA_QUEUE_RE.match(queue) for queue in queues):
+        return "cuda"
+    return "other"
+
+
+def _comparison_label(value: Any) -> str:
+    return _strict_group_label(value)
+
+
+def _comparison_key(value: Any) -> str:
+    return _comparison_label(value).casefold()
+
+
+def _comparison_variant(row: dict) -> dict:
+    return {
+        "group_id": row.get("id"),
+        "name": row.get("name"),
+        "hardware": row.get("hardware"),
+        "queues": row.get("queues") or [],
+        "runs": int(row.get("runs") or 0),
+        "build_count": int(row.get("build_count") or 0),
+        "passed": int(row.get("passed") or 0),
+        "hard_failed": int(row.get("failed") or 0),
+        "soft_failed": int(row.get("soft_failed") or 0),
+        "incidents": int(row.get("incident_count") or 0),
+        "incident_rate_pct": float(row.get("incident_rate_pct") or 0),
+        "mixed_outcomes": bool(row.get("mixed_outcomes")),
+        "latest_state": row.get("latest_state") or "unknown",
+        "latest_observed_at": row.get("latest_observed_at"),
+        "latest_url": row.get("latest_url"),
+        "median_duration_mins": row.get("median_dur"),
+        "p90_duration_mins": row.get("p90_dur"),
+        "max_duration_mins": row.get("max_dur"),
+        "duration_basis": row.get("duration_basis") or "unavailable",
+        "evidence_ref": row.get("id"),
+    }
+
+
+def _cuda_reference_kind(row: dict) -> str:
+    hardware = str(row.get("hardware") or "").lower()
+    queues = {str(queue).lower() for queue in row.get("queues") or []}
+    explicit = {
+        "a100": {"a100_queue"},
+        "b200": {"b200-k8s"},
+        "h100": {"mithril-h100-pool"},
+        "h200": {"h200", "gh200_queue", "h200_18gb", "h200_35gb"},
+    }
+    if hardware in explicit and len(queues) == 1 and queues <= explicit[hardware]:
+        return "explicit_cuda"
+    if hardware == "gpu" and len(queues) == 1 and all(
+        re.match(r"^gpu_\d+_queue$", queue) for queue in queues
+    ):
+        return "generic_gpu_reference"
+    return "unsupported_reference"
+
+
+def _comparison_side(
+    groups: list[dict],
+    cohort_builds: int,
+    child_retry_attempts: int,
+    recoveries: int,
+    retry_involved_attempts: int = 0,
+) -> dict:
+    runs = sum(int(row.get("runs") or 0) for row in groups)
+    passed = sum(int(row.get("passed") or 0) for row in groups)
+    hard_failed = sum(int(row.get("failed") or 0) for row in groups)
+    soft_failed = sum(int(row.get("soft_failed") or 0) for row in groups)
+    incidents = hard_failed + soft_failed
+    duration_rows = [row for row in groups if _number(row.get("p90_dur")) is not None]
+    slowest = max(
+        duration_rows,
+        key=lambda row: (float(row.get("p90_dur") or 0), str(row.get("name") or "")),
+        default={},
+    )
+    variants = sorted(
+        (_comparison_variant(row) for row in groups),
+        key=lambda row: (
+            str(row.get("hardware") or ""),
+            str(row.get("name") or "").casefold(),
+            str(row.get("group_id") or ""),
+        ),
+    )
+    return {
+        "variant_count": len(groups),
+        "group_ids": [row["group_id"] for row in variants if row.get("group_id")],
+        "hardware": sorted({
+            str(row.get("hardware")) for row in groups if row.get("hardware")
+        }),
+        "queues": sorted({
+            str(queue)
+            for row in groups
+            for queue in row.get("queues") or []
+            if queue
+        }),
+        "runs": runs,
+        "passed": passed,
+        "hard_failed": hard_failed,
+        "soft_failed": soft_failed,
+        "incidents": incidents,
+        "incident_rate_pct": round(incidents / runs * 100, 1) if runs else None,
+        "attempts_per_100_builds": round(runs / cohort_builds * 100, 1) if cohort_builds else None,
+        "mixed_outcome_variant_count": sum(bool(row.get("mixed_outcomes")) for row in groups),
+        "retry_attempts": child_retry_attempts,
+        "child_retry_attempts": child_retry_attempts,
+        "retry_involved_attempts": retry_involved_attempts,
+        "retry_frequency_pct": round(child_retry_attempts / runs * 100, 1) if runs else None,
+        "recovered_chains": recoveries,
+        "retry_recovery_rate_pct": round(recoveries / child_retry_attempts * 100, 1) if child_retry_attempts else None,
+        "worst_p90_duration_mins": slowest.get("p90_dur"),
+        "slowest_group_id": slowest.get("id"),
+        "duration_basis": slowest.get("duration_basis") or "unavailable",
+        "variants": variants,
+    }
+
+
+def _platform_comparison(
+    catalog: list[dict],
+    retry_analysis: dict,
+    cohort_builds: int,
+) -> dict:
+    grouped: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    exact_identity: dict[str, tuple[str, str]] = {}
+    for row in catalog:
+        platform = _comparison_platform(row)
+        if platform not in {"amd", "cuda"}:
+            continue
+        key = _comparison_key(row.get("name"))
+        if not key:
+            continue
+        grouped[(platform, key)].append(row)
+        for identity in [row.get("name"), *(row.get("raw_names") or [])]:
+            if identity:
+                exact_identity[str(identity).casefold()] = (platform, key)
+
+    def retry_identity(row: dict) -> tuple[str, str] | None:
+        name = str(row.get("name") or "")
+        exact = exact_identity.get(name.casefold())
+        if exact:
+            return exact
+        key = _comparison_key(name)
+        platform = "amd" if AMD_PREFIX_RE.match(name) else "cuda"
+        return (platform, key) if grouped.get((platform, key)) else None
+
+    retry_involved_counts: Counter[tuple[str, str]] = Counter()
+    child_retry_counts: Counter[tuple[str, str]] = Counter()
+    recovery_counts: Counter[tuple[str, str]] = Counter()
+    if retry_analysis.get("available") is True:
+        for row in retry_analysis.get("retry_attempts") or []:
+            if identity := retry_identity(row):
+                retry_involved_counts[identity] += 1
+                if row.get("retry_source"):
+                    child_retry_counts[identity] += 1
+        for row in retry_analysis.get("failed_then_passed_recoveries") or []:
+            if identity := retry_identity(row):
+                recovery_counts[identity] += 1
+
+    amd_keys = sorted(key for platform, key in grouped if platform == "amd")
+    rows = []
+    for key in amd_keys:
+        amd_groups = grouped[("amd", key)]
+        cuda_groups = grouped.get(("cuda", key), [])
+        amd = _comparison_side(
+            amd_groups,
+            cohort_builds,
+            child_retry_counts[("amd", key)],
+            recovery_counts[("amd", key)],
+            retry_involved_counts[("amd", key)],
+        )
+        cuda = _comparison_side(
+            cuda_groups,
+            cohort_builds,
+            child_retry_counts[("cuda", key)],
+            recovery_counts[("cuda", key)],
+            retry_involved_counts[("cuda", key)],
+        )
+        label = _comparison_label(amd_groups[0].get("name"))
+        match_issues = []
+        if not cuda_groups:
+            match_issues.append("no_cuda_equivalent")
+        if len(amd_groups) > 1:
+            match_issues.append("shared_amd_base_label")
+        if len(cuda_groups) > 1:
+            match_issues.append("ambiguous_cuda_variants")
+        if cuda_groups and any(
+            _cuda_reference_kind(group) != "explicit_cuda" for group in cuda_groups
+        ):
+            match_issues.append("generic_or_unsupported_gpu_reference")
+        if HARDWARE_WORD_RE.search(label):
+            match_issues.append("hardware_specific_label")
+        comparison_eligible = not match_issues
+        match_status = "exact_cuda_pair" if comparison_eligible else match_issues[0]
+        rows.append({
+            "id": hashlib.sha1(f"ci-amd-cuda:{key}".encode()).hexdigest()[:20],
+            "label": label,
+            "comparison_key": key,
+            "match_status": match_status,
+            "match_issues": match_issues,
+            "comparison_eligible": comparison_eligible,
+            "amd": amd,
+            "cuda": cuda,
+            "incident_rate_delta_pp": (
+                round(float(amd["incident_rate_pct"]) - float(cuda["incident_rate_pct"]), 1)
+                if comparison_eligible and amd["incident_rate_pct"] is not None and cuda["incident_rate_pct"] is not None
+                else None
+            ),
+            "retry_frequency_delta_pp": (
+                round(float(amd["retry_frequency_pct"]) - float(cuda["retry_frequency_pct"]), 1)
+                if comparison_eligible and amd["retry_frequency_pct"] is not None and cuda["retry_frequency_pct"] is not None
+                else None
+            ),
+            "worst_p90_delta_mins": (
+                round(float(amd["worst_p90_duration_mins"]) - float(cuda["worst_p90_duration_mins"]), 1)
+                if comparison_eligible and amd["worst_p90_duration_mins"] is not None and cuda["worst_p90_duration_mins"] is not None
+                else None
+            ),
+        })
+    rows.sort(
+        key=lambda row: (
+            -(float(row["amd"].get("incident_rate_pct") or 0)),
+            str(row.get("label") or "").casefold(),
+        )
+    )
+    label_matched = [row for row in rows if row["cuda"]["variant_count"]]
+    matched = [row for row in rows if row["comparison_eligible"]]
+    amd_groups = [row for (platform, _), values in grouped.items() if platform == "amd" for row in values]
+    matched_cuda_groups = [
+        row
+        for item in matched
+        for row in grouped.get(("cuda", item["comparison_key"]), [])
+    ]
+    amd_child_retries = sum(child_retry_counts[("amd", key)] for key in amd_keys)
+    amd_retry_involved = sum(retry_involved_counts[("amd", key)] for key in amd_keys)
+    amd_recoveries = sum(recovery_counts[("amd", key)] for key in amd_keys)
+    matched_keys = {row["comparison_key"] for row in matched}
+    comparable_amd_groups = [
+        row
+        for item in matched
+        for row in grouped.get(("amd", item["comparison_key"]), [])
+    ]
+    comparable_amd_child_retries = sum(
+        child_retry_counts[("amd", key)] for key in matched_keys
+    )
+    comparable_amd_retry_involved = sum(
+        retry_involved_counts[("amd", key)] for key in matched_keys
+    )
+    comparable_amd_recoveries = sum(
+        recovery_counts[("amd", key)] for key in matched_keys
+    )
+    cuda_child_retries = sum(child_retry_counts[("cuda", key)] for key in matched_keys)
+    cuda_retry_involved = sum(retry_involved_counts[("cuda", key)] for key in matched_keys)
+    cuda_recoveries = sum(recovery_counts[("cuda", key)] for key in matched_keys)
+    amd_totals = _comparison_side(
+        amd_groups, cohort_builds, amd_child_retries, amd_recoveries, amd_retry_involved
+    )
+    comparable_amd_totals = _comparison_side(
+        comparable_amd_groups,
+        cohort_builds,
+        comparable_amd_child_retries,
+        comparable_amd_recoveries,
+        comparable_amd_retry_involved,
+    )
+    cuda_totals = _comparison_side(
+        matched_cuda_groups,
+        cohort_builds,
+        cuda_child_retries,
+        cuda_recoveries,
+        cuda_retry_involved,
+    )
+    for totals in (amd_totals, comparable_amd_totals, cuda_totals):
+        totals.pop("group_ids", None)
+        totals.pop("variants", None)
+    return {
+        "available": bool(rows),
+        "source_pipeline": "ci",
+        "cohort_build_count": cohort_builds,
+        "summary": {
+            "amd_base_group_count": len(rows),
+            "amd_variant_count": len(amd_groups),
+            "label_matched_base_group_count": len(label_matched),
+            "matched_base_group_count": len(matched),
+            "comparable_base_group_count": len(matched),
+            "review_required_base_group_count": len(rows) - len(matched),
+            "unmatched_amd_base_group_count": len(rows) - len(label_matched),
+            "matched_cuda_variant_count": len(matched_cuda_groups),
+            "amd": amd_totals,
+            "comparable_amd": comparable_amd_totals,
+            "matched_cuda": cuda_totals,
+        },
+        "matching": {
+            "amd_rule": "AMD: prefix, MI hardware, or amd_mi* queue",
+            "cuda_rule": "NVIDIA hardware or known CUDA queue; Intel GPU, CPU, NPU, and unknown groups excluded",
+            "equivalence_rule": "case-insensitive exact label after removing only AMD:/mi*_n wrapper decoration; comparative deltas require one AMD variant, one explicit NVIDIA variant, and hardware-neutral wording",
+            "scope": "completed upstream ci branch=main builds in the strict retained cohort",
+            "frequency_unit": "terminal attempts per 100 cohort builds; child retry share uses retry_source rows over terminal attempts",
+        },
+        "rows": rows,
+    }
+
+
 def _reliability(pipeline_analytics: Any, pipeline_slug: str = "ci") -> dict:
     pipeline_analytics = pipeline_analytics if isinstance(pipeline_analytics, dict) else {}
     collector_payload = pipeline_analytics.get("all_main_reliability") or {}
@@ -1770,6 +2087,18 @@ def _reliability(pipeline_analytics: Any, pipeline_slug: str = "ci") -> dict:
         cohort_build_numbers,
         pipeline_slug=pipeline_slug,
     )
+    platform_comparison = _platform_comparison(
+        catalog,
+        retry_analysis,
+        counts["builds"],
+    ) if pipeline_slug == "ci" else {
+        "available": False,
+        "source_pipeline": pipeline_slug,
+        "cohort_build_count": counts["builds"],
+        "summary": {},
+        "matching": {},
+        "rows": [],
+    }
     composition = _cohort_composition(
         collector_payload if strict_available else {},
         counts,
@@ -1820,6 +2149,7 @@ def _reliability(pipeline_analytics: Any, pipeline_slug: str = "ci") -> dict:
             "by_max_duration": by_max,
         },
         "retry_analysis": retry_analysis,
+        "platform_comparison": platform_comparison,
     }
 
 

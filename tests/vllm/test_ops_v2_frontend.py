@@ -117,7 +117,7 @@ def test_test_group_history_switches_cohorts_with_clickable_outcome_evidence():
     )
 
 
-def test_amd_health_and_upstream_flakes_are_distinct_first_visit_surfaces():
+def test_amd_health_and_platform_comparison_are_distinct_first_visit_surfaces():
     for contract in (
         "function renderAmdHealth",
         "function openAmdCatalog",
@@ -126,12 +126,13 @@ def test_amd_health_and_upstream_flakes_are_distinct_first_visit_surfaces():
         "Latest health by hardware variant",
         "All AMD test groups",
         "AMD nightly test health",
-        "Upstream-only flake evidence",
-        "AMD mirror results are not used to classify flakes",
-        "function openReliabilityList",
-        "function renderReliabilityClusters",
+        "AMD-first, upstream-only flake evidence",
+        "function platformComparison",
+        "function openPlatformComparisonDetail",
+        "function renderPlatformFlakes",
+        "All AMD groups remain visible",
         "Browse all ",
-        "Mixed-outcome clusters",
+        "AMD flake comparison",
     ):
         assert contract in OPS_JS
     for contract in (
@@ -142,8 +143,8 @@ def test_amd_health_and_upstream_flakes_are_distinct_first_visit_surfaces():
         ".ops-page .ops-amd-cluster-grid",
     ):
         assert contract in OPS_CSS
-    assert "filter(function (cluster) { return cluster.count > 0; })" in OPS_JS
-    assert "name: 'reliability-browser'" in OPS_JS
+    assert "name: 'flake-comparison'" in OPS_JS
+    assert "comparisonFlakeColumns" in OPS_JS
     assert "renderGroupOverviewCharts(host, catalog" not in OPS_JS
 
     health = OPS_DATA["amd_test_health"]
@@ -161,21 +162,40 @@ def test_amd_health_and_upstream_flakes_are_distinct_first_visit_surfaces():
         for observation in row["observations"]
     )
 
+    comparison = OPS_DATA["reliability"]["platform_comparison"]
+    assert comparison["available"] is True
+    assert comparison["source_pipeline"] == "ci"
+    assert comparison["summary"]["amd_base_group_count"] == len(comparison["rows"])
+    assert comparison["summary"]["matched_base_group_count"] > 0
+    assert comparison["summary"]["comparable_base_group_count"] + comparison["summary"]["review_required_base_group_count"] == len(comparison["rows"])
+    assert all(row["amd"]["variant_count"] > 0 for row in comparison["rows"])
+    assert all(isinstance(row["match_issues"], list) for row in comparison["rows"])
+    assert all(row["comparison_eligible"] == (row["match_status"] == "exact_cuda_pair") for row in comparison["rows"])
+    assert all(
+        row["amd"]["variant_count"] == row["cuda"]["variant_count"] == 1
+        for row in comparison["rows"]
+        if row["comparison_eligible"]
+    )
+    assert comparison["summary"]["amd"]["child_retry_attempts"] <= comparison["summary"]["amd"]["retry_involved_attempts"]
 
-def test_flake_visualizations_summarize_risk_and_latest_exact_state():
+
+def test_flake_visualizations_compare_amd_and_exact_cuda_equivalents():
     for contract in (
-        "function renderFlakeOverviewCharts",
-        "Candidate risk distribution",
-        "What candidates are doing now",
-        "UPSTREAM TEST GROUPS",
-        "PASSING ON LATEST RUN",
-        "INCIDENT ON LATEST RUN",
-        "Latest exact upstream result for every mixed-outcome candidate",
+        "Highest AMD incident frequencies",
+        "AMD INCIDENT FREQUENCY",
+        "PAIRED AMD VS CUDA",
+        "EXACT CUDA PAIRS",
+        "AMD incidents",
+        "CUDA reference",
+        "AMD attempts / 100 builds",
+        "Inspect exact AMD and CUDA variants",
     ):
         assert contract in OPS_JS
-    assert "observationState(latestObservation(row) || {})" in OPS_JS
-    assert "openReliabilityList(group.label" in OPS_JS
-    assert "renderGroupOverviewCharts(host, candidates" not in OPS_JS
+    assert "row.amd.incident_rate_pct" in OPS_JS
+    assert "row.cuda.incident_rate_pct" in OPS_JS
+    assert "openPlatformComparisonDetail" in OPS_JS
+    assert "if (raw === null || raw === undefined || raw === '') return '-'" in OPS_JS
+    assert "percentileValue(p90Values, 0.5)" in OPS_JS
 
 
 def test_shared_evidence_primitives_are_accessible_and_source_linked():
@@ -391,39 +411,43 @@ def test_amd_cpu_is_included_in_amd_queue_and_omni_scope():
 
 def test_all_main_and_nightly_analytics_are_distinct_surfaces():
     assert "All-main reliability" in OPS_JS
-    assert "Nightly change" in OPS_JS
+    assert "AMD nightlies" in OPS_JS
     assert "All main" in OPS_JS
-    assert "Upstream reliability unavailable" in OPS_JS
-    assert "No AMD or nightly history has been substituted" in OPS_JS
-    assert "regression lifecycle only" in OPS_JS
+    assert "AMD/CUDA comparison unavailable" in OPS_JS
+    assert "will not substitute unmatched hardware or a different pipeline" in OPS_JS
     assert "reliabilityCatalog" in OPS_JS
     assert "evidence_ref" in OPS_JS
-    assert "UPSTREAM MAIN BUILDS" in OPS_JS
     assert "canonical_nightly_build_count" in OPS_JS
     assert "non_nightly_main_build_count" in OPS_JS
     assert "canonicalReliability(ops)" in OPS_JS
     assert "return reliabilityForPipeline(ops, 'ci')" in OPS_JS
-    assert "AMD nightly health for AMD test groups" in OPS_JS
-    assert "upstream CI remains canonical for flakes, retries, and completion time" in OPS_JS
+    assert "AMD health is primary" in OPS_JS
+    assert "exact CUDA-name equivalents" in OPS_JS
     assert "{id: 'groups', label: 'AMD test health'}" in OPS_JS
-    assert "{id: 'flakes', label: 'Upstream flakes'}" in OPS_JS
+    assert "{id: 'flakes', label: 'Flake comparison'}" in OPS_JS
+    assert "{id: 'retries', label: 'Retry comparison'}" in OPS_JS
+    assert "{id: 'latency', label: 'Latency comparison'}" in OPS_JS
 
 
-def test_nightly_pipeline_selector_defaults_upstream_and_is_route_backed():
-    assert "analyticsPipeline: 'ci'" in OPS_JS
+def test_nightly_pipeline_selector_defaults_amd_and_is_route_backed():
+    assert "analyticsPipeline: 'amd-ci'" in OPS_JS
     assert "['analyticsPipeline', 'analytics_pipeline', ['ci', 'amd-ci']]" in OPS_JS
     assert "nightlyForPipeline(ops, state.analyticsPipeline)" in OPS_JS
-    assert "{id: 'ci', label: 'Upstream'}" in OPS_JS
+    assert "{id: 'ci', label: 'Upstream parity'}" in OPS_JS
     assert "{id: 'amd-ci', label: 'AMD'}" in OPS_JS
     assert "'Nightly pipeline'" in OPS_JS
-    assert "this selector does not change canonical upstream reliability" in OPS_JS
+    assert "AMD is the default operational signal" in OPS_JS
+    assert "retained for parity checks" in OPS_JS
 
 
 def test_retry_attempts_recoveries_and_latency_use_exact_evidence():
-    assert "Upstream explicit retry attempts" in OPS_JS
+    assert "function renderPlatformRetries" in OPS_JS
+    assert "function renderPlatformLatency" in OPS_JS
     assert "retry.retry_attempts || []" in OPS_JS
-    assert "Upstream recovered fail-to-pass chains" in OPS_JS
-    assert "Open exact attempt" in OPS_JS
+    assert "Retry-involved attempts" in OPS_JS
+    assert "Confirmed retry recoveries" in OPS_JS
+    assert "Open failed log" in OPS_JS
+    assert "Open passing log" in OPS_JS
     retry = OPS_DATA["reliability"]["retry_analysis"]
     assert len(retry["retry_attempts"]) == retry["summary"]["retry_attempt_count"]
     assert len(retry["failed_then_passed_recoveries"]) == retry["summary"][
@@ -435,17 +459,16 @@ def test_retry_attempts_recoveries_and_latency_use_exact_evidence():
         for row in retry["failed_then_passed_recoveries"]
     )
 
-    retry_surface = OPS_JS.split("if (state.analyticsView === 'retries')", 1)[1].split(
-        "const latencyRows", 1
-    )[0]
-    assert "openGroupDetail" not in retry_surface
-    assert "buildUrl('amd-ci'" not in retry_surface
-    assert "exactReliabilityBuildUrl(r)" in retry_surface
-    latency_surface = OPS_JS.split("const latencyRows", 1)[1].split(
-        "async function renderPerf", 1
-    )[0]
-    assert "groupReliabilityByRef(reliability, r.evidence_ref)" in latency_surface
-    assert "groupReliability(reliability, r.name)" not in latency_surface
+    comparison = OPS_DATA["reliability"]["platform_comparison"]
+    catalog_ids = {row["id"] for row in OPS_DATA["reliability"]["group_catalog"]}
+    assert all(
+        group_id in catalog_ids
+        for row in comparison["rows"]
+        for side in (row["amd"], row["cuda"])
+        for group_id in side["group_ids"]
+    )
+    assert "comparisonGroupById(reliability, variant.group_id)" in OPS_JS
+    assert "exactPipelineEvidenceUrl(attempt, 'ci')" in OPS_JS
 
 
 def test_history_surfaces_have_exact_or_published_source_assets():

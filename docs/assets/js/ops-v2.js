@@ -21,7 +21,7 @@
   const state = {
     healthView: 'overview',
     analyticsView: 'groups',
-    analyticsPipeline: 'ci',
+    analyticsPipeline: 'amd-ci',
     homeWork: 'issues',
     healthSearch: '',
     healthPlan: 'all',
@@ -2948,80 +2948,384 @@
     });
   }
 
+  function platformComparison(reliability) {
+    const comparison = (reliability || {}).platform_comparison || {};
+    return comparison.available === true && Array.isArray(comparison.rows) ? comparison : {available: false, summary: {}, matching: {}, rows: []};
+  }
+
+  function comparisonPercent(side, key) {
+    const raw = (side || {})[key];
+    if (raw === null || raw === undefined || raw === '') return '-';
+    const numeric = Number(raw);
+    return Number.isFinite(numeric) ? numeric.toFixed(1) + '%' : '-';
+  }
+
+  function comparisonDelta(valueNumber, unit) {
+    if (valueNumber === null || valueNumber === undefined || valueNumber === '') return '-';
+    const numeric = Number(valueNumber);
+    if (!Number.isFinite(numeric)) return '-';
+    return (numeric > 0 ? '+' : '') + numeric.toFixed(1) + (unit || '');
+  }
+
+  function comparisonTone(valueNumber, threshold) {
+    if (valueNumber === null || valueNumber === undefined || valueNumber === '') return 'is-neutral';
+    const numeric = Number(valueNumber);
+    if (!Number.isFinite(numeric) || Math.abs(numeric) <= Number(threshold || 0)) return 'is-neutral';
+    return numeric > 0 ? 'is-danger' : 'is-success';
+  }
+
+  function comparisonMatchLabel(row) {
+    const labels = {
+      exact_cuda_pair: 'Exact CUDA pair',
+      shared_amd_base_label: 'Shared AMD variants',
+      ambiguous_cuda_variants: 'Multiple CUDA variants',
+      generic_or_unsupported_gpu_reference: 'Generic GPU reference',
+      hardware_specific_label: 'Hardware-specific label',
+      no_cuda_equivalent: 'No CUDA equivalent',
+    };
+    return labels[row.match_status] || 'Review required';
+  }
+
+  function comparisonNameKey(name) {
+    return String(name || '')
+      .replace(/^AMD:\s*/i, '')
+      .replace(/^mi\d{3,4}b?_\d+:\s*/i, '')
+      .replace(/\s*\(mi\d{3,4}b?_\d+\)\s*$/i, '')
+      .trim().replace(/\s+/g, ' ').toLowerCase();
+  }
+
+  function comparisonGroupById(reliability, groupId) {
+    return groupReliabilityByRef(reliability, groupId);
+  }
+
+  function comparisonVariantCell(variant, ops, reliability, platform) {
+    const group = comparisonGroupById(reliability, variant.group_id);
+    const cell = n('div', 'ops-entity-cell');
+    cell.append(linkButton(variant.name || 'Unnamed variant', function () {
+      if (group) openGroupDetail(variant, ops, group, reliability);
+    }, 'Inspect exact ' + platform + ' group history'));
+    const meta = [platform, hardwareDisplayLabel(variant.hardware), (variant.queues || []).join(', ')].filter(Boolean).join(' - ');
+    if (meta) cell.append(n('span', 'ops-entity-meta', meta));
+    return cell;
+  }
+
+  function comparisonRetryRows(row, retry) {
+    const key = row.comparison_key;
+    function selected(source) {
+      return (source || []).filter(function (item) { return comparisonNameKey(item.name) === key; }).map(function (item) {
+        return Object.assign({}, item, {
+          _platform: /^AMD:\s*/i.test(String(item.name || '')) ? 'AMD' : 'CUDA',
+          _role: item.retry_source ? 'Child retry' : 'Original attempt',
+        });
+      });
+    }
+    return {
+      attempts: selected((retry || {}).retry_attempts),
+      recoveries: selected((retry || {}).failed_then_passed_recoveries),
+    };
+  }
+
+  function openPlatformComparisonDetail(row, ops, reliability, retry, focus) {
+    const amd = row.amd || {};
+    const cuda = row.cuda || {};
+    const content = n('div', 'ops-comparison-detail');
+    content.append(statusStrip([
+      {label: 'AMD INCIDENT FREQUENCY', value: comparisonPercent(amd, 'incident_rate_pct'), meta: integer(amd.incidents) + ' of ' + integer(amd.runs) + ' terminal attempts', tone: Number(amd.incident_rate_pct) ? 'is-warning' : 'is-success'},
+      {label: 'CUDA INCIDENT FREQUENCY', value: comparisonPercent(cuda, 'incident_rate_pct'), meta: integer(cuda.incidents) + ' of ' + integer(cuda.runs) + ' matched attempts'},
+      {label: 'AMD CHILD RETRY SHARE', value: comparisonPercent(amd, 'retry_frequency_pct'), meta: integer(amd.child_retry_attempts) + ' child retries - ' + integer(amd.recovered_chains) + ' recovered', tone: Number(amd.child_retry_attempts) ? 'is-warning' : 'is-success'},
+      {label: 'WORST P90 DELTA', value: comparisonDelta(row.worst_p90_delta_mins, 'm'), meta: duration(amd.worst_p90_duration_mins) + ' AMD - ' + duration(cuda.worst_p90_duration_mins) + ' CUDA', tone: comparisonTone(row.worst_p90_delta_mins, 5)},
+    ]));
+    const note = n('div', 'ops-evidence-note is-info');
+    add(note, [n('strong', '', comparisonMatchLabel(row) + '. '), n('span', '', row.comparison_eligible ? 'This one-to-one explicit NVIDIA pair shares a hardware-neutral base label in the same completed branch=main cohort.' : 'The AMD evidence is valid, but the reference is excluded from comparative deltas until its variant or hardware ambiguity is reviewed.')]);
+    content.append(note);
+    const variants = (amd.variants || []).map(function (variant) { return Object.assign({}, variant, {_platform: 'AMD'}); })
+      .concat((cuda.variants || []).map(function (variant) { return Object.assign({}, variant, {_platform: 'CUDA'}); }));
+    content.append(panel('Hardware variants', integer(amd.variant_count) + ' AMD - ' + integer(cuda.variant_count) + ' CUDA', dataTable([
+      {label: 'Platform and exact group', sticky: true, width: '430px', render: function (variant) { return comparisonVariantCell(variant, ops, reliability, variant._platform); }},
+      {label: 'Runs', numeric: true, width: '90px', render: function (variant) { const group = comparisonGroupById(reliability, variant.group_id); return linkButton(integer(variant.runs), function () { if (group) openGroupDetail(variant, ops, group, reliability); }); }},
+      {label: 'Incidents', numeric: true, width: '110px', render: function (variant) { const group = comparisonGroupById(reliability, variant.group_id); return linkButton(integer(variant.incidents), function () { if (group) openGroupDetail(variant, ops, group, reliability); }); }},
+      {label: 'Incident frequency', numeric: true, width: '150px', render: function (variant) { const group = comparisonGroupById(reliability, variant.group_id); return linkButton(comparisonPercent(variant, 'incident_rate_pct'), function () { if (group) openGroupDetail(variant, ops, group, reliability); }); }},
+      {label: 'p90 completion', numeric: true, width: '140px', render: function (variant) { const group = comparisonGroupById(reliability, variant.group_id); return linkButton(duration(variant.p90_duration_mins), function () { if (group) openGroupDetail(variant, ops, group, reliability); }); }},
+      {label: 'Latest evidence', width: '150px', render: function (variant) { return externalLink('Open job', exactPipelineEvidenceUrl({latest_url: variant.latest_url}, 'ci')); }},
+    ], variants, integer(variants.length) + ' exact upstream hardware variants', {name: 'amd-cuda-variants', minWidth: '1070px'}), 'ops-comparison-variants'));
+
+    const retryRows = comparisonRetryRows(row, retry);
+    if (focus === 'retries' || retryRows.attempts.length || retryRows.recoveries.length) {
+      const attemptColumns = [
+        {label: 'Platform', width: '90px', render: function (attempt) { return badge(attempt._platform, attempt._platform === 'AMD' ? 'is-info' : 'is-neutral'); }},
+        {label: 'Build', width: '100px', render: function (attempt) { return externalLink('#' + value(attempt.build_number), exactReliabilityBuildUrl(attempt), 'ops-mono'); }},
+        {label: 'Exact retry attempt', sticky: true, width: '420px', render: function (attempt) { return externalLink(attempt.name || 'Unnamed retry', exactPipelineEvidenceUrl(attempt, 'ci')); }},
+        {label: 'Result', width: '120px', render: function (attempt) { return linkedBadge(attempt.state || attempt.result || 'unknown', exactPipelineEvidenceUrl(attempt, 'ci')); }},
+        {label: 'Role', width: '140px', render: function (attempt) { return linkedBadge(attempt._role, exactPipelineEvidenceUrl(attempt, 'ci'), null, attempt.retry_source ? 'is-info' : 'is-neutral'); }},
+        {label: 'Retry type', width: '130px', render: function (attempt) { return linkedBadge(attempt.retry_type || 'explicit', exactPipelineEvidenceUrl(attempt, 'ci'), null, 'is-info'); }},
+      ];
+      content.append(compactTablePanel('Retry-involved attempts', integer(retryRows.attempts.filter(function (attempt) { return attempt.retry_source; }).length) + ' child retries inside ' + integer(retryRows.attempts.length) + ' linked attempts', attemptColumns, retryRows.attempts, {
+        id: 'comparison-retries-' + row.id,
+        limit: 10,
+        alwaysBrowse: retryRows.attempts.length > 0,
+        browserSubtitle: 'Every row opens the exact upstream Buildkite attempt',
+        searchText: function (attempt) { return [attempt._platform, attempt.name, attempt.build_number, attempt.state, attempt.retry_type].join(' '); },
+        geometry: {name: 'comparison-retries', minWidth: '1040px'},
+      }));
+      const recoveryColumns = [
+        {label: 'Platform', width: '90px', render: function (recovery) { return badge(recovery._platform, recovery._platform === 'AMD' ? 'is-info' : 'is-neutral'); }},
+        {label: 'Build', width: '100px', render: function (recovery) { return externalLink('#' + value(recovery.build_number), exactReliabilityBuildUrl(recovery), 'ops-mono'); }},
+        {label: 'Recovered group', sticky: true, width: '420px', render: function (recovery) { return externalLink(recovery.name || 'Unnamed recovery', exactPipelineEvidenceUrl({job_url: recovery.failed_url || recovery.passed_url, build_number: recovery.build_number}, 'ci')); }},
+        {label: 'Failed attempt', width: '170px', render: function (recovery) { return externalLink('Open failed log', exactPipelineEvidenceUrl({job_url: recovery.failed_url, build_number: recovery.build_number}, 'ci')); }},
+        {label: 'Passing retry', width: '170px', render: function (recovery) { return externalLink('Open passing log', exactPipelineEvidenceUrl({job_url: recovery.passed_url, build_number: recovery.build_number}, 'ci')); }},
+      ];
+      content.append(compactTablePanel('Confirmed retry recoveries', integer(retryRows.recoveries.length) + ' explicit fail-to-pass chains', recoveryColumns, retryRows.recoveries, {
+        id: 'comparison-recoveries-' + row.id,
+        limit: 8,
+        alwaysBrowse: retryRows.recoveries.length > 0,
+        browserSubtitle: 'Failed and passing jobs remain separate exact evidence',
+        searchText: function (recovery) { return [recovery._platform, recovery.name, recovery.build_number].join(' '); },
+        geometry: {name: 'comparison-recoveries', minWidth: '950px'},
+      }));
+    }
+    content.append(sourceActions([{label: 'Open published comparison data', url: SOURCE_ASSETS.operations}, {label: 'Open upstream CI pipeline', url: 'https://buildkite.com/vllm/ci'}]));
+    openOverlay(row.label + ': AMD vs CUDA', 'Exact matched group variants, rates, latency, and Buildkite evidence', content, true, 'amd-cuda-' + row.id);
+  }
+
+  function comparisonGroupCell(row, ops, reliability, retry, focus) {
+    const cell = n('div', 'ops-entity-cell');
+    cell.append(linkButton(row.label, function () { openPlatformComparisonDetail(row, ops, reliability, retry, focus); }));
+    const amdHardware = ((row.amd || {}).hardware || []).map(hardwareDisplayLabel).join(', ');
+    const cudaHardware = ((row.cuda || {}).hardware || []).map(hardwareDisplayLabel).join(', ');
+    cell.append(n('span', 'ops-entity-meta', amdHardware + ' AMD - ' + (cudaHardware || 'no CUDA') + ' - ' + comparisonMatchLabel(row)));
+    return cell;
+  }
+
+  function renderComparisonChart(host, config) {
+    const chart = chartPanel(config.title, config.subtitle, config.key);
+    chart.root.classList.add('ops-comparison-chart');
+    host.append(chart.root);
+    requestAnimationFrame(function () {
+      drawChart(config.key, chart.canvas, {
+        type: 'bar',
+        data: {
+          labels: config.rows.map(function (row) { return compactChartLabel({name: row.label}, 42); }),
+          datasets: [
+            {label: 'AMD', data: config.rows.map(config.amdValue), backgroundColor: '#e3a63a'},
+            {label: 'Matched CUDA', data: config.rows.map(config.cudaValue), backgroundColor: '#5ca8ff'},
+          ],
+        },
+        options: {animation: false, indexAxis: 'y', scales: {x: {beginAtZero: true, title: {display: true, text: config.axis}}, y: {grid: {display: false}}}},
+        evidenceTitle: config.title + ' evidence',
+        evidence: config.rows.map(function (row) {
+          return {label: row.label, valueSummary: config.evidenceSummary(row), sources: [{label: 'Open published upstream comparison', url: SOURCE_ASSETS.operations}], onOpen: function () { openPlatformComparisonDetail(row, config.ops, config.reliability, config.retry, config.focus); }};
+        }),
+      });
+    });
+  }
+
+  function renderPlatformFlakes(host, comparison, ops, reliability, retry) {
+    const rows = comparison.rows.slice();
+    const summary = comparison.summary || {};
+    const amd = summary.amd || {};
+    const pairedAmd = summary.comparable_amd || {};
+    const cuda = summary.matched_cuda || {};
+    const sorted = rows.slice().sort(function (a, b) { return Number(b.amd.incident_rate_pct || 0) - Number(a.amd.incident_rate_pct || 0) || a.label.localeCompare(b.label); });
+    const comparable = sorted.filter(function (row) { return row.comparison_eligible; });
+    host.append(statusStrip([
+      {label: 'AMD GROUPS COMPARED', value: integer(summary.amd_base_group_count), meta: integer(summary.amd_variant_count) + ' AMD hardware variants', onOpen: function () { openTableBrowser({id: 'flake-comparison-all', title: 'All AMD and CUDA flake comparisons', subtitle: 'Exact base-label matches in upstream branch=main', rows: sorted, columns: comparisonFlakeColumns(ops, reliability, retry), searchText: comparisonSearchText, geometry: {name: 'flake-comparison', minWidth: '1300px'}}); }},
+      {label: 'AMD INCIDENT FREQUENCY', value: comparisonPercent(amd, 'incident_rate_pct'), meta: integer(amd.incidents) + ' incidents / ' + integer(amd.runs) + ' attempts', tone: Number(amd.incidents) ? 'is-warning' : 'is-success'},
+      {label: 'PAIRED AMD VS CUDA', value: comparisonPercent(pairedAmd, 'incident_rate_pct') + ' / ' + comparisonPercent(cuda, 'incident_rate_pct'), meta: comparisonDelta(Number(pairedAmd.incident_rate_pct) - Number(cuda.incident_rate_pct), ' pp AMD gap')},
+      {label: 'EXACT CUDA PAIRS', value: integer(summary.comparable_base_group_count) + ' / ' + integer(summary.amd_base_group_count), meta: integer(summary.review_required_base_group_count) + ' references require review', tone: Number(summary.review_required_base_group_count) ? 'is-warning' : 'is-success'},
+    ]));
+    const note = n('div', 'ops-evidence-note is-info');
+    add(note, [n('strong', '', 'AMD-first, upstream-only flake evidence. '), n('span', '', 'All AMD groups remain visible. Comparative deltas use only one-to-one explicit NVIDIA pairs; generic GPU or ambiguous references are marked for review. Incident frequency is not a test-case flake probability.')]);
+    host.append(note);
+    renderComparisonChart(host, {
+      title: 'Highest AMD incident frequencies',
+      subtitle: 'The AMD groups needing attention first, beside their exact CUDA-name equivalents',
+      key: 'analytics-platform-flakes',
+      rows: comparable.slice(0, 12),
+      amdValue: function (row) { return row.amd.incident_rate_pct; },
+      cudaValue: function (row) { return row.cuda.incident_rate_pct; },
+      axis: 'Incident frequency (%)',
+      evidenceSummary: function (row) { return comparisonPercent(row.amd, 'incident_rate_pct') + ' AMD - ' + comparisonPercent(row.cuda, 'incident_rate_pct') + ' CUDA'; },
+      ops: ops, reliability: reliability, retry: retry, focus: 'flakes',
+    });
+    host.append(compactTablePanel('AMD flake comparison', integer(rows.length) + ' AMD base groups - ' + integer(comparable.length) + ' exact CUDA pairs', comparisonFlakeColumns(ops, reliability, retry), sorted, {
+      id: 'flake-comparison-browser',
+      limit: 12,
+      alwaysBrowse: true,
+      browserSubtitle: 'Incident percentages and execution frequency for every matched base group',
+      searchPlaceholder: 'Filter AMD group, CUDA equivalent, hardware, or queue',
+      searchText: comparisonSearchText,
+      geometry: {name: 'flake-comparison', minWidth: '1300px'},
+    }));
+  }
+
+  function comparisonSearchText(row) {
+    return [row.label, (row.amd.hardware || []).join(' '), (row.cuda.hardware || []).join(' '), (row.amd.queues || []).join(' '), (row.cuda.queues || []).join(' ')].join(' ');
+  }
+
+  function comparisonFlakeColumns(ops, reliability, retry) {
+    return [
+      {label: 'AMD test group and CUDA equivalent', sticky: true, width: '340px', render: function (row) { return comparisonGroupCell(row, ops, reliability, retry, 'flakes'); }},
+      {label: 'Match', width: '150px', render: function (row) { return linkButton(comparisonMatchLabel(row), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'flakes'); }); }},
+      {label: 'AMD incidents', numeric: true, width: '120px', render: function (row) { return linkButton(comparisonPercent(row.amd, 'incident_rate_pct'), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'flakes'); }, integer(row.amd.incidents) + ' incidents in ' + integer(row.amd.runs) + ' attempts'); }},
+      {label: 'CUDA reference', numeric: true, width: '120px', render: function (row) { return linkButton(comparisonPercent(row.cuda, 'incident_rate_pct'), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'flakes'); }, integer(row.cuda.incidents) + ' incidents in ' + integer(row.cuda.runs) + ' reference attempts'); }},
+      {label: 'AMD gap', numeric: true, width: '95px', render: function (row) { const valueText = comparisonDelta(row.incident_rate_delta_pp, ' pp'); const control = linkButton(valueText, function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'flakes'); }); control.classList.add('ops-comparison-delta', comparisonTone(row.incident_rate_delta_pp, 5)); return control; }},
+      {label: 'AMD attempts / 100 builds', numeric: true, width: '150px', render: function (row) { return linkButton(comparisonPercent(row.amd, 'attempts_per_100_builds'), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'flakes'); }); }},
+      {label: 'Evidence', width: '90px', render: function (row) { return linkButton('Inspect', function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'flakes'); }, 'Inspect exact AMD and CUDA variants'); }},
+    ];
+  }
+
+  function renderPlatformRetries(host, comparison, ops, reliability, retry) {
+    const rows = comparison.rows.slice();
+    const summary = comparison.summary || {};
+    const amd = summary.amd || {};
+    const pairedAmd = summary.comparable_amd || {};
+    const cuda = summary.matched_cuda || {};
+    const sorted = rows.slice().sort(function (a, b) { return Number(b.amd.retry_frequency_pct || 0) - Number(a.amd.retry_frequency_pct || 0) || Number(b.amd.retry_attempts || 0) - Number(a.amd.retry_attempts || 0) || a.label.localeCompare(b.label); });
+    const comparable = sorted.filter(function (row) { return row.comparison_eligible; });
+    host.append(statusStrip([
+      {label: 'AMD CHILD RETRIES', value: integer(amd.child_retry_attempts), meta: integer(amd.retry_involved_attempts) + ' total retry-involved attempts', tone: Number(amd.child_retry_attempts) ? 'is-warning' : 'is-success'},
+      {label: 'AMD CHILD RETRY SHARE', value: comparisonPercent(amd, 'retry_frequency_pct'), meta: 'child retries / terminal AMD attempts'},
+      {label: 'AMD RECOVERY RATE', value: comparisonPercent(amd, 'retry_recovery_rate_pct'), meta: 'confirmed recoveries / explicit retries'},
+      {label: 'PAIRED AMD VS CUDA', value: comparisonPercent(pairedAmd, 'retry_frequency_pct') + ' / ' + comparisonPercent(cuda, 'retry_frequency_pct'), meta: integer(summary.comparable_base_group_count) + ' exact pairs'},
+    ]));
+    const note = n('div', 'ops-evidence-note is-info');
+    add(note, [n('strong', '', 'Explicit Buildkite retry metadata only. '), n('span', '', 'The share counts child attempts carrying retry_source, not both sides of a retry pair. Every recovery requires a linked failed attempt and passing retry; mixed history alone is not counted.')]);
+    host.append(note);
+    renderComparisonChart(host, {
+      title: 'AMD groups retried most often',
+      subtitle: 'Explicit retry attempts as a percentage of terminal attempts, with matched CUDA context',
+      key: 'analytics-platform-retries',
+      rows: comparable.slice(0, 12),
+      amdValue: function (row) { return row.amd.retry_frequency_pct; },
+      cudaValue: function (row) { return row.cuda.retry_frequency_pct; },
+      axis: 'Retry frequency (%)',
+      evidenceSummary: function (row) { return comparisonPercent(row.amd, 'retry_frequency_pct') + ' AMD - ' + comparisonPercent(row.cuda, 'retry_frequency_pct') + ' CUDA'; },
+      ops: ops, reliability: reliability, retry: retry, focus: 'retries',
+    });
+    const columns = [
+      {label: 'AMD test group and CUDA equivalent', sticky: true, width: '340px', render: function (row) { return comparisonGroupCell(row, ops, reliability, retry, 'retries'); }},
+      {label: 'Match', width: '150px', render: function (row) { return linkButton(comparisonMatchLabel(row), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'retries'); }); }},
+      {label: 'AMD child retry share', numeric: true, width: '140px', render: function (row) { return linkButton(comparisonPercent(row.amd, 'retry_frequency_pct'), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'retries'); }); }},
+      {label: 'AMD child retries', numeric: true, width: '120px', render: function (row) { return linkButton(integer(row.amd.child_retry_attempts), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'retries'); }); }},
+      {label: 'AMD recovered', numeric: true, width: '110px', render: function (row) { return linkButton(integer(row.amd.recovered_chains), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'retries'); }); }},
+      {label: 'CUDA child retry share', numeric: true, width: '140px', render: function (row) { return linkButton(comparisonPercent(row.cuda, 'retry_frequency_pct'), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'retries'); }); }},
+      {label: 'AMD gap', numeric: true, width: '95px', render: function (row) { const control = linkButton(comparisonDelta(row.retry_frequency_delta_pp, ' pp'), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'retries'); }); control.classList.add('ops-comparison-delta', comparisonTone(row.retry_frequency_delta_pp, 2)); return control; }},
+      {label: 'Evidence', width: '90px', render: function (row) { return linkButton('Inspect', function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'retries'); }, 'Inspect exact retry attempts and recoveries'); }},
+    ];
+    host.append(compactTablePanel('AMD retry comparison', integer(rows.length) + ' AMD base groups - ' + integer(comparable.length) + ' exact CUDA pairs', columns, sorted, {
+      id: 'retry-comparison-browser',
+      limit: 12,
+      alwaysBrowse: true,
+      browserSubtitle: 'Per-group retry percentages with matched CUDA evidence',
+      searchPlaceholder: 'Filter AMD group, CUDA equivalent, hardware, or queue',
+      searchText: comparisonSearchText,
+      geometry: {name: 'retry-comparison', minWidth: '1280px'},
+    }));
+  }
+
+  function renderPlatformLatency(host, comparison, ops, reliability, retry) {
+    const rows = comparison.rows.filter(function (row) { return Number.isFinite(Number(row.amd.worst_p90_duration_mins)); });
+    const sorted = rows.slice().sort(function (a, b) { return Number(b.amd.worst_p90_duration_mins || 0) - Number(a.amd.worst_p90_duration_mins || 0) || a.label.localeCompare(b.label); });
+    const comparable = sorted.filter(function (row) {
+      return row.comparison_eligible
+        && row.amd.duration_basis === 'job_wall'
+        && row.cuda.duration_basis === 'job_wall'
+        && Number.isFinite(Number(row.cuda.worst_p90_duration_mins));
+    });
+    const p90Values = comparable.map(function (row) { return Number(row.amd.worst_p90_duration_mins); }).filter(Number.isFinite).sort(function (a, b) { return a - b; });
+    const typical = percentileValue(p90Values, 0.5);
+    const slower = comparable.filter(function (row) { return Number(row.worst_p90_delta_mins) > 5; });
+    const slowest = comparable[0] || {amd: {}, cuda: {}};
+    host.append(statusStrip([
+      {label: 'AMD GROUPS TIMED', value: integer(rows.length), meta: integer(comparable.length) + ' exact CUDA pairs'},
+      {label: 'TYPICAL PAIRED AMD P90', value: duration(typical), meta: 'median of exact-pair AMD group p90s'},
+      {label: 'SLOWEST AMD P90', value: duration(slowest.amd.worst_p90_duration_mins), meta: value(slowest.label, 'No duration evidence'), tone: 'is-warning', onOpen: function () { if (slowest.label) openPlatformComparisonDetail(slowest, ops, reliability, retry, 'latency'); }},
+      {label: 'AMD SLOWER THAN CUDA', value: integer(slower.length), meta: 'groups with a p90 gap greater than 5 minutes', tone: slower.length ? 'is-warning' : 'is-success'},
+    ]));
+    const note = n('div', 'ops-evidence-note is-info');
+    add(note, [n('strong', '', 'AMD completion time first. '), n('span', '', 'Comparative deltas use one-to-one explicit NVIDIA pairs with job-wall timing. Review-required references remain in the table without a delta. Queue wait stays separate in exact group evidence.')]);
+    host.append(note);
+    renderComparisonChart(host, {
+      title: 'Slowest AMD test groups',
+      subtitle: 'Worst AMD hardware-variant p90 beside the exact CUDA-name equivalent',
+      key: 'analytics-platform-latency',
+      rows: comparable.slice(0, 12),
+      amdValue: function (row) { return row.amd.worst_p90_duration_mins; },
+      cudaValue: function (row) { return row.cuda.worst_p90_duration_mins; },
+      axis: 'Wall completion p90 (minutes)',
+      evidenceSummary: function (row) { return duration(row.amd.worst_p90_duration_mins) + ' AMD - ' + duration(row.cuda.worst_p90_duration_mins) + ' CUDA'; },
+      ops: ops, reliability: reliability, retry: retry, focus: 'latency',
+    });
+    const columns = [
+      {label: 'AMD test group and CUDA equivalent', sticky: true, width: '340px', render: function (row) { return comparisonGroupCell(row, ops, reliability, retry, 'latency'); }},
+      {label: 'Match', width: '150px', render: function (row) { return linkButton(comparisonMatchLabel(row), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'latency'); }); }},
+      {label: 'AMD hardware', width: '120px', render: function (row) { return linkButton((row.amd.hardware || []).map(hardwareDisplayLabel).join(', '), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'latency'); }); }},
+      {label: 'AMD worst p90', numeric: true, width: '120px', render: function (row) { return linkButton(duration(row.amd.worst_p90_duration_mins), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'latency'); }); }},
+      {label: 'CUDA worst p90', numeric: true, width: '120px', render: function (row) { return linkButton(duration(row.cuda.worst_p90_duration_mins), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'latency'); }); }},
+      {label: 'AMD delta', numeric: true, width: '100px', render: function (row) { const control = linkButton(comparisonDelta(row.worst_p90_delta_mins, 'm'), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'latency'); }); control.classList.add('ops-comparison-delta', comparisonTone(row.worst_p90_delta_mins, 5)); return control; }},
+      {label: 'AMD attempts / 100 builds', numeric: true, width: '150px', render: function (row) { return linkButton(comparisonPercent(row.amd, 'attempts_per_100_builds'), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'latency'); }); }},
+      {label: 'Evidence', width: '90px', render: function (row) { return linkButton('Inspect', function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'latency'); }, 'Inspect exact AMD and CUDA timing evidence'); }},
+    ];
+    host.append(compactTablePanel('AMD completion-time comparison', integer(rows.length) + ' AMD base groups - ' + integer(comparable.length) + ' exact CUDA pairs', columns, sorted, {
+      id: 'latency-comparison-browser',
+      limit: 12,
+      alwaysBrowse: true,
+      browserSubtitle: 'AMD-first wall completion with exact CUDA counterparts and Buildkite evidence',
+      searchPlaceholder: 'Filter AMD group, CUDA equivalent, hardware, or queue',
+      searchText: comparisonSearchText,
+      geometry: {name: 'latency-comparison', minWidth: '1270px'},
+    }));
+  }
+
   async function renderAnalytics(host, ops) {
     const reliability = canonicalReliability(ops);
     const amdHealth = ops.amd_test_health || {};
+    const comparison = platformComparison(reliability);
     const nightly = nightlyForPipeline(ops, state.analyticsPipeline);
     const builds = nightly.builds || [];
     const nightlyName = nightlyDisplayName(nightly, state.analyticsPipeline);
     const retry = reliability.retry_analysis || {};
     const scope = reliabilityScopeInfo(reliability);
-    const cohort = reliabilityCohortSummary(reliability);
-    const catalog = reliabilityCatalog(reliability);
-    add(host, pageHeader('CI Analytics', 'AMD nightly health for AMD test groups; upstream CI remains canonical for flakes, retries, and completion time.', ops.generated_at));
+    add(host, pageHeader('CI Analytics', 'AMD health is primary. Flakes, retries, and latency compare upstream AMD mirror jobs only with their exact CUDA-name equivalents.', ops.generated_at));
     host.append(segmented([
-      {id: 'groups', label: 'AMD test health'}, {id: 'flakes', label: 'Upstream flakes'},
-      {id: 'retries', label: 'Retries'}, {id: 'latency', label: 'Completion time'},
-      {id: 'nightlies', label: 'Nightly change'},
+      {id: 'groups', label: 'AMD test health'}, {id: 'flakes', label: 'Flake comparison'},
+      {id: 'retries', label: 'Retry comparison'}, {id: 'latency', label: 'Latency comparison'},
+      {id: 'nightlies', label: 'AMD nightlies'},
     ], state.analyticsView, function (id) { setRouteState('ci-analytics', 'analyticsView', id, 'analytics_view'); }, 'CI Analytics view'));
-    const retrySummary = retry.summary || {};
-    const retryAvailable = retry.available === true;
-    const slowest = (((reliability.latency_rankings || {}).by_p90_duration || [])[0] || {});
-    const cohortMeta = cohort.nightlies !== null && cohort.otherMain !== null
-      ? integer(cohort.nightlies) + ' nightlies + ' + integer(cohort.otherMain) + ' other main'
-      : scope.detail;
     if (state.analyticsView === 'groups') {
       renderAmdHealth(host, amdHealth);
       return;
     }
 
-    if (state.analyticsView !== 'flakes') {
-      host.append(statusStrip([
-        {id: 'analytics-scope', label: 'UPSTREAM MAIN BUILDS', value: scope.available ? (cohort.total !== null ? integer(cohort.total) : 'All main') : 'Unavailable', meta: cohortMeta, tone: scope.allMain ? 'is-success' : 'is-warning', description: scope.detail, observed: cohort.observedTo, window: cohort.observedFrom && cohort.observedTo ? shortDate(cohort.observedFrom) + ' to ' + shortDate(cohort.observedTo) : null, provenance: cohort.selection, sources: [{label: 'Open published upstream reliability cohort', url: SOURCE_ASSETS.operations}], onOpen: function () { openMetricDetail({id: 'analytics-scope', label: 'Upstream all-main builds', value: scope.available ? cohort.total : 'Unavailable', meta: cohortMeta, observed: cohort.observedTo, window: cohort.observedFrom && cohort.observedTo ? shortDate(cohort.observedFrom) + ' to ' + shortDate(cohort.observedTo) : null, provenance: cohort.selection, sources: [{label: 'Open published upstream reliability cohort', url: SOURCE_ASSETS.operations}]}); }},
-        {id: 'analytics-nightlies', label: 'NIGHTLIES COMPARED', value: integer(builds.length), meta: nightlyName + ' - regression lifecycle only', onOpen: function () { setRouteState('ci-analytics', 'analyticsView', 'nightlies', 'analytics_view'); }},
-        {id: 'analytics-retries', label: 'UPSTREAM RETRY ATTEMPTS', value: retryAvailable ? integer(retrySummary.retry_attempt_count) : 'Unavailable', meta: retryAvailable ? integer(retrySummary.failed_then_passed_recovery_count) + ' recovered fail-to-pass chains' : 'complete explicit retry ledger not retained', tone: retryAvailable && Number(retrySummary.failed_then_passed_recovery_count) ? 'is-warning' : 'is-neutral', onOpen: function () { setRouteState('ci-analytics', 'analyticsView', 'retries', 'analytics_view'); }},
-        {id: 'analytics-slowest', label: 'UPSTREAM SLOWEST P90', value: duration(slowest.p90_dur), meta: value(slowest.name, 'No duration data'), onOpen: function () { slowest.name ? openGroupDetail(slowest, ops, slowest, reliability) : setRouteState('ci-analytics', 'analyticsView', 'latency', 'analytics_view'); }},
-      ]));
-    }
-
-    if (!scope.available && state.analyticsView !== 'nightlies') {
+    if ((!scope.available || !comparison.available) && state.analyticsView !== 'nightlies') {
       const unavailable = n('div', 'ops-evidence-note is-warning');
-      add(unavailable, [n('strong', '', 'Upstream reliability unavailable. '), n('span', '', scope.detail + '. No AMD or nightly history has been substituted.')]);
+      add(unavailable, [n('strong', '', 'AMD/CUDA comparison unavailable. '), n('span', '', scope.detail + '. The dashboard will not substitute unmatched hardware or a different pipeline.')]);
       host.append(unavailable);
       return;
     }
 
     if (state.analyticsView === 'flakes') {
-      const candidates = reliability.flaky_candidates || [];
-      const candidateRows = candidates.map(function (row) {
-        return groupReliabilityByRef(reliability, row.evidence_ref, row.name) || row;
-      }).filter(function (row) { return groupHistoryObservations(row, 'main').length; });
-      const latestIncidents = candidateRows.filter(function (row) { return isIncidentObservation(latestObservation(row) || {}); });
-      const latestPassing = candidateRows.filter(function (row) { return observationState(latestObservation(row) || {}) === 'passed'; });
-      const latestSoft = latestIncidents.filter(function (row) { return ['soft', 'soft_fail', 'soft_failed'].includes(observationState(latestObservation(row) || {})); });
-      const latestHard = latestIncidents.filter(function (row) { return !['soft', 'soft_fail', 'soft_failed'].includes(observationState(latestObservation(row) || {})); });
-      host.append(statusStrip([
-        {id: 'flakes-catalog', label: 'UPSTREAM TEST GROUPS', value: integer(catalog.length), meta: scope.detail, onOpen: function () { openReliabilityList('All upstream test groups', 'Canonical strict branch=main group catalog', catalog, ops, reliability); }},
-        {id: 'flakes-candidates', label: 'MIXED-OUTCOME CANDIDATES', value: integer(candidateRows.length), meta: 'both passing and incident evidence retained', tone: candidateRows.length ? 'is-warning' : 'is-success', onOpen: function () { openReliabilityList('All upstream flake candidates', 'Mixed outcomes require evidence review before flake classification', candidateRows, ops, reliability); }},
-        {id: 'flakes-passing', label: 'PASSING ON LATEST RUN', value: integer(latestPassing.length), meta: 'historical incidents, latest exact result passed', tone: 'is-success', onOpen: function () { openReliabilityList('Candidates passing on latest run', 'Mixed-history candidates whose latest retained result passed', latestPassing, ops, reliability); }},
-        {id: 'flakes-incidents', label: 'INCIDENT ON LATEST RUN', value: integer(latestIncidents.length), meta: integer(latestSoft.length) + ' soft - ' + integer(latestHard.length) + ' hard', tone: latestHard.length ? 'is-danger' : latestSoft.length ? 'is-warning' : 'is-success', onOpen: function () { openReliabilityList('Candidates with a latest incident', 'Mixed-history candidates whose latest retained result is an incident', latestIncidents, ops, reliability); }},
-      ]));
-      const note = n('div', 'ops-evidence-note is-info');
-      add(note, [n('strong', '', 'Upstream-only flake evidence. '), n('span', '', 'These are mixed-outcome investigation candidates from completed upstream branch=main jobs. AMD mirror results are not used to classify flakes.')]);
-      host.append(note);
-      renderFlakeOverviewCharts(host, candidateRows, ops, reliability);
-      renderReliabilityClusters(host, 'Mixed-outcome clusters', 'Candidates are grouped by retained incident rate. Open a cluster for exact runs or search the complete candidate catalog.', candidateRows, ops, reliability);
-      renderGroupHistoryExplorer(host, candidateRows, ops, reliability);
+      renderPlatformFlakes(host, comparison, ops, reliability, retry);
       return;
     }
 
     if (state.analyticsView === 'nightlies') {
       const controls = n('div', 'ops-toolbar ops-analytics-nightly-toolbar');
       controls.append(segmented([
-        {id: 'ci', label: 'Upstream'},
         {id: 'amd-ci', label: 'AMD'},
+        {id: 'ci', label: 'Upstream parity'},
       ], state.analyticsPipeline, function (pipeline) { setRouteState('ci-analytics', 'analyticsPipeline', pipeline, 'analytics_pipeline'); }, 'Nightly pipeline'));
       host.append(controls);
+      const latestNightly = builds[0] || {transitions: {new: [], recurring: [], fixed: []}};
+      host.append(statusStrip([
+        {label: 'LATEST ' + nightlyName.toUpperCase() + ' NIGHTLY', value: latestNightly.number ? '#' + latestNightly.number : '-', meta: latestNightly.created_at ? shortDate(latestNightly.created_at) : 'No completed nightly', tone: toneForState(latestNightly.state), url: latestNightly.number ? exactPipelineBuildUrl(latestNightly, state.analyticsPipeline) : null},
+        {label: 'GROUPS OBSERVED', value: integer(latestNightly.total_groups), meta: 'latest completed nightly', onOpen: function () { if (latestNightly.number) openBuildDetail(latestNightly, nightlyName + ' build #' + value(latestNightly.number)); }},
+        {label: 'NEW INCIDENTS', value: integer((latestNightly.transitions.new || []).length), meta: integer((latestNightly.transitions.recurring || []).length) + ' recurring', tone: (latestNightly.transitions.new || []).length ? 'is-danger' : 'is-success', onOpen: function () { if (latestNightly.number) openBuildDetail(latestNightly, nightlyName + ' build #' + value(latestNightly.number)); }},
+        {label: 'FIXED SINCE PRIOR', value: integer((latestNightly.transitions.fixed || []).length), meta: integer(builds.length) + ' nightlies retained', tone: (latestNightly.transitions.fixed || []).length ? 'is-success' : 'is-neutral', onOpen: function () { if (latestNightly.number) openBuildDetail(latestNightly, nightlyName + ' build #' + value(latestNightly.number)); }},
+      ]));
+      const nightlyNote = n('div', 'ops-evidence-note is-info');
+      add(nightlyNote, [n('strong', '', state.analyticsPipeline === 'amd-ci' ? 'AMD nightly history. ' : 'Upstream parity history. '), n('span', '', state.analyticsPipeline === 'amd-ci' ? 'AMD is the default operational signal; each build and transition links to its exact evidence.' : 'This alternate view is retained for parity checks and does not replace AMD health.')]);
+      host.append(nightlyNote);
       const cp = chartPanel(nightlyName + ' nightly regressions', 'New, recurring, and fixed group observations per completed nightly', 'analytics-trend');
       host.append(cp.root);
       drawChart('analytics-trend', cp.canvas, {type: 'bar', data: {
@@ -3049,6 +3353,22 @@
     }
 
     if (state.analyticsView === 'retries') {
+      if (retry.available !== true) {
+        const unavailable = n('div', 'ops-evidence-note is-warning');
+        add(unavailable, [n('strong', '', 'Explicit retry comparison unavailable. '), n('span', '', ((retry.provenance || {}).reason || 'Complete Buildkite retry metadata was not retained for the upstream cohort.'))]);
+        host.append(unavailable);
+        return;
+      }
+      renderPlatformRetries(host, comparison, ops, reliability, retry);
+      return;
+    }
+
+    if (state.analyticsView === 'latency') {
+      renderPlatformLatency(host, comparison, ops, reliability, retry);
+      return;
+    }
+
+    if (false) {
       if (retry.available !== true) {
         const unavailable = n('div', 'ops-evidence-note is-warning');
         add(unavailable, [n('strong', '', 'Upstream retry ledger unavailable. '), n('span', '', ((retry.provenance || {}).reason || 'Complete explicit Buildkite retry metadata was not retained; compacted group history was not substituted.'))]);

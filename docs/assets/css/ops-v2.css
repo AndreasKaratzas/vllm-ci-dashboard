@@ -2144,6 +2144,26 @@
   contain: layout;
 }
 
+.ops-page .ops-comparison-chart .ops-chart-stage {
+  --ops-chart-height: 360px;
+}
+
+.ops-page .ops-comparison-detail > * + * {
+  margin-top: 12px;
+}
+
+.ops-page .ops-comparison-delta.is-danger {
+  color: var(--ops-danger);
+}
+
+.ops-page .ops-comparison-delta.is-success {
+  color: var(--ops-success);
+}
+
+.ops-page .ops-comparison-delta.is-neutral {
+  color: var(--ops-text-muted);
+}
+
 .ops-page .ops-chart-viewport {
   position: relative;
   width: 100%;
@@ -3040,7 +3060,7 @@
 }
 
 .ops-v2 .ops-overlay-panel.is-wide {
-  width: min(1040px, 100%);
+  width: min(1280px, 100%);
 }
 
 body.ops-overlay-open {
