@@ -1,6 +1,6 @@
-# vLLM AMD CI Operations Dashboard
+# Project Dashboard
 
-AMD-first CI health, reliability, queue, workload, and performance operations for vLLM. Last updated: **2026-07-14 14:40 UTC**
+Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-07-14 17:43 UTC**
 
 ## Overview
 
@@ -26,7 +26,7 @@ Hosted on GitHub Pages — deployed automatically on every push to main.
 |------|-------------|
 | **Home** | PRs, project #39 issues, and ROCm vs upstream test parity |
 | **CI Health** | Latest Buildkite nightly health, parity details, failures, flakes, and links |
-| **CI Analytics** | Nightly build comparison, recent builds, group trends, AMD hardware matrix, queue comparison, and per-physical-node CI agent health (flaky/failing groups and co-failure timelines per AMD node) |
+| **CI Analytics** | Nightly build comparison, recent builds, group trends, AMD hardware matrix, queue comparison |
 | **Queue Monitor** | Buildkite queue workload, wait-time charts, active job overlays, admin triage, and AMD capacity projections |
 | **Hotness / Omni / Ready / Admin** | Focused operational views for workload spikes, Omni queues, ready tickets, and dashboard admin tasks |
 
@@ -50,7 +50,6 @@ The main data path is `.github/workflows/hourly-master.yml`, which runs every 30
 | `scripts/vllm/collect_gating_target_candidates.py` | Review-only audit of upstream nightly GPU jobs against the canonical AMD gating target list |
 | `scripts/vllm/collect_queue_snapshot.py` | Queue timeseries and active job overlays |
 | `scripts/vllm/collect_capacity_monitor.py` | AMD queue capacity limits plus mirror test-group dependency projections |
-| `scripts/vllm/backfill_agent_nodes.py` | Optional: patch the physical CI `node` (from the Buildkite agent `k8s:node` tag) into recent test-result JSONL so CI agent health has full history immediately |
 | `scripts/vllm/audit_dashboard_data.py` | Cross-surface audit for data totals, frontend assumptions, links, and deploy safety |
 | `scripts/render.py` | Generate markdown dashboards and site data |
 | `scripts/build_site.py` | Assemble `docs/` and `data/` into `_site/` for Pages |
