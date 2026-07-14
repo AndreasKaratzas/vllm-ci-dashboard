@@ -86,7 +86,7 @@
 .ops-page .ocv2-kpi {
   display: grid;
   min-width: 0;
-  min-height: 68px;
+  min-height: 82px;
   align-content: center;
   padding: 8px 12px;
   border: 0;
@@ -115,14 +115,13 @@
 }
 
 .ops-page .ocv2-kpi-label {
-  overflow: hidden;
   color: var(--ops-text-subtle);
   font-size: 10px;
   font-weight: 700;
   line-height: 15px;
-  text-overflow: ellipsis;
   text-transform: uppercase;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .ops-page .ocv2-kpi-value {
@@ -137,12 +136,11 @@
 }
 
 .ops-page .ocv2-kpi-meta {
-  overflow: hidden;
   color: var(--ops-text-subtle);
   font-size: 10px;
   line-height: 15px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .ops-page .ocv2-kpi.is-success .ocv2-kpi-value { color: var(--ops-success); }
@@ -193,13 +191,12 @@
 }
 
 .ops-page .ocv2-panel-meta {
-  overflow: hidden;
   color: var(--ops-text-subtle);
   font-size: 10px;
   line-height: 15px;
   text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .ops-page .ocv2-panel-body {

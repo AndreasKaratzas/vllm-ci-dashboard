@@ -117,15 +117,20 @@ def test_test_group_history_switches_cohorts_with_clickable_outcome_evidence():
     )
 
 
-def test_group_and_flake_views_use_visual_clusters_instead_of_page_length_tables():
+def test_amd_health_and_upstream_flakes_are_distinct_first_visit_surfaces():
     for contract in (
-        "function reliabilityRiskClusters",
-        "function reliabilityHardwareClusters",
+        "function renderAmdHealth",
+        "function openAmdCatalog",
+        "function openAmdGroupDetail",
+        "AMD health by nightly",
+        "Latest health by hardware variant",
+        "All AMD test groups",
+        "AMD nightly test health",
+        "Upstream-only flake evidence",
+        "AMD mirror results are not used to classify flakes",
         "function openReliabilityList",
         "function renderReliabilityClusters",
         "Browse all ",
-        "Reliability distribution",
-        "Hardware composition",
         "Mixed-outcome clusters",
     ):
         assert contract in OPS_JS
@@ -134,24 +139,43 @@ def test_group_and_flake_views_use_visual_clusters_instead_of_page_length_tables
         ".ops-page .ops-cluster-section",
         ".ops-page .ops-cluster-grid",
         ".ops-page .ops-cluster-tile",
+        ".ops-page .ops-amd-cluster-grid",
     ):
         assert contract in OPS_CSS
     assert "filter(function (cluster) { return cluster.count > 0; })" in OPS_JS
     assert "name: 'reliability-browser'" in OPS_JS
+    assert "renderGroupOverviewCharts(host, catalog" not in OPS_JS
+
+    health = OPS_DATA["amd_test_health"]
+    summary = health["summary"]
+    latest = summary["latest_state_counts"]
+    assert health["source_pipeline"] == "amd-ci"
+    assert summary["build_count"] == 30
+    assert summary["latest_group_count"] == sum(latest.values())
+    assert latest["soft"] > 0
+    assert latest["hard"] >= 0
+    assert len({row["id"] for row in health["group_catalog"]}) == summary["group_count"]
+    assert all(
+        observation["url"].startswith("https://buildkite.com/vllm/amd-ci/builds/")
+        for row in health["group_catalog"]
+        for observation in row["observations"]
+    )
 
 
-def test_flake_visualizations_deduplicate_retries_and_link_exact_build_history():
+def test_flake_visualizations_summarize_risk_and_latest_exact_state():
     for contract in (
-        "function candidateBuildTimeline",
-        "Mixed-outcome results by upstream build",
-        "Highest retained incident rates",
-        "retries in one build resolve to the latest attempt",
-        "exactPipelineBuildUrl(build.observation, 'ci')",
+        "function renderFlakeOverviewCharts",
+        "Candidate risk distribution",
+        "What candidates are doing now",
+        "UPSTREAM TEST GROUPS",
+        "PASSING ON LATEST RUN",
+        "INCIDENT ON LATEST RUN",
+        "Latest exact upstream result for every mixed-outcome candidate",
     ):
         assert contract in OPS_JS
-    assert "const perGroupBuild = new Map()" in OPS_JS
-    assert "const key = row.id + '-' + build" in OPS_JS
-    assert "perGroupBuild.set(key" in OPS_JS
+    assert "observationState(latestObservation(row) || {})" in OPS_JS
+    assert "openReliabilityList(group.label" in OPS_JS
+    assert "renderGroupOverviewCharts(host, candidates" not in OPS_JS
 
 
 def test_shared_evidence_primitives_are_accessible_and_source_linked():
@@ -270,16 +294,19 @@ def test_queue_modes_ranges_provenance_and_missing_values_are_explicit():
     for label in ("Current", "History", "Jobs", "24h", "7d", "30d", "Include idle"):
         assert label in OPS_JS
     assert "row.p99_wait_source !== 'sample_wait'" in OPS_JS
-    assert "No source reported a current wait percentile" in OPS_JS
+    assert "No queue in scope reported a current p95" in OPS_JS
     assert "agentMeasurements" in OPS_JS
     assert "function hasAgentMeasurement" in OPS_JS
     assert "connected_agents_available" in OPS_JS
     assert "'active_jobs', 'webhook', 'job_scan'" in OPS_JS
-    assert "sums.agentMeasurements ? integer(sums.agents) : '-'" in OPS_JS
     assert "countProvenance" in OPS_JS
     assert "count source: ' + countProvenance" in OPS_JS
-    assert "{label: 'p95'" in OPS_JS
-    assert "p95 official" not in OPS_JS
+    assert "P95 QUEUE LEADER" in OPS_JS
+    assert "SAMPLED P99 LEADER" in OPS_JS
+    assert "p95 official/fallback" in OPS_JS
+    assert "p99 scheduled sample" in OPS_JS
+    assert "waitSampleCount" in OPS_JS
+    assert "waitSourceDetail" in OPS_JS
     assert "minutes === null || minutes === undefined" in OPS_JS
     assert "Array.isArray(queueBlock.history)" in OPS_JS
     assert "queueBlock.history_summary" in OPS_JS
@@ -293,14 +320,21 @@ def test_queue_history_has_selectable_wait_and_pressure_visualizations():
         "function queuePressureRows",
         "Select queue for historical activity and wait time",
         "const selectedHistory = state.queueHistoryQueue === 'fleet'",
-        "Highest reported wait across queues",
+        "All AMD queues combined",
+        "Worst individual queue wait at each snapshot",
+        "Combined scope has two different reducers",
+        "p95Queues",
+        "p99Queues",
+        "Worst sampled p99 queue",
         "Queue pressure against retained baseline",
         "Historical p95",
-        "p99 sampled",
+        "p99 scheduled sample",
     ):
         assert contract in OPS_JS
-    assert "percentiles are not combined into a fleet percentile" in OPS_JS
+    assert "they are not fleet percentiles" in OPS_JS
     assert "missing waits are not rendered as zero" in OPS_JS
+    assert ".ops-page .ops-wait-leader-grid" in OPS_CSS
+    assert ".ops-page .ops-wait-leader" in OPS_CSS
 
     history = OPS_DATA["queue"]["history"]
     assert len(history) >= 2
@@ -357,7 +391,7 @@ def test_amd_cpu_is_included_in_amd_queue_and_omni_scope():
 
 def test_all_main_and_nightly_analytics_are_distinct_surfaces():
     assert "All-main reliability" in OPS_JS
-    assert "Nightly comparisons" in OPS_JS
+    assert "Nightly change" in OPS_JS
     assert "All main" in OPS_JS
     assert "Upstream reliability unavailable" in OPS_JS
     assert "No AMD or nightly history has been substituted" in OPS_JS
@@ -369,8 +403,10 @@ def test_all_main_and_nightly_analytics_are_distinct_surfaces():
     assert "non_nightly_main_build_count" in OPS_JS
     assert "canonicalReliability(ops)" in OPS_JS
     assert "return reliabilityForPipeline(ops, 'ci')" in OPS_JS
-    assert "Upstream CI is canonical for test groups, flakes, retries, and latency" in OPS_JS
-    assert "{id: 'flakes', label: 'Flakes'}" in OPS_JS
+    assert "AMD nightly health for AMD test groups" in OPS_JS
+    assert "upstream CI remains canonical for flakes, retries, and completion time" in OPS_JS
+    assert "{id: 'groups', label: 'AMD test health'}" in OPS_JS
+    assert "{id: 'flakes', label: 'Upstream flakes'}" in OPS_JS
 
 
 def test_nightly_pipeline_selector_defaults_upstream_and_is_route_backed():
@@ -493,7 +529,7 @@ def test_release_layout_scroll_accessibility_and_home_reconciliation():
     assert "Search workload trajectory test groups" in OPS_JS
     assert "ALL-FLEET QUEUE ACTIVITY" in OPS_JS
     assert "queueScope: 'all'" in OPS_JS
-    assert "unknown = ' + integer(matrix.hardware_cells)" in OPS_JS
+    assert "integer(unknownCells) + ' unknown of ' + integer(matrix.hardware_cells)" in OPS_JS
 
 
 def test_hotness_rates_accept_fraction_or_explicit_percent():
@@ -532,12 +568,14 @@ def test_dense_tables_use_explicit_colgroups_and_scroll_geometry():
     assert "--ops-table-min-width" in OPS_JS
     for geometry in (
         "gating",
-        "mixed-candidates",
+        "amd-health-browser",
+        "amd-current-incidents",
         "retry-attempts",
         "retry-recoveries",
         "latency",
         "reliability-browser",
         "nightly",
+        "trajectory-anomalies",
     ):
         assert f"name: '{geometry}'" in OPS_JS
     assert "table.has-column-geometry" in OPS_CSS

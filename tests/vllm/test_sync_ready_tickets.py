@@ -1338,6 +1338,41 @@ class TestDryRunPreflight:
         with pytest.raises(RuntimeError, match="write allowlist"):
             srt._expected_master_comment_id()
 
+    def test_retained_master_comment_is_read_from_allowlisted_state(
+        self, isolated_paths
+    ):
+        _, _, state = isolated_paths
+        url = (
+            srt.MASTER_ISSUE_URL
+            + "#issuecomment-"
+            + str(srt.MASTER_COMMENT_ID)
+        )
+        state.write_text(json.dumps({
+            "master_issue": {
+                "issue_number": srt.MASTER_ISSUE_NUMBER,
+                "comment_id": srt.MASTER_COMMENT_ID,
+                "comment_url": url,
+            }
+        }))
+        assert srt._retained_master_comment() == {
+            "id": srt.MASTER_COMMENT_ID,
+            "url": url,
+            "action": "retained",
+        }
+
+    def test_retained_master_comment_rejects_other_comment_url(
+        self, isolated_paths
+    ):
+        _, _, state = isolated_paths
+        state.write_text(json.dumps({
+            "master_issue": {
+                "issue_number": srt.MASTER_ISSUE_NUMBER,
+                "comment_id": srt.MASTER_COMMENT_ID,
+                "comment_url": srt.MASTER_ISSUE_URL + "#issuecomment-1",
+            }
+        }))
+        assert srt._retained_master_comment() is None
+
     def test_pinned_comment_update_fails_if_github_returns_other_content(
         self, monkeypatch
     ):

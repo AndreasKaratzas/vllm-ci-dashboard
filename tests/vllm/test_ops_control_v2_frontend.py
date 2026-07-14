@@ -83,14 +83,23 @@ def test_ready_has_bounded_filters_and_exact_retained_build_sources():
         "type: 'search'",
         "Filter by group status",
         "Filter by Buildkite build number",
-        "pageSize: 25",
+        "pageSize: 15",
         "filtered.slice(start, start + viewState.pageSize)",
         "build_refs_latest",
         "ref.url || ref.build_url",
         "-day retained summary",
-        "ui.dialog(summary.group",
+        "ui.dialog(displayGroupIdentity(summary.group)",
     ):
         assert contract in READY_V2
+
+
+def test_ready_distinguishes_normalized_groups_from_exact_amd_variants():
+    assert "Failing Ready groups" in READY_V2
+    assert "exact job variants in Analytics" in READY_V2
+    assert "amd_test_health.summary" in READY_V2
+    assert "displayGroupIdentity(row.summary.group)" in READY_V2
+    assert "ui.dialog(displayGroupIdentity(summary.group)" in READY_V2
+    assert "identity.hasPlaceholder ? ' (sharded)'" in READY_V2
 
 
 def test_ready_dialog_deep_links_to_canonical_all_main_group_history():
@@ -202,7 +211,7 @@ def test_control_css_scopes_tables_and_all_required_viewports():
 
 
 def test_release_assets_are_cache_busted():
-    assert "ops-control-v2.css?v=2" in INDEX
+    assert "ops-control-v2.css?v=3" in INDEX
     assert "ci-testbuild.js?v=5" in INDEX
-    assert "ci-ready.js?v=5" in INDEX
+    assert "ci-ready.js?v=6" in INDEX
     assert "ci-admin.js?v=3" in INDEX

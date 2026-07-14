@@ -833,6 +833,26 @@ def _expected_master_comment_id() -> int:
     return comment_id
 
 
+def _retained_master_comment() -> dict | None:
+    """Return the pinned umbrella-comment link without making a GitHub call."""
+    try:
+        state = json.loads(STATE.read_text())
+        master = state["master_issue"]
+        issue_number = int(master["issue_number"])
+        comment_id = int(master["comment_id"])
+        comment_url = str(master["comment_url"])
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+    expected_url = f"{MASTER_ISSUE_URL}#issuecomment-{MASTER_COMMENT_ID}"
+    if (
+        issue_number != MASTER_ISSUE_NUMBER
+        or comment_id != MASTER_COMMENT_ID
+        or comment_url != expected_url
+    ):
+        return None
+    return {"id": comment_id, "url": comment_url, "action": "retained"}
+
+
 def _update_pinned_master_comment(
     token: str, *, body: str, expected_comment_id: int
 ) -> dict:
@@ -1188,7 +1208,7 @@ def run() -> int:
         "project": f"{PROJECT_ORG}/projects/{PROJECT_NUMBER}",
         "issue_mode": ISSUE_MODE,
         "master_issue": master_issue,
-        "master_issue_comment": None,
+        "master_issue_comment": _retained_master_comment(),
         "write_scope": MASTER_COMMENT_WRITE_SCOPE,
         "mode": "live" if live else "dry_run",
         "failing_groups_total": len(failing),

@@ -859,6 +859,97 @@
   gap: 8px;
 }
 
+.ops-page .ops-amd-cluster-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.ops-page .ops-amd-health-charts,
+.ops-page .ops-amd-summary,
+.ops-page .ops-amd-priority,
+.ops-page .ops-amd-history-timeline {
+  margin-top: 14px;
+}
+
+.ops-page .ops-amd-group-detail > .ops-status-strip {
+  margin-bottom: 0;
+}
+
+.ops-page .ops-amd-incident-list {
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.ops-page .ops-wait-leader-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: -6px 0 16px;
+}
+
+.ops-page .ops-wait-leader {
+  display: grid;
+  min-width: 0;
+  min-height: 88px;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: 16px 26px 18px;
+  align-content: center;
+  column-gap: 10px;
+  padding: 10px 12px;
+  overflow: hidden;
+  border: 1px solid var(--ops-border);
+  border-top: 3px solid var(--ops-teal);
+  border-radius: var(--ops-radius);
+  color: var(--ops-text-muted);
+  background: var(--ops-surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ops-page .ops-wait-leader:hover,
+.ops-page .ops-wait-leader:focus-visible {
+  border-color: var(--ops-teal);
+  background: var(--ops-surface-hover);
+}
+
+.ops-page .ops-wait-leader.is-warning { border-top-color: var(--ops-warning); }
+.ops-page .ops-wait-leader.is-danger { border-top-color: var(--ops-danger); }
+
+.ops-page .ops-wait-leader .ops-stat-label {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-page .ops-wait-leader-value {
+  align-self: end;
+  color: var(--ops-text);
+  font-size: 20px;
+  line-height: 24px;
+}
+
+.ops-page .ops-wait-leader-queue {
+  align-self: end;
+  overflow: hidden;
+  color: var(--ops-teal);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-page .ops-wait-leader-meta {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .ops-page .ops-cluster-tile {
   min-width: 0;
   min-height: 98px;
@@ -970,7 +1061,7 @@
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: stretch;
-  min-height: 64px;
+  min-height: 92px;
   margin-bottom: 16px;
   overflow: hidden;
   border: 1px solid var(--ops-border);
@@ -983,19 +1074,19 @@
 
 .ops-page .ops-status-item {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  grid-template-rows: 16px 24px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
   align-content: center;
-  column-gap: 8px;
+  gap: 2px;
   min-width: 0;
-  min-height: 62px;
-  padding: 7px 12px 8px;
+  min-height: 90px;
+  padding: 9px 12px 10px;
   border: 0;
   color: var(--ops-text-muted);
   background: var(--ops-surface);
   font-size: 11px;
   line-height: 16px;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .ops-page .ops-status-item.ops-linked-metric {
@@ -1019,29 +1110,23 @@
 }
 
 .ops-page .ops-status-item .ops-stat-label {
-  grid-column: 1 / -1;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .ops-page .ops-status-item .ops-stat-value {
-  align-self: end;
-  overflow: hidden;
   color: var(--ops-text);
   font-size: 20px;
   font-weight: 700;
   line-height: 24px;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 
 .ops-page .ops-status-item .ops-stat-meta {
-  align-self: end;
-  overflow: hidden;
-  padding-bottom: 2px;
   color: var(--ops-text-subtle);
   font-size: 11px;
-  line-height: 16px;
-  text-overflow: ellipsis;
+  line-height: 14px;
+  overflow-wrap: anywhere;
 }
 
 .ops-page .ops-status-item strong {
@@ -1385,7 +1470,7 @@
 .ops-page .card-header,
 .ops-page .parity-card-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   min-height: 40px;
@@ -1397,13 +1482,11 @@
 .ops-page .ops-panel-title {
   min-width: 0;
   flex: 1 1 auto;
-  overflow: hidden;
   color: var(--ops-text);
   font-size: 13px;
   font-weight: 650;
   line-height: 18px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 /* Legacy dashboard heading rules use an ID selector and viewport scaling. */
@@ -1416,13 +1499,11 @@
   min-width: 0;
   max-width: 50%;
   flex: 0 1 auto;
-  overflow: hidden;
   color: var(--ops-text-muted);
   font-size: 11px;
   line-height: 16px;
   text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .ops-page .ops-panel-body {
@@ -1439,6 +1520,45 @@
   color: var(--ops-text-muted);
   font-size: 11px;
   line-height: 18px;
+}
+
+.ops-page .ops-browser-footer,
+.ops-page .ops-browser-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ops-page .ops-table-browser {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+}
+
+.ops-page .ops-browser-toolbar {
+  margin: 0;
+}
+
+.ops-page .ops-browser-toolbar .ops-input {
+  width: min(420px, 100%);
+}
+
+.ops-page .ops-browser-count,
+.ops-page .ops-browser-position {
+  color: var(--ops-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+}
+
+.ops-page .ops-browser-pagination {
+  justify-content: flex-end;
+}
+
+.ops-page .ops-browser-pagination .ops-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .ops-page .ops-kpi-grid,
@@ -3402,6 +3522,16 @@ body.ops-overlay-open {
    -------------------------------------------------------------------------- */
 
 @media (max-width: 767px) {
+  .ops-page .ops-browser-footer,
+  .ops-page .ops-browser-pagination {
+    flex-wrap: wrap;
+  }
+
+  .ops-page .ops-browser-pagination {
+    width: 100%;
+    justify-content: space-between;
+  }
+
   .ops-page .ops-segmented[aria-label="CI Analytics view"] {
     display: grid;
     width: 100%;
@@ -3598,6 +3728,10 @@ body.ops-overlay-open {
     margin-left: 0;
     overflow: hidden;
     border-radius: var(--ops-radius);
+  }
+
+  .ops-page .ops-wait-leader-grid {
+    grid-template-columns: 1fr;
   }
 
   .ops-page .ops-status-item {

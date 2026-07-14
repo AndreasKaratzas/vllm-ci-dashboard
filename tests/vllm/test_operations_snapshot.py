@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -15,6 +16,11 @@ GENERATED_AT = "2026-04-22T12:00:00Z"
 
 def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload))
+
+
+def _write_jsonl(path: Path, rows: list[dict], trailing: str = "") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(json.dumps(row) for row in rows) + trailing)
 
 
 def _job(name: str, state: str, url: str, dur: float = 10.0, **extra) -> dict:
@@ -314,6 +320,398 @@ def _fixture_data(tmp_path: Path) -> Path:
         "open": None,
     })
     return tmp_path
+
+
+def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tmp_path):
+    alpha = "mi300_1: Alpha tests"
+    beta = "mi355b_2: Beta tests"
+    unknown = "mi325_4: Unknown tests"
+    stable = "mi300_2: Stable tests"
+    latest_only = "mi250_1: Latest only"
+    _write_json(tmp_path / "analytics.json", {
+        "amd-ci": {
+            "generated_at": GENERATED_AT,
+            "builds": [
+                {
+                    "number": 301,
+                    "date": "2026-04-22",
+                    "created_at": "2026-04-22T09:00:01Z",
+                    "web_url": "https://buildkite.com/vllm/amd-ci/builds/301",
+                    "jobs": [
+                        {
+                            "raw_name": alpha,
+                            "job_id": "alpha-soft-301",
+                            "step_id": "alpha-step-301",
+                            "state": "soft_fail",
+                            "soft_failed": True,
+                            "finished_at": "2026-04-22T10:05:00Z",
+                        },
+                        {
+                            "raw_name": stable,
+                            "job_id": "stable-301",
+                            "state": "passed",
+                            "finished_at": "2026-04-22T10:06:00Z",
+                        },
+                        {
+                            "raw_name": latest_only,
+                            "job_id": "latest-hard-301",
+                            "state": "failed",
+                            "finished_at": "2026-04-22T10:07:00Z",
+                        },
+                    ],
+                },
+                {
+                    "number": 300,
+                    "date": "2026-04-21",
+                    "created_at": "2026-04-21T09:00:01Z",
+                    "web_url": "https://buildkite.com/vllm/amd-ci/builds/300",
+                    "jobs": [
+                        {
+                            "raw_name": alpha,
+                            "job_id": "alpha-pass-300",
+                            "step_id": "alpha-step-300",
+                            "state": "passed",
+                            "finished_at": "2026-04-21T10:00:00Z",
+                        },
+                        {
+                            "raw_name": beta,
+                            "job_id": "beta-hard-300",
+                            "step_id": "beta-fail-step-300",
+                            "state": "failed",
+                            "finished_at": "2026-04-21T10:01:00Z",
+                        },
+                        {
+                            "raw_name": stable,
+                            "job_id": "stable-300",
+                            "state": "passed",
+                            "finished_at": "2026-04-21T10:02:00Z",
+                        },
+                    ],
+                },
+            ],
+        },
+    })
+    _write_jsonl(tmp_path / "test_results" / "2026-04-21_amd.jsonl", [
+        {
+            "name": "__passed__ (3)",
+            "status": "passed",
+            "duration_secs": 12.5,
+            "job_name": alpha,
+            "job_id": "alpha-pass-300",
+            "step_id": "alpha-step-300",
+            "build_number": 300,
+            "pipeline": "amd-ci",
+            "date": "2026-04-21",
+        },
+        {
+            "name": "__skipped__ (2)",
+            "status": "skipped",
+            "duration_secs": 0,
+            "job_name": alpha,
+            "job_id": "alpha-pass-300",
+            "step_id": "alpha-step-300",
+            "build_number": 300,
+            "pipeline": "amd-ci",
+            "date": "2026-04-21",
+        },
+        {
+            "name": "test_beta_failure",
+            "status": "failed",
+            "duration_secs": 4,
+            "job_name": beta,
+            "job_id": "beta-hard-300",
+            "step_id": "beta-fail-step-300",
+            "build_number": 300,
+            "pipeline": "amd-ci",
+            "date": "2026-04-21",
+        },
+        {
+            "name": "test_beta_pass",
+            "status": "passed",
+            "duration_secs": 3,
+            "job_name": beta,
+            "job_id": "beta-hard-300",
+            "step_id": "beta-fail-step-300",
+            "build_number": 300,
+            "pipeline": "amd-ci",
+            "date": "2026-04-21",
+        },
+        {
+            "name": "test_unknown",
+            "status": "xfailed",
+            "duration_secs": 1,
+            "job_name": unknown,
+            "step_id": "unknown-step-300",
+            "build_number": 300,
+            "pipeline": "amd-ci",
+            "date": "2026-04-21",
+        },
+        {
+            "name": "test_stable",
+            "status": "passed",
+            "duration_secs": 2,
+            "job_name": stable,
+            "job_id": "stable-300",
+            "build_number": 300,
+            "pipeline": "amd-ci",
+            "date": "2026-04-21",
+        },
+    ], trailing="\n")
+    _write_jsonl(tmp_path / "test_results" / "2026-04-22_amd.jsonl", [
+        {
+            "name": "__passed__ (1)",
+            "status": "passed",
+            "duration_secs": 2,
+            "job_name": alpha,
+            "job_id": "alpha-soft-301",
+            "step_id": "alpha-step-301",
+            "build_number": 301,
+            "pipeline": "amd-ci",
+            "date": "2026-04-22",
+        },
+        {
+            "name": "__errors__ (2)",
+            "status": "error",
+            "duration_secs": 8,
+            "job_name": alpha,
+            "job_id": "alpha-soft-301",
+            "step_id": "alpha-step-301",
+            "build_number": 301,
+            "pipeline": "amd-ci",
+            "date": "2026-04-22",
+        },
+        {
+            "name": "test_stable",
+            "status": "passed",
+            "duration_secs": 2,
+            "job_name": stable,
+            "job_id": "stable-301",
+            "build_number": 301,
+            "pipeline": "amd-ci",
+            "date": "2026-04-22",
+        },
+        {
+            "name": "test_latest",
+            "status": "passed",
+            "duration_secs": 2,
+            "job_name": latest_only,
+            "job_id": "latest-hard-301",
+            "build_number": 301,
+            "pipeline": "amd-ci",
+            "date": "2026-04-22",
+        },
+    ], trailing="\n")
+
+    payload = ops.build_snapshot(tmp_path, generated_at=GENERATED_AT)
+    health = payload["amd_test_health"]
+    groups = {row["exact_job_name"]: row for row in health["group_catalog"]}
+
+    assert payload["schema_version"] == 2
+    assert health["available"] is True
+    assert health["source_pipeline"] == "amd-ci"
+    assert health["cohort"]["aggregation_key"] == ["build_number", "exact_job_name"]
+    assert health["summary"] == {
+        "build_count": 2,
+        "group_count": 5,
+        "union_group_count": 5,
+        "latest_group_count": 3,
+        "latest_build_number": 301,
+        "latest_build_url": "https://buildkite.com/vllm/amd-ci/builds/301",
+        "latest_url": "https://buildkite.com/vllm/amd-ci/builds/301",
+        "latest_observed_at": "2026-04-22T09:00:01Z",
+        "latest_state_counts": {
+            "passed": 1,
+            "soft": 1,
+            "hard": 1,
+            "unknown": 0,
+        },
+        "latest_passed_group_count": 1,
+        "latest_soft_failed_group_count": 1,
+        "latest_hard_failed_group_count": 1,
+        "latest_incident_group_count": 2,
+        "latest_unknown_group_count": 0,
+        "observation_state_counts": {
+            "passed": 3,
+            "soft": 1,
+            "hard": 2,
+            "unknown": 1,
+        },
+        "passed_observation_count": 3,
+        "soft_failed_observation_count": 1,
+        "hard_failed_observation_count": 2,
+        "incident_observation_count": 3,
+        "unknown_observation_count": 1,
+        "mixed_outcome_group_count": 1,
+        "stable_passing_group_count": 1,
+        "persistent_incident_group_count": 2,
+        "hardware_counts": {"mi250": 1, "mi300": 2, "mi325": 1, "mi355b": 1},
+        "hardware_variant_counts": {
+            "mi250_1": 1,
+            "mi300_1": 1,
+            "mi300_2": 1,
+            "mi325_4": 1,
+            "mi355b_2": 1,
+        },
+        "latest_hardware_counts": {"mi250": 1, "mi300": 2},
+    }
+    assert sum(health["summary"]["latest_state_counts"].values()) == 3
+
+    alpha_group = groups[alpha]
+    assert alpha_group["id"] == hashlib.sha1(f"amd-ci:{alpha}".encode()).hexdigest()[:20]
+    assert len(alpha_group["id"]) == 20
+    assert alpha_group["name"] == alpha_group["display_name"] == "Alpha tests"
+    assert alpha_group["job_name"] == alpha_group["exact_job_name"] == alpha
+    assert alpha_group["hardware"] == "mi300"
+    assert alpha_group["hardware_variant"] == "mi300_1"
+    assert alpha_group["queue"] == "amd_mi300_1"
+    assert alpha_group["queues"] == ["amd_mi300_1"]
+    assert (alpha_group["runs"], alpha_group["passed"], alpha_group["incidents"]) == (2, 1, 1)
+    assert alpha_group["soft_failed"] == 1
+    assert alpha_group["hard_failed"] == 0
+    assert alpha_group["unknown"] == 0
+    assert alpha_group["pass_rate_pct"] == 50.0
+    assert alpha_group["current_pass_streak"] == 0
+    assert alpha_group["latest_state"] == "soft"
+    assert alpha_group["latest_build_number"] == 301
+    assert alpha_group["latest_observed_at"] == "2026-04-22T10:05:00Z"
+    assert alpha_group["latest_url"].endswith("?jid=alpha-soft-301&tab=output")
+    assert [row["build_number"] for row in alpha_group["observations"]] == [300, 301]
+    assert [row["state"] for row in alpha_group["observations"]] == ["passed", "soft"]
+    first_alpha = alpha_group["observations"][0]
+    assert first_alpha["status_counts"] == {"passed": 3, "skipped": 2}
+    assert first_alpha["tests"] == 5
+    assert first_alpha["passed_tests"] == 3
+    assert first_alpha["skipped_tests"] == 2
+    assert first_alpha["test_duration_secs"] == 12.5
+    latest_alpha = alpha_group["observations"][1]
+    assert latest_alpha["state"] == "soft"
+    assert latest_alpha["outcome_source"] == "analytics_job_state"
+    assert latest_alpha["status_counts"] == {"error": 2, "passed": 1}
+    assert latest_alpha["failed_tests"] == latest_alpha["error_tests"] == 2
+    assert latest_alpha["job_url"] == (
+        "https://buildkite.com/vllm/amd-ci/builds/301/steps/canvas"
+        "?jid=alpha-soft-301&tab=output"
+    )
+    assert latest_alpha["build_url"] == "https://buildkite.com/vllm/amd-ci/builds/301"
+
+    beta_group = groups[beta]
+    assert beta_group["latest_state"] == "hard"
+    assert beta_group["soft_failed"] == 0
+    assert beta_group["hard_failed"] == 1
+    assert beta_group["latest_url"].endswith("?jid=beta-hard-300&tab=output")
+    assert beta_group["hardware"] == "mi355b"
+    assert beta_group["hardware_variant"] == "mi355b_2"
+    assert beta_group["pass_rate_pct"] == 0.0
+
+    unknown_group = groups[unknown]
+    assert unknown_group["latest_state"] == "unknown"
+    assert unknown_group["pass_rate_pct"] is None
+    assert unknown_group["unknown"] == 1
+    assert unknown_group["latest_url"].endswith("?sid=unknown-step-300&tab=output")
+    assert unknown_group["observations"][0]["outcome_source"] == "unavailable"
+
+    assert groups[stable]["current_pass_streak"] == 2
+    assert groups[latest_only]["latest_state"] == "hard"
+    assert groups[latest_only]["hard_failed"] == 1
+    assert groups[latest_only]["observations"][0]["status_counts"] == {"passed": 1}
+    assert [row["build_number"] for row in beta_group["observations"]] == [300]
+    latest_build = next(row for row in health["builds"] if row["build_number"] == 301)
+    assert latest_build["number"] == 301
+    assert latest_build["observed"] == 3
+    assert latest_build["passed"] == 1
+    assert latest_build["soft_failed"] == 1
+    assert latest_build["hard_failed"] == 1
+    assert latest_build["incidents"] == 2
+    assert latest_build["unknown"] == 0
+    assert latest_build["observed_groups"] == 3
+    assert latest_build["passed_groups"] == 1
+    assert latest_build["soft_failed_groups"] == 1
+    assert latest_build["hard_failed_groups"] == 1
+    assert latest_build["incident_groups"] == 2
+    assert latest_build["unknown_groups"] == 0
+    assert latest_build["pass_rate_pct"] == 33.3
+    assert latest_build["observed"] == (
+        latest_build["passed"]
+        + latest_build["soft_failed"]
+        + latest_build["hard_failed"]
+        + latest_build["unknown"]
+    )
+    assert all(row["build_number"] != 301 for row in beta_group["observations"])
+    assert health["provenance"]["nightly_metadata"]["joined_group_observations"] == 6
+    assert health["provenance"]["nightly_metadata"]["unjoined_group_observations"] == 1
+
+
+def test_amd_test_health_is_unavailable_for_missing_or_corrupt_results(tmp_path):
+    missing = ops.build_snapshot(tmp_path, generated_at=GENERATED_AT)["amd_test_health"]
+
+    assert missing["available"] is False
+    assert missing["source_pipeline"] == "amd-ci"
+    assert missing["summary"]["build_count"] == 0
+    assert missing["summary"]["group_count"] == 0
+    assert missing["summary"]["latest_build_number"] is None
+    assert missing["builds"] == []
+    assert missing["group_catalog"] == []
+
+    results = tmp_path / "test_results"
+    results.mkdir()
+    (results / "2026-04-22_amd.jsonl").write_text(
+        "not-json\n[]\n{\"pipeline\":\"amd-ci\",\"build_number\":0}\n"
+    )
+    corrupt = ops.build_snapshot(tmp_path, generated_at=GENERATED_AT)["amd_test_health"]
+
+    assert corrupt["available"] is False
+    assert corrupt["builds"] == []
+    assert corrupt["group_catalog"] == []
+    assert corrupt["provenance"]["test_results"]["files_read"] == 1
+    assert corrupt["provenance"]["test_results"]["malformed_rows"] == 3
+
+
+def test_compact_queue_history_retains_observed_idle_rows_and_wait_provenance():
+    compact = ops._compact_history_snapshot({
+        "ts": GENERATED_AT,
+        "schema_version": 2,
+        "total_waiting": 0,
+        "total_running": 0,
+        "queues": {
+            "amd_mi300_1": {
+                "waiting": 0,
+                "running": 0,
+                "zombie_waiting": 0,
+                "zombie_running": 0,
+                "wait_sample_count": 0,
+                "sample_count": 0,
+                "official_wait_source": None,
+                "sample_wait_source": "scheduled_job_scan",
+                "metrics_ts": "2026-04-22T11:59:00Z",
+                "current_wait": {
+                    "p50": {"value": 0.0, "source": "official_wait"},
+                    "p95": {"value": 0.0, "source": "official_wait"},
+                },
+                "count_source_family": "queue_native",
+                "wait_source_family": "queue_native",
+                "p95_wait": 0.0,
+                "p95_wait_source": "official_wait",
+            },
+            "amd_mi355b_1": {"waiting": 0, "running": 0},
+        },
+        "sources": {"counts": "queue_native"},
+    })
+
+    assert "amd_mi300_1" in compact["queues"]
+    assert "unobserved_queue" not in compact["queues"]
+    assert "amd_mi355b_1" not in compact["queues"]
+    assert compact["tracked_queue_count"] == 1
+    idle = compact["queues"]["amd_mi300_1"]
+    assert idle["waiting"] == idle["running"] == 0
+    assert idle["wait_sample_count"] == idle["sample_count"] == 0
+    assert idle["official_wait_source"] is None
+    assert idle["sample_wait_source"] == "scheduled_job_scan"
+    assert idle["metrics_ts"] == "2026-04-22T11:59:00Z"
+    assert idle["current_wait"]["p95"] == {"value": 0.0, "source": "official_wait"}
+    assert idle["count_source_family"] == "queue_native"
+    assert idle["wait_source_family"] == "queue_native"
+    assert idle["p95_wait"] == 0.0
+    assert idle["p95_wait_source"] == "official_wait"
 
 
 def test_v2_snapshot_transition_math_links_and_queue_provenance(tmp_path):

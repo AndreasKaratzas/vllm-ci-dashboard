@@ -22,6 +22,9 @@ NIGHTLY_BUILD_LIMIT = 30
 RANKING_LIMIT = 20
 CHANGE_LIMIT = 20
 GROUP_HISTORY_LIMIT = 60
+AMD_TEST_HISTORY_LIMIT = 30
+AMD_TEST_RESULTS_GLOB = "test_results/*_amd.jsonl"
+AMD_TEST_PIPELINE = "amd-ci"
 FAILED_STATES = {"failed", "timed_out", "broken", "canceled"}
 SOFT_FAILED_STATES = {"soft_fail", "soft_failed"}
 TRUSTWORTHY_BUILD_STATES = {"passed", "failed"}
@@ -56,6 +59,13 @@ AMD_TARGET_SUFFIX_RE = re.compile(
     r"(?<=\d)(?:x)?mi\d{2,4}b?(?:[_-]\d+)?(?=\))",
     re.IGNORECASE,
 )
+AMD_TEST_JOB_PREFIX_RE = re.compile(
+    r"^(?P<hardware_variant>mi\d{3}b?(?:_\d+)?):\s*(?P<display_name>.*)$",
+    re.IGNORECASE,
+)
+AMD_TEST_INCIDENT_STATUSES = {"failed", "error"}
+AMD_TEST_SOFT_STATES = {"soft", "soft_fail", "soft_failed"}
+AMD_TEST_HARD_STATES = {"failed", "timed_out", "broken", "canceled"}
 GATING_CONFIG_URL = (
     "https://github.com/AndreasKaratzas/vllm-ci-dashboard/"
     "blob/main/config/vllm_amd_gating_targets.json"
@@ -71,7 +81,7 @@ def _load_json(path: Path) -> dict:
         return {}
     try:
         value = json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError, UnicodeError):
         return {}
     return value if isinstance(value, dict) else {}
 
@@ -400,7 +410,7 @@ def _strict_int(value: Any) -> int | None:
         return None
     try:
         number = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     return number if number > 0 else None
 
@@ -446,6 +456,541 @@ def _pipeline_job_url_matches(
     if suffix[1] == "canvas":
         return bool(query.get("jid") or query.get("sid"))
     return bool(suffix[1])
+
+
+def _amd_test_group_id(exact_job_name: str, pipeline_slug: str = AMD_TEST_PIPELINE) -> str:
+    identity = f"{pipeline_slug}:{exact_job_name}".encode("utf-8")
+    return hashlib.sha1(identity).hexdigest()[:20]
+
+
+def _amd_test_job_labels(exact_job_name: str) -> tuple[str, str, str, str]:
+    match = AMD_TEST_JOB_PREFIX_RE.match(exact_job_name)
+    if not match:
+        return exact_job_name, "unknown", "unknown", ""
+    hardware_variant = match.group("hardware_variant").lower()
+    hardware = hardware_variant.split("_", 1)[0]
+    display_name = match.group("display_name")
+    return display_name, hardware, hardware_variant, f"amd_{hardware_variant}"
+
+
+def _amd_test_result_count(row: dict) -> int:
+    for key in ("test_count", "count"):
+        value = row.get(key)
+        if isinstance(value, bool):
+            continue
+        try:
+            count = int(value)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if count > 0:
+            return count
+    match = re.search(r"\((\d+)\)\s*$", str(row.get("name") or ""))
+    return int(match.group(1)) if match else 1
+
+
+def _amd_test_job_state(job: dict) -> str:
+    state = str(job.get("state") or "").strip().lower()
+    if job.get("soft_failed") or state in AMD_TEST_SOFT_STATES:
+        return "soft"
+    if state in AMD_TEST_HARD_STATES:
+        return "hard"
+    if state == "passed":
+        return "passed"
+    return "unknown"
+
+
+def _amd_test_observation_state(jobs: list[dict]) -> str:
+    states = {_amd_test_job_state(job) for job in jobs}
+    for state in ("hard", "soft", "passed"):
+        if state in states:
+            return state
+    return "unknown"
+
+
+def _amd_test_pass_rate(passed: int, incidents: int) -> float | None:
+    known = passed + incidents
+    return round(passed / known * 100, 1) if known else None
+
+
+def _amd_test_metadata_builds(amd_analytics: Any) -> dict[int, dict]:
+    if not isinstance(amd_analytics, dict):
+        return {}
+    result: dict[int, dict] = {}
+    builds = amd_analytics.get("builds")
+    if not isinstance(builds, list):
+        return result
+    for build in builds:
+        if not isinstance(build, dict):
+            continue
+        number = _strict_int(build.get("number") or build.get("build_number"))
+        if number is not None and number not in result:
+            result[number] = build
+    return result
+
+
+def _amd_test_job_metadata(
+    build: dict,
+    evidence_rows: list[dict],
+) -> list[dict]:
+    jobs = build.get("jobs")
+    if not isinstance(jobs, list):
+        return []
+    by_job_id = {
+        str(job.get("job_id")): job
+        for job in jobs
+        if isinstance(job, dict) and job.get("job_id")
+    }
+    matches = []
+    seen: set[str] = set()
+    for evidence in evidence_rows:
+        job_id = str(evidence.get("job_id") or "")
+        if not job_id or job_id in seen or job_id not in by_job_id:
+            continue
+        seen.add(job_id)
+        matches.append(by_job_id[job_id])
+    return matches
+
+
+def _amd_test_build_url(build_number: int, metadata: dict) -> str:
+    raw_url = metadata.get("web_url") or metadata.get("url")
+    if _pipeline_build_url_matches(raw_url, AMD_TEST_PIPELINE, build_number):
+        return str(raw_url)
+    return _build_url(AMD_TEST_PIPELINE, {"number": build_number})
+
+
+def _amd_test_evidence_row(evidence_rows: list[dict], metadata: dict) -> dict:
+    metadata_job_id = str(metadata.get("job_id") or "")
+    selected = [
+        row for row in evidence_rows
+        if metadata_job_id and str(row.get("job_id") or "") == metadata_job_id
+    ]
+    candidates = selected or evidence_rows
+    if not candidates:
+        return {}
+    return max(
+        candidates,
+        key=lambda row: (
+            bool(row.get("job_id")),
+            bool(row.get("step_id")),
+            bool(row.get("url") or row.get("web_url")),
+        ),
+    )
+
+
+def _amd_test_job_url(build_number: int, evidence: dict, metadata: dict) -> str:
+    job = {
+        "job_id": evidence.get("job_id") or metadata.get("job_id"),
+        "step_id": evidence.get("step_id") or metadata.get("step_id"),
+        "url": evidence.get("url") or evidence.get("web_url") or metadata.get("url"),
+    }
+    return _job_url(AMD_TEST_PIPELINE, {"number": build_number}, job)
+
+
+def _load_amd_test_result_groups(data_dir: Path) -> tuple[dict[tuple[int, str], dict], dict]:
+    try:
+        paths = sorted((data_dir / "test_results").glob("*_amd.jsonl"))
+    except OSError:
+        paths = []
+    grouped: dict[tuple[int, str], dict] = {}
+    stats = {
+        "files_discovered": len(paths),
+        "files_read": 0,
+        "files_with_valid_rows": 0,
+        "unreadable_files": 0,
+        "valid_rows": 0,
+        "malformed_rows": 0,
+        "ignored_rows": 0,
+        "source_files": [],
+    }
+    for path in paths:
+        try:
+            relative_path = path.relative_to(data_dir).as_posix()
+        except ValueError:
+            relative_path = path.name
+        stats["source_files"].append(relative_path)
+        fallback_date = path.name.removesuffix("_amd.jsonl")
+        file_valid_rows = 0
+        try:
+            with path.open(encoding="utf-8") as source:
+                stats["files_read"] += 1
+                for line in source:
+                    if not line.strip():
+                        continue
+                    try:
+                        row = json.loads(line)
+                    except (json.JSONDecodeError, TypeError):
+                        stats["malformed_rows"] += 1
+                        continue
+                    if not isinstance(row, dict):
+                        stats["malformed_rows"] += 1
+                        continue
+                    if row.get("pipeline") not in (None, "", AMD_TEST_PIPELINE):
+                        stats["ignored_rows"] += 1
+                        continue
+                    build_number = _strict_int(row.get("build_number"))
+                    exact_job_name = row.get("job_name")
+                    if build_number is None or not isinstance(exact_job_name, str) or not exact_job_name:
+                        stats["malformed_rows"] += 1
+                        continue
+                    status = str(row.get("status") or "unknown").strip().lower() or "unknown"
+                    count = _amd_test_result_count(row)
+                    key = (build_number, exact_job_name)
+                    bucket = grouped.setdefault(key, {
+                        "build_number": build_number,
+                        "exact_job_name": exact_job_name,
+                        "dates": set(),
+                        "status_counts": Counter(),
+                        "status_row_counts": Counter(),
+                        "test_duration_secs": 0.0,
+                        "evidence_rows": [],
+                    })
+                    date = row.get("date") or fallback_date
+                    if date:
+                        bucket["dates"].add(str(date))
+                    bucket["status_counts"][status] += count
+                    bucket["status_row_counts"][status] += 1
+                    duration = _number(row.get("duration_secs"))
+                    if duration is not None and duration >= 0 and duration != float("inf"):
+                        bucket["test_duration_secs"] += duration
+                    bucket["evidence_rows"].append({
+                        key: row.get(key)
+                        for key in (
+                            "status", "job_id", "step_id", "url", "web_url",
+                            "observed_at", "finished_at", "started_at",
+                        )
+                        if row.get(key) not in (None, "")
+                    } | {"status": status})
+                    file_valid_rows += 1
+                    stats["valid_rows"] += 1
+        except (OSError, UnicodeError):
+            stats["unreadable_files"] += 1
+        if file_valid_rows:
+            stats["files_with_valid_rows"] += 1
+    return grouped, stats
+
+
+def _amd_test_observation(bucket: dict, metadata: dict) -> dict:
+    build_number = bucket["build_number"]
+    exact_job_name = bucket["exact_job_name"]
+    display_name, hardware, hardware_variant, queue = _amd_test_job_labels(exact_job_name)
+    status_counts = Counter(bucket["status_counts"])
+    job_metadata_rows = _amd_test_job_metadata(metadata, bucket["evidence_rows"])
+    state = _amd_test_observation_state(job_metadata_rows)
+    state_metadata = [
+        job for job in job_metadata_rows
+        if _amd_test_job_state(job) == state
+    ]
+    job_metadata = max(
+        state_metadata or job_metadata_rows or [{}],
+        key=lambda job: str(job.get("finished_at") or job.get("started_at") or ""),
+    )
+    evidence = _amd_test_evidence_row(bucket["evidence_rows"], job_metadata)
+    build_url = _amd_test_build_url(build_number, metadata)
+    job_url = _amd_test_job_url(build_number, evidence, job_metadata)
+    observed_at = (
+        job_metadata.get("finished_at")
+        or job_metadata.get("started_at")
+        or evidence.get("observed_at")
+        or evidence.get("finished_at")
+        or evidence.get("started_at")
+        or metadata.get("created_at")
+        or metadata.get("finished_at")
+        or max(bucket["dates"], default="")
+    )
+    date = str(metadata.get("date") or max(bucket["dates"], default=""))
+    tests = sum(status_counts.values())
+    passed_tests = status_counts.get("passed", 0)
+    failed_tests = sum(status_counts.get(status, 0) for status in AMD_TEST_INCIDENT_STATUSES)
+    skipped_tests = status_counts.get("skipped", 0) + status_counts.get("xfailed", 0)
+    unknown_tests = max(0, tests - passed_tests - failed_tests - skipped_tests)
+    duration_secs = round(float(bucket["test_duration_secs"]), 2)
+    row = {
+        "source_pipeline": AMD_TEST_PIPELINE,
+        "build_number": build_number,
+        "state": state,
+        "outcome_source": "analytics_job_state" if job_metadata_rows else "unavailable",
+        "analytics_job_count": len(job_metadata_rows),
+        "observed_at": str(observed_at or ""),
+        "date": date or str(observed_at or "")[:10],
+        "url": job_url,
+        "job_url": job_url,
+        "build_url": build_url,
+        "hardware": hardware,
+        "hardware_variant": hardware_variant,
+        "queue": queue,
+        "status_counts": dict(sorted(status_counts.items())),
+        "status_row_counts": dict(sorted(bucket["status_row_counts"].items())),
+        "tests": tests,
+        "passed_tests": passed_tests,
+        "failed_tests": failed_tests,
+        "error_tests": status_counts.get("error", 0),
+        "skipped_tests": skipped_tests,
+        "unknown_tests": unknown_tests,
+        "test_duration_secs": duration_secs,
+        "test_duration_mins": round(duration_secs / 60, 2),
+        "duration_mins": round(duration_secs / 60, 2),
+        "duration_basis": "test_reported",
+    }
+    job_id = evidence.get("job_id") or job_metadata.get("job_id")
+    step_id = evidence.get("step_id") or job_metadata.get("step_id")
+    if job_id:
+        row["job_id"] = str(job_id)
+    if step_id:
+        row["step_id"] = str(step_id)
+    return row
+
+
+def _amd_test_sort_key(row: dict) -> tuple[str, int]:
+    return (
+        str(row.get("observed_at") or row.get("date") or ""),
+        _strict_int(row.get("build_number")) or 0,
+    )
+
+
+def _amd_test_health(data_dir: Path, amd_analytics: Any) -> dict:
+    grouped, load_stats = _load_amd_test_result_groups(data_dir)
+    metadata_by_build = _amd_test_metadata_builds(amd_analytics)
+    observations_by_group: dict[str, list[dict]] = defaultdict(list)
+    observations_by_build: dict[int, list[dict]] = defaultdict(list)
+    for (build_number, exact_job_name), bucket in grouped.items():
+        observation = _amd_test_observation(bucket, metadata_by_build.get(build_number) or {})
+        observations_by_group[exact_job_name].append(observation)
+        observations_by_build[build_number].append(observation)
+
+    catalog = []
+    for exact_job_name, source_observations in observations_by_group.items():
+        source_observations.sort(key=_amd_test_sort_key)
+        group_id = _amd_test_group_id(exact_job_name)
+        observations = [
+            {**row, "group_id": group_id}
+            for row in source_observations[-AMD_TEST_HISTORY_LIMIT:]
+        ]
+        display_name, hardware, hardware_variant, queue = _amd_test_job_labels(exact_job_name)
+        state_counts = Counter(row["state"] for row in source_observations)
+        runs = len(source_observations)
+        passed = state_counts["passed"]
+        soft_failed = state_counts["soft"]
+        hard_failed = state_counts["hard"]
+        incidents = soft_failed + hard_failed
+        unknown = state_counts["unknown"]
+        latest = source_observations[-1]
+        current_pass_streak = 0
+        for observation in reversed(source_observations):
+            if observation["state"] != "passed":
+                break
+            current_pass_streak += 1
+        catalog.append({
+            "source_pipeline": AMD_TEST_PIPELINE,
+            "id": group_id,
+            "name": display_name,
+            "display_name": display_name,
+            "job_name": exact_job_name,
+            "exact_job_name": exact_job_name,
+            "hardware": hardware,
+            "hardware_variant": hardware_variant,
+            "queue": queue,
+            "queues": [queue] if queue else [],
+            "runs": runs,
+            "passed": passed,
+            "soft_failed": soft_failed,
+            "hard_failed": hard_failed,
+            "incidents": incidents,
+            "unknown": unknown,
+            "pass_rate_pct": _amd_test_pass_rate(passed, incidents),
+            "current_pass_streak": current_pass_streak,
+            "latest_state": latest["state"],
+            "latest_build_number": latest["build_number"],
+            "latest_url": latest["job_url"] or latest["build_url"],
+            "latest_observed_at": latest["observed_at"],
+            "first_observed_at": source_observations[0]["observed_at"],
+            "observation_count": runs,
+            "retained_observation_count": len(observations),
+            "history_truncated": runs > len(observations),
+            "observations": observations,
+        })
+    catalog.sort(
+        key=lambda row: (
+            str(row["hardware"]),
+            str(row["display_name"]).lower(),
+            str(row["exact_job_name"]),
+        )
+    )
+
+    builds = []
+    for build_number, source_observations in observations_by_build.items():
+        metadata = metadata_by_build.get(build_number) or {}
+        source_observations.sort(key=lambda row: str(row.get("hardware_variant") or "") + row["job_url"])
+        state_counts = Counter(row["state"] for row in source_observations)
+        observed_at = (
+            metadata.get("created_at")
+            or metadata.get("finished_at")
+            or max((row["observed_at"] for row in source_observations), default="")
+        )
+        date = str(
+            metadata.get("date")
+            or max((row["date"] for row in source_observations), default="")
+            or str(observed_at or "")[:10]
+        )
+        passed = state_counts["passed"]
+        soft_failed = state_counts["soft"]
+        hard_failed = state_counts["hard"]
+        incidents = soft_failed + hard_failed
+        unknown = state_counts["unknown"]
+        build_url = _amd_test_build_url(build_number, metadata)
+        builds.append({
+            "source_pipeline": AMD_TEST_PIPELINE,
+            "number": build_number,
+            "build_number": build_number,
+            "date": date,
+            "observed_at": str(observed_at or ""),
+            "url": build_url,
+            "build_url": build_url,
+            "observed": len(source_observations),
+            "passed": passed,
+            "soft_failed": soft_failed,
+            "hard_failed": hard_failed,
+            "incidents": incidents,
+            "unknown": unknown,
+            "observed_groups": len(source_observations),
+            "passed_groups": passed,
+            "soft_failed_groups": soft_failed,
+            "hard_failed_groups": hard_failed,
+            "incident_groups": incidents,
+            "unknown_groups": unknown,
+            "pass_rate_pct": _amd_test_pass_rate(passed, incidents),
+            "state_counts": {
+                "passed": passed,
+                "soft": soft_failed,
+                "hard": hard_failed,
+                "unknown": unknown,
+            },
+        })
+    builds.sort(key=_amd_test_sort_key)
+
+    latest = builds[-1] if builds else {}
+    latest_counts = latest.get("state_counts") or {
+        "passed": 0,
+        "soft": 0,
+        "hard": 0,
+        "unknown": 0,
+    }
+    observation_state_counts = Counter(
+        row["state"]
+        for observations in observations_by_build.values()
+        for row in observations
+    )
+    joined_observation_count = sum(
+        bool(row.get("analytics_job_count"))
+        for observations in observations_by_build.values()
+        for row in observations
+    )
+    hardware_counts = Counter(
+        row["hardware"] for row in catalog if row["hardware"] != "unknown"
+    )
+    hardware_variant_counts = Counter(
+        row["hardware_variant"] for row in catalog if row["hardware_variant"] != "unknown"
+    )
+    latest_hardware_counts = Counter(
+        row["hardware"]
+        for row in observations_by_build.get(latest.get("build_number"), [])
+        if row["hardware"] != "unknown"
+    )
+    summary = {
+        "build_count": len(builds),
+        "group_count": len(catalog),
+        "union_group_count": len(catalog),
+        "latest_group_count": int(latest.get("observed") or 0),
+        "latest_build_number": latest.get("build_number"),
+        "latest_build_url": latest.get("build_url"),
+        "latest_url": latest.get("url"),
+        "latest_observed_at": latest.get("observed_at"),
+        "latest_state_counts": latest_counts,
+        "latest_passed_group_count": int(latest_counts.get("passed") or 0),
+        "latest_soft_failed_group_count": int(latest_counts.get("soft") or 0),
+        "latest_hard_failed_group_count": int(latest_counts.get("hard") or 0),
+        "latest_incident_group_count": int(latest_counts.get("soft") or 0)
+        + int(latest_counts.get("hard") or 0),
+        "latest_unknown_group_count": int(latest_counts.get("unknown") or 0),
+        "observation_state_counts": {
+            "passed": observation_state_counts["passed"],
+            "soft": observation_state_counts["soft"],
+            "hard": observation_state_counts["hard"],
+            "unknown": observation_state_counts["unknown"],
+        },
+        "passed_observation_count": observation_state_counts["passed"],
+        "soft_failed_observation_count": observation_state_counts["soft"],
+        "hard_failed_observation_count": observation_state_counts["hard"],
+        "incident_observation_count": observation_state_counts["soft"]
+        + observation_state_counts["hard"],
+        "unknown_observation_count": observation_state_counts["unknown"],
+        "mixed_outcome_group_count": sum(
+            bool(row["passed"] and row["incidents"]) for row in catalog
+        ),
+        "stable_passing_group_count": sum(
+            bool(row["passed"] and not row["incidents"] and not row["unknown"])
+            for row in catalog
+        ),
+        "persistent_incident_group_count": sum(
+            bool(row["incidents"] and not row["passed"]) for row in catalog
+        ),
+        "hardware_counts": dict(sorted(hardware_counts.items())),
+        "hardware_variant_counts": dict(sorted(hardware_variant_counts.items())),
+        "latest_hardware_counts": dict(sorted(latest_hardware_counts.items())),
+    }
+    return {
+        "available": bool(builds),
+        "source_pipeline": AMD_TEST_PIPELINE,
+        "cohort": {
+            "id": "amd-ci-retained-nightly-test-results",
+            "available": bool(builds),
+            "pipeline": AMD_TEST_PIPELINE,
+            "label": "Retained AMD CI nightly parsed test results",
+            "build_count": len(builds),
+            "build_numbers": [row["build_number"] for row in builds],
+            "first_observed_at": builds[0]["observed_at"] if builds else None,
+            "latest_observed_at": latest.get("observed_at"),
+            "history_limit_per_group": AMD_TEST_HISTORY_LIMIT,
+            "aggregation_key": ["build_number", "exact_job_name"],
+        },
+        "summary": summary,
+        "builds": builds,
+        "group_catalog": catalog,
+        "provenance": {
+            "source_paths": {
+                "test_results": AMD_TEST_RESULTS_GLOB,
+                "nightly_metadata": SOURCE_FILES["analytics"],
+            },
+            "test_results": {
+                "glob": AMD_TEST_RESULTS_GLOB,
+                "role": "parsed test counts, statuses, and duration only",
+                **load_stats,
+            },
+            "nightly_metadata": {
+                "path": SOURCE_FILES["analytics"],
+                "source_key": "amd-ci.builds",
+                "retained_build_count": len(metadata_by_build),
+                "job_join_key": ["build_number", "job_id"],
+                "joined_group_observations": joined_observation_count,
+                "unjoined_group_observations": sum(len(rows) for rows in observations_by_build.values())
+                - joined_observation_count,
+                "role": "authoritative Buildkite terminal job outcome and timing",
+            },
+            "classification": {
+                "passed": "analytics job state is passed",
+                "soft": "analytics job state is soft_fail/soft_failed or soft_failed is true",
+                "hard": "analytics job state is failed, timed_out, broken, or canceled",
+                "unknown": "analytics job state is missing, skipped, or non-terminal",
+                "incidents": "soft plus hard group observations",
+                "jsonl_status_role": "test-count enrichment only; never the terminal group outcome",
+                "missing_groups": "not inferred",
+            },
+            "identity": {
+                "algorithm": "sha1",
+                "length": 20,
+                "input": "source_pipeline + ':' + exact_job_name",
+            },
+        },
+    }
 
 
 def _strict_build_rows(rows: Any, pipeline_slug: str) -> tuple[bool, set[int]]:
@@ -1622,21 +2167,34 @@ def _compact_history_snapshot(snapshot: dict) -> dict:
     """Project history to chart/detail fields without duplicating verbose contracts."""
     queues = {}
     for name, source in (snapshot.get("queues") or {}).items():
-        if _is_excluded_queue(name):
+        if _is_excluded_queue(name) or not isinstance(source, dict):
             continue
+        compact_fields = (
+            "waiting", "running", "scheduled", "total",
+            "zombie_waiting", "zombie_running",
+            "connected_agents", "connected_agents_source",
+            "count_source", "count_source_family",
+            "p50_wait", "p50_wait_source", "p75_wait", "p75_wait_source",
+            "p90_wait", "p90_wait_source", "p95_wait", "p95_wait_source",
+            "p99_wait", "p99_wait_source", "avg_wait", "avg_wait_source",
+            "max_wait", "max_wait_source", "wait_source", "wait_source_family",
+            "wait_sample_count", "sample_count", "official_wait_source",
+            "sample_wait_source", "metrics_ts", "current_wait",
+        )
         row = {
-            key: source.get(key)
-            for key in (
-                "waiting", "running", "zombie_waiting", "zombie_running",
-                "connected_agents", "count_source", "p50_wait", "p50_wait_source",
-                "p95_wait", "p95_wait_source", "p99_wait", "p99_wait_source",
-            )
-            if source.get(key) is not None
+            key: source[key]
+            for key in compact_fields
+            if key in source
         }
-        has_activity = any(int(row.get(key) or 0) for key in ("waiting", "running", "zombie_waiting", "zombie_running"))
-        has_measurement = any(row.get(key) is not None for key in ("p50_wait", "p95_wait", "p99_wait", "connected_agents"))
-        if has_activity or has_measurement:
-            queues[name] = row
+        for key, value in source.items():
+            if (
+                key.endswith("_source")
+                or "source_family" in key
+            ):
+                row.setdefault(key, value)
+        # Presence in the source queue map is itself an observation. Retain
+        # idle rows so zero load remains distinct from an unobserved queue.
+        queues[name] = row
     sources = snapshot.get("sources") or {}
     history_provenance = sources.get("history_provenance") or {}
     return {
@@ -1646,7 +2204,7 @@ def _compact_history_snapshot(snapshot: dict) -> dict:
         "total_running": snapshot.get("total_running", 0),
         "total_zombie_waiting": snapshot.get("total_zombie_waiting", 0),
         "total_zombie_running": snapshot.get("total_zombie_running", 0),
-        "tracked_queue_count": len(snapshot.get("queues") or {}),
+        "tracked_queue_count": len(queues),
         "queues": queues,
         "sources": {
             key: sources.get(key)
@@ -1885,6 +2443,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
     analytics = loaded.get("analytics") or {}
     amd_nightly = _nightly_pipeline("amd-ci", analytics.get("amd-ci") or {})
     upstream_parity = _nightly_pipeline("ci", analytics.get("ci") or {})
+    amd_test_health = _amd_test_health(data_dir, analytics.get("amd-ci") or {})
     pipeline_blocks = [amd_nightly, upstream_parity]
     nightly = {
         "primary_pipeline": "amd-ci",
@@ -1944,6 +2503,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         "home": home,
         "attention": attention,
         "nightly": nightly,
+        "amd_test_health": amd_test_health,
         "reliability": reliability,
         "gating": gating,
         "queue": queue,

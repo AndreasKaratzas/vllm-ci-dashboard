@@ -431,7 +431,7 @@ window.__OPS_CONTROL_V2_READY__ = true;
     status: 'failing',
     build: '',
     page: 0,
-    pageSize: 25,
+    pageSize: 15,
   };
 
   function input(props) {
@@ -507,6 +507,11 @@ window.__OPS_CONTROL_V2_READY__ = true;
       queue: prefix ? (prefix.toLowerCase().startsWith('amd_') ? prefix : 'amd_' + prefix) : '',
       hasPlaceholder: /%N\b/i.test(raw),
     };
+  }
+
+  function displayGroupIdentity(group) {
+    const identity = groupIdentity(group);
+    return identity.normalized + (identity.hasPlaceholder ? ' (sharded)' : '');
   }
 
   function analyticsGroupQuery(group) {
@@ -690,7 +695,7 @@ window.__OPS_CONTROL_V2_READY__ = true;
     if (!issueRow.childNodes.length) issueRow.append(h('span', { cls: 'ocv2-unavailable', text: 'No issue source retained' }));
     evidence.body.append(issueRow);
     content.append(evidence.root);
-    ui.dialog(summary.group || 'Group evidence', 'Ready Tickets outcome and source evidence', content);
+    ui.dialog(displayGroupIdentity(summary.group) || 'Group evidence', 'Ready Tickets outcome and source evidence', content);
   }
 
   function issueEvidence(row, plan, indexes) {
@@ -719,6 +724,11 @@ window.__OPS_CONTROL_V2_READY__ = true;
     const recovered = rows.filter(function(row) { return row.cohort === 'recovered'; }).length;
     const volatile = rows.filter(function(row) { return Number(row.summary.break_frequency || 0) >= 2; }).length;
     const linked = rows.filter(function(row) { return !!projectIssue(row.ticket, indexes); }).length;
+    const amdLatestStates = operations && operations.amd_test_health && operations.amd_test_health.summary
+      ? operations.amd_test_health.summary.latest_state_counts || {}
+      : {};
+    const exactAmdIncidents = Number(amdLatestStates.soft || 0) + Number(amdLatestStates.hard || 0);
+    const failingMeta = 'normalized latest AMD groups' + (exactAmdIncidents ? '; ' + exactAmdIncidents + ' exact job variants in Analytics' : '');
     const tableHost = h('div');
 
     const toolbar = h('div', { cls: 'ocv2-toolbar' });
@@ -733,7 +743,7 @@ window.__OPS_CONTROL_V2_READY__ = true;
     ], viewState.status, 'Filter by group status');
     const build = input({ type: 'search', value: viewState.build, placeholder: 'Build number', 'aria-label': 'Filter by Buildkite build number' });
     const pageSize = select([
-      { value: '25', label: '25 rows' }, { value: '50', label: '50 rows' },
+      { value: '15', label: '15 rows' }, { value: '25', label: '25 rows' }, { value: '50', label: '50 rows' },
     ], String(viewState.pageSize), 'Rows per page');
     ui.append(toolbar, [query, status, build, pageSize]);
 
@@ -746,14 +756,14 @@ window.__OPS_CONTROL_V2_READY__ = true;
     }
 
     container.append(ui.kpis([
-      { label: 'Currently failing', value: failing, meta: 'latest AMD nightly', tone: failing ? 'is-danger' : 'is-success', onClick: function() { chooseStatus('failing'); } },
+      { label: 'Failing Ready groups', value: failing, meta: failingMeta, tone: failing ? 'is-danger' : 'is-success', onClick: function() { chooseStatus('failing'); } },
       { label: 'Stale last-known', value: stale, meta: 'absent from latest AMD summary', tone: stale ? 'is-warning' : '', onClick: function() { chooseStatus('stale'); } },
       { label: 'Recovered', value: recovered, meta: 'tracked but green latest', tone: 'is-success', onClick: function() { chooseStatus('recovered'); } },
       { label: 'Mixed outcomes', value: volatile, meta: '2+ flips in ' + (plan.window_days || 60) + 'd', tone: volatile ? 'is-warning' : '', onClick: function() { chooseStatus('volatile'); } },
       { label: 'Dedicated issues', value: linked, meta: 'shared master #' + masterNumber + ' excluded', tone: linked ? 'is-info' : '', onClick: function() { chooseStatus('linked'); } },
     ]));
 
-    const evidencePanel = ui.panel('Group evidence', failing + ' current, ' + stale + ' stale, ' + recovered + ' recovered', []);
+    const evidencePanel = ui.panel('Group evidence', failing + ' failing normalized groups, ' + stale + ' stale, ' + recovered + ' recovered', []);
     evidencePanel.body.append(toolbar, tableHost);
     container.append(evidencePanel.root);
 
@@ -761,7 +771,7 @@ window.__OPS_CONTROL_V2_READY__ = true;
       viewState.query = query.value.trim().toLowerCase();
       viewState.status = status.value;
       viewState.build = build.value.trim().toLowerCase().replace(/^#/, '');
-      viewState.pageSize = Number(pageSize.value) || 25;
+      viewState.pageSize = Number(pageSize.value) || 15;
       let filtered = rows.filter(function(row) {
         const summary = row.summary || {};
         if (viewState.status === 'failing' && row.cohort !== 'current') return false;
@@ -789,7 +799,7 @@ window.__OPS_CONTROL_V2_READY__ = true;
       const shown = filtered.slice(start, start + viewState.pageSize);
       tableHost.innerHTML = '';
       tableHost.append(ui.table([
-        { label: 'Group', render: function(row) { return ui.linkButton(row.summary.group || 'Unknown group', function() { inspectGroup(row, plan, indexes); }, 'Inspect retained group history'); } },
+        { label: 'Group', render: function(row) { return ui.linkButton(displayGroupIdentity(row.summary.group) || 'Unknown group', function() { inspectGroup(row, plan, indexes); }, 'Inspect retained group history'); } },
         { label: 'Latest state', render: function(row) {
           const label = row.cohort === 'current' ? 'Current failure' : row.cohort === 'stale' ? 'Stale last-known' : 'Recovered';
           return ui.linkButton(label, function() { inspectGroup(row, plan, indexes); }, 'Inspect state evidence');
