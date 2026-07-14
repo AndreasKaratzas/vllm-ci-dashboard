@@ -887,12 +887,17 @@
     return Number.isFinite(Number(raw)) ? Number(raw) : null;
   }
 
-  function observationOutcomeValue(observation) {
-    const stateName = observationState(observation);
-    if (stateName === 'passed') return 2;
-    if (['soft', 'soft_fail', 'soft_failed'].includes(stateName)) return 1;
-    if (isIncidentObservation(observation)) return 0;
-    return null;
+  function trailingPassStats(observations, windowSize) {
+    const size = Math.max(1, Number(windowSize || 10));
+    return observations.map(function (_, index) {
+      const windowRows = observations.slice(Math.max(0, index - size + 1), index + 1);
+      const passed = windowRows.filter(function (row) { return observationState(row) === 'passed'; }).length;
+      return {
+        passed: passed,
+        total: windowRows.length,
+        rate: windowRows.length ? passed / windowRows.length * 100 : null,
+      };
+    });
   }
 
   function observationHistoryPoint(observation, sourcePipeline) {
@@ -991,13 +996,21 @@
 
       const labels = observations.map(function (row) { return row.build_number ? '#' + row.build_number : shortDate(observationTimestamp(row)); });
       const evidence = observations.map(function (row) { return observationHistoryPoint(row, sourcePipeline); });
-      const pointColors = observations.map(function (row) {
-        const outcome = observationOutcomeValue(row);
-        return outcome === 2 ? '#35bb78' : outcome === 1 ? '#e3a63a' : '#e06464';
-      });
+      const rollingPass = trailingPassStats(observations, 10);
+      const rollingRates = rollingPass.map(function (row) { return row.rate; });
+      const currentRolling = rollingPass[rollingPass.length - 1] || {};
+      const outcomeSeries = [
+        {label: 'Passed run', state: 'passed', color: '#35bb78'},
+        {label: 'Soft incident', state: 'soft', color: '#e3a63a'},
+        {label: 'Hard incident', state: 'hard', color: '#e06464'},
+      ];
       const chartGrid = n('div', 'ops-grid ops-grid-2');
       const chartKey = 'group-' + String(candidate.id || candidate.name || 'history').replace(/[^a-z0-9]+/gi, '-').toLowerCase() + '-' + historyMode;
-      const outcomeChart = chartPanel('Outcome history', integer(observations.length) + ' exact ' + (historyMode === 'main' ? 'main' : 'nightly') + ' observations', chartKey + '-outcome');
+      const outcomeChart = chartPanel(
+        'Outcome trend',
+        'Current trailing 10: ' + Number(currentRolling.rate || 0).toFixed(1) + '% (' + integer(currentRolling.passed) + '/' + integer(currentRolling.total) + '); bar color is the exact result',
+        chartKey + '-outcome'
+      );
       chartGrid.append(outcomeChart.root);
       const hasDuration = observations.some(function (row) { return observationDurationMinutes(row) !== null || observationWaitMinutes(row) !== null; });
       let durationChart = null;
@@ -1071,10 +1084,60 @@
 
       requestAnimationFrame(function () {
         drawChart(chartKey + '-outcome', outcomeChart.canvas, {
-          type: 'line',
-          data: {labels: labels, datasets: [{label: 'Outcome', data: observations.map(observationOutcomeValue), showLine: false, pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: pointColors, pointBorderColor: pointColors}]},
-          options: {scales: {x: {grid: {display: false}, ticks: {maxTicksLimit: 8}}, y: {min: 0, max: 2, ticks: {stepSize: 1, callback: function (tick) { return tick === 2 ? 'Passed' : tick === 1 ? 'Soft' : tick === 0 ? 'Hard' : ''; }}}}},
-          evidenceTitle: (candidate.name || 'Test group') + ' outcome history',
+          type: 'bar',
+          data: {
+            labels: labels,
+            datasets: outcomeSeries.map(function (series) {
+              return {
+                label: series.label,
+                data: observations.map(function (observation, index) {
+                  const stateName = observationState(observation);
+                  const matches = series.state === 'passed'
+                    ? stateName === 'passed'
+                    : series.state === 'soft'
+                      ? ['soft', 'soft_fail', 'soft_failed'].includes(stateName)
+                      : isIncidentObservation(observation) && !['soft', 'soft_fail', 'soft_failed'].includes(stateName);
+                  return matches ? rollingRates[index] : null;
+                }),
+                backgroundColor: series.color,
+                borderColor: series.color,
+                borderWidth: 0,
+                borderRadius: 2,
+                categoryPercentage: 0.92,
+                barPercentage: 0.92,
+                minBarLength: 4,
+                order: 2,
+              };
+            }).concat([{
+              type: 'line',
+              label: 'Trailing 10-run pass rate',
+              data: rollingRates,
+              borderColor: '#64a8e8',
+              backgroundColor: '#64a8e8',
+              borderWidth: 2,
+              pointRadius: 0,
+              pointHoverRadius: 4,
+              stepped: 'after',
+              tension: 0,
+              order: 1,
+            }]),
+          },
+          options: {
+            interaction: {mode: 'index', intersect: false},
+            plugins: {tooltip: {callbacks: {label: function (item) {
+              const index = item.dataIndex;
+              if (item.dataset.type === 'line') {
+                const stat = rollingPass[index] || {};
+                return 'Trailing pass rate: ' + Number(stat.rate || 0).toFixed(1) + '% (' + integer(stat.passed) + ' / ' + integer(stat.total) + ')';
+              }
+              return 'Result: ' + historyOutcomeLabel(observations[index]);
+            }}}},
+            scales: {
+              x: {grid: {display: false}, ticks: {maxTicksLimit: 8}},
+              y: {min: 0, max: 100, title: {display: true, text: 'Trailing pass rate'}, ticks: {stepSize: 20, callback: function (tick) { return tick + '%'; }}},
+            },
+          },
+          evidenceTitle: (candidate.name || 'Test group') + ' exact outcomes and trailing pass rate',
           evidence: evidence,
         });
         if (durationChart) {

@@ -78,7 +78,12 @@ def test_test_group_history_switches_cohorts_with_clickable_outcome_evidence():
         "CURRENT SIGNAL",
         "LAST INCIDENT",
         "TYPICAL COMPLETION",
-        "Outcome history",
+        "Outcome trend",
+        "function trailingPassStats",
+        "Trailing 10-run pass rate",
+        "Current trailing 10:",
+        "bar color is the exact result",
+        "stepped: 'after'",
         "Completion and queue wait",
         "Historical outcomes, latency, and exact Buildkite evidence",
     ):
