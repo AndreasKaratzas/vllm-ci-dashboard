@@ -31,6 +31,9 @@
     analyticsGroupCohort: 'main',
     analyticsAmdFilter: 'attention',
     analyticsWindow: '24h',
+    agentWindow: '7d',
+    agentGpu: 'all',
+    agentNode: '',
     queueScope: 'amd',
     queueView: 'current',
     queueRange: '24h',
@@ -50,7 +53,7 @@
     'ci-analytics': new Set([
       'ops_analytics_view', 'ops_analytics_pipeline', 'ops_analytics_search',
       'ops_analytics_group', 'ops_analytics_cohort', 'ops_analytics_amd_filter',
-      'ops_analytics_window', 'ops_detail',
+      'ops_analytics_window', 'ops_agent_window', 'ops_agent_gpu', 'ops_agent_node', 'ops_detail',
     ]),
     'ci-queue': new Set(['ops_queue_view', 'ops_queue_range', 'ops_queue_scope', 'ops_queue_history_queue', 'ops_detail']),
     'ci-hotness': new Set(['ops_trajectory_window', 'ops_detail']),
@@ -65,6 +68,9 @@
     analytics_cohort: 'main',
     analytics_amd_filter: 'attention',
     analytics_window: '24h',
+    agent_window: '7d',
+    agent_gpu: 'all',
+    agent_node: '',
     queue_view: 'current',
     queue_range: '24h',
     queue_scope: 'amd',
@@ -278,13 +284,16 @@
     const specs = {
       'ci-health': [['healthView', 'health_view', ['overview', 'gating', 'coverage', 'diagnostics']]],
       'ci-analytics': [
-        ['analyticsView', 'analytics_view', ['groups', 'flakes', 'nightlies', 'retries', 'latency']],
+        ['analyticsView', 'analytics_view', ['groups', 'flakes', 'nightlies', 'retries', 'latency', 'agent-health']],
         ['analyticsPipeline', 'analytics_pipeline', ['ci', 'amd-ci']],
         ['analyticsSearch', 'analytics_search', null],
         ['analyticsGroupId', 'analytics_group', null],
         ['analyticsGroupCohort', 'analytics_cohort', ['main', 'nightly']],
         ['analyticsAmdFilter', 'analytics_amd_filter', ['attention', 'all', 'passing', 'incident', 'missing', 'mixed']],
         ['analyticsWindow', 'analytics_window', ['1h', '3h', '6h', '24h', '7d', '30d']],
+        ['agentWindow', 'agent_window', ['1d', '3d', '7d', '14d', '30d', '60d']],
+        ['agentGpu', 'agent_gpu', null],
+        ['agentNode', 'agent_node', null],
       ],
       'ci-queue': [
         ['queueView', 'queue_view', ['current', 'history', 'jobs']],
@@ -643,11 +652,27 @@
     table.append(colgroup);
     const thead = n('thead');
     const hr = n('tr');
+    // Optional, backward-compatible column sorting: active only when the caller
+    // passes options.onSort. Columns opt in via col.sortKey.
+    const sortState = geometry.sort || {};
+    const onSort = typeof geometry.onSort === 'function' ? geometry.onSort : null;
     for (const col of columns) {
       const alignment = col.numeric ? 'numeric' : col.align || 'text';
-      const th = n('th', (alignment === 'numeric' ? 'is-numeric ' : alignment === 'center' ? 'is-center ' : '') + (col.sticky ? 'is-sticky-left' : ''), col.label);
+      const th = n('th', (alignment === 'numeric' ? 'is-numeric ' : alignment === 'center' ? 'is-center ' : '') + (col.sticky ? 'is-sticky-left' : ''));
       th.scope = 'col';
       th.dataset.align = alignment;
+      if (onSort && col.sortKey) {
+        const active = sortState.key === col.sortKey;
+        const arrow = active ? (sortState.dir === 'asc' ? ' ▲' : ' ▼') : '';
+        const sortBtn = n('button', 'ops-sort-header' + (active ? ' is-active' : ''), col.label + arrow);
+        sortBtn.type = 'button';
+        sortBtn.setAttribute('aria-label', 'Sort by ' + col.label);
+        th.setAttribute('aria-sort', active ? (sortState.dir === 'asc' ? 'ascending' : 'descending') : 'none');
+        sortBtn.addEventListener('click', function () { onSort(col.sortKey); });
+        th.append(sortBtn);
+      } else {
+        th.append(document.createTextNode(col.label));
+      }
       hr.append(th);
     }
     thead.append(hr);
@@ -3107,6 +3132,440 @@
     ], priority, integer(currentIncidents.length) + ' current AMD incident groups; use Browse all for the complete catalog', {name: 'amd-current-incidents', minWidth: '1020px'}), 'ops-amd-priority'));
   }
 
+  const AGENT_WINDOW_DAYS = {'1d': 1, '3d': 3, '7d': 7, '14d': 14, '30d': 30, '60d': 60};
+
+  function agentStateColor(stateName) {
+    const s = String(stateName || '').toLowerCase();
+    if (s === 'passed') return '#35bb78';
+    if (s === 'soft') return '#e3a63a';
+    if (s === 'hard') return '#e06464';
+    return '#66717d';
+  }
+
+  function agentTruncate(text, max) {
+    const s = String(text || '');
+    return s.length > max ? s.slice(0, max - 1) + '…' : s;
+  }
+
+  function agentMostCommonHardware(runs) {
+    const counts = {};
+    let best = '';
+    let bestN = 0;
+    runs.forEach(function (run) {
+      const hw = run.hardware;
+      if (!hw) return;
+      counts[hw] = (counts[hw] || 0) + 1;
+      if (counts[hw] > bestN) { bestN = counts[hw]; best = hw; }
+    });
+    return best;
+  }
+
+  // Mirror of build_operations_snapshot._node_label: append the GPU type to every
+  // node name (gpu9124 -> "gpu9124 (MI300)", chi-mi325x-pod2-032 ->
+  // "chi-mi325x-pod2-032 (MI325)"). Raw name kept when the GPU type is unknown.
+  function agentNodeLabel(raw, hardware) {
+    if (!raw || !hardware) return raw;
+    return raw + ' (' + hardware + ')';
+  }
+
+  function agentAggregate(runs) {
+    const byNode = new Map();
+    runs.forEach(function (run) {
+      const key = run.node_raw || '(unidentified)';
+      if (!byNode.has(key)) byNode.set(key, []);
+      byNode.get(key).push(run);
+    });
+    const agents = [];
+    byNode.forEach(function (nodeRuns, raw) {
+      const identified = raw !== '(unidentified)';
+      const hardware = agentMostCommonHardware(nodeRuns);
+      let passed = 0, soft = 0, hard = 0, unknown = 0, lastSeen = '', latestUrl = '';
+      const groupStates = new Map();
+      const queues = new Set();
+      const pipelines = new Set();
+      nodeRuns.forEach(function (run) {
+        if (run.state === 'passed') passed += 1;
+        else if (run.state === 'soft') soft += 1;
+        else if (run.state === 'hard') hard += 1;
+        else unknown += 1;
+        if (!groupStates.has(run.group)) groupStates.set(run.group, new Set());
+        groupStates.get(run.group).add(run.state);
+        if (run.queue) queues.add(run.queue);
+        if (run.pipeline) pipelines.add(run.pipeline);
+        if (String(run.started_at) > lastSeen) { lastSeen = String(run.started_at); latestUrl = run.url || latestUrl; }
+      });
+      const incidents = soft + hard;
+      const graded = passed + incidents;
+      let flaky = 0;
+      groupStates.forEach(function (states) {
+        if (states.has('passed') && (states.has('soft') || states.has('hard'))) flaky += 1;
+      });
+      agents.push({
+        node: identified ? agentNodeLabel(raw, hardware) : raw,
+        node_raw: raw,
+        hardware: hardware,
+        identified: identified,
+        runs: nodeRuns.length,
+        passed: passed,
+        soft_failed: soft,
+        hard_failed: hard,
+        unknown: unknown,
+        incidents: incidents,
+        incident_rate: graded ? incidents / graded : 0,
+        distinct_groups: groupStates.size,
+        flaky_group_count: flaky,
+        cofailure_event_count: 0,
+        queues: Array.from(queues).sort(),
+        pipelines: Array.from(pipelines).sort(),
+        last_seen: lastSeen,
+        latest_url: latestUrl,
+        _runs: nodeRuns,
+      });
+    });
+    return agents;
+  }
+
+  function drawAgentTimeline(nodeRuns, label, chart) {
+    const parseMs = function (ts) { const t = Date.parse(ts); return Number.isFinite(t) ? t : null; };
+    const rows = (nodeRuns || []).slice()
+      .map(function (run) {
+        const start = parseMs(run.started_at);
+        let end = start;
+        if (start !== null) end = start + Math.max(1, Number(run.duration_mins) || 1) * 60000;
+        return {run: run, start: start, end: end};
+      })
+      .filter(function (row) { return row.start !== null; })
+      .sort(function (a, b) { return a.start - b.start; });
+    chart.frame.style.setProperty('--ops-chart-height', Math.min(1200, Math.max(160, rows.length * 24)) + 'px');
+    if (!rows.length) {
+      drawChart('analytics-agent-timeline', chart.canvas, {type: 'bar', data: {labels: [], datasets: [{data: []}]}, options: {plugins: {legend: {display: false}}}});
+      return;
+    }
+    const minStart = Math.min.apply(null, rows.map(function (row) { return row.start; }));
+    const maxEnd = Math.max.apply(null, rows.map(function (row) { return row.end; }));
+    const pad = Math.max(60000, (maxEnd - minStart) * 0.02);
+    drawChart('analytics-agent-timeline', chart.canvas, {
+      type: 'bar',
+      data: {
+        labels: rows.map(function (row, index) { return (index + 1) + '. ' + agentTruncate(row.run.group, 34); }),
+        datasets: [{
+          label: 'Run window',
+          data: rows.map(function (row) { return [row.start, row.end]; }),
+          backgroundColor: rows.map(function (row) { return agentStateColor(row.run.state); }),
+          borderWidth: 0,
+          borderSkipped: false,
+          barPercentage: 0.82,
+          categoryPercentage: 0.92,
+        }],
+      },
+      options: {
+        indexAxis: 'y',
+        scales: {
+          x: {type: 'linear', min: minStart - pad, max: maxEnd + pad, title: {display: true, text: 'Time'}, ticks: {maxTicksLimit: 8, callback: function (v) { return shortDate(new Date(Number(v)).toISOString()); }}},
+          y: {grid: {display: false}, ticks: {autoSkip: false, font: {size: 10}}},
+        },
+        plugins: {
+          legend: {display: false},
+          tooltip: {callbacks: {
+            title: function (items) { return rows[items[0].dataIndex].run.group; },
+            label: function (item) {
+              const run = rows[item.dataIndex].run;
+              return ['State: ' + run.state, 'Pipeline: ' + run.pipeline, 'Queue: ' + (run.queue || '-'), 'Start: ' + shortDate(run.started_at), 'Duration: ' + duration(run.duration_mins), 'Click to open the BuildKite log'];
+            },
+          }},
+        },
+      },
+      evidenceTitle: 'Test-group runs on ' + label,
+      evidence: rows.map(function (row) {
+        const run = row.run;
+        const openJob = run.url ? function () { window.open(run.url, '_blank', 'noopener'); } : null;
+        return {label: run.group, url: run.url, onOpen: openJob, timestamp: run.started_at, valueSummary: run.state + ' - ' + duration(run.duration_mins), details: {pipeline: run.pipeline, queue: run.queue, state: run.state, build: '#' + value(run.build_number), duration_mins: run.duration_mins}};
+      }),
+    });
+  }
+
+  function agentCofailureCard(event, onSelectNode) {
+    const card = n('div', 'ops-cofailure-card' + (event.cross_pipeline ? ' is-cross' : ''));
+    const head = n('div', 'ops-cofailure-head');
+    const nodeButton = linkButton(value(event.node), function () { onSelectNode(event.node_raw); }, 'Show this node in the run timeline');
+    nodeButton.classList.add('ops-mono', 'ops-cofailure-node');
+    add(head, [
+      nodeButton,
+      n('span', 'ops-cofailure-meta', shortDate(event.started_at) + ' · ' + duration(event.span_mins) + ' span · ' + integer(event.group_count) + ' groups'),
+    ]);
+    const concurrent = event.pattern === 'concurrent' || event.concurrent;
+    head.append(n('span', 'ops-badge ' + (concurrent ? 'is-warning' : 'is-info'), concurrent ? 'concurrent' : 'sequential'));
+    if (event.cross_pipeline) head.append(n('span', 'ops-badge is-danger', 'cross-pipeline'));
+    card.append(head);
+    const list = n('ul', 'ops-cofailure-runs');
+    (event.runs || []).forEach(function (run) {
+      const li = n('li', 'ops-cofailure-run');
+      const chip = n('span', 'ops-state-chip');
+      chip.style.background = agentStateColor(run.state);
+      chip.title = run.state;
+      add(li, [
+        chip,
+        n('span', 'ops-cofailure-group', run.group),
+        n('span', 'ops-cofailure-run-meta', [run.pipeline, run.queue].filter(Boolean).join(' · ')),
+        externalLink('#' + value(run.build_number) + ' log ↗', run.url, 'ops-mono'),
+      ]);
+      list.append(li);
+    });
+    card.append(list);
+    return card;
+  }
+
+  function renderAmdAgentHealth(host, agentHealth) {
+    const allRuns = Array.isArray(agentHealth.runs) ? agentHealth.runs : [];
+    const allEvents = Array.isArray(agentHealth.cofailure_events) ? agentHealth.cofailure_events : [];
+    const hardwareTypes = Array.isArray(agentHealth.hardware_types) ? agentHealth.hardware_types : [];
+    const windowOptions = Array.isArray(agentHealth.window_options) ? agentHealth.window_options : [1, 3, 7, 14, 30, 60];
+    const endMs = new Date(agentHealth.generated_at || Date.now()).getTime();
+    const windowHours = Math.round((agentHealth.cofailure_window_mins || 720) / 60);
+
+    // Local, in-place view state (avoids full-tab re-render so the search box
+    // keeps focus and the timeline chart does not flicker on every keystroke).
+    let windowId = AGENT_WINDOW_DAYS[state.agentWindow] ? state.agentWindow : ((agentHealth.default_window_days || 7) + 'd');
+    let gpu = (gpu => (gpu === 'all' || hardwareTypes.includes(gpu)) ? gpu : 'all')(state.agentGpu || 'all');
+    let search = '';
+    let selectedNode = state.agentNode || '';
+    let sort = {key: 'incidents', dir: 'desc'};
+    let searchTimer = null;
+    let current = null;
+
+    add(host, pageHeaderNote());
+    const controlsHost = n('div', 'ops-agent-controls');
+    host.append(controlsHost);
+    const kpiHost = n('div');
+    host.append(kpiHost);
+    const emptyHost = n('div');
+    host.append(emptyHost);
+    const tableHost = n('div');
+    host.append(tableHost);
+
+    // Timeline (persistent chart; only its data is redrawn).
+    const timelineToolbar = n('div', 'ops-toolbar ops-agent-toolbar');
+    const nodeField = n('label', 'ops-field-label', 'Timeline node ');
+    const nodeSelect = n('select', 'ops-select');
+    nodeSelect.setAttribute('aria-label', 'Physical node for run timeline');
+    nodeField.append(nodeSelect);
+    timelineToolbar.append(nodeField);
+    const timelineChart = chartPanel('Per-node run timeline', 'Each bar is one test-group run on the selected node; overlapping bars that fail together point to shared-node contention or an ephemeral host/network fault. Click a bar to open its BuildKite log.', 'analytics-agent-timeline');
+    const legend = n('div', 'ops-agent-legend');
+    [['Passed', '#35bb78'], ['Soft fail', '#e3a63a'], ['Hard fail', '#e06464'], ['Unknown', '#66717d']].forEach(function (entry) {
+      const item = n('span', 'ops-agent-legend-item');
+      const swatch = n('span', 'ops-agent-legend-swatch');
+      swatch.style.background = entry[1];
+      add(item, [swatch, n('span', '', entry[0])]);
+      legend.append(item);
+    });
+    const timelineSection = n('section', 'ops-agent-timeline-section');
+    add(timelineSection, [timelineToolbar, timelineChart.root, legend]);
+    host.append(timelineSection);
+
+    const eventsHost = n('div');
+    host.append(eventsHost);
+
+    nodeSelect.addEventListener('change', function () { selectNode(nodeSelect.value, false); });
+
+    function pageHeaderNote() {
+      const note = n('div', 'ops-evidence-note is-info');
+      add(note, [n('strong', '', 'AMD physical CI agent health. '), n('span', '', 'Test groups are attributed to the physical node from each job’s Buildkite agent tag, across both the AMD nightly and AMD-node jobs inside upstream CI. Filter by window, GPU type, and node; click any node in the table or a co-failure event to load its run timeline.')]);
+      return note;
+    }
+
+    function buildControls() {
+      clear(controlsHost);
+      const windowSeg = segmented(windowOptions.map(function (d) { return {id: d + 'd', label: d + 'd'}; }), windowId, function (id) {
+        windowId = id; state.agentWindow = id; setQueryValue('agent_window', id); buildControls(); apply();
+      }, 'Date range');
+      const gpuItems = [{id: 'all', label: 'All GPUs'}].concat(hardwareTypes.map(function (h) { return {id: h, label: h}; }));
+      const gpuSeg = segmented(gpuItems, gpu, function (id) {
+        gpu = id; state.agentGpu = id; setQueryValue('agent_gpu', id); buildControls(); apply();
+      }, 'GPU type');
+      const searchInput = n('input', 'ops-input ops-agent-search');
+      searchInput.type = 'search';
+      searchInput.placeholder = 'Filter nodes by name or GPU type';
+      searchInput.setAttribute('aria-label', 'Filter nodes by name or GPU type');
+      searchInput.value = search;
+      searchInput.addEventListener('input', function () {
+        search = searchInput.value.trim();
+        if (searchTimer) clearTimeout(searchTimer);
+        searchTimer = setTimeout(apply, 200);
+      });
+      add(controlsHost, [
+        agentField('Window', windowSeg),
+        agentField('GPU', gpuSeg),
+        agentField('Node', searchInput),
+      ]);
+    }
+
+    function agentField(labelText, control) {
+      const field = n('div', 'ops-agent-field');
+      add(field, [n('span', 'ops-field-label', labelText), control]);
+      return field;
+    }
+
+    function computeView() {
+      const days = AGENT_WINDOW_DAYS[windowId] || 7;
+      const startMs = endMs - days * 86400000;
+      const term = search.toLowerCase();
+      const matchesFilter = function (hardware, nodeRaw) {
+        if (gpu !== 'all' && hardware !== gpu) return false;
+        if (term && String(nodeRaw || '').toLowerCase().indexOf(term) === -1 && String(hardware || '').toLowerCase().indexOf(term) === -1) return false;
+        return true;
+      };
+      const inWindow = function (ts) {
+        const t = Date.parse(ts);
+        return Number.isFinite(t) && t >= startMs && t <= endMs;
+      };
+      const runs = allRuns.filter(function (run) { return inWindow(run.started_at) && matchesFilter(run.hardware, run.node_raw); });
+      const events = allEvents.filter(function (event) { return inWindow(event.started_at) && matchesFilter(event.hardware, event.node_raw); });
+      const agents = agentAggregate(runs);
+      const eventsByNode = {};
+      events.forEach(function (event) { eventsByNode[event.node_raw] = (eventsByNode[event.node_raw] || 0) + 1; });
+      agents.forEach(function (agent) { agent.cofailure_event_count = eventsByNode[agent.node_raw] || 0; });
+      return {runs: runs, events: events, agents: agents};
+    }
+
+    function renderKpis(view) {
+      clear(kpiHost);
+      const identifiedRuns = view.runs.filter(function (run) { return run.node_raw !== '(unidentified)'; }).length;
+      const coveragePct = view.runs.length ? (100 * identifiedRuns / view.runs.length) : 0;
+      const identifiedNodes = view.agents.filter(function (agent) { return agent.identified; }).length;
+      const unreliable = view.agents.filter(function (agent) { return agent.identified && agent.incidents > 0; }).length;
+      const concurrent = view.events.filter(function (event) { return event.concurrent; }).length;
+      const cross = view.events.filter(function (event) { return event.cross_pipeline; }).length;
+      kpiHost.append(statusStrip([
+        {id: 'agent-nodes', label: 'IDENTIFIED AMD NODES', value: integer(identifiedNodes), meta: integer(view.runs.length) + ' runs in ' + windowId, tone: 'is-info'},
+        {id: 'agent-unreliable', label: 'UNRELIABLE NODES', value: integer(unreliable), meta: 'nodes with a soft/hard result', tone: unreliable ? 'is-warning' : 'is-success'},
+        {id: 'agent-coverage', label: 'NODE COVERAGE', value: coveragePct.toFixed(1) + '%', meta: integer(identifiedRuns) + ' / ' + integer(view.runs.length) + ' runs identified', tone: coveragePct >= 50 ? 'is-success' : coveragePct > 0 ? 'is-warning' : 'is-danger'},
+        {id: 'agent-cofail', label: 'CO-FAILURE EVENTS', value: integer(view.events.length), meta: integer(concurrent) + ' concurrent · ' + integer(cross) + ' cross-pipeline', tone: view.events.length ? 'is-danger' : 'is-success'},
+      ]));
+    }
+
+    function sortedAgents(view) {
+      const dir = sort.dir === 'asc' ? 1 : -1;
+      return view.agents.slice().sort(function (a, b) {
+        let x = a[sort.key];
+        let y = b[sort.key];
+        if (typeof x === 'number' || typeof y === 'number') return ((Number(x) || 0) - (Number(y) || 0)) * dir;
+        x = String(x || '').toLowerCase();
+        y = String(y || '').toLowerCase();
+        return x < y ? -dir : x > y ? dir : 0;
+      });
+    }
+
+    function onSort(key) {
+      if (sort.key === key) sort.dir = sort.dir === 'asc' ? 'desc' : 'asc';
+      else sort = {key: key, dir: (key === 'node' || key === 'hardware') ? 'asc' : 'desc'};
+      renderTable(current);
+    }
+
+    function openNodeEvidence(agent) {
+      selectNode(agent.node_raw, false);
+      const points = (agent._runs || []).slice()
+        .sort(function (a, b) { return String(a.started_at).localeCompare(String(b.started_at)); })
+        .map(function (run) {
+          return {label: run.group, url: run.url, timestamp: run.started_at, valueSummary: run.state + ' · ' + duration(run.duration_mins), details: {pipeline: run.pipeline, queue: run.queue, state: run.state, build: '#' + value(run.build_number)}};
+        });
+      openHistoryEvidence('Runs on ' + agent.node, points, 'All tracked runs on this node over ' + windowId + ', each linking to its BuildKite log', SOURCE_ASSETS.operations);
+    }
+
+    function renderTable(view) {
+      clear(tableHost);
+      const rows = sortedAgents(view);
+      const table = dataTable([
+        {label: 'Physical node', sticky: true, width: '190px', sortKey: 'node', render: function (row) { return linkButton(value(row.node), function () { selectNode(row.node_raw, true); }, 'Show this node in the run timeline', 'Show ' + value(row.node) + ' in the run timeline'); }},
+        {label: 'GPU', width: '62px', sortKey: 'hardware', render: function (row) { return value(row.hardware); }},
+        {label: 'Runs', numeric: true, width: '62px', sortKey: 'runs', render: function (row) { return integer(row.runs); }},
+        {label: 'Inc %', numeric: true, width: '78px', sortKey: 'incident_rate', render: function (row) { return (Number(row.incident_rate) * 100).toFixed(1) + '%'; }},
+        {label: 'Soft/hard', numeric: true, width: '90px', sortKey: 'incidents', render: function (row) { return integer(row.soft_failed) + ' / ' + integer(row.hard_failed); }},
+        {label: 'Groups', numeric: true, width: '68px', sortKey: 'distinct_groups', render: function (row) { return integer(row.distinct_groups); }},
+        {label: 'Flaky', numeric: true, width: '60px', sortKey: 'flaky_group_count', render: function (row) { return integer(row.flaky_group_count); }},
+        {label: 'Co-fail', numeric: true, width: '68px', sortKey: 'cofailure_event_count', render: function (row) { return integer(row.cofailure_event_count); }},
+        {label: 'Pipelines', width: '100px', render: function (row) { return (row.pipelines || []).join(', ') || '-'; }},
+        {label: 'Evidence', width: '86px', render: function (row) { return linkButton('runs ↗', function () { openNodeEvidence(row); }, 'Open all tracked runs and BuildKite logs for ' + value(row.node)); }},
+      ], rows, 'Per-node AMD reliability in ' + windowId, {name: 'agent-nodes', minWidth: '924px', sort: sort, onSort: onSort});
+      table.classList.add('ops-agent-table');
+      tableHost.append(panel('AMD nodes by reliability', integer(view.agents.length) + ' node(s) in ' + windowId + '; click a node (or Evidence) to load its run timeline. Sort by any column.', [table]));
+    }
+
+    function timelineAgents(view) {
+      return view.agents.filter(function (agent) { return agent.identified && agent.runs; })
+        .sort(function (a, b) { return b.incidents - a.incidents || b.runs - a.runs; });
+    }
+
+    function renderNodeSelect(view) {
+      const nodes = timelineAgents(view);
+      clear(nodeSelect);
+      nodes.forEach(function (agent) {
+        const option = n('option', '', agent.node + ' (' + agent.runs + ' runs, ' + agent.cofailure_event_count + ' co-failures)');
+        option.value = agent.node_raw;
+        nodeSelect.append(option);
+      });
+      if (!nodes.some(function (agent) { return agent.node_raw === selectedNode; })) {
+        selectedNode = nodes.length ? nodes[0].node_raw : '';
+      }
+      nodeSelect.value = selectedNode;
+      nodeSelect.disabled = !nodes.length;
+    }
+
+    function drawSelectedTimeline(view) {
+      const agent = view.agents.find(function (a) { return a.node_raw === selectedNode; });
+      requestAnimationFrame(function () { drawAgentTimeline(agent ? agent._runs : [], agent ? agent.node : '-', timelineChart); });
+    }
+
+    function selectNode(nodeRaw, scroll) {
+      selectedNode = nodeRaw;
+      state.agentNode = nodeRaw;
+      setQueryValue('agent_node', nodeRaw);
+      if (!current) return;
+      renderNodeSelect(current);
+      drawSelectedTimeline(current);
+      if (scroll) timelineChart.root.scrollIntoView({behavior: 'smooth', block: 'center'});
+    }
+
+    function renderEvents(view) {
+      clear(eventsHost);
+      const section = n('section', 'ops-cluster-section');
+      const header = n('header', 'ops-section-header');
+      const heading = n('div', 'ops-section-heading');
+      add(heading, [
+        n('h2', 'ops-section-title', 'Co-failure events'),
+        n('p', 'ops-section-description', integer(view.events.length) + ' event(s) in ' + windowId + '. Two or more groups on one node failing within ' + integer(windowHours) + 'h: "concurrent" (overlapping) points to contention or an ephemeral fault; "sequential" (back-to-back) suggests the node was left unclean. Click a node to load its timeline.'),
+      ]);
+      header.append(heading);
+      section.append(header);
+      if (!view.events.length) {
+        section.append(n('div', 'ops-evidence-note is-success', 'No co-failure events in this window and filter.'));
+      } else {
+        const grid = n('div', 'ops-cofailure-grid');
+        view.events.slice(0, 60).forEach(function (event) { grid.append(agentCofailureCard(event, function (raw) { selectNode(raw, true); })); });
+        section.append(grid);
+      }
+      eventsHost.append(section);
+    }
+
+    function apply() {
+      current = computeView();
+      clear(emptyHost);
+      renderKpis(current);
+      if (!allRuns.length) {
+        emptyHost.append(n('div', 'ops-evidence-note is-warning', 'No AMD node data has been collected yet. It populates as the collectors capture the Buildkite agent k8s:node tag.'));
+      } else if (!current.runs.length) {
+        emptyHost.append(n('div', 'ops-evidence-note is-warning', 'No AMD runs match the current window and filter.'));
+      }
+      renderTable(current);
+      renderNodeSelect(current);
+      drawSelectedTimeline(current);
+      renderEvents(current);
+    }
+
+    buildControls();
+    apply();
+  }
+
   function renderGroupOverviewCharts(host, rows, ops, reliability) {
     const risks = reliabilityRiskClusters(rows);
     const hardware = reliabilityHardwareClusters(rows);
@@ -3807,10 +4266,15 @@
     host.append(segmented([
       {id: 'groups', label: 'AMD test health'}, {id: 'flakes', label: 'Flake comparison'},
       {id: 'retries', label: 'Retry comparison'}, {id: 'latency', label: 'Latency comparison'},
-      {id: 'nightlies', label: 'AMD nightlies'},
+      {id: 'nightlies', label: 'AMD nightlies'}, {id: 'agent-health', label: 'CI Agent Health'},
     ], state.analyticsView, function (id) { setRouteState('ci-analytics', 'analyticsView', id, 'analytics_view'); }, 'CI Analytics view'));
     if (state.analyticsView === 'groups') {
       renderAmdHealth(host, amdHealth);
+      return;
+    }
+
+    if (state.analyticsView === 'agent-health') {
+      renderAmdAgentHealth(host, ops.amd_agent_health || {});
       return;
     }
 
