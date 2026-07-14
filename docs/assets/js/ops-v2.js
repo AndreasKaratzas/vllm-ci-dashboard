@@ -1,5 +1,5 @@
 /**
- * Signal Desk v2.
+ * vLLM AMD CI Operations v2.
  *
  * Operations renderer for Home, Health, Analytics, Perf Eval, Queue,
  * Trajectory, and Omni.
@@ -5619,7 +5619,7 @@
         cache.clear();
         render(tabId, true);
       }, true);
-      add(host, [pageHeader('Signal Desk', 'The requested operational data could not be loaded.', null, retry), n('div', 'ops-error', error.message || String(error))]);
+      add(host, [pageHeader('AMD CI Operations', 'The requested operational data could not be loaded.', null, retry), n('div', 'ops-error', error.message || String(error))]);
       console.error('Ops v2 render failed:', error);
     }
   }

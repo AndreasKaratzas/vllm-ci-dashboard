@@ -410,7 +410,7 @@
 
     function renderSignin() {
       card.innerHTML = '';
-      card.appendChild(_el('h2', { text: 'vLLM CI Dashboard' }));
+      card.appendChild(_el('h2', { text: 'vLLM AMD CI Operations' }));
       card.appendChild(_el('p', {
         class: 'sub',
         text: 'Sign in with a GitHub personal access token, or continue as guest.'

@@ -1,4 +1,4 @@
-"""Static contracts for the Signal Desk v2 frontend boundary."""
+"""Static contracts for the vLLM AMD CI Operations frontend boundary."""
 
 import json
 
@@ -15,6 +15,13 @@ OPS_DATA = json.loads((ROOT / "data" / "vllm" / "ci" / "operations_v2.json").rea
 
 
 def test_v2_assets_and_mobile_shell_are_loaded():
+    assert "<title>vLLM AMD CI Operations</title>" in INDEX
+    assert '<span class="ops-brand-kicker">vLLM</span>' in INDEX
+    assert "<h1>AMD CI Operations</h1>" in INDEX
+    assert "<strong>vLLM</strong>" in INDEX
+    assert "<span>AMD CI Operations</span>" in INDEX
+    assert "Signal Desk" not in INDEX
+    assert "Signal Desk" not in OPS_JS
     assert "assets/css/ops-v2.css" in INDEX
     assert "assets/js/ops-v2.js" in INDEX
     assert "window.__DASHBOARD_V2__ = true" in INDEX

@@ -1,6 +1,6 @@
-# Project Dashboard
+# vLLM AMD CI Operations Dashboard
 
-Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-07-14 14:40 UTC**
+AMD-first CI health, reliability, queue, workload, and performance operations for vLLM. Last updated: **2026-07-14 14:40 UTC**
 
 ## Overview
 
