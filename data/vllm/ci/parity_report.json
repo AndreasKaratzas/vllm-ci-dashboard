@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-15T15:03:44Z",
+  "generated_at": "2026-07-15T15:48:23Z",
   "amd_date": "2026-07-14",
   "upstream_date": "2026-07-15",
   "parity_pct": 0.0,
@@ -4950,7 +4950,7 @@
       "family_key": "fusion e2e config sweep (1 gpus)",
       "family_name": "fusion e2e config sweep (1 gpus)",
       "amd_job_name": "mi300_1: Fusion E2E Config Sweep (H100-MI300)",
-      "upstream_job_name": "Fusion E2E Config Sweep (B200)",
+      "upstream_job_name": "Fusion E2E Config Sweep (H100)",
       "amd": {
         "total": 1,
         "passed": 0,
@@ -4962,17 +4962,17 @@
         "duration": 0.0
       },
       "upstream": {
-        "total": 58,
-        "passed": 16,
+        "total": 60,
+        "passed": 8,
         "failed": 0,
-        "skipped": 42,
+        "skipped": 52,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 932.74
+        "duration": 373.37
       },
       "hardware": [
-        "b200",
+        "h100",
         "mi300"
       ],
       "hw_failures": {
@@ -4988,17 +4988,17 @@
           "side": "amd"
         },
         {
-          "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78152/steps/canvas?jid=019f645d-c27b-46e0-93f0-48bc6e0e363e&tab=output",
-          "job_name": "Fusion E2E Config Sweep (B200)",
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/78152/steps/canvas?jid=019f645d-c27c-411e-9583-b2aba09584da&tab=output",
+          "job_name": "Fusion E2E Config Sweep (H100)",
           "side": "upstream"
         }
       ],
       "delta": {
-        "total": -57,
-        "passed": -16,
+        "total": -59,
+        "passed": -8,
         "failed": 1,
-        "skipped": -42
+        "skipped": -52
       },
       "status": "both",
       "backfilled": false
@@ -9772,7 +9772,7 @@
       "family_key": "rust frontend serve admin coverage",
       "family_name": "rust frontend serve admin coverage",
       "amd_job_name": "mi300_1: Rust Frontend Serve Admin Coverage",
-      "upstream_job_name": null,
+      "upstream_job_name": "Rust Frontend Serve/Admin Coverage",
       "amd": {
         "total": 1,
         "passed": 0,
@@ -9783,8 +9783,18 @@
         "error": 0,
         "duration": 0.0
       },
-      "upstream": null,
+      "upstream": {
+        "total": 5,
+        "passed": 5,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 59.61
+      },
       "hardware": [
+        "h100",
         "mi300"
       ],
       "hw_failures": {
@@ -9798,9 +9808,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/10836/steps/canvas?sid=019f5fda-ff8d-4108-b13e-d9a27fcc8813&tab=output",
           "job_name": "mi300_1: Rust Frontend Serve Admin Coverage",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/78152/steps/canvas?jid=019f645d-c473-4035-9d97-2f15b043d828&tab=output",
+          "job_name": "Rust Frontend Serve/Admin Coverage",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": -4,
+        "passed": -5,
+        "failed": 1,
+        "skipped": 0
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -11442,33 +11464,33 @@
       "backfilled": false
     },
     {
-      "name": "fusion e2e config sweep (h100)",
-      "family_key": "fusion e2e config sweep (1 gpus)",
-      "family_name": "fusion e2e config sweep (1 gpus)",
+      "name": "fusion e2e config sweep (b200)",
+      "family_key": "fusion e2e config sweep",
+      "family_name": "fusion e2e config sweep",
       "amd_job_name": null,
-      "upstream_job_name": "Fusion E2E Config Sweep (H100)",
+      "upstream_job_name": "Fusion E2E Config Sweep (B200)",
       "amd": null,
       "upstream": {
-        "total": 60,
-        "passed": 8,
+        "total": 58,
+        "passed": 16,
         "failed": 0,
-        "skipped": 52,
+        "skipped": 42,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 373.37
+        "duration": 932.74
       },
       "hardware": [
-        "h100"
+        "b200"
       ],
       "hw_failures": null,
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
         {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78152/steps/canvas?jid=019f645d-c27c-411e-9583-b2aba09584da&tab=output",
-          "job_name": "Fusion E2E Config Sweep (H100)",
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/78152/steps/canvas?jid=019f645d-c27b-46e0-93f0-48bc6e0e363e&tab=output",
+          "job_name": "Fusion E2E Config Sweep (B200)",
           "side": "upstream"
         }
       ],
@@ -12559,40 +12581,6 @@
           "hw": "b200",
           "url": "https://buildkite.com/vllm/ci/builds/78152/steps/canvas?jid=019f645d-c462-46b3-bb6a-2bcbd2c85f10&tab=output",
           "job_name": "Quantized MoE Test (B200)",
-          "side": "upstream"
-        }
-      ],
-      "status": "upstream_only",
-      "backfilled": false
-    },
-    {
-      "name": "rust frontend serve/admin coverage",
-      "family_key": "rust frontend serve/admin coverage",
-      "family_name": "rust frontend serve/admin coverage",
-      "amd_job_name": null,
-      "upstream_job_name": "Rust Frontend Serve/Admin Coverage",
-      "amd": null,
-      "upstream": {
-        "total": 5,
-        "passed": 5,
-        "failed": 0,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0,
-        "error": 0,
-        "duration": 59.61
-      },
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [
-        {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78152/steps/canvas?jid=019f645d-c473-4035-9d97-2f15b043d828&tab=output",
-          "job_name": "Rust Frontend Serve/Admin Coverage",
           "side": "upstream"
         }
       ],
