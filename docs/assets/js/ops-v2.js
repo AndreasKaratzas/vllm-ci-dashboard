@@ -3245,10 +3245,12 @@
   }
 
   // Port of build_operations_snapshot's co-failure clustering, moved client-side
-  // so the window is a live toggle. `runs` are infra-suspect failing runs on ONE
+  // so the window is a live toggle. `runs` are failing runs (active signal) on ONE
   // node, each carrying {group,pipeline,state,build_number,url,started_at,_start,_end}.
-  // A cluster is a run of consecutive failures whose gaps stay within
-  // `windowMins`; it becomes an event only with >=2 distinct groups.
+  // A cluster is a run of consecutive failures whose gaps stay within `windowMins`.
+  // Retries of the same test group within the same build collapse to one logical
+  // failure (same node is implied, since clustering is per node); a cluster becomes
+  // an event with >=2 such distinct failures — they need NOT be different groups.
   function clusterNodeCofailures(node, nodeRaw, hardware, runs, windowMins) {
     const failing = runs.filter(function (r) { return r._start !== null; })
       .slice().sort(function (a, b) { return a._start - b._start; });
@@ -3257,8 +3259,17 @@
     let cluster = [];
     let clusterEnd = null;
     function flush() {
-      const groups = new Set(cluster.map(function (r) { return r.group; }));
-      if (cluster.length >= 2 && groups.size >= 2) events.push(makeCofailEvent(node, nodeRaw, hardware, cluster));
+      // Dedupe retries of the same (pipeline, build, group) — a job retried within
+      // one build is a single logical failure, not a co-failure — keeping the last
+      // attempt. An event needs >=2 of these distinct failures.
+      const byKey = new Map();
+      cluster.forEach(function (r) {
+        const key = r.pipeline + '\u001f' + r.build_number + '\u001f' + r.group;
+        const prev = byKey.get(key);
+        if (!prev || r._start > prev._start) byKey.set(key, r);
+      });
+      const distinct = Array.from(byKey.values());
+      if (distinct.length >= 2) events.push(makeCofailEvent(node, nodeRaw, hardware, distinct));
       cluster = [];
     }
     failing.forEach(function (r) {
@@ -4071,7 +4082,7 @@
       const scoped = !!eventNodeFilter;
       const desc = scoped
         ? integer(filtered.length) + ' event(s) on this node in ' + windowId + '. Click an event to expand it (full runs + per-run timing) and zoom the timeline to it.'
-        : integer(view.events.length) + ' event(s) in ' + windowId + '. Two or more ' + signalTerm() + ' groups failing on one node within ' + agentCofailLabel(cofailMins) + ': "concurrent" (overlapping) points to contention or an ephemeral fault; "sequential" (back-to-back) suggests the node was left unclean. Click an event to expand it and zoom the timeline to it.';
+        : integer(view.events.length) + ' event(s) in ' + windowId + '. Two or more ' + signalTerm() + ' failures on one node within ' + agentCofailLabel(cofailMins) + ' (retries of the same test group within a build count once): "concurrent" (overlapping) points to contention or an ephemeral fault; "sequential" (back-to-back) suggests the node was left unclean. Click an event to expand it and zoom the timeline to it.';
       add(heading, [
         n('h2', 'ops-section-title', scoped ? 'Co-failure events · one node' : 'Co-failure events'),
         n('p', 'ops-section-description', desc),

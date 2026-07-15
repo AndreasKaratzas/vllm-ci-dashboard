@@ -275,16 +275,24 @@ def _py_cluster(runs, window_mins):
     events, cluster, cluster_end = [], [], None
     def flush():
         nonlocal cluster
-        groups = {r["group"] for r in cluster}
-        if len(cluster) >= 2 and len(groups) >= 2:
-            starts = [r["_start"] for r in cluster]
-            ends = [r["_end"] if r["_end"] is not None else r["_start"] for r in cluster]
-            intervals = sorted(([r["_start"], r["_end"] if r["_end"] is not None else r["_start"]] for r in cluster))
+        # Collapse retries of the same (pipeline, build, group) — keep the latest
+        # attempt — then require >=2 distinct logical failures (need NOT differ
+        # by group). Mirrors clusterNodeCofailures' flush().
+        by_key: dict = {}
+        for r in cluster:
+            key = (r["pipeline"], r.get("build_number"), r["group"])
+            prev = by_key.get(key)
+            if prev is None or r["_start"] > prev["_start"]:
+                by_key[key] = r
+        distinct = list(by_key.values())
+        if len(distinct) >= 2:
+            groups = {r["group"] for r in distinct}
+            intervals = sorted(([r["_start"], r["_end"] if r["_end"] is not None else r["_start"]] for r in distinct))
             concurrent = any(intervals[k][0] < intervals[k - 1][1] for k in range(1, len(intervals)))
             events.append({
                 "group_count": len(groups),
                 "concurrent": concurrent,
-                "cross_pipeline": len({r["pipeline"] for r in cluster}) > 1,
+                "cross_pipeline": len({r["pipeline"] for r in distinct}) > 1,
             })
         cluster = []
     for r in failing:
@@ -309,18 +317,25 @@ def test_js_cofailure_clustering_matches_reference():
     ctx = quickjs.Context()
     ctx.eval(js)
     scenarios = [
-        # concurrent overlap, 2 groups
-        ([{"group": "A", "pipeline": "amd-ci", "state": "hard", "_start": 0, "_end": 300000},
-          {"group": "B", "pipeline": "amd-ci", "state": "hard", "_start": 120000, "_end": 360000}], 180),
-        # sequential within window, cross-pipeline
-        ([{"group": "A", "pipeline": "amd-ci", "state": "hard", "_start": 0, "_end": 60000},
-          {"group": "B", "pipeline": "ci", "state": "hard", "_start": 7200000, "_end": 7260000}], 180),
+        # concurrent overlap, 2 groups -> event
+        ([{"group": "A", "pipeline": "amd-ci", "build_number": 1, "state": "hard", "_start": 0, "_end": 300000},
+          {"group": "B", "pipeline": "amd-ci", "build_number": 1, "state": "hard", "_start": 120000, "_end": 360000}], 180),
+        # sequential within window, cross-pipeline -> event
+        ([{"group": "A", "pipeline": "amd-ci", "build_number": 1, "state": "hard", "_start": 0, "_end": 60000},
+          {"group": "B", "pipeline": "ci", "build_number": 2, "state": "hard", "_start": 7200000, "_end": 7260000}], 180),
         # too far apart -> no event
-        ([{"group": "A", "pipeline": "amd-ci", "state": "hard", "_start": 0, "_end": 60000},
-          {"group": "B", "pipeline": "amd-ci", "state": "hard", "_start": 99999999, "_end": 99999999}], 180),
-        # same group twice -> no event (needs 2 distinct groups)
-        ([{"group": "A", "pipeline": "amd-ci", "state": "hard", "_start": 0, "_end": 60000},
-          {"group": "A", "pipeline": "amd-ci", "state": "hard", "_start": 120000, "_end": 180000}], 180),
+        ([{"group": "A", "pipeline": "amd-ci", "build_number": 1, "state": "hard", "_start": 0, "_end": 60000},
+          {"group": "B", "pipeline": "amd-ci", "build_number": 1, "state": "hard", "_start": 99999999, "_end": 99999999}], 180),
+        # same group, SAME build (retries) -> no event (collapsed to one failure)
+        ([{"group": "A", "pipeline": "amd-ci", "build_number": 5, "state": "hard", "_start": 0, "_end": 60000},
+          {"group": "A", "pipeline": "amd-ci", "build_number": 5, "state": "hard", "_start": 120000, "_end": 180000}], 180),
+        # same group, DIFFERENT builds -> event (distinct-group requirement relaxed)
+        ([{"group": "A", "pipeline": "amd-ci", "build_number": 5, "state": "hard", "_start": 0, "_end": 60000},
+          {"group": "A", "pipeline": "amd-ci", "build_number": 6, "state": "hard", "_start": 120000, "_end": 180000}], 180),
+        # two retries of group A (same build) + one B failure -> event with 2 logical failures
+        ([{"group": "A", "pipeline": "amd-ci", "build_number": 5, "state": "hard", "_start": 0, "_end": 60000},
+          {"group": "A", "pipeline": "amd-ci", "build_number": 5, "state": "hard", "_start": 90000, "_end": 150000},
+          {"group": "B", "pipeline": "amd-ci", "build_number": 5, "state": "hard", "_start": 120000, "_end": 180000}], 180),
     ]
     for runs, window in scenarios:
         py = _py_cluster(runs, window)
