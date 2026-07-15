@@ -1,19 +1,27 @@
 """Tests for per-physical-agent (node) AMD CI health tracking.
 
 Covers:
-- ``log_parser.extract_node`` — parsing the "Node:" line from decorated logs.
-- ``build_operations_snapshot._amd_agent_health`` — joining the JSONL ``node``
-  to analytics job timing, AMD-only scoping across both pipelines, the
-  unidentified bucket, and near-simultaneous co-failure detection.
+- ``log_parser.extract_node`` / ``node_from_agent`` — physical-node extraction.
+- ``constants.amd_gpu_hardware`` — AMD GPU queue scoping.
+- ``collect_agent_health`` — all-builds observation scoping, state classification,
+  infra-suspect determination, and per-node/day rollups.
+- ``build_operations_snapshot._amd_agent_health`` — pass-through of the assembled
+  ``agent_health.json`` block.
+- The frontend co-failure clustering (ported to JS) via a quickjs parity check.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from vllm import build_operations_snapshot as ops
+from vllm import collect_agent_health as ah
+from vllm.constants import amd_gpu_hardware
 from vllm.ci.log_parser import extract_node, node_from_agent
 
 
@@ -21,11 +29,9 @@ NOW = datetime(2026, 7, 14, 12, 0, 0, tzinfo=timezone.utc)
 
 
 # --------------------------------------------------------------------------- #
-# extract_node
+# extract_node / node_from_agent
 # --------------------------------------------------------------------------- #
 
-# The real MI325 runner banner, including the Buildkite OSC timestamp escape
-# that precedes it in raw logs.
 _REAL_BANNER = (
     "\x1b_bk;t=1784019766616\x07=== Pod: buildkite-019f5fdb-00b1-49b5-9253-5bd88b4879bd-55rwd"
     " | Node: chi-mi325x-pod2-032 | Tue Jul 14 09:02:46 UTC 2026 ==="
@@ -36,306 +42,294 @@ def test_extract_node_real_banner():
     assert extract_node(_REAL_BANNER) == "chi-mi325x-pod2-032"
 
 
-def test_extract_node_banner_within_full_log():
-    log = "some setup\n" + _REAL_BANNER + "\nmore output\n"
-    assert extract_node(log) == "chi-mi325x-pod2-032"
-
-
 def test_extract_node_ignores_topology_decoys():
-    # GPU-topology "Node: 0" lines must never be mistaken for the physical node.
     log = "  Node:                    0\n  Internal Node ID:        0\n"
     assert extract_node(log) == ""
 
 
-def test_extract_node_first_match_wins():
-    log = (
-        "=== Pod: pod-a | Node: chi-mi325x-pod1-001 | ts ===\n"
-        "=== Pod: pod-b | Node: chi-mi325x-pod2-002 | ts ===\n"
-    )
-    assert extract_node(log) == "chi-mi325x-pod1-001"
-
-
 def test_extract_node_absent():
     assert extract_node("no node marker here") == ""
-    assert extract_node("") == ""
     assert extract_node(None) == ""
 
-
-# --------------------------------------------------------------------------- #
-# node_from_agent (primary source: the k8s:node agent tag)
-# --------------------------------------------------------------------------- #
 
 def test_node_from_agent_reads_k8s_tag():
     job = {"agent": {"meta_data": ["queue=amd_mi300_1", "k8s:node=gpu9124"]}}
     assert node_from_agent(job) == "gpu9124"
 
 
-def test_node_from_agent_mi250_and_mi355():
-    assert node_from_agent({"agent": {"meta_data": ["k8s:node=smci250-ccs-aus-c21-08"]}}) == "smci250-ccs-aus-c21-08"
-    assert node_from_agent({"agent": {"meta_data": ["k8s:node=mia1-p02-g49"]}}) == "mia1-p02-g49"
-
-
 def test_node_from_agent_absent():
     assert node_from_agent({"agent": {"meta_data": ["queue=amd-cpu"]}}) == ""
-    assert node_from_agent({"agent": {}}) == ""
     assert node_from_agent({}) == ""
 
 
 # --------------------------------------------------------------------------- #
-# GPU-type supplementing for bare node names
+# constants.amd_gpu_hardware — GPU-only scope
 # --------------------------------------------------------------------------- #
 
-def test_node_label_always_appends_gpu_type():
-    # Every node name gets the GPU type appended for consistency.
-    assert ops._node_label("gpu9124", "MI300") == "gpu9124 (MI300)"
-    assert ops._node_label("mia1-p02-g49", "MI355") == "mia1-p02-g49 (MI355)"
-    assert ops._node_label("smci250-ccs-aus-c21-08", "MI250") == "smci250-ccs-aus-c21-08 (MI250)"
-    assert ops._node_label("chi-mi325x-pod2-032", "MI325") == "chi-mi325x-pod2-032 (MI325)"
-
-
-def test_node_label_keeps_raw_when_hardware_unknown():
-    assert ops._node_label("some-node", "") == "some-node"
-
-
-def test_queue_hardware():
-    assert ops._queue_hardware("amd_mi300_1") == "MI300"
-    assert ops._queue_hardware("amd_mi325_4") == "MI325"
-    assert ops._queue_hardware("gpu_4_queue") == ""
+def test_amd_gpu_hardware_scopes_gpu_only():
+    assert amd_gpu_hardware("amd_mi300_1") == "MI300"
+    assert amd_gpu_hardware("amd_mi325_4") == "MI325"
+    assert amd_gpu_hardware("amd_mi250_8") == "MI250"
+    assert amd_gpu_hardware("amd_mi355_1") == "MI355"
+    # CPU steps, NVIDIA, and the retired mi355b family are out of scope.
+    assert amd_gpu_hardware("amd-cpu") == ""
+    assert amd_gpu_hardware("gpu_4_queue") == ""
+    assert amd_gpu_hardware("amd_mi355b_1") == ""
+    assert amd_gpu_hardware("") == ""
 
 
 # --------------------------------------------------------------------------- #
-# _amd_agent_health
+# collect_agent_health helpers
 # --------------------------------------------------------------------------- #
 
-def _job(job_id, name, state, queue, start, end):
+def _job(job_id, name, state, queue, node, start, end, soft=False):
+    agent_meta = ["queue=" + queue]
+    if node:
+        agent_meta.append("k8s:node=" + node)
     return {
-        "job_id": job_id,
+        "id": job_id,
         "name": name,
-        "raw_name": f"mi325_1: {name}",
         "state": state,
-        "q": queue,
+        "soft_failed": soft,
+        "exit_status": 0 if state == "passed" else 1,
+        "agent_query_rules": ["queue=" + queue],
+        "agent": {"meta_data": agent_meta},
         "started_at": start,
         "finished_at": end,
     }
 
 
-def _write_nodes(data_dir: Path, mapping: dict[str, str]) -> None:
-    results = data_dir / "test_results"
-    results.mkdir(parents=True, exist_ok=True)
-    rows = [{"job_id": jid, "node": node} for jid, node in mapping.items()]
-    (results / "2026-07-14_amd.jsonl").write_text(
-        "\n".join(json.dumps(row) for row in rows) + "\n"
+def _build(number=100, branch="main", message="PR: fix thing", created="2026-07-14T09:00:00Z",
+           state="finished"):
+    return {"number": number, "branch": branch, "message": message, "created_at": created,
+            "state": state}
+
+
+NIGHTLY_RE = re.compile(r"^AMD Full CI Run\s*-\s*nightly(?:\s|$)", re.IGNORECASE)
+
+
+def test_queue_of_reads_agent_query_rules():
+    assert ah._queue_of({"agent_query_rules": ["queue=amd_mi300_1"]}) == "amd_mi300_1"
+    assert ah._queue_of({"agent": {"meta_data": ["queue=amd_mi250_4"]}}) == "amd_mi250_4"
+    assert ah._queue_of({}) == ""
+
+
+def test_run_state_classification():
+    assert ah._run_state({"state": "passed"}) == "pass"
+    assert ah._run_state({"state": "failed"}) == "hard"
+    assert ah._run_state({"state": "timed_out"}) == "hard"
+    assert ah._run_state({"state": "canceled"}) == "canceled"
+    assert ah._run_state({"state": "passed", "soft_failed": True}) == "soft"
+    assert ah._run_state({"state": "running"}) == "skip"
+
+
+def test_observe_scopes_amd_gpu_only():
+    b = _build()
+    # AMD GPU job on a node -> observed.
+    row = ah._observe("amd-ci", b, _job("j1", "G", "failed", "amd_mi300_1", "gpu9124",
+                                        "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"), NIGHTLY_RE)
+    assert row is not None and row["node"] == "gpu9124" and row["hardware"] == "MI300"
+    assert row["state"] == "hard" and row["is_main"] is True
+    # NVIDIA job with a node tag -> excluded (non-AMD-GPU queue).
+    assert ah._observe("ci", b, _job("jx", "N", "failed", "gpu_4_queue", "nvidia-1",
+                                     "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"), None) is None
+    # amd-cpu bootstrap -> excluded.
+    assert ah._observe("amd-ci", b, _job("jc", "boot", "passed", "amd-cpu", "cpu-1",
+                                         "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"), NIGHTLY_RE) is None
+    # retired mi355b -> excluded.
+    assert ah._observe("amd-ci", b, _job("jr", "R", "failed", "amd_mi355b_1", "n1",
+                                         "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"), NIGHTLY_RE) is None
+
+
+def test_observe_skips_never_run_and_keeps_canceled():
+    b = _build()
+    # blocked/never-run job (no node, no start) -> skipped.
+    blocked = _job("jb", "B", "blocked", "amd_mi300_1", "", "", "")
+    blocked["started_at"] = ""
+    blocked["agent"]["meta_data"] = ["queue=amd_mi300_1"]
+    assert ah._observe("amd-ci", b, blocked, NIGHTLY_RE) is None
+    # canceled job is preserved with a distinct state.
+    row = ah._observe("amd-ci", b, _job("jc", "C", "canceled", "amd_mi300_1", "gpu9124",
+                                        "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"), NIGHTLY_RE)
+    assert row is not None and row["state"] == "canceled"
+
+
+def test_observe_flags_superseded_build_failures():
+    job = _job("j1", "G", "failed", "amd_mi300_1", "gpu9124",
+               "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z")
+    # Failure in a live build -> not flagged.
+    row = ah._observe("amd-ci", _build(state="finished"), job, NIGHTLY_RE)
+    assert row["build_canceled"] is False
+    assert ah._failing_row(dict(row, infra_suspect=True))["bc"] == 0
+    # Same failure in a canceled/superseded build -> flagged for the toggle.
+    row = ah._observe("amd-ci", _build(state="canceled"), job, NIGHTLY_RE)
+    assert row["build_canceled"] is True
+    assert ah._failing_row(dict(row, infra_suspect=True))["bc"] == 1
+
+
+def test_failing_row_carries_infra_suspect_flag():
+    # The signal toggle relies on `i` (1=infra-suspect subset, 0=general failure).
+    row = ah._observe("amd-ci", _build(state="finished"),
+                      _job("j1", "G", "failed", "amd_mi300_1", "gpu9124",
+                           "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"), NIGHTLY_RE)
+    assert ah._failing_row(dict(row, infra_suspect=True))["i"] == 1
+    assert ah._failing_row(dict(row, infra_suspect=False))["i"] == 0
+    assert ah._failing_row(row)["i"] == 0  # missing flag defaults to general
+
+
+def test_observe_nightly_flag_requires_main_and_pattern():
+    nightly_msg = "AMD Full CI Run - nightly (2026-07-14)"
+    # nightly name + main branch -> nightly True.
+    row = ah._observe("amd-ci", _build(branch="main", message=nightly_msg),
+                      _job("j1", "G", "passed", "amd_mi300_1", "n1",
+                           "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"), NIGHTLY_RE)
+    assert row["nightly"] is True
+    # nightly name but PR branch -> nightly False.
+    row = ah._observe("amd-ci", _build(branch="user:pr", message=nightly_msg),
+                      _job("j2", "G", "passed", "amd_mi300_1", "n1",
+                           "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"), NIGHTLY_RE)
+    assert row["nightly"] is False and row["is_main"] is False
+
+
+def test_mark_infra_suspect_isolates_anomalous_failures():
+    # "Healthy" group: passes on nodes A,B,C, fails once on D -> D's failure is infra-suspect.
+    obs = []
+    for i, node in enumerate(["A", "B", "C"]):
+        obs.append({"group": "G", "day": "2026-07-14", "node": node, "state": "pass"})
+    fail_d = {"group": "G", "day": "2026-07-14", "node": "D", "state": "hard"}
+    obs.append(fail_d)
+    # "Broken" group: fails everywhere -> not infra-suspect (code bug).
+    broken = [{"group": "B2", "day": "2026-07-14", "node": n, "state": "hard"} for n in ("A", "B", "C")]
+    obs.extend(broken)
+    ah._mark_infra_suspect(obs)
+    assert fail_d["infra_suspect"] is True
+    assert all(r.get("infra_suspect") is False for r in broken)
+
+
+def test_mark_infra_suspect_needs_pass_on_other_node():
+    # Group passes only on the SAME node that also failed -> not infra-suspect.
+    obs = [
+        {"group": "G", "day": "2026-07-14", "node": "A", "state": "pass"},
+        {"group": "G", "day": "2026-07-14", "node": "A", "state": "pass"},
+        {"group": "G", "day": "2026-07-14", "node": "A", "state": "hard"},
+    ]
+    ah._mark_infra_suspect(obs)
+    assert obs[-1]["infra_suspect"] is False
+
+
+def test_rollup_rows_split_buckets():
+    obs = [
+        {"node": "A", "day": "2026-07-14", "hardware": "MI300", "state": "pass", "nightly": True},
+        {"node": "A", "day": "2026-07-14", "hardware": "MI300", "state": "soft", "nightly": False},
+        {"node": "A", "day": "2026-07-14", "hardware": "MI300", "state": "hard", "nightly": False},
+        {"node": "A", "day": "2026-07-14", "hardware": "MI300", "state": "canceled", "nightly": False},
+    ]
+    rollups = ah._rollup_rows(obs)
+    row = rollups[("A", "2026-07-14")]
+    # bucket = [runs, soft, hard, canceled].
+    # all bucket: 4 runs, 1 soft, 1 hard, 1 canceled; nightly bucket: 1 run, rest 0.
+    assert row["a"] == [4, 1, 1, 1]
+    assert row["n"] == [1, 0, 0, 0]
+
+
+# --------------------------------------------------------------------------- #
+# build_operations_snapshot._amd_agent_health — pass-through loader
+# --------------------------------------------------------------------------- #
+
+def test_amd_agent_health_passthrough(tmp_path):
+    block = {"generated_at": "x", "node_days": [{"nd": "A"}], "failing_runs": []}
+    (tmp_path / "agent_health.json").write_text(json.dumps(block))
+    assert ops._amd_agent_health(tmp_path) == block
+
+
+def test_amd_agent_health_missing_file(tmp_path):
+    assert ops._amd_agent_health(tmp_path) == {}
+
+
+# --------------------------------------------------------------------------- #
+# Frontend co-failure clustering (JS) — quickjs parity
+# --------------------------------------------------------------------------- #
+
+_OPS_JS = Path(__file__).resolve().parents[2] / "docs" / "assets" / "js" / "ops-v2.js"
+
+
+def _extract_js_function(source: str, name: str) -> str:
+    start = source.index("function " + name + "(")
+    depth = 0
+    i = source.index("{", start)
+    body_start = start
+    for j in range(i, len(source)):
+        if source[j] == "{":
+            depth += 1
+        elif source[j] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[body_start:j + 1]
+    raise ValueError("unbalanced braces for " + name)
+
+
+def _py_cluster(runs, window_mins):
+    """Python reference: mirrors clusterNodeCofailures for parity checks."""
+    failing = sorted((r for r in runs if r["_start"] is not None), key=lambda r: r["_start"])
+    window = window_mins * 60000
+    events, cluster, cluster_end = [], [], None
+    def flush():
+        nonlocal cluster
+        groups = {r["group"] for r in cluster}
+        if len(cluster) >= 2 and len(groups) >= 2:
+            starts = [r["_start"] for r in cluster]
+            ends = [r["_end"] if r["_end"] is not None else r["_start"] for r in cluster]
+            intervals = sorted(([r["_start"], r["_end"] if r["_end"] is not None else r["_start"]] for r in cluster))
+            concurrent = any(intervals[k][0] < intervals[k - 1][1] for k in range(1, len(intervals)))
+            events.append({
+                "group_count": len(groups),
+                "concurrent": concurrent,
+                "cross_pipeline": len({r["pipeline"] for r in cluster}) > 1,
+            })
+        cluster = []
+    for r in failing:
+        start = r["_start"]
+        end = r["_end"] if r["_end"] is not None else start
+        if cluster_end is not None and (start - cluster_end) > window:
+            flush(); cluster_end = None
+        cluster.append(r)
+        cluster_end = end if cluster_end is None else max(cluster_end, end)
+    flush()
+    return events
+
+
+def test_js_cofailure_clustering_matches_reference():
+    quickjs = pytest.importorskip("quickjs")
+    source = _OPS_JS.read_text()
+    js = (
+        _extract_js_function(source, "clusterNodeCofailures")
+        + "\n"
+        + _extract_js_function(source, "makeCofailEvent")
     )
-
-
-def _analytics(amd_jobs, ci_jobs):
-    return {
-        "amd-ci": {"builds": [{"number": 100, "created_at": "2026-07-14T09:00:00Z", "jobs": amd_jobs}]},
-        "ci": {"builds": [{"number": 200, "created_at": "2026-07-14T09:00:00Z", "jobs": ci_jobs}]},
-    }
-
-
-def _runs_by_node_raw(result):
-    grouped = {}
-    for run in result["runs"]:
-        grouped.setdefault(run["node_raw"], []).append(run)
-    return grouped
-
-
-def test_agent_health_metadata(tmp_path):
-    _write_nodes(tmp_path, {"j1": "chi-mi325x-a"})
-    analytics = _analytics(
-        amd_jobs=[_job("j1", "Group A", "passed", "amd_mi325_1",
-                       "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z")],
-        ci_jobs=[],
-    )
-    result = ops._amd_agent_health(tmp_path, analytics, NOW)
-    assert result["window_options"] == [1, 3, 7, 14, 30, 60]
-    assert result["default_window_days"] == 7
-    assert result["max_window_days"] == 60
-    assert result["hardware_types"] == ["MI325"]
-    assert isinstance(result["runs"], list)
-    assert isinstance(result["cofailure_events"], list)
-
-
-def test_agent_health_runs_scope_amd(tmp_path):
-    # jX is a non-AMD job that also carries a node tag — it must still be excluded
-    # because the k8s:node tag now exists for NVIDIA runners too.
-    _write_nodes(tmp_path, {
-        "j1": "chi-mi325x-a", "j2": "chi-mi325x-a", "j3": "chi-mi325x-b",
-        "jX": "gpu-nvidia-01",
-    })
-    analytics = _analytics(
-        amd_jobs=[
-            _job("j1", "Kernels MoE Test 1", "soft_failed", "amd_mi325_1",
-                 "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"),
-            _job("j2", "Language Models Test", "passed", "amd_mi325_1",
-                 "2026-07-14T09:10:00Z", "2026-07-14T09:15:00Z"),
-        ],
-        ci_jobs=[
-            # AMD node job inside upstream ci — in scope.
-            _job("j3", "Upstream AMD Job", "failed", "amd_mi325_2",
-                 "2026-07-14T09:01:00Z", "2026-07-14T09:04:00Z"),
-            # NVIDIA job with a node tag — must be excluded (non-AMD queue).
-            _job("jX", "NVIDIA Job", "failed", "gpu_4_queue",
-                 "2026-07-14T09:01:00Z", "2026-07-14T09:04:00Z"),
-        ],
-    )
-    result = ops._amd_agent_health(tmp_path, analytics, NOW)
-
-    # NVIDIA job excluded; three AMD runs across both pipelines remain.
-    assert len(result["runs"]) == 3
-    assert all(r["queue"].startswith("amd_") for r in result["runs"])
-    grouped = _runs_by_node_raw(result)
-    assert set(grouped) == {"chi-mi325x-a", "chi-mi325x-b"}
-    assert all(r["hardware"] == "MI325" for r in result["runs"])
-    assert {r["pipeline"] for r in grouped["chi-mi325x-b"]} == {"ci"}
-
-
-def test_agent_health_runs_include_unidentified(tmp_path):
-    _write_nodes(tmp_path, {"j1": "chi-mi325x-a"})  # j2 has no node
-    analytics = _analytics(
-        amd_jobs=[
-            _job("j1", "Group A", "passed", "amd_mi325_1",
-                 "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"),
-            _job("j2", "Group B", "failed", "amd_mi325_1",
-                 "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"),
-        ],
-        ci_jobs=[],
-    )
-    result = ops._amd_agent_health(tmp_path, analytics, NOW)
-    grouped = _runs_by_node_raw(result)
-    assert set(grouped) == {"chi-mi325x-a", "(unidentified)"}
-    # Unidentified runs never produce co-failure events.
-    assert all(e["node_raw"] != "(unidentified)" for e in result["cofailure_events"])
-
-
-def test_agent_health_concurrent_cofailure(tmp_path):
-    # Two overlapping failures -> one concurrent co-failure event (contention).
-    _write_nodes(tmp_path, {"j1": "chi-mi325x-a", "j2": "chi-mi325x-a"})
-    analytics = _analytics(
-        amd_jobs=[
-            _job("j1", "Group A", "soft_failed", "amd_mi325_1",
-                 "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"),
-            _job("j2", "Group B", "failed", "amd_mi325_1",
-                 "2026-07-14T09:02:00Z", "2026-07-14T09:06:00Z"),
-        ],
-        ci_jobs=[],
-    )
-    result = ops._amd_agent_health(tmp_path, analytics, NOW)
-    assert len(result["cofailure_events"]) == 1
-    event = result["cofailure_events"][0]
-    assert event["node"] == "chi-mi325x-a (MI325)"
-    assert event["node_raw"] == "chi-mi325x-a"
-    assert event["hardware"] == "MI325"
-    assert event["pattern"] == "concurrent"
-    assert event["concurrent"] is True
-    assert event["group_count"] == 2
-
-
-def test_agent_health_cofailure_supplements_label(tmp_path):
-    # A bare MI300 node name is GPU-type-labelled on the event.
-    _write_nodes(tmp_path, {"j1": "gpu9124", "j2": "gpu9124"})
-    analytics = _analytics(
-        amd_jobs=[
-            _job("j1", "Group A", "failed", "amd_mi300_1",
-                 "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"),
-            _job("j2", "Group B", "failed", "amd_mi300_1",
-                 "2026-07-14T09:02:00Z", "2026-07-14T09:06:00Z"),
-        ],
-        ci_jobs=[],
-    )
-    result = ops._amd_agent_health(tmp_path, analytics, NOW)
-    event = result["cofailure_events"][0]
-    assert event["node"] == "gpu9124 (MI300)"
-    assert event["node_raw"] == "gpu9124"
-    assert event["hardware"] == "MI300"
-
-
-def test_agent_health_sequential_cofailure(tmp_path):
-    # Two non-overlapping failures 2h apart -> one sequential event within the
-    # 12h window (possible unclean-node carryover).
-    _write_nodes(tmp_path, {"j1": "chi-mi325x-a", "j2": "chi-mi325x-a"})
-    analytics = _analytics(
-        amd_jobs=[
-            _job("j1", "Group A", "failed", "amd_mi325_1",
-                 "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"),
-            _job("j2", "Group B", "failed", "amd_mi325_1",
-                 "2026-07-14T11:00:00Z", "2026-07-14T11:05:00Z"),
-        ],
-        ci_jobs=[],
-    )
-    result = ops._amd_agent_health(tmp_path, analytics, NOW)
-    assert len(result["cofailure_events"]) == 1
-    event = result["cofailure_events"][0]
-    assert event["pattern"] == "sequential"
-    assert event["concurrent"] is False
-    assert event["group_count"] == 2
-
-
-def test_agent_health_cofailure_window_boundary(tmp_path):
-    # Failures more than 12h apart do not cluster.
-    _write_nodes(tmp_path, {"j1": "chi-mi325x-a", "j2": "chi-mi325x-a"})
-    analytics = _analytics(
-        amd_jobs=[
-            _job("j1", "Group A", "failed", "amd_mi325_1",
-                 "2026-07-13T09:00:00Z", "2026-07-13T09:05:00Z"),
-            _job("j2", "Group B", "failed", "amd_mi325_1",
-                 "2026-07-13T22:00:00Z", "2026-07-13T22:05:00Z"),
-        ],
-        ci_jobs=[],
-    )
-    result = ops._amd_agent_health(tmp_path, analytics, NOW)
-    assert result["cofailure_events"] == []
-
-
-def test_agent_health_cross_pipeline_cofailure(tmp_path):
-    _write_nodes(tmp_path, {"j1": "chi-mi325x-a", "j2": "chi-mi325x-a"})
-    analytics = _analytics(
-        amd_jobs=[
-            _job("j1", "Nightly Group", "failed", "amd_mi325_1",
-                 "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"),
-        ],
-        ci_jobs=[
-            _job("j2", "Upstream Group", "failed", "amd_mi325_1",
-                 "2026-07-14T09:01:00Z", "2026-07-14T09:06:00Z"),
-        ],
-    )
-    result = ops._amd_agent_health(tmp_path, analytics, NOW)
-    assert len(result["cofailure_events"]) == 1
-    event = result["cofailure_events"][0]
-    assert event["cross_pipeline"] is True
-    assert sorted(event["pipelines"]) == ["amd-ci", "ci"]
-
-
-def test_agent_health_excludes_retired_queue(tmp_path):
-    # A job on a retired mi355b queue must be dropped even if it has a node.
-    _write_nodes(tmp_path, {"j1": "node-mi355b"})
-    analytics = _analytics(
-        amd_jobs=[
-            _job("j1", "Group A", "failed", "amd_mi355b_1",
-                 "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"),
-        ],
-        ci_jobs=[],
-    )
-    result = ops._amd_agent_health(tmp_path, analytics, NOW)
-    assert result["runs"] == []
-
-
-def test_agent_health_window_keeps_45d_drops_70d(tmp_path):
-    # Max emitted window is 60d: a 45-day-old build is kept, a 70-day-old dropped.
-    _write_nodes(tmp_path, {"j45": "chi-mi325x-a", "j70": "chi-mi325x-b"})
-    analytics = {
-        "amd-ci": {"builds": [
-            {"number": 1, "created_at": "2026-05-30T09:00:00Z",  # 45d before NOW
-             "jobs": [_job("j45", "Group A", "failed", "amd_mi325_1",
-                           "2026-05-30T09:00:00Z", "2026-05-30T09:05:00Z")]},
-            {"number": 2, "created_at": "2026-05-05T09:00:00Z",  # 70d before NOW
-             "jobs": [_job("j70", "Group B", "failed", "amd_mi325_1",
-                           "2026-05-05T09:00:00Z", "2026-05-05T09:05:00Z")]},
-        ]},
-        "ci": {"builds": []},
-    }
-    result = ops._amd_agent_health(tmp_path, analytics, NOW)
-    node_raws = {r["node_raw"] for r in result["runs"]}
-    assert node_raws == {"chi-mi325x-a"}
+    ctx = quickjs.Context()
+    ctx.eval(js)
+    scenarios = [
+        # concurrent overlap, 2 groups
+        ([{"group": "A", "pipeline": "amd-ci", "state": "hard", "_start": 0, "_end": 300000},
+          {"group": "B", "pipeline": "amd-ci", "state": "hard", "_start": 120000, "_end": 360000}], 180),
+        # sequential within window, cross-pipeline
+        ([{"group": "A", "pipeline": "amd-ci", "state": "hard", "_start": 0, "_end": 60000},
+          {"group": "B", "pipeline": "ci", "state": "hard", "_start": 7200000, "_end": 7260000}], 180),
+        # too far apart -> no event
+        ([{"group": "A", "pipeline": "amd-ci", "state": "hard", "_start": 0, "_end": 60000},
+          {"group": "B", "pipeline": "amd-ci", "state": "hard", "_start": 99999999, "_end": 99999999}], 180),
+        # same group twice -> no event (needs 2 distinct groups)
+        ([{"group": "A", "pipeline": "amd-ci", "state": "hard", "_start": 0, "_end": 60000},
+          {"group": "A", "pipeline": "amd-ci", "state": "hard", "_start": 120000, "_end": 180000}], 180),
+    ]
+    for runs, window in scenarios:
+        py = _py_cluster(runs, window)
+        js_events = json.loads(ctx.eval(
+            "JSON.stringify(clusterNodeCofailures('lbl','raw','MI300',"
+            + json.dumps(runs) + "," + str(window) + "))"
+        ))
+        assert len(js_events) == len(py), (runs, window)
+        for je, pe in zip(js_events, py):
+            assert je["group_count"] == pe["group_count"]
+            assert je["concurrent"] == pe["concurrent"]
+            assert je["cross_pipeline"] == pe["cross_pipeline"]

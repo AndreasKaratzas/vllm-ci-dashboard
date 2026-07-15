@@ -129,6 +129,14 @@ jobs:
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
 
+      - name: Collect AMD agent health (all builds, all branches)
+        # Walks every build on AMD GPU hardware (not just main nightlies) and
+        # merges the last few days into the 60-day node_days / infra_failures
+        # store, then reassembles agent_health.json.
+        run: python scripts/vllm/collect_agent_health.py --days 3 --pipeline both --output data/vllm/ci/
+        env:
+          BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
+
       - name: Collect test group changes
         run: python scripts/vllm/collect_group_changes.py --days 30 --output data/vllm/ci/
         env:
