@@ -318,41 +318,50 @@ def test_drawers_and_route_filters_have_namespaced_query_state():
     assert "queryValue('analytics_search') !== null" in OPS_JS
 
 
-def test_gating_uses_reviewed_plan_and_observed_evidence_contract():
-    for field in (
-        "reviewed_plan",
-        "latest_amd_result",
-        "main_reliability",
-        "nightly_green_streak",
-        "last_incident",
-        "assessment",
+def test_definition_parity_is_source_scoped_and_not_presented_as_runtime_health():
+    for removed_label in (
+        "Current target",
+        "Readiness",
+        "Target origin",
+        "Owner",
+        "REVIEWED TARGETS",
+        "LINKED AMD RESULTS",
     ):
-        assert field in OPS_JS
-    for removed_label in ("Current target", "Readiness", "Target origin", "Owner"):
         assert removed_label not in OPS_JS
     for visible_label in (
-        "Test group",
-        "Reviewed plan",
-        "Latest AMD result",
-        "Upstream pass history",
-        "Upstream nightly streak",
-        "Last upstream incident",
-        "History evidence",
+        "Definition parity",
+        "UPSTREAM DEFINITIONS",
+        "AMD DEFINITIONS",
+        "AMD DEFINITIONS MATCHED",
+        "UNMATCHED DEFINITIONS",
+        "Definition coverage, not passing test groups.",
+        "Source-definition comparison",
+        "Command twin",
+        "Open pinned vLLM commit",
     ):
         assert visible_label in OPS_JS
-    assert "const latestEvidence = (((group.latest_amd_result || {}).evidence) || []).filter" in OPS_JS
-    assert "const historyEvidence = (group.evidence || []).filter" in OPS_JS
-    assert "exactPipelineEvidenceUrl(row, 'amd-ci')" in OPS_JS
-    assert "exactPipelineEvidenceUrl(row, 'ci')" in OPS_JS
-    assert "Latest AMD execution" in OPS_JS
-    assert "Upstream history" in OPS_JS
-    assert "const latest = explicitLatest || failure || null" in OPS_JS
-    assert "explicitLatest || failure || observed" not in OPS_JS
-    assert "Search 127 reviewed groups" in OPS_JS
-    assert "activeGroups.filter" not in OPS_JS
-    assert "active_target_groups || gating.target_groups || []" in OPS_JS
+    assert "ops.definition_parity || {}" in OPS_JS
+    assert "row.match_method === 'command_twin'" in OPS_JS
+    assert "row.amd_source_url" in OPS_JS
+    assert "row.nvidia_source_url" in OPS_JS
+    assert "Search 127 reviewed groups" not in OPS_JS
     assert "matrixData.rows || []" in OPS_JS
     assert "matrixData.rows || []).slice" not in OPS_JS
+
+
+def test_blocked_nightly_is_separate_from_the_latest_test_signal():
+    for contract in (
+        "function amdNightlyPresentation",
+        "Infra blocked",
+        "test groups never started",
+        "latest test signal #",
+        "Latest nightly has no test signal.",
+        "Nightlies with test execution only; latest signal #",
+        "No pass/fail movement is inferred.",
+    ):
+        assert contract in OPS_JS
+    assert "row.has_test_results !== false" in OPS_JS
+    assert "build.test_jobs_blocked" in OPS_JS
 
 
 def test_authoritative_group_catalog_preserves_id_and_variant_identity():
@@ -663,7 +672,7 @@ def test_dense_tables_use_explicit_colgroups_and_scroll_geometry():
     assert "column.sticky ? '280px' : column.numeric ? '110px' : '160px'" in OPS_JS
     assert "--ops-table-min-width" in OPS_JS
     for geometry in (
-        "gating",
+        "definition-parity",
         "amd-health-browser",
         "amd-current-incidents",
         "retry-attempts",

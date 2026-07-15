@@ -86,6 +86,7 @@ def write_ci_health(
 
     # Determine overall health direction
     def _health_direction(summaries: list[BuildSummary]) -> str:
+        summaries = [summary for summary in summaries if summary.has_test_results]
         if len(summaries) < 3:
             return "unknown"
         recent = summaries[:3]
@@ -103,9 +104,23 @@ def write_ci_health(
 
     def _build_section(summaries: list[BuildSummary]) -> dict:
         if not summaries:
-            return {"latest_build": None, "builds": [], "trend": "unknown"}
+            return {
+                "latest_build": None,
+                "latest_test_signal_build": None,
+                "latest_pipeline_build": None,
+                "builds": [],
+                "trend": "unknown",
+            }
+        signal_summaries = [summary for summary in summaries if summary.has_test_results]
+        latest_signal = signal_summaries[0] if signal_summaries else None
+        latest_pipeline = summaries[0]
         return {
-            "latest_build": summaries[0].to_dict(),
+            # ``latest_build`` is retained as the test-evidence build for
+            # compatibility with parity, matrix, and raw-JSONL audits.
+            "latest_build": latest_signal.to_dict() if latest_signal else None,
+            "latest_test_signal_build": latest_signal.to_dict() if latest_signal else None,
+            "latest_pipeline_build": latest_pipeline.to_dict(),
+            "latest_pipeline_build_has_test_results": latest_pipeline.has_test_results,
             "builds": [s.to_dict() for s in summaries],
             "trend": _health_direction(summaries),
         }

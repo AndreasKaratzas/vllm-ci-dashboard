@@ -19,6 +19,11 @@ WAITING_STATES = frozenset({"scheduled", "limited", "waiting", "assigned"})
 RUNNING_STATES = frozenset({"running", "canceling"})
 TERMINAL_STATES = frozenset({"passed", "failed", "timed_out", "canceled", "broken", "blocked"})
 FAILURE_STATES = frozenset({"failed", "timed_out", "broken"})
+# Buildkite uses ``waiting_failed`` when a command step never started because
+# an upstream dependency failed. It has no log to parse, but it is important
+# pipeline evidence: a nightly with only waiting_failed test jobs must remain
+# visible as infrastructure-blocked instead of disappearing from the dashboard.
+BLOCKED_JOB_STATES = frozenset({"waiting_failed", "blocked"})
 
 # Analysis thresholds
 FLAKY_WINDOW = 10         # number of builds to consider for flaky detection

@@ -52,6 +52,15 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    if isinstance(value, bool):
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _strict_positive_int_set(value: Any) -> set[int] | None:
     if not isinstance(value, list):
         return None
@@ -138,6 +147,13 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         ("docs/assets/js/dashboard.js", "docs/assets/js/ci-health.js"),
         ("generated_at", "job_groups", "amd_build", "upstream_build"),
         "ROCm/CUDA parity and Home AMD hardware breakdown",
+    ),
+    DataSpec(
+        "data/vllm/ci/config_parity.json",
+        ("scripts/collect_ci.py",),
+        ("scripts/vllm/build_operations_snapshot.py",),
+        ("summary", "matches", "amd_only", "nvidia_only"),
+        "Commit-pinned vLLM AMD/upstream CI source-definition parity",
     ),
     DataSpec(
         "data/vllm/ci/analytics.json",
@@ -469,6 +485,72 @@ class DashboardAudit:
             return
         if payload.get("schema_version") != 2:
             self.error("operations-schema", "operations_v2.json must use schema_version 2", relpath)
+
+        definition_parity = _mapping(payload.get("definition_parity"))
+        if definition_parity:
+            parity_summary = _mapping(definition_parity.get("summary"))
+            parity_matches = _rows(definition_parity.get("matches"))
+            parity_amd_only = _rows(definition_parity.get("amd_only"))
+            parity_upstream_only = _rows(definition_parity.get("nvidia_only"))
+            expected_counts = {
+                "matched": len(parity_matches),
+                "amd_only": len(parity_amd_only),
+                "nvidia_only": len(parity_upstream_only),
+                "command_twins": sum(
+                    _mapping(row).get("match_method") == "command_twin"
+                    for row in parity_matches
+                ),
+            }
+            for key, expected in expected_counts.items():
+                if _safe_int(parity_summary.get(key)) != expected:
+                    self.error(
+                        "definition-parity-count",
+                        f"definition_parity.summary.{key}={parity_summary.get(key)} but rows imply {expected}",
+                        relpath,
+                    )
+            source = _mapping(definition_parity.get("source"))
+            commit_sha = str(source.get("commit_sha") or "")
+            if not re.fullmatch(r"[0-9a-f]{40}", commit_sha):
+                self.error(
+                    "definition-parity-commit",
+                    "definition_parity must identify one full vLLM commit SHA",
+                    relpath,
+                )
+            invalid_twins = [
+                _mapping(row).get("amd_label")
+                for row in parity_matches
+                if _mapping(row).get("match_method") == "command_twin"
+                and (
+                    _safe_float(_mapping(row).get("command_similarity")) < 0.999999
+                    or _safe_float(_mapping(row).get("title_similarity")) < 0.65
+                )
+            ]
+            if invalid_twins:
+                self.error(
+                    "definition-parity-twin",
+                    f"{len(invalid_twins)} command twins violate the exact-command/title threshold",
+                    relpath,
+                )
+
+        nightly_builds = _rows(
+            _mapping(_mapping(payload.get("nightly")).get("canonical_history")).get("builds")
+        )
+        health_payload = self.load_json("data/vllm/ci/ci_health.json", {})
+        health_amd = _mapping(_mapping(health_payload).get("amd"))
+        latest_pipeline = _mapping(
+            health_amd.get("latest_pipeline_build") or health_amd.get("latest_build")
+        )
+        if nightly_builds and latest_pipeline:
+            operations_number = _safe_int(_mapping(nightly_builds[0]).get("number"))
+            health_number = _safe_int(
+                latest_pipeline.get("build_number") or latest_pipeline.get("number")
+            )
+            if operations_number != health_number:
+                self.error(
+                    "operations-latest-nightly",
+                    f"operations latest AMD nightly #{operations_number} does not match ci_health pipeline build #{health_number}",
+                    relpath,
+                )
 
         gating = _mapping(payload.get("gating"))
         active = _rows(gating.get("active_target_groups"))

@@ -453,6 +453,17 @@
   background: var(--ops-surface-inset);
 }
 
+.ops-page .ops-code-block {
+  max-height: 320px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ops-text);
+  background: var(--ops-surface-inset);
+}
+
 .ops-page .muted,
 .ops-page .text-muted,
 .ops-page .ops-muted,
@@ -1123,10 +1134,13 @@
 }
 
 .ops-page .ops-status-item .ops-stat-meta {
+  overflow: visible;
   color: var(--ops-text-subtle);
   font-size: 11px;
   line-height: 14px;
   overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .ops-page .ops-status-item strong {

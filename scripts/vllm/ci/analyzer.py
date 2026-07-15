@@ -1107,6 +1107,7 @@ def compute_build_summary(
     test_results: list[TestResult],
     pipeline_key: str,
     previous: Optional[BuildSummary] = None,
+    skip_job_patterns: tuple[str, ...] = (),
 ) -> BuildSummary:
     """Compute a BuildSummary from a build dict and its test results.
 
@@ -1256,6 +1257,15 @@ def compute_build_summary(
     for j in latest_jobs:
         _step_groups[_step_key(j)].append(j)
 
+    test_step_groups = {
+        key: group
+        for key, group in _step_groups.items()
+        if not any(
+            pattern in str((group[0] if group else {}).get("name") or "").lower()
+            for pattern in skip_job_patterns
+        )
+    }
+
     def _step_state(group: list[dict]) -> tuple[str, bool]:
         """Return (effective_state, soft_failed) for a group of shard jobs."""
         states = [j.get("state") for j in group]
@@ -1290,6 +1300,12 @@ def compute_build_summary(
             jobs_running += 1
         elif st in cfg.WAITING_STATES:
             jobs_waiting += 1
+
+    test_jobs_blocked = 0
+    for group in test_step_groups.values():
+        states = {str(job.get("state") or "").lower() for job in group}
+        if states & cfg.BLOCKED_JOB_STATES:
+            test_jobs_blocked += 1
     # Only mark as running if jobs are actually in-flight — Buildkite's
     # build.state can lag behind and report "running" long after completion.
     is_running = jobs_running > 0 or jobs_waiting > 0
@@ -1344,6 +1360,9 @@ def compute_build_summary(
         jobs_soft_failed=jobs_soft_failed,
         jobs_running=jobs_running,
         jobs_waiting=jobs_waiting,
+        test_job_count=len(test_step_groups),
+        test_jobs_blocked=test_jobs_blocked,
+        has_test_results=bool(test_results),
         is_running=is_running,
         test_groups=test_groups,
         unique_test_groups=unique_test_groups,

@@ -66,6 +66,9 @@ class BuildSummary:
     jobs_soft_failed: int = 0      # subset of jobs_failed that are soft-failures
     jobs_running: int = 0          # jobs still in progress
     jobs_waiting: int = 0          # jobs scheduled/waiting
+    test_job_count: int = 0        # logical test steps, excluding CI infrastructure
+    test_jobs_blocked: int = 0     # test steps that never ran because a dependency failed
+    has_test_results: bool = False # at least one parsed test-result row exists
     is_running: bool = False       # True if build still has non-terminal jobs
     test_groups: int = 0           # number of JSONL entries (job-level groups)
     unique_test_groups: int = 0    # unique test group names (HW-stripped)
@@ -98,6 +101,9 @@ class BuildSummary:
             "jobs_soft_failed": self.jobs_soft_failed,
             "jobs_running": self.jobs_running,
             "jobs_waiting": self.jobs_waiting,
+            "test_job_count": self.test_job_count,
+            "test_jobs_blocked": self.test_jobs_blocked,
+            "has_test_results": self.has_test_results,
             "is_running": self.is_running,
             "test_groups": self.test_groups,
             "unique_test_groups": self.unique_test_groups,

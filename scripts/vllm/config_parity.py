@@ -14,10 +14,14 @@ This is a *static* analysis of the CI config files, complementing the
 *runtime* parity analysis in analyzer.py which compares actual test results.
 """
 
+import io
 import logging
+import os
 import re
-import tempfile
+import tarfile
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Optional
 
@@ -33,10 +37,10 @@ from vllm.ci.analyzer import (
 
 log = logging.getLogger(__name__)
 
-# GitHub raw content base URL for upstream vLLM
-VLLM_RAW_BASE = "https://raw.githubusercontent.com/vllm-project/vllm/main"
-# GitHub API for listing directory contents
-VLLM_API_BASE = "https://api.github.com/repos/vllm-project/vllm/contents"
+VLLM_REPOSITORY = "vllm-project/vllm"
+VLLM_BRANCH = "main"
+VLLM_API_BASE = f"https://api.github.com/repos/{VLLM_REPOSITORY}"
+COMMAND_TWIN_TITLE_THRESHOLD = 0.65
 
 
 # ---------------------------------------------------------------------------
@@ -67,38 +71,136 @@ class ConfigMatch:
     nvidia_step: ConfigStep
     command_similarity: float
     color: str  # green/yellow/orange/red
+    match_method: str = "identity"
+    title_similarity: float = 1.0
+
+
+@dataclass
+class ConfigSourceSnapshot:
+    """One commit-pinned view of the vLLM CI definitions."""
+    commit_sha: str
+    files: dict[str, object]
+    fetched_at: str
+
+
+_SOURCE_SNAPSHOT: Optional[ConfigSourceSnapshot] = None
 
 
 # ---------------------------------------------------------------------------
 # GitHub fetchers
 # ---------------------------------------------------------------------------
 
-def _fetch_yaml_from_github(path: str) -> Optional[dict]:
-    """Fetch and parse a YAML file from the upstream vLLM repo."""
-    url = f"{VLLM_RAW_BASE}/{path}"
+def _github_headers() -> dict[str, str]:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    token = os.getenv("GITHUB_TOKEN", "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _load_source_snapshot() -> Optional[ConfigSourceSnapshot]:
+    """Download and parse one immutable vLLM ``main`` repository snapshot.
+
+    Resolving the branch once prevents a collection run from comparing YAML
+    files from different commits. Reading the selected files directly from the
+    tar stream also replaces dozens of mutable raw-content API calls.
+    """
+    global _SOURCE_SNAPSHOT
+    if _SOURCE_SNAPSHOT is not None:
+        return _SOURCE_SNAPSHOT
+
     try:
-        resp = requests.get(url, timeout=15)
-        resp.raise_for_status()
-        return yaml.safe_load(resp.text)
+        commit_response = requests.get(
+            f"{VLLM_API_BASE}/commits/{VLLM_BRANCH}",
+            headers=_github_headers(),
+            timeout=30,
+        )
+        commit_response.raise_for_status()
+        commit_sha = str(commit_response.json().get("sha") or "")
+        if not commit_sha:
+            raise ValueError("GitHub commit response did not contain a SHA")
+
+        archive_response = requests.get(
+            f"{VLLM_API_BASE}/tarball/{commit_sha}",
+            headers=_github_headers(),
+            timeout=120,
+        )
+        archive_response.raise_for_status()
+        files: dict[str, object] = {}
+        with tarfile.open(fileobj=io.BytesIO(archive_response.content), mode="r:gz") as archive:
+            for member in archive.getmembers():
+                if not member.isfile() or "/" not in member.name:
+                    continue
+                path = member.name.split("/", 1)[1]
+                if path != ".buildkite/test-amd.yaml" and not (
+                    path.startswith(".buildkite/test_areas/") and path.endswith(".yaml")
+                ):
+                    continue
+                handle = archive.extractfile(member)
+                if handle is not None:
+                    files[path] = yaml.safe_load(handle.read().decode("utf-8"))
+
+        if ".buildkite/test-amd.yaml" not in files:
+            raise ValueError("repository snapshot lacks .buildkite/test-amd.yaml")
+        if not any(path.startswith(".buildkite/test_areas/") for path in files):
+            raise ValueError("repository snapshot lacks .buildkite/test_areas YAML files")
+        _SOURCE_SNAPSHOT = ConfigSourceSnapshot(
+            commit_sha=commit_sha,
+            files=files,
+            fetched_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        )
+        return _SOURCE_SNAPSHOT
     except Exception as e:
-        log.warning("Failed to fetch %s: %s", url, e)
+        log.warning("Failed to download vLLM %s snapshot: %s", VLLM_BRANCH, e)
         return None
 
 
+def _fetch_yaml_from_github(path: str) -> Optional[dict]:
+    """Return one YAML document from the commit-pinned source snapshot."""
+    snapshot = _load_source_snapshot()
+    if snapshot is None:
+        return None
+    data = snapshot.files.get(path)
+    return data if isinstance(data, (dict, list)) else None
+
+
 def _list_test_area_files() -> list[str]:
-    """List all .yaml files in .buildkite/test_areas/ from GitHub API."""
-    url = f"{VLLM_API_BASE}/.buildkite/test_areas"
-    try:
-        resp = requests.get(url, timeout=15)
-        resp.raise_for_status()
-        entries = resp.json()
-        return [
-            e["path"] for e in entries
-            if e.get("name", "").endswith(".yaml")
-        ]
-    except Exception as e:
-        log.warning("Failed to list test_areas from GitHub: %s", e)
+    """List test-area files from the same commit-pinned source snapshot."""
+    snapshot = _load_source_snapshot()
+    if snapshot is None:
         return []
+    return sorted(
+        path for path in snapshot.files
+        if path.startswith(".buildkite/test_areas/") and path.endswith(".yaml")
+    )
+
+
+def _source_url(path: str, commit_sha: str) -> str:
+    return f"https://github.com/{VLLM_REPOSITORY}/blob/{commit_sha}/{path}"
+
+
+def _source_provenance() -> dict:
+    snapshot = _load_source_snapshot()
+    if snapshot is None:
+        return {}
+    return {
+        "repository": VLLM_REPOSITORY,
+        "branch": VLLM_BRANCH,
+        "commit_sha": snapshot.commit_sha,
+        "commit_url": f"https://github.com/{VLLM_REPOSITORY}/commit/{snapshot.commit_sha}",
+        "amd_definition_url": _source_url(".buildkite/test-amd.yaml", snapshot.commit_sha),
+        "upstream_definitions_url": f"https://github.com/{VLLM_REPOSITORY}/tree/{snapshot.commit_sha}/.buildkite/test_areas",
+        "fetched_at": snapshot.fetched_at,
+        "matching_rules": [
+            "Match exact normalized YAML identities first.",
+            "For unmatched definitions, accept a unique twin only when both command lists are non-empty and normalize to an exact command match.",
+            f"Command twins also require a platform-neutral title similarity of at least {COMMAND_TWIN_TITLE_THRESHOLD:.0%}.",
+            "Ambiguous command matches remain unmatched for manual review.",
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -197,34 +299,14 @@ def extract_shard_bases() -> list[str]:
     These are the ONLY groups whose trailing shard index should be stripped
     during normalization.
     """
-    bases = set()
-
-    # AMD pipeline
-    amd_data = _fetch_yaml_from_github(".buildkite/test-amd.yaml")
-    if amd_data:
-        for step in amd_data.get("steps", []):
-            label = step.get("label", "")
-            par = step.get("parallelism")
-            if par and par > 1 and "%N" in label:
-                base = label.replace("%N", "").strip().lower()
-                bases.add(base)
-
-    # Upstream (NVIDIA) pipeline — test_areas/*.yaml
-    area_files = _list_test_area_files()
-    for fpath in area_files:
-        data = _fetch_yaml_from_github(fpath)
-        if not data:
-            continue
-        for item in data if isinstance(data, list) else data.get("steps", []):
-            if not isinstance(item, dict):
-                continue
-            label = item.get("label", "")
-            par = item.get("parallelism")
-            if par and par > 1 and "%N" in label:
-                base = label.replace("%N", "").strip().lower()
-                bases.add(base)
-
-    return sorted(bases)
+    amd_steps, nvidia_steps, _ = _load_config_steps()
+    if amd_steps is None or nvidia_steps is None:
+        return []
+    return sorted({
+        step.label.replace("%N", "").strip().lower()
+        for step in [*amd_steps, *nvidia_steps]
+        if step.parallelism and step.parallelism > 1 and "%N" in step.label
+    })
 
 
 def _parse_amd_data(data: dict) -> list[ConfigStep]:
@@ -240,7 +322,7 @@ def _parse_amd_data(data: dict) -> list[ConfigStep]:
             group = 'mi325'
         else:
             group = 'amd'
-        steps.append(_parse_step(item, 'test-amd.yaml', group))
+        steps.append(_parse_step(item, '.buildkite/test-amd.yaml', group))
     return steps
 
 
@@ -309,6 +391,137 @@ def _load_config_steps() -> tuple[list[ConfigStep], list[ConfigStep], list[dict]
     return amd_steps, nvidia_steps, mirrors
 
 
+def _platform_neutral_title(label: str) -> str:
+    """Normalize platform spelling while preserving the test's semantic title."""
+    title = _parity_key_base(label)
+    title = re.sub(r"\(\s*\d+\s+gpus?\s*\)", " ", title, flags=re.IGNORECASE)
+    title = re.sub(
+        r"\b(?:amd|cuda|nvidia|rocm|hip|h100|h200|b200|mi250|mi300|mi325|mi355)\b",
+        " ",
+        title,
+        flags=re.IGNORECASE,
+    )
+    title = re.sub(r"[^a-z0-9]+", " ", title.lower())
+    return re.sub(r"\s+", " ", title).strip()
+
+
+def _title_similarity(amd_step: ConfigStep, nvidia_step: ConfigStep) -> float:
+    amd_title = _platform_neutral_title(amd_step.label)
+    nvidia_title = _platform_neutral_title(nvidia_step.label)
+    if not amd_title or not nvidia_title:
+        return 0.0
+    sequence = SequenceMatcher(None, amd_title, nvidia_title).ratio()
+    amd_tokens = set(amd_title.split())
+    nvidia_tokens = set(nvidia_title.split())
+    token_score = len(amd_tokens & nvidia_tokens) / len(amd_tokens | nvidia_tokens)
+    return max(sequence, token_score)
+
+
+def _dedupe_steps(steps: list[ConfigStep]) -> dict[str, ConfigStep]:
+    return {step.identity_key: step for step in reversed(steps)}
+
+
+def _match_config_steps(
+    amd_steps: list[ConfigStep],
+    nvidia_steps: list[ConfigStep],
+    mirrors: list[dict],
+) -> tuple[list[ConfigMatch], list[ConfigStep], list[ConfigStep]]:
+    """Match definitions by identity, then by unique exact-command twins."""
+    amd_by_identity = _dedupe_steps(amd_steps)
+    nvidia_by_identity = _dedupe_steps(nvidia_steps)
+    mirrored_nvidia = {mirror["identity_key"] for mirror in mirrors}
+    matches: list[ConfigMatch] = []
+    matched_amd: set[str] = set()
+    matched_nvidia: set[str] = set()
+
+    for identity, amd_step in amd_by_identity.items():
+        nvidia_step = nvidia_by_identity.get(identity)
+        if nvidia_step is None:
+            continue
+        similarity = commands_similarity(amd_step.commands, nvidia_step.commands)
+        matches.append(ConfigMatch(
+            amd_step=amd_step,
+            nvidia_step=nvidia_step,
+            command_similarity=similarity,
+            color=similarity_color(similarity),
+            match_method="identity",
+            title_similarity=_title_similarity(amd_step, nvidia_step),
+        ))
+        matched_amd.add(identity)
+        matched_nvidia.add(identity)
+
+    # Build unique-best proposals first, then reject a proposal if multiple AMD
+    # definitions target the same upstream identity. Exact commands alone are
+    # insufficient when labels are ambiguous.
+    proposals = []
+    candidates_by_nvidia: dict[str, list[tuple[float, str]]] = {}
+    for amd_identity, amd_step in amd_by_identity.items():
+        if amd_identity in matched_amd or not amd_step.commands:
+            continue
+        candidates = []
+        for nvidia_identity, nvidia_step in nvidia_by_identity.items():
+            if nvidia_identity in matched_nvidia or nvidia_identity in mirrored_nvidia:
+                continue
+            if not nvidia_step.commands:
+                continue
+            command_score = commands_similarity(amd_step.commands, nvidia_step.commands)
+            if command_score < 0.999999:
+                continue
+            title_score = _title_similarity(amd_step, nvidia_step)
+            if title_score >= COMMAND_TWIN_TITLE_THRESHOLD:
+                candidates.append((title_score, nvidia_identity, nvidia_step))
+                candidates_by_nvidia.setdefault(nvidia_identity, []).append(
+                    (title_score, amd_identity)
+                )
+        candidates.sort(key=lambda row: (-row[0], row[1]))
+        if not candidates:
+            continue
+        best_score = candidates[0][0]
+        best = [row for row in candidates if abs(row[0] - best_score) < 1e-9]
+        if len(best) == 1:
+            proposals.append((best_score, amd_identity, amd_step, best[0][1], best[0][2]))
+
+    for title_score, amd_identity, amd_step, nvidia_identity, nvidia_step in sorted(
+        proposals, key=lambda row: (-row[0], row[1], row[3]),
+    ):
+        reverse_candidates = sorted(
+            candidates_by_nvidia.get(nvidia_identity, []),
+            key=lambda row: (-row[0], row[1]),
+        )
+        if not reverse_candidates:
+            continue
+        reverse_best_score = reverse_candidates[0][0]
+        reverse_best = [
+            row for row in reverse_candidates
+            if abs(row[0] - reverse_best_score) < 1e-9
+        ]
+        if len(reverse_best) != 1 or reverse_best[0][1] != amd_identity:
+            continue
+        matches.append(ConfigMatch(
+            amd_step=amd_step,
+            nvidia_step=nvidia_step,
+            command_similarity=1.0,
+            color="green",
+            match_method="command_twin",
+            title_similarity=title_score,
+        ))
+        matched_amd.add(amd_identity)
+        matched_nvidia.add(nvidia_identity)
+
+    amd_only = [
+        step for identity, step in amd_by_identity.items()
+        if identity not in matched_amd and identity not in mirrored_nvidia
+    ]
+    nvidia_only = [
+        step for identity, step in nvidia_by_identity.items()
+        if identity not in matched_nvidia and identity not in mirrored_nvidia
+    ]
+    matches.sort(key=lambda match: (match.command_similarity, match.amd_step.label.lower()))
+    amd_only.sort(key=lambda step: step.label.lower())
+    nvidia_only.sort(key=lambda step: step.label.lower())
+    return matches, amd_only, nvidia_only
+
+
 def extract_parity_key_overrides() -> dict[str, str]:
     """Return normalized runtime-label -> YAML identity key overrides.
 
@@ -317,34 +530,26 @@ def extract_parity_key_overrides() -> dict[str, str]:
     cases where one side encodes GPU count in YAML metadata and the other side
     encodes it in the label.
     """
-    amd_steps, nvidia_steps, _ = _load_config_steps()
+    amd_steps, nvidia_steps, mirrors = _load_config_steps()
     if amd_steps is None or nvidia_steps is None:
         return {}
 
-    sides_by_identity: dict[str, set[str]] = {}
-    for step in amd_steps:
-        sides_by_identity.setdefault(step.identity_key, set()).add("amd")
-    for step in nvidia_steps:
-        sides_by_identity.setdefault(step.identity_key, set()).add("upstream")
-
-    shared = {
-        key for key, sides in sides_by_identity.items()
-        if "amd" in sides and "upstream" in sides
-    }
+    matches, _, _ = _match_config_steps(amd_steps, nvidia_steps, mirrors or [])
     identities_by_label: dict[str, set[str]] = {}
-    for step in [*amd_steps, *nvidia_steps]:
-        if step.identity_key in shared:
-            identities_by_label.setdefault(step.normalized_label, set()).add(step.identity_key)
+    canonical_by_label: dict[str, str] = {}
+    for match in matches:
+        canonical = match.amd_step.identity_key
+        for step in (match.amd_step, match.nvidia_step):
+            identities_by_label.setdefault(step.normalized_label, set()).add(canonical)
+            canonical_by_label[step.normalized_label] = canonical
 
     overrides: dict[str, str] = {}
-    for step in [*amd_steps, *nvidia_steps]:
-        if step.identity_key not in shared:
+    for normalized_label, canonical in canonical_by_label.items():
+        if len(identities_by_label.get(normalized_label, set())) > 1:
             continue
-        if len(identities_by_label.get(step.normalized_label, set())) > 1:
+        if _parity_key_base(normalized_label) == canonical:
             continue
-        if _parity_key_base(step.normalized_label) == step.identity_key:
-            continue
-        overrides[step.normalized_label] = step.identity_key
+        overrides[normalized_label] = canonical
     return dict(sorted(overrides.items()))
 
 
@@ -367,68 +572,32 @@ def build_config_parity() -> dict:
     if nvidia_steps is None:
         return {"error": "Failed to list test_areas/ from upstream"}
 
-    # Deduplicate AMD steps (mi325 vs mi355 copies), using the YAML identity
-    # key so labels with metadata-only GPU counts line up with upstream.
-    seen = {}
-    amd_deduped = []
-    for step in amd_steps:
-        if step.identity_key not in seen:
-            seen[step.identity_key] = step
-            amd_deduped.append(step)
-
-    # Build NVIDIA lookup by YAML identity key.
-    nvidia_by_identity = {}
-    for step in nvidia_steps:
-        if step.identity_key not in nvidia_by_identity:
-            nvidia_by_identity[step.identity_key] = step
-
-    # Match AMD to NVIDIA by YAML identity key.
-    matches = []
-    amd_only = []
-    matched_nvidia = set()
-    mirrored_nvidia = {m["identity_key"] for m in mirrors}
-
-    for amd_step in amd_deduped:
-        nv_step = nvidia_by_identity.get(amd_step.identity_key)
-        if nv_step:
-            sim = commands_similarity(amd_step.commands, nv_step.commands)
-            matches.append(ConfigMatch(
-                amd_step=amd_step,
-                nvidia_step=nv_step,
-                command_similarity=sim,
-                color=similarity_color(sim),
-            ))
-            matched_nvidia.add(amd_step.identity_key)
-        else:
-            amd_only.append(amd_step)
-
-    # NVIDIA-only: not matched and not mirrored
-    nvidia_only = [
-        s for s in nvidia_steps
-        if s.identity_key not in matched_nvidia
-        and s.identity_key not in mirrored_nvidia
-    ]
-
-    # Also filter amd_only: remove AMD tests covered by mirrors
-    amd_only = [s for s in amd_only if s.identity_key not in mirrored_nvidia]
-
-    # Sort matches by similarity (lowest first = most divergent)
-    matches.sort(key=lambda m: m.command_similarity)
+    matches, amd_only, nvidia_only = _match_config_steps(amd_steps, nvidia_steps, mirrors)
+    amd_deduped = _dedupe_steps(amd_steps)
+    nvidia_deduped = _dedupe_steps(nvidia_steps)
 
     # Compute summary metrics
     total_amd = len(amd_deduped)
-    total_nvidia = len(set(s.identity_key for s in nvidia_steps))
+    total_nvidia = len(nvidia_deduped)
     match_rate = len(matches) / (len(matches) + len(amd_only)) * 100 if (len(matches) + len(amd_only)) > 0 else 0
     avg_similarity = (
         sum(m.command_similarity for m in matches) / len(matches) * 100
         if matches else 0
     )
 
+    source = _source_provenance()
+    commit_sha = source.get("commit_sha", "")
+    identity_matches = sum(match.match_method == "identity" for match in matches)
+    command_twins = sum(match.match_method == "command_twin" for match in matches)
     return {
+        "generated_at": source.get("fetched_at"),
+        "source": source,
         "summary": {
             "total_amd_steps": total_amd,
             "total_nvidia_steps": total_nvidia,
             "matched": len(matches),
+            "identity_matches": identity_matches,
+            "command_twins": command_twins,
             "amd_only": len(amd_only),
             "nvidia_only": len(nvidia_only),
             "mirrors": len(mirrors),
@@ -442,21 +611,39 @@ def build_config_parity() -> dict:
                 "normalized": m.amd_step.normalized_label,
                 "identity_key": m.amd_step.identity_key,
                 "command_similarity": round(m.command_similarity, 4),
+                "title_similarity": round(m.title_similarity, 4),
+                "match_method": m.match_method,
                 "color": m.color,
                 "amd_source": m.amd_step.source_file,
                 "nvidia_source": m.nvidia_step.source_file,
-                # Include commands for divergent matches so frontend can show diffs
-                **({"amd_commands": m.amd_step.commands, "nvidia_commands": m.nvidia_step.commands}
-                   if m.command_similarity < 1.0 else {}),
+                "amd_source_url": _source_url(m.amd_step.source_file, commit_sha),
+                "nvidia_source_url": _source_url(m.nvidia_step.source_file, commit_sha),
+                "amd_commands": m.amd_step.commands,
+                "nvidia_commands": m.nvidia_step.commands,
             }
             for m in matches
         ],
         "amd_only": [
-            {"label": s.label, "normalized": s.normalized_label, "identity_key": s.identity_key, "group": s.group}
+            {
+                "label": s.label,
+                "normalized": s.normalized_label,
+                "identity_key": s.identity_key,
+                "group": s.group,
+                "source": s.source_file,
+                "source_url": _source_url(s.source_file, commit_sha),
+                "commands": s.commands,
+            }
             for s in amd_only
         ],
         "nvidia_only": [
-            {"label": s.label, "normalized": s.normalized_label, "identity_key": s.identity_key, "source": s.source_file}
+            {
+                "label": s.label,
+                "normalized": s.normalized_label,
+                "identity_key": s.identity_key,
+                "source": s.source_file,
+                "source_url": _source_url(s.source_file, commit_sha),
+                "commands": s.commands,
+            }
             for s in nvidia_only
         ],
         "mirrors": [
@@ -467,6 +654,7 @@ def build_config_parity() -> dict:
                 "command_similarity": round(m["command_similarity"], 4),
                 "color": similarity_color(m["command_similarity"]),
                 "source_file": m["source_file"],
+                "source_url": _source_url(m["source_file"], commit_sha),
             }
             for m in mirrors
         ],

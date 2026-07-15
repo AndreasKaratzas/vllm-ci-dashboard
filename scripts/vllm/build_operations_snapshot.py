@@ -45,6 +45,7 @@ RETRY_EVIDENCE_FIELDS = (
 SOURCE_FILES = {
     "analytics": "analytics.json",
     "ci_health": "ci_health.json",
+    "config_parity": "config_parity.json",
     "gating_targets": "gating_targets.json",
     "gating_target_candidates": "gating_target_candidates.json",
     "amd_test_matrix": "amd_test_matrix.json",
@@ -253,14 +254,46 @@ def _terminal_group_states(build: dict) -> dict[str, str]:
     return states
 
 
-def _nightly_pipeline(pipeline: str, analytics: dict) -> dict:
+def _nightly_pipeline(pipeline: str, analytics: dict, health: dict | None = None) -> dict:
+    health = health or {}
+    source_builds_by_number = {
+        _strict_int(build.get("number") or build.get("build_number")): dict(build)
+        for build in analytics.get("builds") or []
+        if _strict_int(build.get("number") or build.get("build_number")) is not None
+    }
+    health_builds = {
+        _strict_int(build.get("number") or build.get("build_number")): build
+        for build in health.get("builds") or []
+        if _strict_int(build.get("number") or build.get("build_number")) is not None
+    }
+    latest_pipeline = health.get("latest_pipeline_build") or {}
+    latest_pipeline_number = _strict_int(
+        latest_pipeline.get("number") or latest_pipeline.get("build_number")
+    )
+    if latest_pipeline_number is not None and latest_pipeline_number not in source_builds_by_number:
+        source_builds_by_number[latest_pipeline_number] = {
+            "number": latest_pipeline_number,
+            "created_at": latest_pipeline.get("created_at") or "",
+            "state": latest_pipeline.get("state") or "unknown",
+            "commit": latest_pipeline.get("commit") or "",
+            "message": latest_pipeline.get("message") or "",
+            "total_jobs": latest_pipeline.get("job_count") or 0,
+            "jobs": [],
+        }
     source_builds = sorted(
-        list(analytics.get("builds") or []),
+        source_builds_by_number.values(),
         key=lambda build: str(build.get("created_at") or build.get("date") or ""),
         reverse=True,
     )
     rows = []
     for index, build in enumerate(source_builds[:NIGHTLY_BUILD_LIMIT]):
+        build_number = _strict_int(build.get("number") or build.get("build_number"))
+        health_build = health_builds.get(build_number) or {}
+        has_test_results = bool(
+            health_build.get("has_test_results")
+            if "has_test_results" in health_build
+            else build.get("jobs")
+        )
         hard, soft = _failed_group_maps(pipeline, build)
         current = {**hard, **soft}
         current_states = _terminal_group_states(build)
@@ -281,14 +314,20 @@ def _nightly_pipeline(pipeline: str, analytics: dict) -> dict:
             if key not in current and key not in fixed_keys
         ) if previous_build else []
         rows.append({
-            "number": build.get("number") or build.get("build_number"),
+            "number": build_number,
             "source_pipeline": pipeline,
             "created_at": build.get("created_at") or "",
             "state": build.get("state") or "unknown",
             "url": _build_url(pipeline, build),
             "commit": build.get("commit") or build.get("commit_sha") or "",
             "message": build.get("message") or "",
-            "total_groups": build.get("total_jobs") or len(build.get("jobs") or []),
+            "total_groups": (
+                build.get("total_jobs") or len(build.get("jobs") or [])
+                if has_test_results else 0
+            ),
+            "has_test_results": has_test_results,
+            "test_job_count": int(health_build.get("test_job_count") or 0),
+            "test_jobs_blocked": int(health_build.get("test_jobs_blocked") or 0),
             "failed_groups": [hard[key] for key in sorted(hard)],
             "soft_failed_groups": [soft[key] for key in sorted(soft)],
             "transitions": {
@@ -2781,6 +2820,12 @@ def _attention(nightly: dict, reliability: dict, gating: dict, queue: dict, omni
     items = []
     amd_builds = (nightly.get("pipelines") or [{}])[0].get("builds") or []
     latest = amd_builds[0] if amd_builds else {}
+    if latest.get("test_jobs_blocked"):
+        items.append({
+            "kind": "nightly_infrastructure_blocked",
+            "severity": "critical",
+            "count": int(latest["test_jobs_blocked"]),
+        })
     new_groups = (latest.get("transitions") or {}).get("new") or []
     if new_groups:
         items.append({"kind": "nightly_new_failures", "severity": "critical", "count": len(new_groups)})
@@ -2861,8 +2906,13 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
     queue_snapshot = _filter_queue_snapshot(load_latest_queue_snapshot(paths["queue_timeseries"]))
 
     analytics = loaded.get("analytics") or {}
-    amd_nightly = _nightly_pipeline("amd-ci", analytics.get("amd-ci") or {})
-    upstream_parity = _nightly_pipeline("ci", analytics.get("ci") or {})
+    ci_health = loaded.get("ci_health") or {}
+    amd_nightly = _nightly_pipeline(
+        "amd-ci", analytics.get("amd-ci") or {}, ci_health.get("amd") or {},
+    )
+    upstream_parity = _nightly_pipeline(
+        "ci", analytics.get("ci") or {}, ci_health.get("upstream") or {},
+    )
     amd_test_health = _amd_test_health(data_dir, analytics.get("amd-ci") or {})
     amd_agent_health = _amd_agent_health(data_dir)
     pipeline_blocks = [amd_nightly, upstream_parity]
@@ -2876,6 +2926,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         "pipelines": pipeline_blocks,
     }
     reliability = _reliability(analytics.get("ci") or {}, pipeline_slug="ci")
+    definition_parity = loaded.get("config_parity") or {}
     gating = _gating(
         loaded.get("gating_targets") or {},
         loaded.get("gating_target_candidates") or {},
@@ -2927,6 +2978,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         "amd_test_health": amd_test_health,
         "amd_agent_health": amd_agent_health,
         "reliability": reliability,
+        "definition_parity": definition_parity,
         "gating": gating,
         "queue": queue,
         "trajectory": trajectory,

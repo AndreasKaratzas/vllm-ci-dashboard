@@ -54,6 +54,26 @@ The main data path is `.github/workflows/hourly-master.yml`, which runs every 30
 | `scripts/render.py` | Generate markdown dashboards and site data |
 | `scripts/build_site.py` | Assemble `docs/` and `data/` into `_site/` for Pages |
 
+### CI definition parity
+
+`scripts/vllm/config_parity.py` resolves the current `vllm-project/vllm`
+`main` commit, downloads that immutable repository snapshot once, and compares
+`.buildkite/test-amd.yaml` with every `.buildkite/test_areas/*.yaml` file from
+the same commit. The published report includes the commit and exact YAML links.
+
+Definitions match in two passes:
+
+1. Match the normalized YAML identity, including GPU-count metadata.
+2. For remaining definitions, accept a platform-title twin only when both
+   command lists are non-empty, their normalized commands are exactly equal,
+   the platform-neutral titles are at least 65% similar, and the best match is
+   unique on both sides. Ambiguous candidates remain unmatched.
+
+Definition matches describe source coverage, not runtime pass/fail health.
+Likewise, a nightly that fails before tests start is published as an
+infrastructure-blocked pipeline build; the most recent older build with parsed
+test results remains separately identified as the latest test signal.
+
 To run manually:
 
 ```bash

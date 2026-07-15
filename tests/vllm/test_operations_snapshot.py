@@ -666,6 +666,46 @@ def test_amd_test_health_is_unavailable_for_missing_or_corrupt_results(tmp_path)
     assert corrupt["provenance"]["test_results"]["malformed_rows"] == 3
 
 
+def test_latest_infrastructure_blocked_nightly_is_not_dropped_or_given_stale_results(tmp_path):
+    data_dir = _fixture_data(tmp_path)
+    health_path = data_dir / "ci_health.json"
+    health = json.loads(health_path.read_text())
+    blocked = {
+        "build_number": 104,
+        "build_url": "https://buildkite.com/vllm/amd-ci/builds/104",
+        "created_at": "2026-04-23T09:00:00Z",
+        "state": "failed",
+        "job_count": 7,
+        "test_job_count": 6,
+        "test_jobs_blocked": 6,
+        "has_test_results": False,
+    }
+    health["amd"]["latest_build"] = health["amd"]["builds"][0]
+    health["amd"]["latest_pipeline_build"] = blocked
+    health["amd"]["latest_pipeline_build_has_test_results"] = False
+    health["amd"]["latest_test_signal_build"] = health["amd"]["latest_build"]
+    health["amd"]["builds"].insert(0, blocked)
+    health_path.write_text(json.dumps(health))
+
+    payload = ops.build_snapshot(data_dir, generated_at=GENERATED_AT)
+    latest = payload["nightly"]["canonical_history"]["builds"][0]
+
+    assert latest["number"] == 104
+    assert latest["state"] == "failed"
+    assert latest["has_test_results"] is False
+    assert latest["test_job_count"] == latest["test_jobs_blocked"] == 6
+    assert latest["failed_groups"] == []
+    assert latest["soft_failed_groups"] == []
+    assert latest["transitions"]["fixed"] == []
+    assert latest["transitions"]["not_observed"]
+    assert payload["home"]["latest_amd_nightly"]["number"] == 104
+    assert payload["attention"][0] == {
+        "kind": "nightly_infrastructure_blocked",
+        "severity": "critical",
+        "count": 6,
+    }
+
+
 def test_compact_queue_history_retains_observed_idle_rows_and_wait_provenance():
     compact = ops._compact_history_snapshot({
         "ts": GENERATED_AT,

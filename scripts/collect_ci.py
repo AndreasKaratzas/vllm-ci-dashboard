@@ -333,7 +333,12 @@ def collect_pipeline(
 
         # Fetch full build detail if jobs not included or build still running
         if "jobs" not in build or not build["jobs"] or is_running:
-            build = fetch_build_detail(pipeline_key, build_num)
+            detail = fetch_build_detail(pipeline_key, build_num)
+            # Keep the fetched detail in ``builds`` as well as this loop
+            # variable. Later reporting must be able to see blocked jobs even
+            # when there are no test-result rows for the build.
+            build.clear()
+            build.update(detail)
 
         jobs = fetch_build_jobs(build)
         # Filter to test jobs (skip bootstrap, docker build, etc.)
@@ -375,6 +380,73 @@ def collect_pipeline(
             write_test_results(build_results, date, pipeline_key, results_dir)
 
     return builds, results_by_build
+
+
+def _compute_pipeline_summaries(
+    pipeline_key: str,
+    pipeline_results: list[tuple[int, str, list[TestResult]]],
+    fetched_builds: list[dict],
+) -> list:
+    """Return newest-first summaries for every observed nightly build.
+
+    Result JSONL files remain the source of test health. Buildkite build
+    metadata is a separate source and may contain a terminal nightly where no
+    test command ever ran. Taking the union keeps that pipeline event visible
+    without inventing test outcomes for it.
+    """
+    results_by_number = {
+        int(build_number): (date, results)
+        for build_number, date, results in pipeline_results
+    }
+    builds_by_number = {
+        int(build.get("number") or 0): build
+        for build in fetched_builds
+        if build.get("number")
+    }
+    build_numbers = set(results_by_number) | set(builds_by_number)
+    slug = cfg.PIPELINES[pipeline_key]["slug"]
+
+    def _build_for(number: int) -> dict:
+        if number in builds_by_number:
+            return builds_by_number[number]
+        date, _ = results_by_number[number]
+        return {
+            "number": number,
+            "created_at": date,
+            "state": "unknown",
+            "branch": "main",
+            "jobs": [],
+            "web_url": f"https://buildkite.com/{cfg.BK_ORG}/{slug}/builds/{number}",
+        }
+
+    ordered = sorted(
+        build_numbers,
+        key=lambda number: (
+            str(_build_for(number).get("created_at") or results_by_number.get(number, ("", []))[0]),
+            number,
+        ),
+    )
+    summaries = []
+    previous_signal = None
+    for number in ordered:
+        _, results = results_by_number.get(number, ("", []))
+        summary = compute_build_summary(
+            _build_for(number),
+            results,
+            pipeline_key,
+            previous_signal if results else None,
+            skip_job_patterns=SKIP_JOB_PATTERNS,
+        )
+        summaries.append(summary)
+        if results:
+            previous_signal = summary
+    summaries.reverse()
+    return summaries
+
+
+def _latest_signal_summary(summaries: list):
+    """Return the newest summary backed by parsed test evidence."""
+    return next((summary for summary in summaries if summary.has_test_results), None)
 
 
 def main():
@@ -459,39 +531,23 @@ def main():
     # Compute health for AMD tests (primary focus)
     amd_health = []
     amd_summaries = []
-    if "amd" in pipelines and amd_by_build:
-        amd_health = compute_all_test_health(amd_by_build)
-        log.info("Computed health for %d AMD tests", len(amd_health))
-
-        # Build summaries
-        prev = None
-        for bn, date, results in amd_by_build:
-            # Find corresponding build dict
-            build_dict = next(
-                (b for b in all_builds.get("amd", []) if b.get("number") == bn),
-                {"number": bn, "created_at": date, "state": "unknown", "jobs": []},
-            )
-            summary = compute_build_summary(build_dict, results, "amd", prev)
-            amd_summaries.append(summary)
-            prev = summary
-        amd_summaries.reverse()  # newest first for reporting
+    if "amd" in pipelines:
+        if amd_by_build:
+            amd_health = compute_all_test_health(amd_by_build)
+            log.info("Computed health for %d AMD tests", len(amd_health))
+        amd_summaries = _compute_pipeline_summaries(
+            "amd", amd_by_build, all_builds.get("amd", []),
+        )
 
     upstream_health = []
     upstream_summaries = []
-    if "upstream" in pipelines and upstream_by_build:
-        upstream_health = compute_all_test_health(upstream_by_build)
-        log.info("Computed health for %d upstream tests", len(upstream_health))
-
-        prev = None
-        for bn, date, results in upstream_by_build:
-            build_dict = next(
-                (b for b in all_builds.get("upstream", []) if b.get("number") == bn),
-                {"number": bn, "created_at": date, "state": "unknown", "jobs": []},
-            )
-            summary = compute_build_summary(build_dict, results, "upstream", prev)
-            upstream_summaries.append(summary)
-            prev = summary
-        upstream_summaries.reverse()
+    if "upstream" in pipelines:
+        if upstream_by_build:
+            upstream_health = compute_all_test_health(upstream_by_build)
+            log.info("Computed health for %d upstream tests", len(upstream_health))
+        upstream_summaries = _compute_pipeline_summaries(
+            "upstream", upstream_by_build, all_builds.get("upstream", []),
+        )
 
     # Apply quarantine
     quarantine_config = load_quarantine(str(QUARANTINE_PATH))
@@ -781,7 +837,10 @@ def main():
 
     # Failure trends
     if amd_health:
-        trends = compute_trends(amd_summaries, amd_health)
+        trends = compute_trends(
+            [summary for summary in amd_summaries if summary.has_test_results],
+            amd_health,
+        )
         write_failure_trends(trends, output_dir)
 
     # YAML config parity (fetches from upstream GitHub)
@@ -806,8 +865,9 @@ def main():
     # Sync CI data to standard project-level files for compatibility
     # (CONTRIBUTING.md expects data/vllm/test_results.json and data/vllm/parity_report.json)
     project_dir = output_dir.parent  # data/vllm/
-    if amd_summaries:
-        latest = amd_summaries[0]
+    latest_amd_signal = _latest_signal_summary(amd_summaries)
+    if latest_amd_signal:
+        latest = latest_amd_signal
         test_results = {
             "collected_at": datetime.now(timezone.utc).isoformat()[:19] + "Z",
             "source": "buildkite",
@@ -825,8 +885,9 @@ def main():
                 },
             },
         }
-        if upstream_summaries:
-            up = upstream_summaries[0]
+        latest_upstream_signal = _latest_signal_summary(upstream_summaries)
+        if latest_upstream_signal:
+            up = latest_upstream_signal
             test_results["cuda"] = {
                 "workflow_name": "Upstream Nightly (Buildkite)",
                 "run_url": up.build_url,
@@ -869,7 +930,14 @@ def _print_summary(
     print("=" * 60)
 
     if amd_summaries:
-        latest = amd_summaries[0]
+        pipeline_latest = amd_summaries[0]
+        latest = _latest_signal_summary(amd_summaries) or pipeline_latest
+        if pipeline_latest.build_number != latest.build_number:
+            print(
+                f"\nAMD Latest Pipeline Build (#{pipeline_latest.build_number}): "
+                f"{pipeline_latest.state}; {pipeline_latest.test_jobs_blocked} "
+                "test steps blocked before execution"
+            )
         print(f"\nAMD Latest (Build #{latest.build_number}):")
         print(f"  Tests: {latest.total_tests} | Pass: {latest.passed} | Fail: {latest.failed} | Skip: {latest.skipped}")
         print(f"  Pass Rate: {latest.pass_rate:.1%}")
@@ -879,7 +947,7 @@ def _print_summary(
             print(f"  Delta: tests {d.get('total', 0):+d}, pass rate {d.get('pass_rate', 0):+.2%}")
 
     if upstream_summaries:
-        latest = upstream_summaries[0]
+        latest = _latest_signal_summary(upstream_summaries) or upstream_summaries[0]
         print(f"\nUpstream Latest (Build #{latest.build_number}):")
         print(f"  Tests: {latest.total_tests} | Pass: {latest.passed} | Fail: {latest.failed} | Skip: {latest.skipped}")
         print(f"  Pass Rate: {latest.pass_rate:.1%}")
