@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-15T09:31:19Z",
+  "generated_at": "2026-07-15T11:26:01Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -23,17 +23,17 @@
     "upstream_build": 78152,
     "amd_ci_build": 10836,
     "canonical_target_count": 125,
-    "row_count": 232,
-    "canonical_match_count": 100,
+    "row_count": 233,
+    "canonical_match_count": 107,
     "likely_duplicate_count": 18,
     "new_candidate_count": 52,
-    "excluded_count": 45,
-    "missing_from_upstream_count": 17,
+    "excluded_count": 46,
+    "missing_from_upstream_count": 10,
     "by_decision": {
-      "canonical": 100,
-      "excluded": 45,
+      "canonical": 107,
+      "excluded": 46,
       "likely_duplicate": 18,
-      "missing_from_upstream": 17,
+      "missing_from_upstream": 10,
       "new_candidate": 52
     }
   },
@@ -269,6 +269,36 @@
       "proposal_matches": []
     },
     {
+      "label": "Distributed Compile + Comm (4 GPUs)",
+      "canonical_key": "distributed compile + comm (4 gpus)",
+      "state": "passed",
+      "queue": "gpu_4_queue",
+      "url": "https://buildkite.com/vllm/ci/builds/78152/steps/canvas?jid=019f645d-c29d-4fe1-bb53-5dbc947e140a&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 56,
+      "canonical_label": "Distributed Compile + Comm (4 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Distributed Compile + RPC Tests (2 GPUs)",
+      "canonical_key": "distributed compile + rpc test (2 gpus)",
+      "state": "passed",
+      "queue": "gpu_4_queue",
+      "url": "https://buildkite.com/vllm/ci/builds/78152/steps/canvas?jid=019f645d-c29e-42b0-8c22-d59a2a661438&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 54,
+      "canonical_label": "Distributed Compile + RPC Tests (2 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
       "label": "Distributed Compile Unit Tests (2xH100)",
       "canonical_key": "distributed compile unit test (2 gpus)",
       "state": "passed",
@@ -311,6 +341,21 @@
       "source_signal": "red",
       "readiness_signal": "green",
       "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Distributed Model Tests (2 GPUs)",
+      "canonical_key": "distributed model test (2 gpus)",
+      "state": "passed",
+      "queue": "gpu_4_queue",
+      "url": "https://buildkite.com/vllm/ci/builds/78152/steps/canvas?jid=019f645d-c434-4bf0-b76a-f8d00415da3f&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 12,
+      "canonical_label": "Distributed Model Tests (2 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
       "proposal_matches": []
     },
     {
@@ -1009,6 +1054,21 @@
       "proposal_matches": []
     },
     {
+      "label": "LoRA TP (Distributed)",
+      "canonical_key": "lora tp (distributed)",
+      "state": "passed",
+      "queue": "gpu_4_queue",
+      "url": "https://buildkite.com/vllm/ci/builds/78152/steps/canvas?jid=019f645d-c40b-4fc3-b6cd-3b19b31b030c&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 9,
+      "canonical_label": "LoRA TP (Distributed)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "proposal_matches": []
+    },
+    {
       "label": "Metrics, Tracing (2 GPUs)",
       "canonical_key": "metrics, tracing (2 gpus)",
       "state": "passed",
@@ -1294,6 +1354,21 @@
       "proposal_matches": []
     },
     {
+      "label": "Pipeline + Context Parallelism (4 GPUs)",
+      "canonical_key": "pipeline + context parallelism (4 gpus)",
+      "state": "passed",
+      "queue": "gpu_4_queue",
+      "url": "https://buildkite.com/vllm/ci/builds/78152/steps/canvas?jid=019f645d-c2ac-4baa-af33-4ad2ab58333c&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 4,
+      "canonical_label": "Pipeline + Context Parallelism (4 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "proposal_matches": []
+    },
+    {
       "label": "Plugin Tests (2 GPUs)",
       "canonical_key": "plugin test (2 gpus)",
       "state": "passed",
@@ -1481,6 +1556,21 @@
       "source_signal": "red",
       "readiness_signal": "green",
       "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "RayExecutorV2 (4 GPUs)",
+      "canonical_key": "rayexecutorv2 (4 gpus)",
+      "state": "passed",
+      "queue": "gpu_4_queue",
+      "url": "https://buildkite.com/vllm/ci/builds/78152/steps/canvas?jid=019f645d-c2ad-409d-9805-bcaeef0960fd&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 5,
+      "canonical_label": "RayExecutorV2 (4 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
       "proposal_matches": []
     },
     {
@@ -1684,6 +1774,21 @@
       "target_id": 93,
       "canonical_label": "V1 Spec Decode",
       "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Weight Loading Multiple GPU",
+      "canonical_key": "weight loading multiple gpu",
+      "state": "passed",
+      "queue": "gpu_4_queue",
+      "url": "https://buildkite.com/vllm/ci/builds/78152/steps/canvas?jid=019f645d-c486-4775-96e5-aebcdb64680c&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 80,
+      "canonical_label": "Weight Loading Multiple GPU",
+      "source_signal": "red",
       "readiness_signal": "green",
       "target_signal": "green",
       "proposal_matches": []
@@ -2771,11 +2876,11 @@
       "proposal_matches": []
     },
     {
-      "label": "Sequence Parallel Correctness Tests (2xH100)",
+      "label": "Sequence Parallel Correctness Tests (2 GPUs)",
       "canonical_key": "sequence parallel correctness test (2 gpus)",
       "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/78152/steps/canvas?jid=019f645d-c284-40ee-ac72-488864389a2c&tab=output",
+      "queue": "gpu_4_queue",
+      "url": "https://buildkite.com/vllm/ci/builds/78152/steps/canvas?jid=019f645d-c280-4380-b151-c1a547ea35ec&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -3037,7 +3142,7 @@
       "canonical_key": "v1 attention",
       "state": "passed",
       "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/78152/steps/canvas?jid=019f645d-c203-4909-a5bb-ccce863bab0f&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/78152/steps/canvas?jid=019f645d-c1ff-4ec0-9096-2fd295bd9901&tab=output",
       "exclusion_reasons": [],
       "decision": "likely_duplicate",
       "duplicate_of": "V1 attention (H100-MI300)",
@@ -3331,6 +3436,17 @@
       "decision": "excluded"
     },
     {
+      "label": "Model Runner V2 Pipeline Parallelism (4 GPUs)",
+      "canonical_key": "model runner v2 pipeline parallelism (4 gpus)",
+      "state": "passed",
+      "queue": "gpu_4_queue",
+      "url": "https://buildkite.com/vllm/ci/builds/78152/steps/canvas?jid=019f645d-c427-42fe-a0ee-dda2f55eed40&tab=output",
+      "exclusion_reasons": [
+        "experimental_model_runner_v2"
+      ],
+      "decision": "excluded"
+    },
+    {
       "label": "Model Runner V2 Spec Decode",
       "canonical_key": "model runner v2 spec decode",
       "state": "passed",
@@ -3546,42 +3662,6 @@
     },
     {
       "decision": "missing_from_upstream",
-      "target_id": 4,
-      "label": "Pipeline + Context Parallelism (4 GPUs)",
-      "canonical_key": "pipeline + context parallelism (4 gpus)",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "red"
-    },
-    {
-      "decision": "missing_from_upstream",
-      "target_id": 5,
-      "label": "RayExecutorV2 (4 GPUs)",
-      "canonical_key": "rayexecutorv2 (4 gpus)",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "red"
-    },
-    {
-      "decision": "missing_from_upstream",
-      "target_id": 9,
-      "label": "LoRA TP (Distributed)",
-      "canonical_key": "lora tp (distributed)",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "red"
-    },
-    {
-      "decision": "missing_from_upstream",
-      "target_id": 12,
-      "label": "Distributed Model Tests (2 GPUs)",
-      "canonical_key": "distributed model test (2 gpus)",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "red"
-    },
-    {
-      "decision": "missing_from_upstream",
       "target_id": 13,
       "label": "Language Models Tests (Extra Standard) %N",
       "canonical_key": "language models test (extra standard) %N",
@@ -3627,24 +3707,6 @@
     },
     {
       "decision": "missing_from_upstream",
-      "target_id": 54,
-      "label": "Distributed Compile + RPC Tests (2 GPUs)",
-      "canonical_key": "distributed compile + rpc test (2 gpus)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green"
-    },
-    {
-      "decision": "missing_from_upstream",
-      "target_id": 56,
-      "label": "Distributed Compile + Comm (4 GPUs)",
-      "canonical_key": "distributed compile + comm (4 gpus)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green"
-    },
-    {
-      "decision": "missing_from_upstream",
       "target_id": 58,
       "label": "DeepSeek V2-Lite Sync EPLB Accuracy",
       "canonical_key": "deepseek v2-lite sync eplb accuracy",
@@ -3666,15 +3728,6 @@
       "target_id": 65,
       "label": "GPQA Eval (GPT-OSS) (H100)",
       "canonical_key": "gpqa eval (gpt-oss)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green"
-    },
-    {
-      "decision": "missing_from_upstream",
-      "target_id": 80,
-      "label": "Weight Loading Multiple GPU",
-      "canonical_key": "weight loading multiple gpu",
       "source_signal": "red",
       "readiness_signal": "green",
       "target_signal": "green"
