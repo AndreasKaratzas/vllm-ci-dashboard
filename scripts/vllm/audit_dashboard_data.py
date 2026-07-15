@@ -229,6 +229,13 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         "Versioned AMD current-signal and upstream reliability read model",
     ),
     DataSpec(
+        "data/vllm/ci/operations_v2_manifest.json",
+        ("scripts/vllm/build_operations_snapshot.py",),
+        ("docs/assets/js/ops-v2.js",),
+        ("schema_version", "bundle_version", "generated_at", "shell", "sections"),
+        "Fast operational shell and lazy evidence-section manifest",
+    ),
+    DataSpec(
         "data/vllm/ci/ready_tickets.json",
         ("scripts/vllm/sync_ready_tickets.py",),
         ("docs/assets/js/ci-ready.js",),
@@ -320,6 +327,7 @@ class DashboardAudit:
     def run(self) -> AuditReport:
         self.audit_data_inventory()
         self.audit_operations_v2()
+        self.audit_operations_bundle()
         self.audit_home_pr_issue_data()
         self.audit_ci_health()
         self.audit_gating_target_candidates()
@@ -1185,6 +1193,118 @@ class DashboardAudit:
                 f"{len(bad_flag)} failing runs have a bad infra-suspect flag (i), e.g. {bad_flag[:3]}",
                 relpath,
             )
+
+    def audit_operations_bundle(self) -> None:
+        relpath = "data/vllm/ci/operations_v2_manifest.json"
+        manifest_path = self.root / relpath
+        manifest = self.load_json(relpath, {})
+        if not isinstance(manifest, dict):
+            return
+        if manifest.get("schema_version") != 2 or manifest.get("bundle_version") != 1:
+            self.error(
+                "operations-bundle-schema",
+                "operations manifest must use schema_version=2 and bundle_version=1",
+                relpath,
+            )
+        shell = _mapping(manifest.get("shell"))
+        monolith = self.load_json("data/vllm/ci/operations_v2.json", {})
+        if shell.get("generated_at") != _mapping(monolith).get("generated_at"):
+            self.error(
+                "operations-bundle-freshness",
+                "operations shell and compatibility snapshot have different generation timestamps",
+                relpath,
+            )
+
+        expected = {
+            "nightly",
+            "amd_test_health",
+            "amd_agent_health",
+            "reliability",
+            "definition_parity",
+            "gating",
+            "queue",
+            "trajectory",
+            "omni",
+            "diagnostics",
+        }
+        sections = _mapping(manifest.get("sections"))
+        missing = expected - set(sections)
+        if missing:
+            self.error(
+                "operations-bundle-sections",
+                f"operations manifest is missing lazy sections: {sorted(missing)}",
+                relpath,
+            )
+
+        section_sizes: dict[str, int] = {}
+        root = manifest_path.parent.resolve()
+        for name, raw_descriptor in sections.items():
+            descriptor = _mapping(raw_descriptor)
+            relative = str(descriptor.get("path") or "")
+            path = (manifest_path.parent / relative).resolve()
+            if not relative or not path.is_relative_to(root):
+                self.error(
+                    "operations-bundle-path",
+                    f"section {name} has an unsafe path: {relative!r}",
+                    relpath,
+                )
+                continue
+            if not path.exists():
+                declared_size = _safe_int(descriptor.get("bytes"))
+                section_sizes[name] = declared_size
+                continue
+            size = path.stat().st_size
+            section_sizes[name] = size
+            if _safe_int(descriptor.get("bytes")) != size:
+                self.error(
+                    "operations-bundle-size",
+                    f"section {name} reports {descriptor.get('bytes')} bytes but file size is {size}",
+                    relpath,
+                )
+            try:
+                section = json.loads(path.read_text())
+            except (json.JSONDecodeError, OSError, UnicodeError) as exc:
+                self.error(
+                    "operations-bundle-json",
+                    f"section {name} is not valid JSON: {exc}",
+                    self.rel(path),
+                )
+                continue
+            if not isinstance(section, dict):
+                self.error(
+                    "operations-bundle-shape",
+                    f"section {name} must contain a JSON object",
+                    self.rel(path),
+                )
+
+        manifest_size = manifest_path.stat().st_size if manifest_path.exists() else 0
+        home_budget = 2_000_000
+        health_budget = 12_000_000
+        queue_budget = 6_000_000
+        health_initial = manifest_size + section_sizes.get("nightly", 0) + section_sizes.get("amd_test_health", 0)
+        if manifest_size > home_budget:
+            self.error(
+                "operations-home-payload-budget",
+                f"first-render shell is {manifest_size} bytes; budget is {home_budget}",
+                relpath,
+            )
+        if health_initial > health_budget:
+            self.error(
+                "operations-health-payload-budget",
+                f"CI Health overview payload is {health_initial} bytes; budget is {health_budget}",
+                relpath,
+            )
+        if section_sizes.get("queue", 0) > queue_budget:
+            self.error(
+                "operations-queue-payload-budget",
+                f"queue section is {section_sizes['queue']} bytes; budget is {queue_budget}",
+                relpath,
+            )
+        self.report.metrics["operations_bundle"] = {
+            "manifest_bytes": manifest_size,
+            "health_overview_bytes": health_initial,
+            "section_bytes": section_sizes,
+        }
 
     def audit_home_pr_issue_data(self) -> None:
         prs_payload = self.load_json("data/vllm/prs.json", {})

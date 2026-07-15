@@ -1742,3 +1742,59 @@ def test_retry_analysis_and_collector_retry_fields(monkeypatch):
     assert recovery["failed_job_id"] == "failed-job"
     assert recovery["passed_job_id"] == "passed-job"
     assert recovery["observed_at"] == "2026-04-22T10:00:00Z"
+
+
+def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
+    payload = ops.build_snapshot(_fixture_data(tmp_path), generated_at=GENERATED_AT)
+    payload["queue"]["history"] = [{
+        "ts": GENERATED_AT,
+        "schema_version": 2,
+        "queues": {
+            "amd_mi300_1": {
+                "waiting": 0,
+                "running": 1,
+                "p50_wait": None,
+                "p99_wait": 2.5,
+                "p99_wait_source": "sample_wait",
+                "current_wait": {"p99": {"value": 2.5, "source": "sample_wait"}},
+                "unused_collector_field": "not shipped",
+            },
+        },
+    }]
+    output = tmp_path / "published" / "operations_v2.json"
+
+    manifest = ops.write_snapshot_bundle(output, payload)
+
+    assert json.loads(output.read_text()) == payload
+    assert manifest["bundle_version"] == 1
+    assert manifest["generated_at"] == GENERATED_AT
+    assert "reliability" not in manifest["shell"]
+    assert "amd_agent_health" not in manifest["shell"]
+    assert len(manifest["shell"]["nightly"]["pipelines"]) == 1
+    assert manifest["shell"]["nightly"]["pipelines"][0]["pipeline"] == "amd-ci"
+    assert len(manifest["shell"]["nightly"]["pipelines"][0]["builds"]) <= 7
+
+    manifest_path = output.parent / ops.OPERATIONS_MANIFEST_NAME
+    assert json.loads(manifest_path.read_text()) == manifest
+    for descriptor in manifest["sections"].values():
+        section_path = output.parent / descriptor["path"]
+        assert section_path.exists()
+        assert section_path.stat().st_size == descriptor["bytes"]
+
+    nightly = json.loads(
+        (output.parent / manifest["sections"]["nightly"]["path"]).read_text()
+    )["nightly"]
+    assert "canonical_history" not in nightly
+    assert "upstream_parity" not in nightly
+    assert {row["pipeline"] for row in nightly["pipelines"]} == {"amd-ci", "ci"}
+
+    queue = json.loads(
+        (output.parent / manifest["sections"]["queue"]["path"]).read_text()
+    )["queue"]
+    history_row = queue["history"][0]["queues"]["amd_mi300_1"]
+    assert history_row["waiting"] == 0
+    assert history_row["running"] == 1
+    assert history_row["p99_wait"] == 2.5
+    assert "p50_wait" not in history_row
+    assert "current_wait" not in history_row
+    assert "unused_collector_field" not in history_row

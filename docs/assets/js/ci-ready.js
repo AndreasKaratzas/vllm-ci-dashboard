@@ -450,9 +450,13 @@ window.__OPS_CONTROL_V2_READY__ = true;
 
   function loadOperations() {
     if (!operationsPromise) {
-      operationsPromise = fetch('data/vllm/ci/operations_v2.json?_=' + Math.floor(Date.now() / 300000))
-        .then(function(response) { return response.ok ? response.json() : null; })
-        .catch(function() { return null; });
+      if (window.OpsV2 && typeof window.OpsV2.loadSections === 'function') {
+        operationsPromise = window.OpsV2.loadSections(['reliability']);
+      } else {
+        operationsPromise = fetch('data/vllm/ci/operations_v2.json?_=' + Math.floor(Date.now() / 300000))
+          .then(function(response) { return response.ok ? response.json() : null; });
+      }
+      operationsPromise = operationsPromise.catch(function() { return null; });
     }
     return operationsPromise;
   }
@@ -880,11 +884,22 @@ window.__OPS_CONTROL_V2_READY__ = true;
     renderEvidence(container, plan, projectItems || {}, operations || {});
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', render);
-  else render();
+  function renderIfActive() {
+    const panel = document.getElementById('tab-ci-ready');
+    if (panel && panel.classList.contains('active')) render();
+  }
+
+  function initializeReadyRoute() {
+    exposeReadyNavigation();
+    renderIfActive();
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initializeReadyRoute);
+  else initializeReadyRoute();
   document.addEventListener('click', function(event) {
     const target = event.target.closest && event.target.closest('[data-tab="ci-ready"]');
-    if (target) setTimeout(render, 0);
+    if (target) setTimeout(renderIfActive, 0);
   });
-  document.addEventListener('auth:changed', render);
+  window.addEventListener('hashchange', function() { setTimeout(renderIfActive, 0); });
+  document.addEventListener('auth:changed', initializeReadyRoute);
 })();

@@ -153,6 +153,9 @@ jobs:
       - name: Prune queue history to post-fix baseline
         run: python scripts/vllm/collect_queue_snapshot.py --prune-only
 
+      - name: Rebuild lazy v2 operations bundle
+        run: python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
+
       - name: Assemble site
         run: python scripts/build_site.py --cache-bust-index
 

@@ -16,8 +16,8 @@
       - ``default-src 'self'``          — everything defaults to same-origin.
       - ``script-src 'self' cdn.jsdelivr.net 'unsafe-inline'``
           unsafe-inline covers the pre-paint theme bootstrap below; all
-          real code lives in same-origin ``assets/js/*``. The one third-
-          party script is Chart.js pinned to a specific version on jsDelivr.
+          real code lives in same-origin ``assets/js/*``. Chart.js is loaded
+          asynchronously from jsDelivr after the operational shell renders.
       - ``connect-src 'self' api.github.com api.buildkite.com``
           These two are the ONLY outbound origins the user's tokens touch.
           An injected script that tries to POST tokens to ``evil.com``
@@ -150,7 +150,6 @@
     <p>Data collected via <a href="https://github.com/AndreasKaratzas/vllm-ci-dashboard">project-dashboard</a></p>
   </footer>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <!-- token-vault MUST load before auth.js so auth can unlock it at sign-in. -->
   <script src="assets/js/token-vault.js?v=1"></script>
   <script src="assets/js/utils.js?v=58"></script>
@@ -164,9 +163,9 @@
   <script src="assets/js/ci-omni.js?v=53"></script>
   <script src="assets/js/dashboard.js?v=58"></script>
   <script src="assets/js/ci-testbuild.js?v=5"></script>
-  <script src="assets/js/ci-ready.js?v=6"></script>
+  <script src="assets/js/ci-ready.js?v=7"></script>
   <script src="assets/js/ci-admin.js?v=3"></script>
-  <script src="assets/js/ops-v2.js?v=7"></script>
+  <script src="assets/js/ops-v2.js?v=8"></script>
   <script>
     (function(){
       var btn = document.getElementById('theme-toggle');

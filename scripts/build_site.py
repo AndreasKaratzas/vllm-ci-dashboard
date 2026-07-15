@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import shutil
 import time
 from pathlib import Path
+
+from vllm.build_operations_snapshot import write_snapshot_bundle
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -34,12 +37,21 @@ def cache_bust_index(index_path: Path, stamp: str) -> None:
     index_path.write_text(updated)
 
 
+def materialize_operations_bundle(site_data: Path) -> None:
+    operations = site_data / "vllm" / "ci" / "operations_v2.json"
+    if not operations.exists():
+        return
+    payload = json.loads(operations.read_text())
+    write_snapshot_bundle(operations, payload, write_monolith=False, log=False)
+
+
 def build_site(output_dir: Path, cache_bust: bool) -> None:
     if output_dir.exists():
         shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     copy_tree_contents(DOCS, output_dir)
     shutil.copytree(DATA, output_dir / "data", dirs_exist_ok=True)
+    materialize_operations_bundle(output_dir / "data")
     (output_dir / ".nojekyll").write_text("")
     if cache_bust:
         cache_bust_index(output_dir / "index.html", str(int(time.time())))

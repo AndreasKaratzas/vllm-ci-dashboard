@@ -12,12 +12,16 @@
   ]);
   const cache = new Map();
   const charts = new Map();
+  let operationsManifestPromise = null;
+  let chartLibraryPromise = null;
   const SOURCE_ASSETS = {
     operations: 'data/vllm/ci/operations_v2.json',
+    operationsManifest: 'data/vllm/ci/operations_v2_manifest.json',
     queueHistory: 'data/vllm/ci/queue_timeseries.jsonl',
     perf: 'data/vllm/perf_eval/perf_eval.json',
     amdPipeline: 'https://buildkite.com/vllm/amd-ci',
   };
+  const CHART_LIBRARY_URL = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js';
   const state = {
     healthView: 'overview',
     analyticsView: 'groups',
@@ -1601,6 +1605,19 @@
     });
   }
 
+  function openGroupDetailWithEvidence(group, ops) {
+    if (reliabilityCatalog(canonicalReliability(ops)).length) {
+      openGroupDetail(group, ops);
+      return;
+    }
+    loadOperationSections(ops, ['reliability']).then(function (expanded) {
+      openGroupDetail(group, expanded);
+    }).catch(function (error) {
+      console.error('Reliability evidence load failed:', error);
+      openGroupDetail(group, ops);
+    });
+  }
+
   function openDefinitionDetail(row, definitionParity) {
     const content = n('div', 'ops-stack');
     function commandPanel(title, commands) {
@@ -1862,8 +1879,36 @@
     return {root: panel(title, subtitle, frame, 'ops-chart-panel'), canvas, frame, viewport};
   }
 
+  function loadChartLibrary() {
+    if (window.Chart) return Promise.resolve(window.Chart);
+    if (!chartLibraryPromise) {
+      chartLibraryPromise = new Promise(function (resolve, reject) {
+        const script = document.createElement('script');
+        script.src = CHART_LIBRARY_URL;
+        script.async = true;
+        script.addEventListener('load', function () {
+          if (window.Chart) resolve(window.Chart);
+          else reject(new Error('Chart.js loaded without exposing window.Chart'));
+        });
+        script.addEventListener('error', function () {
+          reject(new Error('Chart.js could not be loaded'));
+        });
+        document.head.append(script);
+      });
+    }
+    return chartLibraryPromise;
+  }
+
   function drawChart(key, canvas, config) {
-    if (!window.Chart || !canvas) return;
+    if (!canvas) return;
+    if (!window.Chart) {
+      loadChartLibrary().then(function () {
+        if (canvas.isConnected) drawChart(key, canvas, config);
+      }).catch(function (error) {
+        console.error('Chart library load failed:', error);
+      });
+      return;
+    }
     if (charts.has(key)) charts.get(key).destroy();
     const evidence = config.evidence || [];
     const evidenceTitle = config.evidenceTitle || 'Chart evidence';
@@ -1975,6 +2020,82 @@
       }));
     }
     return cache.get(key);
+  }
+
+  function isPlainObject(value) {
+    return value && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  function mergeOperationPayload(target, source) {
+    Object.entries(source || {}).forEach(function (entry) {
+      const key = entry[0], value = entry[1];
+      if (isPlainObject(value)) {
+        target[key] = mergeOperationPayload(isPlainObject(target[key]) ? target[key] : {}, value);
+      } else {
+        target[key] = value;
+      }
+    });
+    return target;
+  }
+
+  function operationSectionNames(tabId) {
+    if (tabId === 'ci-health') {
+      if (state.healthView === 'overview') return ['nightly', 'amd_test_health'];
+      if (state.healthView === 'gating') return ['definition_parity'];
+      if (state.healthView === 'diagnostics') return ['diagnostics'];
+      return [];
+    }
+    if (tabId === 'ci-analytics') {
+      if (state.analyticsView === 'groups') return ['amd_test_health'];
+      if (state.analyticsView === 'agent-health') return ['amd_agent_health'];
+      if (state.analyticsView === 'nightlies') return ['nightly'];
+      return ['reliability'];
+    }
+    if (tabId === 'ci-queue') return ['queue'];
+    if (tabId === 'ci-hotness') return ['reliability'];
+    if (tabId === 'ci-omni') return ['omni', 'queue'];
+    return [];
+  }
+
+  function resolveOperationSectionPath(relativePath) {
+    const base = SOURCE_ASSETS.operationsManifest.slice(0, SOURCE_ASSETS.operationsManifest.lastIndexOf('/') + 1);
+    return base + String(relativePath || '').replace(/^\/+/, '');
+  }
+
+  async function operationsManifest() {
+    if (!operationsManifestPromise) {
+      operationsManifestPromise = fetchJSON(SOURCE_ASSETS.operationsManifest).catch(function (error) {
+        console.warn('Operations manifest unavailable; using compatibility snapshot:', error);
+        return null;
+      });
+    }
+    return operationsManifestPromise;
+  }
+
+  async function loadOperationSections(ops, sectionNames) {
+    const manifest = await operationsManifest();
+    if (!manifest || !manifest.shell || !manifest.sections) {
+      return fetchJSON(SOURCE_ASSETS.operations);
+    }
+    const descriptors = sectionNames.map(function (name) {
+      const descriptor = manifest.sections[name];
+      if (!descriptor || !descriptor.path) throw new Error('Operations section "' + name + '" is missing from the manifest');
+      return descriptor;
+    });
+    const sections = await Promise.all(descriptors.map(function (descriptor) {
+      return fetchJSON(resolveOperationSectionPath(descriptor.path));
+    }));
+    const combined = mergeOperationPayload({}, ops || manifest.shell);
+    sections.forEach(function (section) { mergeOperationPayload(combined, section); });
+    return combined;
+  }
+
+  async function loadOperations(tabId) {
+    const manifest = await operationsManifest();
+    if (!manifest || !manifest.shell || !manifest.sections) {
+      return fetchJSON(SOURCE_ASSETS.operations);
+    }
+    return loadOperationSections(manifest.shell, operationSectionNames(tabId));
   }
 
   function ownedHost(tabId) {
@@ -2343,7 +2464,7 @@
           subtitle: integer(selectedRows.length) + ' configured groups; every result links to its exact AMD Buildkite job',
           rows: selectedRows,
           columns: [
-            {label: 'Test group', sticky: true, width: '430px', render: function (row) { return linkButton(row.title, function () { openGroupDetail({name: row.title, area: row.area}, ops); }); }},
+            {label: 'Test group', sticky: true, width: '430px', render: function (row) { return linkButton(row.title, function () { openGroupDetailWithEvidence({name: row.title, area: row.area}, ops); }); }},
             {label: 'Area', width: '180px', render: function (row) { return value(row.area); }},
             {label: 'Latest result', width: '150px', render: function (row) { const cell = (row.cells || {})[architecture.id] || {}; const url = exactPipelineEvidenceUrl({latest_url: cell.latest_url, build_number: cell.latest_build_number}, 'amd-ci'); return linkedBadge(cell.latest_state || 'unobserved', url, null, toneForState(cell.latest_state)); }},
             {label: 'Build', width: '110px', render: function (row) { const cell = (row.cells || {})[architecture.id] || {}; const url = exactPipelineEvidenceUrl({latest_url: cell.latest_url, build_number: cell.latest_build_number}, 'amd-ci'); return url ? externalLink('#' + value(cell.latest_build_number), url, 'ops-mono') : n('span', 'ops-cell-muted', '-'); }},
@@ -2387,12 +2508,12 @@
       });
       scorecard.append(scorecardRows);
       host.append(scorecard);
-      const cols = [{label: 'Group', sticky: true, render: function (r) { return linkButton(r.title, function () { openGroupDetail({name: r.title, area: r.area}, ops); }); }}, {label: 'Area', render: function (r) { return linkButton(value(r.area), function () { openGroupDetail({name: r.title, area: r.area}, ops); }); }}];
+      const cols = [{label: 'Group', sticky: true, render: function (r) { return linkButton(r.title, function () { openGroupDetailWithEvidence({name: r.title, area: r.area}, ops); }); }}, {label: 'Area', render: function (r) { return linkButton(value(r.area), function () { openGroupDetailWithEvidence({name: r.title, area: r.area}, ops); }); }}];
       for (const a of arch) {
         cols.push({label: a.label, render: function (r) {
           const c = (r.cells || {})[a.id] || {};
           if (!c.exists) return n('span', 'ops-cell-muted', '-');
-          return linkedBadge(c.latest_state || 'unknown', exactPipelineEvidenceUrl({job_url: c.latest_url}, 'amd-ci'), function () { openGroupDetail({name: r.title, area: r.area}, ops); });
+          return linkedBadge(c.latest_state || 'unknown', exactPipelineEvidenceUrl({job_url: c.latest_url}, 'amd-ci'), function () { openGroupDetailWithEvidence({name: r.title, area: r.area}, ops); });
         }});
       }
       host.append(compactTablePanel(
@@ -6158,7 +6279,7 @@
     pruneInactiveCharts();
     host.append(n('div', 'ops-loading', 'Loading operational data...'));
     try {
-      const ops = await fetchJSON('data/vllm/ci/operations_v2.json');
+      const ops = await loadOperations(tabId);
       if (host.dataset.renderToken !== token) return;
       clear(host);
       setFreshness(ops);
@@ -6173,6 +6294,7 @@
       clear(host);
       const retry = button('Retry', function () {
         cache.clear();
+        operationsManifestPromise = null;
         render(tabId, true);
       }, true);
       add(host, [pageHeader('AMD CI Operations', 'The requested operational data could not be loaded.', null, retry), n('div', 'ops-error', error.message || String(error))]);
@@ -6180,7 +6302,12 @@
     }
   }
 
-  window.OpsV2 = {render: render, state: state, openTestGroupHistory: openTestGroupHistory};
+  window.OpsV2 = {
+    render: render,
+    state: state,
+    openTestGroupHistory: openTestGroupHistory,
+    loadSections: function (names) { return loadOperationSections(null, names || []); },
+  };
 
   function activeTab() {
     const panelEl = document.querySelector('.tab-panel.active');

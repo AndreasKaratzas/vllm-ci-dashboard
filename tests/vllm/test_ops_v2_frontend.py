@@ -12,6 +12,8 @@ OPS_CSS = (ROOT / "docs" / "assets" / "css" / "ops-v2.css").read_text()
 DASHBOARD_CSS = (ROOT / "docs" / "assets" / "css" / "dashboard.css").read_text()
 DASHBOARD_JS = (ROOT / "docs" / "assets" / "js" / "dashboard.js").read_text()
 OPS_DATA = json.loads((ROOT / "data" / "vllm" / "ci" / "operations_v2.json").read_text())
+OPS_MANIFEST_PATH = ROOT / "data" / "vllm" / "ci" / "operations_v2_manifest.json"
+OPS_MANIFEST = json.loads(OPS_MANIFEST_PATH.read_text())
 
 
 def test_v2_assets_and_mobile_shell_are_loaded():
@@ -27,6 +29,56 @@ def test_v2_assets_and_mobile_shell_are_loaded():
     assert "window.__DASHBOARD_V2__ = true" in INDEX
     assert 'id="ops-menu-toggle"' in INDEX
     assert 'id="ops-nav-backdrop"' in INDEX
+
+
+def test_operations_data_is_lazy_loaded_with_bounded_first_render_payloads():
+    assert "operations_v2_manifest.json" in OPS_JS
+    assert "function loadOperations" in OPS_JS
+    assert "function operationSectionNames" in OPS_JS
+    assert "return loadOperationSections(manifest.shell, operationSectionNames(tabId))" in OPS_JS
+    assert "const ops = await loadOperations(tabId)" in OPS_JS
+    assert "fetchJSON('data/vllm/ci/operations_v2.json')" not in OPS_JS
+
+    assert OPS_MANIFEST["schema_version"] == 2
+    assert OPS_MANIFEST["bundle_version"] == 1
+    assert OPS_MANIFEST["generated_at"] == OPS_DATA["generated_at"]
+    assert "reliability" not in OPS_MANIFEST["shell"]
+    assert "amd_agent_health" not in OPS_MANIFEST["shell"]
+    assert set(OPS_MANIFEST["sections"]) >= {
+        "nightly",
+        "amd_test_health",
+        "amd_agent_health",
+        "reliability",
+        "definition_parity",
+        "queue",
+        "omni",
+        "diagnostics",
+    }
+
+    manifest_bytes = OPS_MANIFEST_PATH.stat().st_size
+    section_bytes = {
+        name: descriptor["bytes"]
+        for name, descriptor in OPS_MANIFEST["sections"].items()
+    }
+    assert manifest_bytes < 2_000_000
+    assert (
+        manifest_bytes
+        + section_bytes["nightly"]
+        + section_bytes["amd_test_health"]
+    ) < 12_000_000
+    assert section_bytes["queue"] < 6_000_000
+    assert manifest_bytes < (ROOT / "data" / "vllm" / "ci" / "operations_v2.json").stat().st_size * 0.05
+    site_builder = (ROOT / "scripts" / "build_site.py").read_text()
+    assert "materialize_operations_bundle(output_dir / \"data\")" in site_builder
+    assert "write_snapshot_bundle(operations, payload, write_monolith=False" in site_builder
+
+
+def test_chart_library_does_not_block_dashboard_boot():
+    assert '<script src="https://cdn.jsdelivr.net/npm/chart.js' not in INDEX
+    assert "const CHART_LIBRARY_URL" in OPS_JS
+    assert "function loadChartLibrary" in OPS_JS
+    assert "script.async = true" in OPS_JS
+    assert "if (canvas.isConnected) drawChart(key, canvas, config)" in OPS_JS
 
 
 def test_v2_owns_all_operational_views():

@@ -18,6 +18,8 @@ from urllib.parse import parse_qs, urlparse
 ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_INPUT = ROOT / "data" / "vllm" / "ci"
 DEFAULT_OUTPUT_NAME = "operations_v2.json"
+OPERATIONS_MANIFEST_NAME = "operations_v2_manifest.json"
+OPERATIONS_BUNDLE_DIR_NAME = "operations_v2"
 NIGHTLY_BUILD_LIMIT = 30
 RANKING_LIMIT = 20
 CHANGE_LIMIT = 20
@@ -41,6 +43,32 @@ RETRY_EVIDENCE_FIELDS = (
     "retry_type",
     "step_key",
 )
+
+QUEUE_HISTORY_SHARD_FIELDS = {
+    "waiting",
+    "running",
+    "scheduled",
+    "total",
+    "zombie_waiting",
+    "zombie_running",
+    "connected_agents",
+    "connected_agents_available",
+    "connected_agents_source",
+    "count_source",
+    "p50_wait",
+    "p50_wait_source",
+    "p95_wait",
+    "p95_wait_source",
+    "p99_wait",
+    "p99_wait_source",
+    "max_wait",
+    "max_wait_source",
+    "wait_source",
+    "wait_sample_count",
+    "official_wait_source",
+    "sample_wait_source",
+    "metrics_ts",
+}
 
 SOURCE_FILES = {
     "analytics": "analytics.json",
@@ -2986,6 +3014,196 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
     }
 
 
+def _compact_nightly(nightly: dict, build_limit: int | None = None) -> dict:
+    """Drop serialized compatibility aliases while retaining both pipelines."""
+    compact = {
+        key: value
+        for key, value in nightly.items()
+        if key not in {"canonical_history", "upstream_parity", "amd", "upstream", "pipelines"}
+    }
+    pipelines = []
+    for pipeline in nightly.get("pipelines") or []:
+        row = dict(pipeline)
+        if build_limit is not None:
+            row["builds"] = list(row.get("builds") or [])[:build_limit]
+        pipelines.append(row)
+    compact["pipelines"] = pipelines
+    return compact
+
+
+def _compact_queue_history(history: list[dict]) -> list[dict]:
+    """Keep chart fields and omit repeated null-heavy collector metadata."""
+    compact_history = []
+    for snapshot in history:
+        queues = {}
+        for name, queue in (snapshot.get("queues") or {}).items():
+            compact = {
+                key: value
+                for key, value in queue.items()
+                if key in QUEUE_HISTORY_SHARD_FIELDS and value not in (None, "")
+            }
+            if compact:
+                queues[name] = compact
+        compact_history.append({
+            key: value
+            for key, value in {
+                "ts": snapshot.get("ts"),
+                "schema_version": snapshot.get("schema_version"),
+                "total_waiting": snapshot.get("total_waiting"),
+                "total_running": snapshot.get("total_running"),
+                "tracked_queue_count": snapshot.get("tracked_queue_count"),
+                "queues": queues,
+                "sources": snapshot.get("sources"),
+            }.items()
+            if value not in (None, "")
+        })
+    return compact_history
+
+
+def _compact_queue(queue: dict) -> dict:
+    compact = dict(queue)
+    compact["history"] = _compact_queue_history(list(queue.get("history") or []))
+    return compact
+
+
+def _diagnostic_section(payload: dict) -> dict:
+    reliability = payload.get("reliability") or {}
+    retry = reliability.get("retry_analysis") or {}
+    amd_health = payload.get("amd_test_health") or {}
+    queue = payload.get("queue") or {}
+    return {
+        "reliability": {
+            key: reliability.get(key)
+            for key in (
+                "available",
+                "source_pipeline",
+                "cohort",
+                "evidence_definitions",
+                "denominator",
+                "summary",
+            )
+        } | {
+            "group_catalog": [
+                {"id": row.get("id")}
+                for row in reliability.get("group_catalog") or []
+            ],
+            "flaky_candidates": [
+                {"id": row.get("id")}
+                for row in reliability.get("flaky_candidates") or []
+            ],
+            "retry_analysis": {
+                key: retry.get(key)
+                for key in ("available", "summary", "provenance")
+            },
+        },
+        "amd_test_health": {
+            "summary": amd_health.get("summary") or {},
+            "provenance": amd_health.get("provenance") or {},
+        },
+        "queue": {
+            "history_summary": queue.get("history_summary") or {},
+        },
+    }
+
+
+def _operations_shell(payload: dict) -> dict:
+    nightly = _compact_nightly(payload.get("nightly") or {}, build_limit=7)
+    nightly["pipelines"] = [
+        row for row in nightly.get("pipelines") or []
+        if row.get("pipeline") == AMD_TEST_PIPELINE
+    ]
+    amd_health = payload.get("amd_test_health") or {}
+    gating = payload.get("gating") or {}
+    definition_parity = payload.get("definition_parity") or {}
+    queue = payload.get("queue") or {}
+    return {
+        key: payload.get(key)
+        for key in ("schema_version", "generated_at", "sources", "home", "attention")
+    } | {
+        "nightly": nightly,
+        "amd_test_health": {"summary": amd_health.get("summary") or {}},
+        "gating": {"matrix_summary": gating.get("matrix_summary") or {}},
+        "definition_parity": {
+            "summary": definition_parity.get("summary") or {},
+            "source": definition_parity.get("source") or {},
+        },
+        "queue": {
+            "snapshot": queue.get("snapshot") or {},
+            "history_summary": queue.get("history_summary") or {},
+        },
+    }
+
+
+def _operation_sections(payload: dict) -> dict[str, dict]:
+    return {
+        "nightly": {"nightly": _compact_nightly(payload.get("nightly") or {})},
+        "amd_test_health": {"amd_test_health": payload.get("amd_test_health") or {}},
+        "amd_agent_health": {"amd_agent_health": payload.get("amd_agent_health") or {}},
+        "reliability": {"reliability": payload.get("reliability") or {}},
+        "definition_parity": {"definition_parity": payload.get("definition_parity") or {}},
+        "gating": {"gating": payload.get("gating") or {}},
+        "queue": {"queue": _compact_queue(payload.get("queue") or {})},
+        "trajectory": {"trajectory": payload.get("trajectory") or {}},
+        "omni": {"omni": payload.get("omni") or {}},
+        "diagnostics": _diagnostic_section(payload),
+    }
+
+
+def _encoded_json(payload: Any) -> str:
+    return json.dumps(payload, separators=(",", ":"), ensure_ascii=True) + "\n"
+
+
+def write_snapshot_bundle(
+    output: Path,
+    payload: dict,
+    *,
+    write_monolith: bool = True,
+    log: bool = True,
+) -> dict:
+    """Write the lazy frontend bundle and, by default, its source monolith."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    monolith = _encoded_json(payload)
+    if write_monolith:
+        output.write_text(monolith)
+
+    bundle_dir = output.parent / OPERATIONS_BUNDLE_DIR_NAME
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    section_manifest = {}
+    expected_paths = set()
+    for name, section in _operation_sections(payload).items():
+        path = bundle_dir / f"{name}.json"
+        encoded = _encoded_json(section)
+        path.write_text(encoded)
+        expected_paths.add(path)
+        section_manifest[name] = {
+            "path": f"{OPERATIONS_BUNDLE_DIR_NAME}/{path.name}",
+            "bytes": len(encoded.encode("utf-8")),
+        }
+    for stale in bundle_dir.glob("*.json"):
+        if stale not in expected_paths:
+            stale.unlink()
+
+    manifest = {
+        "schema_version": payload.get("schema_version"),
+        "bundle_version": 1,
+        "generated_at": payload.get("generated_at"),
+        "monolith": output.name,
+        "shell": _operations_shell(payload),
+        "sections": section_manifest,
+    }
+    manifest_path = output.parent / OPERATIONS_MANIFEST_NAME
+    manifest_encoded = _encoded_json(manifest)
+    manifest_path.write_text(manifest_encoded)
+    if log:
+        if write_monolith:
+            print(f"Wrote {output} ({len(monolith.encode('utf-8'))} bytes)")
+        print(
+            f"Wrote {manifest_path} ({len(manifest_encoded.encode('utf-8'))} bytes, "
+            f"{len(section_manifest)} lazy sections)"
+        )
+    return manifest
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-dir", "--data-dir", dest="input_dir", default=str(DEFAULT_INPUT))
@@ -2996,10 +3214,7 @@ def main(argv: list[str] | None = None) -> int:
     input_dir = Path(args.input_dir)
     output = Path(args.output) if args.output else input_dir / DEFAULT_OUTPUT_NAME
     payload = build_snapshot(input_dir, generated_at=args.generated_at)
-    encoded = json.dumps(payload, separators=(",", ":"), ensure_ascii=True) + "\n"
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(encoded)
-    print(f"Wrote {output} ({len(encoded.encode('utf-8'))} bytes)")
+    write_snapshot_bundle(output, payload)
     return 0
 
 

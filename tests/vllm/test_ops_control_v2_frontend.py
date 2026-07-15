@@ -56,9 +56,21 @@ def test_only_v2_registers_each_control_render_loop():
         assert "Lifecycle registration intentionally belongs only to the v2 renderer" in legacy
         assert "document.addEventListener('DOMContentLoaded', render)" not in legacy
         assert "document.addEventListener('auth:changed', render)" not in legacy
+        assert active.count("document.addEventListener('click'") == 1
+    for source in (TESTBUILD, ADMIN):
         assert source.count("document.addEventListener('DOMContentLoaded', render)") == 1
         assert source.count("document.addEventListener('auth:changed', render)") == 1
-        assert active.count("document.addEventListener('click'") == 1
+
+
+def test_ready_defers_large_evidence_until_its_panel_is_active():
+    assert "function renderIfActive()" in READY_V2
+    assert "panel.classList.contains('active')" in READY_V2
+    assert "function initializeReadyRoute()" in READY_V2
+    assert "exposeReadyNavigation();" in READY_V2
+    assert "document.addEventListener('DOMContentLoaded', initializeReadyRoute)" in READY_V2
+    assert "document.addEventListener('auth:changed', initializeReadyRoute)" in READY_V2
+    assert "window.addEventListener('hashchange'" in READY_V2
+    assert "window.OpsV2.loadSections(['reliability'])" in READY_V2
 
 
 def test_ready_evidence_is_strictly_read_only():
@@ -213,5 +225,5 @@ def test_control_css_scopes_tables_and_all_required_viewports():
 def test_release_assets_are_cache_busted():
     assert "ops-control-v2.css?v=3" in INDEX
     assert "ci-testbuild.js?v=5" in INDEX
-    assert "ci-ready.js?v=6" in INDEX
+    assert "ci-ready.js?v=7" in INDEX
     assert "ci-admin.js?v=3" in INDEX
