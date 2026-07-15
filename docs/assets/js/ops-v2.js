@@ -3378,10 +3378,19 @@
     return {min: dataMin, max: dataMax};
   }
 
-  function agentCofailureCard(event, onSelectEvent, expanded) {
-    const card = n('div', 'ops-cofailure-card' + (event.cross_pipeline ? ' is-cross' : '') + (expanded ? ' is-expanded' : ''));
+  // Runs shown on a compact (unselected) co-failure card before the overflow hint.
+  const COFAIL_COMPACT_RUNS = 3;
+
+  function agentCofailureCard(event, onSelectEvent, selected) {
+    const card = n('div', 'ops-cofailure-card' + (event.cross_pipeline ? ' is-cross' : '') + (selected ? ' is-selected' : ''));
+    // Clicking anywhere on the card (but not a link/button inside it) selects the
+    // event, which inflates + highlights it and zooms the timeline to it.
+    card.addEventListener('click', function (e) {
+      if (e.target && e.target.closest && e.target.closest('a, button')) return;
+      onSelectEvent(event);
+    });
     const head = n('div', 'ops-cofailure-head');
-    const nodeButton = linkButton(value(event.node), function () { onSelectEvent(event); }, 'Zoom the timeline to this co-failure event');
+    const nodeButton = linkButton(value(event.node), function () { onSelectEvent(event); }, 'Zoom the timeline to this co-failure event and expand it');
     nodeButton.classList.add('ops-mono', 'ops-cofailure-node');
     add(head, [
       nodeButton,
@@ -3391,14 +3400,18 @@
     head.append(n('span', 'ops-badge ' + (concurrent ? 'is-warning' : 'is-info'), concurrent ? 'concurrent' : 'sequential'));
     if (event.cross_pipeline) head.append(n('span', 'ops-badge is-danger', 'cross-pipeline'));
     card.append(head);
-    if (expanded) {
-      // Finer-grained event summary when the events list is focused on one node.
+    if (selected) {
+      // Finer-grained event summary, shown only on the inflated (selected) card.
       card.append(n('p', 'ops-cofailure-detail',
         integer(event.run_count) + ' runs · ' + integer(event.hard_failed) + ' hard · '
         + integer(event.soft_failed) + ' soft · pipelines: ' + (event.pipelines || []).join(', ')));
     }
+    const allRuns = event.runs || [];
+    // Compact cards show only the first few runs so a busy cluster can't sprawl;
+    // the selected card inflates to the full list with per-run timing.
+    const shown = selected ? allRuns : allRuns.slice(0, COFAIL_COMPACT_RUNS);
     const list = n('ul', 'ops-cofailure-runs');
-    (event.runs || []).forEach(function (run) {
+    shown.forEach(function (run) {
       const li = n('li', 'ops-cofailure-run');
       const chip = n('span', 'ops-state-chip');
       chip.style.background = agentStateColor(run.state);
@@ -3408,7 +3421,7 @@
         n('span', 'ops-cofailure-group', run.group),
         n('span', 'ops-cofailure-run-meta', [run.pipeline, run.queue].filter(Boolean).join(' · ')),
       ];
-      if (expanded) {
+      if (selected) {
         const mins = run._end !== null && run._start !== null ? (run._end - run._start) / 60000 : null;
         cells.push(n('span', 'ops-cofailure-run-time', shortDate(run.started_at) + ' · ' + run.state + ' · ' + duration(mins)));
       }
@@ -3417,6 +3430,13 @@
       list.append(li);
     });
     card.append(list);
+    if (!selected && allRuns.length > shown.length) {
+      const more = n('button', 'ops-cofailure-more', '+' + integer(allRuns.length - shown.length) + ' more · select to expand');
+      more.type = 'button';
+      // Expand in place: no timeline scroll (unlike selecting the card body).
+      more.addEventListener('click', function (e) { e.stopPropagation(); onSelectEvent(event, false); });
+      card.append(more);
+    }
     return card;
   }
 
@@ -3464,16 +3484,23 @@
     //   'infra' = anomalous, node-attributable subset (default)
     //   'hard'  = every hard failure   'all' = hard + soft
     let signal = ['infra', 'hard', 'all'].includes(state.agentSignal) ? state.agentSignal : 'infra';
+    // Until the user clicks a column, the sort follows the active signal
+    // (see defaultSortKey); after an explicit click we respect their choice.
     let sort = {key: 'infra_suspect', dir: 'desc'};
+    let sortExplicit = false;
     let searchTimer = null;
     let current = null;
     // Timeline zoom: timelineRange overrides the x window ({min,max} ms), null =
     // full span. timelineBounds is the last drawn full data span (for reset/zoom).
     let timelineRange = null;
     let timelineBounds = null;
-    // Co-failure events filter: when set, the events list is scoped to one node
-    // and its cards are expanded with finer detail.
+    // Co-failure events filter: when set, the events list is scoped to one node.
     let eventNodeFilter = '';
+    // The co-failure card the user selected directly: inflate + highlight it and
+    // keep every other card compact so the events list never dominates the page.
+    // The key is stable across re-renders (node + cluster start time).
+    let selectedEventKey = '';
+    function eventKey(e) { return e.node_raw + '@' + e._startMs; }
 
     add(host, pageHeaderNote());
     // The infra-suspect criterion banner only applies to the default signal, so
@@ -3573,7 +3600,7 @@
     function buildModeToggle() {
       clear(modeHost);
       const seg = segmented([
-        {id: 'infra', label: 'Infra-suspect'},
+        {id: 'infra', label: 'Infra-suspect failures'},
         {id: 'hard', label: 'Hard failures'},
         {id: 'all', label: 'All failures (hard + soft)'},
       ], signal, function (id) {
@@ -3640,7 +3667,12 @@
       return signal === 'infra' ? 'infra-suspect' : signal === 'hard' ? 'hard' : 'all';
     }
     function signalColumnLabel() {
-      return signal === 'infra' ? 'Infra' : signal === 'hard' ? 'Hard' : 'Fails';
+      return signal === 'infra' ? 'Infra-suspect failures' : 'Hard failures';
+    }
+    // Column the table sorts by when the user hasn't chosen one: the signal
+    // column for Infra/Hard, and Test group failures for All (no signal column).
+    function defaultSortKey() {
+      return signal === 'all' ? 'failures' : 'infra_suspect';
     }
     function signalCaption() {
       if (signal === 'infra') return 'Showing infra-suspect failures — anomalous, node-attributable (a group that otherwise passes that day, including on another node).';
@@ -3691,6 +3723,22 @@
       });
       const runsByNode = new Map();
       fRuns.forEach(function (r) { if (!runsByNode.has(r.node_raw)) runsByNode.set(r.node_raw, []); runsByNode.get(r.node_raw).push(r); });
+      // Every hard/soft failing run for the node in-window regardless of signal,
+      // with the SAME cancelled-build handling as fRuns. This backs the Failures
+      // column so its hard/soft counts stay consistent with the signal column
+      // (which is just the signal-matching subset of these same records): the
+      // node_days rollup can't drop failures inside auto-cancelled builds, so
+      // deriving Failures from the per-run records is what makes them agree.
+      const failByNode = new Map();
+      failing.forEach(function (r) {
+        if (r._start === null || r._start < startMs || r._start > endMs) return;
+        if (nightlyOnly && !r.nightly) return;
+        if (excludeCancelled && r.build_canceled) return;
+        if (!matchesFilter(r.hardware, r.node_raw)) return;
+        let f = failByNode.get(r.node_raw);
+        if (!f) { f = {hard: 0, soft: 0}; failByNode.set(r.node_raw, f); }
+        if (r.state === 'hard') f.hard += 1; else if (r.state === 'soft') f.soft += 1;
+      });
       const events = [];
       const signalByNode = {};
       const groupsByNode = {};
@@ -3706,10 +3754,12 @@
       const agents = [];
       byNode.forEach(function (agg, nodeRaw) {
         const identified = nodeRaw !== '(unidentified)';
-        const softHard = agg.soft + agg.hard;
+        // Failure counts come from the per-run failing records (so the cancelled-
+        // build toggle applies and they match the signal column); the run total /
+        // denominator still comes from the node_days rollup (its only source).
+        const f = failByNode.get(nodeRaw) || {hard: 0, soft: 0};
+        const failures = f.hard + f.soft;
         const denom = excludeCancelled ? Math.max(0, agg.runs - agg.canceled) : agg.runs;
-        // Cancelled jobs count as failures only when the toggle includes them.
-        const failures = excludeCancelled ? softHard : (softHard + agg.canceled);
         agents.push({
           node: identified ? agentNodeLabel(nodeRaw, agg.hardware) : nodeRaw,
           node_raw: nodeRaw,
@@ -3717,8 +3767,8 @@
           identified: identified,
           runs: denom,
           failures: failures,
-          soft: agg.soft,
-          hard: agg.hard,
+          soft: f.soft,
+          hard: f.hard,
           canceled: agg.canceled,
           incident_rate: denom ? failures / denom : 0,
           infra_suspect: signalByNode[nodeRaw] || 0,
@@ -3740,13 +3790,17 @@
     function renderKpis(view) {
       clear(kpiHost);
       const identifiedNodes = view.agents.filter(function (a) { return a.identified; }).length;
-      const unreliable = view.agents.filter(function (a) { return a.identified && a.failures > 0; }).length;
+      // Count nodes carrying at least one failure under the active signal
+      // (a.infra_suspect holds the signal-matched count) so this KPI tracks the
+      // Failure signal toggle rather than the raw all-builds soft/hard total.
+      const unreliable = view.agents.filter(function (a) { return a.identified && a.infra_suspect > 0; }).length;
+      const unreliableNoun = signal === 'infra' ? 'an infra-suspect' : signal === 'hard' ? 'a hard' : 'a hard/soft';
       const coveragePct = view.totalRuns ? (100 * view.identifiedRuns / view.totalRuns) : 0;
       const concurrent = view.events.filter(function (e) { return e.concurrent; }).length;
       const cross = view.events.filter(function (e) { return e.cross_pipeline; }).length;
       kpiHost.append(statusStrip([
         {id: 'agent-nodes', label: 'IDENTIFIED AMD NODES', value: integer(identifiedNodes), meta: integer(view.totalRuns) + ' runs in ' + windowId, tone: 'is-info'},
-        {id: 'agent-unreliable', label: 'NODES WITH FAILURES', value: integer(unreliable), meta: 'nodes with a soft/hard result', tone: unreliable ? 'is-warning' : 'is-success'},
+        {id: 'agent-unreliable', label: 'NODES WITH FAILURES', value: integer(unreliable), meta: 'nodes with ' + unreliableNoun + ' failure', tone: unreliable ? 'is-warning' : 'is-success'},
         {id: 'agent-coverage', label: 'NODE COVERAGE', value: coveragePct.toFixed(1) + '%', meta: integer(view.identifiedRuns) + ' / ' + integer(view.totalRuns) + ' runs identified', tone: coveragePct >= 50 ? 'is-success' : coveragePct > 0 ? 'is-warning' : 'is-danger'},
         {id: 'agent-cofail', label: 'CO-FAILURE EVENTS', value: integer(view.events.length), meta: integer(concurrent) + ' concurrent · ' + integer(cross) + ' cross-pipeline', tone: view.events.length ? 'is-danger' : 'is-success', onOpen: function () { eventsHost.scrollIntoView({behavior: 'smooth', block: 'start'}); }},
       ]));
@@ -3765,6 +3819,7 @@
     }
 
     function onSort(key) {
+      sortExplicit = true;
       if (sort.key === key) sort.dir = sort.dir === 'asc' ? 'desc' : 'asc';
       else sort = {key: key, dir: (key === 'node' || key === 'hardware') ? 'asc' : 'desc'};
       renderTable(current);
@@ -3782,27 +3837,54 @@
 
     function renderTable(view) {
       clear(tableHost);
+      // The dedicated signal column is redundant when "All failures" is selected
+      // (it would equal the Test group failures total), so we drop it and let the
+      // Failures column carry the sort.
+      const showSignalColumn = signal !== 'all';
+      // Default sort follows the active signal until the user picks a column.
+      if (!sortExplicit) sort = {key: defaultSortKey(), dir: 'desc'};
+      // Never sort by a column that isn't rendered.
+      if (!showSignalColumn && sort.key === 'infra_suspect') sort.key = 'failures';
       const rows = sortedAgents(view);
-      const table = dataTable([
+      const columns = [
         {label: 'Physical node', sticky: true, width: '190px', sortKey: 'node', render: function (row) { return linkButton(value(row.node), function () { focusNode(row.node_raw); }, 'Show this node in the timeline and co-failure events', 'Show ' + value(row.node) + ' in the timeline and co-failure events'); }},
         {label: 'GPU', width: '62px', sortKey: 'hardware', render: function (row) { return value(row.hardware); }},
         {label: 'Runs', numeric: true, width: '66px', sortKey: 'runs', render: function (row) { return integer(row.runs); }},
         {label: 'Fail %', numeric: true, width: '74px', sortKey: 'incident_rate', render: function (row) { return (Number(row.incident_rate) * 100).toFixed(1) + '%'; }},
-        {label: 'Failures', numeric: true, width: '108px', sortKey: 'failures', render: function (row) {
+        {label: 'Test group failures', numeric: true, width: '150px', sortKey: 'failures', render: function (row) {
           const cell = n('span', 'ops-failures-cell');
           cell.append(n('span', 'ops-failures-total', integer(row.failures)));
           if (row.hard || row.soft) {
-            cell.append(n('span', 'ops-failures-split', integer(row.hard) + 'h · ' + integer(row.soft) + 's'));
+            cell.append(n('span', 'ops-failures-split', integer(row.hard) + ' hard · ' + integer(row.soft) + ' soft'));
           }
           return cell;
         }},
-        {label: signalColumnLabel(), numeric: true, width: '72px', sortKey: 'infra_suspect', render: function (row) { return integer(row.infra_suspect); }},
+      ];
+      if (showSignalColumn) {
+        columns.push({label: signalColumnLabel(), numeric: true, width: '132px', sortKey: 'infra_suspect', render: function (row) { return integer(row.infra_suspect); }});
+      }
+      columns.push(
         {label: 'Groups', numeric: true, width: '68px', sortKey: 'distinct_groups', render: function (row) { return integer(row.distinct_groups); }},
         {label: 'Co-fail', numeric: true, width: '68px', sortKey: 'cofailure_event_count', render: function (row) { return integer(row.cofailure_event_count); }},
-        {label: 'Evidence', width: '86px', render: function (row) { return linkButton('runs ↗', function () { openNodeEvidence(row); }, 'Open ' + signalTerm() + ' failing runs and BuildKite logs for ' + value(row.node)); }},
-      ], rows, 'Per-node AMD reliability in ' + windowId, {name: 'agent-nodes', minWidth: '906px', sort: sort, onSort: onSort});
+        {label: 'Evidence', width: '86px', render: function (row) { return linkButton('runs ↗', function () { openNodeEvidence(row); }, 'Open ' + signalTerm() + ' failing runs and BuildKite logs for ' + value(row.node)); }}
+      );
+      const table = dataTable(columns, rows, 'Per-node AMD reliability in ' + windowId, {name: 'agent-nodes', minWidth: '930px', sort: sort, onSort: onSort});
       table.classList.add('ops-agent-table');
-      tableHost.append(panel('AMD nodes by reliability', integer(view.agents.length) + ' node(s) in ' + windowId + ', sorted by the active failure signal (' + signalTerm() + '). Runs, Fail % and Failures (with its hard/soft split) come from all builds on the box; the ' + signalColumnLabel() + ' / Groups / Co-fail columns come from the selected signal only. Click a node (or Evidence) to load its timeline; sort by any column.', [table]));
+      tableHost.append(panel('AMD nodes by reliability', tableDescription(view), [table]));
+    }
+
+    // Panel copy, written for the currently-selected failure signal so the reader
+    // knows exactly what each column counts without cross-referencing the toggle.
+    function tableDescription(view) {
+      const count = integer(view.agents.length) + ' node(s) in ' + windowId;
+      const base = 'Runs and Fail % come from the node_days rollup of every build. Test group failures counts each hard or soft failing run (with its hard/soft split) and honors the cancelled-build toggle. Groups and Co-fail are limited to that same set.';
+      if (signal === 'infra') {
+        return count + ', sorted by infra-suspect failures. The Infra-suspect failures column is the node-attributable subset of Test group failures — a group that otherwise passed that day, including on another node. ' + base + ' Click a node (or Evidence) to load its timeline; sort by any column.';
+      }
+      if (signal === 'hard') {
+        return count + ', sorted by hard failures. The Hard failures column is the hard-only subset of Test group failures (soft failures excluded). ' + base + ' Click a node (or Evidence) to load its timeline; sort by any column.';
+      }
+      return count + ', sorted by Test group failures. With every failure counted, the total already carries the signal, so no separate signal column is shown. ' + base + ' Click a node (or Evidence) to load its timeline; sort by any column.';
     }
 
     function timelineAgents(view) {
@@ -3956,7 +4038,9 @@
     }
 
     // Clicking a co-failure event loads its node and zooms the timeline to it.
-    function zoomToEvent(event) {
+    // scroll defaults on; the "select to expand" hint passes false so expanding
+    // in place doesn't yank the page up to the timeline.
+    function zoomToEvent(event, scroll) {
       selectedNode = event.node_raw;
       state.agentNode = event.node_raw;
       setQueryValue('agent_node', event.node_raw);
@@ -3965,7 +4049,15 @@
       if (!current) return;
       renderNodeSelect(current);
       drawSelectedTimeline(current);
-      timelineChart.root.scrollIntoView({behavior: 'smooth', block: 'center'});
+      if (scroll !== false) timelineChart.root.scrollIntoView({behavior: 'smooth', block: 'center'});
+    }
+
+    // Select a co-failure event: inflate/highlight its card, then zoom the timeline.
+    // scroll defaults on; pass false to expand in place without scrolling up.
+    function selectEvent(event, scroll) {
+      selectedEventKey = eventKey(event);
+      renderEvents(current);
+      zoomToEvent(event, scroll);
     }
 
     function renderEvents(view) {
@@ -3978,8 +4070,8 @@
         : view.events;
       const scoped = !!eventNodeFilter;
       const desc = scoped
-        ? integer(filtered.length) + ' event(s) on this node in ' + windowId + '. Click an event to zoom the timeline to it. Each card is expanded with per-run timing.'
-        : integer(view.events.length) + ' event(s) in ' + windowId + '. Two or more ' + signalTerm() + ' groups failing on one node within ' + agentCofailLabel(cofailMins) + ': "concurrent" (overlapping) points to contention or an ephemeral fault; "sequential" (back-to-back) suggests the node was left unclean. Click an event to zoom the timeline to it.';
+        ? integer(filtered.length) + ' event(s) on this node in ' + windowId + '. Click an event to expand it (full runs + per-run timing) and zoom the timeline to it.'
+        : integer(view.events.length) + ' event(s) in ' + windowId + '. Two or more ' + signalTerm() + ' groups failing on one node within ' + agentCofailLabel(cofailMins) + ': "concurrent" (overlapping) points to contention or an ephemeral fault; "sequential" (back-to-back) suggests the node was left unclean. Click an event to expand it and zoom the timeline to it.';
       add(heading, [
         n('h2', 'ops-section-title', scoped ? 'Co-failure events · one node' : 'Co-failure events'),
         n('p', 'ops-section-description', desc),
@@ -3993,7 +4085,7 @@
         section.append(n('div', 'ops-evidence-note is-success', scoped ? 'No co-failure events on this node in the current window and filter.' : 'No co-failure events in this window and filter.'));
       } else {
         const grid = n('div', 'ops-cofailure-grid');
-        filtered.slice(0, scoped ? 200 : 80).forEach(function (event) { grid.append(agentCofailureCard(event, zoomToEvent, scoped)); });
+        filtered.slice(0, scoped ? 200 : 80).forEach(function (event) { grid.append(agentCofailureCard(event, selectEvent, eventKey(event) === selectedEventKey)); });
         section.append(grid);
       }
       eventsHost.append(section);

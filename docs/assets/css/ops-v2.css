@@ -4732,6 +4732,14 @@ body.ops-overlay-open {
   border-radius: 8px;
   padding: 10px 12px;
   background: var(--ops-surface-raised, rgba(255, 255, 255, 0.02));
+  cursor: pointer;
+  /* Compact cards stay short; the selected card is allowed to grow to full detail. */
+  align-self: start;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.ops-page .ops-cofailure-card:hover {
+  background: var(--ops-surface-inset, rgba(255, 255, 255, 0.04));
 }
 
 .ops-page .ops-cofailure-card.is-cross {
@@ -4790,8 +4798,28 @@ body.ops-overlay-open {
   color: var(--ops-text-muted);
 }
 
-.ops-page .ops-cofailure-card.is-expanded {
+.ops-page .ops-cofailure-card.is-selected {
   border-color: var(--ops-accent);
+  background: var(--ops-surface-inset, rgba(255, 255, 255, 0.04));
+  box-shadow: inset 0 0 0 1px var(--ops-accent);
+}
+
+.ops-page .ops-cofailure-more {
+  display: inline-block;
+  margin: 8px 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  color: var(--ops-text-muted);
+  cursor: pointer;
+}
+
+.ops-page .ops-cofailure-more:hover {
+  color: var(--ops-accent);
+  text-decoration: underline;
 }
 
 .ops-page .ops-cofailure-run-time {
