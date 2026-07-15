@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-15T01:09:09Z",
+  "generated_at": "2026-07-15T04:25:48Z",
   "source": {
     "yaml_url": "https://raw.githubusercontent.com/vllm-project/vllm/refs/heads/main/.buildkite/test-amd.yaml",
     "latest_build_number": 10836,
@@ -11,11 +11,11 @@
     "unique_groups": 159,
     "architecture_count": 4,
     "hardware_cells": 189,
-    "latest_matched_cells": 188,
+    "latest_matched_cells": 186,
     "passing_cells": 28,
-    "failing_cells": 160,
+    "failing_cells": 158,
     "waiting_cells": 0,
-    "unknown_cells": 1,
+    "unknown_cells": 3,
     "fully_shared_groups": 0,
     "single_arch_groups": 130,
     "multi_variant_cells": 0
@@ -31,13 +31,13 @@
       "id": "mi300",
       "label": "MI300",
       "group_count": 121,
-      "nightly_match_count": 121
+      "nightly_match_count": 120
     },
     {
       "id": "mi325",
       "label": "MI325",
       "group_count": 10,
-      "nightly_match_count": 10
+      "nightly_match_count": 9
     },
     {
       "id": "mi355",
@@ -8162,76 +8162,10 @@
       "signature": "MI300"
     },
     {
-      "title": "Python-only Installation",
-      "canonical_title": "Python-only Installation",
-      "area": "Other",
-      "yaml_order": 109,
-      "cells": {
-        "mi250": {
-          "exists": false
-        },
-        "mi300": {
-          "exists": true,
-          "optional": true,
-          "variant_count": 1,
-          "variants": [
-            {
-              "label": "Python-only Installation",
-              "agent_pool": "mi300_1",
-              "optional": true,
-              "parallelism": 1,
-              "latest_matched": true,
-              "latest_match_count": 1,
-              "latest_state": "soft_fail",
-              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10836/steps/canvas?sid=019f5fda-ff96-4e32-b682-8780e65e9388&tab=output",
-              "aliases": [
-                "Python-only Installation"
-              ],
-              "raw_variant_count": 1,
-              "entries": [
-                {
-                  "label": "Python-only Installation",
-                  "agent_pool": "mi300_1",
-                  "optional": true,
-                  "parallelism": 1,
-                  "latest_matched": true,
-                  "latest_match_count": 1,
-                  "latest_state": "soft_fail",
-                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10836/steps/canvas?sid=019f5fda-ff96-4e32-b682-8780e65e9388&tab=output",
-                  "aliases": [
-                    "Python-only Installation"
-                  ],
-                  "raw_variant_count": 1
-                }
-              ]
-            }
-          ],
-          "latest_matched": true,
-          "latest_state": "soft_fail",
-          "latest_build_number": 10836,
-          "primary_label": "Python-only Installation",
-          "raw_variant_count": 1,
-          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10836/steps/canvas?sid=019f5fda-ff96-4e32-b682-8780e65e9388&tab=output"
-        },
-        "mi325": {
-          "exists": false
-        },
-        "mi355": {
-          "exists": false
-        }
-      },
-      "coverage_count": 1,
-      "nightly_coverage_count": 1,
-      "architectures_present": [
-        "mi300"
-      ],
-      "signature": "MI300"
-    },
-    {
       "title": "Regression",
       "canonical_title": "Regression",
       "area": "Other",
-      "yaml_order": 110,
+      "yaml_order": 109,
       "cells": {
         "mi250": {
           "exists": false
@@ -8338,7 +8272,7 @@
       "title": "Ray Dependency Compatibility Check",
       "canonical_title": "Ray Dependency Compatibility Check",
       "area": "Other",
-      "yaml_order": 111,
+      "yaml_order": 110,
       "cells": {
         "mi250": {
           "exists": false
@@ -8404,7 +8338,7 @@
       "title": "Acceptance Length Test (Large Models)",
       "canonical_title": "Acceptance Length Test (Large Models)",
       "area": "Other",
-      "yaml_order": 112,
+      "yaml_order": 111,
       "cells": {
         "mi250": {
           "exists": false
@@ -8470,7 +8404,7 @@
       "title": "Engine (1 GPU)",
       "canonical_title": "Engine (1 GPU)",
       "area": "Engine",
-      "yaml_order": 114,
+      "yaml_order": 113,
       "cells": {
         "mi250": {
           "exists": false
@@ -8536,7 +8470,7 @@
       "title": "Spec Decode Eagle",
       "canonical_title": "Spec Decode Eagle",
       "area": "Spec Decode",
-      "yaml_order": 116,
+      "yaml_order": 115,
       "cells": {
         "mi250": {
           "exists": false
@@ -8602,7 +8536,7 @@
       "title": "Spec Decode Ngram + Suffix",
       "canonical_title": "Spec Decode Ngram + Suffix",
       "area": "Spec Decode",
-      "yaml_order": 117,
+      "yaml_order": 116,
       "cells": {
         "mi250": {
           "exists": false
@@ -8668,7 +8602,7 @@
       "title": "Speculators Correctness",
       "canonical_title": "Speculators Correctness",
       "area": "Spec Decode",
-      "yaml_order": 119,
+      "yaml_order": 118,
       "cells": {
         "mi250": {
           "exists": false
@@ -8729,6 +8663,113 @@
         "mi300"
       ],
       "signature": "MI300"
+    },
+    {
+      "title": "V1 Spec Decode",
+      "canonical_title": "V1 Spec Decode",
+      "area": "Spec Decode",
+      "yaml_order": 119,
+      "cells": {
+        "mi250": {
+          "exists": false
+        },
+        "mi300": {
+          "exists": true,
+          "optional": false,
+          "variant_count": 1,
+          "variants": [
+            {
+              "label": "V1 Spec Decode",
+              "agent_pool": "mi300_1",
+              "optional": false,
+              "parallelism": 1,
+              "latest_matched": false,
+              "latest_match_count": 0,
+              "latest_state": null,
+              "latest_url": null,
+              "aliases": [
+                "V1 Spec Decode"
+              ],
+              "raw_variant_count": 1,
+              "entries": [
+                {
+                  "label": "V1 Spec Decode",
+                  "agent_pool": "mi300_1",
+                  "optional": false,
+                  "parallelism": 1,
+                  "latest_matched": false,
+                  "latest_match_count": 0,
+                  "latest_state": null,
+                  "latest_url": null,
+                  "aliases": [
+                    "V1 Spec Decode"
+                  ],
+                  "raw_variant_count": 1
+                }
+              ]
+            }
+          ],
+          "latest_matched": false,
+          "latest_state": null,
+          "latest_build_number": 10836,
+          "primary_label": "V1 Spec Decode",
+          "raw_variant_count": 1,
+          "latest_url": null
+        },
+        "mi325": {
+          "exists": false
+        },
+        "mi355": {
+          "exists": true,
+          "optional": false,
+          "variant_count": 1,
+          "variants": [
+            {
+              "label": "V1 Spec Decode",
+              "agent_pool": "mi355_1",
+              "optional": false,
+              "parallelism": 1,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10836/steps/canvas?sid=019f5fda-ffea-4ce8-a4ec-cfc72156ab03&tab=output",
+              "aliases": [
+                "V1 Spec Decode"
+              ],
+              "raw_variant_count": 1,
+              "entries": [
+                {
+                  "label": "V1 Spec Decode",
+                  "agent_pool": "mi355_1",
+                  "optional": false,
+                  "parallelism": 1,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10836/steps/canvas?sid=019f5fda-ffea-4ce8-a4ec-cfc72156ab03&tab=output",
+                  "aliases": [
+                    "V1 Spec Decode"
+                  ],
+                  "raw_variant_count": 1
+                }
+              ]
+            }
+          ],
+          "latest_matched": true,
+          "latest_state": "soft_fail",
+          "latest_build_number": 10836,
+          "primary_label": "V1 Spec Decode",
+          "raw_variant_count": 1,
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10836/steps/canvas?sid=019f5fda-ffea-4ce8-a4ec-cfc72156ab03&tab=output"
+        }
+      },
+      "coverage_count": 2,
+      "nightly_coverage_count": 1,
+      "architectures_present": [
+        "mi300",
+        "mi355"
+      ],
+      "signature": "MI300 + MI355"
     },
     {
       "title": "Extract Hidden States Integration",
@@ -10891,9 +10932,9 @@
       "signature": "MI325"
     },
     {
-      "title": "V1 Spec Decode",
-      "canonical_title": "V1 Spec Decode",
-      "area": "Spec Decode",
+      "title": "Python-only Installation",
+      "canonical_title": "Python-only Installation",
+      "area": "Other",
       "yaml_order": 150,
       "cells": {
         "mi250": {
@@ -10904,98 +10945,57 @@
         },
         "mi325": {
           "exists": true,
-          "optional": false,
+          "optional": true,
           "variant_count": 1,
           "variants": [
             {
-              "label": "V1 Spec Decode",
+              "label": "Python-only Installation",
               "agent_pool": "mi325_1",
-              "optional": false,
+              "optional": true,
               "parallelism": 1,
-              "latest_matched": true,
-              "latest_match_count": 1,
-              "latest_state": "soft_fail",
-              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10836/steps/canvas?sid=019f5fda-ffc5-49e3-8981-fa99ba25656b&tab=output",
+              "latest_matched": false,
+              "latest_match_count": 0,
+              "latest_state": null,
+              "latest_url": null,
               "aliases": [
-                "V1 Spec Decode"
+                "Python-only Installation"
               ],
               "raw_variant_count": 1,
               "entries": [
                 {
-                  "label": "V1 Spec Decode",
+                  "label": "Python-only Installation",
                   "agent_pool": "mi325_1",
-                  "optional": false,
+                  "optional": true,
                   "parallelism": 1,
-                  "latest_matched": true,
-                  "latest_match_count": 1,
-                  "latest_state": "soft_fail",
-                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10836/steps/canvas?sid=019f5fda-ffc5-49e3-8981-fa99ba25656b&tab=output",
+                  "latest_matched": false,
+                  "latest_match_count": 0,
+                  "latest_state": null,
+                  "latest_url": null,
                   "aliases": [
-                    "V1 Spec Decode"
+                    "Python-only Installation"
                   ],
                   "raw_variant_count": 1
                 }
               ]
             }
           ],
-          "latest_matched": true,
-          "latest_state": "soft_fail",
+          "latest_matched": false,
+          "latest_state": null,
           "latest_build_number": 10836,
-          "primary_label": "V1 Spec Decode",
+          "primary_label": "Python-only Installation",
           "raw_variant_count": 1,
-          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10836/steps/canvas?sid=019f5fda-ffc5-49e3-8981-fa99ba25656b&tab=output"
+          "latest_url": null
         },
         "mi355": {
-          "exists": true,
-          "optional": false,
-          "variant_count": 1,
-          "variants": [
-            {
-              "label": "V1 Spec Decode",
-              "agent_pool": "mi355_1",
-              "optional": false,
-              "parallelism": 1,
-              "latest_matched": true,
-              "latest_match_count": 1,
-              "latest_state": "soft_fail",
-              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10836/steps/canvas?sid=019f5fda-ffea-4ce8-a4ec-cfc72156ab03&tab=output",
-              "aliases": [
-                "V1 Spec Decode"
-              ],
-              "raw_variant_count": 1,
-              "entries": [
-                {
-                  "label": "V1 Spec Decode",
-                  "agent_pool": "mi355_1",
-                  "optional": false,
-                  "parallelism": 1,
-                  "latest_matched": true,
-                  "latest_match_count": 1,
-                  "latest_state": "soft_fail",
-                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10836/steps/canvas?sid=019f5fda-ffea-4ce8-a4ec-cfc72156ab03&tab=output",
-                  "aliases": [
-                    "V1 Spec Decode"
-                  ],
-                  "raw_variant_count": 1
-                }
-              ]
-            }
-          ],
-          "latest_matched": true,
-          "latest_state": "soft_fail",
-          "latest_build_number": 10836,
-          "primary_label": "V1 Spec Decode",
-          "raw_variant_count": 1,
-          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10836/steps/canvas?sid=019f5fda-ffea-4ce8-a4ec-cfc72156ab03&tab=output"
+          "exists": false
         }
       },
-      "coverage_count": 2,
-      "nightly_coverage_count": 2,
+      "coverage_count": 1,
+      "nightly_coverage_count": 0,
       "architectures_present": [
-        "mi325",
-        "mi355"
+        "mi325"
       ],
-      "signature": "MI325 + MI355"
+      "signature": "MI325"
     },
     {
       "title": "Attention Benchmarks Smoke Test",
