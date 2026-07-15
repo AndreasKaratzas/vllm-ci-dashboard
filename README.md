@@ -45,6 +45,7 @@ The main data path is `.github/workflows/hourly-master.yml`, which runs every 30
 | `scripts/collect.py` | vLLM PRs, project #39 issues, linked CI PR tags, releases |
 | `scripts/collect_ci.py` | Buildkite nightly test results, CI health, parity, flaky/failure data |
 | `scripts/vllm/collect_analytics.py` | Windowed CI analytics from parsed test-result JSONL plus Buildkite metadata |
+| `scripts/vllm/collect_agent_health.py` | Per-physical-node AMD GPU agent health across **all** builds/branches (not just main nightlies): reliability rollups + infra-suspect failures from the Buildkite `k8s:node` agent tag |
 | `scripts/vllm/collect_amd_test_matrix.py` | AMD hardware matrix from upstream `test-amd.yaml`, matched against the latest AMD nightly |
 | `scripts/vllm/collect_gating_proposals.py` | Open vLLM PRs from tracked AMD engineers that add new `.buildkite/test_areas` AMD mirrors |
 | `scripts/vllm/collect_gating_target_candidates.py` | Review-only audit of upstream nightly GPU jobs against the canonical AMD gating target list |
@@ -61,6 +62,7 @@ pip install requests pyyaml
 python scripts/collect.py
 python scripts/collect_ci.py --days 8 --pipeline both --output data/vllm/ci/
 python scripts/vllm/collect_analytics.py --days 30 --output data/vllm/ci/
+python scripts/vllm/collect_agent_health.py --days 60 --pipeline both --output data/vllm/ci/  # backfill; --days 3 for hourly
 python scripts/vllm/collect_amd_test_matrix.py --output data/vllm/ci/
 python scripts/vllm/collect_gating_proposals.py --output data/vllm/ci/
 python scripts/vllm/collect_gating_target_candidates.py --output data/vllm/ci/

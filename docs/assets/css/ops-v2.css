@@ -4507,6 +4507,43 @@ body.ops-overlay-open {
 }
 
 /* CI Agent Health (per physical node) */
+/* Global failure-signal switch. A distinct band above the finer filter row,
+   because it changes what "failure" means across the timeline, co-failures and
+   KPIs — not just a per-view filter. */
+.ops-page .ops-agent-mode {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 14px 0 4px;
+  padding: 10px 14px;
+  background: var(--ops-surface-inset);
+  border: 1px solid var(--ops-border);
+  border-left: 3px solid var(--ops-teal);
+  border-radius: 8px;
+}
+
+.ops-page .ops-agent-mode-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ops-text-subtle);
+}
+
+/* Slightly larger hit target than the per-view segmented controls below. */
+.ops-page .ops-agent-mode-seg .ops-segment {
+  font-size: 13px;
+  padding: 6px 14px;
+}
+
+.ops-page .ops-agent-signal-caption {
+  margin: 6px 0 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ops-text-subtle);
+}
+
 .ops-page .ops-agent-controls {
   display: flex;
   flex-wrap: wrap;
@@ -4572,6 +4609,89 @@ body.ops-overlay-open {
   align-items: center;
   gap: 10px;
   margin: 12px 0 6px;
+}
+
+.ops-page .ops-agent-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.ops-page .ops-zoom-btn {
+  min-width: 30px;
+  padding: 3px 9px;
+  font-size: 13px;
+  line-height: 1.4;
+  border: 1px solid var(--ops-border);
+  border-radius: 6px;
+  background: var(--ops-surface);
+  color: var(--ops-text);
+  cursor: pointer;
+}
+
+.ops-page .ops-zoom-btn:hover {
+  border-color: var(--ops-accent);
+  color: var(--ops-accent);
+}
+
+.ops-page .ops-zoom-hint {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ops-text-subtle);
+  white-space: nowrap;
+}
+
+/* Drag-to-select overlay painted over the agent timeline while zooming. */
+.ops-page .ops-timeline-select {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+  background: rgba(34, 184, 173, 0.16);
+  border-left: 1px solid var(--ops-teal);
+  border-right: 1px solid var(--ops-teal);
+  display: none;
+}
+
+/* Failures column: total on top, hard/soft split muted beneath, right-aligned. */
+.ops-page .ops-failures-cell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.25;
+}
+
+.ops-page .ops-failures-total {
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-page .ops-failures-split {
+  font-size: 11px;
+  color: var(--ops-text-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Anomalous-failure criteria explainer. Neutral (not info-blue) so it reads as
+   a definition beneath the blue intro note rather than a second alert. */
+.ops-page .ops-agent-criteria {
+  margin: 10px 0 4px;
+  border-left-color: var(--ops-border);
+  background: var(--ops-surface-inset);
+}
+
+.ops-page .ops-criteria-list {
+  margin: 6px 0 8px;
+  padding-left: 18px;
+}
+
+.ops-page .ops-criteria-list li {
+  margin: 3px 0;
+}
+
+.ops-page .ops-criteria-foot {
+  display: block;
+  color: var(--ops-text-subtle);
 }
 
 .ops-page .ops-agent-legend {
@@ -4662,6 +4782,22 @@ body.ops-overlay-open {
 .ops-page .ops-cofailure-run-meta {
   color: var(--ops-text-muted);
   flex: 0 0 auto;
+}
+
+.ops-page .ops-cofailure-detail {
+  margin: 2px 0 6px;
+  font-size: 12px;
+  color: var(--ops-text-muted);
+}
+
+.ops-page .ops-cofailure-card.is-expanded {
+  border-color: var(--ops-accent);
+}
+
+.ops-page .ops-cofailure-run-time {
+  color: var(--ops-text-muted);
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
 }
 
 .ops-page .ops-state-chip {

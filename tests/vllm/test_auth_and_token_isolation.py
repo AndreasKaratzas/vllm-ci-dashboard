@@ -220,6 +220,7 @@ class TestBuildkiteTokenIsolation:
             "collect_analytics.py",
             "collect_test_builds.py",
             "collect_perf_eval_artifacts.py",
+            "collect_agent_health.py",
         }
         # Walk every step; for any step with BUILDKITE_TOKEN in env, its run:
         # body must only invoke scripts from the allowlist.

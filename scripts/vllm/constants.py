@@ -11,6 +11,7 @@ state-machine constants).
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 
 # ---------------------------------------------------------------------------
@@ -47,6 +48,25 @@ def is_amd_queue(queue: str | None) -> bool:
     return (normalized.startswith("amd_") or normalized == "amd-cpu") and not is_excluded_queue(
         normalized
     )
+
+
+# ``amd_mi300_4`` -> "MI300". Physical-agent (node) health tracks AMD *GPU*
+# nodes, so this deliberately excludes ``amd-cpu`` (returns "") — CPU bootstrap
+# / docker steps are not GPU-box runs and would only add noise/volume.
+_AMD_GPU_QUEUE_RE = re.compile(r"^amd_mi(\d{3,4})b?(?:_|$)", re.IGNORECASE)
+
+
+def amd_gpu_hardware(queue: str | None) -> str:
+    """Return the GPU model (``MI300``) for an AMD GPU queue, else "".
+
+    Returns "" for non-AMD queues, ``amd-cpu``, and excluded families
+    (``amd_mi355b``). Use this to scope agent-health to physical GPU nodes.
+    """
+    normalized = (queue or "").strip()
+    if is_excluded_queue(normalized):
+        return ""
+    match = _AMD_GPU_QUEUE_RE.match(normalized)
+    return "MI" + match.group(1) if match else ""
 
 
 # Every tracked queue is emitted in every snapshot — zero-filled if no jobs

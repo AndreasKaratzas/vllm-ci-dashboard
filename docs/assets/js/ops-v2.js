@@ -34,6 +34,10 @@
     agentWindow: '7d',
     agentGpu: 'all',
     agentNode: '',
+    agentCofail: '180',
+    agentExclCancel: '1',
+    agentNightly: '0',
+    agentSignal: 'infra',
     queueScope: 'amd',
     queueView: 'current',
     queueRange: '24h',
@@ -53,7 +57,9 @@
     'ci-analytics': new Set([
       'ops_analytics_view', 'ops_analytics_pipeline', 'ops_analytics_search',
       'ops_analytics_group', 'ops_analytics_cohort', 'ops_analytics_amd_filter',
-      'ops_analytics_window', 'ops_agent_window', 'ops_agent_gpu', 'ops_agent_node', 'ops_detail',
+      'ops_analytics_window', 'ops_agent_window', 'ops_agent_gpu', 'ops_agent_node',
+      'ops_agent_cofail', 'ops_agent_excl_cancel', 'ops_agent_nightly',
+      'ops_agent_signal', 'ops_detail',
     ]),
     'ci-queue': new Set(['ops_queue_view', 'ops_queue_range', 'ops_queue_scope', 'ops_queue_history_queue', 'ops_detail']),
     'ci-hotness': new Set(['ops_trajectory_window', 'ops_detail']),
@@ -71,6 +77,10 @@
     agent_window: '7d',
     agent_gpu: 'all',
     agent_node: '',
+    agent_cofail: '180',
+    agent_excl_cancel: '1',
+    agent_nightly: '0',
+    agent_signal: 'infra',
     queue_view: 'current',
     queue_range: '24h',
     queue_scope: 'amd',
@@ -294,6 +304,10 @@
         ['agentWindow', 'agent_window', ['1d', '3d', '7d', '14d', '30d', '60d']],
         ['agentGpu', 'agent_gpu', null],
         ['agentNode', 'agent_node', null],
+        ['agentCofail', 'agent_cofail', ['30', '60', '120', '180', '360', '720', '1440']],
+        ['agentExclCancel', 'agent_excl_cancel', ['0', '1']],
+        ['agentNightly', 'agent_nightly', ['0', '1']],
+        ['agentSignal', 'agent_signal', ['infra', 'hard', 'all']],
       ],
       'ci-queue': [
         ['queueView', 'queue_view', ['current', 'history', 'jobs']],
@@ -3199,9 +3213,10 @@
 
   function agentStateColor(stateName) {
     const s = String(stateName || '').toLowerCase();
-    if (s === 'passed') return '#35bb78';
+    if (s === 'pass' || s === 'passed') return '#35bb78';
     if (s === 'soft') return '#e3a63a';
     if (s === 'hard') return '#e06464';
+    if (s === 'canceled') return '#8a93a0';
     return '#66717d';
   }
 
@@ -3210,116 +3225,123 @@
     return s.length > max ? s.slice(0, max - 1) + '…' : s;
   }
 
-  function agentMostCommonHardware(runs) {
-    const counts = {};
-    let best = '';
-    let bestN = 0;
-    runs.forEach(function (run) {
-      const hw = run.hardware;
-      if (!hw) return;
-      counts[hw] = (counts[hw] || 0) + 1;
-      if (counts[hw] > bestN) { bestN = counts[hw]; best = hw; }
-    });
-    return best;
-  }
-
-  // Mirror of build_operations_snapshot._node_label: append the GPU type to every
-  // node name (gpu9124 -> "gpu9124 (MI300)", chi-mi325x-pod2-032 ->
-  // "chi-mi325x-pod2-032 (MI325)"). Raw name kept when the GPU type is unknown.
+  // Mirror of collect_agent_health node labelling: append the GPU type to every
+  // node name (gpu9124 -> "gpu9124 (MI300)").
   function agentNodeLabel(raw, hardware) {
     if (!raw || !hardware) return raw;
     return raw + ' (' + hardware + ')';
   }
 
-  function agentAggregate(runs) {
-    const byNode = new Map();
-    runs.forEach(function (run) {
-      const key = run.node_raw || '(unidentified)';
-      if (!byNode.has(key)) byNode.set(key, []);
-      byNode.get(key).push(run);
-    });
-    const agents = [];
-    byNode.forEach(function (nodeRuns, raw) {
-      const identified = raw !== '(unidentified)';
-      const hardware = agentMostCommonHardware(nodeRuns);
-      let passed = 0, soft = 0, hard = 0, unknown = 0, lastSeen = '', latestUrl = '';
-      const groupStates = new Map();
-      const queues = new Set();
-      const pipelines = new Set();
-      nodeRuns.forEach(function (run) {
-        if (run.state === 'passed') passed += 1;
-        else if (run.state === 'soft') soft += 1;
-        else if (run.state === 'hard') hard += 1;
-        else unknown += 1;
-        if (!groupStates.has(run.group)) groupStates.set(run.group, new Set());
-        groupStates.get(run.group).add(run.state);
-        if (run.queue) queues.add(run.queue);
-        if (run.pipeline) pipelines.add(run.pipeline);
-        if (String(run.started_at) > lastSeen) { lastSeen = String(run.started_at); latestUrl = run.url || latestUrl; }
-      });
-      const incidents = soft + hard;
-      const graded = passed + incidents;
-      let flaky = 0;
-      groupStates.forEach(function (states) {
-        if (states.has('passed') && (states.has('soft') || states.has('hard'))) flaky += 1;
-      });
-      agents.push({
-        node: identified ? agentNodeLabel(raw, hardware) : raw,
-        node_raw: raw,
-        hardware: hardware,
-        identified: identified,
-        runs: nodeRuns.length,
-        passed: passed,
-        soft_failed: soft,
-        hard_failed: hard,
-        unknown: unknown,
-        incidents: incidents,
-        incident_rate: graded ? incidents / graded : 0,
-        distinct_groups: groupStates.size,
-        flaky_group_count: flaky,
-        cofailure_event_count: 0,
-        queues: Array.from(queues).sort(),
-        pipelines: Array.from(pipelines).sort(),
-        last_seen: lastSeen,
-        latest_url: latestUrl,
-        _runs: nodeRuns,
-      });
-    });
-    return agents;
+  function agentCofailLabel(mins) {
+    const m = Number(mins) || 0;
+    return m % 60 === 0 ? (m / 60) + 'h' : m + 'm';
   }
 
-  function drawAgentTimeline(nodeRuns, label, chart) {
-    const parseMs = function (ts) { const t = Date.parse(ts); return Number.isFinite(t) ? t : null; };
-    const rows = (nodeRuns || []).slice()
+  function buildkiteJobUrl(pipeline, build, jobId) {
+    if (!pipeline || build === null || build === undefined) return '';
+    let url = 'https://buildkite.com/vllm/' + pipeline + '/builds/' + build;
+    if (jobId) url += '/steps/canvas?jid=' + jobId + '&tab=output';
+    return url;
+  }
+
+  // Port of build_operations_snapshot's co-failure clustering, moved client-side
+  // so the window is a live toggle. `runs` are infra-suspect failing runs on ONE
+  // node, each carrying {group,pipeline,state,build_number,url,started_at,_start,_end}.
+  // A cluster is a run of consecutive failures whose gaps stay within
+  // `windowMins`; it becomes an event only with >=2 distinct groups.
+  function clusterNodeCofailures(node, nodeRaw, hardware, runs, windowMins) {
+    const failing = runs.filter(function (r) { return r._start !== null; })
+      .slice().sort(function (a, b) { return a._start - b._start; });
+    const windowMs = windowMins * 60000;
+    const events = [];
+    let cluster = [];
+    let clusterEnd = null;
+    function flush() {
+      const groups = new Set(cluster.map(function (r) { return r.group; }));
+      if (cluster.length >= 2 && groups.size >= 2) events.push(makeCofailEvent(node, nodeRaw, hardware, cluster));
+      cluster = [];
+    }
+    failing.forEach(function (r) {
+      const start = r._start;
+      const end = r._end !== null ? r._end : start;
+      if (clusterEnd !== null && (start - clusterEnd) > windowMs) { flush(); clusterEnd = null; }
+      cluster.push(r);
+      clusterEnd = clusterEnd === null ? end : Math.max(clusterEnd, end);
+    });
+    flush();
+    return events;
+  }
+
+  function makeCofailEvent(node, nodeRaw, hardware, cluster) {
+    const starts = cluster.map(function (r) { return r._start; });
+    const ends = cluster.map(function (r) { return r._end !== null ? r._end : r._start; });
+    const startMs = Math.min.apply(null, starts);
+    const endMs = Math.max.apply(null, ends);
+    // concurrent := any two run intervals overlap (contention / ephemeral fault);
+    // otherwise back-to-back failures suggesting an unclean node state.
+    const intervals = cluster.map(function (r) { return [r._start, r._end !== null ? r._end : r._start]; })
+      .sort(function (a, b) { return a[0] - b[0]; });
+    let concurrent = false;
+    for (let i = 1; i < intervals.length; i++) { if (intervals[i][0] < intervals[i - 1][1]) { concurrent = true; break; } }
+    const pipelines = Array.from(new Set(cluster.map(function (r) { return r.pipeline; }))).sort();
+    return {
+      node: node,
+      node_raw: nodeRaw,
+      hardware: hardware,
+      pattern: concurrent ? 'concurrent' : 'sequential',
+      concurrent: concurrent,
+      started_at: new Date(startMs).toISOString(),
+      _startMs: startMs,
+      _endMs: endMs,
+      span_mins: Math.round((endMs - startMs) / 60000 * 100) / 100,
+      run_count: cluster.length,
+      group_count: new Set(cluster.map(function (r) { return r.group; })).size,
+      cross_pipeline: pipelines.length > 1,
+      pipelines: pipelines,
+      hard_failed: cluster.filter(function (r) { return r.state === 'hard'; }).length,
+      soft_failed: cluster.filter(function (r) { return r.state === 'soft'; }).length,
+      runs: cluster.slice().sort(function (a, b) { return a._start - b._start; }),
+    };
+  }
+
+  // Draw the per-node timeline. `range` (optional {min,max} in ms) zooms the time
+  // axis: only runs overlapping the window are shown, at a finer x scale. Returns
+  // the full (unzoomed) data bounds {min,max} so the caller can drive zoom/reset.
+  function drawAgentTimeline(nodeRuns, label, chart, range) {
+    const allRows = (nodeRuns || []).slice()
+      .filter(function (run) { return run._start !== null; })
       .map(function (run) {
-        const start = parseMs(run.started_at);
-        let end = start;
-        if (start !== null) end = start + Math.max(1, Number(run.duration_mins) || 1) * 60000;
-        return {run: run, start: start, end: end};
+        const start = run._start;
+        const end = run._end !== null && run._end > start ? run._end : start + 60000;
+        return {run: run, start: start, end: end, mins: (end - start) / 60000};
       })
-      .filter(function (row) { return row.start !== null; })
       .sort(function (a, b) { return a.start - b.start; });
-    // Give each run ~26px of vertical room so labels/bars stay legible; the
-    // .ops-agent-timeline-section stage caps the visible height and scrolls.
-    chart.frame.style.setProperty('--ops-chart-height', Math.max(180, rows.length * 26) + 'px');
-    if (!rows.length) {
+    if (!allRows.length) {
+      chart.frame.style.setProperty('--ops-chart-height', '180px');
       chart.viewport.style.minWidth = '';
       drawChart('analytics-agent-timeline', chart.canvas, {type: 'bar', data: {labels: [], datasets: [{data: []}]}, options: {plugins: {legend: {display: false}}}});
-      return;
+      return null;
     }
-    const minStart = Math.min.apply(null, rows.map(function (row) { return row.start; }));
-    const maxEnd = Math.max.apply(null, rows.map(function (row) { return row.end; }));
-    const pad = Math.max(60000, (maxEnd - minStart) * 0.02);
-    // Widen the plot with the time span so bars aren't crushed over long
-    // horizons; the stage scrolls horizontally when this exceeds the panel.
-    const spanDays = (maxEnd - minStart) / 86400000;
-    chart.viewport.style.minWidth = Math.min(2200, Math.max(640, Math.round(spanDays * 60))) + 'px';
+    const dataMin = Math.min.apply(null, allRows.map(function (row) { return row.start; }));
+    const dataMax = Math.max.apply(null, allRows.map(function (row) { return row.end; }));
+    // Rows to show + x window: a zoom range clips to overlapping runs; otherwise
+    // show everything padded.
+    const rows = range
+      ? allRows.filter(function (row) { return row.end >= range.min && row.start <= range.max; })
+      : allRows;
+    const pad = Math.max(60000, (dataMax - dataMin) * 0.02);
+    const xMin = range ? range.min : dataMin - pad;
+    const xMax = range ? range.max : dataMax + pad;
+    // ~26px of vertical room per shown run; the stage caps visible height and scrolls.
+    chart.frame.style.setProperty('--ops-chart-height', Math.max(180, rows.length * 26) + 'px');
+    const spanDays = (xMax - xMin) / 86400000;
+    chart.viewport.style.minWidth = Math.min(2600, Math.max(720, Math.round(spanDays * 90))) + 'px';
     drawChart('analytics-agent-timeline', chart.canvas, {
       type: 'bar',
       data: {
         labels: rows.map(function (row, index) { return (index + 1) + '. ' + agentTruncate(row.run.group, 34); }),
         datasets: [{
-          label: 'Run window',
+          label: 'Failing run window',
           data: rows.map(function (row) { return [row.start, row.end]; }),
           backgroundColor: rows.map(function (row) { return agentStateColor(row.run.state); }),
           borderWidth: 0,
@@ -3331,7 +3353,7 @@
       options: {
         indexAxis: 'y',
         scales: {
-          x: {type: 'linear', min: minStart - pad, max: maxEnd + pad, title: {display: true, text: 'Time'}, ticks: {maxTicksLimit: 8, callback: function (v) { return shortDate(new Date(Number(v)).toISOString()); }}},
+          x: {type: 'linear', min: xMin, max: xMax, title: {display: true, text: 'Time'}, ticks: {maxTicksLimit: 8, callback: function (v) { return shortDate(new Date(Number(v)).toISOString()); }}},
           y: {grid: {display: false}, ticks: {autoSkip: false, font: {size: 10}}},
         },
         plugins: {
@@ -3340,28 +3362,26 @@
             title: function (items) { return rows[items[0].dataIndex].run.group; },
             label: function (item) {
               const run = rows[item.dataIndex].run;
-              return ['State: ' + run.state, 'Pipeline: ' + run.pipeline, 'Queue: ' + (run.queue || '-'), 'Start: ' + shortDate(run.started_at), 'Duration: ' + duration(run.duration_mins), 'Click to open the BuildKite log'];
+              return ['State: ' + run.state, 'Pipeline: ' + run.pipeline, 'Queue: ' + (run.queue || '-'), 'Start: ' + shortDate(run.started_at), 'Duration: ' + duration(rows[item.dataIndex].mins), 'Click to open the BuildKite log'];
             },
           }},
         },
       },
-      evidenceTitle: 'Test-group runs on ' + label,
-      // Suppress the chart's built-in "Inspect observations" button (the table's
-      // Evidence column already opens the full run list) so the scroll stage
-      // holds only the plot.
+      evidenceTitle: 'Infra-suspect failing runs on ' + label,
       evidenceAction: false,
       evidence: rows.map(function (row) {
         const run = row.run;
         const openJob = run.url ? function () { window.open(run.url, '_blank', 'noopener'); } : null;
-        return {label: run.group, url: run.url, onOpen: openJob, timestamp: run.started_at, valueSummary: run.state + ' - ' + duration(run.duration_mins), details: {pipeline: run.pipeline, queue: run.queue, state: run.state, build: '#' + value(run.build_number), duration_mins: run.duration_mins}};
+        return {label: run.group, url: run.url, onOpen: openJob, timestamp: run.started_at, valueSummary: run.state + ' - ' + duration(row.mins), details: {pipeline: run.pipeline, queue: run.queue, state: run.state, build: '#' + value(run.build_number)}};
       }),
     });
+    return {min: dataMin, max: dataMax};
   }
 
-  function agentCofailureCard(event, onSelectNode) {
-    const card = n('div', 'ops-cofailure-card' + (event.cross_pipeline ? ' is-cross' : ''));
+  function agentCofailureCard(event, onSelectEvent, expanded) {
+    const card = n('div', 'ops-cofailure-card' + (event.cross_pipeline ? ' is-cross' : '') + (expanded ? ' is-expanded' : ''));
     const head = n('div', 'ops-cofailure-head');
-    const nodeButton = linkButton(value(event.node), function () { onSelectNode(event.node_raw); }, 'Show this node in the run timeline');
+    const nodeButton = linkButton(value(event.node), function () { onSelectEvent(event); }, 'Zoom the timeline to this co-failure event');
     nodeButton.classList.add('ops-mono', 'ops-cofailure-node');
     add(head, [
       nodeButton,
@@ -3371,18 +3391,29 @@
     head.append(n('span', 'ops-badge ' + (concurrent ? 'is-warning' : 'is-info'), concurrent ? 'concurrent' : 'sequential'));
     if (event.cross_pipeline) head.append(n('span', 'ops-badge is-danger', 'cross-pipeline'));
     card.append(head);
+    if (expanded) {
+      // Finer-grained event summary when the events list is focused on one node.
+      card.append(n('p', 'ops-cofailure-detail',
+        integer(event.run_count) + ' runs · ' + integer(event.hard_failed) + ' hard · '
+        + integer(event.soft_failed) + ' soft · pipelines: ' + (event.pipelines || []).join(', ')));
+    }
     const list = n('ul', 'ops-cofailure-runs');
     (event.runs || []).forEach(function (run) {
       const li = n('li', 'ops-cofailure-run');
       const chip = n('span', 'ops-state-chip');
       chip.style.background = agentStateColor(run.state);
       chip.title = run.state;
-      add(li, [
+      const cells = [
         chip,
         n('span', 'ops-cofailure-group', run.group),
         n('span', 'ops-cofailure-run-meta', [run.pipeline, run.queue].filter(Boolean).join(' · ')),
-        externalLink('#' + value(run.build_number) + ' log ↗', run.url, 'ops-mono'),
-      ]);
+      ];
+      if (expanded) {
+        const mins = run._end !== null && run._start !== null ? (run._end - run._start) / 60000 : null;
+        cells.push(n('span', 'ops-cofailure-run-time', shortDate(run.started_at) + ' · ' + run.state + ' · ' + duration(mins)));
+      }
+      cells.push(externalLink('#' + value(run.build_number) + ' log ↗', run.url, 'ops-mono'));
+      add(li, cells);
       list.append(li);
     });
     card.append(list);
@@ -3390,24 +3421,67 @@
   }
 
   function renderAmdAgentHealth(host, agentHealth) {
-    const allRuns = Array.isArray(agentHealth.runs) ? agentHealth.runs : [];
-    const allEvents = Array.isArray(agentHealth.cofailure_events) ? agentHealth.cofailure_events : [];
+    const nodeDays = Array.isArray(agentHealth.node_days) ? agentHealth.node_days : [];
+    const failingRaw = Array.isArray(agentHealth.failing_runs) ? agentHealth.failing_runs : [];
     const hardwareTypes = Array.isArray(agentHealth.hardware_types) ? agentHealth.hardware_types : [];
     const windowOptions = Array.isArray(agentHealth.window_options) ? agentHealth.window_options : [1, 3, 7, 14, 30, 60];
+    const cofailOptions = Array.isArray(agentHealth.cofailure_window_options) ? agentHealth.cofailure_window_options : [30, 60, 120, 180, 360, 720, 1440];
     const endMs = new Date(agentHealth.generated_at || Date.now()).getTime();
-    const windowHours = Math.round((agentHealth.cofailure_window_mins || 720) / 60);
+
+    // Pre-parse failing runs once (timestamps + reconstructed url). Each row's
+    // infra_suspect flag lets the signal toggle select the infra-only subset.
+    const failing = failingRaw.map(function (r) {
+      const start = Date.parse(r.t);
+      const end = Date.parse(r.e);
+      return {
+        node_raw: r.nd,
+        hardware: r.h,
+        pipeline: r.p,
+        queue: r.q,
+        group: r.g,
+        state: r.s,
+        nightly: !!r.ng,
+        infra_suspect: !!r.i,
+        build_canceled: !!r.bc,
+        build_number: r.b,
+        url: buildkiteJobUrl(r.p, r.b, r.j),
+        started_at: r.t,
+        _start: Number.isFinite(start) ? start : null,
+        _end: Number.isFinite(end) ? end : null,
+      };
+    });
 
     // Local, in-place view state (avoids full-tab re-render so the search box
     // keeps focus and the timeline chart does not flicker on every keystroke).
     let windowId = AGENT_WINDOW_DAYS[state.agentWindow] ? state.agentWindow : ((agentHealth.default_window_days || 7) + 'd');
-    let gpu = (gpu => (gpu === 'all' || hardwareTypes.includes(gpu)) ? gpu : 'all')(state.agentGpu || 'all');
+    let gpu = (function (g) { return (g === 'all' || hardwareTypes.includes(g)) ? g : 'all'; })(state.agentGpu || 'all');
     let search = '';
     let selectedNode = state.agentNode || '';
-    let sort = {key: 'incidents', dir: 'desc'};
+    let cofailMins = (function (m) { return cofailOptions.includes(m) ? m : (agentHealth.default_cofailure_window_mins || 180); })(parseInt(state.agentCofail, 10));
+    let excludeCancelled = state.agentExclCancel !== '0';
+    let nightlyOnly = state.agentNightly === '1';
+    // Failure signal: which failing runs drive the timeline + co-failure views.
+    //   'infra' = anomalous, node-attributable subset (default)
+    //   'hard'  = every hard failure   'all' = hard + soft
+    let signal = ['infra', 'hard', 'all'].includes(state.agentSignal) ? state.agentSignal : 'infra';
+    let sort = {key: 'infra_suspect', dir: 'desc'};
     let searchTimer = null;
     let current = null;
+    // Timeline zoom: timelineRange overrides the x window ({min,max} ms), null =
+    // full span. timelineBounds is the last drawn full data span (for reset/zoom).
+    let timelineRange = null;
+    let timelineBounds = null;
+    // Co-failure events filter: when set, the events list is scoped to one node
+    // and its cards are expanded with finer detail.
+    let eventNodeFilter = '';
 
     add(host, pageHeaderNote());
+    // The infra-suspect criterion banner only applies to the default signal, so
+    // it's hidden (in apply()) whenever the Failure signal is Hard/All failures.
+    const criteriaNoteEl = criteriaNote();
+    add(host, criteriaNoteEl);
+    const modeHost = n('div', 'ops-agent-mode');
+    host.append(modeHost);
     const controlsHost = n('div', 'ops-agent-controls');
     host.append(controlsHost);
     const kpiHost = n('div');
@@ -3424,17 +3498,36 @@
     nodeSelect.setAttribute('aria-label', 'Physical node for run timeline');
     nodeField.append(nodeSelect);
     timelineToolbar.append(nodeField);
-    const timelineChart = chartPanel('Per-node run timeline', 'Each bar is one test-group run on the selected node; overlapping bars that fail together point to shared-node contention or an ephemeral host/network fault. Click a bar to open its BuildKite log.', 'analytics-agent-timeline');
+    // Horizontal zoom controls for the time axis.
+    const zoomGroup = n('div', 'ops-agent-zoom');
+    function zoomButton(label, title, handler) {
+      const b = n('button', 'ops-zoom-btn', label);
+      b.type = 'button';
+      b.title = title;
+      b.setAttribute('aria-label', title);
+      b.addEventListener('click', handler);
+      return b;
+    }
+    add(zoomGroup, [
+      n('span', 'ops-field-label', 'Zoom '),
+      zoomButton('−', 'Zoom out (widen the time window)', function () { zoomBy(1.6); }),
+      zoomButton('+', 'Zoom in (narrow the time window)', function () { zoomBy(0.625); }),
+      zoomButton('Reset', 'Reset the timeline to the full window', function () { resetZoom(); }),
+      n('span', 'ops-zoom-hint', 'drag to select a range'),
+    ]);
+    timelineToolbar.append(zoomGroup);
+    const timelineChart = chartPanel('Per-node failure timeline', 'Each bar is one failing run on the selected node (which failures are shown depends on the Failure signal toggle above); bars that overlap or cluster point to shared-node contention, an ephemeral host/network fault, or a node left in an unclean state. Click a bar to open its BuildKite log.', 'analytics-agent-timeline');
     const legend = n('div', 'ops-agent-legend');
-    [['Passed', '#35bb78'], ['Soft fail', '#e3a63a'], ['Hard fail', '#e06464'], ['Unknown', '#66717d']].forEach(function (entry) {
+    [['Soft fail', '#e3a63a'], ['Hard fail', '#e06464']].forEach(function (entry) {
       const item = n('span', 'ops-agent-legend-item');
       const swatch = n('span', 'ops-agent-legend-swatch');
       swatch.style.background = entry[1];
       add(item, [swatch, n('span', '', entry[0])]);
       legend.append(item);
     });
+    const signalCaptionEl = n('p', 'ops-agent-signal-caption');
     const timelineSection = n('section', 'ops-agent-timeline-section');
-    add(timelineSection, [timelineToolbar, timelineChart.root, legend]);
+    add(timelineSection, [timelineToolbar, signalCaptionEl, timelineChart.root, legend]);
     host.append(timelineSection);
 
     const eventsHost = n('div');
@@ -3444,8 +3537,51 @@
 
     function pageHeaderNote() {
       const note = n('div', 'ops-evidence-note is-info');
-      add(note, [n('strong', '', 'AMD physical CI agent health. '), n('span', '', 'Test groups are attributed to the physical node from each job’s Buildkite agent tag, across both the AMD nightly and AMD-node jobs inside upstream CI. Filter by window, GPU type, and node; click any node in the table or a co-failure event to load its run timeline.')]);
+      add(note, [n('strong', '', 'AMD physical CI agent health. '), n('span', '', 'Every build on AMD GPU hardware — all branches and PRs across the AMD nightly and upstream CI pipelines — is attributed to the physical node from its Buildkite agent tag. The timeline and co-failure clustering run on the Failure signal you pick below: "infra-suspect" (the default — anomalous, node-attributable failures, since most PR failures are code bugs), all hard failures, or all failures. Toggle the signal, build scope, cancelled-job handling, and co-failure window; click any node or event to load its timeline.')]);
       return note;
+    }
+
+    // Precise, self-contained definition of the anomaly criterion, so a reader
+    // knows exactly what "infra-suspect" / anomalous means without guessing.
+    function criteriaNote() {
+      const rate = Number(agentHealth.infra_suspect_min_pass_rate);
+      const pct = Number.isFinite(rate) ? Math.round(rate * 100) + '%' : '50%';
+      const samples = Number(agentHealth.infra_suspect_min_samples) || 3;
+      const note = n('div', 'ops-evidence-note is-neutral ops-agent-criteria');
+      add(note, [
+        n('strong', '', 'What counts as an anomalous (infra-suspect) failure? '),
+        n('span', '', 'When the Failure signal is set to Infra-suspect (the default), a soft or hard failure is treated as node-attributable when its exact test group, on that same day, both: '),
+      ]);
+      const list = n('ol', 'ops-criteria-list');
+      add(list, [
+        n('li', '', 'passed at least ' + pct + ' of its gradable runs (needs ≥ ' + samples + ' graded samples), so the group demonstrably works; and'),
+        n('li', '', 'passed on at least one other physical node that day, so the failure is isolated to this box rather than a broad code break.'),
+      ]);
+      note.append(list);
+      note.append(n('span', 'ops-criteria-foot', 'Groups that fail broadly (real code bugs) and failures inside auto-cancelled / superseded builds are filtered out by default, isolating the signal that points at a specific machine.'));
+      return note;
+    }
+
+    function agentField(labelText, control) {
+      const field = n('div', 'ops-agent-field');
+      add(field, [n('span', 'ops-field-label', labelText), control]);
+      return field;
+    }
+
+    // Prominent, global signal switch. Sits above the finer filter row because it
+    // changes what "failure" means across the timeline, co-failures and KPIs.
+    function buildModeToggle() {
+      clear(modeHost);
+      const seg = segmented([
+        {id: 'infra', label: 'Infra-suspect'},
+        {id: 'hard', label: 'Hard failures'},
+        {id: 'all', label: 'All failures (hard + soft)'},
+      ], signal, function (id) {
+        signal = id; state.agentSignal = id; setQueryValue('agent_signal', id);
+        buildModeToggle(); apply();
+      }, 'Failure signal');
+      seg.classList.add('ops-agent-mode-seg');
+      add(modeHost, [n('span', 'ops-agent-mode-label', 'Failure signal'), seg]);
     }
 
     function buildControls() {
@@ -3457,6 +3593,15 @@
       const gpuSeg = segmented(gpuItems, gpu, function (id) {
         gpu = id; state.agentGpu = id; setQueryValue('agent_gpu', id); buildControls(); apply();
       }, 'GPU type');
+      const nightlySeg = segmented([{id: '0', label: 'All builds'}, {id: '1', label: 'Nightly/main'}], nightlyOnly ? '1' : '0', function (id) {
+        nightlyOnly = id === '1'; state.agentNightly = id; setQueryValue('agent_nightly', id); buildControls(); apply();
+      }, 'Build scope');
+      const cancelSeg = segmented([{id: '1', label: 'Exclude'}, {id: '0', label: 'Include'}], excludeCancelled ? '1' : '0', function (id) {
+        excludeCancelled = id === '1'; state.agentExclCancel = id; setQueryValue('agent_excl_cancel', id); buildControls(); apply();
+      }, 'Cancelled jobs');
+      const cofailSeg = segmented(cofailOptions.map(function (m) { return {id: String(m), label: agentCofailLabel(m)}; }), String(cofailMins), function (id) {
+        cofailMins = parseInt(id, 10); state.agentCofail = id; setQueryValue('agent_cofail', id); buildControls(); apply();
+      }, 'Co-failure window');
       const searchInput = n('input', 'ops-input ops-agent-search');
       searchInput.type = 'search';
       searchInput.placeholder = 'Filter nodes by name or GPU type';
@@ -3470,50 +3615,139 @@
       add(controlsHost, [
         agentField('Window', windowSeg),
         agentField('GPU', gpuSeg),
+        agentField('Scope', nightlySeg),
+        agentField('Cancelled', cancelSeg),
+        agentField('Co-failure window', cofailSeg),
         agentField('Node', searchInput),
       ]);
     }
 
-    function agentField(labelText, control) {
-      const field = n('div', 'ops-agent-field');
-      add(field, [n('span', 'ops-field-label', labelText), control]);
-      return field;
+    function matchesFilter(hardware, nodeRaw) {
+      const term = search.toLowerCase();
+      if (gpu !== 'all' && hardware !== gpu) return false;
+      if (term && String(nodeRaw || '').toLowerCase().indexOf(term) === -1 && String(hardware || '').toLowerCase().indexOf(term) === -1) return false;
+      return true;
+    }
+
+    // Does a failing run belong to the active signal subset?
+    function signalMatch(r) {
+      if (signal === 'infra') return r.infra_suspect;
+      if (signal === 'hard') return r.state === 'hard';
+      return true; // 'all' — every shipped record is a hard/soft failure
+    }
+    // Short noun for the active signal, woven into headings/columns/copy.
+    function signalTerm() {
+      return signal === 'infra' ? 'infra-suspect' : signal === 'hard' ? 'hard' : 'all';
+    }
+    function signalColumnLabel() {
+      return signal === 'infra' ? 'Infra' : signal === 'hard' ? 'Hard' : 'Fails';
+    }
+    function signalCaption() {
+      if (signal === 'infra') return 'Showing infra-suspect failures — anomalous, node-attributable (a group that otherwise passes that day, including on another node).';
+      if (signal === 'hard') return 'Showing every hard failure on the node — not just the infra-suspect subset.';
+      return 'Showing all failures (hard + soft) on the node.';
     }
 
     function computeView() {
       const days = AGENT_WINDOW_DAYS[windowId] || 7;
       const startMs = endMs - days * 86400000;
-      const term = search.toLowerCase();
-      const matchesFilter = function (hardware, nodeRaw) {
-        if (gpu !== 'all' && hardware !== gpu) return false;
-        if (term && String(nodeRaw || '').toLowerCase().indexOf(term) === -1 && String(hardware || '').toLowerCase().indexOf(term) === -1) return false;
-        return true;
-      };
-      const inWindow = function (ts) {
-        const t = Date.parse(ts);
-        return Number.isFinite(t) && t >= startMs && t <= endMs;
-      };
-      const runs = allRuns.filter(function (run) { return inWindow(run.started_at) && matchesFilter(run.hardware, run.node_raw); });
-      const events = allEvents.filter(function (event) { return inWindow(event.started_at) && matchesFilter(event.hardware, event.node_raw); });
-      const agents = agentAggregate(runs);
+      const startDay = new Date(startMs).toISOString().slice(0, 10);
+
+      // Reliability rollups -> per-node aggregate over the window.
+      const byNode = new Map();
+      let totalRuns = 0;
+      let identifiedRuns = 0;
+      nodeDays.forEach(function (nd) {
+        if (String(nd.d) < startDay) return;
+        if (!matchesFilter(nd.h, nd.nd)) return;
+        const bucket = nightlyOnly ? nd.n : nd.a;
+        if (!bucket || !bucket[0]) return;
+        // bucket = [runs, soft, hard, canceled]; tolerate the legacy 3-tuple
+        // [runs, fail, canceled] (fail attributed to hard, soft unknown).
+        const split = bucket.length >= 4;
+        const soft = split ? (bucket[1] || 0) : 0;
+        const hard = split ? (bucket[2] || 0) : (bucket[1] || 0);
+        const canceled = split ? (bucket[3] || 0) : (bucket[2] || 0);
+        totalRuns += bucket[0];
+        if (nd.nd !== '(unidentified)') identifiedRuns += bucket[0];
+        let agg = byNode.get(nd.nd);
+        if (!agg) { agg = {node_raw: nd.nd, hardware: nd.h, runs: 0, soft: 0, hard: 0, canceled: 0}; byNode.set(nd.nd, agg); }
+        agg.runs += bucket[0];
+        agg.soft += soft;
+        agg.hard += hard;
+        agg.canceled += canceled;
+        if (nd.h) agg.hardware = nd.h;
+      });
+
+      // Failing runs in the active signal subset -> co-failure clustering +
+      // per-node counts. Exclude-cancelled drops failures whose parent build was
+      // auto-canceled (superseded by a newer push) so they don't inflate the signal.
+      const fRuns = failing.filter(function (r) {
+        if (!signalMatch(r)) return false;
+        if (r._start === null || r._start < startMs || r._start > endMs) return false;
+        if (nightlyOnly && !r.nightly) return false;
+        if (excludeCancelled && r.build_canceled) return false;
+        return matchesFilter(r.hardware, r.node_raw);
+      });
+      const runsByNode = new Map();
+      fRuns.forEach(function (r) { if (!runsByNode.has(r.node_raw)) runsByNode.set(r.node_raw, []); runsByNode.get(r.node_raw).push(r); });
+      const events = [];
+      const signalByNode = {};
+      const groupsByNode = {};
+      runsByNode.forEach(function (runs, nodeRaw) {
+        const hardware = (byNode.get(nodeRaw) || {}).hardware || (runs[0] && runs[0].hardware) || '';
+        signalByNode[nodeRaw] = runs.length;
+        groupsByNode[nodeRaw] = new Set(runs.map(function (x) { return x.group; })).size;
+        clusterNodeCofailures(agentNodeLabel(nodeRaw, hardware), nodeRaw, hardware, runs, cofailMins).forEach(function (e) { events.push(e); });
+      });
       const eventsByNode = {};
-      events.forEach(function (event) { eventsByNode[event.node_raw] = (eventsByNode[event.node_raw] || 0) + 1; });
-      agents.forEach(function (agent) { agent.cofailure_event_count = eventsByNode[agent.node_raw] || 0; });
-      return {runs: runs, events: events, agents: agents};
+      events.forEach(function (e) { eventsByNode[e.node_raw] = (eventsByNode[e.node_raw] || 0) + 1; });
+
+      const agents = [];
+      byNode.forEach(function (agg, nodeRaw) {
+        const identified = nodeRaw !== '(unidentified)';
+        const softHard = agg.soft + agg.hard;
+        const denom = excludeCancelled ? Math.max(0, agg.runs - agg.canceled) : agg.runs;
+        // Cancelled jobs count as failures only when the toggle includes them.
+        const failures = excludeCancelled ? softHard : (softHard + agg.canceled);
+        agents.push({
+          node: identified ? agentNodeLabel(nodeRaw, agg.hardware) : nodeRaw,
+          node_raw: nodeRaw,
+          hardware: agg.hardware,
+          identified: identified,
+          runs: denom,
+          failures: failures,
+          soft: agg.soft,
+          hard: agg.hard,
+          canceled: agg.canceled,
+          incident_rate: denom ? failures / denom : 0,
+          infra_suspect: signalByNode[nodeRaw] || 0,
+          distinct_groups: groupsByNode[nodeRaw] || 0,
+          cofailure_event_count: eventsByNode[nodeRaw] || 0,
+          _runs: runsByNode.get(nodeRaw) || [],
+        });
+      });
+
+      events.sort(function (a, b) {
+        return (b.hard_failed - a.hard_failed)
+          || (Number(b.cross_pipeline) - Number(a.cross_pipeline))
+          || (b.group_count - a.group_count)
+          || String(b.started_at).localeCompare(String(a.started_at));
+      });
+      return {agents: agents, events: events, fRuns: fRuns, totalRuns: totalRuns, identifiedRuns: identifiedRuns};
     }
 
     function renderKpis(view) {
       clear(kpiHost);
-      const identifiedRuns = view.runs.filter(function (run) { return run.node_raw !== '(unidentified)'; }).length;
-      const coveragePct = view.runs.length ? (100 * identifiedRuns / view.runs.length) : 0;
-      const identifiedNodes = view.agents.filter(function (agent) { return agent.identified; }).length;
-      const unreliable = view.agents.filter(function (agent) { return agent.identified && agent.incidents > 0; }).length;
-      const concurrent = view.events.filter(function (event) { return event.concurrent; }).length;
-      const cross = view.events.filter(function (event) { return event.cross_pipeline; }).length;
+      const identifiedNodes = view.agents.filter(function (a) { return a.identified; }).length;
+      const unreliable = view.agents.filter(function (a) { return a.identified && a.failures > 0; }).length;
+      const coveragePct = view.totalRuns ? (100 * view.identifiedRuns / view.totalRuns) : 0;
+      const concurrent = view.events.filter(function (e) { return e.concurrent; }).length;
+      const cross = view.events.filter(function (e) { return e.cross_pipeline; }).length;
       kpiHost.append(statusStrip([
-        {id: 'agent-nodes', label: 'IDENTIFIED AMD NODES', value: integer(identifiedNodes), meta: integer(view.runs.length) + ' runs in ' + windowId, tone: 'is-info'},
-        {id: 'agent-unreliable', label: 'UNRELIABLE NODES', value: integer(unreliable), meta: 'nodes with a soft/hard result', tone: unreliable ? 'is-warning' : 'is-success'},
-        {id: 'agent-coverage', label: 'NODE COVERAGE', value: coveragePct.toFixed(1) + '%', meta: integer(identifiedRuns) + ' / ' + integer(view.runs.length) + ' runs identified', tone: coveragePct >= 50 ? 'is-success' : coveragePct > 0 ? 'is-warning' : 'is-danger'},
+        {id: 'agent-nodes', label: 'IDENTIFIED AMD NODES', value: integer(identifiedNodes), meta: integer(view.totalRuns) + ' runs in ' + windowId, tone: 'is-info'},
+        {id: 'agent-unreliable', label: 'NODES WITH FAILURES', value: integer(unreliable), meta: 'nodes with a soft/hard result', tone: unreliable ? 'is-warning' : 'is-success'},
+        {id: 'agent-coverage', label: 'NODE COVERAGE', value: coveragePct.toFixed(1) + '%', meta: integer(view.identifiedRuns) + ' / ' + integer(view.totalRuns) + ' runs identified', tone: coveragePct >= 50 ? 'is-success' : coveragePct > 0 ? 'is-warning' : 'is-danger'},
         {id: 'agent-cofail', label: 'CO-FAILURE EVENTS', value: integer(view.events.length), meta: integer(concurrent) + ' concurrent · ' + integer(cross) + ' cross-pipeline', tone: view.events.length ? 'is-danger' : 'is-success', onOpen: function () { eventsHost.scrollIntoView({behavior: 'smooth', block: 'start'}); }},
       ]));
     }
@@ -3541,40 +3775,46 @@
       const points = (agent._runs || []).slice()
         .sort(function (a, b) { return String(a.started_at).localeCompare(String(b.started_at)); })
         .map(function (run) {
-          return {label: run.group, url: run.url, timestamp: run.started_at, valueSummary: run.state + ' · ' + duration(run.duration_mins), details: {pipeline: run.pipeline, queue: run.queue, state: run.state, build: '#' + value(run.build_number)}};
+          return {label: run.group, url: run.url, timestamp: run.started_at, valueSummary: run.state + ' · ' + run.pipeline, details: {pipeline: run.pipeline, queue: run.queue, state: run.state, build: '#' + value(run.build_number)}};
         });
-      openHistoryEvidence('Runs on ' + agent.node, points, 'All tracked runs on this node over ' + windowId + ', each linking to its BuildKite log', SOURCE_ASSETS.operations);
+      openHistoryEvidence(signalTerm() + ' failures on ' + agent.node, points, signalTerm() + ' failing runs on this node over ' + windowId + ', each linking to its BuildKite log', SOURCE_ASSETS.operations);
     }
 
     function renderTable(view) {
       clear(tableHost);
       const rows = sortedAgents(view);
       const table = dataTable([
-        {label: 'Physical node', sticky: true, width: '190px', sortKey: 'node', render: function (row) { return linkButton(value(row.node), function () { selectNode(row.node_raw, true); }, 'Show this node in the run timeline', 'Show ' + value(row.node) + ' in the run timeline'); }},
+        {label: 'Physical node', sticky: true, width: '190px', sortKey: 'node', render: function (row) { return linkButton(value(row.node), function () { focusNode(row.node_raw); }, 'Show this node in the timeline and co-failure events', 'Show ' + value(row.node) + ' in the timeline and co-failure events'); }},
         {label: 'GPU', width: '62px', sortKey: 'hardware', render: function (row) { return value(row.hardware); }},
-        {label: 'Runs', numeric: true, width: '62px', sortKey: 'runs', render: function (row) { return integer(row.runs); }},
-        {label: 'Inc %', numeric: true, width: '78px', sortKey: 'incident_rate', render: function (row) { return (Number(row.incident_rate) * 100).toFixed(1) + '%'; }},
-        {label: 'Soft/hard', numeric: true, width: '90px', sortKey: 'incidents', render: function (row) { return integer(row.soft_failed) + ' / ' + integer(row.hard_failed); }},
+        {label: 'Runs', numeric: true, width: '66px', sortKey: 'runs', render: function (row) { return integer(row.runs); }},
+        {label: 'Fail %', numeric: true, width: '74px', sortKey: 'incident_rate', render: function (row) { return (Number(row.incident_rate) * 100).toFixed(1) + '%'; }},
+        {label: 'Failures', numeric: true, width: '108px', sortKey: 'failures', render: function (row) {
+          const cell = n('span', 'ops-failures-cell');
+          cell.append(n('span', 'ops-failures-total', integer(row.failures)));
+          if (row.hard || row.soft) {
+            cell.append(n('span', 'ops-failures-split', integer(row.hard) + 'h · ' + integer(row.soft) + 's'));
+          }
+          return cell;
+        }},
+        {label: signalColumnLabel(), numeric: true, width: '72px', sortKey: 'infra_suspect', render: function (row) { return integer(row.infra_suspect); }},
         {label: 'Groups', numeric: true, width: '68px', sortKey: 'distinct_groups', render: function (row) { return integer(row.distinct_groups); }},
-        {label: 'Flaky', numeric: true, width: '60px', sortKey: 'flaky_group_count', render: function (row) { return integer(row.flaky_group_count); }},
         {label: 'Co-fail', numeric: true, width: '68px', sortKey: 'cofailure_event_count', render: function (row) { return integer(row.cofailure_event_count); }},
-        {label: 'Pipelines', width: '100px', render: function (row) { return (row.pipelines || []).join(', ') || '-'; }},
-        {label: 'Evidence', width: '86px', render: function (row) { return linkButton('runs ↗', function () { openNodeEvidence(row); }, 'Open all tracked runs and BuildKite logs for ' + value(row.node)); }},
-      ], rows, 'Per-node AMD reliability in ' + windowId, {name: 'agent-nodes', minWidth: '924px', sort: sort, onSort: onSort});
+        {label: 'Evidence', width: '86px', render: function (row) { return linkButton('runs ↗', function () { openNodeEvidence(row); }, 'Open ' + signalTerm() + ' failing runs and BuildKite logs for ' + value(row.node)); }},
+      ], rows, 'Per-node AMD reliability in ' + windowId, {name: 'agent-nodes', minWidth: '906px', sort: sort, onSort: onSort});
       table.classList.add('ops-agent-table');
-      tableHost.append(panel('AMD nodes by reliability', integer(view.agents.length) + ' node(s) in ' + windowId + '; click a node (or Evidence) to load its run timeline. Sort by any column.', [table]));
+      tableHost.append(panel('AMD nodes by reliability', integer(view.agents.length) + ' node(s) in ' + windowId + ', sorted by the active failure signal (' + signalTerm() + '). Runs, Fail % and Failures (with its hard/soft split) come from all builds on the box; the ' + signalColumnLabel() + ' / Groups / Co-fail columns come from the selected signal only. Click a node (or Evidence) to load its timeline; sort by any column.', [table]));
     }
 
     function timelineAgents(view) {
-      return view.agents.filter(function (agent) { return agent.identified && agent.runs; })
-        .sort(function (a, b) { return b.incidents - a.incidents || b.runs - a.runs; });
+      return view.agents.filter(function (agent) { return agent.identified && agent.infra_suspect; })
+        .sort(function (a, b) { return b.cofailure_event_count - a.cofailure_event_count || b.infra_suspect - a.infra_suspect; });
     }
 
     function renderNodeSelect(view) {
       const nodes = timelineAgents(view);
       clear(nodeSelect);
       nodes.forEach(function (agent) {
-        const option = n('option', '', agent.node + ' (' + agent.runs + ' runs, ' + agent.cofailure_event_count + ' co-failures)');
+        const option = n('option', '', agent.node + ' (' + agent.infra_suspect + ' ' + signalTerm() + ', ' + agent.cofailure_event_count + ' co-failures)');
         option.value = agent.node_raw;
         nodeSelect.append(option);
       });
@@ -3587,17 +3827,145 @@
 
     function drawSelectedTimeline(view) {
       const agent = view.agents.find(function (a) { return a.node_raw === selectedNode; });
-      requestAnimationFrame(function () { drawAgentTimeline(agent ? agent._runs : [], agent ? agent.node : '-', timelineChart); });
+      requestAnimationFrame(function () {
+        timelineBounds = drawAgentTimeline(agent ? agent._runs : [], agent ? agent.node : '-', timelineChart, timelineRange);
+      });
     }
 
-    function selectNode(nodeRaw, scroll) {
+    function selectNode(nodeRaw, scroll, keepZoom) {
       selectedNode = nodeRaw;
       state.agentNode = nodeRaw;
       setQueryValue('agent_node', nodeRaw);
+      if (!keepZoom) timelineRange = null;
       if (!current) return;
       renderNodeSelect(current);
       drawSelectedTimeline(current);
       if (scroll) timelineChart.root.scrollIntoView({behavior: 'smooth', block: 'center'});
+    }
+
+    // Table node click: load the node's timeline AND scope the co-failure events
+    // list to it (expanded), so the two views focus together.
+    function focusNode(nodeRaw) {
+      eventNodeFilter = nodeRaw;
+      selectNode(nodeRaw, true);
+      renderEvents(current);
+    }
+
+    function currentTimelineRange() {
+      if (timelineRange) return timelineRange;
+      return timelineBounds ? {min: timelineBounds.min, max: timelineBounds.max} : null;
+    }
+
+    // Constrain a proposed [min,max] window: keep at least a ~1-minute span and
+    // never widen past the full padded data bounds.
+    function clampRange(min, max) {
+      if (max - min < 60000) { const c = (min + max) / 2; min = c - 30000; max = c + 30000; }
+      if (timelineBounds) {
+        const fpad = Math.max(60000, (timelineBounds.max - timelineBounds.min) * 0.02);
+        min = Math.max(min, timelineBounds.min - fpad);
+        max = Math.min(max, timelineBounds.max + fpad);
+      }
+      return {min: min, max: max};
+    }
+
+    function setTimelineRange(min, max) {
+      timelineRange = clampRange(min, max);
+      drawSelectedTimeline(current);
+    }
+
+    function zoomBy(factor) {
+      const r = currentTimelineRange();
+      if (!r) return;
+      const center = (r.min + r.max) / 2;
+      const half = ((r.max - r.min) / 2) * factor;
+      setTimelineRange(center - half, center + half);
+    }
+
+    function resetZoom() {
+      timelineRange = null;
+      drawSelectedTimeline(current);
+    }
+
+    // Live Chart.js instance for the timeline, for pixel<->time mapping.
+    function timelineXScale() {
+      const chart = charts.get('analytics-agent-timeline');
+      return chart && chart.scales ? chart.scales.x : null;
+    }
+
+    // Click-drag range selection on the timeline canvas. Wired once to the
+    // persistent canvas; handlers read the live chart scale.
+    function enableTimelineInteractions() {
+      const canvas = timelineChart.canvas;
+      const viewport = timelineChart.viewport;
+      viewport.style.position = 'relative';
+      const overlay = n('div', 'ops-timeline-select');
+      overlay.style.display = 'none';
+      viewport.append(overlay);
+
+      let dragStartPx = null;
+      let dragMoved = false;
+      let suppressClick = false;
+
+      function pxIn(clientX) {
+        const rect = canvas.getBoundingClientRect();
+        return Math.max(0, Math.min(canvas.clientWidth, clientX - rect.left));
+      }
+      function paintOverlay(a, b) {
+        overlay.style.display = 'block';
+        overlay.style.left = Math.min(a, b) + 'px';
+        overlay.style.width = Math.abs(b - a) + 'px';
+        overlay.style.height = canvas.clientHeight + 'px';
+      }
+      function endDrag() {
+        overlay.style.display = 'none';
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      }
+      function onMove(e) {
+        if (dragStartPx === null) return;
+        const px = pxIn(e.clientX);
+        if (Math.abs(px - dragStartPx) > 4) dragMoved = true;
+        if (dragMoved) paintOverlay(dragStartPx, px);
+      }
+      function onUp(e) {
+        if (dragStartPx === null) return;
+        const startPx = dragStartPx;
+        dragStartPx = null;
+        endDrag();
+        if (!dragMoved) return;  // treat as a click -> let the bar open its log
+        suppressClick = true;
+        const scale = timelineXScale();
+        if (!scale) return;
+        const endPx = pxIn(e.clientX);
+        const a = scale.getValueForPixel(Math.min(startPx, endPx));
+        const b = scale.getValueForPixel(Math.max(startPx, endPx));
+        if (Number.isFinite(a) && Number.isFinite(b) && b > a) setTimelineRange(a, b);
+      }
+      canvas.addEventListener('mousedown', function (e) {
+        if (e.button !== 0 || !timelineXScale()) return;
+        dragStartPx = pxIn(e.clientX);
+        dragMoved = false;
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+      });
+      // Capture-phase guard: swallow the click Chart.js would fire after a drag
+      // (which would otherwise open a BuildKite log). Plain clicks pass through.
+      canvas.addEventListener('click', function (e) {
+        if (suppressClick) { suppressClick = false; e.stopImmediatePropagation(); e.preventDefault(); }
+      }, true);
+    }
+
+    // Clicking a co-failure event loads its node and zooms the timeline to it.
+    function zoomToEvent(event) {
+      selectedNode = event.node_raw;
+      state.agentNode = event.node_raw;
+      setQueryValue('agent_node', event.node_raw);
+      const pad = Math.max(60000, (event._endMs - event._startMs) * 0.15);
+      timelineRange = {min: event._startMs - pad, max: event._endMs + pad};
+      if (!current) return;
+      renderNodeSelect(current);
+      drawSelectedTimeline(current);
+      timelineChart.root.scrollIntoView({behavior: 'smooth', block: 'center'});
     }
 
     function renderEvents(view) {
@@ -3605,17 +3973,27 @@
       const section = n('section', 'ops-cluster-section');
       const header = n('header', 'ops-section-header');
       const heading = n('div', 'ops-section-heading');
+      const filtered = eventNodeFilter
+        ? view.events.filter(function (e) { return e.node_raw === eventNodeFilter; })
+        : view.events;
+      const scoped = !!eventNodeFilter;
+      const desc = scoped
+        ? integer(filtered.length) + ' event(s) on this node in ' + windowId + '. Click an event to zoom the timeline to it. Each card is expanded with per-run timing.'
+        : integer(view.events.length) + ' event(s) in ' + windowId + '. Two or more ' + signalTerm() + ' groups failing on one node within ' + agentCofailLabel(cofailMins) + ': "concurrent" (overlapping) points to contention or an ephemeral fault; "sequential" (back-to-back) suggests the node was left unclean. Click an event to zoom the timeline to it.';
       add(heading, [
-        n('h2', 'ops-section-title', 'Co-failure events'),
-        n('p', 'ops-section-description', integer(view.events.length) + ' event(s) in ' + windowId + '. Two or more groups on one node failing within ' + integer(windowHours) + 'h: "concurrent" (overlapping) points to contention or an ephemeral fault; "sequential" (back-to-back) suggests the node was left unclean. Click a node to load its timeline.'),
+        n('h2', 'ops-section-title', scoped ? 'Co-failure events · one node' : 'Co-failure events'),
+        n('p', 'ops-section-description', desc),
       ]);
       header.append(heading);
+      if (scoped) {
+        header.append(linkButton('Show all nodes ✕', function () { eventNodeFilter = ''; renderEvents(current); }, 'Clear the node filter on co-failure events'));
+      }
       section.append(header);
-      if (!view.events.length) {
-        section.append(n('div', 'ops-evidence-note is-success', 'No co-failure events in this window and filter.'));
+      if (!filtered.length) {
+        section.append(n('div', 'ops-evidence-note is-success', scoped ? 'No co-failure events on this node in the current window and filter.' : 'No co-failure events in this window and filter.'));
       } else {
         const grid = n('div', 'ops-cofailure-grid');
-        view.events.slice(0, 60).forEach(function (event) { grid.append(agentCofailureCard(event, function (raw) { selectNode(raw, true); })); });
+        filtered.slice(0, scoped ? 200 : 80).forEach(function (event) { grid.append(agentCofailureCard(event, zoomToEvent, scoped)); });
         section.append(grid);
       }
       eventsHost.append(section);
@@ -3623,11 +4001,14 @@
 
     function apply() {
       current = computeView();
+      signalCaptionEl.textContent = signalCaption();
+      // The infra-suspect criterion only defines the default signal.
+      criteriaNoteEl.hidden = signal !== 'infra';
       clear(emptyHost);
       renderKpis(current);
-      if (!allRuns.length) {
-        emptyHost.append(n('div', 'ops-evidence-note is-warning', 'No AMD node data has been collected yet. It populates as the collectors capture the Buildkite agent k8s:node tag.'));
-      } else if (!current.runs.length) {
+      if (!nodeDays.length) {
+        emptyHost.append(n('div', 'ops-evidence-note is-warning', 'No AMD node data has been collected yet. It populates as collect_agent_health.py captures the Buildkite agent k8s:node tag.'));
+      } else if (!current.agents.length) {
         emptyHost.append(n('div', 'ops-evidence-note is-warning', 'No AMD runs match the current window and filter.'));
       }
       renderTable(current);
@@ -3636,7 +4017,9 @@
       renderEvents(current);
     }
 
+    buildModeToggle();
     buildControls();
+    enableTimelineInteractions();
     apply();
   }
 

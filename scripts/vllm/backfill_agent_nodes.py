@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Backfill the physical CI agent ``node`` field into existing test-result JSONL.
 
+DEPRECATED: the CI agent-health view no longer joins node identity from the
+nightly test-result JSONL. It is now driven by ``collect_agent_health.py``, which
+reads the ``k8s:node`` agent tag directly from the build *list* endpoint across
+*all* builds/branches. This script remains only for one-off enrichment of the
+legacy ``node`` field and is not part of the hourly pipeline.
+
 The per-test JSONL (``data/vllm/ci/test_results/*.jsonl``) only carries a
 ``node`` value for rows collected after log_parser started capturing it. To make
 the CI Agent Health view useful immediately over the trailing window, this
