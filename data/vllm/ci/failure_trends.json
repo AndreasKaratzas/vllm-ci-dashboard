@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-16T19:36:00Z",
+  "generated_at": "2026-07-16T20:37:08Z",
   "top_offenders": [
     {
       "test_id": "mi355_1: Kernels MoE Test 2::__unidentified_failures__",
@@ -324,6 +324,29 @@
       "mean_duration": 0.0
     },
     {
+      "test_id": "mi300_1: Transformers Nightly Models (Shardable) 4::__unidentified_failures__",
+      "label": "failing",
+      "pass_rate": 0.0,
+      "appearances": 26,
+      "last_seen": "2026-07-16",
+      "first_failure": "2026-06-16",
+      "failure_streak": 26,
+      "history": [
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F"
+      ],
+      "module": "mi300_1: Transformers Nightly Models (Shardable) 4",
+      "mean_duration": 0.0
+    },
+    {
       "test_id": "mi300_4: Elastic EP Scaling Test::__unidentified_failures__",
       "label": "failing",
       "pass_rate": 0.0,
@@ -344,29 +367,6 @@
         "F"
       ],
       "module": "mi300_4: Elastic EP Scaling Test",
-      "mean_duration": 0.0
-    },
-    {
-      "test_id": "mi300_1: Transformers Nightly Models (Shardable) 4::__unidentified_failures__",
-      "label": "failing",
-      "pass_rate": 0.0,
-      "appearances": 25,
-      "last_seen": "2026-07-10",
-      "first_failure": "2026-06-16",
-      "failure_streak": 25,
-      "history": [
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F"
-      ],
-      "module": "mi300_1: Transformers Nightly Models (Shardable) 4",
       "mean_duration": 0.0
     },
     {
@@ -593,6 +593,14 @@
       "passing": 1
     },
     {
+      "module": "mi300_1: GGUF Plugin",
+      "avg_pass_rate": 0.25,
+      "total_tests": 4,
+      "failing": 2,
+      "flaky": 0,
+      "passing": 1
+    },
+    {
       "module": "mi300_1: Kernels Attention Test 1",
       "avg_pass_rate": 0.25,
       "total_tests": 4,
@@ -730,6 +738,14 @@
     },
     {
       "module": "mi300_1: Transformers Nightly Models (Shardable) 4",
+      "avg_pass_rate": 0.25,
+      "total_tests": 4,
+      "failing": 2,
+      "flaky": 0,
+      "passing": 1
+    },
+    {
+      "module": "mi300_1: Transformers Nightly Models (Single)",
       "avg_pass_rate": 0.25,
       "total_tests": 4,
       "failing": 2,
@@ -903,22 +919,6 @@
       "failing": 0,
       "flaky": 1,
       "passing": 0
-    },
-    {
-      "module": "mi300_1: GGUF Plugin",
-      "avg_pass_rate": 0.2857,
-      "total_tests": 4,
-      "failing": 2,
-      "flaky": 0,
-      "passing": 1
-    },
-    {
-      "module": "mi300_1: Transformers Nightly Models (Single)",
-      "avg_pass_rate": 0.3,
-      "total_tests": 4,
-      "failing": 2,
-      "flaky": 0,
-      "passing": 1
     },
     {
       "module": "mi355_1: Language Models Test (Extended Pooling)",
@@ -1297,6 +1297,14 @@
       "passing": 1
     },
     {
+      "module": "mi300_1: Rust Frontend Tool Use",
+      "avg_pass_rate": 0.3333,
+      "total_tests": 3,
+      "failing": 1,
+      "flaky": 0,
+      "passing": 1
+    },
+    {
       "module": "mi300_1: Spec Decode Speculators + MTP",
       "avg_pass_rate": 0.3333,
       "total_tests": 3,
@@ -1593,14 +1601,6 @@
       "passing": 1
     },
     {
-      "module": "mi300_1: Rust Frontend Tool Use",
-      "avg_pass_rate": 0.4,
-      "total_tests": 3,
-      "failing": 1,
-      "flaky": 0,
-      "passing": 1
-    },
-    {
       "module": "mi250_1: Basic Models Tests (Extra Initialization) 1",
       "avg_pass_rate": 0.5,
       "total_tests": 3,
@@ -1723,7 +1723,7 @@
     {
       "module": "mi300_1: Entrypoints Integration (API Server)",
       "avg_pass_rate": 0.5,
-      "total_tests": 4,
+      "total_tests": 2,
       "failing": 1,
       "flaky": 0,
       "passing": 1
@@ -1836,6 +1836,30 @@
       "module": "mi300_1: Regression",
       "avg_pass_rate": 0.5,
       "total_tests": 3,
+      "failing": 1,
+      "flaky": 0,
+      "passing": 1
+    },
+    {
+      "module": "mi300_1: Rust Frontend Core Correctness",
+      "avg_pass_rate": 0.5,
+      "total_tests": 2,
+      "failing": 1,
+      "flaky": 0,
+      "passing": 1
+    },
+    {
+      "module": "mi300_1: Rust Frontend OpenAI Coverage",
+      "avg_pass_rate": 0.5,
+      "total_tests": 2,
+      "failing": 1,
+      "flaky": 0,
+      "passing": 1
+    },
+    {
+      "module": "mi300_1: Rust Frontend Serve Admin Coverage",
+      "avg_pass_rate": 0.5,
+      "total_tests": 2,
       "failing": 1,
       "flaky": 0,
       "passing": 1
@@ -1961,6 +1985,14 @@
       "passing": 1
     },
     {
+      "module": "mi300_2: Plugin Tests (2 GPUs)",
+      "avg_pass_rate": 0.5,
+      "total_tests": 2,
+      "failing": 1,
+      "flaky": 0,
+      "passing": 1
+    },
+    {
       "module": "mi300_2: Weight Loading Multiple GPU - Large Models",
       "avg_pass_rate": 0.5,
       "total_tests": 2,
@@ -1996,6 +2028,14 @@
       "module": "mi300_4: Model Runner V2 Pipeline Parallelism (4 GPUs)",
       "avg_pass_rate": 0.5,
       "total_tests": 3,
+      "failing": 1,
+      "flaky": 0,
+      "passing": 1
+    },
+    {
+      "module": "mi300_4: Rust Frontend Distributed",
+      "avg_pass_rate": 0.5,
+      "total_tests": 2,
       "failing": 1,
       "flaky": 0,
       "passing": 1
@@ -2121,38 +2161,6 @@
       "passing": 0
     },
     {
-      "module": "mi300_1: Rust Frontend Core Correctness",
-      "avg_pass_rate": 0.6,
-      "total_tests": 2,
-      "failing": 1,
-      "flaky": 0,
-      "passing": 1
-    },
-    {
-      "module": "mi300_1: Rust Frontend OpenAI Coverage",
-      "avg_pass_rate": 0.6,
-      "total_tests": 2,
-      "failing": 1,
-      "flaky": 0,
-      "passing": 1
-    },
-    {
-      "module": "mi300_1: Rust Frontend Serve Admin Coverage",
-      "avg_pass_rate": 0.6,
-      "total_tests": 2,
-      "failing": 1,
-      "flaky": 0,
-      "passing": 1
-    },
-    {
-      "module": "mi300_2: Plugin Tests (2 GPUs)",
-      "avg_pass_rate": 0.6,
-      "total_tests": 2,
-      "failing": 1,
-      "flaky": 0,
-      "passing": 1
-    },
-    {
       "module": "mi300_4: DeepSeek V2-Lite Sync EPLB Accuracy (4xH100-4xMI300)",
       "avg_pass_rate": 0.6,
       "total_tests": 1,
@@ -2193,14 +2201,6 @@
       "passing": 0
     },
     {
-      "module": "mi300_4: Rust Frontend Distributed",
-      "avg_pass_rate": 0.6,
-      "total_tests": 2,
-      "failing": 1,
-      "flaky": 0,
-      "passing": 1
-    },
-    {
       "module": "mi300_8: Distributed Tests (8xH100-8xMI300)",
       "avg_pass_rate": 0.6,
       "total_tests": 1,
@@ -2235,8 +2235,8 @@
       "build_number": 10938,
       "date": "2026-07-16",
       "pass_rate": 0.9958,
-      "total": 89611,
-      "failed": 223
+      "total": 90248,
+      "failed": 222
     },
     {
       "build_number": 10836,

@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-07-16T19:36:00Z",
+  "generated_at": "2026-07-16T20:37:08Z",
   "amd_date": "2026-07-16",
   "upstream_date": "2026-07-16",
   "parity_pct": 0.0,
-  "total_tests": 732,
+  "total_tests": 735,
   "summary": {
     "upstream_only": 404,
-    "amd_only": 328
+    "amd_only": 331
   },
   "by_module": {
     "2 Node Test (4 GPUs)": {
@@ -1321,10 +1321,6 @@
       "parity_pct": 100.0,
       "amd_only": 1
     },
-    "mi300_1: Entrypoints Integration (API Server)": {
-      "parity_pct": 100.0,
-      "amd_only": 3
-    },
     "mi300_1: Entrypoints Integration (LLM)": {
       "parity_pct": 100.0,
       "amd_only": 1
@@ -1363,7 +1359,7 @@
     },
     "mi300_1: GGUF Plugin": {
       "parity_pct": 100.0,
-      "amd_only": 1
+      "amd_only": 2
     },
     "mi300_1: Kernels Attention Test 1": {
       "parity_pct": 100.0,
@@ -1543,7 +1539,7 @@
     },
     "mi300_1: Quantization": {
       "parity_pct": 100.0,
-      "amd_only": 1
+      "amd_only": 3
     },
     "mi300_1: Quantized Models Test": {
       "parity_pct": 100.0,
@@ -1575,7 +1571,7 @@
     },
     "mi300_1: Rust Frontend Tool Use": {
       "parity_pct": 100.0,
-      "amd_only": 1
+      "amd_only": 2
     },
     "mi300_1: Samplers Test": {
       "parity_pct": 100.0,
@@ -1615,11 +1611,11 @@
     },
     "mi300_1: Transformers Nightly Models (Shardable) 4": {
       "parity_pct": 100.0,
-      "amd_only": 1
+      "amd_only": 2
     },
     "mi300_1: Transformers Nightly Models (Single)": {
       "parity_pct": 100.0,
-      "amd_only": 1
+      "amd_only": 2
     },
     "mi300_1: V1 Core + KV + Metrics": {
       "parity_pct": 100.0,
@@ -4224,17 +4220,17 @@
       "name": "entrypoints integration (api server)",
       "family_key": "entrypoints integration (api server)",
       "family_name": "entrypoints integration (api server)",
-      "amd_job_name": "mi300_1: Entrypoints Integration (API Server)",
+      "amd_job_name": "mi355_1: Entrypoints Integration (API Server)",
       "upstream_job_name": "Entrypoints Integration (API Server)",
       "amd": {
-        "total": 250,
-        "passed": 246,
-        "failed": 1,
-        "skipped": 3,
+        "total": 94,
+        "passed": 94,
+        "failed": 0,
+        "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2742.3100000000004
+        "duration": 461.51
       },
       "upstream": {
         "total": 94,
@@ -4251,18 +4247,10 @@
         "mi300",
         "mi355"
       ],
-      "hw_failures": {
-        "mi300": 1
-      },
+      "hw_failures": null,
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
-        {
-          "hw": "mi300",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/10938/steps/canvas?sid=019f6a27-b2a0-4ff6-9a65-a7163dd61f91&tab=output",
-          "job_name": "mi300_1: Entrypoints Integration (API Server)",
-          "side": "amd"
-        },
         {
           "hw": "mi355",
           "url": "https://buildkite.com/vllm/amd-ci/builds/10938/steps/canvas?sid=019f6a27-b353-45e4-b77b-1b37cc19bf5d&tab=output",
@@ -4277,13 +4265,16 @@
         }
       ],
       "delta": {
-        "total": 156,
-        "passed": 152,
-        "failed": 1,
-        "skipped": 3
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0
       },
       "status": "both",
-      "backfilled": false
+      "backfilled": false,
+      "hw_backfilled": {
+        "mi300": true
+      }
     },
     {
       "name": "entrypoints integration (llm)",
@@ -4998,14 +4989,14 @@
       "amd_job_name": "mi300_1: GGUF Plugin",
       "upstream_job_name": "GGUF Plugin",
       "amd": {
-        "total": 1,
-        "passed": 1,
+        "total": 6,
+        "passed": 4,
         "failed": 0,
-        "skipped": 0,
+        "skipped": 2,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 1629.59
       },
       "upstream": {
         "total": 6,
@@ -5039,10 +5030,10 @@
         }
       ],
       "delta": {
-        "total": -5,
-        "passed": -3,
+        "total": 0,
+        "passed": 0,
         "failed": 0,
-        "skipped": -2
+        "skipped": 0
       },
       "status": "both",
       "backfilled": false
@@ -5347,7 +5338,7 @@
       "name": "kernels attention test",
       "family_key": "kernels attention test",
       "family_name": "kernels attention test",
-      "amd_job_name": "mi300_1: Kernels Attention Test 1",
+      "amd_job_name": "mi300_1: Kernels Attention Test 2",
       "upstream_job_name": "Kernels Attention Test 2",
       "amd": {
         "total": 13400,
@@ -5357,7 +5348,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 12636.28
+        "duration": 12636.279999999999
       },
       "upstream": {
         "total": 7817,
@@ -5383,13 +5374,13 @@
         {
           "hw": "mi300",
           "url": "https://buildkite.com/vllm/amd-ci/builds/10938/steps/canvas?sid=019f6a27-b2ca-4e52-8e8d-c351d4966423&tab=output",
-          "job_name": "mi300_1: Kernels Attention Test 1",
+          "job_name": "mi300_1: Kernels Attention Test 2",
           "side": "amd"
         },
         {
           "hw": "mi355",
           "url": "https://buildkite.com/vllm/amd-ci/builds/10938/steps/canvas?sid=019f6a27-b364-400f-a68c-9f5a441ddbd3&tab=output",
-          "job_name": "mi355_1: Kernels Attention Test 2",
+          "job_name": "mi355_1: Kernels Attention Test 1",
           "side": "amd"
         },
         {
@@ -5792,7 +5783,7 @@
         {
           "hw": "mi355",
           "url": "https://buildkite.com/vllm/amd-ci/builds/10938/steps/canvas?sid=019f6a27-b365-4d44-b92b-e477ca4bebd0&tab=output",
-          "job_name": "mi355_1: Kernels MoE Test 2",
+          "job_name": "mi355_1: Kernels MoE Test 1",
           "side": "amd"
         },
         {
@@ -5857,7 +5848,7 @@
         {
           "hw": "mi355",
           "url": "https://buildkite.com/vllm/amd-ci/builds/10938/steps/canvas?sid=019f6a27-b366-4184-9af9-a1cc308a1f19&tab=output",
-          "job_name": "mi355_1: Kernels Quantization Test 1",
+          "job_name": "mi355_1: Kernels Quantization Test 2",
           "side": "amd"
         },
         {
@@ -6125,7 +6116,7 @@
       "name": "language models tests (extra standard)",
       "family_key": "language models tests (extra standard)",
       "family_name": "language models tests (extra standard)",
-      "amd_job_name": "mi300_1: Language Models Tests (Extra Standard) 1",
+      "amd_job_name": "mi300_1: Language Models Tests (Extra Standard) 2",
       "upstream_job_name": "Language Models Tests (Extra Standard) 1",
       "amd": {
         "total": 19,
@@ -6158,7 +6149,7 @@
         {
           "hw": "mi300",
           "url": "https://buildkite.com/vllm/amd-ci/builds/10938/steps/canvas?sid=019f6a27-b2e3-48cb-9ffd-d5da79e3e635&tab=output",
-          "job_name": "mi300_1: Language Models Tests (Extra Standard) 1",
+          "job_name": "mi300_1: Language Models Tests (Extra Standard) 2",
           "side": "amd"
         },
         {
@@ -7941,7 +7932,7 @@
       "name": "multi-modal processor (cpu)",
       "family_key": "multi-modal processor (cpu)",
       "family_name": "multi-modal processor (cpu)",
-      "amd_job_name": "mi300_1: Multi-Modal Processor (CPU) 2",
+      "amd_job_name": "mi300_1: Multi-Modal Processor (CPU) 1",
       "upstream_job_name": "Multi-Modal Processor (CPU) 1",
       "amd": {
         "total": 1118,
@@ -7974,7 +7965,7 @@
         {
           "hw": "mi300",
           "url": "https://buildkite.com/vllm/amd-ci/builds/10938/steps/canvas?sid=019f6a27-b2f1-412d-aa37-6eca12106807&tab=output",
-          "job_name": "mi300_1: Multi-Modal Processor (CPU) 2",
+          "job_name": "mi300_1: Multi-Modal Processor (CPU) 1",
           "side": "amd"
         },
         {
@@ -8336,14 +8327,14 @@
       "amd_job_name": "mi300_2: Plugin Tests (2 GPUs)",
       "upstream_job_name": "Plugin Tests (2 GPUs)",
       "amd": {
-        "total": 1,
-        "passed": 1,
+        "total": 10,
+        "passed": 10,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 8.3
       },
       "upstream": {
         "total": 10,
@@ -8377,8 +8368,8 @@
         }
       ],
       "delta": {
-        "total": -9,
-        "passed": -9,
+        "total": 0,
+        "passed": 0,
         "failed": 0,
         "skipped": 0
       },
@@ -8734,14 +8725,14 @@
       "amd_job_name": "mi300_1: Quantization",
       "upstream_job_name": "Quantization",
       "amd": {
-        "total": 438,
-        "passed": 390,
+        "total": 874,
+        "passed": 777,
         "failed": 5,
-        "skipped": 43,
+        "skipped": 92,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3031.38
+        "duration": 8906.74
       },
       "upstream": {
         "total": 430,
@@ -8785,10 +8776,10 @@
         }
       ],
       "delta": {
-        "total": 8,
-        "passed": -4,
+        "total": 444,
+        "passed": 383,
         "failed": 5,
-        "skipped": 7
+        "skipped": 56
       },
       "status": "both",
       "backfilled": false
@@ -9431,7 +9422,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 158.96
       },
       "upstream": {
         "total": 1,
@@ -9480,14 +9471,14 @@
       "amd_job_name": "mi300_4: Rust Frontend Distributed",
       "upstream_job_name": "Rust Frontend Distributed",
       "amd": {
-        "total": 1,
-        "passed": 1,
+        "total": 2,
+        "passed": 2,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 111.11
       },
       "upstream": {
         "total": 2,
@@ -9521,8 +9512,8 @@
         }
       ],
       "delta": {
-        "total": -1,
-        "passed": -1,
+        "total": 0,
+        "passed": 0,
         "failed": 0,
         "skipped": 0
       },
@@ -9543,7 +9534,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 111.38
       },
       "upstream": {
         "total": 1,
@@ -9592,14 +9583,14 @@
       "amd_job_name": "mi300_1: Rust Frontend Serve Admin Coverage",
       "upstream_job_name": "Rust Frontend Serve/Admin Coverage",
       "amd": {
-        "total": 1,
-        "passed": 1,
+        "total": 5,
+        "passed": 5,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 78.09
       },
       "upstream": {
         "total": 5,
@@ -9633,8 +9624,8 @@
         }
       ],
       "delta": {
-        "total": -4,
-        "passed": -4,
+        "total": 0,
+        "passed": 0,
         "failed": 0,
         "skipped": 0
       },
@@ -9648,14 +9639,14 @@
       "amd_job_name": "mi300_1: Rust Frontend Tool Use",
       "upstream_job_name": "Rust Frontend Tool Use",
       "amd": {
-        "total": 1,
-        "passed": 1,
+        "total": 256,
+        "passed": 204,
         "failed": 0,
-        "skipped": 0,
+        "skipped": 52,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 260.83
       },
       "upstream": {
         "total": 256,
@@ -9689,10 +9680,10 @@
         }
       ],
       "delta": {
-        "total": -255,
-        "passed": -203,
+        "total": 0,
+        "passed": 0,
         "failed": 0,
-        "skipped": -52
+        "skipped": 0
       },
       "status": "both",
       "backfilled": false
@@ -10054,14 +10045,14 @@
       "amd_job_name": "mi300_1: Transformers Nightly Models (Shardable) 1",
       "upstream_job_name": null,
       "amd": {
-        "total": 292,
-        "passed": 288,
-        "failed": 3,
+        "total": 373,
+        "passed": 369,
+        "failed": 4,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
-        "error": 1,
-        "duration": 9238.75
+        "error": 0,
+        "duration": 11844.76
       },
       "upstream": null,
       "hardware": [
@@ -10090,14 +10081,14 @@
       "amd_job_name": "mi300_1: Transformers Nightly Models (Single)",
       "upstream_job_name": null,
       "amd": {
-        "total": 1,
-        "passed": 1,
+        "total": 3,
+        "passed": 2,
         "failed": 0,
-        "skipped": 0,
+        "skipped": 1,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 2.94
       },
       "upstream": null,
       "hardware": [
@@ -15384,24 +15375,6 @@
       "category": "amd_only"
     },
     {
-      "test_id": "mi300_1: Entrypoints Integration (API Server)::__passed__",
-      "amd_status": "passed",
-      "upstream_status": "missing",
-      "category": "amd_only"
-    },
-    {
-      "test_id": "mi300_1: Entrypoints Integration (API Server)::__skipped__",
-      "amd_status": "skipped",
-      "upstream_status": "missing",
-      "category": "amd_only"
-    },
-    {
-      "test_id": "mi300_1: Entrypoints Integration (API Server)::__unidentified_failures__",
-      "amd_status": "failed",
-      "upstream_status": "missing",
-      "category": "amd_only"
-    },
-    {
       "test_id": "mi300_1: Entrypoints Integration (LLM)::__passed__",
       "amd_status": "passed",
       "upstream_status": "missing",
@@ -15498,8 +15471,14 @@
       "category": "amd_only"
     },
     {
-      "test_id": "mi300_1: GGUF Plugin::__job_level__",
+      "test_id": "mi300_1: GGUF Plugin::__passed__",
       "amd_status": "passed",
+      "upstream_status": "missing",
+      "category": "amd_only"
+    },
+    {
+      "test_id": "mi300_1: GGUF Plugin::__skipped__",
+      "amd_status": "skipped",
       "upstream_status": "missing",
       "category": "amd_only"
     },
@@ -15942,7 +15921,19 @@
       "category": "amd_only"
     },
     {
-      "test_id": "mi300_1: Quantization::__job_level__",
+      "test_id": "mi300_1: Quantization::__passed__",
+      "amd_status": "passed",
+      "upstream_status": "missing",
+      "category": "amd_only"
+    },
+    {
+      "test_id": "mi300_1: Quantization::__skipped__",
+      "amd_status": "skipped",
+      "upstream_status": "missing",
+      "category": "amd_only"
+    },
+    {
+      "test_id": "mi300_1: Quantization::__unidentified_failures__",
       "amd_status": "failed",
       "upstream_status": "missing",
       "category": "amd_only"
@@ -15978,26 +15969,32 @@
       "category": "amd_only"
     },
     {
-      "test_id": "mi300_1: Rust Frontend Core Correctness::__job_level__",
+      "test_id": "mi300_1: Rust Frontend Core Correctness::__passed__",
       "amd_status": "passed",
       "upstream_status": "missing",
       "category": "amd_only"
     },
     {
-      "test_id": "mi300_1: Rust Frontend OpenAI Coverage::__job_level__",
+      "test_id": "mi300_1: Rust Frontend OpenAI Coverage::__passed__",
       "amd_status": "passed",
       "upstream_status": "missing",
       "category": "amd_only"
     },
     {
-      "test_id": "mi300_1: Rust Frontend Serve Admin Coverage::__job_level__",
+      "test_id": "mi300_1: Rust Frontend Serve Admin Coverage::__passed__",
       "amd_status": "passed",
       "upstream_status": "missing",
       "category": "amd_only"
     },
     {
-      "test_id": "mi300_1: Rust Frontend Tool Use::__job_level__",
+      "test_id": "mi300_1: Rust Frontend Tool Use::__passed__",
       "amd_status": "passed",
+      "upstream_status": "missing",
+      "category": "amd_only"
+    },
+    {
+      "test_id": "mi300_1: Rust Frontend Tool Use::__skipped__",
+      "amd_status": "skipped",
       "upstream_status": "missing",
       "category": "amd_only"
     },
@@ -16092,14 +16089,26 @@
       "category": "amd_only"
     },
     {
-      "test_id": "mi300_1: Transformers Nightly Models (Shardable) 4::__job_level__",
-      "amd_status": "error",
+      "test_id": "mi300_1: Transformers Nightly Models (Shardable) 4::__passed__",
+      "amd_status": "passed",
       "upstream_status": "missing",
       "category": "amd_only"
     },
     {
-      "test_id": "mi300_1: Transformers Nightly Models (Single)::__job_level__",
+      "test_id": "mi300_1: Transformers Nightly Models (Shardable) 4::__unidentified_failures__",
+      "amd_status": "failed",
+      "upstream_status": "missing",
+      "category": "amd_only"
+    },
+    {
+      "test_id": "mi300_1: Transformers Nightly Models (Single)::__passed__",
       "amd_status": "passed",
+      "upstream_status": "missing",
+      "category": "amd_only"
+    },
+    {
+      "test_id": "mi300_1: Transformers Nightly Models (Single)::__skipped__",
+      "amd_status": "skipped",
       "upstream_status": "missing",
       "category": "amd_only"
     },
@@ -16278,7 +16287,7 @@
       "category": "amd_only"
     },
     {
-      "test_id": "mi300_2: Plugin Tests (2 GPUs)::__job_level__",
+      "test_id": "mi300_2: Plugin Tests (2 GPUs)::__passed__",
       "amd_status": "passed",
       "upstream_status": "missing",
       "category": "amd_only"
@@ -16416,7 +16425,7 @@
       "category": "amd_only"
     },
     {
-      "test_id": "mi300_4: Rust Frontend Distributed::__job_level__",
+      "test_id": "mi300_4: Rust Frontend Distributed::__passed__",
       "amd_status": "passed",
       "upstream_status": "missing",
       "category": "amd_only"
