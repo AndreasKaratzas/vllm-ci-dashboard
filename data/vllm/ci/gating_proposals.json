@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-16T15:25:46Z",
+  "generated_at": "2026-07-16T16:57:04Z",
   "source_repo": "vllm-project/vllm",
   "tracked_authors": [
     "AndreasKaratzas",
@@ -17,15 +17,16 @@
     "tracked_author_count": 10,
     "scanned_pr_count": 1,
     "proposal_pr_count": 1,
-    "proposed_group_count": 15,
+    "proposed_group_count": 17,
     "by_device": {
-      "mi250_1": 2,
+      "mi250_1": 3,
       "mi250_2": 1,
       "mi300_1": 10,
+      "mi300_2": 1,
       "mi325_1": 2
     },
     "by_author": {
-      "AndreasKaratzas": 15
+      "AndreasKaratzas": 17
     }
   },
   "collection": {
@@ -38,7 +39,7 @@
     "since_date": "2026-06-11",
     "fresh_candidate_count": 0,
     "candidate_cache": {
-      "generated_at": "2026-07-16T15:25:46Z",
+      "generated_at": "2026-07-16T16:57:04Z",
       "pr_count": 1,
       "proposal_pr_numbers": [
         44969
@@ -52,19 +53,21 @@
           "author": "AndreasKaratzas",
           "state": "open",
           "created_at": "2026-06-09T06:56:07Z",
-          "updated_at": "2026-07-16T15:24:25Z",
-          "checked_at": "2026-07-16T15:25:46Z",
+          "updated_at": "2026-07-16T16:24:21Z",
+          "checked_at": "2026-07-16T16:57:04Z",
           "has_new_mirrors": true,
-          "new_mirror_count": 15,
-          "head_sha": "5779f90fc186b051407fd2651e4d082cfe86b16a",
+          "new_mirror_count": 17,
+          "head_sha": "2e1a75756755dff2831d4f9b99d195b4b62be5ad",
           "new_mirror_labels": [
             "Cudagraph",
+            "Docker Build Metadata",
             "Entrypoints Unit Tests",
             "Entrypoints Integration (Responses API)",
             "Entrypoints Integration (Multimodal)",
             "Kernels Mamba Test",
             "Kernels Helion Test",
             "Async Engine, Inputs, Utils, Worker",
+            "Model Runner V2 Distributed (2 GPUs)",
             "Language Models Test (Extended Generation)",
             "Language Models Test (PPL)",
             "Language Models Test (MTEB)",
@@ -88,12 +91,12 @@
       "api_url": "https://api.github.com/repos/vllm-project/vllm/pulls/44969",
       "author": "AndreasKaratzas",
       "head_ref": "akaratza_stage_d_gating",
-      "head_sha": "5779f90fc186b051407fd2651e4d082cfe86b16a",
+      "head_sha": "2e1a75756755dff2831d4f9b99d195b4b62be5ad",
       "base_ref": "main",
       "base_sha": "75bdad40b5e96517c7f7645ce3199a8557817e17",
-      "updated_at": "2026-07-16T15:24:25Z",
+      "updated_at": "2026-07-16T16:24:21Z",
       "created_at": "2026-06-09T06:56:07Z",
-      "new_mirror_count": 15,
+      "new_mirror_count": 17,
       "new_mirrors": [
         {
           "identity": "cudagraph",
@@ -110,6 +113,28 @@
             "vllm/config/compilation.py",
             "vllm/compilation",
             "vllm/platforms/rocm.py"
+          ]
+        },
+        {
+          "identity": "docker-build-metadata",
+          "label": "Docker Build Metadata",
+          "key": "",
+          "area": "Docker",
+          "yaml_file": ".buildkite/test_areas/docker.yaml",
+          "yaml_index": 0,
+          "device": "mi250_1",
+          "timeout_in_minutes": 180,
+          "source_file_dependencies": [
+            "buildkite/scripts/docker-build-metadata-args.sh",
+            "buildkite/scripts/ci-bake-rocm.sh",
+            "docker/Dockerfile",
+            "docker/Dockerfile.cpu",
+            "docker/Dockerfile.rocm",
+            "docker/Dockerfile.rocm_base",
+            "docker/ci-rocm.hcl",
+            "docker/docker-bake.hcl",
+            "docker/docker-bake-rocm.hcl",
+            "tests/tools/test_docker_build_metadata_args.py"
           ]
         },
         {
@@ -210,6 +235,24 @@
             "tests/detokenizer",
             "tests/multimodal",
             "tests/utils_"
+          ]
+        },
+        {
+          "identity": "model-runner-v2-distributed-2-gpus",
+          "label": "Model Runner V2 Distributed (2 GPUs)",
+          "key": "model-runner-v2-distributed-2-gpus",
+          "area": "Model Runner V2",
+          "yaml_file": ".buildkite/test_areas/model_runner_v2.yaml",
+          "yaml_index": 2,
+          "device": "mi300_2",
+          "timeout_in_minutes": 180,
+          "source_file_dependencies": [
+            "vllm/v1/worker/gpu/",
+            "vllm/v1/worker/gpu_worker.py",
+            "tests/basic_correctness/test_basic_correctness.py",
+            "tests/v1/distributed/test_async_llm_dp.py",
+            "tests/v1/distributed/test_eagle_dp.py",
+            "vllm/platforms/rocm.py"
           ]
         },
         {

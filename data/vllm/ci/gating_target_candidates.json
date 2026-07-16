@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-16T15:25:54Z",
+  "generated_at": "2026-07-16T16:57:19Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -23,15 +23,15 @@
     "upstream_build": 78348,
     "amd_ci_build": 10938,
     "canonical_target_count": 125,
-    "row_count": 233,
+    "row_count": 234,
     "canonical_match_count": 107,
     "likely_duplicate_count": 18,
     "new_candidate_count": 53,
-    "excluded_count": 45,
+    "excluded_count": 46,
     "missing_from_upstream_count": 10,
     "by_decision": {
       "canonical": 107,
-      "excluded": 45,
+      "excluded": 46,
       "likely_duplicate": 18,
       "missing_from_upstream": 10,
       "new_candidate": 53
@@ -496,9 +496,9 @@
     {
       "label": "Entrypoints Integration (API Server OpenAI - Part 1)",
       "canonical_key": "entrypoints integration (api server openai - part 1)",
-      "state": "failed",
+      "state": "passed",
       "queue": "gpu_1_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/78348/steps/canvas?jid=019f6984-1b86-42a1-a028-a5f5348d6d44&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/78348/steps/canvas?jid=019f6b9a-3a3e-4de9-b071-2013e6aa2199&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 108,
@@ -828,7 +828,7 @@
       "canonical_key": "kernels core operation test",
       "state": "passed",
       "queue": "gpu_1_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/78348/steps/canvas?jid=019f6984-1c11-4927-81bd-70561ed1cea4&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/78348/steps/canvas?jid=019f6984-1c12-47b3-8b4a-2a177f1af20a&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 7,
@@ -3025,9 +3025,9 @@
     {
       "label": "Distributed Tests (8xH100)",
       "canonical_key": "distributed test (8 gpus)",
-      "state": "failed",
+      "state": "passed",
       "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/78348/steps/canvas?jid=019f6984-1b65-47b1-8b46-8f145721c487&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/78348/steps/canvas?jid=019f6b9a-3864-436d-a057-20e54be07190&tab=output",
       "exclusion_reasons": [],
       "decision": "likely_duplicate",
       "duplicate_of": "Distributed Tests (8 GPUs)(H100)",
@@ -3159,7 +3159,7 @@
       "canonical_key": "v1 attention",
       "state": "passed",
       "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/78348/steps/canvas?jid=019f6984-1b10-42e1-9d8c-586ff1ef9ca1&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/78348/steps/canvas?jid=019f6984-1b14-4b47-84cd-585f19bed6a8&tab=output",
       "exclusion_reasons": [],
       "decision": "likely_duplicate",
       "duplicate_of": "V1 attention (H100-MI300)",
@@ -3169,9 +3169,9 @@
     {
       "label": "Arm CPU Test",
       "canonical_key": "arm cpu test",
-      "state": "failed",
+      "state": "passed",
       "queue": "arm-cpu",
-      "url": "https://buildkite.com/vllm/ci/builds/78348/steps/canvas?jid=019f6984-1b28-4518-a53d-dca15e0c318b&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/78348/steps/canvas?jid=019f6b9a-3501-458f-9949-c36a6c2f765d&tab=output",
       "exclusion_reasons": [
         "cpu_or_non_gpu"
       ],
@@ -3328,6 +3328,17 @@
       "url": "https://buildkite.com/vllm/ci/builds/78348/steps/canvas?jid=019f6984-1b34-4ab2-9089-4bec4becacbd&tab=output",
       "exclusion_reasons": [
         "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "GPQA Eval (GPT-OSS) (DGX Spark)",
+      "canonical_key": "gpqa eval (gpt-oss) (dgx spark)",
+      "state": "failed",
+      "queue": "dgx-spark",
+      "url": "https://buildkite.com/vllm/ci/builds/78348/steps/canvas?jid=019f6984-1c27-4740-9d38-5421c711af81&tab=output",
+      "exclusion_reasons": [
+        "not_gpu_like"
       ],
       "decision": "excluded"
     },
