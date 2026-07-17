@@ -723,10 +723,21 @@ def test_omni_is_all_fleet_and_never_infers_unsupported_history():
     assert "no Omni history is inferred" in OPS_JS
     assert "All-fleet running" in OPS_JS
     assert "AMD running" in OPS_JS
+    assert "const excludedPending = pendingLedger.filter" in OPS_JS
+    assert "Inspect excluded stale jobs" in OPS_JS
     jobs = OPS_DATA["omni"]["current_jobs"]
     current = OPS_DATA["omni"]["current"]
-    assert len(jobs["pending"]) == current["waiting"]
-    assert len(jobs["running"]) == current["running"]
+    active_pending = [job for job in jobs["pending"] if not job.get("analysis_excluded")]
+    active_running = [job for job in jobs["running"] if not job.get("analysis_excluded")]
+    excluded = [
+        job
+        for state in ("pending", "running")
+        for job in jobs[state]
+        if job.get("analysis_excluded")
+    ]
+    assert len(active_pending) == current["waiting"]
+    assert len(active_running) == current["running"]
+    assert all(job.get("exclusion_reason") for job in excluded)
     assert all(
         job.get("workload") == "omni"
         and job.get("url", "").startswith("https://buildkite.com/")

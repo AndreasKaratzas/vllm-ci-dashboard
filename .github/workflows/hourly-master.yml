@@ -329,8 +329,15 @@ jobs:
           EXIT_CODE=${PIPESTATUS[0]}
           set -e
           SUMMARY=$(tail -1 test-output.txt)
+          FAILURES=$(grep -E '^(FAILED|ERROR) ' test-output.txt | tail -50 || true)
+          if [ -z "$FAILURES" ]; then FAILURES="No concise failure summary captured."; fi
           echo "summary=$SUMMARY" >> "$GITHUB_OUTPUT"
           echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+          {
+            echo "failures<<TESTEOF"
+            echo "$FAILURES"
+            echo "TESTEOF"
+          } >> "$GITHUB_OUTPUT"
           OUTPUT=$(tail -200 test-output.txt)
           {
             echo "output<<TESTEOF"
@@ -409,6 +416,7 @@ jobs:
         with:
           script: |
             const summary = ${{ toJSON(steps.run-tests.outputs.summary) }} || 'Unknown';
+            const failures = ${{ toJSON(steps.run-tests.outputs.failures) }} || 'No concise failure summary captured.';
             const output = ${{ toJSON(steps.run-tests.outputs.output) }} || 'No output captured';
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const date = new Date().toISOString().slice(0, 10);
@@ -418,6 +426,12 @@ jobs:
               '',
               `**Summary:** \`${summary}\``,
               `**Run:** ${runUrl}`,
+              '',
+              '**Failing tests:**',
+              '',
+              '```text',
+              failures.slice(0, 8000),
+              '```',
               '',
               '<details><summary>Full test output (last 200 lines)</summary>',
               '',

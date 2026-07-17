@@ -279,6 +279,12 @@ class TestHourlyMasterWorkflow:
         assert "assignees: [context.repo.owner]" in text
         assert "cc @${context.repo.owner} for visibility." in text
 
+    def test_test_failure_issue_leads_with_concise_failed_test_names(self):
+        text = _load_workflow_text("hourly-master.yml")
+        assert "grep -E '^(FAILED|ERROR) ' test-output.txt" in text
+        assert "steps.run-tests.outputs.failures" in text
+        assert "**Failing tests:**" in text
+
 
 class TestNoOrphanedCronSchedules:
     """Ensure only the approved collectors own recurring cron schedules."""

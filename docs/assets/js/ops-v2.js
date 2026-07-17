@@ -6729,29 +6729,34 @@
     add(host, pageHeader('Omni', 'All current vLLM-Omni demand across the fleet, split into AMD and non-AMD execution scopes.', (omni.provenance || {}).queue_snapshot_ts, externalLink('Open Omni source', SOURCE_ASSETS.operations, 'ops-button')));
     const waitingByQueue = current.waiting_by_queue || {};
     const runningByQueue = current.running_by_queue || {};
-    const pending = (jobs.pending || []).filter(function (job) { return !isRetiredQueue(job.queue); });
-    const running = (jobs.running || []).filter(function (job) { return !isRetiredQueue(job.queue); });
+    const pendingLedger = (jobs.pending || []).filter(function (job) { return !isRetiredQueue(job.queue); });
+    const runningLedger = (jobs.running || []).filter(function (job) { return !isRetiredQueue(job.queue); });
+    const pending = pendingLedger.filter(function (job) { return !job.analysis_excluded; });
+    const running = runningLedger.filter(function (job) { return !job.analysis_excluded; });
+    const excludedPending = pendingLedger.filter(function (job) { return job.analysis_excluded; });
+    const excludedRunning = runningLedger.filter(function (job) { return job.analysis_excluded; });
+    const excludedJobs = excludedPending.concat(excludedRunning);
     const activeJobs = pending.concat(running);
     const affected = new Set(Object.keys(waitingByQueue).concat(Object.keys(runningByQueue)).concat(activeJobs.map(function (job) { return job.queue || 'unknown'; })).filter(function (name) { return !isRetiredQueue(name); }));
     const amdPending = pending.filter(function (job) { return isAmdQueue(job.queue); });
     const amdRunning = running.filter(function (job) { return isAmdQueue(job.queue); });
     const nonAmdPending = pending.filter(function (job) { return !isAmdQueue(job.queue); });
     const nonAmdRunning = running.filter(function (job) { return !isAmdQueue(job.queue); });
-    function openJobsEvidence(title, rows) {
+    function openJobsEvidence(title, rows, evidenceNote) {
       if (!rows.length) {
-        openMetricDetail({label: title, value: 0, meta: 'No exact active jobs in this scope.', sources: [{label: 'Open published Omni snapshot', url: SOURCE_ASSETS.operations}]});
+        openMetricDetail({label: title, value: 0, meta: 'No source-backed jobs in this scope.', sources: [{label: 'Open published Omni snapshot', url: SOURCE_ASSETS.operations}]});
         return;
       }
-      openHistoryEvidence(title, rows.map(function (job) { return {id: job.job_id, label: job.name || 'Unnamed Omni job', timestamp: job.created_at || job.scheduled_at || job.started_at, valueSummary: value(job.state) + ' on ' + value(job.queue), url: job.url, details: {queue: job.queue, state: job.state, pipeline: job.pipeline, build: job.build}}; }), 'Every active job links to its exact Buildkite source', SOURCE_ASSETS.operations);
+      openHistoryEvidence(title, rows.map(function (job) { return {id: job.job_id, label: job.name || 'Unnamed Omni job', timestamp: job.created_at || job.scheduled_at || job.started_at, valueSummary: value(job.state) + ' on ' + value(job.queue), url: job.url, details: {queue: job.queue, state: job.state, pipeline: job.pipeline, build: job.build, exclusion_reason: job.exclusion_reason || null}}; }), evidenceNote || 'Every active job links to its exact Buildkite source', SOURCE_ASSETS.operations);
     }
     host.append(statusStrip([
-      {id: 'omni-all-jobs', label: 'ALL-FLEET ACTIVE JOBS', value: integer(activeJobs.length), meta: integer(pending.length) + ' waiting - ' + integer(running.length) + ' running', tone: pending.length ? 'is-warning' : 'is-neutral', onOpen: function () { openJobsEvidence('All-fleet active Omni jobs', activeJobs); }},
+      {id: 'omni-all-jobs', label: 'ALL-FLEET ACTIVE JOBS', value: integer(activeJobs.length), meta: integer(pending.length) + ' waiting - ' + integer(running.length) + ' running; ' + integer(excludedJobs.length) + ' stale excluded', tone: pending.length ? 'is-warning' : 'is-neutral', onOpen: function () { openJobsEvidence('All-fleet active Omni jobs', activeJobs); }},
       {id: 'omni-amd-jobs', label: 'AMD ACTIVE JOBS', value: integer(amdPending.length + amdRunning.length), meta: integer(amdPending.length) + ' waiting - ' + integer(amdRunning.length) + ' running', onOpen: function () { openJobsEvidence('AMD active Omni jobs', amdPending.concat(amdRunning)); }},
       {id: 'omni-non-amd-jobs', label: 'NON-AMD ACTIVE JOBS', value: integer(nonAmdPending.length + nonAmdRunning.length), meta: integer(nonAmdPending.length) + ' waiting - ' + integer(nonAmdRunning.length) + ' running', tone: nonAmdPending.length ? 'is-warning' : 'is-info', onOpen: function () { openJobsEvidence('Non-AMD active Omni jobs', nonAmdPending.concat(nonAmdRunning)); }},
       {id: 'omni-queues', label: 'AFFECTED QUEUES', value: integer(affected.size), meta: integer(Array.from(affected).filter(isAmdQueue).length) + ' AMD - ' + integer(Array.from(affected).filter(function (name) { return !isAmdQueue(name); }).length) + ' non-AMD', onOpen: function () { openHistoryEvidence('Omni queue distribution', Array.from(affected).map(function (name) { return {label: name, valueSummary: integer(waitingByQueue[name] || 0) + ' waiting - ' + integer(runningByQueue[name] || 0) + ' running', sources: [{label: 'Open published Omni snapshot', url: SOURCE_ASSETS.operations}], onOpen: function () { openQueueDetail(name, (((ops.queue || {}).snapshot || {}).queues || {})[name] || {}, activeJobs); }}; }), 'Current all-fleet queue distribution', SOURCE_ASSETS.operations); }},
     ]));
     const scopeNote = n('div', 'ops-evidence-note is-info');
-    add(scopeNote, [n('strong', '', 'Collector status: ' + value(omni.status) + '. '), n('span', '', 'The current job ledger is fleet-wide. The configured waiting heuristic (' + integer(heuristic.trigger) + ' trigger) is shown only as collector provenance and is not used to hide non-AMD work.')]);
+    add(scopeNote, [n('strong', '', 'Collector status: ' + value(omni.status) + '. '), n('span', '', 'The current job ledger is fleet-wide. ' + integer(excludedJobs.length) + ' stale jobs are retained as evidence but excluded from active counts and queue analytics. The configured waiting heuristic (' + integer(heuristic.trigger) + ' trigger) is collector provenance only. '), linkButton('Inspect excluded stale jobs', function () { openJobsEvidence('Excluded stale Omni jobs', excludedJobs, 'Jobs beyond the collector age threshold; retained for exact Buildkite review but excluded from active analytics'); }, 'Inspect stale Omni jobs excluded from active analytics')]);
     host.append(scopeNote);
     const queueRows = Array.from(affected).sort().map(function (name) {
       const relatedPending = pending.filter(function (job) { return (job.queue || 'unknown') === name; }).length;

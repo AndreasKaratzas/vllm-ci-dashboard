@@ -214,6 +214,7 @@ class TestBuildkiteTokenIsolation:
         text = _read(WORKFLOWS / "hourly-master.yml")
         data = yaml.safe_load(text)
         allowed_scripts = {
+            "collect_amd_test_matrix.py",
             "collect_queue_snapshot.py",
             "collect_hotness.py",
             "collect_ci.py",
@@ -238,6 +239,12 @@ class TestBuildkiteTokenIsolation:
                     f"BUILDKITE_TOKEN reached unauthorized script {script!r} "
                     f"in step {step.get('name')!r}"
                 )
+
+    def test_amd_matrix_collector_buildkite_access_is_read_only(self):
+        src = _read(ROOT / "scripts" / "vllm" / "collect_amd_test_matrix.py")
+        assert "requests.get(" in src
+        for method in ("post", "put", "patch", "delete"):
+            assert f"requests.{method}(" not in src
 
 
 # ---------------------------------------------------------------------------
