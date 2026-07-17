@@ -791,6 +791,14 @@
       dataTable(columns, preview, integer(preview.length) + ' ' + previewLabel + ' of ' + integer(rows.length), config.geometry || {}),
       config.className || ''
     );
+    if (config.headerActions) {
+      const header = root.firstElementChild;
+      const metaNode = header.querySelector('.ops-panel-meta');
+      const trailing = n('div', 'ops-panel-header-trailing');
+      header.classList.add('has-actions');
+      add(trailing, [config.headerActions, metaNode]);
+      header.append(trailing);
+    }
     if (rows.length > limit || config.alwaysBrowse) {
       const footer = n('footer', 'ops-panel-footer ops-browser-footer');
       add(footer, [
@@ -3052,8 +3060,7 @@
           return linkedBadge(c.latest_state || 'unknown', exactPipelineEvidenceUrl({job_url: c.latest_url}, 'amd-ci'), function () { openGroupDetailWithEvidence({name: r.title, area: r.area}, ops); });
         }});
       }
-      const coverageSortToolbar = n('div', 'ops-toolbar');
-      const coverageSortGroup = n('div', 'ops-toolbar-group');
+      const coverageSortGroup = n('div', 'ops-panel-header-actions');
       const coverageSort = segmented([
         {id: 'platform', label: 'Platform'},
         {id: 'name', label: 'Test group'},
@@ -3062,8 +3069,6 @@
         setRouteState('ci-health', 'healthCoverageSort', sortMode, 'health_sort');
       }, 'Sort AMD test matrix');
       add(coverageSortGroup, [n('span', 'ops-toolbar-label', 'Sort matrix'), coverageSort]);
-      add(coverageSortToolbar, [n('div', 'ops-toolbar-spacer'), coverageSortGroup]);
-      host.append(coverageSortToolbar);
       host.append(compactTablePanel(
         'AMD test matrix details',
         amdMatrixSortDescription(state.healthCoverageSort),
@@ -3072,6 +3077,7 @@
         {
           id: 'coverage-browser',
           limit: 16,
+          headerActions: coverageSortGroup,
           previewLabel: 'sorted rows',
           browserTitle: 'Complete AMD test matrix',
           browserSubtitle: integer(coverageRows.length) + ' group definitions across ' + integer(arch.length) + ' architectures - ' + amdMatrixSortDescription(state.healthCoverageSort),

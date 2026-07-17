@@ -447,10 +447,14 @@ def test_coverage_matrix_supports_route_safe_platform_name_and_area_sorting():
         "{id: 'area', label: 'Test area'}",
         "Sort AMD test matrix",
         "setRouteState('ci-health', 'healthCoverageSort', sortMode, 'health_sort')",
+        "headerActions: coverageSortGroup",
         "previewLabel: 'sorted rows'",
     ):
         assert contract in OPS_JS
     assert "const coverageSort = n('select', 'ops-select')" not in OPS_JS
+    assert "const coverageSortToolbar" not in OPS_JS
+    assert "const coverageSortGroup = n('div', 'ops-panel-header-actions')" in OPS_JS
+    assert ".ops-page .ops-panel-header-trailing" in OPS_CSS
 
 
 def test_authoritative_group_catalog_preserves_id_and_variant_identity():

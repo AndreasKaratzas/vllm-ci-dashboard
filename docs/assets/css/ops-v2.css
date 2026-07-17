@@ -1520,6 +1520,26 @@
   overflow-wrap: anywhere;
 }
 
+.ops-page .ops-panel-header.has-actions {
+  align-items: center;
+}
+
+.ops-page .ops-panel-header-trailing {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.ops-page .ops-panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
 .ops-page .ops-panel-body {
   width: 100%;
   max-width: 100%;
@@ -4515,6 +4535,20 @@ body.ops-overlay-open {
     width: 100%;
     max-width: 100%;
     text-align: left;
+  }
+
+  .ops-page .ops-panel-header-trailing {
+    width: 100%;
+    max-width: 100%;
+    align-items: flex-start;
+    justify-content: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .ops-page .ops-panel-header-actions {
+    width: 100%;
+    overflow-x: auto;
   }
 
   .ops-page .ops-table-scroll,
