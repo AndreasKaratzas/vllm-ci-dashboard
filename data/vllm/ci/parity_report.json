@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-07-17T16:48:05Z",
+  "generated_at": "2026-07-17T18:19:17Z",
   "amd_date": "2026-07-17",
   "upstream_date": "2026-07-17",
   "parity_pct": 0.0,
-  "total_tests": 736,
+  "total_tests": 737,
   "summary": {
     "upstream_only": 418,
-    "amd_only": 318
+    "amd_only": 319
   },
   "by_module": {
     "2 Node Test (4 GPUs)": {
@@ -1529,6 +1529,10 @@
       "parity_pct": 100.0,
       "amd_only": 1
     },
+    "mi300_1: PyTorch Compilation Passes Unit Tests": {
+      "parity_pct": 100.0,
+      "amd_only": 1
+    },
     "mi300_1: PyTorch Compilation Unit Tests": {
       "parity_pct": 100.0,
       "amd_only": 1
@@ -2393,7 +2397,7 @@
       "name": "basic models tests (extra initialization)",
       "family_key": "basic models tests (extra initialization)",
       "family_name": "basic models tests (extra initialization)",
-      "amd_job_name": "mi300_1: Basic Models Tests (Extra Initialization) 1",
+      "amd_job_name": "mi300_1: Basic Models Tests (Extra Initialization) 2",
       "upstream_job_name": "Basic Models Tests (Extra Initialization) 2",
       "amd": {
         "total": 359,
@@ -2426,7 +2430,7 @@
         {
           "hw": "mi300",
           "url": "https://buildkite.com/vllm/amd-ci/builds/10972/steps/canvas?sid=019f6f4e-0046-43c1-b345-46fd120e4c5f&tab=output",
-          "job_name": "mi300_1: Basic Models Tests (Extra Initialization) 1",
+          "job_name": "mi300_1: Basic Models Tests (Extra Initialization) 2",
           "side": "amd"
         },
         {
@@ -5373,7 +5377,7 @@
       "name": "kernels attention test",
       "family_key": "kernels attention test",
       "family_name": "kernels attention test",
-      "amd_job_name": "mi300_1: Kernels Attention Test 1",
+      "amd_job_name": "mi300_1: Kernels Attention Test 2",
       "upstream_job_name": "Kernels Attention Test 2",
       "amd": {
         "total": 13414,
@@ -5409,7 +5413,7 @@
         {
           "hw": "mi300",
           "url": "https://buildkite.com/vllm/amd-ci/builds/10972/steps/canvas?sid=019f6f4e-0037-471c-816f-e6efffb137a7&tab=output",
-          "job_name": "mi300_1: Kernels Attention Test 1",
+          "job_name": "mi300_1: Kernels Attention Test 2",
           "side": "amd"
         },
         {
@@ -5776,7 +5780,7 @@
       "name": "kernels moe test",
       "family_key": "kernels moe test",
       "family_name": "kernels moe test",
-      "amd_job_name": "mi300_1: Kernels MoE Test 3",
+      "amd_job_name": "mi300_1: Kernels MoE Test 1",
       "upstream_job_name": "Kernels MoE Test 1",
       "amd": {
         "total": 14297,
@@ -5812,7 +5816,7 @@
         {
           "hw": "mi300",
           "url": "https://buildkite.com/vllm/amd-ci/builds/10972/steps/canvas?sid=019f6f4e-003a-41a9-b637-420a85f8c32f&tab=output",
-          "job_name": "mi300_1: Kernels MoE Test 3",
+          "job_name": "mi300_1: Kernels MoE Test 1",
           "side": "amd"
         },
         {
@@ -5883,7 +5887,7 @@
         {
           "hw": "mi355",
           "url": "https://buildkite.com/vllm/amd-ci/builds/10972/steps/canvas?sid=019f6f4e-0099-4ce4-8f35-a3beb2df1851&tab=output",
-          "job_name": "mi355_1: Kernels Quantization Test 1",
+          "job_name": "mi355_1: Kernels Quantization Test 2",
           "side": "amd"
         },
         {
@@ -6159,7 +6163,7 @@
       "name": "language models tests (extra standard)",
       "family_key": "language models tests (extra standard)",
       "family_name": "language models tests (extra standard)",
-      "amd_job_name": "mi300_1: Language Models Tests (Extra Standard) 1",
+      "amd_job_name": "mi300_1: Language Models Tests (Extra Standard) 2",
       "upstream_job_name": "Language Models Tests (Extra Standard) 2",
       "amd": {
         "total": 19,
@@ -6192,7 +6196,7 @@
         {
           "hw": "mi300",
           "url": "https://buildkite.com/vllm/amd-ci/builds/10972/steps/canvas?sid=019f6f4e-004b-4a3d-be3e-fabffa0914f9&tab=output",
-          "job_name": "mi300_1: Language Models Tests (Extra Standard) 1",
+          "job_name": "mi300_1: Language Models Tests (Extra Standard) 2",
           "side": "amd"
         },
         {
@@ -6215,7 +6219,7 @@
       "name": "language models tests (hybrid)",
       "family_key": "language models tests (hybrid)",
       "family_name": "language models tests (hybrid)",
-      "amd_job_name": "mi325_1: Language Models Tests (Hybrid) 1",
+      "amd_job_name": "mi325_1: Language Models Tests (Hybrid) 2",
       "upstream_job_name": "Language Models Tests (Hybrid) 1",
       "amd": {
         "total": 41,
@@ -6248,7 +6252,7 @@
         {
           "hw": "mi325",
           "url": "https://buildkite.com/vllm/amd-ci/builds/10972/steps/canvas?sid=019f6f4e-0087-4de6-9e46-1b447ed67bd8&tab=output",
-          "job_name": "mi325_1: Language Models Tests (Hybrid) 1",
+          "job_name": "mi325_1: Language Models Tests (Hybrid) 2",
           "side": "amd"
         },
         {
@@ -7977,7 +7981,7 @@
       "name": "multi-modal processor (cpu)",
       "family_key": "multi-modal processor (cpu)",
       "family_name": "multi-modal processor (cpu)",
-      "amd_job_name": "mi300_1: Multi-Modal Processor (CPU) 1",
+      "amd_job_name": "mi300_1: Multi-Modal Processor (CPU) 2",
       "upstream_job_name": "Multi-Modal Processor (CPU) 1",
       "amd": {
         "total": 1121,
@@ -8010,7 +8014,7 @@
         {
           "hw": "mi300",
           "url": "https://buildkite.com/vllm/amd-ci/builds/10972/steps/canvas?sid=019f6f4e-0054-419d-baa5-5faf1be8307a&tab=output",
-          "job_name": "mi300_1: Multi-Modal Processor (CPU) 1",
+          "job_name": "mi300_1: Multi-Modal Processor (CPU) 2",
           "side": "amd"
         },
         {
@@ -8476,6 +8480,64 @@
         "passed": 0,
         "failed": 1,
         "skipped": 0
+      },
+      "status": "both",
+      "backfilled": false
+    },
+    {
+      "name": "pytorch compilation passes unit tests",
+      "family_key": "pytorch compilation passes unit tests",
+      "family_name": "pytorch compilation passes unit tests",
+      "amd_job_name": "mi300_1: PyTorch Compilation Passes Unit Tests",
+      "upstream_job_name": "PyTorch Compilation Passes Unit Tests",
+      "amd": {
+        "total": 1,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 1,
+        "duration": 0.0
+      },
+      "upstream": {
+        "total": 6322,
+        "passed": 394,
+        "failed": 0,
+        "skipped": 5928,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 1809.32
+      },
+      "hardware": [
+        "h100",
+        "mi300"
+      ],
+      "hw_failures": {
+        "mi300": 1
+      },
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "mi300",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/10972/steps/canvas?sid=019f6f4e-0006-467d-9825-2ed71b4ff0d5&tab=output",
+          "job_name": "mi300_1: PyTorch Compilation Passes Unit Tests",
+          "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/78541/steps/canvas?jid=019f6eaa-477e-474c-8adc-ed900e10d21c&tab=output",
+          "job_name": "PyTorch Compilation Passes Unit Tests",
+          "side": "upstream"
+        }
+      ],
+      "delta": {
+        "total": -6321,
+        "passed": -394,
+        "failed": 0,
+        "skipped": -5928
       },
       "status": "both",
       "backfilled": false
@@ -10026,7 +10088,7 @@
       "name": "transformers nightly models (shardable)",
       "family_key": "transformers nightly models (shardable)",
       "family_name": "transformers nightly models (shardable)",
-      "amd_job_name": "mi300_1: Transformers Nightly Models (Shardable) 1",
+      "amd_job_name": "mi300_1: Transformers Nightly Models (Shardable) 2",
       "upstream_job_name": null,
       "amd": {
         "total": 613,
@@ -10051,7 +10113,7 @@
         {
           "hw": "mi300",
           "url": "https://buildkite.com/vllm/amd-ci/builds/10972/steps/canvas?sid=019f6f4e-0056-4bdc-ad11-5d71eaab9b9c&tab=output",
-          "job_name": "mi300_1: Transformers Nightly Models (Shardable) 1",
+          "job_name": "mi300_1: Transformers Nightly Models (Shardable) 2",
           "side": "amd"
         }
       ],
@@ -12272,44 +12334,6 @@
       ],
       "status": "upstream_only",
       "backfilled": false
-    },
-    {
-      "name": "pytorch compilation passes unit tests",
-      "family_key": "pytorch compilation passes unit tests",
-      "family_name": "pytorch compilation passes unit tests",
-      "amd_job_name": null,
-      "upstream_job_name": "PyTorch Compilation Passes Unit Tests",
-      "amd": null,
-      "upstream": {
-        "total": 6322,
-        "passed": 394,
-        "failed": 0,
-        "skipped": 5928,
-        "xfailed": 0,
-        "xpassed": 0,
-        "error": 0,
-        "duration": 1809.32
-      },
-      "hardware": [
-        "h100",
-        "mi300"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [
-        {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78541/steps/canvas?jid=019f6eaa-477e-474c-8adc-ed900e10d21c&tab=output",
-          "job_name": "PyTorch Compilation Passes Unit Tests",
-          "side": "upstream"
-        }
-      ],
-      "status": "upstream_only",
-      "backfilled": true,
-      "hw_backfilled": {
-        "mi300": true
-      }
     },
     {
       "name": "pytorch compilation unit tests (h100)",
@@ -16002,6 +16026,12 @@
     {
       "test_id": "mi300_1: Platform Tests::__passed__",
       "amd_status": "passed",
+      "upstream_status": "missing",
+      "category": "amd_only"
+    },
+    {
+      "test_id": "mi300_1: PyTorch Compilation Passes Unit Tests::__job_level__",
+      "amd_status": "error",
       "upstream_status": "missing",
       "category": "amd_only"
     },
