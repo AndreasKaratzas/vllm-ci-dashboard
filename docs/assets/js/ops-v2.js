@@ -3054,21 +3054,13 @@
       }
       const coverageSortToolbar = n('div', 'ops-toolbar');
       const coverageSortGroup = n('div', 'ops-toolbar-group');
-      const coverageSort = n('select', 'ops-select');
-      coverageSort.setAttribute('aria-label', 'Sort AMD test matrix');
-      [
-        ['platform', 'Platform coverage (MI250 to MI355)'],
-        ['name', 'Test group name'],
-        ['area', 'Test area'],
-      ].forEach(function (optionDefinition) {
-        const option = n('option', '', optionDefinition[1]);
-        option.value = optionDefinition[0];
-        option.selected = state.healthCoverageSort === optionDefinition[0];
-        coverageSort.append(option);
-      });
-      coverageSort.addEventListener('change', function () {
-        setRouteState('ci-health', 'healthCoverageSort', coverageSort.value, 'health_sort');
-      });
+      const coverageSort = segmented([
+        {id: 'platform', label: 'Platform'},
+        {id: 'name', label: 'Test group'},
+        {id: 'area', label: 'Test area'},
+      ], state.healthCoverageSort, function (sortMode) {
+        setRouteState('ci-health', 'healthCoverageSort', sortMode, 'health_sort');
+      }, 'Sort AMD test matrix');
       add(coverageSortGroup, [n('span', 'ops-toolbar-label', 'Sort matrix'), coverageSort]);
       add(coverageSortToolbar, [n('div', 'ops-toolbar-spacer'), coverageSortGroup]);
       host.append(coverageSortToolbar);

@@ -442,14 +442,15 @@ def test_coverage_matrix_supports_route_safe_platform_name_and_area_sorting():
         "['healthCoverageSort', 'health_sort', ['platform', 'name', 'area']]",
         "const AMD_MATRIX_PLATFORM_ORDER = ['mi250', 'mi300', 'mi325', 'mi355']",
         "function sortAmdMatrixRows",
-        "Platform coverage (MI250 to MI355)",
-        "Test group name",
-        "Test area",
+        "{id: 'platform', label: 'Platform'}",
+        "{id: 'name', label: 'Test group'}",
+        "{id: 'area', label: 'Test area'}",
         "Sort AMD test matrix",
-        "setRouteState('ci-health', 'healthCoverageSort', coverageSort.value, 'health_sort')",
+        "setRouteState('ci-health', 'healthCoverageSort', sortMode, 'health_sort')",
         "previewLabel: 'sorted rows'",
     ):
         assert contract in OPS_JS
+    assert "const coverageSort = n('select', 'ops-select')" not in OPS_JS
 
 
 def test_authoritative_group_catalog_preserves_id_and_variant_identity():
