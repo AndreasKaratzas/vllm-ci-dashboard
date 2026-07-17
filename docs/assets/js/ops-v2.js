@@ -173,7 +173,7 @@
 
   function isRetiredQueue(queue) {
     const name = String(queue || '').trim().toLowerCase();
-    return name === 'amd_mi250_8' || /^amd_mi355b(?:_|$)/i.test(name);
+    return /^amd_mi355b(?:_|$)/i.test(name);
   }
 
   function isAmdQueue(queue) {

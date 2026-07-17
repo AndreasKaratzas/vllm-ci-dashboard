@@ -70,10 +70,10 @@ def test_amd_gpu_hardware_scopes_gpu_only():
     assert amd_gpu_hardware("amd_mi300_1") == "MI300"
     assert amd_gpu_hardware("amd_mi325_4") == "MI325"
     assert amd_gpu_hardware("amd_mi355_1") == "MI355"
-    # CPU steps, NVIDIA, and retired queues are out of scope.
+    # CPU steps, NVIDIA, and retired queue families are out of scope.
     assert amd_gpu_hardware("amd-cpu") == ""
     assert amd_gpu_hardware("gpu_4_queue") == ""
-    assert amd_gpu_hardware("amd_mi250_8") == ""
+    assert amd_gpu_hardware("amd_mi250_8") == "MI250"
     assert amd_gpu_hardware("amd_mi355b_1") == ""
     assert amd_gpu_hardware("") == ""
 

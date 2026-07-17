@@ -86,12 +86,13 @@ def test_capacity_payload_projects_theoretical_group_count(tmp_path: Path) -> No
     assert payload["summary"]["gated_group_count"] == 2
     assert payload["summary"]["capacity_scoped_group_count"] == 2
     assert payload["summary"]["gated_job_count"] == 5
-    assert payload["summary"]["total_capacity"] == 711
+    assert payload["summary"]["total_capacity"] == 715
     projection = payload["projection"]
     assert projection["theoretical_groups"] == 4
     assert projection["scale"] == 2.0
     assert projection["projected_total_jobs"] == 10.0
     queues = {row["id"]: row for row in projection["queues"]}
+    assert queues["amd_mi250_8"]["max_agents"] == 4
     assert queues["amd_mi250_1"]["projected_jobs"] == 6.0
     assert queues["amd_mi325_1"]["projected_jobs"] == 4.0
     assert queues["amd_mi250_1"]["projected_capacity_ratio"] == round(6 / 78, 4)

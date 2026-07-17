@@ -175,7 +175,7 @@ class TestQueueExclusions:
         assert cqs.is_excluded_queue("amd_mi355B")
         assert cqs.is_excluded_queue("AMD_MI355b_8")
         assert cqs.is_excluded_queue("amd_mi355B_future_suffix")
-        assert cqs.is_excluded_queue("amd_mi250_8")
+        assert not cqs.is_excluded_queue("amd_mi250_8")
         assert not cqs.is_excluded_queue("amd_mi355_8")
         assert not cqs.is_excluded_queue("amd_mi250_4")
         assert all(not cqs.is_excluded_queue(queue) for queue in cqs.TRACKED_QUEUES)
@@ -183,7 +183,7 @@ class TestQueueExclusions:
     def test_amd_scope_includes_cpu_and_excludes_mi355b(self):
         assert cqs.is_amd_queue("AMD_MI250_1")
         assert cqs.is_amd_queue("amd-cpu")
-        assert not cqs.is_amd_queue("amd_mi250_8")
+        assert cqs.is_amd_queue("amd_mi250_8")
         assert not cqs.is_amd_queue("amd_mi355B_8")
         assert not cqs.is_amd_queue("gpu_1_queue")
 

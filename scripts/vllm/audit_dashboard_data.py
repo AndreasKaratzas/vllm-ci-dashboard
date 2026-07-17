@@ -312,7 +312,7 @@ def is_amd_queue(name: str) -> bool:
 
 def is_retired_queue(name: str) -> bool:
     normalized = str(name or "").strip().casefold()
-    return normalized == "amd_mi250_8" or "mi355b" in normalized
+    return "mi355b" in normalized
 
 
 def is_mi355b_queue(name: str) -> bool:
@@ -2310,11 +2310,9 @@ class DashboardAudit:
 
         workload_mismatches: list[str] = []
         retired_queue_rows = 0
-        retired_mi250_history_rows = 0
         for idx, row in enumerate(rows, 1):
             queues = row.get("queues") or {}
             retired_queue_rows += sum(is_mi355b_queue(queue) for queue in queues)
-            retired_mi250_history_rows += int("amd_mi250_8" in queues)
             total_waiting = sum((q.get("waiting") or 0) for q in queues.values())
             total_running = sum((q.get("running") or 0) for q in queues.values())
             if row.get("total_waiting") != total_waiting:
@@ -2353,13 +2351,6 @@ class DashboardAudit:
                 f"Queue history contains {retired_queue_rows} retired amd_mi355B queue rows",
                 "data/vllm/ci/queue_timeseries.jsonl",
             )
-        if retired_mi250_history_rows:
-            self.warning(
-                "queue-retired-mi250-history",
-                f"Queue history retains {retired_mi250_history_rows} amd_mi250_8 rows; current collectors and presentation filters exclude them",
-                "data/vllm/ci/queue_timeseries.jsonl",
-            )
-
         cutoff = latest_ts.timestamp() - 72 * 3600 if latest_ts else None
         recent_rows = [
             row

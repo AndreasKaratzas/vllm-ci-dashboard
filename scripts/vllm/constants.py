@@ -29,20 +29,17 @@ AMD_PIPELINES: tuple[str, ...] = ("amd-ci",)
 # Queue taxonomy
 # ---------------------------------------------------------------------------
 
-# Queues in these families, plus explicitly retired queue names, are outside
-# the dashboard's operational scope. Keep the predicate central because
+# Queues in these families are outside the dashboard's operational scope.
+# Keep the predicate central because
 # Buildkite queue keys are case-sensitive strings while operators have used
 # both ``mi355B`` and ``mi355b`` spellings, with several numeric suffixes.
 EXCLUDED_QUEUE_PREFIXES: tuple[str, ...] = ("amd_mi355b",)
-EXCLUDED_QUEUE_NAMES: frozenset[str] = frozenset({"amd_mi250_8"})
 
 
 def is_excluded_queue(queue: str | None) -> bool:
-    """Return whether ``queue`` is explicitly retired or in an excluded family."""
+    """Return whether ``queue`` belongs to an excluded queue family."""
     normalized = (queue or "").strip().casefold()
-    return normalized in EXCLUDED_QUEUE_NAMES or any(
-        normalized.startswith(prefix) for prefix in EXCLUDED_QUEUE_PREFIXES
-    )
+    return any(normalized.startswith(prefix) for prefix in EXCLUDED_QUEUE_PREFIXES)
 
 
 def is_amd_queue(queue: str | None) -> bool:
@@ -81,6 +78,7 @@ _TRACKED_QUEUE_NAMES = {
     "amd_mi250_1",
     "amd_mi250_2",
     "amd_mi250_4",
+    "amd_mi250_8",
     # AMD MI300 (legacy / partner agents, still active)
     "amd_mi300_1",
     "amd_mi300_2",

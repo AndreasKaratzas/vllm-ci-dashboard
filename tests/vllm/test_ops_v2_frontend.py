@@ -549,9 +549,9 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
         assert selector in OPS_CSS
 
 
-def test_retired_queues_are_excluded_on_every_frontend_path():
+def test_retired_mi355b_queues_are_excluded_on_every_frontend_path():
     assert "function isRetiredQueue" in OPS_JS
-    assert "name === 'amd_mi250_8'" in OPS_JS
+    assert "name === 'amd_mi250_8'" not in OPS_JS
     assert "/^amd_mi355b(?:_|$)/i" in OPS_JS
     assert "&& !isRetiredQueue(name)" in OPS_JS
     assert "if (isRetiredQueue(entry[0])) return false" in OPS_JS
