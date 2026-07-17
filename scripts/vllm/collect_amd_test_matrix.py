@@ -38,6 +38,10 @@ RAW_YAML_URL = (
     "https://raw.githubusercontent.com/vllm-project/vllm/"
     "refs/heads/main/.buildkite/test-amd.yaml"
 )
+BUILDKITE_BUILD_URL = (
+    "https://api.buildkite.com/v2/organizations/vllm/"
+    "pipelines/amd-ci/builds/{build_number}"
+)
 
 AREA_PATTERNS = [
     ("Kernels", re.compile(r"^kernels?|attention test|quantization test", re.I)),
@@ -721,6 +725,86 @@ def build_latest_job_index(
     return index, latest_build
 
 
+def _queue_from_rules(rules: Any) -> str:
+    for rule in rules or []:
+        text = str(rule or "")
+        if text.startswith("queue="):
+            return text.split("=", 1)[1].strip()
+    return ""
+
+
+def build_buildkite_job_index(
+    build: dict[str, Any],
+    shard_bases: list[str],
+) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """Index the authoritative, non-superseded script roster for one build."""
+    index: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    build_number = build.get("number")
+    for job in build.get("jobs", []) or []:
+        if job.get("type") != "script" or job.get("retried_in_job_id"):
+            continue
+        full_name = clean_label(job.get("name", ""))
+        agent_pool = _agent_pool_from_job_name(full_name)
+        queue = _queue_from_rules(job.get("agent_query_rules"))
+        arch = arch_from_queue(queue) or arch_from_agent_pool(agent_pool)
+        if not full_name or not arch:
+            continue
+
+        state = (
+            "soft_fail"
+            if job.get("soft_failed")
+            else clean_label(job.get("state", "")).casefold()
+        )
+        job_id = clean_label(job.get("id", ""))
+        step_id = clean_label((job.get("step") or {}).get("id", ""))
+        base_url = f"https://buildkite.com/vllm/amd-ci/builds/{build_number}"
+        if job_id:
+            job_url = f"{base_url}/steps/canvas?jid={job_id}&tab=output"
+        elif step_id:
+            job_url = f"{base_url}/steps/canvas?sid={step_id}&tab=output"
+        else:
+            job_url = clean_label(job.get("web_url", "")) or base_url
+
+        key = strip_shard_index(full_name, shard_bases)
+        index[arch][key].append({
+            "name": full_name,
+            "raw_name": full_name,
+            "state": state,
+            "q": queue or (f"amd_{agent_pool}" if agent_pool else ""),
+            "url": job_url,
+            "job_id": job_id,
+            "step_id": step_id,
+            "matrix_source": "buildkite_build_detail",
+        })
+    return index
+
+
+def fetch_buildkite_job_index(
+    build_number: int | str | None,
+    token: str,
+    shard_bases: list[str],
+) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    if build_number in (None, "") or not token:
+        return {}
+    try:
+        response = requests.get(
+            BUILDKITE_BUILD_URL.format(build_number=build_number),
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+        response.raise_for_status()
+        build = response.json()
+    except (requests.RequestException, ValueError) as exc:
+        log.warning("Could not fetch AMD build #%s detail: %s", build_number, exc)
+        return {}
+    if str(build.get("number") or "") != str(build_number):
+        log.warning("Ignoring mismatched AMD build detail for #%s", build_number)
+        return {}
+    return build_buildkite_job_index(build, shard_bases)
+
+
 def build_hotness_job_index(
     hotness: dict[str, Any],
     latest_build_number: int | str | None,
@@ -1115,6 +1199,16 @@ def main() -> None:
     steps, architectures = parse_steps(yaml_text)
     latest_job_index, analytics_latest_build = build_latest_job_index(analytics, shard_bases)
     latest_build = latest_build_metadata(analytics_latest_build, ci_health, parity)
+    buildkite_job_index = fetch_buildkite_job_index(
+        latest_build.get("number") if latest_build else None,
+        os.getenv("BUILDKITE_TOKEN", "").strip(),
+        shard_bases,
+    )
+    if buildkite_job_index:
+        latest_job_index = merge_latest_job_indexes(
+            buildkite_job_index,
+            latest_job_index,
+        )
     hotness_job_index = build_hotness_job_index(
         hotness,
         latest_build.get("number") if latest_build else None,

@@ -146,6 +146,7 @@ jobs:
       - name: Collect AMD test matrix
         run: python scripts/vllm/collect_amd_test_matrix.py --output data/vllm/ci/
         env:
+          BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Collect AMD gating proposals

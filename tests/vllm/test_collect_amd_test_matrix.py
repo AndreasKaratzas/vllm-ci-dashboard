@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from vllm.collect_amd_test_matrix import (
     aggregate_state,
+    build_buildkite_job_index,
     build_hotness_job_index,
     build_latest_job_index,
     build_matrix,
@@ -212,6 +213,82 @@ def test_latest_build_metadata_falls_back_to_ci_health_and_parity():
         "web_url": "https://buildkite.com/vllm/amd-ci/builds/8193",
         "message": "AMD Full CI Run - nightly",
     }
+
+
+def test_buildkite_detail_is_authoritative_for_non_pytest_matrix_jobs():
+    steps, architectures = parse_steps("""
+steps:
+  - label: Docker Build Metadata (ROCm)
+    agent_pool: mi250_1
+""")
+    analytics = {
+        "amd-ci": {
+            "builds": [
+                {
+                    "number": 10972,
+                    "date": "2026-07-17",
+                    "web_url": "https://buildkite.com/vllm/amd-ci/builds/10972",
+                    "message": "AMD Full CI Run - nightly",
+                    "jobs": [
+                        {
+                            "name": "Docker Build Metadata (ROCm)",
+                            "state": "failed",
+                            "q": "amd_mi250_1",
+                        }
+                    ],
+                }
+            ]
+        }
+    }
+    detail = {
+        "number": 10972,
+        "jobs": [
+            {
+                "id": "current-job",
+                "type": "script",
+                "name": "mi250_1: Docker Build Metadata (ROCm)",
+                "state": "passed",
+                "soft_failed": False,
+                "agent_query_rules": ["queue=amd_mi250_1"],
+                "step": {"id": "docker-metadata-step"},
+            },
+            {
+                "id": "superseded-job",
+                "type": "script",
+                "name": "mi250_1: Docker Build Metadata (ROCm)",
+                "state": "failed",
+                "retried_in_job_id": "current-job",
+                "agent_query_rules": ["queue=amd_mi250_1"],
+            },
+            {
+                "id": "group-row",
+                "type": "group",
+                "name": "mi250_1: Docker Build Metadata (ROCm)",
+            },
+        ],
+    }
+    analytics_index, latest_build = build_latest_job_index(analytics, [])
+    buildkite_index = build_buildkite_job_index(detail, [])
+    latest_job_index = merge_latest_job_indexes(buildkite_index, analytics_index)
+
+    matrix = build_matrix(
+        steps=steps,
+        architectures=architectures,
+        latest_job_index=latest_job_index,
+        latest_build=latest_build,
+        parity_exact_index={},
+        parity_norm_index={},
+        shard_bases=[],
+        yaml_url="https://example.invalid/test-amd.yaml",
+    )
+
+    cell = matrix["rows"][0]["cells"]["mi250"]
+    assert cell["latest_state"] == "passed"
+    assert cell["variants"][0]["latest_match_count"] == 1
+    assert cell["latest_url"] == (
+        "https://buildkite.com/vllm/amd-ci/builds/10972/steps/canvas"
+        "?jid=current-job&tab=output"
+    )
 
 
 def test_hotness_fills_latest_build_job_missing_from_parsed_analytics():
