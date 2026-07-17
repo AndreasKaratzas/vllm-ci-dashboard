@@ -721,6 +721,87 @@ def build_latest_job_index(
     return index, latest_build
 
 
+def build_hotness_job_index(
+    hotness: dict[str, Any],
+    latest_build_number: int | str | None,
+    shard_bases: list[str],
+) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """Index exact Buildkite jobs omitted by parsed test-result analytics.
+
+    Hotness observes script jobs directly from Buildkite, including utility
+    steps that emit no pytest rows. Only evidence from the exact matrix build
+    is eligible so a newer PR build or an older nightly cannot leak into the
+    latest-nightly signal.
+    """
+    index: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    if latest_build_number in (None, ""):
+        return index
+
+    expected_build = str(latest_build_number)
+    for row in hotness.get("test_groups", []) or []:
+        if not isinstance(row, dict):
+            continue
+        evidence = row.get("latest_evidence") or {}
+        if not isinstance(evidence, dict):
+            continue
+        if evidence.get("pipeline") != "amd-ci":
+            continue
+        if str(evidence.get("build_number") or "") != expected_build:
+            continue
+
+        full_name = clean_label(evidence.get("job_name", ""))
+        agent_pool = _agent_pool_from_job_name(full_name)
+        arch = (
+            arch_from_agent_pool(agent_pool)
+            or arch_from_queue(row.get("hw", ""))
+        )
+        if not full_name or not arch:
+            continue
+
+        state = clean_label(evidence.get("state", "")).casefold()
+        if state == "soft_failed":
+            state = "soft_fail"
+        queue = (
+            f"amd_{agent_pool}"
+            if agent_pool
+            else clean_label(row.get("hw", ""))
+        )
+        job_id = clean_label(evidence.get("job_id", ""))
+        job_url = clean_label(evidence.get("job_url", ""))
+        if job_id:
+            job_url = (
+                f"https://buildkite.com/vllm/amd-ci/builds/{expected_build}"
+                f"/steps/canvas?jid={job_id}&tab=output"
+            )
+        job = {
+            "name": full_name,
+            "raw_name": full_name,
+            "state": state,
+            "q": queue,
+            "url": job_url,
+            "job_id": job_id,
+            "matrix_source": "hotness_latest_build",
+        }
+        key = strip_shard_index(full_name, shard_bases)
+        index[arch][key].append(job)
+    return index
+
+
+def merge_latest_job_indexes(
+    primary: dict[str, dict[str, list[dict[str, Any]]]],
+    fallback: dict[str, dict[str, list[dict[str, Any]]]],
+) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """Fill missing matrix keys without overriding parsed analytics rows."""
+    for arch, groups in fallback.items():
+        primary_groups = primary.setdefault(arch, defaultdict(list))
+        for key, jobs in groups.items():
+            if not primary_groups.get(key):
+                primary_groups[key].extend(jobs)
+    return primary
+
+
 def latest_build_metadata(
     analytics_build: dict[str, Any] | None,
     ci_health: dict[str, Any],
@@ -835,11 +916,21 @@ def build_matrix(
             if parity_row
             else analytics_state
         )
+        matched_url = next(
+            (
+                clean_label(match.get("url", "") or match.get("job_url", ""))
+                for match in matches
+                if match.get("url") or match.get("job_url")
+            ),
+            None,
+        )
         latest_url = (
             _parity_link_for_arch(parity_row, step["arch"], full_job_name)
             if parity_row
             else None
-        ) or (latest_build.get("web_url") if latest_matched and latest_build else None)
+        ) or matched_url or (
+            latest_build.get("web_url") if latest_matched and latest_build else None
+        )
         variant = {
             "label": step["link_label"],
             "agent_pool": step["agent_pool"],
@@ -1014,6 +1105,7 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
 
     analytics = _load_json(output / "analytics.json", {})
+    hotness = _load_json(output / "hotness.json", {})
     ci_health = _load_json(output / "ci_health.json", {})
     parity = _load_json(output / "parity_report.json", {})
     shard_bases = _load_json(output / "shard_bases.json", [])
@@ -1023,6 +1115,12 @@ def main() -> None:
     steps, architectures = parse_steps(yaml_text)
     latest_job_index, analytics_latest_build = build_latest_job_index(analytics, shard_bases)
     latest_build = latest_build_metadata(analytics_latest_build, ci_health, parity)
+    hotness_job_index = build_hotness_job_index(
+        hotness,
+        latest_build.get("number") if latest_build else None,
+        shard_bases,
+    )
+    latest_job_index = merge_latest_job_indexes(latest_job_index, hotness_job_index)
     parity_exact_index, parity_norm_index = build_parity_amd_index(parity, shard_bases)
 
     matrix = build_matrix(

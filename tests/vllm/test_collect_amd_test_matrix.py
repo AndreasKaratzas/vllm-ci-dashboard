@@ -5,12 +5,14 @@ from __future__ import annotations
 
 from vllm.collect_amd_test_matrix import (
     aggregate_state,
+    build_hotness_job_index,
     build_latest_job_index,
     build_matrix,
     build_parity_amd_index,
     canonical_title,
     latest_build_metadata,
     longest_shared_title_substring,
+    merge_latest_job_indexes,
     parse_steps,
     strip_shard_index,
 )
@@ -210,6 +212,89 @@ def test_latest_build_metadata_falls_back_to_ci_health_and_parity():
         "web_url": "https://buildkite.com/vllm/amd-ci/builds/8193",
         "message": "AMD Full CI Run - nightly",
     }
+
+
+def test_hotness_fills_latest_build_job_missing_from_parsed_analytics():
+    steps, architectures = parse_steps("""
+steps:
+  - label: Docker Build Metadata (ROCm)
+    agent_pool: mi250_1
+""")
+    analytics = {
+        "amd-ci": {
+            "builds": [
+                {
+                    "number": 10972,
+                    "date": "2026-07-17",
+                    "web_url": "https://buildkite.com/vllm/amd-ci/builds/10972",
+                    "message": "AMD Full CI Run - nightly",
+                    "jobs": [],
+                }
+            ]
+        }
+    }
+    hotness_url = (
+        "https://buildkite.com/vllm/amd-ci/builds/10972"
+        "#019f6f4e-00eb-43b1-8087-433d6a711d28"
+    )
+    exact_url = (
+        "https://buildkite.com/vllm/amd-ci/builds/10972/steps/canvas"
+        "?jid=019f6f4e-00eb-43b1-8087-433d6a711d28&tab=output"
+    )
+    hotness = {
+        "test_groups": [
+            {
+                "group": "Docker Build Metadata (ROCm)",
+                "hw": "mi250",
+                "latest_evidence": {
+                    "pipeline": "amd-ci",
+                    "build_number": 10972,
+                    "job_name": "mi250_1: Docker Build Metadata (ROCm)",
+                    "job_id": "019f6f4e-00eb-43b1-8087-433d6a711d28",
+                    "job_url": hotness_url,
+                    "state": "passed",
+                },
+            }
+        ]
+    }
+    latest_job_index, latest_build = build_latest_job_index(analytics, [])
+    fallback = build_hotness_job_index(hotness, latest_build["number"], [])
+    merge_latest_job_indexes(latest_job_index, fallback)
+
+    matrix = build_matrix(
+        steps=steps,
+        architectures=architectures,
+        latest_job_index=latest_job_index,
+        latest_build=latest_build,
+        parity_exact_index={},
+        parity_norm_index={},
+        shard_bases=[],
+        yaml_url="https://example.invalid/test-amd.yaml",
+    )
+
+    cell = matrix["rows"][0]["cells"]["mi250"]
+    assert cell["latest_matched"] is True
+    assert cell["latest_state"] == "passed"
+    assert cell["latest_url"] == exact_url
+
+
+def test_hotness_fallback_rejects_evidence_from_another_build():
+    hotness = {
+        "test_groups": [
+            {
+                "group": "Docker Build Metadata (ROCm)",
+                "hw": "mi250",
+                "latest_evidence": {
+                    "pipeline": "amd-ci",
+                    "build_number": 10971,
+                    "job_name": "mi250_1: Docker Build Metadata (ROCm)",
+                    "state": "passed",
+                },
+            }
+        ]
+    }
+
+    assert not build_hotness_job_index(hotness, 10972, [])
 
 
 def test_build_matrix_collapses_titles_and_matches_latest_nightly():
