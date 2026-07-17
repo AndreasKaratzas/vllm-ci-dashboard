@@ -10,6 +10,7 @@ from vllm.collect_amd_test_matrix import (
     build_parity_amd_index,
     canonical_title,
     latest_build_metadata,
+    longest_shared_title_substring,
     parse_steps,
     strip_shard_index,
 )
@@ -365,3 +366,124 @@ def test_build_matrix_collapses_titles_and_matches_latest_nightly():
     assert moe["cells"]["mi355"]["variants"][0]["latest_match_count"] == 2
     assert moe["cells"]["mi355"]["latest_state"] == "passed"
     assert moe["cells"]["mi355"]["latest_url"].endswith("sid=moe-1&tab=output")
+
+
+def test_duplicate_policy_uses_equal_commands_and_shared_title_substring():
+    yaml_text = """
+steps:
+  - label: Core Check MI250
+    agent_pool: mi250_1
+    commands: [pytest tests/core.py]
+  - label: Core Check MI300
+    agent_pool: mi300_1
+    commands: [pytest tests/core.py]
+  - label: Core Check MI355
+    agent_pool: mi355_1
+    commands: [pytest tests/core.py]
+  - label: QZX
+    agent_pool: mi325_1
+    commands: [pytest tests/core.py]
+  - label: MI355 Standalone
+    agent_pool: mi355_1
+    commands: [pytest tests/standalone.py]
+"""
+    steps, architectures = parse_steps(yaml_text)
+    analytics = {
+        "amd-ci": {
+            "builds": [
+                {
+                    "number": 9001,
+                    "date": "2026-07-17",
+                    "web_url": "https://buildkite.com/vllm/amd-ci/builds/9001",
+                    "message": "AMD Full CI Run - nightly",
+                    "jobs": [
+                        {"name": "Core Check MI250", "state": "passed", "q": "amd_mi250_1"},
+                        {"name": "Core Check MI300", "state": "failed", "q": "amd_mi300_1"},
+                        {"name": "Core Check MI355", "state": "failed", "q": "amd_mi355_1"},
+                        {"name": "QZX", "state": "passed", "q": "amd_mi325_1"},
+                        {"name": "MI355 Standalone", "state": "passed", "q": "amd_mi355_1"},
+                    ],
+                }
+            ]
+        }
+    }
+    latest_job_index, latest_build = build_latest_job_index(analytics, [])
+    matrix = build_matrix(
+        steps=steps,
+        architectures=architectures,
+        latest_job_index=latest_job_index,
+        latest_build=latest_build,
+        parity_exact_index={},
+        parity_norm_index={},
+        shard_bases=[],
+        yaml_url="https://example.invalid/test-amd.yaml",
+    )
+
+    assert len(matrix["duplicate_groups"]) == 1
+    duplicate = matrix["duplicate_groups"][0]
+    assert duplicate["member_titles"] == [
+        "Core Check MI250",
+        "Core Check MI300",
+        "Core Check MI355",
+    ]
+    assert all(len(match["shared_substring"]) >= 2 for match in duplicate["pair_matches"])
+    assert matrix["summary"]["latest_build_number"] == 9001
+    assert matrix["summary"]["definition_rows"] == 5
+    assert matrix["summary"]["reduced_unique_groups"] == 3
+
+    policies = matrix["summary"]["health_policies"]
+    assert policies["reduced_ignore_mi355"] == {
+        "passing_groups": 1,
+        "failed_only_groups": 0,
+        "mixed_groups": 1,
+        "waiting_groups": 0,
+        "unknown_groups": 0,
+        "ignored_mi355_only_groups": 1,
+        "inherited_mi355_groups": 1,
+        "failing_groups": 1,
+        "resolved_groups": 2,
+        "included_groups": 2,
+        "pass_percentage": 50.0,
+        "reduce_duplicates": True,
+        "ignore_mi355_only": True,
+    }
+    assert policies["reduced_include_mi355"]["passing_groups"] == 2
+    assert policies["reduced_include_mi355"]["pass_percentage"] == 66.7
+    assert policies["definitions_ignore_mi355"]["passing_groups"] == 2
+    assert policies["definitions_ignore_mi355"]["failing_groups"] == 2
+    assert policies["definitions_ignore_mi355"]["inherited_mi355_groups"] == 1
+    assert policies["definitions_include_mi355"]["passing_groups"] == 3
+
+
+def test_duplicate_policy_requires_two_shared_title_characters_and_commands():
+    assert longest_shared_title_substring("Core Check MI250", "Core Check MI300")
+    assert len(longest_shared_title_substring("AB", "AX")) < 2
+
+    steps, architectures = parse_steps("""
+steps:
+  - label: Alpha
+    agent_pool: mi250_1
+    commands: [pytest tests/a.py]
+  - label: Alpha variant
+    agent_pool: mi300_1
+    commands: [pytest tests/b.py]
+  - label: QZX
+    agent_pool: mi325_1
+    commands: [pytest tests/a.py]
+  - label: Empty One
+    agent_pool: mi250_1
+  - label: Empty Two
+    agent_pool: mi300_1
+""")
+    matrix = build_matrix(
+        steps=steps,
+        architectures=architectures,
+        latest_job_index={},
+        latest_build=None,
+        parity_exact_index={},
+        parity_norm_index={},
+        shard_bases=[],
+        yaml_url="https://example.invalid/test-amd.yaml",
+    )
+    assert matrix["duplicate_groups"] == []
+    assert matrix["summary"]["reduced_unique_groups"] == 5

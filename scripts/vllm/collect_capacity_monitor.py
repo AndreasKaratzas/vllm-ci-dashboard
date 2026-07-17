@@ -46,7 +46,6 @@ CAPACITY_QUEUES: tuple[dict[str, Any], ...] = (
     {"id": "amd_mi250_1", "label": "mi250_1", "max_agents": 78},
     {"id": "amd_mi250_2", "label": "mi250_2", "max_agents": 24},
     {"id": "amd_mi250_4", "label": "mi250_4", "max_agents": 16},
-    {"id": "amd_mi250_8", "label": "mi250_8", "max_agents": 4},
     {"id": "amd_mi300_1", "label": "mi300_1", "max_agents": 264},
     {"id": "amd_mi300_2", "label": "mi300_2", "max_agents": 40},
     {"id": "amd_mi300_4", "label": "mi300_4", "max_agents": 30},

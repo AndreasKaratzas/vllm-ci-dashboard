@@ -310,8 +310,13 @@ def is_amd_queue(name: str) -> bool:
     return str(name or "").startswith("amd_") or str(name or "") == "amd-cpu"
 
 
+def is_retired_queue(name: str) -> bool:
+    normalized = str(name or "").strip().casefold()
+    return normalized == "amd_mi250_8" or "mi355b" in normalized
+
+
 def is_mi355b_queue(name: str) -> bool:
-    return "mi355b" in str(name or "").lower()
+    return "mi355b" in str(name or "").casefold()
 
 
 def same_repo(ref_repo: str | None, default_repo: str) -> bool:
@@ -1785,12 +1790,12 @@ class DashboardAudit:
                 retired = [
                     _mapping(group).get("name")
                     for group in groups
-                    if is_mi355b_queue(_mapping(group).get("queue"))
+                    if is_retired_queue(_mapping(group).get("queue"))
                 ]
                 if retired:
                     self.error(
-                        "analytics-retired-mi355b",
-                        f"all-main reliability contains {len(retired)} retired amd_mi355B variants",
+                        "analytics-retired-queue",
+                        f"all-main reliability contains {len(retired)} retired queue variants",
                         "data/vllm/ci/analytics.json",
                     )
                 all_main_metrics = {
@@ -1894,6 +1899,111 @@ class DashboardAudit:
                 )
         return stats
 
+    def matrix_health_policy_stats(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        reduce_duplicates: bool,
+        ignore_mi355_only: bool,
+    ) -> dict[str, Any]:
+        components: dict[str, list[dict[str, Any]]] = {}
+        for index, row in enumerate(rows):
+            group_id = str(
+                row.get("duplicate_group_id")
+                or row.get("id")
+                or f"legacy-row-{index}"
+            )
+            components.setdefault(group_id, []).append(row)
+
+        if reduce_duplicates:
+            candidates = [
+                (members, members)
+                for members in components.values()
+            ]
+        else:
+            candidates = [
+                ([row], components[str(
+                    row.get("duplicate_group_id")
+                    or row.get("id")
+                    or f"legacy-row-{index}"
+                )])
+                for index, row in enumerate(rows)
+            ]
+
+        def cells(
+            selected_rows: list[dict[str, Any]],
+            architectures: set[str],
+        ) -> list[dict[str, Any]]:
+            return [
+                cell
+                for row in selected_rows
+                for arch, cell in (row.get("cells") or {}).items()
+                if arch in architectures and cell.get("exists")
+            ]
+
+        counts = {
+            "passing_groups": 0,
+            "failed_only_groups": 0,
+            "mixed_groups": 0,
+            "waiting_groups": 0,
+            "unknown_groups": 0,
+            "ignored_mi355_only_groups": 0,
+            "inherited_mi355_groups": 0,
+        }
+        core_architectures = {"mi250", "mi300", "mi325"}
+        for candidate_rows, component_rows in candidates:
+            candidate_core = cells(candidate_rows, core_architectures)
+            candidate_mi355 = cells(candidate_rows, {"mi355"})
+            component_core = cells(component_rows, core_architectures)
+            if candidate_core:
+                signal_cells = candidate_core
+                if candidate_mi355:
+                    counts["inherited_mi355_groups"] += 1
+            elif component_core:
+                signal_cells = component_core
+                counts["inherited_mi355_groups"] += 1
+            elif ignore_mi355_only:
+                counts["ignored_mi355_only_groups"] += 1
+                continue
+            else:
+                signal_cells = candidate_mi355
+
+            states = {
+                str(cell.get("latest_state") or "").casefold()
+                for cell in signal_cells
+            }
+            has_pass = "passed" in states
+            has_incident = bool(states & AMD_FAILURE_STATES)
+            if has_pass and has_incident:
+                counts["mixed_groups"] += 1
+            elif has_pass:
+                counts["passing_groups"] += 1
+            elif has_incident:
+                counts["failed_only_groups"] += 1
+            elif states & AMD_WAITING_STATES:
+                counts["waiting_groups"] += 1
+            else:
+                counts["unknown_groups"] += 1
+
+        counts["failing_groups"] = (
+            counts["failed_only_groups"] + counts["mixed_groups"]
+        )
+        counts["resolved_groups"] = (
+            counts["passing_groups"] + counts["failing_groups"]
+        )
+        counts["included_groups"] = (
+            counts["resolved_groups"]
+            + counts["waiting_groups"]
+            + counts["unknown_groups"]
+        )
+        counts["pass_percentage"] = round(
+            counts["passing_groups"] / counts["resolved_groups"] * 100,
+            1,
+        ) if counts["resolved_groups"] else None
+        counts["reduce_duplicates"] = reduce_duplicates
+        counts["ignore_mi355_only"] = ignore_mi355_only
+        return counts
+
     def audit_amd_matrix(self) -> None:
         matrix = self.load_json("data/vllm/ci/amd_test_matrix.json", {})
         if not isinstance(matrix, dict):
@@ -1924,6 +2034,81 @@ class DashboardAudit:
                     f"summary.{key}={summary.get(key)} but rows imply {stats[key]}",
                     "data/vllm/ci/amd_test_matrix.json",
                 )
+
+        health_policies = summary.get("health_policies") or {}
+        if health_policies:
+            row_by_id = {row.get("id"): row for row in rows}
+            group_ids = {
+                row.get("duplicate_group_id")
+                for row in rows
+                if row.get("duplicate_group_id")
+            }
+            duplicate_groups = matrix.get("duplicate_groups") or []
+            duplicate_rows = 0
+            for group in duplicate_groups:
+                member_ids = group.get("member_ids") or []
+                duplicate_rows += len(member_ids)
+                members = [row_by_id.get(member_id) for member_id in member_ids]
+                if len(member_ids) < 2 or any(member is None for member in members):
+                    self.error(
+                        "matrix-duplicate-members",
+                        f"duplicate group {group.get('id')} has invalid members",
+                        "data/vllm/ci/amd_test_matrix.json",
+                    )
+                    continue
+                fingerprints = {
+                    member.get("command_fingerprint")
+                    for member in members
+                    if member
+                }
+                if len(fingerprints) != 1:
+                    self.error(
+                        "matrix-duplicate-commands",
+                        f"duplicate group {group.get('id')} spans command fingerprints",
+                        "data/vllm/ci/amd_test_matrix.json",
+                    )
+                if any(
+                    len(str(match.get("shared_substring") or "")) < 2
+                    for match in group.get("pair_matches") or []
+                ):
+                    self.error(
+                        "matrix-duplicate-title-rule",
+                        f"duplicate group {group.get('id')} contains a title match shorter than 2",
+                        "data/vllm/ci/amd_test_matrix.json",
+                    )
+
+            expected_summary = {
+                "definition_rows": len(rows),
+                "reduced_unique_groups": len(group_ids),
+                "duplicate_clusters": len(duplicate_groups),
+                "duplicate_definition_rows": duplicate_rows,
+            }
+            for key, expected in expected_summary.items():
+                if summary.get(key) != expected:
+                    self.error(
+                        "matrix-unique-summary",
+                        f"summary.{key}={summary.get(key)} but rows imply {expected}",
+                        "data/vllm/ci/amd_test_matrix.json",
+                    )
+
+            policy_specs = {
+                "reduced_ignore_mi355": (True, True),
+                "reduced_include_mi355": (True, False),
+                "definitions_ignore_mi355": (False, True),
+                "definitions_include_mi355": (False, False),
+            }
+            for key, flags in policy_specs.items():
+                expected = self.matrix_health_policy_stats(
+                    rows,
+                    reduce_duplicates=flags[0],
+                    ignore_mi355_only=flags[1],
+                )
+                if health_policies.get(key) != expected:
+                    self.error(
+                        "matrix-health-policy",
+                        f"summary.health_policies.{key} does not reconcile with matrix rows",
+                        "data/vllm/ci/amd_test_matrix.json",
+                    )
 
         source = matrix.get("source") or {}
         source_build = source.get("latest_build_number")
@@ -2125,9 +2310,11 @@ class DashboardAudit:
 
         workload_mismatches: list[str] = []
         retired_queue_rows = 0
+        retired_mi250_history_rows = 0
         for idx, row in enumerate(rows, 1):
             queues = row.get("queues") or {}
             retired_queue_rows += sum(is_mi355b_queue(queue) for queue in queues)
+            retired_mi250_history_rows += int("amd_mi250_8" in queues)
             total_waiting = sum((q.get("waiting") or 0) for q in queues.values())
             total_running = sum((q.get("running") or 0) for q in queues.values())
             if row.get("total_waiting") != total_waiting:
@@ -2166,6 +2353,12 @@ class DashboardAudit:
                 f"Queue history contains {retired_queue_rows} retired amd_mi355B queue rows",
                 "data/vllm/ci/queue_timeseries.jsonl",
             )
+        if retired_mi250_history_rows:
+            self.warning(
+                "queue-retired-mi250-history",
+                f"Queue history retains {retired_mi250_history_rows} amd_mi250_8 rows; current collectors and presentation filters exclude them",
+                "data/vllm/ci/queue_timeseries.jsonl",
+            )
 
         cutoff = latest_ts.timestamp() - 72 * 3600 if latest_ts else None
         recent_rows = [
@@ -2177,7 +2370,7 @@ class DashboardAudit:
         amd_workload = 0
         for row in recent_rows:
             for queue, queue_row in (row.get("queues") or {}).items():
-                if is_amd_queue(queue) and not is_mi355b_queue(queue):
+                if is_amd_queue(queue) and not is_retired_queue(queue):
                     amd_workload += (queue_row.get("waiting") or 0) + (queue_row.get("running") or 0)
         if amd_workload == 0:
             self.error(

@@ -523,9 +523,37 @@ def test_workload_anomaly_views_compare_recent_and_baseline_evidence():
     assert "Open exact cadence, baseline, and recent Buildkite history" in OPS_JS
 
 
-def test_retired_mi355b_queues_are_excluded_on_every_frontend_path():
+
+def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
+    for contract in (
+        "healthReduceDuplicates: true",
+        "healthIgnoreMi355Only: true",
+        "function matrixHealthPolicy",
+        "function matrixHealthCollection",
+        "function openMatrixHealthBrowser",
+        "function openMatrixGroupEvidence",
+        "UNIQUE AMD TEST GROUPS",
+        "Unique AMD test-group health",
+        "Reduce duplicates",
+        "Ignore MI355-only",
+        "Shared title substring",
+        "MI355 evidence is shown",
+    ):
+        assert contract in OPS_JS
+    for selector in (
+        ".ops-page .ops-unique-health",
+        ".ops-page .ops-unique-health-controls",
+        ".ops-page .ops-unique-health-bar",
+        ".ops-page .ops-unique-health-segment.is-mixed",
+    ):
+        assert selector in OPS_CSS
+
+
+def test_retired_queues_are_excluded_on_every_frontend_path():
     assert "function isRetiredQueue" in OPS_JS
+    assert "name === 'amd_mi250_8'" in OPS_JS
     assert "/^amd_mi355b(?:_|$)/i" in OPS_JS
+    assert "&& !isRetiredQueue(name)" in OPS_JS
     assert "if (isRetiredQueue(entry[0])) return false" in OPS_JS
     assert "if (isRetiredQueue(job.queue)) return false" in OPS_JS
     assert "isRetiredQueue(name)" in OPS_JS
@@ -686,7 +714,9 @@ def test_release_layout_scroll_accessibility_and_home_reconciliation():
     assert "Search workload trajectory test groups" in OPS_JS
     assert "ALL-FLEET QUEUE ACTIVITY" in OPS_JS
     assert "queueScope: 'all'" in OPS_JS
-    assert "integer(unknownCells) + ' unknown of ' + integer(matrix.hardware_cells)" in OPS_JS
+    assert "UNIQUE AMD TEST GROUPS" in OPS_JS
+    assert "uniqueHealth.passing_groups" in OPS_JS
+    assert "uniqueHealth.failing_groups" in OPS_JS
 
 
 def test_hotness_rates_accept_fraction_or_explicit_percent():

@@ -3,7 +3,8 @@
 
 The output powers the CI Analytics "AMD HW Matrix" view:
 
-- one canonical row per unique test-group title
+- one definition row per canonical test-group title and execution identity
+- duplicate clusters for exact command lists whose titles share >= 2 characters
 - one dynamic column per AMD architecture found in the YAML
 - per-cell metadata about the exact YAML label(s) and the latest AMD nightly
   match, so the frontend can link each symbol to Buildkite
@@ -15,6 +16,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -60,6 +62,9 @@ HW_ARCH_RE = re.compile(r"mi\d{3}", re.I)
 TRAILING_PARENS_RE = re.compile(r"\s*\(([^)]*)\)\s*$")
 SIMPLE_HARDWARE_PAYLOAD_RE = re.compile(r"[a-z0-9-]+", re.I)
 AMD_VARIANT_TOKEN_RE = re.compile(r"mi(?:250|300|325|355)\b", re.I)
+CORE_AMD_ARCHITECTURES = frozenset({"mi250", "mi300", "mi325"})
+INCIDENT_STATES = frozenset({"failed", "timed_out", "broken", "soft_fail"})
+WAITING_STATES = frozenset({"running", "scheduled", "assigned"})
 
 
 def _github_headers() -> dict[str, str]:
@@ -134,6 +139,256 @@ def definition_fingerprint(step: dict[str, Any]) -> str:
         ],
     }
     return json.dumps(payload, sort_keys=True)
+
+
+def command_fingerprint(step: dict[str, Any]) -> str:
+    """Return the exact normalized command list used by the duplicate rule."""
+    commands = [
+        _normalize_fingerprint_value(command)
+        for command in (step.get("commands") or [])
+        if _normalize_fingerprint_value(command)
+    ]
+    return json.dumps(commands, ensure_ascii=True)
+
+
+def _stable_id(prefix: str, *parts: str) -> str:
+    digest = hashlib.sha256("\x1f".join(parts).encode()).hexdigest()[:16]
+    return f"{prefix}-{digest}"
+
+
+def longest_shared_title_substring(left: str, right: str) -> str:
+    """Return the longest case-insensitive shared title substring."""
+    a = clean_label(left).casefold()
+    b = clean_label(right).casefold()
+    if not a or not b:
+        return ""
+
+    previous = [0] * (len(b) + 1)
+    best_length = 0
+    best_end = 0
+    for i, left_char in enumerate(a, start=1):
+        current = [0] * (len(b) + 1)
+        for j, right_char in enumerate(b, start=1):
+            if left_char != right_char:
+                continue
+            current[j] = previous[j - 1] + 1
+            if current[j] > best_length:
+                best_length = current[j]
+                best_end = i
+        previous = current
+    return a[best_end - best_length:best_end]
+
+
+def annotate_duplicate_groups(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Annotate command-equal rows connected by a shared title substring."""
+    if not rows:
+        return []
+
+    parent = list(range(len(rows)))
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    by_commands: dict[str, list[int]] = defaultdict(list)
+    for index, row in enumerate(rows):
+        command_key = row.get("_command_key", "")
+        if command_key and command_key != "[]":
+            by_commands[command_key].append(index)
+
+    pair_matches: list[dict[str, Any]] = []
+    for indexes in by_commands.values():
+        for offset, left_index in enumerate(indexes):
+            for right_index in indexes[offset + 1:]:
+                shared = longest_shared_title_substring(
+                    rows[left_index]["title"], rows[right_index]["title"]
+                )
+                if len(shared) < 2:
+                    continue
+                union(left_index, right_index)
+                pair_matches.append(
+                    {
+                        "left_id": rows[left_index]["id"],
+                        "right_id": rows[right_index]["id"],
+                        "shared_substring": shared,
+                    }
+                )
+
+    components: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for index, row in enumerate(rows):
+        components[find(index)].append(row)
+
+    duplicate_groups: list[dict[str, Any]] = []
+    for members in components.values():
+        members.sort(key=lambda row: (row["yaml_order"], row["title"].casefold()))
+        command_key = members[0].get("_command_key", "")
+        member_ids = [row["id"] for row in members]
+        group_id = _stable_id(
+            "duplicate-group",
+            command_key if len(members) > 1 else members[0]["id"],
+            *sorted(member_ids),
+        )
+        for row in members:
+            row["duplicate_group_id"] = group_id
+            row["duplicate_group_size"] = len(members)
+
+        if len(members) < 2:
+            continue
+        id_set = set(member_ids)
+        matches = [
+            match
+            for match in pair_matches
+            if match["left_id"] in id_set and match["right_id"] in id_set
+        ]
+        duplicate_groups.append(
+            {
+                "id": group_id,
+                "title": members[0]["title"],
+                "command_fingerprint": members[0]["command_fingerprint"],
+                "member_ids": member_ids,
+                "member_titles": [row["title"] for row in members],
+                "architectures": sorted(
+                    {
+                        arch
+                        for row in members
+                        for arch in row.get("architectures_present", [])
+                    },
+                    key=_arch_sort_key,
+                ),
+                "pair_matches": matches,
+            }
+        )
+
+    for row in rows:
+        row.pop("_command_key", None)
+    duplicate_groups.sort(key=lambda group: group["title"].casefold())
+    return duplicate_groups
+
+
+def _matrix_cells(
+    rows: list[dict[str, Any]],
+    architectures: set[str],
+) -> list[dict[str, Any]]:
+    return [
+        cell
+        for row in rows
+        for arch, cell in (row.get("cells") or {}).items()
+        if arch in architectures and cell.get("exists")
+    ]
+
+
+def _health_status(cells: list[dict[str, Any]]) -> str:
+    states = [str(cell.get("latest_state") or "").casefold() for cell in cells]
+    has_pass = "passed" in states
+    has_incident = any(state in INCIDENT_STATES for state in states)
+    if has_pass and has_incident:
+        return "mixed"
+    if has_pass:
+        return "passing"
+    if has_incident:
+        return "failed"
+    if any(state in WAITING_STATES for state in states):
+        return "waiting"
+    return "unknown"
+
+
+def matrix_health_policy(
+    rows: list[dict[str, Any]],
+    *,
+    reduce_duplicates: bool,
+    ignore_mi355_only: bool,
+) -> dict[str, Any]:
+    """Summarize unique AMD health under one explicit reduction policy."""
+    components: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        components[row["duplicate_group_id"]].append(row)
+
+    if reduce_duplicates:
+        candidates = [
+            (group_id, members, members)
+            for group_id, members in components.items()
+        ]
+    else:
+        candidates = [
+            (row["id"], [row], components[row["duplicate_group_id"]])
+            for row in rows
+        ]
+
+    counts = {
+        "passing_groups": 0,
+        "failed_only_groups": 0,
+        "mixed_groups": 0,
+        "waiting_groups": 0,
+        "unknown_groups": 0,
+        "ignored_mi355_only_groups": 0,
+        "inherited_mi355_groups": 0,
+    }
+    for _, candidate_rows, component_rows in candidates:
+        candidate_core = _matrix_cells(candidate_rows, set(CORE_AMD_ARCHITECTURES))
+        candidate_mi355 = _matrix_cells(candidate_rows, {"mi355"})
+        component_core = _matrix_cells(component_rows, set(CORE_AMD_ARCHITECTURES))
+        if candidate_core:
+            cells = candidate_core
+            if candidate_mi355:
+                counts["inherited_mi355_groups"] += 1
+        elif component_core:
+            cells = component_core
+            counts["inherited_mi355_groups"] += 1
+        elif ignore_mi355_only:
+            counts["ignored_mi355_only_groups"] += 1
+            continue
+        else:
+            cells = _matrix_cells(candidate_rows, {"mi355"})
+
+        status = _health_status(cells)
+        count_key = "failed_only_groups" if status == "failed" else status + "_groups"
+        counts[count_key] += 1
+
+    counts["failing_groups"] = (
+        counts["failed_only_groups"] + counts["mixed_groups"]
+    )
+    counts["resolved_groups"] = (
+        counts["passing_groups"] + counts["failing_groups"]
+    )
+    counts["included_groups"] = (
+        counts["resolved_groups"]
+        + counts["waiting_groups"]
+        + counts["unknown_groups"]
+    )
+    counts["pass_percentage"] = round(
+        counts["passing_groups"] / counts["resolved_groups"] * 100,
+        1,
+    ) if counts["resolved_groups"] else None
+    counts["reduce_duplicates"] = reduce_duplicates
+    counts["ignore_mi355_only"] = ignore_mi355_only
+    return counts
+
+
+def matrix_health_policies(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {
+        "reduced_ignore_mi355": matrix_health_policy(
+            rows, reduce_duplicates=True, ignore_mi355_only=True
+        ),
+        "reduced_include_mi355": matrix_health_policy(
+            rows, reduce_duplicates=True, ignore_mi355_only=False
+        ),
+        "definitions_ignore_mi355": matrix_health_policy(
+            rows, reduce_duplicates=False, ignore_mi355_only=True
+        ),
+        "definitions_include_mi355": matrix_health_policy(
+            rows, reduce_duplicates=False, ignore_mi355_only=False
+        ),
+    }
 
 
 def _variant_preference(label: str, arch: str, row_title: str) -> tuple[int, str]:
@@ -431,6 +686,7 @@ def parse_steps(yaml_text: str) -> tuple[list[dict[str, Any]], list[str]]:
                 "link_label": link_label(label),
                 "title": canonical_title(label),
                 "definition_key": definition_fingerprint(step),
+                "command_key": command_fingerprint(step),
                 "area": classify_area(canonical_title(label)),
                 "arch": arch,
                 "yaml_order": idx,
@@ -523,8 +779,16 @@ def build_matrix(
         row = rows_by_title.setdefault(
             row_key,
             {
+                "id": _stable_id("matrix-row", row_key),
                 "title": row_title,
                 "canonical_title": step["title"],
+                "definition_fingerprint": _stable_id(
+                    "definition", step["definition_key"]
+                ),
+                "command_fingerprint": _stable_id(
+                    "commands", step["command_key"]
+                ),
+                "_command_key": step["command_key"],
                 "area": step["area"],
                 "yaml_order": step["yaml_order"],
                 "cells": {arch: {"exists": False} for arch in architectures},
@@ -638,6 +902,8 @@ def build_matrix(
         rows.append(row)
 
     rows.sort(key=lambda row: (row["yaml_order"], row["title"].lower()))
+    duplicate_groups = annotate_duplicate_groups(rows)
+    health_policies = matrix_health_policies(rows)
 
     fully_shared = sum(1 for row in rows if row["coverage_count"] == len(architectures))
     single_arch = sum(1 for row in rows if row["coverage_count"] == 1)
@@ -694,6 +960,15 @@ def build_matrix(
         },
         "summary": {
             "unique_groups": len(rows),
+            "latest_build_number": latest_build.get("number") if latest_build else None,
+            "definition_rows": len(rows),
+            "reduced_unique_groups": len(rows)
+            - sum(len(group["member_ids"]) - 1 for group in duplicate_groups),
+            "duplicate_clusters": len(duplicate_groups),
+            "duplicate_definition_rows": sum(
+                len(group["member_ids"]) for group in duplicate_groups
+            ),
+            "health_policies": health_policies,
             "architecture_count": len(architectures),
             "hardware_cells": hardware_cells,
             "latest_matched_cells": latest_matched_cells,
@@ -707,6 +982,16 @@ def build_matrix(
         },
         "architectures": arch_stats,
         "areas": sorted({row["area"] for row in rows}),
+        "duplicate_policy": {
+            "command_rule": "normalized command lists are exactly equal",
+            "title_rule": "longest normalized shared substring has length >= 2",
+            "cluster_rule": "transitive closure of matching row pairs",
+            "empty_commands_match": False,
+            "default_reduce_duplicates": True,
+            "default_ignore_mi355_only": True,
+            "mi355_with_core_status": "inherit MI250, MI300, or MI325 signal",
+        },
+        "duplicate_groups": duplicate_groups,
         "rows": rows,
     }
 

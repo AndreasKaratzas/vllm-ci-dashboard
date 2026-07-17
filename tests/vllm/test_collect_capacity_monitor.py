@@ -86,7 +86,7 @@ def test_capacity_payload_projects_theoretical_group_count(tmp_path: Path) -> No
     assert payload["summary"]["gated_group_count"] == 2
     assert payload["summary"]["capacity_scoped_group_count"] == 2
     assert payload["summary"]["gated_job_count"] == 5
-    assert payload["summary"]["total_capacity"] == 715
+    assert payload["summary"]["total_capacity"] == 711
     projection = payload["projection"]
     assert projection["theoretical_groups"] == 4
     assert projection["scale"] == 2.0

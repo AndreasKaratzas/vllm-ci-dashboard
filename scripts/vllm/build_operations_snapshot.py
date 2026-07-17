@@ -7,12 +7,17 @@ import argparse
 import hashlib
 import json
 import re
+import sys
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from statistics import median
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from vllm.constants import is_excluded_queue  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -178,7 +183,7 @@ def load_queue_history(path: Path) -> list[dict]:
 
 def _is_excluded_queue(value: Any) -> bool:
     """Defensive presentation filter; collectors enforce the same exclusion."""
-    return "mi355b" in str(value or "").lower()
+    return is_excluded_queue(str(value or ""))
 
 
 def _number(value: Any) -> float | None:

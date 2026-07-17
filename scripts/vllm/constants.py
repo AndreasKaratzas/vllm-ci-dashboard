@@ -29,17 +29,20 @@ AMD_PIPELINES: tuple[str, ...] = ("amd-ci",)
 # Queue taxonomy
 # ---------------------------------------------------------------------------
 
-# Queues in this family are intentionally outside the dashboard's operational
-# scope. Keep the predicate central because Buildkite queue keys are
-# case-sensitive strings while operators have used both ``mi355B`` and
-# ``mi355b`` spellings, with several numeric suffixes.
+# Queues in these families, plus explicitly retired queue names, are outside
+# the dashboard's operational scope. Keep the predicate central because
+# Buildkite queue keys are case-sensitive strings while operators have used
+# both ``mi355B`` and ``mi355b`` spellings, with several numeric suffixes.
 EXCLUDED_QUEUE_PREFIXES: tuple[str, ...] = ("amd_mi355b",)
+EXCLUDED_QUEUE_NAMES: frozenset[str] = frozenset({"amd_mi250_8"})
 
 
 def is_excluded_queue(queue: str | None) -> bool:
-    """Return whether ``queue`` belongs to an excluded queue family."""
+    """Return whether ``queue`` is explicitly retired or in an excluded family."""
     normalized = (queue or "").strip().casefold()
-    return any(normalized.startswith(prefix) for prefix in EXCLUDED_QUEUE_PREFIXES)
+    return normalized in EXCLUDED_QUEUE_NAMES or any(
+        normalized.startswith(prefix) for prefix in EXCLUDED_QUEUE_PREFIXES
+    )
 
 
 def is_amd_queue(queue: str | None) -> bool:
@@ -59,8 +62,8 @@ _AMD_GPU_QUEUE_RE = re.compile(r"^amd_mi(\d{3,4})b?(?:_|$)", re.IGNORECASE)
 def amd_gpu_hardware(queue: str | None) -> str:
     """Return the GPU model (``MI300``) for an AMD GPU queue, else "".
 
-    Returns "" for non-AMD queues, ``amd-cpu``, and excluded families
-    (``amd_mi355b``). Use this to scope agent-health to physical GPU nodes.
+    Returns "" for non-AMD queues, ``amd-cpu``, and excluded queues. Use this
+    to scope agent-health to physical GPU nodes.
     """
     normalized = (queue or "").strip()
     if is_excluded_queue(normalized):
@@ -78,7 +81,6 @@ _TRACKED_QUEUE_NAMES = {
     "amd_mi250_1",
     "amd_mi250_2",
     "amd_mi250_4",
-    "amd_mi250_8",
     # AMD MI300 (legacy / partner agents, still active)
     "amd_mi300_1",
     "amd_mi300_2",
