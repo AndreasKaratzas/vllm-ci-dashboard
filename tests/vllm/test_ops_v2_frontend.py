@@ -416,6 +416,42 @@ def test_blocked_nightly_is_separate_from_the_latest_test_signal():
     assert "build.test_jobs_blocked" in OPS_JS
 
 
+def test_nightly_assessment_uses_explicit_movement_rules():
+    for contract in (
+        "function amdNightlyMovement",
+        "previousIncidents: recurring + fixed",
+        "delta: newlyIncident - fixed",
+        "movement.currentIncidents === incidentCount",
+        "Running with incidents",
+        "Regressed",
+        "Improved",
+        "Changed, net even",
+        "Stable incidents",
+        "Recovered",
+        "No net change",
+        "provisional while Buildkite is running",
+    ):
+        assert contract in OPS_JS
+    assert "soft ? 'Degraded'" not in OPS_JS
+
+
+def test_coverage_matrix_supports_route_safe_platform_name_and_area_sorting():
+    for contract in (
+        "healthCoverageSort: 'platform'",
+        "'ops_health_sort'",
+        "['healthCoverageSort', 'health_sort', ['platform', 'name', 'area']]",
+        "const AMD_MATRIX_PLATFORM_ORDER = ['mi250', 'mi300', 'mi325', 'mi355']",
+        "function sortAmdMatrixRows",
+        "Platform coverage (MI250 to MI355)",
+        "Test group name",
+        "Test area",
+        "Sort AMD test matrix",
+        "setRouteState('ci-health', 'healthCoverageSort', coverageSort.value, 'health_sort')",
+        "previewLabel: 'sorted rows'",
+    ):
+        assert contract in OPS_JS
+
+
 def test_authoritative_group_catalog_preserves_id_and_variant_identity():
     assert "Array.isArray(reliability.group_catalog)" in OPS_JS
     assert "return reliability.group_catalog.map" in OPS_JS

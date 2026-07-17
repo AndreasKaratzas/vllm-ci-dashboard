@@ -24,6 +24,7 @@
   const CHART_LIBRARY_URL = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js';
   const state = {
     healthView: 'overview',
+    healthCoverageSort: 'platform',
     healthReduceDuplicates: true,
     healthIgnoreMi355Only: true,
     analyticsView: 'groups',
@@ -59,7 +60,7 @@
   };
 
   const ROUTE_QUERY_KEYS = {
-    'ci-health': new Set(['ops_health_view']),
+    'ci-health': new Set(['ops_health_view', 'ops_health_sort']),
     'ci-analytics': new Set([
       'ops_analytics_view', 'ops_analytics_pipeline', 'ops_analytics_search',
       'ops_analytics_group', 'ops_analytics_cohort', 'ops_analytics_amd_filter',
@@ -73,6 +74,7 @@
   };
   const ROUTE_DEFAULTS = {
     health_view: 'overview',
+    health_sort: 'platform',
     analytics_view: 'groups',
     analytics_pipeline: 'amd-ci',
     analytics_search: '',
@@ -299,7 +301,10 @@
 
   function syncRouteState(tabId) {
     const specs = {
-      'ci-health': [['healthView', 'health_view', ['overview', 'gating', 'coverage', 'diagnostics']]],
+      'ci-health': [
+        ['healthView', 'health_view', ['overview', 'gating', 'coverage', 'diagnostics']],
+        ['healthCoverageSort', 'health_sort', ['platform', 'name', 'area']],
+      ],
       'ci-analytics': [
         ['analyticsView', 'analytics_view', ['groups', 'flakes', 'nightlies', 'retries', 'latency', 'agent-health']],
         ['analyticsPipeline', 'analytics_pipeline', ['ci', 'amd-ci']],
@@ -779,10 +784,11 @@
     const config = options || {};
     const limit = Number(config.limit || 12);
     const preview = rows.slice(0, limit);
+    const previewLabel = config.previewLabel || 'priority rows';
     const root = panel(
       title,
       meta,
-      dataTable(columns, preview, integer(preview.length) + ' priority rows of ' + integer(rows.length), config.geometry || {}),
+      dataTable(columns, preview, integer(preview.length) + ' ' + previewLabel + ' of ' + integer(rows.length), config.geometry || {}),
       config.className || ''
     );
     if (rows.length > limit || config.alwaysBrowse) {
@@ -2132,29 +2138,139 @@
     return nightlyForPipeline(ops, 'amd-ci');
   }
 
+  function amdNightlyMovement(build) {
+    const transitions = (build || {}).transitions || {};
+    const hasComparison = Number(transitions.preceding_build_number || 0) > 0
+      && ['new', 'recurring', 'fixed'].every(function (key) { return Array.isArray(transitions[key]); });
+    const newlyIncident = Array.isArray(transitions.new) ? transitions.new.length : 0;
+    const recurring = Array.isArray(transitions.recurring) ? transitions.recurring.length : 0;
+    const fixed = Array.isArray(transitions.fixed) ? transitions.fixed.length : 0;
+    return {
+      hasComparison: hasComparison,
+      newCount: newlyIncident,
+      recurringCount: recurring,
+      fixedCount: fixed,
+      currentIncidents: newlyIncident + recurring,
+      previousIncidents: recurring + fixed,
+      delta: newlyIncident - fixed,
+    };
+  }
+
   function amdNightlyPresentation(build, healthSummary) {
-    const latestStates = (healthSummary || {}).latest_state_counts || {};
-    const soft = Number(latestStates.soft || 0);
-    const hard = Number(latestStates.hard || 0);
-    const signalBuild = Number((healthSummary || {}).latest_build_number || 0);
-    const pipelineBuild = Number((build || {}).number || 0);
-    const explicitlyNoSignal = Object.prototype.hasOwnProperty.call(build || {}, 'has_test_results') && !build.has_test_results;
-    const blocked = Number((build || {}).test_jobs_blocked || 0);
-    if (explicitlyNoSignal) {
+    const record = build || {};
+    const summary = healthSummary || {};
+    const latestStates = summary.latest_state_counts || {};
+    const signalBuild = Number(summary.latest_build_number || 0);
+    const pipelineBuild = Number(record.number || 0);
+    const pipelineState = String(record.state || 'unknown').toLowerCase();
+    const inProgress = ['running', 'scheduled', 'creating', 'assigned', 'starting'].includes(pipelineState);
+    const blocked = Number(record.test_jobs_blocked || 0);
+    const explicitlyNoSignal = Object.prototype.hasOwnProperty.call(record, 'has_test_results') && !record.has_test_results;
+    const summaryMatchesBuild = Number(summary.latest_group_count || 0) > 0
+      && (!signalBuild || !pipelineBuild || signalBuild === pipelineBuild);
+
+    function stateCount(keys, fallback) {
+      for (const key of keys) {
+        if (Object.prototype.hasOwnProperty.call(latestStates, key) && Number.isFinite(Number(latestStates[key]))) {
+          return Number(latestStates[key]);
+        }
+      }
+      return Number(fallback || 0);
+    }
+
+    const fallbackHard = Array.isArray(record.failed_groups) ? record.failed_groups.length : 0;
+    const fallbackSoft = Array.isArray(record.soft_failed_groups) ? record.soft_failed_groups.length : 0;
+    const fallbackTotal = Number(record.total_groups || 0);
+    const hard = summaryMatchesBuild ? stateCount(['hard', 'failed'], fallbackHard) : fallbackHard;
+    const soft = summaryMatchesBuild ? stateCount(['soft', 'soft_fail'], fallbackSoft) : fallbackSoft;
+    const passed = summaryMatchesBuild
+      ? stateCount(['passed'], Math.max(0, fallbackTotal - hard - soft))
+      : Math.max(0, fallbackTotal - hard - soft);
+    const observedGroups = summaryMatchesBuild ? Number(summary.latest_group_count || 0) : fallbackTotal;
+    const hasSignal = !explicitlyNoSignal && Math.max(observedGroups, passed + soft + hard) > 0;
+    const movement = amdNightlyMovement(record);
+    const incidentCount = hard + soft;
+    const comparisonReliable = hasSignal && movement.hasComparison && movement.currentIncidents === incidentCount;
+
+    if (!hasSignal) {
       return {
-        label: blocked ? 'Infra blocked' : 'No test signal',
-        tone: blocked ? 'is-danger' : 'is-warning',
+        label: blocked ? 'Infra blocked' : inProgress ? 'Awaiting results' : 'No test signal',
+        tone: blocked ? 'is-danger' : inProgress ? 'is-info' : 'is-warning',
         meta: (pipelineBuild ? '#' + pipelineBuild + ' - ' : '')
-          + (blocked ? integer(blocked) + ' test groups never started' : 'no parsed test groups')
-          + (signalBuild ? '; latest test signal #' + signalBuild : ''),
+          + (blocked ? integer(blocked) + ' test groups never started' : inProgress ? 'Buildkite is running; no parsed test groups yet' : 'no parsed test groups')
+          + (signalBuild && signalBuild !== pipelineBuild ? '; latest test signal #' + signalBuild : ''),
         hasSignal: false,
+        movementLabel: 'Not classified',
+        movementMeta: 'No test execution in the latest nightly',
+        movementTone: 'is-warning',
+        hasComparison: false,
+        incidentCount: 0,
+        incidentDelta: null,
       };
     }
+
+    let movementLabel = movement.hasComparison ? 'Movement unavailable' : 'No prior comparison';
+    let movementMeta = movement.hasComparison
+      ? 'Transition totals do not match the latest observed signal'
+      : 'No comparable preceding nightly';
+    let movementTone = incidentCount ? 'is-warning' : 'is-neutral';
+    if (comparisonReliable) {
+      movementLabel = movement.delta > 0
+        ? '+' + integer(movement.delta) + ' incidents'
+        : movement.delta < 0
+          ? integer(Math.abs(movement.delta)) + ' fewer incidents'
+          : 'No net change';
+      movementMeta = integer(movement.newCount) + ' new - ' + integer(movement.recurringCount) + ' recurring - ' + integer(movement.fixedCount) + ' fixed';
+      movementTone = movement.delta > 0 ? 'is-danger' : movement.delta < 0 ? 'is-success' : incidentCount ? 'is-warning' : 'is-success';
+    }
+
+    let label;
+    let tone;
+    if (inProgress) {
+      label = incidentCount ? 'Running with incidents' : 'Running clean';
+      tone = hard ? 'is-danger' : incidentCount ? 'is-warning' : 'is-info';
+    } else if (['canceled', 'cancelled'].includes(pipelineState)) {
+      label = 'Canceled';
+      tone = 'is-warning';
+    } else if (hard) {
+      label = 'Hard failures';
+      tone = 'is-danger';
+    } else if (['failed', 'failing', 'blocked'].includes(pipelineState)) {
+      label = 'Pipeline failed';
+      tone = 'is-danger';
+    } else if (!incidentCount) {
+      label = comparisonReliable && movement.fixedCount ? 'Recovered' : 'Healthy';
+      tone = 'is-success';
+    } else if (!comparisonReliable) {
+      label = 'Incidents present';
+      tone = 'is-warning';
+    } else if (movement.delta > 0) {
+      label = 'Regressed';
+      tone = 'is-danger';
+    } else if (movement.delta < 0) {
+      label = 'Improved';
+      tone = 'is-success';
+    } else if (movement.newCount || movement.fixedCount) {
+      label = 'Changed, net even';
+      tone = 'is-warning';
+    } else {
+      label = 'Stable incidents';
+      tone = 'is-warning';
+    }
+
     return {
-      label: hard ? 'Hard failures' : soft ? 'Degraded' : Number((healthSummary || {}).latest_group_count) ? 'Healthy' : value((build || {}).state, 'Unknown'),
-      tone: hard ? 'is-danger' : soft ? 'is-warning' : toneForState((build || {}).state),
-      meta: (pipelineBuild ? '#' + pipelineBuild + ' - ' : '') + integer(latestStates.passed || 0) + ' pass - ' + integer(soft) + ' soft - ' + integer(hard) + ' hard; Buildkite ' + value((build || {}).state, 'unknown'),
+      label: label,
+      tone: tone,
+      meta: (pipelineBuild ? '#' + pipelineBuild + ' - ' : '')
+        + integer(passed) + ' pass - ' + integer(soft) + ' soft - ' + integer(hard) + ' hard; '
+        + movementLabel + (inProgress ? '; provisional while Buildkite is running' : '; Buildkite ' + value(record.state, 'unknown')),
       hasSignal: true,
+      movementLabel: movementLabel,
+      movementMeta: movementMeta,
+      movementTone: movementTone,
+      hasComparison: comparisonReliable,
+      incidentCount: incidentCount,
+      incidentDelta: comparisonReliable ? movement.delta : null,
     };
   }
 
@@ -2199,7 +2315,6 @@
     const build = (amd.builds || [])[0] || {};
     const amdHealthSummary = ((ops.amd_test_health || {}).summary) || {};
     const nightlyState = amdNightlyPresentation(build, amdHealthSummary);
-    const trans = build.transitions || {};
     const matrix = (ops.gating || {}).matrix_summary || {};
     const uniqueHealth = matrixHealthPolicy(matrix);
     const queue = (ops.queue || {}).snapshot || {};
@@ -2210,7 +2325,7 @@
     add(host, statusStrip([
       {id: 'home-amd-nightly', label: 'LATEST AMD NIGHTLY', value: nightlyState.label, meta: nightlyState.meta, tone: nightlyState.tone, url: exactPipelineBuildUrl(build, 'amd-ci'), observed: build.created_at},
       {id: 'home-hardware-coverage', label: 'UNIQUE AMD TEST GROUPS', value: uniqueHealth.pass_percentage === null || uniqueHealth.pass_percentage === undefined ? 'No resolved signal' : Number(uniqueHealth.pass_percentage).toFixed(1) + '% resolved pass', meta: integer(uniqueHealth.passing_groups) + ' passing - ' + integer(uniqueHealth.failing_groups) + ' failing', tone: Number(uniqueHealth.failing_groups) ? 'is-warning' : 'is-success', onOpen: function () { navigateTo('ci-health', {healthView: 'overview'}); }},
-      {id: 'home-failure-lifecycle', label: 'NIGHTLY MOVEMENT', value: integer((trans.new || []).length) + ' new', meta: integer((trans.recurring || []).length) + ' recurring - ' + integer((trans.fixed || []).length) + ' fixed', tone: (trans.new || []).length ? 'is-danger' : 'is-success', onOpen: function () { openBuildDetail(build); }},
+      {id: 'home-failure-lifecycle', label: 'NIGHTLY MOVEMENT', value: nightlyState.movementLabel, meta: nightlyState.movementMeta, tone: nightlyState.movementTone, onOpen: function () { openBuildDetail(build); }},
       {id: 'home-queue-snapshot', label: 'ALL-FLEET QUEUE ACTIVITY', value: integer(allFleetWaiting) + ' waiting', meta: integer(allFleetRunning) + ' running across ' + integer(allFleetQueues.length) + ' queues', tone: allFleetWaiting ? 'is-warning' : 'is-success', observed: queue.ts, provenance: 'Same all-queue scope as destination', onOpen: function () { navigateTo('ci-queue', {queueView: 'current', queueScope: 'all'}); }},
     ]));
 
@@ -2652,6 +2767,39 @@
     return root;
   }
 
+  const AMD_MATRIX_PLATFORM_ORDER = ['mi250', 'mi300', 'mi325', 'mi355'];
+
+  function amdMatrixPlatformRank(row) {
+    const cells = (row || {}).cells || {};
+    const rank = AMD_MATRIX_PLATFORM_ORDER.findIndex(function (platform) {
+      return Boolean((cells[platform] || {}).exists);
+    });
+    return rank < 0 ? AMD_MATRIX_PLATFORM_ORDER.length : rank;
+  }
+
+  function sortAmdMatrixRows(rows, mode) {
+    function compareText(left, right) {
+      return String(left || '').localeCompare(String(right || ''), undefined, {sensitivity: 'base'});
+    }
+    return Array.from(rows || []).sort(function (left, right) {
+      if (mode === 'name') {
+        return compareText(left.title, right.title) || compareText(left.area, right.area);
+      }
+      if (mode === 'area') {
+        return compareText(left.area, right.area) || compareText(left.title, right.title);
+      }
+      return amdMatrixPlatformRank(left) - amdMatrixPlatformRank(right)
+        || compareText(left.title, right.title)
+        || compareText(left.area, right.area);
+    });
+  }
+
+  function amdMatrixSortDescription(mode) {
+    if (mode === 'name') return 'Test groups sorted alphabetically by name';
+    if (mode === 'area') return 'Test areas sorted alphabetically, then by test-group name';
+    return 'Grouped by first configured platform: MI250, MI300, MI325, then MI355';
+  }
+
   function healthTabs(host) {
     host.append(segmented([
       {id: 'overview', label: 'Overview'}, {id: 'gating', label: 'Definition parity'},
@@ -2662,7 +2810,6 @@
   async function renderHealth(host, ops) {
     const amd = latestAmd(ops);
     const build = (amd.builds || [])[0] || {};
-    const trans = build.transitions || {};
     const gating = ops.gating || {};
     const definitionSummary = ((ops.definition_parity || {}).summary) || {};
     const matrix = gating.matrix_summary || {};
@@ -2678,7 +2825,7 @@
       {id: 'health-build', label: 'LATEST AMD NIGHTLY', value: nightlyState.label, meta: build.number ? nightlyState.meta : 'No completed build', tone: nightlyState.tone, url: exactPipelineBuildUrl(build, 'amd-ci')},
       {id: 'health-hardware', label: 'UNIQUE AMD TEST GROUPS', value: uniqueHealth.pass_percentage === null || uniqueHealth.pass_percentage === undefined ? 'No resolved signal' : Number(uniqueHealth.pass_percentage).toFixed(1) + '% resolved pass', meta: integer(uniqueHealth.passing_groups) + ' passing - ' + integer(uniqueHealth.failing_groups) + ' failing - ' + integer(Number(uniqueHealth.waiting_groups || 0) + Number(uniqueHealth.unknown_groups || 0)) + ' no signal', tone: Number(uniqueHealth.failing_groups) ? 'is-warning' : Number(uniqueHealth.unknown_groups || 0) ? 'is-warning' : 'is-success', onOpen: function () { openMatrixHealthBrowser('all'); }},
       {id: 'health-definitions', label: 'AMD DEFINITIONS', value: integer(definitionSummary.total_amd_steps), meta: integer(definitionSummary.matched) + ' matched to current upstream definitions', onOpen: function () { setRouteState('ci-health', 'healthView', 'gating', 'health_view'); }},
-      {id: 'health-nightly-transition', label: 'NIGHTLY MOVEMENT', value: nightlyState.hasSignal ? integer((trans.new || []).length) + ' new' : 'Not classified', meta: nightlyState.hasSignal ? integer((trans.recurring || []).length) + ' recurring - ' + integer((trans.fixed || []).length) + ' fixed' : 'No test execution in the latest nightly', tone: nightlyState.hasSignal ? ((trans.new || []).length ? 'is-danger' : 'is-success') : 'is-warning', onOpen: function () { openBuildDetail(build); }},
+      {id: 'health-nightly-transition', label: 'NIGHTLY MOVEMENT', value: nightlyState.movementLabel, meta: nightlyState.movementMeta, tone: nightlyState.movementTone, onOpen: function () { openBuildDetail(build); }},
     ]));
 
     if (state.healthView === 'overview') {
@@ -2825,19 +2972,7 @@
       let matrixData = {};
       try { matrixData = await fetchJSON('data/vllm/ci/amd_test_matrix.json'); } catch (_) {}
       const arch = matrixData.architectures || [];
-      const coverageRows = Array.from(matrixData.rows || []).sort(function (a, b) {
-        function priority(row) {
-          return arch.reduce(function (score, architecture) {
-            const cell = (row.cells || {})[architecture.id] || {};
-            const result = observationState({state: cell.latest_state});
-            if (!cell.exists) return score + 1;
-            if (isIncidentObservation({state: result})) return score + 4;
-            if (result !== 'passed') return score + 2;
-            return score;
-          }, 0);
-        }
-        return priority(b) - priority(a) || String(a.title).localeCompare(String(b.title));
-      });
+      const coverageRows = sortAmdMatrixRows(matrixData.rows || [], state.healthCoverageSort);
       host.append(statusStrip(arch.map(function (a) {
         return {label: a.label + ' DEFINITIONS', value: integer(a.nightly_match_count) + ' / ' + integer(a.group_count), meta: 'nightly matched groups', tone: a.nightly_match_count === a.group_count ? 'is-success' : 'is-warning'};
       })));
@@ -2917,16 +3052,37 @@
           return linkedBadge(c.latest_state || 'unknown', exactPipelineEvidenceUrl({job_url: c.latest_url}, 'amd-ci'), function () { openGroupDetailWithEvidence({name: r.title, area: r.area}, ops); });
         }});
       }
+      const coverageSortToolbar = n('div', 'ops-toolbar');
+      const coverageSortGroup = n('div', 'ops-toolbar-group');
+      const coverageSort = n('select', 'ops-select');
+      coverageSort.setAttribute('aria-label', 'Sort AMD test matrix');
+      [
+        ['platform', 'Platform coverage (MI250 to MI355)'],
+        ['name', 'Test group name'],
+        ['area', 'Test area'],
+      ].forEach(function (optionDefinition) {
+        const option = n('option', '', optionDefinition[1]);
+        option.value = optionDefinition[0];
+        option.selected = state.healthCoverageSort === optionDefinition[0];
+        coverageSort.append(option);
+      });
+      coverageSort.addEventListener('change', function () {
+        setRouteState('ci-health', 'healthCoverageSort', coverageSort.value, 'health_sort');
+      });
+      add(coverageSortGroup, [n('span', 'ops-toolbar-label', 'Sort matrix'), coverageSort]);
+      add(coverageSortToolbar, [n('div', 'ops-toolbar-spacer'), coverageSortGroup]);
+      host.append(coverageSortToolbar);
       host.append(compactTablePanel(
         'AMD test matrix details',
-        'Groups with incidents, unknown results, or missing definitions are shown first',
+        amdMatrixSortDescription(state.healthCoverageSort),
         cols,
         coverageRows,
         {
           id: 'coverage-browser',
           limit: 16,
+          previewLabel: 'sorted rows',
           browserTitle: 'Complete AMD test matrix',
-          browserSubtitle: integer(coverageRows.length) + ' group definitions across ' + integer(arch.length) + ' architectures',
+          browserSubtitle: integer(coverageRows.length) + ' group definitions across ' + integer(arch.length) + ' architectures - ' + amdMatrixSortDescription(state.healthCoverageSort),
           searchPlaceholder: 'Filter test group or area',
           searchText: function (row) { return [row.title, row.area].join(' '); },
           geometry: {name: 'coverage', minWidth: Math.max(760, 360 + arch.length * 150) + 'px'},
