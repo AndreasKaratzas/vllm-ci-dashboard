@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-16T21:55:45Z",
+  "generated_at": "2026-07-17T00:24:51Z",
   "source_repo": "vllm-project/vllm",
   "tracked_authors": [
     "AndreasKaratzas",
@@ -21,9 +21,9 @@
     "by_device": {
       "mi250_1": 3,
       "mi250_2": 1,
-      "mi300_1": 10,
+      "mi300_1": 11,
       "mi300_2": 1,
-      "mi325_1": 2
+      "mi325_1": 1
     },
     "by_author": {
       "AndreasKaratzas": 17
@@ -36,10 +36,10 @@
     "retained_pr_count": 0,
     "retained_pr_numbers": [],
     "lookback_days": 35,
-    "since_date": "2026-06-11",
+    "since_date": "2026-06-12",
     "fresh_candidate_count": 0,
     "candidate_cache": {
-      "generated_at": "2026-07-16T21:55:45Z",
+      "generated_at": "2026-07-17T00:24:51Z",
       "pr_count": 1,
       "proposal_pr_numbers": [
         44969
@@ -53,11 +53,11 @@
           "author": "AndreasKaratzas",
           "state": "open",
           "created_at": "2026-06-09T06:56:07Z",
-          "updated_at": "2026-07-16T16:24:21Z",
-          "checked_at": "2026-07-16T21:55:45Z",
+          "updated_at": "2026-07-16T22:54:47Z",
+          "checked_at": "2026-07-17T00:24:51Z",
           "has_new_mirrors": true,
           "new_mirror_count": 17,
-          "head_sha": "2e1a75756755dff2831d4f9b99d195b4b62be5ad",
+          "head_sha": "a8cebaeaeaee2bf1d7a1a4ef9bfc99999f1026a6",
           "new_mirror_labels": [
             "Cudagraph",
             "Docker Build Metadata",
@@ -91,10 +91,10 @@
       "api_url": "https://api.github.com/repos/vllm-project/vllm/pulls/44969",
       "author": "AndreasKaratzas",
       "head_ref": "akaratza_stage_d_gating",
-      "head_sha": "2e1a75756755dff2831d4f9b99d195b4b62be5ad",
+      "head_sha": "a8cebaeaeaee2bf1d7a1a4ef9bfc99999f1026a6",
       "base_ref": "main",
       "base_sha": "75bdad40b5e96517c7f7645ce3199a8557817e17",
-      "updated_at": "2026-07-16T16:24:21Z",
+      "updated_at": "2026-07-16T22:54:47Z",
       "created_at": "2026-06-09T06:56:07Z",
       "new_mirror_count": 17,
       "new_mirrors": [
@@ -127,12 +127,9 @@
           "source_file_dependencies": [
             "buildkite/scripts/docker-build-metadata-args.sh",
             "buildkite/scripts/ci-bake-rocm.sh",
-            "docker/Dockerfile",
-            "docker/Dockerfile.cpu",
             "docker/Dockerfile.rocm",
             "docker/Dockerfile.rocm_base",
             "docker/ci-rocm.hcl",
-            "docker/docker-bake.hcl",
             "docker/docker-bake-rocm.hcl",
             "tests/tools/test_docker_build_metadata_args.py"
           ]
@@ -262,7 +259,7 @@
           "area": "Models - Language",
           "yaml_file": ".buildkite/test_areas/models_language.yaml",
           "yaml_index": 3,
-          "device": "mi325_1",
+          "device": "mi300_1",
           "timeout_in_minutes": 65,
           "source_file_dependencies": [
             "vllm/",
