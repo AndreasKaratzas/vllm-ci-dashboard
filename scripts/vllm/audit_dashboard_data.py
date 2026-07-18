@@ -1601,26 +1601,26 @@ class DashboardAudit:
                 )
             all_main_metrics = None
             all_main = block.get("all_main_reliability") or {}
-            if slug == "amd-ci":
-                if all_main or block.get("main_retry_analysis"):
+            if slug == "amd-ci" and block.get("main_retry_analysis"):
+                self.error(
+                    "analytics-amd-retry-analysis",
+                    (
+                        "AMD analytics may publish strict main reliability, "
+                        "but not upstream flake/retry analysis"
+                    ),
+                    "data/vllm/ci/analytics.json",
+                )
+            if not all_main:
+                if slug == "ci":
                     self.error(
-                        "analytics-amd-historical-reliability",
-                        "AMD analytics must not publish historical reliability or flake/retry ledgers",
+                        "analytics-all-main-missing",
+                        f"{slug} analytics must retain a separate all-main reliability cohort",
                         "data/vllm/ci/analytics.json",
                     )
-                metrics[slug] = {
-                    "builds": len(builds),
-                    "latest_build": latest.get("number"),
-                    "latest_source": latest.get("source"),
-                    "default_window": default_window,
-                    "failure_rankings": len(_rows(block.get("failure_ranking"))),
-                    "duration_rankings": len(_rows(block.get("duration_ranking"))),
-                }
-                continue
-            if not isinstance(all_main, dict) or not isinstance(all_main.get("groups"), list):
+            elif not isinstance(all_main, dict) or not isinstance(all_main.get("groups"), list):
                 self.error(
                     "analytics-all-main-missing",
-                    f"{slug} analytics must retain a separate all-main reliability cohort",
+                    f"{slug} all-main reliability cohort is malformed",
                     "data/vllm/ci/analytics.json",
                 )
             else:
@@ -1738,7 +1738,7 @@ class DashboardAudit:
                 retry_provenance = _mapping(retry.get("provenance"))
                 attempts = _rows(retry.get("retry_attempts"))
                 recoveries = _rows(retry.get("failed_then_passed_recoveries"))
-                if retry.get("available") is True:
+                if slug == "ci" and retry.get("available") is True:
                     retry_cohort = _strict_positive_int_set(
                         retry_provenance.get("cohort_build_numbers")
                     )
@@ -1781,7 +1781,7 @@ class DashboardAudit:
                             "CI retry evidence is not transitively bound to the exhaustive upstream cohort",
                             "data/vllm/ci/analytics.json",
                         )
-                elif attempts or recoveries:
+                elif slug == "ci" and (attempts or recoveries):
                     self.error(
                         "analytics-main-retry-unavailable-rows",
                         "Unavailable retry analysis must not publish partial attempt rows",
