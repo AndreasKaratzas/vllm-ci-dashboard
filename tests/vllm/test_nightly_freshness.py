@@ -76,6 +76,36 @@ def test_build_summary_counts_dependency_blocked_test_steps_only():
     assert summary.has_test_results is False
 
 
+def test_build_summary_counts_skip_only_groups_as_observed():
+    build = _build(
+        11005,
+        "2026-07-18T09:00:00Z",
+        "passed",
+        [_job("mi300_2: Expected Failure Group", "passed", "expected-failure")],
+    )
+    result = TestResult(
+        test_id="group::__xfailed__",
+        name="__xfailed__ (1)",
+        classname="group",
+        status="xfailed",
+        duration_secs=0,
+        failure_message="",
+        job_name="mi300_2: Expected Failure Group",
+        job_id="job",
+        step_id="step",
+        build_number=11005,
+        pipeline="amd-ci",
+        date="2026-07-18",
+    )
+
+    summary = compute_build_summary(build, [result], "amd")
+
+    assert summary.unique_test_groups == 1
+    assert summary.test_groups_passing_or == 0
+    assert summary.test_groups_passing_all == 0
+    assert summary.test_groups_partial == 0
+
+
 def test_pipeline_summary_keeps_blocked_nightly_separate_from_test_signal(tmp_path):
     signal_build = _build(
         10836,

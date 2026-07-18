@@ -1196,6 +1196,10 @@ def compute_build_summary(
         elif r.status == "canceled":
             # Canceled jobs should not be counted as passing
             group_hw_status[norm].setdefault(hw, None)
+        elif r.status in ("skipped", "xfailed"):
+            # Skip-only groups are still observed test groups. Keep them in
+            # the denominator without treating them as passing or failing.
+            group_hw_status[norm].setdefault(hw, None)
         elif r.status in ("passed", "xpassed"):
             # Only mark as passing if not already failed or canceled
             if group_hw_status[norm].get(hw) is not False:
