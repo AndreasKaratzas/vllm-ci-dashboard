@@ -1,6 +1,6 @@
 {
   "failing_groups_total": 30,
-  "generated_at": "2026-07-17T18:03:11.334262+00:00",
+  "generated_at": "2026-07-17T23:57:44.519794+00:00",
   "groups_all": [
     {
       "break_frequency": 4,
@@ -1763,7 +1763,7 @@
       "latest_date": "2026-07-17"
     },
     {
-      "break_frequency": 11,
+      "break_frequency": 10,
       "build_refs_latest": [
         {
           "build_number": 10972,
@@ -1774,14 +1774,14 @@
       "builds_latest": [
         10972
       ],
-      "current_streak_started": "2026-07-17",
-      "currently_failing": true,
+      "current_streak_started": null,
+      "currently_failing": false,
       "first_failure_in_window": "2026-06-19",
       "group": "mi300_1: Model Executor",
       "hardware_latest": {
-        "mi300_1": "fail"
+        "mi300_1": "pass"
       },
-      "last_successful": "2026-07-16",
+      "last_successful": "2026-07-17",
       "latest_date": "2026-07-17"
     },
     {
@@ -2115,26 +2115,26 @@
       "latest_date": "2026-06-25"
     },
     {
-      "break_frequency": 3,
+      "break_frequency": 4,
       "build_refs_latest": [
         {
-          "build_number": 10938,
+          "build_number": 10972,
           "pipeline": "amd-ci",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/10938"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/10972"
         }
       ],
       "builds_latest": [
-        10938
+        10972
       ],
-      "current_streak_started": null,
-      "currently_failing": false,
+      "current_streak_started": "2026-07-17",
+      "currently_failing": true,
       "first_failure_in_window": "2026-06-17",
       "group": "mi300_1: PyTorch Compilation Passes Unit Tests",
       "hardware_latest": {
-        "mi300_1": "pass"
+        "mi300_1": "fail"
       },
       "last_successful": "2026-07-16",
-      "latest_date": "2026-07-16"
+      "latest_date": "2026-07-17"
     },
     {
       "break_frequency": 2,
@@ -4999,38 +4999,6 @@
       "linked_prs": [],
       "project_status": "Tracked in master issue",
       "summary": {
-        "break_frequency": 11,
-        "build_refs_latest": [
-          {
-            "build_number": 10972,
-            "pipeline": "amd-ci",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/10972"
-          }
-        ],
-        "builds_latest": [
-          10972
-        ],
-        "current_streak_started": "2026-07-17",
-        "currently_failing": true,
-        "first_failure_in_window": "2026-06-19",
-        "group": "mi300_1: Model Executor",
-        "hardware_latest": {
-          "mi300_1": "fail"
-        },
-        "last_successful": "2026-07-16",
-        "latest_date": "2026-07-17"
-      },
-      "title": "[CI Failure]: mi300_1: Model Executor"
-    },
-    {
-      "action": "would_update_master_issue_comment",
-      "assignee": null,
-      "assignees": [],
-      "issue_number": 40554,
-      "issue_url": "https://github.com/vllm-project/vllm/issues/40554",
-      "linked_prs": [],
-      "project_status": "Tracked in master issue",
-      "summary": {
         "break_frequency": 3,
         "build_refs_latest": [
           {
@@ -5053,6 +5021,38 @@
         "latest_date": "2026-07-17"
       },
       "title": "[CI Failure]: mi300_1: Multi-Modal Models (Extended Generation 3)"
+    },
+    {
+      "action": "would_update_master_issue_comment",
+      "assignee": null,
+      "assignees": [],
+      "issue_number": 40554,
+      "issue_url": "https://github.com/vllm-project/vllm/issues/40554",
+      "linked_prs": [],
+      "project_status": "Tracked in master issue",
+      "summary": {
+        "break_frequency": 4,
+        "build_refs_latest": [
+          {
+            "build_number": 10972,
+            "pipeline": "amd-ci",
+            "url": "https://buildkite.com/vllm/amd-ci/builds/10972"
+          }
+        ],
+        "builds_latest": [
+          10972
+        ],
+        "current_streak_started": "2026-07-17",
+        "currently_failing": true,
+        "first_failure_in_window": "2026-06-17",
+        "group": "mi300_1: PyTorch Compilation Passes Unit Tests",
+        "hardware_latest": {
+          "mi300_1": "fail"
+        },
+        "last_successful": "2026-07-16",
+        "latest_date": "2026-07-17"
+      },
+      "title": "[CI Failure]: mi300_1: PyTorch Compilation Passes Unit Tests"
     },
     {
       "action": "would_update_master_issue_comment",

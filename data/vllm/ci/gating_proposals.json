@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-17T23:17:33Z",
+  "generated_at": "2026-07-18T00:19:20Z",
   "source_repo": "vllm-project/vllm",
   "tracked_authors": [
     "AndreasKaratzas",
@@ -17,16 +17,16 @@
     "tracked_author_count": 10,
     "scanned_pr_count": 1,
     "proposal_pr_count": 1,
-    "proposed_group_count": 17,
+    "proposed_group_count": 22,
     "by_device": {
-      "mi250_1": 3,
+      "mi250_1": 4,
       "mi250_2": 1,
-      "mi300_1": 11,
-      "mi300_2": 1,
+      "mi300_1": 13,
+      "mi300_2": 3,
       "mi325_1": 1
     },
     "by_author": {
-      "AndreasKaratzas": 17
+      "AndreasKaratzas": 22
     }
   },
   "collection": {
@@ -36,10 +36,10 @@
     "retained_pr_count": 0,
     "retained_pr_numbers": [],
     "lookback_days": 35,
-    "since_date": "2026-06-12",
+    "since_date": "2026-06-13",
     "fresh_candidate_count": 0,
     "candidate_cache": {
-      "generated_at": "2026-07-17T23:17:33Z",
+      "generated_at": "2026-07-18T00:19:20Z",
       "pr_count": 1,
       "proposal_pr_numbers": [
         44969
@@ -53,21 +53,25 @@
           "author": "AndreasKaratzas",
           "state": "open",
           "created_at": "2026-06-09T06:56:07Z",
-          "updated_at": "2026-07-16T22:54:47Z",
-          "checked_at": "2026-07-17T23:17:33Z",
+          "updated_at": "2026-07-17T23:37:23Z",
+          "checked_at": "2026-07-18T00:19:20Z",
           "has_new_mirrors": true,
-          "new_mirror_count": 17,
-          "head_sha": "a8cebaeaeaee2bf1d7a1a4ef9bfc99999f1026a6",
+          "new_mirror_count": 22,
+          "head_sha": "4ffc80bae103ff26d6b50d3a800ab94b95c69058",
           "new_mirror_labels": [
             "Cudagraph",
             "Docker Build Metadata",
+            "V1 e2e (4xH100-4xMI300)",
             "Entrypoints Unit Tests",
             "Entrypoints Integration (Responses API)",
             "Entrypoints Integration (Multimodal)",
             "Kernels Mamba Test",
             "Kernels Helion Test",
+            "LoRA TP (Distributed)",
             "Async Engine, Inputs, Utils, Worker",
             "Model Runner V2 Distributed (2 GPUs)",
+            "Model Runner V2 Spec Decode",
+            "Distributed Model Tests (2 GPUs)",
             "Language Models Test (Extended Generation)",
             "Language Models Test (PPL)",
             "Language Models Test (MTEB)",
@@ -75,6 +79,7 @@
             "Multi-Modal Models (Extended Generation 2)",
             "Multi-Modal Models (Extended Generation 3)",
             "Plugin Tests (2 GPUs)",
+            "PyTorch Compilation Unit Tests",
             "Speculators Correctness"
           ],
           "from_previous_proposal": true
@@ -91,12 +96,12 @@
       "api_url": "https://api.github.com/repos/vllm-project/vllm/pulls/44969",
       "author": "AndreasKaratzas",
       "head_ref": "akaratza_stage_d_gating",
-      "head_sha": "a8cebaeaeaee2bf1d7a1a4ef9bfc99999f1026a6",
+      "head_sha": "4ffc80bae103ff26d6b50d3a800ab94b95c69058",
       "base_ref": "main",
       "base_sha": "75bdad40b5e96517c7f7645ce3199a8557817e17",
-      "updated_at": "2026-07-16T22:54:47Z",
+      "updated_at": "2026-07-17T23:37:23Z",
       "created_at": "2026-06-09T06:56:07Z",
-      "new_mirror_count": 17,
+      "new_mirror_count": 22,
       "new_mirrors": [
         {
           "identity": "cudagraph",
@@ -106,7 +111,7 @@
           "yaml_file": ".buildkite/test_areas/cuda.yaml",
           "yaml_index": 1,
           "device": "mi250_1",
-          "timeout_in_minutes": 60,
+          "timeout_in_minutes": 42,
           "source_file_dependencies": [
             "tests/v1/cudagraph",
             "vllm/v1/cudagraph_dispatcher.py",
@@ -123,7 +128,7 @@
           "yaml_file": ".buildkite/test_areas/docker.yaml",
           "yaml_index": 0,
           "device": "mi250_1",
-          "timeout_in_minutes": 180,
+          "timeout_in_minutes": 35,
           "source_file_dependencies": [
             "buildkite/scripts/docker-build-metadata-args.sh",
             "buildkite/scripts/ci-bake-rocm.sh",
@@ -135,6 +140,21 @@
           ]
         },
         {
+          "identity": "v1-e2e-4xh100",
+          "label": "V1 e2e (4xH100-4xMI300)",
+          "key": "v1-e2e-4xh100",
+          "area": "Engine",
+          "yaml_file": ".buildkite/test_areas/engine.yaml",
+          "yaml_index": 6,
+          "device": "mi300_2",
+          "timeout_in_minutes": 32,
+          "source_file_dependencies": [
+            "vllm/v1/attention/backends/utils.py",
+            "vllm/v1/worker/gpu_model_runner.py",
+            "tests/v1/e2e/test_hybrid_chunked_prefill.py"
+          ]
+        },
+        {
           "identity": "entrypoints-unit-tests",
           "label": "Entrypoints Unit Tests",
           "key": "entrypoints-unit-tests",
@@ -142,7 +162,7 @@
           "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
           "yaml_index": 0,
           "device": "mi300_1",
-          "timeout_in_minutes": 25,
+          "timeout_in_minutes": 32,
           "source_file_dependencies": [
             "vllm/entrypoints",
             "tests/entrypoints/unit_tests",
@@ -157,7 +177,7 @@
           "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
           "yaml_index": 6,
           "device": "mi300_1",
-          "timeout_in_minutes": 50,
+          "timeout_in_minutes": 47,
           "source_file_dependencies": [
             "vllm/",
             "tests/entrypoints/openai/responses"
@@ -171,7 +191,7 @@
           "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
           "yaml_index": 8,
           "device": "mi300_1",
-          "timeout_in_minutes": 45,
+          "timeout_in_minutes": 55,
           "source_file_dependencies": [
             "vllm/",
             "tests/entrypoints/multimodal"
@@ -185,7 +205,7 @@
           "yaml_file": ".buildkite/test_areas/kernels.yaml",
           "yaml_index": 9,
           "device": "mi250_1",
-          "timeout_in_minutes": 70,
+          "timeout_in_minutes": 54,
           "source_file_dependencies": [
             "csrc/mamba/",
             "tests/kernels/mamba",
@@ -199,11 +219,27 @@
           "area": "Kernels",
           "yaml_file": ".buildkite/test_areas/kernels.yaml",
           "yaml_index": 13,
-          "device": "mi300_1",
-          "timeout_in_minutes": 50,
+          "device": "mi250_1",
+          "timeout_in_minutes": 43,
           "source_file_dependencies": [
             "vllm/utils/import_utils.py",
             "tests/kernels/helion/"
+          ]
+        },
+        {
+          "identity": "lora-tp-distributed",
+          "label": "LoRA TP (Distributed)",
+          "key": "lora-tp-distributed",
+          "area": "LoRA",
+          "yaml_file": ".buildkite/test_areas/lora.yaml",
+          "yaml_index": 1,
+          "device": "mi300_1",
+          "timeout_in_minutes": 52,
+          "source_file_dependencies": [
+            "vllm/lora",
+            "vllm/model_executor/layers/fused_moe/",
+            "vllm/platforms/rocm.py",
+            "tests/lora"
           ]
         },
         {
@@ -214,7 +250,7 @@
           "yaml_file": ".buildkite/test_areas/misc.yaml",
           "yaml_index": 10,
           "device": "mi325_1",
-          "timeout_in_minutes": 25,
+          "timeout_in_minutes": 36,
           "source_file_dependencies": [
             "vllm/assets/",
             "vllm/config/",
@@ -242,7 +278,7 @@
           "yaml_file": ".buildkite/test_areas/model_runner_v2.yaml",
           "yaml_index": 2,
           "device": "mi300_2",
-          "timeout_in_minutes": 180,
+          "timeout_in_minutes": 43,
           "source_file_dependencies": [
             "vllm/v1/worker/gpu/",
             "vllm/v1/worker/gpu_worker.py",
@@ -253,6 +289,47 @@
           ]
         },
         {
+          "identity": "model-runner-v2-spec-decode",
+          "label": "Model Runner V2 Spec Decode",
+          "key": "model-runner-v2-spec-decode",
+          "area": "Model Runner V2",
+          "yaml_file": ".buildkite/test_areas/model_runner_v2.yaml",
+          "yaml_index": 4,
+          "device": "mi300_1",
+          "timeout_in_minutes": 73,
+          "source_file_dependencies": [
+            "vllm/platforms/rocm.py",
+            "vllm/v1/worker/gpu/",
+            "vllm/v1/worker/gpu_worker.py",
+            "tests/v1/spec_decode/test_max_len.py",
+            "tests/v1/spec_decode/test_rejection_sampler_utils.py",
+            "tests/v1/spec_decode/test_synthetic_rejection_sampler_utils.py",
+            "tests/v1/e2e/spec_decode/test_spec_decode.py"
+          ]
+        },
+        {
+          "identity": "distributed-model-tests-2-gpus",
+          "label": "Distributed Model Tests (2 GPUs)",
+          "key": "distributed-model-tests-2-gpus",
+          "area": "Models - Distributed",
+          "yaml_file": ".buildkite/test_areas/models_distributed.yaml",
+          "yaml_index": 0,
+          "device": "mi300_2",
+          "timeout_in_minutes": 72,
+          "source_file_dependencies": [
+            "vllm/model_executor/model_loader/sharded_state_loader.py",
+            "vllm/model_executor/models/",
+            "vllm/model_executor/layers/",
+            "vllm/v1/attention/backends/",
+            "vllm/v1/attention/selector.py",
+            "vllm/_aiter_ops.py",
+            "vllm/platforms/rocm.py",
+            "tests/basic_correctness/",
+            "tests/model_executor/model_loader/test_sharded_state_loader.py",
+            "tests/models/"
+          ]
+        },
+        {
           "identity": "language-models-test-extended-generation",
           "label": "Language Models Test (Extended Generation)",
           "key": "language-models-test-extended-generation",
@@ -260,7 +337,7 @@
           "yaml_file": ".buildkite/test_areas/models_language.yaml",
           "yaml_index": 3,
           "device": "mi300_1",
-          "timeout_in_minutes": 65,
+          "timeout_in_minutes": 69,
           "source_file_dependencies": [
             "vllm/",
             "tests/models/language/generation"
@@ -274,7 +351,7 @@
           "yaml_file": ".buildkite/test_areas/models_language.yaml",
           "yaml_index": 4,
           "device": "mi300_1",
-          "timeout_in_minutes": 30,
+          "timeout_in_minutes": 64,
           "source_file_dependencies": [
             "vllm/model_executor/models/qwen3_5.py",
             "vllm/model_executor/models/qwen3_5_mtp.py",
@@ -304,7 +381,7 @@
           "yaml_file": ".buildkite/test_areas/models_language.yaml",
           "yaml_index": 6,
           "device": "mi300_1",
-          "timeout_in_minutes": 100,
+          "timeout_in_minutes": 58,
           "source_file_dependencies": [
             "vllm/",
             "tests/models/language/pooling_mteb_test"
@@ -318,7 +395,7 @@
           "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
           "yaml_index": 5,
           "device": "mi300_1",
-          "timeout_in_minutes": 65,
+          "timeout_in_minutes": 115,
           "source_file_dependencies": [
             "vllm/",
             "tests/models/multimodal",
@@ -333,7 +410,7 @@
           "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
           "yaml_index": 8,
           "device": "mi300_1",
-          "timeout_in_minutes": null,
+          "timeout_in_minutes": 98,
           "source_file_dependencies": [
             "vllm/",
             "tests/models/multimodal/generation"
@@ -347,7 +424,7 @@
           "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
           "yaml_index": 9,
           "device": "mi300_1",
-          "timeout_in_minutes": null,
+          "timeout_in_minutes": 86,
           "source_file_dependencies": [
             "vllm/",
             "tests/models/multimodal/generation"
@@ -361,10 +438,24 @@
           "yaml_file": ".buildkite/test_areas/plugins.yaml",
           "yaml_index": 0,
           "device": "mi250_2",
-          "timeout_in_minutes": 50,
+          "timeout_in_minutes": 49,
           "source_file_dependencies": [
             "vllm/plugins/",
             "tests/plugins/",
+            "vllm/platforms/rocm.py"
+          ]
+        },
+        {
+          "identity": "pytorch-compilation-unit-tests",
+          "label": "PyTorch Compilation Unit Tests",
+          "key": "pytorch-compilation-unit-tests",
+          "area": "PyTorch",
+          "yaml_file": ".buildkite/test_areas/pytorch.yaml",
+          "yaml_index": 0,
+          "device": "mi300_1",
+          "timeout_in_minutes": 89,
+          "source_file_dependencies": [
+            "csrc/",
             "vllm/platforms/rocm.py"
           ]
         },
@@ -376,7 +467,7 @@
           "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
           "yaml_index": 7,
           "device": "mi300_1",
-          "timeout_in_minutes": 30,
+          "timeout_in_minutes": 36,
           "source_file_dependencies": [
             "vllm/v1/spec_decode/",
             "vllm/model_executor/models/qwen3_dflash.py",
