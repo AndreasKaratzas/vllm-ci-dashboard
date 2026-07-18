@@ -36,6 +36,7 @@ from vllm.ci.utils import (  # noqa: E402
 from vllm.ci.reliability_history import (  # noqa: E402
     BUILD_FETCH_MAX_PAGES,
     BUILD_FETCH_PAGE_SIZE,
+    OBSERVATION_LIMIT,
     buildkite_job_url_matches,
     build_all_main_reliability,
     compact_main_builds,
@@ -56,6 +57,9 @@ ANALYTICS_NIGHTLY_LIMIT = 30
 ANALYTICS_WINDOW_BUILD_LIMIT = 50
 ANALYTICS_WINDOW_NIGHTLY_LIMIT = 30
 GATING_NIGHTLY_LIMIT = 30
+# The AMD all-main ledger exists for the 30-minute live alert, not long-range
+# browser analytics. Bounding it keeps analytics.json from growing needlessly.
+AMD_MAIN_OBSERVATION_LIMIT = 24
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 OUTPUT = ROOT / "data" / "vllm" / "ci"
@@ -1168,7 +1172,8 @@ def main():
         log.info("=== %s ===", PIPELINES.get(slug, slug))
 
         # Fetch branch=main once. Nightly regression streams remain pipeline
-        # specific; strict test-group reliability is published only for upstream CI.
+        # specific; strict test-group reliability is published for both pipelines.
+        # Upstream CI remains the only source for flake and retry analysis.
         previous_builds = (previous_data.get(slug) or {}).get("builds") or []
         raw_builds = []
         collection_provenance = {}
@@ -1235,45 +1240,56 @@ def main():
             "default_window": default_window_key,
             "windows": windows,
         }
-        if slug == "ci":
-            previous_pipeline_data = previous_data.get(slug) or {}
-            previous_all_main = previous_pipeline_data.get("all_main_reliability")
-            previous_retry = previous_pipeline_data.get("main_retry_analysis")
-            preserved_retry_analysis = None
-            all_main_reliability = None
-            complete_retry_builds = None
-            if token and collection_provenance.get("exhaustive") is True:
-                all_main_reliability = build_all_main_reliability(
-                    raw_builds,
-                    pipeline_slug=slug,
-                    window_days=args.days,
-                    generated_at=generated_at,
-                    nightly_pattern=NIGHTLY_NAME_PATTERNS_BY_SLUG.get(slug) or "",
-                    test_result_builds=result_builds,
-                    collection_provenance=collection_provenance,
-                )
+        previous_pipeline_data = previous_data.get(slug) or {}
+        previous_all_main = previous_pipeline_data.get("all_main_reliability")
+        previous_retry = previous_pipeline_data.get("main_retry_analysis")
+        preserved_retry_analysis = None
+        all_main_reliability = None
+        complete_retry_builds = None
+        if token and collection_provenance.get("exhaustive") is True:
+            all_main_reliability = build_all_main_reliability(
+                raw_builds,
+                pipeline_slug=slug,
+                window_days=args.days,
+                generated_at=generated_at,
+                nightly_pattern=NIGHTLY_NAME_PATTERNS_BY_SLUG.get(slug) or "",
+                test_result_builds=result_builds,
+                observation_limit=(
+                    AMD_MAIN_OBSERVATION_LIMIT
+                    if slug == "amd-ci"
+                    else OBSERVATION_LIMIT
+                ),
+                collection_provenance=collection_provenance,
+            )
+            if slug == "ci":
                 complete_retry_builds = summarize_pipeline_builds(
                     slug,
                     filter_reliability_builds(raw_builds),
                 )
-            elif validate_all_main_reliability(previous_all_main, slug):
-                reason = (
-                    "Buildkite pagination was incomplete"
-                    if token
-                    else "BUILDKITE_TOKEN is unavailable"
-                )
-                log.warning("  preserving previous upstream all-main reliability: %s", reason)
-                all_main_reliability = previous_all_main
+        elif validate_all_main_reliability(previous_all_main, slug):
+            reason = (
+                "Buildkite pagination was incomplete"
+                if token
+                else "BUILDKITE_TOKEN is unavailable"
+            )
+            log.warning("  preserving previous %s all-main reliability: %s", slug, reason)
+            all_main_reliability = previous_all_main
+            if slug == "ci":
                 preserved_retry_analysis = previous_retry
-            else:
-                log.error("  strict upstream all-main reliability is unavailable; refusing fallback data")
-            if all_main_reliability:
+        else:
+            log.error("  strict %s all-main reliability is unavailable; refusing fallback data", slug)
+        if all_main_reliability:
+            if slug == "ci":
                 attach_main_reliability(
                     all_data[slug],
                     all_main_reliability,
                     retry_builds=complete_retry_builds,
                     retry_analysis=preserved_retry_analysis,
                 )
+            else:
+                # AMD reliability powers the live main-failure automation. Keep
+                # upstream-only retry semantics out of the AMD block.
+                all_data[slug]["all_main_reliability"] = all_main_reliability
 
         log.info("  %d builds, %d jobs tracked, %d with failures",
                  len(builds), len(job_rankings),

@@ -871,3 +871,34 @@ class TestManualHourlyUpdateFreshness:
         text = _load_workflow_text("daily-update.yml")
         assert "data/vllm/ci/ready_tickets.json" in text
         assert "data/vllm/ci/project_items.json" in text
+
+
+class TestAlertAutomationWorkflow:
+    """Both state-owned alert watchers run after their authoritative collectors."""
+
+    def test_alert_watchers_restore_state_and_run_after_collection(self):
+        data = _load_workflow("hourly-master.yml")
+        job = next(iter(data["jobs"].values()))
+        steps = job.get("steps", []) or []
+        names = [step.get("name") for step in steps]
+
+        sync = next(step for step in steps if step.get("name") == "Sync issue automation state from gh-pages")
+        assert "open_amd_main_failure_issues.json" in sync.get("run", "")
+        assert "open_agent_health_issues.json" in sync.get("run", "")
+
+        amd_collect = names.index("Collect CI analytics")
+        agent_collect = names.index("Collect AMD agent health (all builds, all branches)")
+        amd_watch = names.index("Watch AMD main test-group failures")
+        agent_watch = names.index("Watch AMD CI agent health")
+
+        assert amd_watch > amd_collect
+        assert agent_watch > agent_collect
+        assert steps[amd_watch]["run"] == "python scripts/vllm/amd_main_failure_watcher.py"
+        assert steps[agent_watch]["run"] == "python scripts/vllm/agent_health_issue_watcher.py"
+        for index in (amd_watch, agent_watch):
+            env = steps[index].get("env") or {}
+            assert {"GITHUB_TOKEN", "GITHUB_REPOSITORY", "GITHUB_RUN_ID"} <= set(env)
+
+    def test_alert_state_is_committed_with_collected_data(self):
+        text = _load_workflow_text("hourly-master.yml")
+        assert "git add data/ dashboards/ README.md" in text

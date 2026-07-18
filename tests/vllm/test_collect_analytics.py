@@ -162,7 +162,7 @@ class TestWindowedAnalytics:
         assert [build["number"] for build in builds] == [42]
         assert provenance["exhaustive"] is True
 
-    def test_main_emits_all_main_reliability_only_for_upstream(self, monkeypatch, tmp_path):
+    def test_main_emits_all_main_reliability_for_both_and_retries_only_upstream(self, monkeypatch, tmp_path):
         messages = {
             "amd-ci": "AMD Full CI Run - nightly",
             "ci": "Full CI run - nightly",
@@ -228,8 +228,13 @@ class TestWindowedAnalytics:
         ca.main()
 
         payload = json.loads((tmp_path / "analytics.json").read_text())
-        assert "all_main_reliability" not in payload["amd-ci"]
-        assert "main_retry_analysis" not in payload["amd-ci"]
+        amd_block = payload["amd-ci"]
+        assert amd_block["all_main_reliability"]["cohort"]["id"] == "amd-ci-main-completed-pass-fail"
+        assert (
+            amd_block["all_main_reliability"]["provenance"]["observation_limit_per_group"]
+            == ca.AMD_MAIN_OBSERVATION_LIMIT
+        )
+        assert "main_retry_analysis" not in amd_block
         block = payload["ci"]
         reliability = block["all_main_reliability"]
         assert reliability["cohort"]["id"] == "ci-main-completed-pass-fail"

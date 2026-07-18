@@ -138,6 +138,27 @@ Buildkite queue freshness now uses those job-level webhook events (`job.schedule
 
 Queue analytics intentionally exclude waiting or running jobs older than 4 hours. Those jobs are treated as zombies, surfaced separately in `queue_jobs.json`, and tracked via `queue_zombie_watcher.py` so the main queue charts stay conservative.
 
+### Managed Alert Issues
+
+The unified 30-minute Data Collection workflow also reconciles two bounded
+umbrella issues in this repository:
+
+- AMD main test-group failures use the exhaustive amd-ci branch=main reliability
+  cohort. The latest retry attempt in a build wins; a later pass resolves the
+  same strict label + step + hardware + queue identity. Soft failures remain
+  incidents because the test command failed even when Buildkite continued.
+- CI agent health uses the dashboard's infra-suspect definition, excludes
+  canceled builds and unidentified nodes, and alerts when a six-hour window
+  contains a three-hour co-failure cluster with at least three logical failures
+  across at least two groups on one physical AMD node.
+
+State lives in open_amd_main_failure_issues.json and
+open_agent_health_issues.json. Each watcher can update or close only the issue
+number in its own state file; it never searches for issues by label, and it
+verifies a watcher-specific ownership marker before any update or close.
+Manually closing an active alert suppresses reopening until that signal first
+recovers.
+
 ## Architecture
 
 ```

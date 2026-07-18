@@ -394,6 +394,47 @@ class TestOpenQueueZombieIssues:
                 )
 
 
+class TestOpenAmdMainFailureIssues:
+    def test_state_schema(self):
+        d = _load_json_or_skip("open_amd_main_failure_issues.json")
+        _assert_has_keys(
+            d,
+            {
+                "schema_version",
+                "initialized",
+                "processed_build_numbers",
+                "active",
+                "issue",
+                "suppressed",
+                "last_fingerprint",
+                "last_run",
+            },
+            "open_amd_main_failure_issues.json",
+        )
+        assert isinstance(d["initialized"], bool)
+        assert isinstance(d["processed_build_numbers"], list)
+        assert all(isinstance(number, int) for number in d["processed_build_numbers"])
+        assert isinstance(d["active"], dict)
+        assert d["issue"] is None or isinstance(d["issue"], dict)
+
+
+class TestOpenAgentHealthIssues:
+    def test_state_schema(self):
+        d = _load_json_or_skip("open_agent_health_issues.json")
+        _assert_has_keys(
+            d,
+            {
+                "schema_version",
+                "issue",
+                "suppressed",
+                "last_fingerprint",
+                "last_run",
+            },
+            "open_agent_health_issues.json",
+        )
+        assert d["issue"] is None or isinstance(d["issue"], dict)
+
+
 class TestConfigParity:
     def test_top_level_keys(self):
         d = _load_json_or_skip("config_parity.json")

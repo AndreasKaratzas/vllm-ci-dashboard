@@ -54,10 +54,10 @@ jobs:
           git fetch origin gh-pages --depth=1 || true
           python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/gh-pages
 
-      - name: Sync queue issue state from gh-pages
+      - name: Sync issue automation state from gh-pages
         run: |
           git fetch origin gh-pages --depth=1 || true
-          for f in open_queue_issues.json open_queue_zombie_issues.json; do
+          for f in open_queue_issues.json open_queue_zombie_issues.json open_amd_main_failure_issues.json open_agent_health_issues.json; do
             LIVE=$(git show origin/gh-pages:data/vllm/ci/$f 2>/dev/null || true)
             if [ -n "$LIVE" ]; then
               echo "$LIVE" > data/vllm/ci/$f
@@ -137,6 +137,20 @@ jobs:
         run: python scripts/vllm/collect_agent_health.py --days 3 --pipeline both --output data/vllm/ci/
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
+
+      - name: Watch AMD main test-group failures
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: python scripts/vllm/amd_main_failure_watcher.py
+
+      - name: Watch AMD CI agent health
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: python scripts/vllm/agent_health_issue_watcher.py
 
       - name: Collect test group changes
         run: python scripts/vllm/collect_group_changes.py --days 30 --output data/vllm/ci/
