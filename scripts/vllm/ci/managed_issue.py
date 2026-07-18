@@ -234,10 +234,10 @@ def reconcile_managed_issue(
                 if client.update_issue(number, title, managed_body):
                     normalized["last_fingerprint"] = fingerprint
         else:
-            number = client.open_issue(title, managed_body, label_specs)
-            if number:
+            opened_number = client.open_issue(title, managed_body, label_specs)
+            if opened_number:
                 normalized["issue"] = {
-                    "number": number,
+                    "number": opened_number,
                     "opened_at": observed_at,
                 }
                 normalized["last_fingerprint"] = fingerprint
