@@ -874,7 +874,7 @@ class TestManualHourlyUpdateFreshness:
 
 
 class TestAlertAutomationWorkflow:
-    """Both state-owned alert watchers run after their authoritative collectors."""
+    """All state-owned alert watchers run after their authoritative collectors."""
 
     def test_alert_watchers_restore_state_and_run_after_collection(self):
         data = _load_workflow("hourly-master.yml")
@@ -883,21 +883,40 @@ class TestAlertAutomationWorkflow:
         names = [step.get("name") for step in steps]
 
         sync = next(step for step in steps if step.get("name") == "Sync issue automation state from gh-pages")
-        assert "open_amd_main_failure_issues.json" in sync.get("run", "")
-        assert "open_agent_health_issues.json" in sync.get("run", "")
+        sync_run = sync.get("run", "")
+        assert "open_queue_issues.json" in sync_run
+        assert "open_queue_zombie_issues.json" in sync_run
+        assert "open_amd_main_failure_issues.json" not in sync_run
+        assert "open_amd_duration_regression_issues.json" not in sync_run
+        assert "open_agent_health_issues.json" not in sync_run
 
         amd_collect = names.index("Collect CI analytics")
         agent_collect = names.index("Collect AMD agent health (all builds, all branches)")
-        amd_watch = names.index("Watch AMD main test-group failures")
-        agent_watch = names.index("Watch AMD CI agent health")
+        amd_watch = names.index("Watch AMD main test-group failures (open/close issue)")
+        duration_watch = names.index("Watch AMD main duration regressions (open/close issue)")
+        agent_watch = names.index("Watch AMD CI agent health (open/close issue)")
 
         assert amd_watch > amd_collect
+        assert duration_watch > amd_collect
         assert agent_watch > agent_collect
         assert steps[amd_watch]["run"] == "python scripts/vllm/amd_main_failure_watcher.py"
+        assert steps[duration_watch]["run"] == "python scripts/vllm/amd_duration_regression_watcher.py"
         assert steps[agent_watch]["run"] == "python scripts/vllm/agent_health_issue_watcher.py"
-        for index in (amd_watch, agent_watch):
+        for index in (amd_watch, duration_watch, agent_watch):
             env = steps[index].get("env") or {}
             assert {"GITHUB_TOKEN", "GITHUB_REPOSITORY", "GITHUB_RUN_ID"} <= set(env)
+
+        persist = names.index("Persist managed alert issue state")
+        assert persist > max(amd_watch, duration_watch, agent_watch)
+        assert steps[persist].get("if") == "always()"
+        persist_run = steps[persist].get("run", "")
+        for state_file in (
+            "open_amd_main_failure_issues.json",
+            "open_amd_duration_regression_issues.json",
+            "open_agent_health_issues.json",
+        ):
+            assert state_file in persist_run
+        assert "git push origin main" in persist_run
 
     def test_alert_state_is_committed_with_collected_data(self):
         text = _load_workflow_text("hourly-master.yml")

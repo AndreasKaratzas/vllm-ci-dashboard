@@ -298,6 +298,7 @@ def test_architecture_and_test_group_history_show_exact_counts_at_a_glance():
     ):
         assert contract in OPS_JS
     for contract in (
+        ".ops-page .ops-architecture-scorecard",
         ".ops-page .ops-architecture-row",
         ".ops-page .ops-architecture-bar",
         ".ops-page .ops-architecture-metrics",
@@ -306,6 +307,7 @@ def test_architecture_and_test_group_history_show_exact_counts_at_a_glance():
         ".ops-page .ops-history-track",
     ):
         assert contract in OPS_CSS
+    assert "margin: 10px 0;" in OPS_CSS
 
 
 def test_operational_routes_prune_unrelated_state_and_perf_has_return_control():

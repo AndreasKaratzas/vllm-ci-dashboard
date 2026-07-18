@@ -418,6 +418,25 @@ class TestOpenAmdMainFailureIssues:
         assert d["issue"] is None or isinstance(d["issue"], dict)
 
 
+class TestOpenAmdDurationRegressionIssues:
+    def test_state_schema(self):
+        d = _load_json_or_skip("open_amd_duration_regression_issues.json")
+        _assert_has_keys(
+            d,
+            {
+                "schema_version",
+                "active",
+                "issue",
+                "suppressed",
+                "last_fingerprint",
+                "last_run",
+            },
+            "open_amd_duration_regression_issues.json",
+        )
+        assert isinstance(d["active"], dict)
+        assert d["issue"] is None or isinstance(d["issue"], dict)
+
+
 class TestOpenAgentHealthIssues:
     def test_state_schema(self):
         d = _load_json_or_skip("open_agent_health_issues.json")

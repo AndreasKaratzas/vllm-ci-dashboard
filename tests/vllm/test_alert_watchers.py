@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from vllm import agent_health_issue_watcher as agent
+from vllm import amd_duration_regression_watcher as duration
 from vllm import amd_main_failure_watcher as amd
 from vllm.ci.managed_issue import reconcile_managed_issue, validate_target_repo
 
@@ -245,6 +246,87 @@ def test_amd_issue_body_contains_exact_job_evidence_and_rule():
     assert "cc @AndreasKaratzas" in body
 
 
+def _duration_reliability(recent, baseline):
+    observations = []
+    for index, minutes in enumerate(list(recent) + list(baseline)):
+        number = 200 - index
+        day = 17 - index
+        row = _amd_observation(
+            number,
+            "passed",
+            f"2026-07-{day:02d}T11:00:00Z",
+            f"duration-{number}",
+        )
+        row["wall_completion_mins"] = minutes
+        observations.append(row)
+    return _amd_reliability(
+        [],
+        [_amd_group("duration-group", observations, "Duration group")],
+        generated_at="2026-07-17T12:00:00Z",
+    )
+
+
+def test_duration_watcher_requires_three_recent_and_six_baseline_runs():
+    exact = _duration_reliability([115, 115, 115], [100] * 6)
+    active = duration.evaluate_regressions(exact, duration._default_state())
+
+    assert set(active) == {"duration-group"}
+    assert active["duration-group"]["baseline_mins"] == 100
+    assert active["duration-group"]["recent_median_mins"] == 115
+    assert active["duration-group"]["increase_pct"] == 15
+
+    below = _duration_reliability([114.9, 114.9, 114.9], [100] * 6)
+    assert duration.evaluate_regressions(below, duration._default_state()) == {}
+
+    short_recent = _duration_reliability([120, 120], [])
+    assert duration.evaluate_regressions(short_recent, duration._default_state()) == {}
+
+    short_baseline = _duration_reliability([120] * 3, [100] * 5)
+    assert duration.evaluate_regressions(short_baseline, duration._default_state()) == {}
+
+
+def test_duration_watcher_holds_fixed_baseline_until_recent_median_recovers():
+    initial = duration.evaluate_regressions(
+        _duration_reliability([120] * 3, [100] * 12),
+        duration._default_state(),
+    )
+    assert initial["duration-group"]["baseline_mins"] == 100
+
+    still_slow = duration.evaluate_regressions(
+        _duration_reliability([118] * 3, [118] * 12),
+        {"active": initial},
+    )
+    assert still_slow["duration-group"]["baseline_mins"] == 100
+    assert still_slow["duration-group"]["recent_median_mins"] == 118
+
+    recovered = duration.evaluate_regressions(
+        _duration_reliability([114.9] * 3, [118] * 12),
+        {"active": still_slow},
+    )
+    assert recovered == {}
+
+
+def test_duration_issue_body_has_exact_evidence_and_auto_close_rule():
+    reliability = _duration_reliability([120] * 3, [100] * 12)
+    active = duration.evaluate_regressions(
+        reliability,
+        duration._default_state(),
+    )
+
+    body = duration._issue_body(
+        active,
+        reliability,
+        "https://github.com/run",
+        "AndreasKaratzas",
+    )
+
+    assert "steps/canvas?jid=duration-200&tab=output" in body
+    assert "Queue wait is excluded" in body
+    assert "baseline is fixed" in body
+    assert "Resolution: recent median below baseline" in body
+    assert "cc @AndreasKaratzas" in body
+
+
 def _agent_row(
     node,
     group,
@@ -345,3 +427,5 @@ def test_alert_payload_freshness_fails_closed():
     assert not agent._is_fresh({"generated_at": "2026-07-17T08:00:00Z"}, now)
     assert amd._is_fresh({"generated_at": "2026-07-17T10:00:00Z"}, now)
     assert not amd._is_fresh({"generated_at": "2026-07-17T08:00:00Z"}, now)
+    assert duration._is_fresh({"generated_at": "2026-07-17T10:00:00Z"}, now)
+    assert not duration._is_fresh({"generated_at": "2026-07-17T08:00:00Z"}, now)

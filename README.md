@@ -47,6 +47,7 @@ The main data path is `.github/workflows/hourly-master.yml`, which runs every 30
 | `scripts/vllm/collect_analytics.py` | Windowed CI analytics plus exhaustive strict branch=main reliability for upstream and AMD |
 | `scripts/vllm/collect_agent_health.py` | All-branch AMD physical-node health and infra-suspect failure evidence |
 | `scripts/vllm/amd_main_failure_watcher.py` | One state-owned issue for unresolved strict AMD origin/main test-group failures |
+| `scripts/vllm/amd_duration_regression_watcher.py` | One state-owned issue for AMD main test groups with a median completion-time increase of at least 15% |
 | `scripts/vllm/agent_health_issue_watcher.py` | One state-owned issue for concentrated AMD CI agent-health incidents |
 | `scripts/vllm/collect_amd_test_matrix.py` | AMD hardware matrix from upstream `test-amd.yaml`, matched against the latest AMD nightly |
 | `scripts/vllm/collect_gating_proposals.py` | Open vLLM PRs from tracked AMD engineers that add new `.buildkite/test_areas` AMD mirrors |
