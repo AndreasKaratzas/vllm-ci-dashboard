@@ -56,7 +56,7 @@ OWNERSHIP_MARKER = "<!-- vllm-ci-dashboard:managed-alert:amd-duration-regression
 LABEL_SPECS = [
     (
         "amd-duration-regression",
-        "fbca04",
+        "d93f0b",
         "AMD main test-group completion time is at least 15 percent slower",
     ),
     ("automated", "6f42c1", "Managed by dashboard automation"),
