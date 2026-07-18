@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-17T23:17:40Z",
+  "generated_at": "2026-07-18T00:19:36Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -356,7 +356,17 @@
       "source_signal": "red",
       "readiness_signal": "red",
       "target_signal": "red",
-      "proposal_matches": []
+      "proposal_matches": [
+        {
+          "pr": 44969,
+          "url": "https://github.com/vllm-project/vllm/pull/44969",
+          "title": "[ROCm][CI] Gating more ROCm tests",
+          "author": "AndreasKaratzas",
+          "label": "Distributed Model Tests (2 GPUs)",
+          "device": "mi300_2",
+          "yaml_file": ".buildkite/test_areas/models_distributed.yaml"
+        }
+      ]
     },
     {
       "label": "Distributed NixlConnector PD accuracy (4 GPUs)",
@@ -873,7 +883,7 @@
           "title": "[ROCm][CI] Gating more ROCm tests",
           "author": "AndreasKaratzas",
           "label": "Kernels Helion Test",
-          "device": "mi300_1",
+          "device": "mi250_1",
           "yaml_file": ".buildkite/test_areas/kernels.yaml"
         }
       ]
@@ -1066,7 +1076,17 @@
       "source_signal": "red",
       "readiness_signal": "red",
       "target_signal": "red",
-      "proposal_matches": []
+      "proposal_matches": [
+        {
+          "pr": 44969,
+          "url": "https://github.com/vllm-project/vllm/pull/44969",
+          "title": "[ROCm][CI] Gating more ROCm tests",
+          "author": "AndreasKaratzas",
+          "label": "LoRA TP (Distributed)",
+          "device": "mi300_1",
+          "yaml_file": ".buildkite/test_areas/lora.yaml"
+        }
+      ]
     },
     {
       "label": "Metrics, Tracing (2 GPUs)",
@@ -1436,7 +1456,17 @@
       "source_signal": "red",
       "readiness_signal": "green",
       "target_signal": "green",
-      "proposal_matches": []
+      "proposal_matches": [
+        {
+          "pr": 44969,
+          "url": "https://github.com/vllm-project/vllm/pull/44969",
+          "title": "[ROCm][CI] Gating more ROCm tests",
+          "author": "AndreasKaratzas",
+          "label": "PyTorch Compilation Unit Tests",
+          "device": "mi300_1",
+          "yaml_file": ".buildkite/test_areas/pytorch.yaml"
+        }
+      ]
     },
     {
       "label": "PyTorch Fullgraph",
@@ -1746,7 +1776,17 @@
       "source_signal": "red",
       "readiness_signal": "green",
       "target_signal": "green",
-      "proposal_matches": []
+      "proposal_matches": [
+        {
+          "pr": 44969,
+          "url": "https://github.com/vllm-project/vllm/pull/44969",
+          "title": "[ROCm][CI] Gating more ROCm tests",
+          "author": "AndreasKaratzas",
+          "label": "V1 e2e (4xH100-4xMI300)",
+          "device": "mi300_2",
+          "yaml_file": ".buildkite/test_areas/engine.yaml"
+        }
+      ]
     },
     {
       "label": "V1 Sample + Logits",
@@ -3116,7 +3156,17 @@
       "decision": "likely_duplicate",
       "duplicate_of": "PyTorch Compilation Unit Tests",
       "target_id": 76,
-      "proposal_matches": []
+      "proposal_matches": [
+        {
+          "pr": 44969,
+          "url": "https://github.com/vllm-project/vllm/pull/44969",
+          "title": "[ROCm][CI] Gating more ROCm tests",
+          "author": "AndreasKaratzas",
+          "label": "PyTorch Compilation Unit Tests",
+          "device": "mi300_1",
+          "yaml_file": ".buildkite/test_areas/pytorch.yaml"
+        }
+      ]
     },
     {
       "label": "Spec Decode Draft Model Nightly B200",
