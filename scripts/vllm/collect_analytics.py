@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import sys
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -144,6 +145,22 @@ def nightly_date(iso_str):
         return iso_str[:10] if iso_str else ""
 
 
+def _rate_limit_wait_seconds(headers, attempt):
+    """Return a retry delay that clears Buildkite rate-limit windows."""
+    reset_waits = []
+    for name in ("RateLimit-Reset", "RateLimit-User-Reset"):
+        try:
+            reset_waits.append(max(0, int(float(headers.get(name, "")))) + 1)
+        except (TypeError, ValueError):
+            continue
+    if reset_waits:
+        return max(reset_waits)
+    try:
+        return max(0, int(float(headers.get("Retry-After", ""))))
+    except (TypeError, ValueError):
+        return 5 * (attempt + 1)
+
+
 def bk_get(path, token, params=None):
     """Fetch one Buildkite REST page with timeout and rate-limit retries."""
     headers = {"Authorization": f"Bearer {token}"}
@@ -153,11 +170,10 @@ def bk_get(path, token, params=None):
         try:
             resp = requests.get(url, headers=headers, params=p, timeout=30)
             if resp.status_code == 429:
-                import time
-                wait = int(resp.headers.get("Retry-After", 5 * (attempt + 1)))
-                log.warning("Rate limited, waiting %ds", wait)
                 if attempt == 2:
                     resp.raise_for_status()
+                wait = _rate_limit_wait_seconds(resp.headers, attempt)
+                log.warning("Rate limited, retrying in %ds", wait)
                 time.sleep(wait)
                 continue
             resp.raise_for_status()
@@ -166,7 +182,6 @@ def bk_get(path, token, params=None):
         except requests.exceptions.Timeout:
             if attempt == 2:
                 raise
-            import time
             time.sleep(3)
     return []
 

@@ -45,6 +45,29 @@ def _build(number: int, days_ago: float, jobs: list[dict], state: str = "passed"
     }
 
 
+def test_bk_get_waits_for_longest_buildkite_rate_limit_reset(monkeypatch):
+    responses = []
+    limited = ca.requests.Response()
+    limited.status_code = 429
+    limited.headers.update({
+        "RateLimit-Reset": "12",
+        "RateLimit-User-Reset": "41",
+    })
+    responses.append(limited)
+
+    success = ca.requests.Response()
+    success.status_code = 200
+    success._content = b"[]"
+    responses.append(success)
+
+    sleeps = []
+    monkeypatch.setattr(ca.requests, "get", lambda *args, **kwargs: responses.pop(0))
+    monkeypatch.setattr(ca.time, "sleep", sleeps.append)
+
+    assert ca.bk_get("/builds", "fake-token") == []
+    assert sleeps == [42]
+
+
 class TestWindowedAnalytics:
     def test_fetch_pipeline_builds_includes_page_two_and_deduplicates(self, monkeypatch):
         page_one = [
