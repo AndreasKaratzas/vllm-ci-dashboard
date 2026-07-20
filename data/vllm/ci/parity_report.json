@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-07-20T04:10:11Z",
+  "generated_at": "2026-07-20T07:29:53Z",
   "amd_date": "2026-07-19",
-  "upstream_date": "2026-07-19",
+  "upstream_date": "2026-07-20",
   "parity_pct": 0.0,
-  "total_tests": 732,
+  "total_tests": 734,
   "summary": {
-    "upstream_only": 408,
+    "upstream_only": 410,
     "amd_only": 324
   },
   "by_module": {
@@ -87,7 +87,7 @@
     },
     "AMD: Kernels Attention Test 2 (mi325_1)": {
       "parity_pct": 100.0,
-      "upstream_only": 3
+      "upstream_only": 2
     },
     "AMD: Kernels MoE Test 1 (mi325_1)": {
       "parity_pct": 100.0,
@@ -206,10 +206,6 @@
       "upstream_only": 1
     },
     "AMD: OpenAI API Correctness (mi325_1)": {
-      "parity_pct": 100.0,
-      "upstream_only": 1
-    },
-    "AMD: PyTorch Compilation Passes Unit Tests (mi300_1)": {
       "parity_pct": 100.0,
       "upstream_only": 1
     },
@@ -627,7 +623,7 @@
     },
     "Kernels (B200)": {
       "parity_pct": 100.0,
-      "upstream_only": 2
+      "upstream_only": 3
     },
     "Kernels Attention DiffKV Test (H100)": {
       "parity_pct": 100.0,
@@ -809,6 +805,10 @@
       "parity_pct": 100.0,
       "upstream_only": 1
     },
+    "Language Models Tests (Granite L4 Compatibility)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
     "Language Models Tests (Hybrid) 1": {
       "parity_pct": 100.0,
       "upstream_only": 2
@@ -846,10 +846,6 @@
       "upstream_only": 1
     },
     "Metrics, Tracing (2 GPUs)": {
-      "parity_pct": 100.0,
-      "upstream_only": 1
-    },
-    "MoE Refactor Integration Test (B200 - TEMPORARY)": {
       "parity_pct": 100.0,
       "upstream_only": 1
     },
@@ -988,6 +984,10 @@
     "PyTorch Fullgraph": {
       "parity_pct": 100.0,
       "upstream_only": 1
+    },
+    "PyTorch Fullgraph CUDAGraph (L4 Compatibility)": {
+      "parity_pct": 100.0,
+      "upstream_only": 2
     },
     "PyTorch Fullgraph Smoke Test": {
       "parity_pct": 100.0,
@@ -1176,10 +1176,6 @@
     "e2e Scheduling (1 GPU)": {
       "parity_pct": 100.0,
       "upstream_only": 2
-    },
-    "entrypoints/openai/chat_completion/test_include_reasoning.py": {
-      "parity_pct": 100.0,
-      "upstream_only": 1
     },
     "mi250_1: Async Engine, Inputs, Utils, Worker, Config (CPU)": {
       "parity_pct": 100.0,
@@ -2045,6 +2041,10 @@
       "parity_pct": 100.0,
       "amd_only": 1
     },
+    "plugins_tests/test_bge_m3_sparse_io_processor_plugins.py": {
+      "parity_pct": 100.0,
+      "upstream_only": 2
+    },
     "vLLM IR Tests": {
       "parity_pct": 100.0,
       "upstream_only": 2
@@ -2093,7 +2093,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb02-4b95-a17d-711f11e95d06&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f8a-421e-9015-55e170f9cce2&tab=output",
           "job_name": "Acceptance Length Test (Large Models)",
           "side": "upstream"
         }
@@ -2131,7 +2131,7 @@
         "xfailed": 1,
         "xpassed": 0,
         "error": 0,
-        "duration": 146.63
+        "duration": 173.03
       },
       "hardware": [
         "h100",
@@ -2149,7 +2149,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb02-406b-913d-5b392913fbe0&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f8b-4cdf-b130-eaf3520539ac&tab=output",
           "job_name": "Async Engine, Inputs, Utils, Worker",
           "side": "upstream"
         }
@@ -2187,7 +2187,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 302.0
+        "duration": 305.55
       },
       "hardware": [
         "h100",
@@ -2205,7 +2205,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb03-4bf1-845e-9c4b352cf0ed&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f8b-4a71-819e-1ef892df1a97&tab=output",
           "job_name": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
           "side": "upstream"
         }
@@ -2261,7 +2261,7 @@
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea08-4657-a5f6-34dce6279a9b&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8e85-42b4-9533-28ea66d2f873&tab=output",
           "job_name": "Attention Benchmarks Smoke Test (B200)",
           "side": "upstream"
         }
@@ -2299,7 +2299,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 346.23
+        "duration": 360.05
       },
       "hardware": [
         "h100",
@@ -2317,7 +2317,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea00-416a-8da7-407c29210188&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8e7e-47b5-a519-686571aeebd9&tab=output",
           "job_name": "Basic Correctness",
           "side": "upstream"
         }
@@ -2355,7 +2355,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 24.51
+        "duration": 24.99
       },
       "hardware": [
         "h100",
@@ -2373,7 +2373,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb1d-466a-8409-bb02bd9d981d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fb0-4dcc-81e8-b0478faafec3&tab=output",
           "job_name": "Basic Models Test (Other CPU)",
           "side": "upstream"
         }
@@ -2392,7 +2392,7 @@
       "family_key": "basic models tests (extra initialization)",
       "family_name": "basic models tests (extra initialization)",
       "amd_job_name": "mi300_1: Basic Models Tests (Extra Initialization) 2",
-      "upstream_job_name": "Basic Models Tests (Extra Initialization) 2",
+      "upstream_job_name": "Basic Models Tests (Extra Initialization) 1",
       "amd": {
         "total": 359,
         "passed": 359,
@@ -2411,7 +2411,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 8325.46
+        "duration": 9420.740000000002
       },
       "hardware": [
         "h100",
@@ -2429,8 +2429,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb1e-4f2c-8c20-615dd4342b74&tab=output",
-          "job_name": "Basic Models Tests (Extra Initialization) 2",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fb1-4d8a-9edf-936d3c7bc9b9&tab=output",
+          "job_name": "Basic Models Tests (Extra Initialization) 1",
           "side": "upstream"
         }
       ],
@@ -2467,7 +2467,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 397.71
+        "duration": 408.68
       },
       "hardware": [
         "h100",
@@ -2485,7 +2485,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb1f-4e38-ae25-d952067c9e0a&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fb2-46d5-9f2c-d7c3df02ad52&tab=output",
           "job_name": "Basic Models Tests (Initialization)",
           "side": "upstream"
         }
@@ -2523,7 +2523,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1198.46
+        "duration": 1316.01
       },
       "hardware": [
         "h100",
@@ -2541,7 +2541,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb20-4ed9-848e-df5a6a1500b2&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fb4-4178-9f6b-3d006f08d4e5&tab=output",
           "job_name": "Basic Models Tests (Other)",
           "side": "upstream"
         }
@@ -2579,7 +2579,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2.89
+        "duration": 3.69
       },
       "hardware": [
         "b200",
@@ -2597,7 +2597,7 @@
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb05-4942-b4c3-506a75f9b408&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f8d-4706-862b-e90adf0a3ec6&tab=output",
           "job_name": "Batch Invariance (B200)",
           "side": "upstream"
         }
@@ -2635,7 +2635,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 808.29
+        "duration": 830.64
       },
       "hardware": [
         "h100",
@@ -2653,7 +2653,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea08-42fd-9dda-b802ce83b577&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8e86-42a3-a9c2-5348547cf5e6&tab=output",
           "job_name": "Benchmarks CLI Test",
           "side": "upstream"
         }
@@ -2691,7 +2691,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 147.54
+        "duration": 145.17
       },
       "hardware": [
         "h100",
@@ -2709,7 +2709,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea39-4d77-a8a5-0eff166222d1&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8eb2-439e-9415-44fcfae0c3b0&tab=output",
           "job_name": "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
           "side": "upstream"
         }
@@ -2747,7 +2747,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4.53
+        "duration": 5.78
       },
       "hardware": [
         "h100",
@@ -2765,7 +2765,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea22-453e-abb8-cfe9b0b8a33f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8e9c-403a-a8d3-af47c1db967e&tab=output",
           "job_name": "Cudagraph",
           "side": "upstream"
         }
@@ -2821,7 +2821,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea5a-419a-afce-4545444b18cc&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ed3-4de5-bed2-48594a72dd21&tab=output",
           "job_name": "DeepSeek V2-Lite Prefetch Offload Accuracy (H100)",
           "side": "upstream"
         }
@@ -2877,7 +2877,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea5b-4c51-859e-578e53e578d4&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ed3-4f00-8d2a-81e3ed8dd2a3&tab=output",
           "job_name": "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100)",
           "side": "upstream"
         }
@@ -2915,7 +2915,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1.85
+        "duration": 1.84
       },
       "hardware": [
         "h100",
@@ -2933,7 +2933,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea48-4178-9e89-49b997c80fd5&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ec2-49fc-b318-b35dc3386fa1&tab=output",
           "job_name": "Distributed Comm Ops",
           "side": "upstream"
         }
@@ -2971,7 +2971,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 27.76
+        "duration": 27.68
       },
       "hardware": [
         "h100",
@@ -2989,7 +2989,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea48-45dd-b33c-2ae8073b8fcf&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ec2-4b0b-a67e-2f568a9a9c7b&tab=output",
           "job_name": "Distributed Compile + Comm (4 GPUs)",
           "side": "upstream"
         }
@@ -3027,7 +3027,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 8.94
+        "duration": 8.97
       },
       "hardware": [
         "h100",
@@ -3045,7 +3045,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea49-4ee3-921f-1b880af30c32&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ec3-4ec9-abc0-ad4a4153daf6&tab=output",
           "job_name": "Distributed Compile + RPC Tests (2 GPUs)",
           "side": "upstream"
         }
@@ -3083,7 +3083,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1995.7
+        "duration": 1834.31
       },
       "hardware": [
         "h100",
@@ -3101,7 +3101,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea2d-4677-8391-acd2aba205d6&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ea7-478c-901d-c58e019a42ca&tab=output",
           "job_name": "Distributed Compile Unit Tests (2xH100)",
           "side": "upstream"
         }
@@ -3139,7 +3139,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 57.64
+        "duration": 57.59
       },
       "hardware": [
         "h100",
@@ -3157,7 +3157,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea4a-4a05-9952-84ba5c0553f6&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ec3-45a3-8a52-18707bfc78d2&tab=output",
           "job_name": "Distributed DP Tests (2 GPUs)",
           "side": "upstream"
         }
@@ -3213,7 +3213,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea4a-48a3-9d02-13b3937764fe&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ec4-43c7-8fa8-99bc2dbeff65&tab=output",
           "job_name": "Distributed DP Tests (4 GPUs)",
           "side": "upstream"
         }
@@ -3251,7 +3251,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 169.23
+        "duration": 165.55
       },
       "hardware": [
         "h100",
@@ -3269,7 +3269,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb24-41b3-9ee2-b7737b8b8413&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fc2-4157-8ece-684244db6559&tab=output",
           "job_name": "Distributed Model Tests (2 GPUs)",
           "side": "upstream"
         }
@@ -3307,7 +3307,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 149.63
+        "duration": 150.08
       },
       "hardware": [
         "h100",
@@ -3327,7 +3327,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea3e-4e9e-a3f3-1c40cb83a9d4&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8eb7-4abd-a360-2cbed51de19d&tab=output",
           "job_name": "Distributed NixlConnector PD accuracy (4 GPUs)",
           "side": "upstream"
         }
@@ -3365,7 +3365,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 53.38
+        "duration": 55.42
       },
       "hardware": [
         "h100",
@@ -3383,7 +3383,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea4c-4049-99d8-3e7983da25e3&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ec5-45a3-9786-63ce024eee11&tab=output",
           "job_name": "Distributed Tests (2xH100-2xMI300)",
           "side": "upstream"
         }
@@ -3421,7 +3421,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 53.38
+        "duration": 55.42
       },
       "hardware": [
         "h100",
@@ -3447,7 +3447,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea4c-4049-99d8-3e7983da25e3&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ec5-45a3-9786-63ce024eee11&tab=output",
           "job_name": "Distributed Tests (2xH100-2xMI300)",
           "side": "upstream"
         }
@@ -3485,7 +3485,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 143.54
+        "duration": 151.85
       },
       "hardware": [
         "a100",
@@ -3503,7 +3503,7 @@
         },
         {
           "hw": "a100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea4c-4f16-b2dc-ec5d72186c3b&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ec5-4bec-84f4-e87ade9509d0&tab=output",
           "job_name": "Distributed Tests (4xA100)",
           "side": "upstream"
         }
@@ -3559,7 +3559,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea4d-4780-ac9b-267fb407c61f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ec6-4bc5-9a8a-95c9503a4432&tab=output",
           "job_name": "Distributed Tests (8xH100)",
           "side": "upstream"
         }
@@ -3615,7 +3615,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea4d-4694-bf39-a8c4b79f142f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ec6-47d4-a808-b9d54f52af22&tab=output",
           "job_name": "Distributed Torchrun + Examples (4 GPUs)",
           "side": "upstream"
         }
@@ -3653,7 +3653,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 23.79
+        "duration": 23.82
       },
       "hardware": [
         "h100",
@@ -3671,7 +3671,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea4e-400b-abe1-18f6578b3dc5&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ec7-407e-b7f4-d68d82e83775&tab=output",
           "job_name": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
           "side": "upstream"
         }
@@ -3709,7 +3709,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 129.0
+        "duration": 130.43
       },
       "hardware": [
         "h100",
@@ -3727,7 +3727,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea3a-4ab3-9903-8eb599ccd2e6&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8eb3-4bba-b936-f575fb386692&tab=output",
           "job_name": "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
           "side": "upstream"
         }
@@ -3765,7 +3765,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1721.26
+        "duration": 1778.81
       },
       "hardware": [
         "h100",
@@ -3783,7 +3783,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea63-4170-8757-c02b1cb0803c&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ede-40c0-baad-885f599ba8e8&tab=output",
           "job_name": "e2e Core (1 GPU)",
           "side": "upstream"
         }
@@ -3821,7 +3821,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1071.59
+        "duration": 1096.27
       },
       "hardware": [
         "h100",
@@ -3846,7 +3846,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea65-437a-a328-89ff4733789f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8edf-4170-8dd2-7e55518d9ad8&tab=output",
           "job_name": "e2e Scheduling (1 GPU)",
           "side": "upstream"
         }
@@ -3884,7 +3884,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 698.18
+        "duration": 692.29
       },
       "hardware": [
         "h100",
@@ -3904,7 +3904,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea77-45d1-9020-9d2fa9071fe5&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8eee-450d-a29d-ede1c3e0fd85&tab=output",
           "job_name": "Elastic EP Scaling Test",
           "side": "upstream"
         }
@@ -3942,7 +3942,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 608.26
+        "duration": 644.5
       },
       "hardware": [
         "h100",
@@ -3960,7 +3960,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea61-4661-a7e4-ae30271402e4&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ed9-4f20-a400-98b279484cb4&tab=output",
           "job_name": "Engine",
           "side": "upstream"
         }
@@ -3998,7 +3998,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1277.44
+        "duration": 1293.12
       },
       "hardware": [
         "h100",
@@ -4023,7 +4023,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea61-4db7-900d-f72e9c96e45d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8eda-4802-a376-12d7b9657f6f&tab=output",
           "job_name": "Engine (1 GPU)",
           "side": "upstream"
         }
@@ -4061,7 +4061,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 63.56
+        "duration": 82.61
       },
       "hardware": [
         "h100",
@@ -4086,7 +4086,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea6a-4099-8890-2b0862bc5cb0&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ee3-473f-b9e1-c8520a6c92fd&tab=output",
           "job_name": "Entrypoints Integration (API Server Generate)",
           "side": "upstream"
         }
@@ -4124,7 +4124,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1625.9
+        "duration": 2255.97
       },
       "hardware": [
         "h100",
@@ -4149,7 +4149,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea6b-413e-a769-a6cc4029ebff&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ee3-4c43-878c-b1e2915575d5&tab=output",
           "job_name": "Entrypoints Integration (API Server OpenAI - Part 1)",
           "side": "upstream"
         }
@@ -4180,27 +4180,23 @@
         "duration": 1184.69
       },
       "upstream": {
-        "total": 122,
+        "total": 121,
         "passed": 121,
-        "failed": 1,
+        "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 488.94
+        "duration": 744.55
       },
       "hardware": [
         "h100",
         "mi300",
         "mi355"
       ],
-      "hw_failures": {
-        "h100": 1
-      },
+      "hw_failures": null,
       "hw_canceled": null,
-      "failure_tests": [
-        "test_include_reasoning_true_streaming"
-      ],
+      "failure_tests": [],
       "job_links": [
         {
           "hw": "mi300",
@@ -4216,15 +4212,15 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f797d-f0f8-415a-a0a8-d753cc28c1de&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ee4-49d8-9836-748ff44a9e44&tab=output",
           "job_name": "Entrypoints Integration (API Server OpenAI - Part 2)",
           "side": "upstream"
         }
       ],
       "delta": {
-        "total": 120,
+        "total": 121,
         "passed": 121,
-        "failed": -1,
+        "failed": 0,
         "skipped": 0
       },
       "status": "both",
@@ -4254,7 +4250,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 547.18
+        "duration": 672.85
       },
       "hardware": [
         "h100",
@@ -4279,7 +4275,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea6c-4d83-a11d-4b65005f2f68&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ee4-49ee-be24-aeb41732b732&tab=output",
           "job_name": "Entrypoints Integration (API Server)",
           "side": "upstream"
         }
@@ -4317,7 +4313,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 200.41
+        "duration": 240.42
       },
       "hardware": [
         "h100",
@@ -4335,7 +4331,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea6d-44bf-b7b3-985d17324df4&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ee5-4429-963e-222958fe8405&tab=output",
           "job_name": "Entrypoints Integration (LLM)",
           "side": "upstream"
         }
@@ -4373,7 +4369,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1658.91
+        "duration": 1775.88
       },
       "hardware": [
         "h100",
@@ -4400,7 +4396,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea6d-4933-b9ca-86cdfd548d41&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ee5-4583-b608-dc89a596f67f&tab=output",
           "job_name": "Entrypoints Integration (Multimodal)",
           "side": "upstream"
         }
@@ -4438,7 +4434,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1670.48
+        "duration": 2365.2
       },
       "hardware": [
         "h100",
@@ -4463,7 +4459,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea6e-4999-9e39-3aca678e90bf&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ee6-4593-831b-d71a61487ea5&tab=output",
           "job_name": "Entrypoints Integration (Pooling)",
           "side": "upstream"
         }
@@ -4494,14 +4490,14 @@
         "duration": 1174.22
       },
       "upstream": {
-        "total": 291,
-        "passed": 288,
+        "total": 292,
+        "passed": 289,
         "failed": 0,
         "skipped": 2,
         "xfailed": 1,
         "xpassed": 0,
         "error": 0,
-        "duration": 1402.77
+        "duration": 1558.75
       },
       "hardware": [
         "h100",
@@ -4519,14 +4515,14 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea6e-4b53-ae7a-6083fb8fe2b5&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ee6-49b5-ad1c-94aec620c695&tab=output",
           "job_name": "Entrypoints Integration (Responses API)",
           "side": "upstream"
         }
       ],
       "delta": {
-        "total": 0,
-        "passed": 0,
+        "total": -1,
+        "passed": -1,
         "failed": 0,
         "skipped": 0
       },
@@ -4557,7 +4553,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1626.71
+        "duration": 1844.75
       },
       "hardware": [
         "h100",
@@ -4582,7 +4578,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea6f-4e80-b44a-a4e816802e08&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ee7-43d6-9f4c-4d109e7acf0e&tab=output",
           "job_name": "Entrypoints Integration (Speech to Text)",
           "side": "upstream"
         }
@@ -4620,7 +4616,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 141.19
+        "duration": 151.69
       },
       "hardware": [
         "h100",
@@ -4638,7 +4634,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea70-41fb-a3d0-0ecdcb9a4d3e&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ee7-4e9e-9807-1dc873a1dfb9&tab=output",
           "job_name": "Entrypoints Unit Tests",
           "side": "upstream"
         }
@@ -4676,7 +4672,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2.42
+        "duration": 2.66
       },
       "hardware": [
         "h100",
@@ -4694,7 +4690,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea75-450e-8fda-b1c2b5a479fd&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8eec-49c2-af4b-8391260c225a&tab=output",
           "job_name": "EPLB Algorithm",
           "side": "upstream"
         }
@@ -4732,7 +4728,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 284.13
+        "duration": 286.0
       },
       "hardware": [
         "h100",
@@ -4750,7 +4746,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea76-4051-b269-4d5244be65b1&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8eed-4cb7-8286-f4f4d203ef6c&tab=output",
           "job_name": "EPLB Execution",
           "side": "upstream"
         }
@@ -4813,7 +4809,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb06-466a-851b-905a22f7dab9&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f8f-4cbe-adbf-48fe70c9994a&tab=output",
           "job_name": "Examples",
           "side": "upstream"
         }
@@ -4851,7 +4847,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 138.01
+        "duration": 141.37
       },
       "hardware": [
         "h100",
@@ -4869,7 +4865,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb07-40e3-9d2c-1b7cdac13a3d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f8f-45b6-a9a5-2b940fd08e9a&tab=output",
           "job_name": "Extract Hidden States Integration",
           "side": "upstream"
         }
@@ -4907,7 +4903,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 372.37
+        "duration": 379.08
       },
       "hardware": [
         "h100",
@@ -4925,7 +4921,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea2e-43ee-9cd3-ac09312fc8ab&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ea8-4fb3-b556-3beb5b31cd1e&tab=output",
           "job_name": "Fusion E2E Config Sweep (H100)",
           "side": "upstream"
         }
@@ -4963,7 +4959,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 212.97
+        "duration": 222.07
       },
       "hardware": [
         "h100",
@@ -4981,7 +4977,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea2e-4438-be72-78e069d138f0&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ea8-4630-9eb8-b4b39440dbb0&tab=output",
           "job_name": "Fusion E2E Quick (H100)",
           "side": "upstream"
         }
@@ -5019,7 +5015,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 619.06
+        "duration": 622.01
       },
       "hardware": [
         "h100",
@@ -5037,7 +5033,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb44-43e9-92fc-09f88f8dcf7e&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ff2-413d-b1cc-8e6c0c48f569&tab=output",
           "job_name": "GGUF Plugin",
           "side": "upstream"
         }
@@ -5056,7 +5052,7 @@
       "family_key": "gpqa eval (gpt-oss) (2 gpus)",
       "family_name": "gpqa eval (gpt-oss) (2 gpus)",
       "amd_job_name": "mi355_2: GPQA Eval (GPT-OSS) (2xB200-2xMI355)",
-      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xB200)",
+      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xH100)",
       "amd": {
         "total": 4,
         "passed": 4,
@@ -5075,7 +5071,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1710.48
+        "duration": 1744.85
       },
       "hardware": [
         "b200",
@@ -5093,15 +5089,15 @@
           "side": "amd"
         },
         {
-          "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaea-4d14-ad49-a224c8788ec8&tab=output",
-          "job_name": "GPQA Eval (GPT-OSS) (2xB200)",
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f55-4ca5-9525-16d83514011a&tab=output",
+          "job_name": "GPQA Eval (GPT-OSS) (2xH100)",
           "side": "upstream"
         },
         {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaea-4421-9298-96966b0c0411&tab=output",
-          "job_name": "GPQA Eval (GPT-OSS) (2xH100)",
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f54-436f-b464-36c7dd093640&tab=output",
+          "job_name": "GPQA Eval (GPT-OSS) (2xB200)",
           "side": "upstream"
         }
       ],
@@ -5119,7 +5115,7 @@
       "family_key": "gpqa eval (gpt-oss) (2 gpus)",
       "family_name": "gpqa eval (gpt-oss) (2 gpus)",
       "amd_job_name": "mi300_2: GPQA Eval (GPT-OSS) (2xH100-2xMI300)",
-      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xB200)",
+      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xH100)",
       "amd": {
         "total": 1,
         "passed": 1,
@@ -5138,7 +5134,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1710.48
+        "duration": 1744.85
       },
       "hardware": [
         "b200",
@@ -5156,15 +5152,15 @@
           "side": "amd"
         },
         {
-          "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaea-4d14-ad49-a224c8788ec8&tab=output",
-          "job_name": "GPQA Eval (GPT-OSS) (2xB200)",
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f55-4ca5-9525-16d83514011a&tab=output",
+          "job_name": "GPQA Eval (GPT-OSS) (2xH100)",
           "side": "upstream"
         },
         {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaea-4421-9298-96966b0c0411&tab=output",
-          "job_name": "GPQA Eval (GPT-OSS) (2xH100)",
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f54-436f-b464-36c7dd093640&tab=output",
+          "job_name": "GPQA Eval (GPT-OSS) (2xB200)",
           "side": "upstream"
         }
       ],
@@ -5201,7 +5197,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 265.77
+        "duration": 262.84
       },
       "hardware": [
         "h100",
@@ -5219,7 +5215,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea3e-4591-ae99-4a525feb0012&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8eb7-4ab6-9286-90eb4c757510&tab=output",
           "job_name": "Hybrid SSM NixlConnector PD accuracy tests (4 GPUs)",
           "side": "upstream"
         }
@@ -5257,7 +5253,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 12.02
+        "duration": 12.01
       },
       "hardware": [
         "h100",
@@ -5275,7 +5271,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea3f-4467-93d6-e5bed2a340bf&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8eb8-4f1f-8687-b5f237e64c87&tab=output",
           "job_name": "Hybrid SSM NixlConnector PD prefix cache test (2 GPUs)",
           "side": "upstream"
         }
@@ -5306,21 +5302,22 @@
         "duration": 0.0
       },
       "upstream": {
-        "total": 13,
+        "total": 14,
         "passed": 10,
-        "failed": 0,
+        "failed": 1,
         "skipped": 3,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 417.17
+        "duration": 415.25
       },
       "hardware": [
         "b200",
         "mi355"
       ],
       "hw_failures": {
-        "mi355": 1
+        "mi355": 1,
+        "b200": 1
       },
       "hw_canceled": null,
       "failure_tests": [],
@@ -5333,15 +5330,15 @@
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eada-4a1b-bc1a-74d16454523d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f45-4020-8be0-6eb282d02333&tab=output",
           "job_name": "Kernels (B200)",
           "side": "upstream"
         }
       ],
       "delta": {
-        "total": -12,
+        "total": -13,
         "passed": -10,
-        "failed": 1,
+        "failed": 0,
         "skipped": -3
       },
       "status": "both",
@@ -5371,7 +5368,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 5051.48
+        "duration": 4926.29
       },
       "hardware": [
         "h100",
@@ -5399,7 +5396,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eadb-4538-b264-2b23798b6f5d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f46-40cc-8b95-08d6ece03c4c&tab=output",
           "job_name": "Kernels Attention Test 1",
           "side": "upstream"
         }
@@ -5437,7 +5434,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4416.9
+        "duration": 6074.67
       },
       "hardware": [
         "h100",
@@ -5455,7 +5452,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eadc-48f4-8b72-e41090bdab1b&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f47-4e4f-8448-a0d1fd5297dd&tab=output",
           "job_name": "Kernels Core Operation Test",
           "side": "upstream"
         }
@@ -5493,7 +5490,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1036.69
+        "duration": 1027.0
       },
       "hardware": [
         "h100",
@@ -5511,7 +5508,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eade-4ac2-9fb0-4d6c9210cb5a&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f49-4a25-b25d-e444a9140846&tab=output",
           "job_name": "Kernels FP8 MoE Test (2xH100)",
           "side": "upstream"
         }
@@ -5549,7 +5546,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1036.69
+        "duration": 1027.0
       },
       "hardware": [
         "h100",
@@ -5569,7 +5566,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eade-4ac2-9fb0-4d6c9210cb5a&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f49-4a25-b25d-e444a9140846&tab=output",
           "job_name": "Kernels FP8 MoE Test (2xH100)",
           "side": "upstream"
         }
@@ -5607,7 +5604,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4041.6500000000005
+        "duration": 4223.79
       },
       "hardware": [
         "h100",
@@ -5625,7 +5622,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eae0-4c08-b7f0-114f14b9c55a&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f4b-416b-b5ae-0154ce13b1a2&tab=output",
           "job_name": "Kernels Helion Test",
           "side": "upstream"
         }
@@ -5663,7 +5660,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 325.99
+        "duration": 338.14
       },
       "hardware": [
         "h100",
@@ -5681,7 +5678,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eae1-42cf-bd7b-5aa380182535&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f4c-4439-8257-abdefa0c88b6&tab=output",
           "job_name": "Kernels KDA Test",
           "side": "upstream"
         }
@@ -5719,7 +5716,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1259.17
+        "duration": 1604.12
       },
       "hardware": [
         "h100",
@@ -5737,7 +5734,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eae2-42c7-b3a6-62f5dc7ff872&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f4c-42a9-9f9e-740264d16ed5&tab=output",
           "job_name": "Kernels Mamba Test",
           "side": "upstream"
         }
@@ -5775,7 +5772,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 85.44999999999999
+        "duration": 86.06000000000002
       },
       "hardware": [
         "h100",
@@ -5802,7 +5799,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eae3-4f20-8e97-09d8e50162e9&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f4d-4ad8-bbcb-f3503280196f&tab=output",
           "job_name": "Kernels MoE Test 1",
           "side": "upstream"
         }
@@ -5840,7 +5837,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4252.16
+        "duration": 4241.63
       },
       "hardware": [
         "h100",
@@ -5867,7 +5864,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eae4-4f58-8e27-49f62c11ca18&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f4f-4db3-9e68-90b2db1650f3&tab=output",
           "job_name": "Kernels Quantization Test 1",
           "side": "upstream"
         }
@@ -5905,7 +5902,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2025.15
+        "duration": 2213.82
       },
       "hardware": [
         "h100",
@@ -5932,7 +5929,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb28-4235-8699-7581c50f6c94&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fc9-4276-8200-ac01a2b53825&tab=output",
           "job_name": "Language Models Test (Extended Generation)",
           "side": "upstream"
         }
@@ -5970,7 +5967,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3732.5
+        "duration": 4269.49
       },
       "hardware": [
         "h100",
@@ -5995,7 +5992,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb29-4efb-a7dd-62505cdaf861&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fca-47b3-9a67-57e9f104483e&tab=output",
           "job_name": "Language Models Test (Extended Pooling)",
           "side": "upstream"
         }
@@ -6033,7 +6030,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1711.63
+        "duration": 1764.25
       },
       "hardware": [
         "h100",
@@ -6051,7 +6048,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb29-4e1a-a154-fc45b428fa51&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fcb-4070-b297-43cb5912e28f&tab=output",
           "job_name": "Language Models Test (MTEB)",
           "side": "upstream"
         }
@@ -6089,7 +6086,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 744.86
+        "duration": 728.82
       },
       "hardware": [
         "h100",
@@ -6114,7 +6111,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb2a-4e7a-a5df-8897093fe55e&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fcc-48cc-9b14-ea936f0a7be4&tab=output",
           "job_name": "Language Models Test (PPL)",
           "side": "upstream"
         }
@@ -6152,7 +6149,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1223.8
+        "duration": 1124.61
       },
       "hardware": [
         "h100",
@@ -6170,7 +6167,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb2a-4e2b-86d5-9d07e97b4e11&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fcc-4fba-88ad-2a6360403619&tab=output",
           "job_name": "Language Models Tests (Extra Standard) 1",
           "side": "upstream"
         }
@@ -6201,14 +6198,14 @@
         "duration": 2194.0
       },
       "upstream": {
-        "total": 41,
-        "passed": 37,
+        "total": 40,
+        "passed": 36,
         "failed": 0,
         "skipped": 4,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2629.87
+        "duration": 3290.82
       },
       "hardware": [
         "h100",
@@ -6226,14 +6223,14 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb2b-4ad7-b057-56e9763967d9&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fcd-4cb4-ab7c-0766b1b723a7&tab=output",
           "job_name": "Language Models Tests (Hybrid) 1",
           "side": "upstream"
         }
       ],
       "delta": {
-        "total": 0,
-        "passed": 0,
+        "total": 1,
+        "passed": 1,
         "failed": 0,
         "skipped": 0
       },
@@ -6264,7 +6261,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 694.13
+        "duration": 693.59
       },
       "hardware": [
         "h100",
@@ -6291,7 +6288,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb2c-4bbe-932a-97e71775b46d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fce-46ec-b31e-298600251368&tab=output",
           "job_name": "Language Models Tests (Standard)",
           "side": "upstream"
         }
@@ -6329,7 +6326,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1481.64
+        "duration": 1437.07
       },
       "hardware": [
         "h100",
@@ -6347,7 +6344,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaf2-484d-ba1b-e831dcbfd683&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f71-43bc-a19d-90e63991e1cc&tab=output",
           "job_name": "LM Eval Large Models (4xH100)",
           "side": "upstream"
         }
@@ -6385,7 +6382,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1481.64
+        "duration": 1437.07
       },
       "hardware": [
         "h100",
@@ -6403,7 +6400,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaf2-484d-ba1b-e831dcbfd683&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f71-43bc-a19d-90e63991e1cc&tab=output",
           "job_name": "LM Eval Large Models (4xH100)",
           "side": "upstream"
         }
@@ -6441,7 +6438,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1481.64
+        "duration": 1437.07
       },
       "hardware": [
         "h100",
@@ -6459,7 +6456,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaf2-484d-ba1b-e831dcbfd683&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f71-43bc-a19d-90e63991e1cc&tab=output",
           "job_name": "LM Eval Large Models (4xH100)",
           "side": "upstream"
         }
@@ -6497,7 +6494,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2389.0
+        "duration": 1970.64
       },
       "hardware": [
         "h200",
@@ -6515,7 +6512,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaf2-44ef-b56a-80c4454071d8&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f72-42c2-bc23-6da2f655dde5&tab=output",
           "job_name": "LM Eval Large Models (8xH200)",
           "side": "upstream"
         }
@@ -6553,7 +6550,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1959.83
+        "duration": 1978.74
       },
       "hardware": [
         "b200",
@@ -6571,7 +6568,7 @@
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaf4-447e-b199-7725811972d1&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f74-4988-83be-1773cd6419b3&tab=output",
           "job_name": "LM Eval Qwen3.5 Models (2xB200)",
           "side": "upstream"
         }
@@ -6609,7 +6606,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1565.26
+        "duration": 1705.45
       },
       "hardware": [
         "h100",
@@ -6627,7 +6624,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaf4-45df-bd26-51261cb4b582&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f75-43ee-ac0a-160a76cca3c8&tab=output",
           "job_name": "LM Eval Small Models",
           "side": "upstream"
         }
@@ -6733,7 +6730,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1565.26
+        "duration": 1705.45
       },
       "hardware": [
         "h100",
@@ -6751,7 +6748,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaf4-45df-bd26-51261cb4b582&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f75-43ee-ac0a-160a76cca3c8&tab=output",
           "job_name": "LM Eval Small Models",
           "side": "upstream"
         }
@@ -6770,7 +6767,7 @@
       "family_key": "lora",
       "family_name": "lora",
       "amd_job_name": "mi300_1: LoRA 1",
-      "upstream_job_name": "LoRA 2",
+      "upstream_job_name": "LoRA 1",
       "amd": {
         "total": 6938,
         "passed": 6830,
@@ -6789,7 +6786,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4053.54
+        "duration": 4489.25
       },
       "hardware": [
         "h100",
@@ -6807,8 +6804,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eafc-4182-8092-f2e6d78982ec&tab=output",
-          "job_name": "LoRA 2",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f83-4148-8e53-91859e0e720e&tab=output",
+          "job_name": "LoRA 1",
           "side": "upstream"
         }
       ],
@@ -6845,7 +6842,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 236.76
+        "duration": 236.32
       },
       "hardware": [
         "h100",
@@ -6863,7 +6860,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eafd-4014-be82-4f5038c9e958&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f84-40df-a854-0b205443a3bf&tab=output",
           "job_name": "LoRA TP (Distributed)",
           "side": "upstream"
         }
@@ -6901,7 +6898,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 49.21
+        "duration": 49.54
       },
       "hardware": [
         "h100",
@@ -6919,7 +6916,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb09-4fc0-9eee-505ee8ab233d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f90-4a79-b2c9-c8ea259e83f1&tab=output",
           "job_name": "Metrics, Tracing (2 GPUs)",
           "side": "upstream"
         }
@@ -6957,7 +6954,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 125.36
+        "duration": 150.75
       },
       "hardware": [
         "h100",
@@ -6975,7 +6972,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb11-4b8c-bc69-704b99e301af&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f9f-4f14-a0e1-7d9cb10ffd6a&tab=output",
           "job_name": "Model Executor",
           "side": "upstream"
         }
@@ -7013,7 +7010,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 295.16
+        "duration": 329.6
       },
       "hardware": [
         "h100",
@@ -7031,7 +7028,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb15-4e19-9479-86979f5878c2&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fa7-41c6-a781-572cdff230d5&tab=output",
           "job_name": "Model Runner V2 Core Tests",
           "side": "upstream"
         }
@@ -7069,7 +7066,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 88.16
+        "duration": 102.13
       },
       "hardware": [
         "h100",
@@ -7087,7 +7084,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb15-4f06-8ca1-75f697eeb87c&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fa7-485e-bdcd-187aa7ace2bd&tab=output",
           "job_name": "Model Runner V2 Distributed (2 GPUs)",
           "side": "upstream"
         }
@@ -7143,7 +7140,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb16-4dcd-a765-71b7c3b077a0&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fa8-4d6f-ba15-f01744a97da5&tab=output",
           "job_name": "Model Runner V2 Examples",
           "side": "upstream"
         }
@@ -7181,7 +7178,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 240.33
+        "duration": 232.51
       },
       "hardware": [
         "h100",
@@ -7199,7 +7196,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb16-4167-9da7-0d6eb526cb71&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fa9-4fc8-ac12-ff2762094f9e&tab=output",
           "job_name": "Model Runner V2 Pipeline Parallelism (4 GPUs)",
           "side": "upstream"
         }
@@ -7237,7 +7234,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 317.87
+        "duration": 354.12
       },
       "hardware": [
         "h100",
@@ -7255,7 +7252,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb17-4375-8bd2-5678a5bcf80b&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fa9-47f4-b6a3-2beb45781fe9&tab=output",
           "job_name": "Model Runner V2 Spec Decode",
           "side": "upstream"
         }
@@ -7293,7 +7290,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 337.5
+        "duration": 391.74
       },
       "hardware": [
         "h100",
@@ -7311,7 +7308,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaf6-4219-9949-0aacb59b1700&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f79-4394-b642-59f9793c5dc4&tab=output",
           "job_name": "MRCR Eval Small Models",
           "side": "upstream"
         }
@@ -7349,7 +7346,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 775.62
+        "duration": 826.21
       },
       "hardware": [
         "h100",
@@ -7367,7 +7364,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb31-48a2-9837-eca3e08f0518&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fd7-4046-812e-d55f33966ce0&tab=output",
           "job_name": "Multi-Modal Accuracy Eval (Small Models)",
           "side": "upstream"
         }
@@ -7405,7 +7402,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2.81
+        "duration": 2.88
       },
       "hardware": [
         "h100",
@@ -7432,7 +7429,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb32-47c8-9369-2fc511e0195c&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fd9-493c-9363-f567cc09f66e&tab=output",
           "job_name": "Multi-Modal Models (Extended Generation 1)",
           "side": "upstream"
         }
@@ -7470,7 +7467,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3602.8
+        "duration": 4118.08
       },
       "hardware": [
         "h100",
@@ -7488,7 +7485,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb36-45be-858b-55ff46408a2c&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fda-408e-adba-f22b9af61209&tab=output",
           "job_name": "Multi-Modal Models (Extended Generation 2)",
           "side": "upstream"
         }
@@ -7526,7 +7523,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2545.27
+        "duration": 2437.46
       },
       "hardware": [
         "h100",
@@ -7554,7 +7551,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb37-4933-b85c-3841611530a4&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fda-4624-b897-c398a1460a2b&tab=output",
           "job_name": "Multi-Modal Models (Extended Generation 3)",
           "side": "upstream"
         }
@@ -7592,7 +7589,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1976.92
+        "duration": 2089.54
       },
       "hardware": [
         "h100",
@@ -7619,7 +7616,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb38-41de-a2d9-d562c96b6bc1&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fdb-47bc-992e-79281a69b41f&tab=output",
           "job_name": "Multi-Modal Models (Extended Pooling)",
           "side": "upstream"
         }
@@ -7657,7 +7654,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 201.24
+        "duration": 210.11
       },
       "hardware": [
         "h100",
@@ -7682,7 +7679,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb39-408b-8e9e-b371c566c338&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fdb-490b-b609-6a42eda57f1e&tab=output",
           "job_name": "Multi-Modal Models (Standard) 1: qwen2",
           "side": "upstream"
         }
@@ -7720,7 +7717,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 701.6
+        "duration": 742.72
       },
       "hardware": [
         "h100",
@@ -7738,7 +7735,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb3a-4c3f-8f6f-d7b9e6a3a271&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fdc-469c-86ac-38f05e97a356&tab=output",
           "job_name": "Multi-Modal Models (Standard) 2: qwen3 + gemma",
           "side": "upstream"
         }
@@ -7776,7 +7773,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 514.09
+        "duration": 546.73
       },
       "hardware": [
         "h100",
@@ -7801,7 +7798,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb3a-42d2-9386-f79f3a5d34a6&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fdc-47dc-bcb0-16b4ee15d25d&tab=output",
           "job_name": "Multi-Modal Models (Standard) 3: llava + qwen2_vl",
           "side": "upstream"
         }
@@ -7839,7 +7836,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 267.81
+        "duration": 317.97
       },
       "hardware": [
         "h100",
@@ -7864,7 +7861,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb3b-481d-b9e7-5773dae938fb&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fdd-43e7-a434-43d61d1128f4&tab=output",
           "job_name": "Multi-Modal Models (Standard) 4: other + whisper",
           "side": "upstream"
         }
@@ -7902,7 +7899,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2597.41
+        "duration": 2659.04
       },
       "hardware": [
         "h100",
@@ -7920,7 +7917,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb3b-4655-9bea-16d31eb931a9&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fde-482f-bd58-c502d3681468&tab=output",
           "job_name": "Multi-Modal Processor",
           "side": "upstream"
         }
@@ -7939,7 +7936,7 @@
       "family_key": "multi-modal processor (cpu)",
       "family_name": "multi-modal processor (cpu)",
       "amd_job_name": "mi300_1: Multi-Modal Processor (CPU) 1",
-      "upstream_job_name": "Multi-Modal Processor (CPU) 1",
+      "upstream_job_name": "Multi-Modal Processor (CPU) 2",
       "amd": {
         "total": 815,
         "passed": 717,
@@ -7958,7 +7955,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 6889.93
+        "duration": 6831.74
       },
       "hardware": [
         "h100",
@@ -7978,8 +7975,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb3c-4a62-b98a-bf543eb96e02&tab=output",
-          "job_name": "Multi-Modal Processor (CPU) 1",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fe9-45df-b820-4d22ef1da14d&tab=output",
+          "job_name": "Multi-Modal Processor (CPU) 2",
           "side": "upstream"
         }
       ],
@@ -8016,7 +8013,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 382.43
+        "duration": 382.22
       },
       "hardware": [
         "h100",
@@ -8034,7 +8031,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea3f-4222-ab66-eeaab385da00&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8eb9-412b-bf1a-ef5b668aaa89&tab=output",
           "job_name": "MultiConnector (Nixl+Offloading) PD accuracy (2 GPUs)",
           "side": "upstream"
         }
@@ -8072,7 +8069,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 53.83
+        "duration": 54.49
       },
       "hardware": [
         "h100",
@@ -8090,7 +8087,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea40-4108-8344-ad1090de1805&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8eb9-48df-acbe-2d5a55f3a43d&tab=output",
           "job_name": "MultiConnector (Nixl+Offloading) PD edge cases (2 GPUs)",
           "side": "upstream"
         }
@@ -8128,7 +8125,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 453.54
+        "duration": 481.05
       },
       "hardware": [
         "h100",
@@ -8146,7 +8143,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea40-4642-a841-6c0639aacbc2&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8eba-454b-9a72-c57ddc57e8ae&tab=output",
           "job_name": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
           "side": "upstream"
         }
@@ -8184,7 +8181,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 170.69
+        "duration": 173.47
       },
       "hardware": [
         "h100",
@@ -8202,7 +8199,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea71-4610-982d-3813cf7c79ae&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ee8-4feb-b7fb-7885bc2df89b&tab=output",
           "job_name": "OpenAI API Correctness",
           "side": "upstream"
         }
@@ -8240,7 +8237,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2017.72
+        "duration": 2005.68
       },
       "hardware": [
         "h100",
@@ -8258,7 +8255,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea4e-4f21-a660-3c04f3f0a16e&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ec7-4661-b232-73aa00326af7&tab=output",
           "job_name": "Pipeline + Context Parallelism (4 GPUs)",
           "side": "upstream"
         }
@@ -8296,7 +8293,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 9.25
+        "duration": 10.52
       },
       "hardware": [
         "h100",
@@ -8314,7 +8311,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea27-4c35-ad3a-ffc8296efaa9&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ea0-4454-bf5b-6d89f70bff2f&tab=output",
           "job_name": "Platform Tests",
           "side": "upstream"
         }
@@ -8345,22 +8342,27 @@
         "duration": 4.62
       },
       "upstream": {
-        "total": 10,
+        "total": 12,
         "passed": 10,
-        "failed": 0,
+        "failed": 2,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4.42
+        "duration": 4.41
       },
       "hardware": [
         "h100",
         "mi300"
       ],
-      "hw_failures": null,
+      "hw_failures": {
+        "h100": 2
+      },
       "hw_canceled": null,
-      "failure_tests": [],
+      "failure_tests": [
+        "test_bge_m3_sparse_plugin_online[True]",
+        "test_bge_m3_sparse_plugin_offline[True]"
+      ],
       "job_links": [
         {
           "hw": "mi300",
@@ -8370,15 +8372,15 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb44-43e0-82da-0cbc130a2580&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ff3-4741-be61-1f731e2dcd27&tab=output",
           "job_name": "Plugin Tests (2 GPUs)",
           "side": "upstream"
         }
       ],
       "delta": {
-        "total": 0,
+        "total": -2,
         "passed": 0,
-        "failed": 0,
+        "failed": -2,
         "skipped": 0
       },
       "status": "both",
@@ -8426,7 +8428,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb0a-450d-afec-c0c917c1864e&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f91-45ad-a060-153d31bf57c6&tab=output",
           "job_name": "Python-only Installation",
           "side": "upstream"
         }
@@ -8464,7 +8466,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1451.08
+        "duration": 1438.38
       },
       "hardware": [
         "h100",
@@ -8484,7 +8486,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb7a-460a-8a97-9f6e3472bba6&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ff8-4e5d-9034-eaf271be621e&tab=output",
           "job_name": "PyTorch Compilation Passes Unit Tests",
           "side": "upstream"
         }
@@ -8522,7 +8524,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 16.56
+        "duration": 19.06
       },
       "hardware": [
         "h100",
@@ -8540,7 +8542,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb7b-45ae-acc9-fbbc0e3ed91b&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ff9-469b-a883-79f4eed9f87e&tab=output",
           "job_name": "PyTorch Compilation Unit Tests",
           "side": "upstream"
         }
@@ -8578,7 +8580,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1378.26
+        "duration": 1408.69
       },
       "hardware": [
         "h100",
@@ -8596,7 +8598,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb7d-48be-894f-5c66a78500a8&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ffa-4489-99b8-fca067557664&tab=output",
           "job_name": "PyTorch Fullgraph",
           "side": "upstream"
         }
@@ -8634,7 +8636,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 72.89
+        "duration": 74.3
       },
       "hardware": [
         "h100",
@@ -8652,7 +8654,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb7e-4b21-91ec-b0b7f376b5db&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ffb-438f-a063-c6eac9823c1a&tab=output",
           "job_name": "PyTorch Fullgraph Smoke Test",
           "side": "upstream"
         }
@@ -8708,7 +8710,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb80-4122-a1a3-d3ca5273f7ba&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ffc-40ba-9ec4-47b692480acf&tab=output",
           "job_name": "Pytorch Nightly Dependency Override Check",
           "side": "upstream"
         }
@@ -8739,14 +8741,14 @@
         "duration": 12541.36
       },
       "upstream": {
-        "total": 444,
-        "passed": 407,
+        "total": 467,
+        "passed": 417,
         "failed": 0,
-        "skipped": 37,
+        "skipped": 50,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2346.24
+        "duration": 4747.81
       },
       "hardware": [
         "h100",
@@ -8774,16 +8776,16 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb8a-4bb2-a34b-d7438f2e4058&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-9003-4542-bc28-7c742be2a475&tab=output",
           "job_name": "Quantization",
           "side": "upstream"
         }
       ],
       "delta": {
-        "total": 458,
-        "passed": 396,
+        "total": 435,
+        "passed": 386,
         "failed": 5,
-        "skipped": 57
+        "skipped": 44
       },
       "status": "both",
       "backfilled": false
@@ -8806,13 +8808,13 @@
       },
       "upstream": {
         "total": 60,
-        "passed": 30,
+        "passed": 32,
         "failed": 0,
-        "skipped": 30,
+        "skipped": 28,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1801.55
+        "duration": 3262.42
       },
       "hardware": [
         "h100",
@@ -8839,16 +8841,16 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb8b-4c90-ab59-196d02c15e0d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-9007-40dd-80c3-37b1ddf80f49&tab=output",
           "job_name": "Quantized Models Test",
           "side": "upstream"
         }
       ],
       "delta": {
         "total": 1,
-        "passed": -10,
+        "passed": -12,
         "failed": 1,
-        "skipped": 10
+        "skipped": 12
       },
       "status": "both",
       "backfilled": false
@@ -8895,7 +8897,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea5b-482a-b911-2d330ae25a3c&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ed4-4bb0-97d9-3c915fef95a3&tab=output",
           "job_name": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy",
           "side": "upstream"
         }
@@ -8951,7 +8953,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea5c-4b35-92a9-82acba7de3a6&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ed5-420d-ac32-c69f09c1e619&tab=output",
           "job_name": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100)",
           "side": "upstream"
         }
@@ -9007,7 +9009,7 @@
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea5c-4e51-b903-a0a3f226a48f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ed4-4a7e-aec7-c4d61fc39a16&tab=output",
           "job_name": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (2xB200)",
           "side": "upstream"
         }
@@ -9097,7 +9099,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb91-4e67-804e-c72fe5f899a5&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-9075-420b-a3bc-777b9dc2e902&tab=output",
           "job_name": "Ray Dependency Compatibility Check",
           "side": "upstream"
         }
@@ -9135,7 +9137,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 145.68
+        "duration": 146.03
       },
       "hardware": [
         "h100",
@@ -9153,7 +9155,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea4f-4751-83ce-0272d6123d82&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ec8-49ba-abc1-da36c07fd47a&tab=output",
           "job_name": "RayExecutorV2 (4 GPUs)",
           "side": "upstream"
         }
@@ -9191,7 +9193,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 571.28
+        "duration": 300.13
       },
       "hardware": [
         "h100",
@@ -9216,7 +9218,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb0b-4481-92ae-04f69b278802&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f91-4b91-bee4-e8482de08ead&tab=output",
           "job_name": "Regression",
           "side": "upstream"
         }
@@ -9340,7 +9342,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb95-49f8-8610-6b6cb0eb4263&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-9202-4a85-beeb-63436c3dd7e1&tab=output",
           "job_name": "Rust Frontend Cargo Style + Clippy",
           "side": "upstream"
         }
@@ -9396,7 +9398,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb96-47ea-8f94-9342295a867a&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-9204-47ae-8ea7-829ea82b07a0&tab=output",
           "job_name": "Rust Frontend Cargo Tests",
           "side": "upstream"
         }
@@ -9434,7 +9436,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 165.04
+        "duration": 166.19
       },
       "hardware": [
         "h100",
@@ -9452,7 +9454,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb9a-476a-83b5-0a19e544a033&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-921a-4c37-9f04-95d0d46f3912&tab=output",
           "job_name": "Rust Frontend Core Correctness",
           "side": "upstream"
         }
@@ -9490,7 +9492,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 72.06
+        "duration": 73.97
       },
       "hardware": [
         "h100",
@@ -9508,7 +9510,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb9b-47d4-bd25-7a9af21f86f2&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-921d-40b9-95b9-37f10dde37d2&tab=output",
           "job_name": "Rust Frontend Distributed",
           "side": "upstream"
         }
@@ -9546,7 +9548,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 73.41
+        "duration": 76.74
       },
       "hardware": [
         "h100",
@@ -9564,7 +9566,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb9c-4f00-914e-afc21f9415ea&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-9221-4c55-88d5-03d485941b40&tab=output",
           "job_name": "Rust Frontend OpenAI Coverage",
           "side": "upstream"
         }
@@ -9602,7 +9604,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 48.56
+        "duration": 52.85
       },
       "hardware": [
         "h100",
@@ -9620,7 +9622,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb9c-48dc-b51b-5ae8f00245eb&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-9223-41e9-8794-4a106e57e2e8&tab=output",
           "job_name": "Rust Frontend Serve/Admin Coverage",
           "side": "upstream"
         }
@@ -9658,7 +9660,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 137.51
+        "duration": 220.33
       },
       "hardware": [
         "h100",
@@ -9676,7 +9678,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb9d-41fe-ac16-5716776a98e5&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-9226-40a5-a347-a8fd9ba6b44d&tab=output",
           "job_name": "Rust Frontend Tool Use",
           "side": "upstream"
         }
@@ -9714,7 +9716,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 599.66
+        "duration": 640.04
       },
       "hardware": [
         "h100",
@@ -9732,7 +9734,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ebdf-4df7-aa06-0bf4b397f0e8&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-923c-42e7-ab7c-91514297cf1f&tab=output",
           "job_name": "Samplers Test",
           "side": "upstream"
         }
@@ -9770,7 +9772,7 @@
         "xfailed": 10,
         "xpassed": 0,
         "error": 0,
-        "duration": 1429.47
+        "duration": 1492.92
       },
       "hardware": [
         "h100",
@@ -9795,7 +9797,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ebf0-4f12-b33a-fc770bccf643&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-9250-41d6-9d8d-b5098344e179&tab=output",
           "job_name": "Spec Decode Draft Model",
           "side": "upstream"
         }
@@ -9833,7 +9835,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 337.07
+        "duration": 355.14
       },
       "hardware": [
         "h100",
@@ -9851,7 +9853,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ebf1-49b0-b604-3272ab8737fb&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-9254-48ec-8425-c749bcf5bddc&tab=output",
           "job_name": "Spec Decode Eagle",
           "side": "upstream"
         }
@@ -9907,7 +9909,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ebf4-435c-8741-a00fafd909f9&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-925a-4080-91ba-dac755ac46a8&tab=output",
           "job_name": "Spec Decode Ngram + Suffix",
           "side": "upstream"
         }
@@ -9970,7 +9972,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ebf5-4b46-af7b-230a2bce4a88&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-925d-4a61-a0f0-c0a0275751a9&tab=output",
           "job_name": "Spec Decode Speculators + MTP",
           "side": "upstream"
         }
@@ -10008,7 +10010,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 517.47
+        "duration": 514.99
       },
       "hardware": [
         "h100",
@@ -10026,7 +10028,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ebf6-4b2c-bf42-94caade3a3a5&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-9260-457a-b6fd-f5fcc8470ef3&tab=output",
           "job_name": "Speculators Correctness",
           "side": "upstream"
         }
@@ -10134,7 +10136,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4663.42
+        "duration": 5133.05
       },
       "hardware": [
         "b200",
@@ -10152,7 +10154,7 @@
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-e9f5-4150-8655-70f6bc7427aa&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8e76-4711-9042-3831591d5332&tab=output",
           "job_name": "V1 attention (B200)",
           "side": "upstream"
         }
@@ -10190,7 +10192,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4663.42
+        "duration": 5133.05
       },
       "hardware": [
         "b200",
@@ -10208,7 +10210,7 @@
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-e9f5-4150-8655-70f6bc7427aa&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8e76-4711-9042-3831591d5332&tab=output",
           "job_name": "V1 attention (B200)",
           "side": "upstream"
         }
@@ -10246,7 +10248,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 5653.25
+        "duration": 6337.4400000000005
       },
       "hardware": [
         "h100",
@@ -10264,7 +10266,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-e9f9-45e3-ac4c-2a6bb39b8b0a&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8e76-424a-8613-f4eaad5b72be&tab=output",
           "job_name": "V1 attention (H100-MI300)",
           "side": "upstream"
         }
@@ -10302,7 +10304,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 292.86
+        "duration": 167.69
       },
       "hardware": [
         "h100",
@@ -10329,7 +10331,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb0b-48ce-ba27-3aefca1eed51&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f93-4616-900d-19b7e20d70e4&tab=output",
           "job_name": "V1 Core + KV + Metrics",
           "side": "upstream"
         }
@@ -10367,7 +10369,7 @@
         "xfailed": 1,
         "xpassed": 0,
         "error": 0,
-        "duration": 202.47
+        "duration": 201.35
       },
       "hardware": [
         "h100",
@@ -10385,7 +10387,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea62-426c-9709-ea5c88cec597&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8edc-4b17-b06e-ae3f2fbcabea&tab=output",
           "job_name": "V1 e2e (2 GPUs)",
           "side": "upstream"
         }
@@ -10404,7 +10406,7 @@
       "family_key": "v1 e2e (4 gpus)",
       "family_name": "v1 e2e (4 gpus)",
       "amd_job_name": "mi300_4: V1 e2e (4 GPUs)",
-      "upstream_job_name": "V1 e2e (4 GPUs)",
+      "upstream_job_name": "V1 e2e (4xH100)",
       "amd": {
         "total": 6,
         "passed": 6,
@@ -10423,7 +10425,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1040.9
+        "duration": 1085.31
       },
       "hardware": [
         "h100",
@@ -10441,8 +10443,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea62-483d-b00c-7f3799ce8f29&tab=output",
-          "job_name": "V1 e2e (4 GPUs)",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8edd-4de3-8f2d-15e1d50ec001&tab=output",
+          "job_name": "V1 e2e (4xH100)",
           "side": "upstream"
         }
       ],
@@ -10460,7 +10462,7 @@
       "family_key": "v1 e2e (4 gpus)",
       "family_name": "v1 e2e (4 gpus)",
       "amd_job_name": "mi300_4: V1 e2e (4xH100-4xMI300)",
-      "upstream_job_name": "V1 e2e (4 GPUs)",
+      "upstream_job_name": "V1 e2e (4xH100)",
       "amd": {
         "total": 4,
         "passed": 2,
@@ -10479,7 +10481,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1040.9
+        "duration": 1085.31
       },
       "hardware": [
         "h100",
@@ -10497,8 +10499,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea62-483d-b00c-7f3799ce8f29&tab=output",
-          "job_name": "V1 e2e (4 GPUs)",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8edd-4de3-8f2d-15e1d50ec001&tab=output",
+          "job_name": "V1 e2e (4xH100)",
           "side": "upstream"
         }
       ],
@@ -10535,7 +10537,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2.79
+        "duration": 2.87
       },
       "hardware": [
         "h100",
@@ -10553,7 +10555,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb0c-4ff9-ab85-3d822aecc0f5&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f94-4c0e-84ed-c311eeed9007&tab=output",
           "job_name": "V1 Others (CPU)",
           "side": "upstream"
         }
@@ -10591,7 +10593,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1.21
+        "duration": 1.28
       },
       "hardware": [
         "h100",
@@ -10616,7 +10618,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb0c-4118-9698-b2ac40737e3d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f95-4d14-8f4a-80c4180956a7&tab=output",
           "job_name": "V1 Sample + Logits",
           "side": "upstream"
         }
@@ -10654,7 +10656,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1296.31
+        "duration": 1444.02
       },
       "hardware": [
         "h100",
@@ -10679,7 +10681,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb0d-40ed-84b2-91b2add79db2&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f95-4867-9fe0-ce898dd26cc0&tab=output",
           "job_name": "V1 Spec Decode",
           "side": "upstream"
         }
@@ -10717,7 +10719,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 843.05
+        "duration": 898.43
       },
       "hardware": [
         "h100",
@@ -10735,7 +10737,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eae5-4e73-9369-6933d3fb6d20&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f50-44a9-be2a-45f1f61c6a02&tab=output",
           "job_name": "vLLM IR Tests",
           "side": "upstream"
         }
@@ -10773,7 +10775,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 63.63
+        "duration": 62.16
       },
       "hardware": [
         "h100",
@@ -10798,7 +10800,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ebfe-4bb0-88e4-1bec1cf17a22&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-9270-4d96-ad98-bc2645611a5e&tab=output",
           "job_name": "Weight Loading Multiple GPU",
           "side": "upstream"
         }
@@ -10868,7 +10870,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 340.1
+        "duration": 348.35
       },
       "hardware": [
         "h100"
@@ -10879,7 +10881,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea48-44f2-97d0-bf573df0dff4&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ec1-48ad-af8c-204962bcea79&tab=output",
           "job_name": "2 Node Test (4 GPUs)",
           "side": "upstream"
         }
@@ -10902,7 +10904,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 842.73
+        "duration": 851.36
       },
       "hardware": [
         "h100"
@@ -10913,7 +10915,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea2c-4d44-8a1c-3449a3883e7d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ea5-4087-a971-7a35fbdfafd9&tab=output",
           "job_name": "AsyncTP Correctness Tests (2xH100)",
           "side": "upstream"
         }
@@ -10936,7 +10938,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 820.05
+        "duration": 824.77
       },
       "hardware": [
         "b200"
@@ -10947,7 +10949,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea2c-4dc4-8f66-ca220bdd8a67&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ea6-4eae-b16b-48560809a595&tab=output",
           "job_name": "AsyncTP Correctness Tests (B200)",
           "side": "upstream"
         }
@@ -10970,7 +10972,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 154.18
+        "duration": 164.56
       },
       "hardware": [
         "a100"
@@ -10981,7 +10983,7 @@
       "job_links": [
         {
           "hw": "a100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb04-45f1-8847-241474f56521&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f8c-41a4-8fec-4342fd42fed8&tab=output",
           "job_name": "Batch Invariance (A100)",
           "side": "upstream"
         }
@@ -11004,7 +11006,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 210.26
+        "duration": 216.2
       },
       "hardware": [
         "h100"
@@ -11015,7 +11017,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb05-47a5-baed-9255cc606c67&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f8d-478f-adad-0e185c44e319&tab=output",
           "job_name": "Batch Invariance (H100)",
           "side": "upstream"
         }
@@ -11038,7 +11040,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 43.24
+        "duration": 35.15
       },
       "hardware": [
         "b200"
@@ -11049,7 +11051,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ead9-48b7-853e-ed6f093c85d5&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f44-4743-a83d-107db6570078&tab=output",
           "job_name": "Deepseek V4 Kernel Test (B200)",
           "side": "upstream"
         }
@@ -11072,7 +11074,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 717.54
+        "duration": 762.5
       },
       "hardware": [
         "h100"
@@ -11083,7 +11085,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ead9-412a-8d7e-5fe1f6a2e5ec&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f44-473f-b1e8-db5033cf306a&tab=output",
           "job_name": "Deepseek V4 Kernel Test (H100)",
           "side": "upstream"
         }
@@ -11106,7 +11108,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 154.63
+        "duration": 156.2
       },
       "hardware": [
         "h100"
@@ -11117,7 +11119,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea3d-4702-9440-ab08eca3c8c7&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8eb6-46f2-b737-7bf3e1cd6e35&tab=output",
           "job_name": "Distributed FlashInfer NixlConnector PD accuracy (4 GPUs)",
           "side": "upstream"
         }
@@ -11140,7 +11142,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 18.27
+        "duration": 16.48
       },
       "hardware": [
         "b200"
@@ -11151,7 +11153,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea4b-4f13-a490-1e9c740cdabf&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ec4-4365-8b98-2f839a781c83&tab=output",
           "job_name": "Distributed Tests (2xB200)",
           "side": "upstream"
         }
@@ -11174,7 +11176,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 533.09
+        "duration": 558.13
       },
       "hardware": [
         "h100"
@@ -11185,7 +11187,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea3a-4a9b-8403-32e2cc566510&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8eb4-4df1-b7ad-7cb1a77ea61b&tab=output",
           "job_name": "DSv4-Flash Disaggregated DP EP",
           "side": "upstream"
         }
@@ -11208,7 +11210,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 64.56
+        "duration": 64.26
       },
       "hardware": [
         "h100"
@@ -11219,7 +11221,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb08-4fcf-8225-0dc92690eaf0&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f90-4ab3-830b-a797c6c496f1&tab=output",
           "job_name": "Extract Hidden States Integration (2 GPUs)",
           "side": "upstream"
         }
@@ -11242,7 +11244,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 266.31
+        "duration": 261.14
       },
       "hardware": [
         "b200"
@@ -11253,7 +11255,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea31-4d8f-864c-823c8d63bc2c&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8eab-4677-a721-dd98efaed1be&tab=output",
           "job_name": "Fusion and Compile Unit Tests (2xB200)",
           "side": "upstream"
         }
@@ -11276,7 +11278,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 832.84
+        "duration": 819.68
       },
       "hardware": [
         "b200"
@@ -11287,7 +11289,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea2d-40c8-bc89-8211943473b8&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ea7-4274-8065-3d42cbe27b90&tab=output",
           "job_name": "Fusion E2E Config Sweep (B200)",
           "side": "upstream"
         }
@@ -11310,7 +11312,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 518.08
+        "duration": 522.33
       },
       "hardware": [
         "b200"
@@ -11321,7 +11323,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea2f-4305-8abe-ab8a19b0fb88&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ea9-44a3-8a51-dbb77753d4b5&tab=output",
           "job_name": "Fusion E2E TP2 (B200)",
           "side": "upstream"
         }
@@ -11338,26 +11340,24 @@
       "amd": null,
       "upstream": {
         "total": 52,
-        "passed": 0,
-        "failed": 12,
+        "passed": 12,
+        "failed": 0,
         "skipped": 40,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 754.28
       },
       "hardware": [
         "h100"
       ],
-      "hw_failures": {
-        "h100": 12
-      },
+      "hw_failures": null,
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea2f-4b0e-a339-c3480833c920&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ea9-44b8-abbe-42e66e54c530&tab=output",
           "job_name": "Fusion E2E TP2 AR-RMS Config Sweep (H100)",
           "side": "upstream"
         }
@@ -11380,7 +11380,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1517.24
+        "duration": 1577.47
       },
       "hardware": [
         "h100"
@@ -11391,7 +11391,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea30-4099-86e0-f35faae9254d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8eaa-4604-830a-ce9e60cd9835&tab=output",
           "job_name": "Fusion E2E TP2 AsyncTP Config Sweep (H100)",
           "side": "upstream"
         }
@@ -11414,7 +11414,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 678.79
+        "duration": 730.86
       },
       "hardware": [
         "h100"
@@ -11425,7 +11425,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea30-4a16-b828-ab93aaee83f1&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8eab-4464-8423-2f578b0e73ba&tab=output",
           "job_name": "Fusion E2E TP2 Quick (H100)",
           "side": "upstream"
         }
@@ -11448,7 +11448,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 529.97
+        "duration": 574.14
       },
       "hardware": [
         "h100"
@@ -11459,7 +11459,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaeb-44fc-b3d6-3b7775dec0f5&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f55-4da4-9261-8a573f943625&tab=output",
           "job_name": "GPQA Eval (GPT-OSS) (DGX Spark)",
           "side": "upstream"
         }
@@ -11482,7 +11482,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 66.06
+        "duration": 50.19
       },
       "hardware": [
         "h100"
@@ -11493,7 +11493,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eada-44bb-990b-eb25a8df0fee&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f46-439f-80eb-a96526c3c36c&tab=output",
           "job_name": "Kernels Attention DiffKV Test (H100)",
           "side": "upstream"
         }
@@ -11516,7 +11516,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 115.31
+        "duration": 94.15
       },
       "hardware": [
         "h100"
@@ -11527,7 +11527,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eadd-4ad6-80e0-a41a56744a89&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f48-48d3-8ddd-aca1a13b389e&tab=output",
           "job_name": "Kernels DeepGEMM Test (H100)",
           "side": "upstream"
         }
@@ -11550,7 +11550,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 117.97
+        "duration": 113.07
       },
       "hardware": [
         "b200"
@@ -11561,7 +11561,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eadf-46c8-be05-b928fe6e800c&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f4a-4f27-a99f-3fd0a860d731&tab=output",
           "job_name": "Kernels Fp4 MoE Test (B200)",
           "side": "upstream"
         }
@@ -11584,7 +11584,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 14.68
+        "duration": 16.85
       },
       "hardware": [
         "h100"
@@ -11595,7 +11595,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eade-4d75-ae6e-a83a3f6cac59&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f49-430e-9074-9145a480e850&tab=output",
           "job_name": "Kernels FP8 MoE Test (1xH100)",
           "side": "upstream"
         }
@@ -11618,7 +11618,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 601.45
+        "duration": 577.22
       },
       "hardware": [
         "h100"
@@ -11629,7 +11629,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eadf-47b2-8f8c-d813776049f4&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f4a-4703-95ca-eb797c59e899&tab=output",
           "job_name": "Kernels FusedMoE Layer Test (2 B200s)",
           "side": "upstream"
         }
@@ -11652,7 +11652,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 722.49
+        "duration": 653.13
       },
       "hardware": [
         "h100"
@@ -11663,7 +11663,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eadf-4a29-ae87-ad2bd6496bf2&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f4b-46ce-9290-c53e0507e0f7&tab=output",
           "job_name": "Kernels FusedMoE Layer Test (2 H100s)",
           "side": "upstream"
         }
@@ -11686,7 +11686,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 154.32
+        "duration": 150.38
       },
       "hardware": [
         "h100"
@@ -11697,8 +11697,42 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eae2-44d3-9171-7a8ffc54e8f1&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f4d-4a63-94fa-0393e5a6a27a&tab=output",
           "job_name": "Kernels MiniMax Reduce RMS Test (2 GPUs)",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
+      "name": "language models tests (granite l4 compatibility)",
+      "family_key": "language models tests (granite l4 compatibility)",
+      "family_name": "language models tests (granite l4 compatibility)",
+      "amd_job_name": null,
+      "upstream_job_name": "Language Models Tests (Granite L4 Compatibility)",
+      "amd": null,
+      "upstream": {
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 208.97
+      },
+      "hardware": [
+        "h100"
+      ],
+      "hw_failures": null,
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8fcd-4fa7-b5a8-2d8586a8bea4&tab=output",
+          "job_name": "Language Models Tests (Granite L4 Compatibility)",
           "side": "upstream"
         }
       ],
@@ -11720,7 +11754,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 849.2
+        "duration": 848.87
       },
       "hardware": [
         "b200"
@@ -11731,7 +11765,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaee-432e-882f-78ec42e61405&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f58-4065-bbd7-5aa0215421f0&tab=output",
           "job_name": "LM Eval Humming Act fp8/int8 (B200 - TEMPORARY)",
           "side": "upstream"
         }
@@ -11754,7 +11788,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1067.8
+        "duration": 1118.38
       },
       "hardware": [
         "h100"
@@ -11767,7 +11801,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaee-485a-bbc1-2e106858e1d7&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f58-42d4-8cf1-e875fa61ede6&tab=output",
           "job_name": "LM Eval Humming Act fp8/int8 (H100 - TEMPORARY)",
           "side": "upstream"
         }
@@ -11790,7 +11824,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1788.5
+        "duration": 1793.47
       },
       "hardware": [
         "a100"
@@ -11801,7 +11835,7 @@
       "job_links": [
         {
           "hw": "a100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaef-4a3e-8e81-0e13e5d2ea55&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f59-45ad-8073-2df4d740a7df&tab=output",
           "job_name": "LM Eval Humming Act int8 (A100 - TEMPORARY)",
           "side": "upstream"
         }
@@ -11824,7 +11858,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3362.99
+        "duration": 3333.63
       },
       "hardware": [
         "a100"
@@ -11835,7 +11869,7 @@
       "job_links": [
         {
           "hw": "a100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaef-4b49-a3f3-7f43337df227&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f59-4cca-bcf4-85550aabce0b&tab=output",
           "job_name": "LM Eval Humming f16 (A100 - TEMPORARY)",
           "side": "upstream"
         }
@@ -11858,7 +11892,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1995.33
+        "duration": 2005.85
       },
       "hardware": [
         "b200"
@@ -11869,7 +11903,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaf0-48a5-9263-3467dc17153e&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f5a-4f78-9627-9d1ee45fe867&tab=output",
           "job_name": "LM Eval Humming f16 (B200 - TEMPORARY)",
           "side": "upstream"
         }
@@ -11892,7 +11926,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3255.88
+        "duration": 3252.97
       },
       "hardware": [
         "h100"
@@ -11903,7 +11937,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaf0-4e1d-861d-63a081aaebab&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f5a-4c72-88be-282adb3bb432&tab=output",
           "job_name": "LM Eval Humming f16 (H100 - TEMPORARY)",
           "side": "upstream"
         }
@@ -11926,7 +11960,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 808.85
+        "duration": 871.76
       },
       "hardware": [
         "h200"
@@ -11937,7 +11971,7 @@
       "job_links": [
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaf0-42eb-ad93-858faf12591e&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f5b-4544-bb81-af68c4928831&tab=output",
           "job_name": "LM Eval KV-Offload (1xH200)",
           "side": "upstream"
         }
@@ -11960,7 +11994,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 640.32
+        "duration": 669.58
       },
       "hardware": [
         "h100"
@@ -11971,7 +12005,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaf1-4136-9c55-dc11ffc248a5&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f5c-47fc-8207-20ecd480644a&tab=output",
           "job_name": "LM Eval KV-Offload (2xH100)",
           "side": "upstream"
         }
@@ -11994,7 +12028,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1372.21
+        "duration": 1272.34
       },
       "hardware": [
         "h100"
@@ -12005,7 +12039,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaf1-42c3-8b60-16d8b3cadc25&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f5c-4a6d-86ce-cb7ff4a4bc74&tab=output",
           "job_name": "LM Eval KV-Offload (4xH100)",
           "side": "upstream"
         }
@@ -12028,7 +12062,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1565.57
+        "duration": 1624.44
       },
       "hardware": [
         "b200"
@@ -12039,7 +12073,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaf3-4e6c-b17a-20065bdfacdf&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f73-490b-8516-3bd54d9c1e3c&tab=output",
           "job_name": "LM Eval Large Models EP (2xB200)",
           "side": "upstream"
         }
@@ -12075,7 +12109,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaf3-4a68-b0c9-bfd108246c92&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f74-48f5-a7e2-c114ac0fd10e&tab=output",
           "job_name": "LM Eval PCP (4xB200)",
           "side": "upstream"
         }
@@ -12098,7 +12132,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1583.18
+        "duration": 1579.94
       },
       "hardware": [
         "b200"
@@ -12109,7 +12143,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaf5-4748-bb39-dae355e31867&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f75-4b87-968e-ad43ede1c692&tab=output",
           "job_name": "LM Eval Small Models (1xB200)",
           "side": "upstream"
         }
@@ -12132,7 +12166,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 257.9
+        "duration": 267.3
       },
       "hardware": [
         "b200"
@@ -12143,7 +12177,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaf5-4707-b20b-c9026fed6b07&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f78-4402-995d-0712ce012133&tab=output",
           "job_name": "LM Eval Small Models Distributed (2xB200)",
           "side": "upstream"
         }
@@ -12166,7 +12200,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2052.95
+        "duration": 2070.98
       },
       "hardware": [
         "h100"
@@ -12177,42 +12211,8 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaf6-4d35-88a3-450c1be20fc0&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f78-4c2a-9277-f15398ad8b45&tab=output",
           "job_name": "LM Eval TurboQuant KV Cache",
-          "side": "upstream"
-        }
-      ],
-      "status": "upstream_only",
-      "backfilled": false
-    },
-    {
-      "name": "moe refactor integration test (b200 - temporary)",
-      "family_key": "moe refactor integration test (b200 - temporary)",
-      "family_name": "moe refactor integration test (b200 - temporary)",
-      "amd_job_name": null,
-      "upstream_job_name": "MoE Refactor Integration Test (B200 - TEMPORARY)",
-      "amd": null,
-      "upstream": {
-        "total": 19,
-        "passed": 19,
-        "failed": 0,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0,
-        "error": 0,
-        "duration": 5865.61
-      },
-      "hardware": [
-        "b200"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [
-        {
-          "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaf7-4fd1-b9ee-4de1f6d6528e&tab=output",
-          "job_name": "MoE Refactor Integration Test (B200 - TEMPORARY)",
           "side": "upstream"
         }
       ],
@@ -12234,7 +12234,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2467.35
+        "duration": 2459.72
       },
       "hardware": [
         "b200"
@@ -12245,7 +12245,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaf7-4ad5-96d0-7379720556fa&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f7a-40e8-8d5c-38696b7a9b51&tab=output",
           "job_name": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
           "side": "upstream"
         }
@@ -12268,7 +12268,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2829.25
+        "duration": 2749.49
       },
       "hardware": [
         "h100"
@@ -12279,7 +12279,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eaf8-48f1-af7b-782f3b84a90c&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f7a-40ee-b448-753ac4e996a3&tab=output",
           "job_name": "MoE Refactor Integration Test (H100 - TEMPORARY)",
           "side": "upstream"
         }
@@ -12302,7 +12302,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 129.29
+        "duration": 131.04
       },
       "hardware": [
         "h100"
@@ -12313,7 +12313,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea43-4b88-8047-03aeb05d7936&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ebc-4f8e-91bb-731d313cbf67&tab=output",
           "job_name": "Push NixlConnector PP prefill PD accuracy (4 GPUs)",
           "side": "upstream"
         }
@@ -12336,7 +12336,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 687.05
+        "duration": 703.59
       },
       "hardware": [
         "h100"
@@ -12347,8 +12347,42 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb7c-45ff-ae2e-58f730b5c23b&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ffa-4855-83fc-c4809b021c9f&tab=output",
           "job_name": "PyTorch Compilation Unit Tests (H100)",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
+      "name": "pytorch fullgraph cudagraph (l4 compatibility)",
+      "family_key": "pytorch fullgraph cudagraph (l4 compatibility)",
+      "family_name": "pytorch fullgraph cudagraph (l4 compatibility)",
+      "amd_job_name": null,
+      "upstream_job_name": "PyTorch Fullgraph CUDAGraph (L4 Compatibility)",
+      "amd": null,
+      "upstream": {
+        "total": 180,
+        "passed": 80,
+        "failed": 0,
+        "skipped": 100,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 543.09
+      },
+      "hardware": [
+        "l4"
+      ],
+      "hw_failures": null,
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "l4",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8ffb-4506-b6df-754cf9115077&tab=output",
+          "job_name": "PyTorch Fullgraph CUDAGraph (L4 Compatibility)",
           "side": "upstream"
         }
       ],
@@ -12370,7 +12404,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2.88
+        "duration": 3.72
       },
       "hardware": [
         "h100"
@@ -12381,7 +12415,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb8a-4756-8e2e-93e2f4053026&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-9006-45f3-aec2-6e14b98a9c46&tab=output",
           "job_name": "Quantized Fusions",
           "side": "upstream"
         }
@@ -12404,7 +12438,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2619.24
+        "duration": 2629.87
       },
       "hardware": [
         "b200"
@@ -12415,7 +12449,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-eb8a-466c-8790-549e3baea254&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-9007-4143-be26-d00b5d8daffa&tab=output",
           "job_name": "Quantized MoE Test (B200)",
           "side": "upstream"
         }
@@ -12428,7 +12462,7 @@
       "family_key": "sequence parallel correctness tests (2 gpus)",
       "family_name": "sequence parallel correctness tests (2 gpus)",
       "amd_job_name": null,
-      "upstream_job_name": "Sequence Parallel Correctness Tests (2xH100)",
+      "upstream_job_name": "Sequence Parallel Correctness Tests (2 GPUs)",
       "amd": null,
       "upstream": {
         "total": 90,
@@ -12438,7 +12472,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 7178.59
+        "duration": 7281.79
       },
       "hardware": [
         "h100"
@@ -12449,8 +12483,8 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ea34-49a2-958a-06a4a95bf074&tab=output",
-          "job_name": "Sequence Parallel Correctness Tests (2xH100)",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8eac-4784-8517-2f448199a8c0&tab=output",
+          "job_name": "Sequence Parallel Correctness Tests (2 GPUs)",
           "side": "upstream"
         }
       ],
@@ -12472,7 +12506,7 @@
         "xfailed": 10,
         "xpassed": 0,
         "error": 0,
-        "duration": 1270.85
+        "duration": 1284.3
       },
       "hardware": [
         "h100"
@@ -12483,7 +12517,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ebf1-4b64-bce3-1c0e1041241c&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-9252-40b1-a271-5eb0590418f5&tab=output",
           "job_name": "Spec Decode Draft Model Nightly B200",
           "side": "upstream"
         }
@@ -12506,7 +12540,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 496.85
+        "duration": 506.72
       },
       "hardware": [
         "h100"
@@ -12517,7 +12551,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ebf2-422d-9a5b-afee6f1dc761&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-9256-4861-a395-63192c6cd1f8&tab=output",
           "job_name": "Spec Decode Eagle Nightly B200",
           "side": "upstream"
         }
@@ -12540,7 +12574,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 247.43
+        "duration": 241.34
       },
       "hardware": [
         "b200"
@@ -12551,7 +12585,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ebf3-4600-8e7c-0a2d0673a98a&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-9258-4a76-a810-c839b24b5a34&tab=output",
           "job_name": "Spec Decode MTP hybrid (B200)",
           "side": "upstream"
         }
@@ -12574,7 +12608,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 820.12
+        "duration": 821.44
       },
       "hardware": [
         "h100"
@@ -12585,7 +12619,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ebf5-4ca4-a717-86ddc335e37f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-925f-4c84-8dd9-d6a1930ba56f&tab=output",
           "job_name": "Spec Decode Speculators + MTP Nightly B200",
           "side": "upstream"
         }
@@ -12619,7 +12653,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ead4-4a97-b663-7669cccbf013&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f3f-4a3a-9842-a0f0b9b416fb&tab=output",
           "job_name": "XPU example Test",
           "side": "upstream"
         }
@@ -12642,7 +12676,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 166.38
+        "duration": 165.12
       },
       "hardware": [
         "h100"
@@ -12653,7 +12687,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ead4-4091-a6fa-075ae8a6b3c8&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f40-4f35-8a50-d9ea7c1c2bb5&tab=output",
           "job_name": "XPU server test",
           "side": "upstream"
         }
@@ -12676,7 +12710,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 467.26
+        "duration": 558.53
       },
       "hardware": [
         "h100"
@@ -12687,13 +12721,32 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/78757/steps/canvas?jid=019f78f6-ead1-4e88-a38e-521fc0bae715&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/78813/steps/canvas?jid=019f7e1d-8f3c-4613-a1d9-606819f33be0&tab=output",
           "job_name": "XPU V1 test",
           "side": "upstream"
         }
       ],
       "status": "upstream_only",
       "backfilled": false
+    },
+    {
+      "name": "moe refactor integration test (b200 - temporary)",
+      "family_key": "moe refactor integration test (b200 - temporary)",
+      "family_name": "moe refactor integration test (b200 - temporary)",
+      "amd_job_name": null,
+      "upstream_job_name": null,
+      "amd": null,
+      "upstream": null,
+      "hardware": [
+        "b200"
+      ],
+      "hw_failures": null,
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [],
+      "delta": null,
+      "status": "upstream_only",
+      "backfilled": true
     }
   ],
   "details": [
@@ -12851,12 +12904,6 @@
       "test_id": "AMD: Kernels Attention Test 2 (mi325_1)::__skipped__",
       "amd_status": "missing",
       "upstream_status": "skipped",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "AMD: Kernels Attention Test 2 (mi325_1)::__unidentified_failures__",
-      "amd_status": "missing",
-      "upstream_status": "failed",
       "category": "upstream_only"
     },
     {
@@ -13169,12 +13216,6 @@
       "test_id": "AMD: OpenAI API Correctness (mi325_1)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "AMD: PyTorch Compilation Passes Unit Tests (mi300_1)::__job_level__",
-      "amd_status": "missing",
-      "upstream_status": "error",
       "category": "upstream_only"
     },
     {
@@ -13892,15 +13933,15 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "Fusion E2E TP2 AR-RMS Config Sweep (H100)::__skipped__",
+      "test_id": "Fusion E2E TP2 AR-RMS Config Sweep (H100)::__passed__",
       "amd_status": "missing",
-      "upstream_status": "skipped",
+      "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Fusion E2E TP2 AR-RMS Config Sweep (H100)::__unidentified_failures__",
+      "test_id": "Fusion E2E TP2 AR-RMS Config Sweep (H100)::__skipped__",
       "amd_status": "missing",
-      "upstream_status": "failed",
+      "upstream_status": "skipped",
       "category": "upstream_only"
     },
     {
@@ -13997,6 +14038,12 @@
       "test_id": "Kernels (B200)::__skipped__",
       "amd_status": "missing",
       "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Kernels (B200)::__unidentified_failures__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
       "category": "upstream_only"
     },
     {
@@ -14354,6 +14401,12 @@
       "category": "upstream_only"
     },
     {
+      "test_id": "Language Models Tests (Granite L4 Compatibility)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
       "test_id": "Language Models Tests (Hybrid) 1::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -14457,12 +14510,6 @@
     },
     {
       "test_id": "Metrics, Tracing (2 GPUs)::__passed__",
-      "amd_status": "missing",
-      "upstream_status": "passed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "MoE Refactor Integration Test (B200 - TEMPORARY)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
@@ -14729,6 +14776,18 @@
       "test_id": "PyTorch Compilation Unit Tests::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "PyTorch Fullgraph CUDAGraph (L4 Compatibility)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "PyTorch Fullgraph CUDAGraph (L4 Compatibility)::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
       "category": "upstream_only"
     },
     {
@@ -15125,12 +15184,6 @@
       "test_id": "e2e Scheduling (1 GPU)::__skipped__",
       "amd_status": "missing",
       "upstream_status": "skipped",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "entrypoints/openai/chat_completion/test_include_reasoning.py::test_include_reasoning_true_streaming",
-      "amd_status": "missing",
-      "upstream_status": "failed",
       "category": "upstream_only"
     },
     {
@@ -17078,6 +17131,18 @@
       "category": "amd_only"
     },
     {
+      "test_id": "plugins_tests/test_bge_m3_sparse_io_processor_plugins.py::test_bge_m3_sparse_plugin_offline[True]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "plugins_tests/test_bge_m3_sparse_io_processor_plugins.py::test_bge_m3_sparse_plugin_online[True]",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
       "test_id": "vLLM IR Tests::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -17091,5 +17156,5 @@
     }
   ],
   "amd_build": 11018,
-  "upstream_build": 78757
+  "upstream_build": 78813
 }
