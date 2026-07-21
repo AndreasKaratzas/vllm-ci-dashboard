@@ -1,6 +1,6 @@
 # Weekly Digest
 
-Week of 2026-07-13 to 2026-07-20
+Week of 2026-07-14 to 2026-07-21
 
 ## New Releases
 
@@ -12,5 +12,4 @@ _No PR activity this week._
 
 ## New Issues This Week
 
-### vllm
-- [#48510](https://github.com/vllm-project/vllm/issues/48510) [CI Failure]: `AMD: Language Models Test (Extended Pooling)` (@micah-wil)
+_No new tracked issues this week._
