@@ -1,10 +1,10 @@
 # Weekly Digest
 
-Week of 2026-07-14 to 2026-07-21
+Week of 2026-07-15 to 2026-07-22
 
 ## New Releases
 
-- **vllm**: [v0.25.1](https://github.com/vllm-project/vllm/releases/tag/v0.25.1)
+_No new releases this week._
 
 ## PRs This Week
 
