@@ -1,5 +1,5 @@
 {
-  "collected_at": "2026-07-22T01:22:20Z",
+  "collected_at": "2026-07-22T04:48:34Z",
   "prs": [
     {
       "number": 37717,
@@ -59,34 +59,6 @@
         "ready",
         "ci/build",
         "multi-modality"
-      ]
-    },
-    {
-      "number": 35224,
-      "title": "[ROCm][CI] Accept Different But Valid Output for `test_olmoe_tp`",
-      "author": "micah-wil",
-      "state": "closed",
-      "merged": true,
-      "created_at": "2026-02-24T19:50:59Z",
-      "updated_at": "2026-03-07T21:50:52Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/35224",
-      "labels": [
-        "rocm",
-        "ready"
-      ],
-      "draft": false,
-      "body_head": "<!-- markdownlint-disable -->\nWe're seeing some failures in `LoRA TP Test (Distributed)` on AMD MI355 CI pipeline https://buildkite.com/vllm/amd-ci/builds/5300/steps/canvas?sid=019c8e72-d91a-42ee-8022-a42c57625216&tab=output#019c8e72-da1d-4fc3-95e4-3f73d89abcad/L1235. There are two issues. The first is that sometimes the output includes comments at the end explaining the SQL query output, but once I conditioned the prompt template to tell it to not do that, this issue was resolved. The second issue is that it outputs a different output than the expected one, but it is still valid. I've just included it as a valid response in the test. With this change, I am seeing the following when running `pytest -v -s -x lora/test_olmoe_tp.py`:\n\n```\n======================= 6 passed, 17 warnings in 74.97s (0:01:14) ===================\n```",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        35133
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "ready"
       ]
     }
   ]

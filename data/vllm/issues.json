@@ -1,6 +1,37 @@
 {
-  "collected_at": "2026-07-22T01:22:20Z",
+  "collected_at": "2026-07-22T04:48:34Z",
   "issues": [
+    {
+      "number": 37736,
+      "title": "[CI Failure]:  Gemma3 OOMs with transformers backend",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "created_at": "2026-03-21T05:32:29Z",
+      "updated_at": "2026-07-22T03:42:52Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/37736",
+      "labels": [
+        "rocm",
+        "stale",
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "Done",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Test group\n\nmi250_1: Multi-Modal Models (Standard) 2: qwen3 + gemma\n\n### Describe the failing test\n\nThis is not exactly a test failure, but it has been recommended to investigate further the OOMing event of Gemma3, which is a 4B model. The intuition here is that the fake tensor that is used for profiling is large enough that exceeds the 64 GB of MI250 GPUs. However, it has been suggested that this is still weird. \n\n### \ud83d\udcdd History of failing test\n\nhttps://github.com/vllm-project/vllm/pull/37610#issuecomment-4102286515\n\n### CC List.\n\n@DarkLight1337 (for transparency)",
+      "linked_prs": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": 37610,
+          "url": "https://github.com/vllm-project/vllm/pull/37610"
+        },
+        {
+          "repo": "vllm-project/vllm",
+          "number": 37717,
+          "url": "https://github.com/vllm-project/vllm/pull/37717"
+        }
+      ]
+    },
     {
       "number": 48510,
       "title": "[CI Failure]: `AMD: Language Models Test (Extended Pooling)` Workspace growth allocation after lock",
@@ -40,62 +71,6 @@
       "repo": "vllm-project/vllm",
       "body_head": "This is the single dashboard-managed umbrella issue for current AMD CI failures tracked by `AndreasKaratzas/vllm-ci-dashboard`.\n\n## Rules\n- The dashboard automation updates only one managed comment on this issue.\n- The dashboard automation must not create or modify any other `vllm-project/vllm` issues.\n- Engineers should open separate manual issues when they pick up a specific failure to work on.\n- Those manual issues can move through [project #39](https://github.com/orgs/vllm-project/projects/39) and be referenced by the dashboard, but they are not edited by the dashboard automation.\n\n## Engineer workflow\n- Check the managed comment on this issue for the latest failing groups.\n- Open a separate issue for any failure you pick up.\n- Move that separate issue through the appropriate [project #39](https://github.com/orgs/vllm-project/projects/39) column and assign an owner there.\n\n## Ownership\n- Dashboard owner: `@AndreasKaratzas`\n- Repo: `AndreasKaratzas/vllm-ci-dashboard`\n",
       "linked_prs": []
-    },
-    {
-      "number": 37736,
-      "title": "[CI Failure]:  Gemma3 OOMs with transformers backend",
-      "author": "AndreasKaratzas",
-      "state": "open",
-      "created_at": "2026-03-21T05:32:29Z",
-      "updated_at": "2026-06-21T02:17:37Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/37736",
-      "labels": [
-        "rocm",
-        "stale",
-        "ci-failure"
-      ],
-      "assignees": [],
-      "project_status": "Backlog",
-      "project_url": "https://github.com/orgs/vllm-project/projects/39",
-      "repo": "vllm-project/vllm",
-      "body_head": "### Test group\n\nmi250_1: Multi-Modal Models (Standard) 2: qwen3 + gemma\n\n### Describe the failing test\n\nThis is not exactly a test failure, but it has been recommended to investigate further the OOMing event of Gemma3, which is a 4B model. The intuition here is that the fake tensor that is used for profiling is large enough that exceeds the 64 GB of MI250 GPUs. However, it has been suggested that this is still weird. \n\n### \ud83d\udcdd History of failing test\n\nhttps://github.com/vllm-project/vllm/pull/37610#issuecomment-4102286515\n\n### CC List.\n\n@DarkLight1337 (for transparency)",
-      "linked_prs": [
-        {
-          "repo": "vllm-project/vllm",
-          "number": 37610,
-          "url": "https://github.com/vllm-project/vllm/pull/37610"
-        },
-        {
-          "repo": "vllm-project/vllm",
-          "number": 37717,
-          "url": "https://github.com/vllm-project/vllm/pull/37717"
-        }
-      ]
-    },
-    {
-      "number": 35133,
-      "title": "[CI Failure]:  mi325_4: LoRA TP (Distributed)",
-      "author": "AndreasKaratzas",
-      "state": "open",
-      "created_at": "2026-02-23T18:34:13Z",
-      "updated_at": "2026-06-19T02:26:13Z",
-      "html_url": "https://github.com/vllm-project/vllm/issues/35133",
-      "labels": [
-        "stale",
-        "ci-failure"
-      ],
-      "assignees": [],
-      "project_status": "In progress",
-      "project_url": "https://github.com/orgs/vllm-project/projects/39",
-      "repo": "vllm-project/vllm",
-      "body_head": "### Name of failing test\n\n`pytest -v -s -x lora/test_chatglm3_tp.py && pytest -v -s -x lora/test_llama_tp.py && pytest -v -s -x lora/test_llm_with_multi_loras.py && pytest -v -s -x lora/test_olmoe_tp.py && pytest -v -s -x lora/test_gptoss_tp.py`\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\nThis test has a failure here:\n\n```log\nFAILED lora/test_olmoe_tp.py::test_olmoe_lora_mixed\n```\n\nThis is an accuracy bug. **However**, in this TG, we would like to enable another test:\n\n```bash\npytest -v -s -x lora/test_gptoss_tp.py\n```\n\nCurrently this test is not in `test-amd.yaml` file. However, in our effort to achieve parity with upstream signal, we need to enable this test.\n\n### \ud83d\udcdd History of failing test\n\nhttps://buildkite.com/vllm/amd-ci/builds/5234/steps/canvas?sid=019c894c-5e4d-41a0-9f59-b5785b8ccbd1&tab=output",
-      "linked_prs": [
-        {
-          "repo": "vllm-project/vllm",
-          "number": 35224,
-          "url": "https://github.com/vllm-project/vllm/pull/35224"
-        }
-      ]
     }
   ]
 }
