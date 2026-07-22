@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-07-22T17:46:11Z",
+  "generated_at": "2026-07-22T18:51:56Z",
   "amd_date": "2026-07-22",
   "upstream_date": "2026-07-22",
   "parity_pct": 0.0,
-  "total_tests": 732,
+  "total_tests": 734,
   "summary": {
     "upstream_only": 411,
-    "amd_only": 321
+    "amd_only": 323
   },
   "by_module": {
     "2 Node Test (4 GPUs)": {
@@ -1665,6 +1665,10 @@
       "parity_pct": 100.0,
       "amd_only": 1
     },
+    "mi300_1: vLLM IR Tests": {
+      "parity_pct": 100.0,
+      "amd_only": 2
+    },
     "mi300_2: Distributed Comm Ops": {
       "parity_pct": 100.0,
       "amd_only": 1
@@ -2399,7 +2403,7 @@
       "name": "basic models tests (extra initialization)",
       "family_key": "basic models tests (extra initialization)",
       "family_name": "basic models tests (extra initialization)",
-      "amd_job_name": "mi300_1: Basic Models Tests (Extra Initialization) 2",
+      "amd_job_name": "mi300_1: Basic Models Tests (Extra Initialization) 1",
       "upstream_job_name": "Basic Models Tests (Extra Initialization) 1",
       "amd": {
         "total": 359,
@@ -2409,7 +2413,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 11257.629999999997
+        "duration": 11257.630000000001
       },
       "upstream": {
         "total": 359,
@@ -2432,7 +2436,7 @@
         {
           "hw": "mi300",
           "url": "https://buildkite.com/vllm/amd-ci/builds/11128/steps/canvas?sid=019f8910-1ba6-4e19-9d58-e5f72e145830&tab=output",
-          "job_name": "mi300_1: Basic Models Tests (Extra Initialization) 2",
+          "job_name": "mi300_1: Basic Models Tests (Extra Initialization) 1",
           "side": "amd"
         },
         {
@@ -5777,7 +5781,7 @@
       "name": "kernels moe test",
       "family_key": "kernels moe test",
       "family_name": "kernels moe test",
-      "amd_job_name": "mi300_1: Kernels MoE Test 2",
+      "amd_job_name": "mi300_1: Kernels MoE Test 1",
       "upstream_job_name": "Kernels MoE Test 2",
       "amd": {
         "total": 14609,
@@ -5787,7 +5791,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 12675.88
+        "duration": 12675.880000000001
       },
       "upstream": {
         "total": 20,
@@ -5814,13 +5818,13 @@
         {
           "hw": "mi300",
           "url": "https://buildkite.com/vllm/amd-ci/builds/11128/steps/canvas?sid=019f8910-1b9f-4fcc-80e5-7eb135ccd682&tab=output",
-          "job_name": "mi300_1: Kernels MoE Test 2",
+          "job_name": "mi300_1: Kernels MoE Test 1",
           "side": "amd"
         },
         {
           "hw": "mi355",
           "url": "https://buildkite.com/vllm/amd-ci/builds/11128/steps/canvas?sid=019f8910-1bde-4140-b2f4-6837ca333325&tab=output",
-          "job_name": "mi355_1: Kernels MoE Test 3",
+          "job_name": "mi355_1: Kernels MoE Test 1",
           "side": "amd"
         },
         {
@@ -5853,7 +5857,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 13089.45
+        "duration": 13089.449999999999
       },
       "upstream": {
         "total": 14366,
@@ -5885,7 +5889,7 @@
         {
           "hw": "mi355",
           "url": "https://buildkite.com/vllm/amd-ci/builds/11128/steps/canvas?sid=019f8910-1bdf-4cc4-9a9d-117c9f7b4784&tab=output",
-          "job_name": "mi355_1: Kernels Quantization Test 2",
+          "job_name": "mi355_1: Kernels Quantization Test 1",
           "side": "amd"
         },
         {
@@ -6800,7 +6804,7 @@
       "name": "lora",
       "family_key": "lora",
       "family_name": "lora",
-      "amd_job_name": "mi300_1: LoRA 2",
+      "amd_job_name": "mi300_1: LoRA 1",
       "upstream_job_name": "LoRA 1",
       "amd": {
         "total": 6938,
@@ -6833,7 +6837,7 @@
         {
           "hw": "mi300",
           "url": "https://buildkite.com/vllm/amd-ci/builds/11128/steps/canvas?sid=019f8910-1ba1-4795-b61a-3b0527907888&tab=output",
-          "job_name": "mi300_1: LoRA 2",
+          "job_name": "mi300_1: LoRA 1",
           "side": "amd"
         },
         {
@@ -10742,6 +10746,62 @@
       "backfilled": false
     },
     {
+      "name": "vllm ir tests",
+      "family_key": "vllm ir tests",
+      "family_name": "vllm ir tests",
+      "amd_job_name": "mi300_1: vLLM IR Tests",
+      "upstream_job_name": "vLLM IR Tests",
+      "amd": {
+        "total": 2346,
+        "passed": 2046,
+        "failed": 0,
+        "skipped": 300,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 1664.98
+      },
+      "upstream": {
+        "total": 1806,
+        "passed": 1443,
+        "failed": 0,
+        "skipped": 363,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 1068.2
+      },
+      "hardware": [
+        "h100",
+        "mi300"
+      ],
+      "hw_failures": null,
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "mi300",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11128/steps/canvas?sid=019f8910-1b9c-4aa7-a93f-2e644cb20ad4&tab=output",
+          "job_name": "mi300_1: vLLM IR Tests",
+          "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/79322/steps/canvas?jid=019f8869-f587-4af1-802b-f298f2381f05&tab=output",
+          "job_name": "vLLM IR Tests",
+          "side": "upstream"
+        }
+      ],
+      "delta": {
+        "total": 540,
+        "passed": 603,
+        "failed": 0,
+        "skipped": -63
+      },
+      "status": "both",
+      "backfilled": false
+    },
+    {
       "name": "weight loading multiple gpu",
       "family_key": "weight loading multiple gpu (2 gpus)",
       "family_name": "weight loading multiple gpu (2 gpus)",
@@ -12720,44 +12780,6 @@
       ],
       "status": "upstream_only",
       "backfilled": false
-    },
-    {
-      "name": "vllm ir tests",
-      "family_key": "vllm ir tests",
-      "family_name": "vllm ir tests",
-      "amd_job_name": null,
-      "upstream_job_name": "vLLM IR Tests",
-      "amd": null,
-      "upstream": {
-        "total": 1806,
-        "passed": 1443,
-        "failed": 0,
-        "skipped": 363,
-        "xfailed": 0,
-        "xpassed": 0,
-        "error": 0,
-        "duration": 1068.2
-      },
-      "hardware": [
-        "h100",
-        "mi300"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [
-        {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/79322/steps/canvas?jid=019f8869-f587-4af1-802b-f298f2381f05&tab=output",
-          "job_name": "vLLM IR Tests",
-          "side": "upstream"
-        }
-      ],
-      "status": "upstream_only",
-      "backfilled": true,
-      "hw_backfilled": {
-        "mi300": true
-      }
     },
     {
       "name": "xpu example test",
@@ -16450,6 +16472,18 @@
     {
       "test_id": "mi300_1: e2e Scheduling (1 GPU)::__passed__",
       "amd_status": "passed",
+      "upstream_status": "missing",
+      "category": "amd_only"
+    },
+    {
+      "test_id": "mi300_1: vLLM IR Tests::__passed__",
+      "amd_status": "passed",
+      "upstream_status": "missing",
+      "category": "amd_only"
+    },
+    {
+      "test_id": "mi300_1: vLLM IR Tests::__skipped__",
+      "amd_status": "skipped",
       "upstream_status": "missing",
       "category": "amd_only"
     },
