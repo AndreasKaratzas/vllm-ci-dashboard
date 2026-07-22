@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-22T04:33:22Z",
+  "generated_at": "2026-07-22T07:21:10Z",
   "source": {
     "kind": "github_archive",
     "github_repo": "vllm-project/vllm",
@@ -18,10 +18,10 @@
     "capacity_scoped_group_count": 54,
     "gated_job_count": 66,
     "total_dependency_files": 73191,
-    "total_dependency_lines": 24330150,
+    "total_dependency_lines": 24330642,
     "unique_dependency_files": 4043,
     "average_dependency_files_per_group": 1355.4,
-    "average_dependency_lines_per_group": 450558.3,
+    "average_dependency_lines_per_group": 450567.4,
     "queues_with_gated_work": 6
   },
   "queues": [
@@ -72,8 +72,8 @@
       "gated_groups": 9,
       "gated_jobs": 10,
       "dependency_file_count": 12101,
-      "dependency_lines": 4109679,
-      "max_group_dependency_lines": 915245
+      "dependency_lines": 4109735,
+      "max_group_dependency_lines": 915271
     },
     {
       "id": "amd_mi300_2",
@@ -82,8 +82,8 @@
       "gated_groups": 4,
       "gated_jobs": 4,
       "dependency_file_count": 4981,
-      "dependency_lines": 1694956,
-      "max_group_dependency_lines": 908618
+      "dependency_lines": 1694988,
+      "max_group_dependency_lines": 908644
     },
     {
       "id": "amd_mi300_4",
@@ -92,8 +92,8 @@
       "gated_groups": 4,
       "gated_jobs": 4,
       "dependency_file_count": 140,
-      "dependency_lines": 42856,
-      "max_group_dependency_lines": 10714
+      "dependency_lines": 42864,
+      "max_group_dependency_lines": 10716
     },
     {
       "id": "amd_mi300_8",
@@ -112,8 +112,8 @@
       "gated_groups": 35,
       "gated_jobs": 46,
       "dependency_file_count": 53983,
-      "dependency_lines": 17828561,
-      "max_group_dependency_lines": 931177
+      "dependency_lines": 17828955,
+      "max_group_dependency_lines": 931203
     },
     {
       "id": "amd_mi325_2",
@@ -122,8 +122,8 @@
       "gated_groups": 1,
       "gated_jobs": 1,
       "dependency_file_count": 1986,
-      "dependency_lines": 654098,
-      "max_group_dependency_lines": 654098
+      "dependency_lines": 654100,
+      "max_group_dependency_lines": 654100
     },
     {
       "id": "amd_mi325_4",
@@ -231,7 +231,7 @@
         "tests/basic_correctness/test_mem.py"
       ],
       "dependency_file_count": 2632,
-      "dependency_lines": 908766,
+      "dependency_lines": 908792,
       "missing_dependencies": [
         "tests/basic_correctness/test_basic_correctness",
         "tests/basic_correctness/test_cpu_offload"
@@ -247,14 +247,14 @@
       "queue": "amd_mi300_1",
       "in_capacity_scope": true,
       "parallelism": 1,
-      "timeout_in_minutes": 30,
+      "timeout_in_minutes": 45,
       "optional": false,
       "source_file_dependencies": [
         "vllm/",
         "tests/benchmarks/"
       ],
       "dependency_file_count": 2648,
-      "dependency_lines": 911602,
+      "dependency_lines": 911628,
       "missing_dependencies": []
     },
     {
@@ -275,7 +275,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 35,
-      "dependency_lines": 10714,
+      "dependency_lines": 10716,
       "missing_dependencies": []
     },
     {
@@ -296,7 +296,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 35,
-      "dependency_lines": 10714,
+      "dependency_lines": 10716,
       "missing_dependencies": []
     },
     {
@@ -317,7 +317,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 35,
-      "dependency_lines": 10714,
+      "dependency_lines": 10716,
       "missing_dependencies": []
     },
     {
@@ -338,7 +338,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 35,
-      "dependency_lines": 10714,
+      "dependency_lines": 10716,
       "missing_dependencies": []
     },
     {
@@ -360,7 +360,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 36,
-      "dependency_lines": 10965,
+      "dependency_lines": 10967,
       "missing_dependencies": []
     },
     {
@@ -387,7 +387,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 263,
-      "dependency_lines": 100163,
+      "dependency_lines": 100165,
       "missing_dependencies": [
         "vllm/executor/",
         "vllm/worker/worker_base.py"
@@ -528,7 +528,7 @@
         "tests/v1/e2e/spec_decode"
       ],
       "dependency_file_count": 2045,
-      "dependency_lines": 675210,
+      "dependency_lines": 675212,
       "missing_dependencies": []
     },
     {
@@ -548,7 +548,7 @@
         "tests/entrypoints/llm"
       ],
       "dependency_file_count": 2641,
-      "dependency_lines": 910163,
+      "dependency_lines": 910189,
       "missing_dependencies": []
     },
     {
@@ -561,7 +561,7 @@
       "queue": "amd_mi325_1",
       "in_capacity_scope": true,
       "parallelism": 1,
-      "timeout_in_minutes": 50,
+      "timeout_in_minutes": 75,
       "optional": false,
       "source_file_dependencies": [
         "vllm/",
@@ -569,7 +569,7 @@
         "tests/entrypoints/scale_out"
       ],
       "dependency_file_count": 2679,
-      "dependency_lines": 916901,
+      "dependency_lines": 916927,
       "missing_dependencies": []
     },
     {
@@ -590,7 +590,7 @@
         "tests/entrypoints/test_chat_utils"
       ],
       "dependency_file_count": 2703,
-      "dependency_lines": 931177,
+      "dependency_lines": 931203,
       "missing_dependencies": [
         "tests/entrypoints/test_chat_utils"
       ]
@@ -613,7 +613,7 @@
         "tests/entrypoints/test_chat_utils"
       ],
       "dependency_file_count": 2703,
-      "dependency_lines": 931177,
+      "dependency_lines": 931203,
       "missing_dependencies": [
         "tests/entrypoints/test_chat_utils"
       ]
@@ -638,7 +638,7 @@
         "tests/entrypoints/generate"
       ],
       "dependency_file_count": 2657,
-      "dependency_lines": 914368,
+      "dependency_lines": 914394,
       "missing_dependencies": []
     },
     {
@@ -858,7 +858,7 @@
         "tests/v1/spec_decode"
       ],
       "dependency_file_count": 1973,
-      "dependency_lines": 644879,
+      "dependency_lines": 644881,
       "missing_dependencies": []
     },
     {
@@ -871,7 +871,7 @@
       "queue": "amd_mi325_1",
       "in_capacity_scope": true,
       "parallelism": 1,
-      "timeout_in_minutes": 55,
+      "timeout_in_minutes": 83,
       "optional": false,
       "source_file_dependencies": [
         "vllm/config/",
@@ -892,7 +892,7 @@
         "tests/v1/test_outputs.py"
       ],
       "dependency_file_count": 1976,
-      "dependency_lines": 650562,
+      "dependency_lines": 650564,
       "missing_dependencies": []
     },
     {
@@ -937,7 +937,7 @@
         "tests/entrypoints/openai/correctness/test_lmeval.py"
       ],
       "dependency_file_count": 2226,
-      "dependency_lines": 751872,
+      "dependency_lines": 751874,
       "missing_dependencies": []
     },
     {
@@ -990,7 +990,7 @@
         "tests/v1/tracing"
       ],
       "dependency_file_count": 1986,
-      "dependency_lines": 654098,
+      "dependency_lines": 654100,
       "missing_dependencies": []
     },
     {
@@ -1024,7 +1024,7 @@
       "queue": "amd_mi300_1",
       "in_capacity_scope": true,
       "parallelism": 1,
-      "timeout_in_minutes": 45,
+      "timeout_in_minutes": 60,
       "optional": false,
       "source_file_dependencies": [
         "vllm/engine/arg_utils.py",
@@ -1060,7 +1060,7 @@
         "tests/models/test_registry.py"
       ],
       "dependency_file_count": 2634,
-      "dependency_lines": 908971,
+      "dependency_lines": 908997,
       "missing_dependencies": []
     },
     {
@@ -1080,7 +1080,7 @@
         "tests/models/language"
       ],
       "dependency_file_count": 2684,
-      "dependency_lines": 915245,
+      "dependency_lines": 915271,
       "missing_dependencies": []
     },
     {
@@ -1128,7 +1128,7 @@
         "tests/models/language/generation"
       ],
       "dependency_file_count": 2639,
-      "dependency_lines": 910222,
+      "dependency_lines": 910248,
       "missing_dependencies": []
     },
     {
@@ -1148,7 +1148,7 @@
         "tests/models/language/pooling"
       ],
       "dependency_file_count": 2654,
-      "dependency_lines": 911547,
+      "dependency_lines": 911573,
       "missing_dependencies": []
     },
     {
@@ -1161,14 +1161,14 @@
       "queue": "amd_mi325_1",
       "in_capacity_scope": true,
       "parallelism": 1,
-      "timeout_in_minutes": 45,
+      "timeout_in_minutes": 68,
       "optional": false,
       "source_file_dependencies": [
         "vllm/",
         "tests/models/multimodal"
       ],
       "dependency_file_count": 2717,
-      "dependency_lines": 927382,
+      "dependency_lines": 927408,
       "missing_dependencies": []
     },
     {
@@ -1181,14 +1181,14 @@
       "queue": "amd_mi325_1",
       "in_capacity_scope": true,
       "parallelism": 1,
-      "timeout_in_minutes": 50,
+      "timeout_in_minutes": 75,
       "optional": false,
       "source_file_dependencies": [
         "vllm/",
         "tests/models/multimodal"
       ],
       "dependency_file_count": 2717,
-      "dependency_lines": 927382,
+      "dependency_lines": 927408,
       "missing_dependencies": []
     },
     {
@@ -1208,7 +1208,7 @@
         "tests/models/multimodal"
       ],
       "dependency_file_count": 2717,
-      "dependency_lines": 927382,
+      "dependency_lines": 927408,
       "missing_dependencies": []
     },
     {
@@ -1221,14 +1221,14 @@
       "queue": "amd_mi325_1",
       "in_capacity_scope": true,
       "parallelism": 1,
-      "timeout_in_minutes": 50,
+      "timeout_in_minutes": 75,
       "optional": false,
       "source_file_dependencies": [
         "vllm/",
         "tests/models/multimodal"
       ],
       "dependency_file_count": 2717,
-      "dependency_lines": 927382,
+      "dependency_lines": 927408,
       "missing_dependencies": []
     },
     {
@@ -1272,7 +1272,7 @@
         "tests/models/multimodal/test_mapping.py"
       ],
       "dependency_file_count": 2662,
-      "dependency_lines": 917850,
+      "dependency_lines": 917876,
       "missing_dependencies": []
     },
     {
@@ -1292,7 +1292,7 @@
         "tests/models/multimodal/pooling"
       ],
       "dependency_file_count": 2648,
-      "dependency_lines": 911416,
+      "dependency_lines": 911442,
       "missing_dependencies": []
     },
     {
@@ -1335,7 +1335,7 @@
         "tests/compile/passes"
       ],
       "dependency_file_count": 2111,
-      "dependency_lines": 759780,
+      "dependency_lines": 759782,
       "missing_dependencies": []
     },
     {
@@ -1501,7 +1501,7 @@
         "tests/weight_loading"
       ],
       "dependency_file_count": 2637,
-      "dependency_lines": 908618,
+      "dependency_lines": 908644,
       "missing_dependencies": []
     }
   ],
@@ -1509,7 +1509,7 @@
     "theoretical_groups": 125,
     "scale": 2.3148,
     "projected_total_jobs": 152.8,
-    "projected_dependency_lines": 56319792,
+    "projected_dependency_lines": 56320931,
     "projected_capacity_ratio": 0.2137,
     "bottleneck_queue": "amd_mi300_8",
     "queues": [
@@ -1550,7 +1550,7 @@
         "label": "mi300_1",
         "max_agents": 264,
         "projected_jobs": 23.1,
-        "projected_dependency_lines": 9513146,
+        "projected_dependency_lines": 9513275,
         "projected_capacity_ratio": 0.0875
       },
       {
@@ -1558,7 +1558,7 @@
         "label": "mi300_2",
         "max_agents": 40,
         "projected_jobs": 9.3,
-        "projected_dependency_lines": 3923509,
+        "projected_dependency_lines": 3923583,
         "projected_capacity_ratio": 0.2325
       },
       {
@@ -1566,7 +1566,7 @@
         "label": "mi300_4",
         "max_agents": 30,
         "projected_jobs": 9.3,
-        "projected_dependency_lines": 99204,
+        "projected_dependency_lines": 99222,
         "projected_capacity_ratio": 0.31
       },
       {
@@ -1582,7 +1582,7 @@
         "label": "mi325_1",
         "max_agents": 180,
         "projected_jobs": 106.5,
-        "projected_dependency_lines": 41269817,
+        "projected_dependency_lines": 41270729,
         "projected_capacity_ratio": 0.5917
       },
       {
@@ -1590,7 +1590,7 @@
         "label": "mi325_2",
         "max_agents": 8,
         "projected_jobs": 2.3,
-        "projected_dependency_lines": 1514116,
+        "projected_dependency_lines": 1514120,
         "projected_capacity_ratio": 0.2875
       },
       {
