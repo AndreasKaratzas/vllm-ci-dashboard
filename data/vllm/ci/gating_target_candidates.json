@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-23T15:44:33Z",
+  "generated_at": "2026-07-23T18:53:45Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -24,16 +24,16 @@
     "amd_ci_build": 11168,
     "canonical_target_count": 125,
     "row_count": 239,
-    "canonical_match_count": 106,
+    "canonical_match_count": 107,
     "likely_duplicate_count": 18,
     "new_candidate_count": 58,
     "excluded_count": 46,
-    "missing_from_upstream_count": 11,
+    "missing_from_upstream_count": 10,
     "by_decision": {
-      "canonical": 106,
+      "canonical": 107,
       "excluded": 46,
       "likely_duplicate": 18,
-      "missing_from_upstream": 11,
+      "missing_from_upstream": 10,
       "new_candidate": 58
     }
   },
@@ -838,7 +838,7 @@
       "canonical_key": "kernels core operation test",
       "state": "failed",
       "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/79617/steps/canvas?jid=019f8d90-8baf-4bb9-8cc4-74de5ff4bac7&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/79617/steps/canvas?jid=019f8d90-8bae-4d76-ba58-8d9609a62f84&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 7,
@@ -868,7 +868,7 @@
       "canonical_key": "kernels helion test",
       "state": "passed",
       "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/79617/steps/canvas?jid=019f8d90-8bb3-4172-9dc5-462066fdbe15&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/79617/steps/canvas?jid=019f8d90-8bb2-4dfc-a1c3-45cbd4056754&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 92,
@@ -1619,6 +1619,21 @@
       "proposal_matches": []
     },
     {
+      "label": "Samplers Test",
+      "canonical_key": "samplers test",
+      "state": "failed",
+      "queue": "h200_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/79617/steps/canvas?jid=019f8f03-8f23-4aa9-9a61-620c5bec6d71&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 122,
+      "canonical_label": "Samplers Test",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
       "label": "Spec Decode Draft Model",
       "canonical_key": "spec decode draft model",
       "state": "passed",
@@ -1708,7 +1723,7 @@
       "canonical_key": "v1 attention",
       "state": "passed",
       "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/79617/steps/canvas?jid=019f8d90-8b03-485f-a03f-732cdbe1e446&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/79617/steps/canvas?jid=019f8d90-8b06-42dd-9f8b-02e956c61f72&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 103,
@@ -3279,7 +3294,7 @@
       "canonical_key": "v1 attention",
       "state": "passed",
       "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/79617/steps/canvas?jid=019f8d90-8b00-4f36-af36-11a1aac8a00f&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/79617/steps/canvas?jid=019f8d90-8b03-422b-b699-bed0b6c528b4&tab=output",
       "exclusion_reasons": [],
       "decision": "likely_duplicate",
       "duplicate_of": "V1 attention (H100-MI300)",
@@ -3883,15 +3898,6 @@
       "target_id": 115,
       "label": "Language Models Tests (Hybrid) %N",
       "canonical_key": "language models test (hybrid) %N",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green"
-    },
-    {
-      "decision": "missing_from_upstream",
-      "target_id": 122,
-      "label": "Samplers Test",
-      "canonical_key": "samplers test",
       "source_signal": "green",
       "readiness_signal": "green",
       "target_signal": "green"
