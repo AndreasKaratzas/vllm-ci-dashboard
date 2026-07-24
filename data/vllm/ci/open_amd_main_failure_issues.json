@@ -513,18 +513,25 @@
     "7470747caee1a52bb39d": {
       "build_number": 11211,
       "build_url": "https://buildkite.com/vllm/amd-ci/builds/11211",
-      "finished_at": "2026-07-24T10:22:15.339Z",
+      "finished_at": "2026-07-24T20:35:03.909Z",
       "group_id": "7470747caee1a52bb39d",
       "hardware": "mi300",
-      "job_id": "019f935a-b951-47b5-aae7-d0c7414655eb",
-      "job_url": "https://buildkite.com/vllm/amd-ci/builds/11211/steps/canvas?jid=019f935a-b951-47b5-aae7-d0c7414655eb&tab=output",
+      "job_id": "019f959d-782b-4ad6-aa91-22eb32f8997c",
+      "job_url": "https://buildkite.com/vllm/amd-ci/builds/11211/steps/canvas?jid=019f959d-782b-4ad6-aa91-22eb32f8997c&tab=output",
       "name": "PyTorch Compilation Unit Tests",
-      "observed_at": "2026-07-24T10:22:15.339Z",
+      "observed_at": "2026-07-24T20:35:03.909Z",
       "queue": "amd_mi300_1",
       "raw_name": "mi300_1: PyTorch Compilation Unit Tests",
       "result": "soft_fail",
-      "retry_evidence": {},
-      "started_at": "2026-07-24T09:10:35.960Z",
+      "retry_evidence": {
+        "job_id": "019f959d-782b-4ad6-aa91-22eb32f8997c",
+        "retries_count": 1,
+        "retry_source": {
+          "job_id": "019f935a-b951-47b5-aae7-d0c7414655eb",
+          "retry_type": "manual"
+        }
+      },
+      "started_at": "2026-07-24T19:33:05.607Z",
       "step_key": ""
     },
     "75da88d7cb7c5d39e051": {
@@ -1162,8 +1169,8 @@
     "number": 205,
     "opened_at": "2026-07-18T00:41:12Z"
   },
-  "last_fingerprint": "72147dbc231dab57275c4e45190359a627b0a5f1ecf5cda5b44082ed99580313",
-  "last_run": "2026-07-24T19:48:20Z",
+  "last_fingerprint": "e962e8c0625faaf38f0d5e9176f4d369be849117fca60a8eaca7a7a4a297b351",
+  "last_run": "2026-07-24T21:23:00Z",
   "processed_build_numbers": [
     9942,
     9968,
@@ -1195,7 +1202,8 @@
     11036,
     11077,
     11128,
-    11168
+    11168,
+    11211
   ],
   "schema_version": 1,
   "suppressed": false
