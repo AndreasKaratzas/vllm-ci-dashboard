@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-24T14:28:45Z",
+  "generated_at": "2026-07-24T16:05:45Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -23,18 +23,18 @@
     "upstream_build": 79907,
     "amd_ci_build": 11211,
     "canonical_target_count": 125,
-    "row_count": 238,
-    "canonical_match_count": 106,
+    "row_count": 239,
+    "canonical_match_count": 107,
     "likely_duplicate_count": 18,
-    "new_candidate_count": 57,
+    "new_candidate_count": 58,
     "excluded_count": 46,
-    "missing_from_upstream_count": 11,
+    "missing_from_upstream_count": 10,
     "by_decision": {
-      "canonical": 106,
+      "canonical": 107,
       "excluded": 46,
       "likely_duplicate": 18,
-      "missing_from_upstream": 11,
-      "new_candidate": 57
+      "missing_from_upstream": 10,
+      "new_candidate": 58
     }
   },
   "rows": [
@@ -564,6 +564,31 @@
       "proposal_matches": []
     },
     {
+      "label": "Entrypoints Integration (Multimodal)",
+      "canonical_key": "entrypoints integration (multimodal)",
+      "state": "passed",
+      "queue": "h200_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/79907/steps/canvas?jid=019f9471-32d4-40b2-9fbb-50413bbb3031&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 90,
+      "canonical_label": "Entrypoints Integration (Multimodal)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": [
+        {
+          "pr": 44969,
+          "url": "https://github.com/vllm-project/vllm/pull/44969",
+          "title": "[ROCm][CI] Gating more ROCm tests",
+          "author": "AndreasKaratzas",
+          "label": "Entrypoints Integration (Multimodal)",
+          "device": "mi300_1",
+          "yaml_file": ".buildkite/test_areas/entrypoints.yaml"
+        }
+      ]
+    },
+    {
       "label": "Entrypoints Integration (Pooling)",
       "canonical_key": "entrypoints integration (pooling)",
       "state": "passed",
@@ -813,7 +838,7 @@
       "canonical_key": "kernels core operation test",
       "state": "passed",
       "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/79907/steps/canvas?jid=019f93d7-1fd5-4886-9c35-0f525d1fdb22&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/79907/steps/canvas?jid=019f93d7-201c-4d4b-b075-7cfe2eafbb0e&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 7,
@@ -843,7 +868,7 @@
       "canonical_key": "kernels helion test",
       "state": "passed",
       "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/79907/steps/canvas?jid=019f92b6-bd93-4d22-980b-78bd43e4b73d&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/79907/steps/canvas?jid=019f92b6-bd94-4a87-b597-e36366bd3fc8&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 92,
@@ -1523,7 +1548,7 @@
       "canonical_key": "quantized models test",
       "state": "passed",
       "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/79907/steps/canvas?jid=019f93d7-2e76-4dd1-bce4-3ac043332637&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/79907/steps/canvas?jid=019f93d7-2ef5-445a-a70e-fac623c24e4f&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 101,
@@ -2675,6 +2700,30 @@
       "internal_signal": {
         "state": "not_observed",
         "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "LM Eval Large Models (8xH200)",
+      "canonical_key": "lm eval large models (8 gpus)",
+      "state": "failed",
+      "queue": "H200",
+      "url": "https://buildkite.com/vllm/ci/builds/79907/steps/canvas?jid=019f92b6-bd9e-48c2-82f1-2a7abf121fb8&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "passed",
+        "jobs": [
+          {
+            "label": "LM Eval Large Models (8xH200-8xMI300)",
+            "state": "passed",
+            "queue": "amd_mi300_8",
+            "url": "https://buildkite.com/vllm/amd-ci/builds/11211/steps/canvas?jid=019f935a-b963-4529-9e0f-c4fe10cfe027&tab=output"
+          }
+        ]
       },
       "proposal_matches": []
     },
@@ -3832,15 +3881,6 @@
       "label": "GPQA Eval (GPT-OSS) (H100)",
       "canonical_key": "gpqa eval (gpt-oss)",
       "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green"
-    },
-    {
-      "decision": "missing_from_upstream",
-      "target_id": 90,
-      "label": "Entrypoints Integration (Multimodal)",
-      "canonical_key": "entrypoints integration (multimodal)",
-      "source_signal": "green",
       "readiness_signal": "green",
       "target_signal": "green"
     },
