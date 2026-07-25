@@ -4,7 +4,7 @@ Week of 2026-07-18 to 2026-07-25
 
 ## New Releases
 
-_No new releases this week._
+- **vllm**: [v0.26.0](https://github.com/vllm-project/vllm/releases/tag/v0.26.0)
 
 ## PRs This Week
 
