@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-26T11:50:27Z",
+  "generated_at": "2026-07-26T12:58:14Z",
   "source": {
     "yaml_url": "https://raw.githubusercontent.com/vllm-project/vllm/refs/heads/main/.buildkite/test-amd.yaml",
     "latest_build_number": 11269,
@@ -16,73 +16,73 @@
     "duplicate_definition_rows": 12,
     "health_policies": {
       "reduced_ignore_mi355": {
-        "passing_groups": 111,
-        "failed_only_groups": 11,
+        "passing_groups": 116,
+        "failed_only_groups": 30,
         "mixed_groups": 0,
         "waiting_groups": 0,
-        "unknown_groups": 24,
+        "unknown_groups": 0,
         "ignored_mi355_only_groups": 8,
         "inherited_mi355_groups": 30,
-        "failing_groups": 11,
-        "resolved_groups": 122,
+        "failing_groups": 30,
+        "resolved_groups": 146,
         "included_groups": 146,
-        "pass_percentage": 91.0,
+        "pass_percentage": 79.5,
         "reduce_duplicates": true,
         "ignore_mi355_only": true
       },
       "reduced_include_mi355": {
-        "passing_groups": 116,
-        "failed_only_groups": 13,
+        "passing_groups": 121,
+        "failed_only_groups": 33,
         "mixed_groups": 0,
         "waiting_groups": 0,
-        "unknown_groups": 25,
+        "unknown_groups": 0,
         "ignored_mi355_only_groups": 0,
         "inherited_mi355_groups": 30,
-        "failing_groups": 13,
-        "resolved_groups": 129,
+        "failing_groups": 33,
+        "resolved_groups": 154,
         "included_groups": 154,
-        "pass_percentage": 89.9,
+        "pass_percentage": 78.6,
         "reduce_duplicates": true,
         "ignore_mi355_only": false
       },
       "definitions_ignore_mi355": {
-        "passing_groups": 116,
-        "failed_only_groups": 12,
+        "passing_groups": 121,
+        "failed_only_groups": 31,
         "mixed_groups": 0,
         "waiting_groups": 0,
-        "unknown_groups": 24,
+        "unknown_groups": 0,
         "ignored_mi355_only_groups": 8,
         "inherited_mi355_groups": 30,
-        "failing_groups": 12,
-        "resolved_groups": 128,
+        "failing_groups": 31,
+        "resolved_groups": 152,
         "included_groups": 152,
-        "pass_percentage": 90.6,
+        "pass_percentage": 79.6,
         "reduce_duplicates": false,
         "ignore_mi355_only": true
       },
       "definitions_include_mi355": {
-        "passing_groups": 121,
-        "failed_only_groups": 14,
+        "passing_groups": 126,
+        "failed_only_groups": 34,
         "mixed_groups": 0,
         "waiting_groups": 0,
-        "unknown_groups": 25,
+        "unknown_groups": 0,
         "ignored_mi355_only_groups": 0,
         "inherited_mi355_groups": 30,
-        "failing_groups": 14,
-        "resolved_groups": 135,
+        "failing_groups": 34,
+        "resolved_groups": 160,
         "included_groups": 160,
-        "pass_percentage": 89.6,
+        "pass_percentage": 78.8,
         "reduce_duplicates": false,
         "ignore_mi355_only": false
       }
     },
     "architecture_count": 3,
     "hardware_cells": 190,
-    "latest_matched_cells": 155,
-    "passing_cells": 133,
-    "failing_cells": 22,
+    "latest_matched_cells": 190,
+    "passing_cells": 138,
+    "failing_cells": 52,
     "waiting_cells": 0,
-    "unknown_cells": 35,
+    "unknown_cells": 0,
     "fully_shared_groups": 1,
     "single_arch_groups": 131,
     "multi_variant_cells": 0
@@ -92,19 +92,19 @@
       "id": "mi250",
       "label": "MI250",
       "group_count": 23,
-      "nightly_match_count": 19
+      "nightly_match_count": 23
     },
     {
       "id": "mi300",
       "label": "MI300",
       "group_count": 129,
-      "nightly_match_count": 108
+      "nightly_match_count": 129
     },
     {
       "id": "mi355",
       "label": "MI355",
       "group_count": 38,
-      "nightly_match_count": 28
+      "nightly_match_count": 38
     }
   ],
   "areas": [
@@ -300,10 +300,10 @@
               "agent_pool": "mi250_1",
               "optional": true,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d02-4e81-9655-192f96c64e28&tab=output",
               "aliases": [
                 "PyTorch Fullgraph Smoke Test"
               ],
@@ -314,10 +314,10 @@
                   "agent_pool": "mi250_1",
                   "optional": true,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d02-4e81-9655-192f96c64e28&tab=output",
                   "aliases": [
                     "PyTorch Fullgraph Smoke Test"
                   ],
@@ -326,12 +326,12 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "PyTorch Fullgraph Smoke Test",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d02-4e81-9655-192f96c64e28&tab=output"
         },
         "mi300": {
           "exists": false
@@ -341,7 +341,7 @@
         }
       },
       "coverage_count": 1,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 1,
       "architectures_present": [
         "mi250"
       ],
@@ -436,10 +436,10 @@
               "agent_pool": "mi250_1",
               "optional": true,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "passed",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d06-41fe-8ecb-17f294be2e90&tab=output",
               "aliases": [
                 "Kernels Helion Test"
               ],
@@ -450,10 +450,10 @@
                   "agent_pool": "mi250_1",
                   "optional": true,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "passed",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d06-41fe-8ecb-17f294be2e90&tab=output",
                   "aliases": [
                     "Kernels Helion Test"
                   ],
@@ -462,12 +462,12 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "passed",
           "latest_build_number": 11269,
           "primary_label": "Kernels Helion Test",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d06-41fe-8ecb-17f294be2e90&tab=output"
         },
         "mi300": {
           "exists": false
@@ -477,7 +477,7 @@
         }
       },
       "coverage_count": 1,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 1,
       "architectures_present": [
         "mi250"
       ],
@@ -1511,10 +1511,10 @@
               "agent_pool": "mi250_1",
               "optional": false,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d14-4791-846d-c892dd034f4f&tab=output",
               "aliases": [
                 "V1 attention (H100-MI250)"
               ],
@@ -1525,10 +1525,10 @@
                   "agent_pool": "mi250_1",
                   "optional": false,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d14-4791-846d-c892dd034f4f&tab=output",
                   "aliases": [
                     "V1 attention (H100-MI250)"
                   ],
@@ -1537,12 +1537,12 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "V1 attention (H100-MI250)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d14-4791-846d-c892dd034f4f&tab=output"
         },
         "mi300": {
           "exists": true,
@@ -1554,10 +1554,10 @@
               "agent_pool": "mi300_1",
               "optional": true,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dbc-46e5-8401-ee0d27b1b8e6&tab=output",
               "aliases": [
                 "V1 attention (H100-MI300)"
               ],
@@ -1568,10 +1568,10 @@
                   "agent_pool": "mi300_1",
                   "optional": true,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dbc-46e5-8401-ee0d27b1b8e6&tab=output",
                   "aliases": [
                     "V1 attention (H100-MI300)"
                   ],
@@ -1580,12 +1580,12 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "V1 attention (H100-MI300)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dbc-46e5-8401-ee0d27b1b8e6&tab=output"
         },
         "mi355": {
           "exists": true,
@@ -1597,10 +1597,10 @@
               "agent_pool": "mi355_1",
               "optional": false,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2de6-4b85-ac35-cb77794612fc&tab=output",
               "aliases": [
                 "V1 attention (B200-MI355)"
               ],
@@ -1611,10 +1611,10 @@
                   "agent_pool": "mi355_1",
                   "optional": false,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2de6-4b85-ac35-cb77794612fc&tab=output",
                   "aliases": [
                     "V1 attention (B200-MI355)"
                   ],
@@ -1623,16 +1623,16 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "V1 attention (B200-MI355)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2de6-4b85-ac35-cb77794612fc&tab=output"
         }
       },
       "coverage_count": 3,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 3,
       "architectures_present": [
         "mi250",
         "mi300",
@@ -1729,10 +1729,10 @@
               "agent_pool": "mi250_1",
               "optional": true,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d15-4c1b-bd7f-b98c5ca73e64&tab=output",
               "aliases": [
                 "Async Engine, Inputs, Utils, Worker, Config (CPU)"
               ],
@@ -1743,10 +1743,10 @@
                   "agent_pool": "mi250_1",
                   "optional": true,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d15-4c1b-bd7f-b98c5ca73e64&tab=output",
                   "aliases": [
                     "Async Engine, Inputs, Utils, Worker, Config (CPU)"
                   ],
@@ -1755,12 +1755,12 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d15-4c1b-bd7f-b98c5ca73e64&tab=output"
         },
         "mi300": {
           "exists": false
@@ -1770,7 +1770,7 @@
         }
       },
       "coverage_count": 1,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 1,
       "architectures_present": [
         "mi250"
       ],
@@ -2480,10 +2480,10 @@
               "agent_pool": "mi300_1",
               "optional": false,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d22-4630-b63e-da622a96be26&tab=output",
               "aliases": [
                 "PyTorch Compilation Passes Unit Tests"
               ],
@@ -2494,10 +2494,10 @@
                   "agent_pool": "mi300_1",
                   "optional": false,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d22-4630-b63e-da622a96be26&tab=output",
                   "aliases": [
                     "PyTorch Compilation Passes Unit Tests"
                   ],
@@ -2506,19 +2506,19 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "PyTorch Compilation Passes Unit Tests",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d22-4630-b63e-da622a96be26&tab=output"
         },
         "mi355": {
           "exists": false
         }
       },
       "coverage_count": 1,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 1,
       "architectures_present": [
         "mi300"
       ],
@@ -3908,10 +3908,10 @@
               "agent_pool": "mi300_1",
               "optional": true,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d41-4d73-86b9-1bd259020aff&tab=output",
               "aliases": [
                 "Entrypoints Integration (API Server)"
               ],
@@ -3922,10 +3922,10 @@
                   "agent_pool": "mi300_1",
                   "optional": true,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d41-4d73-86b9-1bd259020aff&tab=output",
                   "aliases": [
                     "Entrypoints Integration (API Server)"
                   ],
@@ -3934,12 +3934,12 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "Entrypoints Integration (API Server)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d41-4d73-86b9-1bd259020aff&tab=output"
         },
         "mi355": {
           "exists": true,
@@ -3951,10 +3951,10 @@
               "agent_pool": "mi355_1",
               "optional": true,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dcb-466b-a9af-38f0eaff9b22&tab=output",
               "aliases": [
                 "Entrypoints Integration (API Server)"
               ],
@@ -3965,10 +3965,10 @@
                   "agent_pool": "mi355_1",
                   "optional": true,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dcb-466b-a9af-38f0eaff9b22&tab=output",
                   "aliases": [
                     "Entrypoints Integration (API Server)"
                   ],
@@ -3977,16 +3977,16 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "Entrypoints Integration (API Server)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dcb-466b-a9af-38f0eaff9b22&tab=output"
         }
       },
       "coverage_count": 2,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 2,
       "architectures_present": [
         "mi300",
         "mi355"
@@ -4017,10 +4017,10 @@
               "agent_pool": "mi300_1",
               "optional": true,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d42-417b-acf5-540b968fd63b&tab=output",
               "aliases": [
                 "Entrypoints Integration (API Server OpenAI - Part 1)"
               ],
@@ -4031,10 +4031,10 @@
                   "agent_pool": "mi300_1",
                   "optional": true,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d42-417b-acf5-540b968fd63b&tab=output",
                   "aliases": [
                     "Entrypoints Integration (API Server OpenAI - Part 1)"
                   ],
@@ -4043,19 +4043,19 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "Entrypoints Integration (API Server OpenAI - Part 1)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d42-417b-acf5-540b968fd63b&tab=output"
         },
         "mi355": {
           "exists": false
         }
       },
       "coverage_count": 1,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 1,
       "architectures_present": [
         "mi300"
       ],
@@ -4085,10 +4085,10 @@
               "agent_pool": "mi300_1",
               "optional": true,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d43-4467-9050-220f6f0aca02&tab=output",
               "aliases": [
                 "Entrypoints Integration (API Server OpenAI - Part 2)"
               ],
@@ -4099,10 +4099,10 @@
                   "agent_pool": "mi300_1",
                   "optional": true,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d43-4467-9050-220f6f0aca02&tab=output",
                   "aliases": [
                     "Entrypoints Integration (API Server OpenAI - Part 2)"
                   ],
@@ -4111,12 +4111,12 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "Entrypoints Integration (API Server OpenAI - Part 2)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d43-4467-9050-220f6f0aca02&tab=output"
         },
         "mi355": {
           "exists": true,
@@ -4128,10 +4128,10 @@
               "agent_pool": "mi355_1",
               "optional": true,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dcc-4a89-994e-b36dac4a4ab0&tab=output",
               "aliases": [
                 "Entrypoints Integration (API Server OpenAI - Part 2)"
               ],
@@ -4142,10 +4142,10 @@
                   "agent_pool": "mi355_1",
                   "optional": true,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dcc-4a89-994e-b36dac4a4ab0&tab=output",
                   "aliases": [
                     "Entrypoints Integration (API Server OpenAI - Part 2)"
                   ],
@@ -4154,16 +4154,16 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "Entrypoints Integration (API Server OpenAI - Part 2)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dcc-4a89-994e-b36dac4a4ab0&tab=output"
         }
       },
       "coverage_count": 2,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 2,
       "architectures_present": [
         "mi300",
         "mi355"
@@ -4303,10 +4303,10 @@
               "agent_pool": "mi300_1",
               "optional": true,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d44-4eb3-8def-c7566a9b252c&tab=output",
               "aliases": [
                 "Entrypoints Integration (Responses API)"
               ],
@@ -4317,10 +4317,10 @@
                   "agent_pool": "mi300_1",
                   "optional": true,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d44-4eb3-8def-c7566a9b252c&tab=output",
                   "aliases": [
                     "Entrypoints Integration (Responses API)"
                   ],
@@ -4329,19 +4329,19 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "Entrypoints Integration (Responses API)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d44-4eb3-8def-c7566a9b252c&tab=output"
         },
         "mi355": {
           "exists": false
         }
       },
       "coverage_count": 1,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 1,
       "architectures_present": [
         "mi300"
       ],
@@ -4371,10 +4371,10 @@
               "agent_pool": "mi300_1",
               "optional": false,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d45-4dfe-b572-f43b2b75bb53&tab=output",
               "aliases": [
                 "Entrypoints Integration (Speech to Text)"
               ],
@@ -4385,10 +4385,10 @@
                   "agent_pool": "mi300_1",
                   "optional": false,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d45-4dfe-b572-f43b2b75bb53&tab=output",
                   "aliases": [
                     "Entrypoints Integration (Speech to Text)"
                   ],
@@ -4397,12 +4397,12 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "Entrypoints Integration (Speech to Text)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d45-4dfe-b572-f43b2b75bb53&tab=output"
         },
         "mi355": {
           "exists": true,
@@ -4414,10 +4414,10 @@
               "agent_pool": "mi355_1",
               "optional": false,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dce-454d-b933-5eb8d1f378db&tab=output",
               "aliases": [
                 "Entrypoints Integration (Speech to Text)"
               ],
@@ -4428,10 +4428,10 @@
                   "agent_pool": "mi355_1",
                   "optional": false,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dce-454d-b933-5eb8d1f378db&tab=output",
                   "aliases": [
                     "Entrypoints Integration (Speech to Text)"
                   ],
@@ -4440,16 +4440,16 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "Entrypoints Integration (Speech to Text)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dce-454d-b933-5eb8d1f378db&tab=output"
         }
       },
       "coverage_count": 2,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 2,
       "architectures_present": [
         "mi300",
         "mi355"
@@ -4480,10 +4480,10 @@
               "agent_pool": "mi300_1",
               "optional": true,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d46-480f-bb5e-13fcbe7d60fe&tab=output",
               "aliases": [
                 "Entrypoints Integration (Multimodal)"
               ],
@@ -4494,10 +4494,10 @@
                   "agent_pool": "mi300_1",
                   "optional": true,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d46-480f-bb5e-13fcbe7d60fe&tab=output",
                   "aliases": [
                     "Entrypoints Integration (Multimodal)"
                   ],
@@ -4506,12 +4506,12 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "Entrypoints Integration (Multimodal)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d46-480f-bb5e-13fcbe7d60fe&tab=output"
         },
         "mi355": {
           "exists": true,
@@ -4523,10 +4523,10 @@
               "agent_pool": "mi355_1",
               "optional": false,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dce-46df-b154-708a83ce77c3&tab=output",
               "aliases": [
                 "Entrypoints Integration (Multimodal)"
               ],
@@ -4537,10 +4537,10 @@
                   "agent_pool": "mi355_1",
                   "optional": false,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dce-46df-b154-708a83ce77c3&tab=output",
                   "aliases": [
                     "Entrypoints Integration (Multimodal)"
                   ],
@@ -4549,16 +4549,16 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "Entrypoints Integration (Multimodal)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dce-46df-b154-708a83ce77c3&tab=output"
         }
       },
       "coverage_count": 2,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 2,
       "architectures_present": [
         "mi300",
         "mi355"
@@ -4589,10 +4589,10 @@
               "agent_pool": "mi300_1",
               "optional": true,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d46-4281-8c80-3be23d1f853b&tab=output",
               "aliases": [
                 "Entrypoints Integration (Pooling)"
               ],
@@ -4603,10 +4603,10 @@
                   "agent_pool": "mi300_1",
                   "optional": true,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d46-4281-8c80-3be23d1f853b&tab=output",
                   "aliases": [
                     "Entrypoints Integration (Pooling)"
                   ],
@@ -4615,12 +4615,12 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "Entrypoints Integration (Pooling)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d46-4281-8c80-3be23d1f853b&tab=output"
         },
         "mi355": {
           "exists": true,
@@ -4632,10 +4632,10 @@
               "agent_pool": "mi355_1",
               "optional": false,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dcf-4a69-8e93-4e58d9dbb5d2&tab=output",
               "aliases": [
                 "Entrypoints Integration (Pooling)"
               ],
@@ -4646,10 +4646,10 @@
                   "agent_pool": "mi355_1",
                   "optional": false,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dcf-4a69-8e93-4e58d9dbb5d2&tab=output",
                   "aliases": [
                     "Entrypoints Integration (Pooling)"
                   ],
@@ -4658,16 +4658,16 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "Entrypoints Integration (Pooling)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dcf-4a69-8e93-4e58d9dbb5d2&tab=output"
         }
       },
       "coverage_count": 2,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 2,
       "architectures_present": [
         "mi300",
         "mi355"
@@ -5977,10 +5977,10 @@
               "agent_pool": "mi300_1",
               "optional": true,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d57-46d8-94d5-4db213a4267d&tab=output",
               "aliases": [
                 "vLLM IR Tests"
               ],
@@ -5991,10 +5991,10 @@
                   "agent_pool": "mi300_1",
                   "optional": true,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d57-46d8-94d5-4db213a4267d&tab=output",
                   "aliases": [
                     "vLLM IR Tests"
                   ],
@@ -6003,19 +6003,19 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "vLLM IR Tests",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d57-46d8-94d5-4db213a4267d&tab=output"
         },
         "mi355": {
           "exists": false
         }
       },
       "coverage_count": 1,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 1,
       "architectures_present": [
         "mi300"
       ],
@@ -6045,10 +6045,10 @@
               "agent_pool": "mi300_1",
               "optional": true,
               "parallelism": 2,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 2,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d57-4717-98fd-e663fcc28801&tab=output",
               "aliases": [
                 "Kernels Attention Test"
               ],
@@ -6059,10 +6059,10 @@
                   "agent_pool": "mi300_1",
                   "optional": true,
                   "parallelism": 2,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 2,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d57-4717-98fd-e663fcc28801&tab=output",
                   "aliases": [
                     "Kernels Attention Test"
                   ],
@@ -6071,12 +6071,12 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "Kernels Attention Test",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d57-4717-98fd-e663fcc28801&tab=output"
         },
         "mi355": {
           "exists": true,
@@ -6088,10 +6088,10 @@
               "agent_pool": "mi355_1",
               "optional": false,
               "parallelism": 2,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 2,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dd4-4d0c-9d0f-27e649a6ccd5&tab=output",
               "aliases": [
                 "Kernels Attention Test"
               ],
@@ -6102,10 +6102,10 @@
                   "agent_pool": "mi355_1",
                   "optional": false,
                   "parallelism": 2,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 2,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dd4-4d0c-9d0f-27e649a6ccd5&tab=output",
                   "aliases": [
                     "Kernels Attention Test"
                   ],
@@ -6114,16 +6114,16 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "Kernels Attention Test",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dd4-4d0c-9d0f-27e649a6ccd5&tab=output"
         }
       },
       "coverage_count": 2,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 2,
       "architectures_present": [
         "mi300",
         "mi355"
@@ -6154,10 +6154,10 @@
               "agent_pool": "mi300_1",
               "optional": false,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d58-484f-8713-0bb1aabd6a86&tab=output",
               "aliases": [
                 "Kernels Core Operation Test"
               ],
@@ -6168,10 +6168,10 @@
                   "agent_pool": "mi300_1",
                   "optional": false,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d58-484f-8713-0bb1aabd6a86&tab=output",
                   "aliases": [
                     "Kernels Core Operation Test"
                   ],
@@ -6180,19 +6180,19 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "Kernels Core Operation Test",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d58-484f-8713-0bb1aabd6a86&tab=output"
         },
         "mi355": {
           "exists": false
         }
       },
       "coverage_count": 1,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 1,
       "architectures_present": [
         "mi300"
       ],
@@ -6334,7 +6334,7 @@
               "optional": false,
               "parallelism": 5,
               "latest_matched": true,
-              "latest_match_count": 4,
+              "latest_match_count": 5,
               "latest_state": "soft_fail",
               "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dd5-42fa-9f7b-45f5f6294ea4&tab=output",
               "aliases": [
@@ -6348,7 +6348,7 @@
                   "optional": false,
                   "parallelism": 5,
                   "latest_matched": true,
-                  "latest_match_count": 4,
+                  "latest_match_count": 5,
                   "latest_state": "soft_fail",
                   "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dd5-42fa-9f7b-45f5f6294ea4&tab=output",
                   "aliases": [
@@ -6399,10 +6399,10 @@
               "agent_pool": "mi300_1",
               "optional": true,
               "parallelism": 2,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 2,
+              "latest_state": "passed",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d5b-4b70-b45b-5bc912c73696&tab=output",
               "aliases": [
                 "Kernels Quantization Test"
               ],
@@ -6413,10 +6413,10 @@
                   "agent_pool": "mi300_1",
                   "optional": true,
                   "parallelism": 2,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 2,
+                  "latest_state": "passed",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d5b-4b70-b45b-5bc912c73696&tab=output",
                   "aliases": [
                     "Kernels Quantization Test"
                   ],
@@ -6425,12 +6425,12 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "passed",
           "latest_build_number": 11269,
           "primary_label": "Kernels Quantization Test",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d5b-4b70-b45b-5bc912c73696&tab=output"
         },
         "mi355": {
           "exists": true,
@@ -6442,10 +6442,10 @@
               "agent_pool": "mi355_1",
               "optional": false,
               "parallelism": 2,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 2,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dd5-47ad-ac39-38819f625ccb&tab=output",
               "aliases": [
                 "Kernels Quantization Test"
               ],
@@ -6456,10 +6456,10 @@
                   "agent_pool": "mi355_1",
                   "optional": false,
                   "parallelism": 2,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 2,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dd5-47ad-ac39-38819f625ccb&tab=output",
                   "aliases": [
                     "Kernels Quantization Test"
                   ],
@@ -6468,16 +6468,16 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "Kernels Quantization Test",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dd5-47ad-ac39-38819f625ccb&tab=output"
         }
       },
       "coverage_count": 2,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 2,
       "architectures_present": [
         "mi300",
         "mi355"
@@ -6617,10 +6617,10 @@
               "agent_pool": "mi300_1",
               "optional": true,
               "parallelism": 4,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 4,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d5d-48bb-8358-9f1d0051a1a8&tab=output",
               "aliases": [
                 "LoRA"
               ],
@@ -6631,10 +6631,10 @@
                   "agent_pool": "mi300_1",
                   "optional": true,
                   "parallelism": 4,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 4,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d5d-48bb-8358-9f1d0051a1a8&tab=output",
                   "aliases": [
                     "LoRA"
                   ],
@@ -6643,19 +6643,19 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "LoRA",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d5d-48bb-8358-9f1d0051a1a8&tab=output"
         },
         "mi355": {
           "exists": false
         }
       },
       "coverage_count": 1,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 1,
       "architectures_present": [
         "mi300"
       ],
@@ -7365,10 +7365,10 @@
               "agent_pool": "mi300_1",
               "optional": true,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "passed",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d88-4edf-8a51-f2d02b9ae871&tab=output",
               "aliases": [
                 "Language Models Test (Extended Pooling)"
               ],
@@ -7379,10 +7379,10 @@
                   "agent_pool": "mi300_1",
                   "optional": true,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "passed",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d88-4edf-8a51-f2d02b9ae871&tab=output",
                   "aliases": [
                     "Language Models Test (Extended Pooling)"
                   ],
@@ -7391,12 +7391,12 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "passed",
           "latest_build_number": 11269,
           "primary_label": "Language Models Test (Extended Pooling)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d88-4edf-8a51-f2d02b9ae871&tab=output"
         },
         "mi355": {
           "exists": true,
@@ -7443,7 +7443,7 @@
         }
       },
       "coverage_count": 2,
-      "nightly_coverage_count": 1,
+      "nightly_coverage_count": 2,
       "architectures_present": [
         "mi300",
         "mi355"
@@ -7787,10 +7787,10 @@
               "agent_pool": "mi300_1",
               "optional": true,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2da0-4dc3-a072-41b69e1b9a16&tab=output",
               "aliases": [
                 "Multi-Modal Models (Extended Generation 1)"
               ],
@@ -7801,10 +7801,10 @@
                   "agent_pool": "mi300_1",
                   "optional": true,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2da0-4dc3-a072-41b69e1b9a16&tab=output",
                   "aliases": [
                     "Multi-Modal Models (Extended Generation 1)"
                   ],
@@ -7813,12 +7813,12 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "Multi-Modal Models (Extended Generation 1)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2da0-4dc3-a072-41b69e1b9a16&tab=output"
         },
         "mi355": {
           "exists": true,
@@ -7865,7 +7865,7 @@
         }
       },
       "coverage_count": 2,
-      "nightly_coverage_count": 1,
+      "nightly_coverage_count": 2,
       "architectures_present": [
         "mi300",
         "mi355"
@@ -8699,10 +8699,10 @@
               "agent_pool": "mi300_1",
               "optional": true,
               "parallelism": 4,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 4,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2da8-4aa7-a1bf-bb76d50d687f&tab=output",
               "aliases": [
                 "Transformers Nightly Models (Processing)"
               ],
@@ -8713,10 +8713,10 @@
                   "agent_pool": "mi300_1",
                   "optional": true,
                   "parallelism": 4,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 4,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2da8-4aa7-a1bf-bb76d50d687f&tab=output",
                   "aliases": [
                     "Transformers Nightly Models (Processing)"
                   ],
@@ -8725,19 +8725,19 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "Transformers Nightly Models (Processing)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2da8-4aa7-a1bf-bb76d50d687f&tab=output"
         },
         "mi355": {
           "exists": false
         }
       },
       "coverage_count": 1,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 1,
       "architectures_present": [
         "mi300"
       ],
@@ -9039,10 +9039,10 @@
               "agent_pool": "mi300_1",
               "optional": true,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "passed",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dac-4760-962a-036972d94c39&tab=output",
               "aliases": [
                 "Rust Frontend Serve Admin Coverage"
               ],
@@ -9053,10 +9053,10 @@
                   "agent_pool": "mi300_1",
                   "optional": true,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "passed",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dac-4760-962a-036972d94c39&tab=output",
                   "aliases": [
                     "Rust Frontend Serve Admin Coverage"
                   ],
@@ -9065,19 +9065,19 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "passed",
           "latest_build_number": 11269,
           "primary_label": "Rust Frontend Serve Admin Coverage",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dac-4760-962a-036972d94c39&tab=output"
         },
         "mi355": {
           "exists": false
         }
       },
       "coverage_count": 1,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 1,
       "architectures_present": [
         "mi300"
       ],
@@ -10209,10 +10209,10 @@
               "agent_pool": "mi300_1",
               "optional": false,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "passed",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dbd-4eb5-9370-e36661bc3054&tab=output",
               "aliases": [
                 "V1 Core + KV + Metrics"
               ],
@@ -10223,10 +10223,10 @@
                   "agent_pool": "mi300_1",
                   "optional": false,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "passed",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dbd-4eb5-9370-e36661bc3054&tab=output",
                   "aliases": [
                     "V1 Core + KV + Metrics"
                   ],
@@ -10235,12 +10235,12 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "passed",
           "latest_build_number": 11269,
           "primary_label": "V1 Core + KV + Metrics",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dbd-4eb5-9370-e36661bc3054&tab=output"
         },
         "mi355": {
           "exists": true,
@@ -10287,7 +10287,7 @@
         }
       },
       "coverage_count": 2,
-      "nightly_coverage_count": 1,
+      "nightly_coverage_count": 2,
       "architectures_present": [
         "mi300",
         "mi355"
@@ -10318,10 +10318,10 @@
               "agent_pool": "mi300_1",
               "optional": true,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dbe-4c36-adae-e021e24760c7&tab=output",
               "aliases": [
                 "V1 Sample + Logits"
               ],
@@ -10332,10 +10332,10 @@
                   "agent_pool": "mi300_1",
                   "optional": true,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dbe-4c36-adae-e021e24760c7&tab=output",
                   "aliases": [
                     "V1 Sample + Logits"
                   ],
@@ -10344,12 +10344,12 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "V1 Sample + Logits",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dbe-4c36-adae-e021e24760c7&tab=output"
         },
         "mi355": {
           "exists": true,
@@ -10361,10 +10361,10 @@
               "agent_pool": "mi355_1",
               "optional": true,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2de8-4d00-8fb8-3601da15be78&tab=output",
               "aliases": [
                 "V1 Sample + Logits"
               ],
@@ -10375,10 +10375,10 @@
                   "agent_pool": "mi355_1",
                   "optional": true,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2de8-4d00-8fb8-3601da15be78&tab=output",
                   "aliases": [
                     "V1 Sample + Logits"
                   ],
@@ -10387,16 +10387,16 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "V1 Sample + Logits",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2de8-4d00-8fb8-3601da15be78&tab=output"
         }
       },
       "coverage_count": 2,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 2,
       "architectures_present": [
         "mi300",
         "mi355"
@@ -10767,10 +10767,10 @@
               "agent_pool": "mi300_4",
               "optional": false,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dc2-402d-bf31-e53397c25a1b&tab=output",
               "aliases": [
                 "Distributed DP Tests (4 GPUs)"
               ],
@@ -10781,10 +10781,10 @@
                   "agent_pool": "mi300_4",
                   "optional": false,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dc2-402d-bf31-e53397c25a1b&tab=output",
                   "aliases": [
                     "Distributed DP Tests (4 GPUs)"
                   ],
@@ -10793,19 +10793,19 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "Distributed DP Tests (4 GPUs)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dc2-402d-bf31-e53397c25a1b&tab=output"
         },
         "mi355": {
           "exists": false
         }
       },
       "coverage_count": 1,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 1,
       "architectures_present": [
         "mi300"
       ],
@@ -11736,10 +11736,10 @@
               "agent_pool": "mi355_1",
               "optional": true,
               "parallelism": 1,
-              "latest_matched": false,
-              "latest_match_count": 0,
-              "latest_state": null,
-              "latest_url": null,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dcc-4917-b34b-8cac8ee42250&tab=output",
               "aliases": [
                 "Entrypoints Integration (API Server OpenAI - Part 1)"
               ],
@@ -11750,10 +11750,10 @@
                   "agent_pool": "mi355_1",
                   "optional": true,
                   "parallelism": 1,
-                  "latest_matched": false,
-                  "latest_match_count": 0,
-                  "latest_state": null,
-                  "latest_url": null,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dcc-4917-b34b-8cac8ee42250&tab=output",
                   "aliases": [
                     "Entrypoints Integration (API Server OpenAI - Part 1)"
                   ],
@@ -11762,16 +11762,16 @@
               ]
             }
           ],
-          "latest_matched": false,
-          "latest_state": null,
+          "latest_matched": true,
+          "latest_state": "soft_fail",
           "latest_build_number": 11269,
           "primary_label": "Entrypoints Integration (API Server OpenAI - Part 1)",
           "raw_variant_count": 1,
-          "latest_url": null
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dcc-4917-b34b-8cac8ee42250&tab=output"
         }
       },
       "coverage_count": 1,
-      "nightly_coverage_count": 0,
+      "nightly_coverage_count": 1,
       "architectures_present": [
         "mi355"
       ],

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-26T11:39:29Z",
+  "generated_at": "2026-07-26T12:46:29Z",
   "top_offenders": [
     {
       "test_id": "mi355_1: Kernels MoE Test 2::__unidentified_failures__",
@@ -22,6 +22,29 @@
         "F"
       ],
       "module": "mi355_1: Kernels MoE Test 2",
+      "mean_duration": 0.0
+    },
+    {
+      "test_id": "mi355_1: Kernels MoE Test 4::__unidentified_failures__",
+      "label": "failing",
+      "pass_rate": 0.0,
+      "appearances": 29,
+      "last_seen": "2026-07-26",
+      "first_failure": "2026-06-26",
+      "failure_streak": 29,
+      "history": [
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F"
+      ],
+      "module": "mi355_1: Kernels MoE Test 4",
       "mean_duration": 0.0
     },
     {
@@ -114,29 +137,6 @@
         "F"
       ],
       "module": "mi355_1: Kernels MoE Test 3",
-      "mean_duration": 0.0
-    },
-    {
-      "test_id": "mi355_1: Kernels MoE Test 4::__unidentified_failures__",
-      "label": "failing",
-      "pass_rate": 0.0,
-      "appearances": 28,
-      "last_seen": "2026-07-25",
-      "first_failure": "2026-06-26",
-      "failure_streak": 28,
-      "history": [
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F"
-      ],
-      "module": "mi355_1: Kernels MoE Test 4",
       "mean_duration": 0.0
     },
     {
@@ -855,15 +855,15 @@
       "passing": 1
     },
     {
-      "module": "mi355_1: Language Models Test (Extended Pooling)",
-      "avg_pass_rate": 0.2333,
+      "module": "mi355_1: V1 Sample + Logits",
+      "avg_pass_rate": 0.2286,
       "total_tests": 5,
       "failing": 3,
       "flaky": 0,
       "passing": 1
     },
     {
-      "module": "mi355_1: V1 Sample + Logits",
+      "module": "mi355_1: Language Models Test (Extended Pooling)",
       "avg_pass_rate": 0.2333,
       "total_tests": 5,
       "failing": 3,
@@ -1108,6 +1108,14 @@
       "total_tests": 4,
       "failing": 3,
       "flaky": 0,
+      "passing": 1
+    },
+    {
+      "module": "mi355_1: V1 attention (B200-MI355)",
+      "avg_pass_rate": 0.3125,
+      "total_tests": 5,
+      "failing": 1,
+      "flaky": 1,
       "passing": 1
     },
     {
@@ -1559,6 +1567,14 @@
       "passing": 1
     },
     {
+      "module": "mi300_4: Distributed DP Tests (4 GPUs)",
+      "avg_pass_rate": 0.3333,
+      "total_tests": 4,
+      "failing": 2,
+      "flaky": 0,
+      "passing": 1
+    },
+    {
       "module": "mi300_4: Distributed NixlConnector PD accuracy (4 GPUs)",
       "avg_pass_rate": 0.3333,
       "total_tests": 3,
@@ -1618,14 +1634,6 @@
       "module": "mi355_1: V1 Spec Decode",
       "avg_pass_rate": 0.3333,
       "total_tests": 4,
-      "failing": 1,
-      "flaky": 1,
-      "passing": 1
-    },
-    {
-      "module": "mi355_1: V1 attention (B200-MI355)",
-      "avg_pass_rate": 0.3333,
-      "total_tests": 5,
       "failing": 1,
       "flaky": 1,
       "passing": 1
@@ -2039,14 +2047,6 @@
       "passing": 1
     },
     {
-      "module": "mi300_4: Distributed DP Tests (4 GPUs)",
-      "avg_pass_rate": 0.5,
-      "total_tests": 4,
-      "failing": 1,
-      "flaky": 0,
-      "passing": 1
-    },
-    {
       "module": "mi300_4: Hybrid SSM NixlConnector PD accuracy tests (4 GPUs)",
       "avg_pass_rate": 0.5,
       "total_tests": 2,
@@ -2208,9 +2208,9 @@
     {
       "build_number": 11269,
       "date": "2026-07-26",
-      "pass_rate": 0.9853,
-      "total": 21038,
-      "failed": 216
+      "pass_rate": 0.9893,
+      "total": 44220,
+      "failed": 268
     },
     {
       "build_number": 11257,
