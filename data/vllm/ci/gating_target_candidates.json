@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-27T20:54:19Z",
+  "generated_at": "2026-07-27T21:31:25Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -23,15 +23,15 @@
     "upstream_build": 80394,
     "amd_ci_build": 11301,
     "canonical_target_count": 125,
-    "row_count": 240,
+    "row_count": 241,
     "canonical_match_count": 107,
     "likely_duplicate_count": 18,
     "new_candidate_count": 59,
-    "excluded_count": 46,
+    "excluded_count": 47,
     "missing_from_upstream_count": 10,
     "by_decision": {
       "canonical": 107,
-      "excluded": 46,
+      "excluded": 47,
       "likely_duplicate": 18,
       "missing_from_upstream": 10,
       "new_candidate": 59
@@ -838,7 +838,7 @@
       "canonical_key": "kernels core operation test",
       "state": "passed",
       "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-be74-4360-8d81-6328e463a77c&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-be75-4068-8b82-9deb77b9fdc4&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 7,
@@ -1418,7 +1418,7 @@
       "canonical_key": "python-only installation",
       "state": "failed",
       "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-be98-4e35-b7f7-e4a6890f9724&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa4bc-25a7-4fa2-9b96-2a343b97f963&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 94,
@@ -1723,7 +1723,7 @@
       "canonical_key": "v1 attention",
       "state": "passed",
       "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-bdb3-4f98-976c-15ef4b6e5e95&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-bdb0-4096-b5be-8406c6f7ff53&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 103,
@@ -1870,9 +1870,9 @@
     {
       "label": "Basic Models Tests (Extra Initialization) 1",
       "canonical_key": "basic models test (extra initialization) 1",
-      "state": "failed",
+      "state": "passed",
       "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-bea8-4ca4-b696-d5217b208f0a&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa4c2-9663-46bf-8ea5-7cd197adcfd5&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -3484,6 +3484,18 @@
       "decision": "excluded"
     },
     {
+      "label": "Docker Build Metadata",
+      "canonical_key": "docker build metadata",
+      "state": "passed",
+      "queue": "small_cpu_queue_premerge",
+      "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-bdfa-485c-a2ba-fee6bf2a409c&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu",
+        "docker_metadata_review"
+      ],
+      "decision": "excluded"
+    },
+    {
       "label": "GPQA Eval (GPT-OSS) (DGX Spark)",
       "canonical_key": "gpqa eval (gpt-oss) (dgx spark)",
       "state": "passed",
@@ -3596,9 +3608,9 @@
     {
       "label": "Model Runner V2 Examples",
       "canonical_key": "model runner v2 examples",
-      "state": "failed",
+      "state": "passed",
       "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-bea3-4ace-8f87-d32c74ff758f&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa4be-a30b-4268-8912-ac931c02b58e&tab=output",
       "exclusion_reasons": [
         "experimental_model_runner_v2"
       ],
