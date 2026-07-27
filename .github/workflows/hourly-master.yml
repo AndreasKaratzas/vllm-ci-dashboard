@@ -80,9 +80,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python scripts/vllm/collect_capacity_monitor.py --output data/vllm/ci/
 
-      - name: Collect AMD gating target list
-        run: python scripts/vllm/collect_gating_targets.py --output data/vllm/ci/
-
       - name: Watch queue latency (open/close issues)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -113,6 +110,12 @@ jobs:
               echo "$LIVE" > data/vllm/ci/$f
             fi
           done
+
+      # This deterministic snapshot must be rebuilt after the gh-pages sync.
+      # Otherwise the live copy above can overwrite its fresh generated_at
+      # timestamp with an older artifact.
+      - name: Collect AMD gating target list
+        run: python scripts/vllm/collect_gating_targets.py --output data/vllm/ci/
 
       - name: Collect AMD hotness (3d window)
         env:
@@ -381,11 +384,15 @@ jobs:
             echo "$OUTPUT"
             echo "TESTEOF"
           } >> "$GITHUB_OUTPUT"
-          # Don't fail the workflow — tests are informational
-          # Failures create issues via the next step
 
       - name: Run dashboard data audit
         run: python scripts/vllm/audit_dashboard_data.py
+
+      - name: Enforce test suite result
+        if: github.event.inputs.skip_tests != 'true' && steps.run-tests.outputs.exit_code != '0'
+        run: |
+          echo "::error::Dashboard tests failed; refusing to publish a site that has not passed validation."
+          exit 1
 
       # ── Phase 5: Commit + Deploy ──
       - name: Commit and push
@@ -412,7 +419,10 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_site
           publish_branch: gh-pages
-          keep_files: true
+          # This is the canonical complete deployment. Replacing the branch
+          # purges retired artifacts that partial collectors intentionally keep.
+          keep_files: false
+          force_orphan: true
 
       - name: Post-deploy validation (check gh-pages for corruption)
         id: post-deploy-validation
@@ -448,7 +458,7 @@ jobs:
 
       # ── Phase 6: Issue management (test failures) ──
       - name: Create issue on test failure
-        if: steps.run-tests.outputs.exit_code != '0' && steps.run-tests.outputs.exit_code != ''
+        if: always() && steps.run-tests.outputs.exit_code != '0' && steps.run-tests.outputs.exit_code != ''
         uses: actions/github-script@v7
         with:
           script: |
@@ -508,7 +518,7 @@ jobs:
             }
 
       - name: Close issue on test success
-        if: steps.run-tests.outputs.exit_code == '0'
+        if: always() && steps.run-tests.outputs.exit_code == '0'
         uses: actions/github-script@v7
         with:
           script: |

@@ -432,20 +432,12 @@ class TestFrontendFiles:
         js = (DOCS / "assets" / "js" / "dashboard.js").read_text()
         assert "_TC" in js, "dashboard.js must use _TC theme constants"
 
-    def test_engineer_activity_deactivated(self):
-        """Engineer Activity section must be commented out / not called."""
+    def test_retired_engineer_activity_assets_are_not_loaded(self):
         js = (DOCS / "assets" / "js" / "ci-health.js").read_text()
-        # Strip block comments, then check renderEngineers doesn't appear in active code
-        stripped = re.sub(r'/\*.*?\*/', '', js, flags=re.DOTALL)
-        # After removing comments, renderEngineers should only exist in the function definition
-        # not in an active call like renderEngineers(box,eng,prs)
-        calls = re.findall(r'renderEngineers\s*\(', stripped)
-        # The function definition is 'function renderEngineers(' — that's ok
-        # An active call would be just 'renderEngineers(' without 'function' before it
-        active_calls = [c for c in re.findall(r'(?<!function\s)renderEngineers\s*\(', stripped)]
-        assert not active_calls, (
-            "renderEngineers is still actively called — should be commented out"
-        )
+
+        assert "renderEngineers" not in js
+        assert "engineer_activity.json" not in js
+        assert "pr_scores.json" not in js
 
     def test_queue_comparison_has_data_source_link(self):
         """Queue Comparison tab must link to Buildkite queues for traceability."""

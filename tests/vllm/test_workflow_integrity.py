@@ -210,6 +210,21 @@ class TestHourlyMasterWorkflow:
         assert "collect_gating_targets.py" in text
         assert "gating_targets.json" in text
 
+    def test_hourly_rebuilds_gating_targets_after_live_data_sync(self):
+        data = _load_workflow("hourly-master.yml")
+        job = next(iter(data["jobs"].values()))
+        steps = job.get("steps", []) or []
+        names = [step.get("name") for step in steps]
+
+        sync = names.index("Sync CI data from gh-pages")
+        collect = names.index("Collect AMD gating target list")
+        candidates = names.index("Collect AMD gating target candidate audit")
+
+        assert sync < collect < candidates
+        assert steps[collect]["run"] == (
+            "python scripts/vllm/collect_gating_targets.py --output data/vllm/ci/"
+        )
+
     def test_calls_collect_gating_target_candidates(self):
         text = _load_workflow_text("hourly-master.yml")
         assert "collect_gating_target_candidates.py" in text
@@ -240,6 +255,17 @@ class TestHourlyMasterWorkflow:
     def test_runs_pytest(self):
         text = _load_workflow_text("hourly-master.yml")
         assert "pytest" in text
+
+    def test_failed_tests_block_publication(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        names = [step.get("name") for step in steps]
+        enforce = steps[names.index("Enforce test suite result")]
+        assert "steps.run-tests.outputs.exit_code != '0'" in enforce["if"]
+        assert names.index("Enforce test suite result") < names.index("Assemble site")
+        assert names.index("Enforce test suite result") < names.index(
+            "Deploy to GitHub Pages"
+        )
 
     def test_has_buildkite_token(self):
         text = _load_workflow_text("hourly-master.yml")
@@ -336,9 +362,8 @@ class TestFrameworkIsolation:
         """All workflows that deploy to gh-pages must sync CI data from gh-pages first,
         to prevent overwriting fresh CI data with stale copies from main."""
         for wf in self._deploying_workflows():
-            # ci-collect.yml produces CI data itself, so it doesn't need to sync
             # pr-preview.yml deploys to a subdirectory (pr-preview/pr-N), not root
-            if wf in ("ci-collect.yml", "pr-preview.yml"):
+            if wf == "pr-preview.yml":
                 continue
             text = _load_workflow_text(wf)
             assert "git fetch origin gh-pages" in text or "git show origin/gh-pages" in text, (
@@ -464,7 +489,7 @@ class TestDeployDataFreshness:
 
     @pytest.mark.parametrize(
         "workflow",
-        ["hourly-master.yml", "queue-monitor.yml", "daily-update.yml", "deploy-pages.yml"],
+        ["hourly-master.yml", "deploy-pages.yml"],
     )
     def test_queue_history_is_merged_by_timestamp(self, workflow):
         text = _load_workflow_text(workflow)
@@ -475,7 +500,7 @@ class TestDeployDataFreshness:
 
     @pytest.mark.parametrize(
         "workflow",
-        ["hourly-master.yml", "queue-monitor.yml", "daily-update.yml", "deploy-pages.yml"],
+        ["hourly-master.yml", "deploy-pages.yml"],
     )
     def test_queue_history_merge_precedes_retention_prune(self, workflow):
         data = _load_workflow(workflow)
@@ -562,6 +587,16 @@ class TestDeployDataFreshness:
                 f"deploy-pages.yml writes {f} from gh-pages to local, which "
                 f"overwrites fresh main data with stale copies. Remove the sync."
             )
+
+    def test_manual_root_deploy_rebuilds_and_audits_before_assembly(self):
+        data = _load_workflow("deploy-pages.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        names = [step.get("name") for step in steps]
+        assert (
+            names.index("Rebuild v2 operations snapshot")
+            < names.index("Run dashboard data audit")
+            < names.index("Assemble site")
+        )
 
     def test_hourly_master_syncs_before_collection(self):
         """hourly-master.yml may sync CI data from gh-pages, but ONLY

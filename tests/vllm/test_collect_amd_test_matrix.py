@@ -16,6 +16,7 @@ from vllm.collect_amd_test_matrix import (
     merge_latest_job_indexes,
     parse_steps,
     strip_shard_index,
+    yaml_url_for_build,
 )
 
 
@@ -49,6 +50,18 @@ steps:
     agent_pool: mi355_1
     parallelism: 4
 """
+
+
+def test_default_yaml_url_is_pinned_to_the_observed_build_commit():
+    commit = "7f599d78546819948c32f2b23d913507bbb38875"
+
+    assert yaml_url_for_build({"commit": commit}) == (
+        "https://raw.githubusercontent.com/vllm-project/vllm/"
+        f"{commit}/.buildkite/test-amd.yaml"
+    )
+    assert yaml_url_for_build(
+        {"commit": commit}, "https://example.invalid/override.yml"
+    ) == "https://example.invalid/override.yml"
 
 
 def _parity_row(amd_job_name, hw, url, failed=0):

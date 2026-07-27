@@ -2304,60 +2304,6 @@
     box.append(det);
   }
 
-  function renderEngineers(box,eng,prs) {
-    if(!eng?.profiles?.length) return;
-    const det=h('details',{style:{marginBottom:'8px',background:C.bg,border:`1px solid ${C.bd}`,borderRadius:'8px'}});
-    det.append(h('summary',{html:`Engineer Activity <span style="color:${C.m}">(${eng.total_engineers} contributors)</span>`,style:{padding:'12px 16px',cursor:'pointer',fontSize:'14px',fontWeight:'600'}}));
-
-    // Normalize scores to 0-10 scale
-    const maxScore=Math.max(...eng.profiles.map(p=>p.activity_score),1);
-    const cc={kernel:C.r,model:C.p,engine:C.b,test:C.y,ci:C.o,api:C.g,docs:C.m,config:C.m};
-
-    const tbl=h('table',{style:{width:'100%',borderCollapse:'collapse',fontSize:'14px'}});
-    tbl.append(h('thead',{},[h('tr',{},[
-      h('th',{text:'Engineer',style:ts()}),h('th',{text:'Score',style:ts('center')}),
-      h('th',{text:'Avg',style:ts('center')}),h('th',{text:'PRs',style:ts('center')}),
-      h('th',{text:'Merged',style:ts('center')}),h('th',{text:'Areas',style:ts()})
-    ])]));
-    const tb=h('tbody');
-    for(const p of eng.profiles.slice(0,15)) {
-      const normScore=(p.activity_score/maxScore*10).toFixed(1);
-      const tags=(p.categories_touched||[]).slice(0,4).map(c=>`<span style="background:${cc[c]||C.bd};color:#fff;padding:2px 7px;border-radius:3px;font-size:12px;margin-right:2px">${c}</span>`).join('');
-      tb.append(h('tr',{},[
-        h('td',{html:LinkRegistry.aTag(LinkRegistry.github.user(p.author), p.author),style:td()}),
-        h('td',{style:td('center')},[bar(p.activity_score/maxScore,'60px')]),
-        h('td',{text:p.avg_importance.toFixed(1),style:td('center')}),
-        h('td',{text:String(p.total_prs),style:td('center')}),
-        h('td',{text:String(p.merged),style:{...tdo('center'),color:p.merged>0?C.g:C.m}}),
-        h('td',{html:tags,style:td()})
-      ]));
-    }
-    tbl.append(tb);
-    det.append(h('div',{style:{padding:'0 16px 12px'}},[tbl]));
-
-    // PR scores subsection
-    if(prs?.prs?.length) {
-      det.append(h('div',{style:{padding:'0 16px',borderTop:`1px solid ${C.bd}`,marginTop:'8px',paddingTop:'12px'}},[
-        h('h4',{text:`Top PRs by Importance (${prs.total_prs_scored} scored)`,style:{marginBottom:'8px',fontSize:'13px'}})
-      ]));
-      const ptbl=h('table',{style:{width:'100%',borderCollapse:'collapse',fontSize:'14px'}});
-      ptbl.append(h('thead',{},[h('tr',{},[h('th',{text:'PR',style:ts()}),h('th',{text:'Score',style:ts('center')}),h('th',{text:'Author',style:ts()})])]));
-      const ptb=h('tbody');
-      const dc={major:C.g,significant:C.b,moderate:C.y,minor:C.m,trivial:'#484f58'};
-      for(const p of prs.prs.slice(0,10)) {
-        const i=p.importance;
-        ptb.append(h('tr',{},[
-          h('td',{html:LinkRegistry.aTag(LinkRegistry.github.pr('vllm-project/vllm', p.number), '#' + p.number) + ' ' + escapeHtml(p.title.slice(0,50)) + (p.title.length>50?'...':''),style:td()}),
-          h('td',{html:`<span style="color:${dc[i.category]||C.m};font-weight:600">${i.score}</span>`,style:td('center')}),
-          h('td',{html:LinkRegistry.aTag(LinkRegistry.github.user(p.author), p.author, {style:'color:'+C.m}),style:td()})
-        ]));
-      }
-      ptbl.append(ptb);
-      det.append(h('div',{style:{padding:'0 16px 12px'}},[ptbl]));
-    }
-    box.append(det);
-  }
-
   // ═══════════════════════ STYLE HELPERS ═══════════════════════
   function ts(a){return{textAlign:a||'left',padding:'8px 12px',borderBottom:`2px solid ${C.bd}`,color:C.m,fontSize:'12px',textTransform:'uppercase',fontWeight:'600'}}
   function td(a){return{textAlign:a||'left',padding:'8px 12px',borderBottom:`1px solid ${C.bd}`,color:C.t,fontSize:'14px'}}
@@ -2393,15 +2339,15 @@
     let externalPromise = null;
 
     function loadExternalSignalData() {
-      if (data.parity || data.cp || data.flaky || data.trends || data.eng || data.prs) {
+      if (data.parity || data.cp || data.flaky || data.trends) {
         return Promise.resolve(data);
       }
       if (!externalPromise) {
         externalPromise = Promise.all([
           J(`${CI}/parity_report.json`),J(`${CI}/config_parity.json`),J(`${CI}/flaky_tests.json`),
-          J(`${CI}/failure_trends.json`),J(`${VD}/engineer_activity.json`),J(`${VD}/pr_scores.json`)
-        ]).then(([parity, cp, flaky, trends, eng, prs]) => {
-          Object.assign(data, {parity, cp, flaky, trends, eng, prs});
+          J(`${CI}/failure_trends.json`)
+        ]).then(([parity, cp, flaky, trends]) => {
+          Object.assign(data, {parity, cp, flaky, trends});
           return data;
         });
       }
@@ -2438,7 +2384,7 @@
   }
 
   function renderExternalSignal(box, data) {
-    const {health, parity, cp, flaky, trends, eng, prs} = data;
+    const {health, parity, cp, flaky, trends} = data;
     box.append(h('h3',{text:'Internal CI signal',style:{fontSize:'18px',margin:'0 0 6px'}}));
     box.append(h('p',{text:'Secondary view: this compares vllm/amd-ci with the upstream vllm/ci runtime signal. Treat it as diagnostic context; upstream names can include CPU, AMD-like, and NVIDIA hardware labels.',style:{color:C.m,fontSize:'13px',margin:'0 0 14px',maxWidth:'980px'}}));
 
@@ -2461,7 +2407,7 @@
     // Update build URLs in the link registry
     LinkRegistry.bk.updateBuildUrls(health);
 
-    for(const[n,fn]of[['Metrics',()=>renderMetrics(box,health,parity)],['Hardware',()=>renderHardware(box,health,parity)],['Trend',()=>renderTrend(box,health)],['Heatmap',()=>renderHeatmap(box,parity)],['Groups',()=>renderGroups(box,parity)],['Flaky',()=>renderFlaky(box,flaky)],['Offenders',()=>renderOffenders(box,trends)],['ConfigParity',()=>renderConfigParity(box,cp)]/*,['Engineers',()=>renderEngineers(box,eng,prs)]*/]){try{fn()}catch(e){console.error(`CI Health ${n}:`,e);box.append(h('div',{text:`[${n} error: ${e.message}]`,style:{color:C.r,padding:'8px',fontSize:'13px'}}))}}
+    for(const[n,fn]of[['Metrics',()=>renderMetrics(box,health,parity)],['Hardware',()=>renderHardware(box,health,parity)],['Trend',()=>renderTrend(box,health)],['Heatmap',()=>renderHeatmap(box,parity)],['Groups',()=>renderGroups(box,parity)],['Flaky',()=>renderFlaky(box,flaky)],['Offenders',()=>renderOffenders(box,trends)],['ConfigParity',()=>renderConfigParity(box,cp)]]){try{fn()}catch(e){console.error(`CI Health ${n}:`,e);box.append(h('div',{text:`[${n} error: ${e.message}]`,style:{color:C.r,padding:'8px',fontSize:'13px'}}))}}
   }
 
   // ═══════════════════════ MAIN ═══════════════════════

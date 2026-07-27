@@ -42,6 +42,8 @@ sys.path.insert(0, str(SCRIPTS))
 from collect_ci import (  # noqa: E402
     _cache_covers_all_jobs,
     _cached_job_names,
+    _find_false_normalization_merges,
+    _find_missing_parity_groups,
     _is_parity_excluded_group,
     _should_verify_cache_coverage,
 )
@@ -130,6 +132,43 @@ class TestParityCandidateExclusions:
 
     def test_real_gpu_queue_groups_remain_parity_candidates(self):
         assert not _is_parity_excluded_group("mi325_1: engine (1 gpu)")
+
+
+class TestParityCollectorValidation:
+    @staticmethod
+    def _result(job_name: str):
+        return type("Result", (), {"job_name": job_name})()
+
+    def test_cross_hardware_variants_are_not_false_merges(self):
+        results = [
+            self._result("mi250_1: Engine (1 GPU)"),
+            self._result("mi300_1: Engine (1 GPU)"),
+        ]
+        assert _find_false_normalization_merges(results) == []
+
+    def test_same_hardware_non_shard_merge_is_reported(self):
+        results = [
+            self._result("mi250_1: Engine (1 GPU)"),
+            self._result("mi250_1: Engine (1 GPU) # duplicate"),
+        ]
+        false_merges = _find_false_normalization_merges(results)
+        assert len(false_merges) == 1
+        assert false_merges[0][0:2] == ("mi250", "engine (1 gpu)")
+
+    def test_configured_same_hardware_shards_are_not_false_merges(self):
+        results = [
+            self._result("mi300_1: LoRA 0"),
+            self._result("mi300_1: LoRA 1"),
+        ]
+        assert _find_false_normalization_merges(results) == []
+
+    def test_missing_group_check_uses_only_supplied_current_cohort(self):
+        current = [self._result("mi300_1: Current Group")]
+        parity = {"job_groups": [{"name": "current group"}]}
+        assert _find_missing_parity_groups(current, parity) == []
+        assert _find_missing_parity_groups(current, {"job_groups": []}) == [
+            "current group",
+        ]
 
 
 class TestCacheCoversAllJobs:

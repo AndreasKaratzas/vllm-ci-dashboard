@@ -134,6 +134,8 @@ window.__OPS_CONTROL_V2_READY__ = true;
       const item = items[key] || {};
       const num = Number(item.issue_number || key);
       if (!(num > masterIssueNumber)) return;
+      const issueState = String(item.issue_state || '').trim().toLowerCase();
+      if (issueState && issueState !== 'open') return;
       const title = String(item.title || '').trim();
       if (!title) return;
       byTitle[title] = item;
@@ -453,7 +455,7 @@ window.__OPS_CONTROL_V2_READY__ = true;
       if (window.OpsV2 && typeof window.OpsV2.loadSections === 'function') {
         operationsPromise = window.OpsV2.loadSections(['reliability']);
       } else {
-        operationsPromise = fetch('data/vllm/ci/operations_v2.json?_=' + Math.floor(Date.now() / 300000))
+        operationsPromise = fetch('data/vllm/ci/operations_v2/reliability.json?_=' + Math.floor(Date.now() / 300000))
           .then(function(response) { return response.ok ? response.json() : null; });
       }
       operationsPromise = operationsPromise.catch(function() { return null; });

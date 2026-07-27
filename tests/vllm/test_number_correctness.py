@@ -597,6 +597,17 @@ class TestSkipPatternsRobust:
         for p in SKIP_JOB_PATTERNS:
             assert len(p) >= 4, f"Skip pattern '{p}' is too short — risk of false matches"
 
+    def test_docker_metadata_test_is_not_filtered_as_infrastructure(self):
+        from vllm.pipelines import SKIP_JOB_PATTERNS
+
+        test_name = "mi250_1: Docker Build Metadata (ROCm)".lower()
+        infra_name = "AMD: :docker: ensure ci_base".lower()
+        legacy_infra_name = "AMD: Docker build test image and artifacts".lower()
+
+        assert not any(pattern in test_name for pattern in SKIP_JOB_PATTERNS)
+        assert any(pattern in infra_name for pattern in SKIP_JOB_PATTERNS)
+        assert any(pattern in legacy_infra_name for pattern in SKIP_JOB_PATTERNS)
+
     def test_patterns_dont_match_upstream_groups(self):
         """Skip patterns must not match any upstream test group names."""
         from vllm.pipelines import SKIP_JOB_PATTERNS

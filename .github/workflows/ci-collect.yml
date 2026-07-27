@@ -1,12 +1,8 @@
 name: CI Data Collection
 
-# Runs daily at 7 AM CT, then re-checks every 3 hours to pick up
-# completed jobs from builds that were still running.
-# Also triggered by Buildkite webhook via repository_dispatch
-# or manually via workflow_dispatch.
+# Legacy/manual focused CI collector. The authoritative hourly-master workflow
+# owns Buildkite completion events and all root GitHub Pages publication.
 on:
-  repository_dispatch:
-    types: [buildkite_build_finished]
   workflow_dispatch:
     inputs:
       days:
@@ -19,8 +15,7 @@ on:
         default: 'both'
 
 concurrency:
-  # Shares the same lock as every workflow that publishes to gh-pages so
-  # queue, CI, manual, and preview deploys never overlap on the branch.
+  # Serialize its main-branch data commit with the canonical collector.
   group: gh-pages-deploy
   cancel-in-progress: false
 
@@ -89,22 +84,11 @@ jobs:
           else
             git commit -m "ci: update vLLM CI data $(date -u +%Y-%m-%d)"
             # Push to main is best-effort — branch protection may block it.
-            # The deploy to gh-pages below ensures data is always published.
+            # Root publication is deliberately owned by hourly-master.
             if git pull --rebase origin main; then
-              git push || echo "::warning::Push to main failed (branch protection). Data will be deployed to gh-pages directly."
+              git push || echo "::warning::Push to main failed (branch protection). Run hourly-master to recollect and publish."
             else
               git rebase --abort || true
-              echo "::warning::Rebase against origin/main failed; deploying from the pre-rebase tree instead."
+              echo "::warning::Rebase against origin/main failed; no data was published."
             fi
           fi
-
-      - name: Assemble site
-        run: python scripts/build_site.py --cache-bust-index
-
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./_site
-          publish_branch: gh-pages
-          keep_files: true

@@ -142,9 +142,13 @@ def test_ready_separates_latest_failures_from_stale_last_known_state():
     assert stale, "the retained snapshot should keep stale last-known evidence separately"
 
 
+def test_ready_ignores_closed_project_items():
+    assert "issueState && issueState !== 'open'" in READY
+
+
 def test_ready_resolves_strict_operations_evidence_and_exact_group_urls():
     for contract in (
-        "data/vllm/ci/operations_v2.json",
+        "data/vllm/ci/operations_v2/reliability.json",
         "operations.reliability.group_catalog",
         "entry.raw_names",
         "entry.queues",

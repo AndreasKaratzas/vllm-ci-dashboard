@@ -168,9 +168,8 @@ class TestSiteAssemblyCorrectness:
 
     ASSEMBLY_WORKFLOWS = [
         "deploy-pages.yml",
-        "daily-update.yml",
-        "ci-collect.yml",
-        "queue-monitor.yml",
+        "hourly-master.yml",
+        "pr-preview.yml",
     ]
 
     @pytest.mark.parametrize("wf_name", ASSEMBLY_WORKFLOWS)
@@ -227,22 +226,18 @@ class TestQueueMonitorWorkflow:
             "queue-monitor must have workflow_dispatch or schedule trigger"
         )
 
-    def test_has_deploy_step(self, workflow):
-        """Queue monitor must deploy to gh-pages so data reaches the dashboard."""
+    def test_does_not_publish_a_partial_root_site(self, workflow):
+        """The queue collector must not overwrite unrelated live dashboard data."""
         steps = workflow["jobs"]["snapshot"]["steps"]
-        step_names = [s.get("name", "") for s in steps]
-        has_deploy = any("deploy" in n.lower() or "pages" in n.lower() for n in step_names)
-        has_deploy = has_deploy or any(
+        has_deploy = any(
             "peaceiris/actions-gh-pages" in str(s.get("uses", "")) for s in steps
         )
-        assert has_deploy, "queue-monitor.yml must include a deploy step to push data to gh-pages"
+        assert not has_deploy
 
-    def test_has_assemble_step(self, workflow):
+    def test_does_not_assemble_a_partial_site(self, workflow):
         steps = workflow["jobs"]["snapshot"]["steps"]
         step_names = [s.get("name", "") for s in steps]
-        assert any("assemble" in n.lower() for n in step_names), (
-            "queue-monitor.yml must assemble the site before deploying"
-        )
+        assert not any("assemble" in n.lower() for n in step_names)
 
     def test_workflow_references_correct_script(self):
         path = WORKFLOWS / "queue-monitor.yml"
@@ -257,18 +252,14 @@ class TestQueueMonitorWorkflow:
         perms = workflow.get("permissions", {})
         assert perms.get("contents") == "write", "queue-monitor needs contents:write to push data"
 
-    def test_push_failure_does_not_block_deploy(self):
-        """The push to main may fail due to branch protection. The workflow must
-        not abort before the deploy step — it should treat push as best-effort."""
+    def test_push_failure_is_non_blocking(self):
+        """A protected main branch should produce a clear warning, not a crash."""
         path = WORKFLOWS / "queue-monitor.yml"
         if not path.exists():
             pytest.skip("queue-monitor.yml not present")
         content = path.read_text()
-        # The push command must use || (or continue-on-error) so failure
-        # doesn't abort the job before the deploy step runs
         assert "|| " in content or "continue-on-error" in content, (
-            "queue-monitor push to main must be non-blocking (use || or "
-            "continue-on-error) so deploy to gh-pages always runs"
+            "queue-monitor push to main must be non-blocking"
         )
 
     def test_workflow_syncs_from_gh_pages(self):

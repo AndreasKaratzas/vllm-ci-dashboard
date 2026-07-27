@@ -604,10 +604,7 @@ class TestSiteBuildAssembly:
     def test_pages_workflows_use_shared_build_script(self):
         for rel in (
             ".github/workflows/deploy-pages.yml",
-            ".github/workflows/daily-update.yml",
-            ".github/workflows/ci-collect.yml",
             ".github/workflows/hourly-master.yml",
-            ".github/workflows/queue-monitor.yml",
             ".github/workflows/pr-preview.yml",
         ):
             text = (ROOT / rel).read_text()

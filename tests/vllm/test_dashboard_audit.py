@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from vllm import audit_dashboard_data as audit_module
 from vllm.audit_dashboard_data import (
     DATA_SPECS,
     ROOT,
@@ -35,6 +36,8 @@ def test_dashboard_audit_covers_core_user_facing_data_files():
         "data/vllm/ci/gating_proposals.json",
         "data/vllm/ci/queue_timeseries.jsonl",
         "data/vllm/ci/operations_v2.json",
+        "data/vllm/ci/project_items.json",
+        "data/vllm/ci/omni_surge_heuristic.json",
         "data/vllm/perf_eval/perf_eval.json",
     } <= covered
 
@@ -58,6 +61,27 @@ def test_dashboard_audit_json_cli_is_parseable():
     payload = json.loads(result.stdout)
     assert payload["errors"] == []
     assert "amd_matrix" in payload["metrics"]
+
+
+def test_publication_budget_rejects_an_oversized_file(tmp_path, monkeypatch):
+    (tmp_path / "config").mkdir()
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data/public.json").write_text("{}")
+    (tmp_path / "config/public_data_manifest.json").write_text(json.dumps({
+        "required_files": ["public.json"],
+        "optional_files": [],
+        "optional_globs": [],
+    }))
+    monkeypatch.setattr(audit_module, "PUBLIC_FILE_WARN_BYTES", 1)
+    monkeypatch.setattr(audit_module, "PUBLIC_FILE_HARD_BYTES", 1)
+    monkeypatch.setattr(audit_module, "PUBLIC_SITE_WARN_BYTES", 100)
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_publication_size()
+
+    assert {finding.code for finding in audit.report.errors} == {
+        "public-file-budget"
+    }
 
 
 def test_operations_audit_rejects_cross_pipeline_links_and_trajectory(tmp_path):
@@ -186,6 +210,83 @@ def test_operations_audit_handles_malformed_nested_types_without_crashing(tmp_pa
     assert audit.report.errors
 
 
+def test_operations_audit_rejects_mixed_latest_and_retained_amd_counts(tmp_path):
+    ci = tmp_path / "data/vllm/ci"
+    ci.mkdir(parents=True)
+    (ci / "operations_v2.json").write_text(json.dumps({
+        "schema_version": 2,
+        "amd_test_health": {
+            "available": True,
+            "summary": {
+                "build_count": 1,
+                "retained_group_count": 3,
+                "group_count": 3,
+                "union_group_count": 3,
+                "latest_group_count": 3,
+                "latest_build_number": 10,
+                "latest_state_counts": {
+                    "passed": 1,
+                    "soft": 1,
+                    "hard": 0,
+                    "unknown": 0,
+                },
+            },
+            "builds": [{
+                "build_number": 10,
+                "observed": 2,
+                "state_counts": {
+                    "passed": 1,
+                    "soft": 1,
+                    "hard": 0,
+                    "unknown": 0,
+                },
+            }],
+            "group_catalog": [
+                {"id": "current-pass", "latest_build_number": 10},
+                {"id": "current-soft", "latest_build_number": 10},
+                {"id": "historical-only", "latest_build_number": 9},
+            ],
+        },
+    }))
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_operations_v2()
+    codes = {finding.code for finding in audit.report.errors}
+
+    assert "operations-amd-latest-state-count" in codes
+    assert "operations-amd-latest-catalog-count" in codes
+
+
+def test_operations_audit_rejects_file_mtime_as_source_freshness(
+    tmp_path, monkeypatch
+):
+    ci = tmp_path / "data/vllm/ci"
+    ci.mkdir(parents=True)
+    (ci / "operations_v2.json").write_text(json.dumps({
+        "schema_version": 2,
+        "generated_at": "2026-07-27T12:00:00Z",
+        "sources": {
+            "analytics": {
+                "path": "analytics.json",
+                "timestamp": "2026-07-27T11:00:00Z",
+                "timestamp_source": "file_mtime",
+            }
+        },
+    }))
+    monkeypatch.setattr(
+        audit_module,
+        "OPERATIONS_FRESH_SOURCE_KEYS",
+        frozenset({"analytics"}),
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_operations_v2()
+
+    assert "operations-source-provenance" in {
+        finding.code for finding in audit.report.errors
+    }
+
+
 def test_dashboard_audit_allows_in_progress_hardware_count_drift(tmp_path):
     ci = tmp_path / "data/vllm/ci"
     ci.mkdir(parents=True)
@@ -271,7 +372,7 @@ def test_dashboard_audit_allows_in_progress_hardware_count_drift(tmp_path):
     assert "parity-matrix-hardware-failing-in-progress" in warning_codes
 
 
-def test_dashboard_audit_allows_one_group_cross_view_hardware_drift(tmp_path):
+def test_dashboard_audit_rejects_one_group_cross_view_hardware_drift(tmp_path):
     ci = tmp_path / "data/vllm/ci"
     ci.mkdir(parents=True)
 
@@ -344,11 +445,10 @@ def test_dashboard_audit_allows_one_group_cross_view_hardware_drift(tmp_path):
 
     audit = DashboardAudit(tmp_path)
     audit.audit_amd_matrix()
-    assert not audit.report.errors
-    warning_codes = {finding.code for finding in audit.report.warnings}
-    assert "matrix-health-hardware-count-drift" in warning_codes
-    assert "parity-matrix-hardware-total-drift" in warning_codes
-    assert "parity-matrix-hardware-failing-drift" in warning_codes
+    error_codes = {finding.code for finding in audit.report.errors}
+    assert "matrix-health-hardware-count" in error_codes
+    assert "parity-matrix-hardware-total" in error_codes
+    assert "parity-matrix-hardware-failing" in error_codes
 
 
 def test_dashboard_audit_compares_health_with_observed_matrix_cells(tmp_path):

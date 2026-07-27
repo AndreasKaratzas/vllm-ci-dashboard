@@ -38,6 +38,10 @@ RAW_YAML_URL = (
     "https://raw.githubusercontent.com/vllm-project/vllm/"
     "refs/heads/main/.buildkite/test-amd.yaml"
 )
+RAW_YAML_URL_TEMPLATE = (
+    "https://raw.githubusercontent.com/vllm-project/vllm/"
+    "{commit}/.buildkite/test-amd.yaml"
+)
 BUILDKITE_BUILD_URL = (
     "https://api.buildkite.com/v2/organizations/vllm/"
     "pipelines/amd-ci/builds/{build_number}"
@@ -670,6 +674,19 @@ def fetch_yaml_text(url: str) -> str:
     return resp.text
 
 
+def yaml_url_for_build(
+    latest_build: dict[str, Any] | None,
+    explicit_url: str | None = None,
+) -> str:
+    """Resolve the AMD YAML that governed the observed nightly."""
+    if explicit_url:
+        return explicit_url
+    commit = clean_label((latest_build or {}).get("commit", ""))
+    if re.fullmatch(r"[0-9a-f]{40}", commit, re.I):
+        return RAW_YAML_URL_TEMPLATE.format(commit=commit)
+    return RAW_YAML_URL
+
+
 def parse_steps(yaml_text: str) -> tuple[list[dict[str, Any]], list[str]]:
     parsed = yaml.safe_load(yaml_text) or {}
     raw_steps = parsed.get("steps", []) if isinstance(parsed, dict) else []
@@ -1174,7 +1191,12 @@ def build_matrix(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Collect AMD test-group coverage matrix")
     parser.add_argument("--output", type=str, default=str(OUTPUT))
-    parser.add_argument("--yaml-url", type=str, default=RAW_YAML_URL)
+    parser.add_argument(
+        "--yaml-url",
+        type=str,
+        default=None,
+        help="Explicit YAML URL override (default: the latest AMD build commit)",
+    )
     return parser.parse_args()
 
 
@@ -1194,11 +1216,12 @@ def main() -> None:
     parity = _load_json(output / "parity_report.json", {})
     shard_bases = _load_json(output / "shard_bases.json", [])
 
-    log.info("Fetching AMD YAML from %s", args.yaml_url)
-    yaml_text = fetch_yaml_text(args.yaml_url)
-    steps, architectures = parse_steps(yaml_text)
     latest_job_index, analytics_latest_build = build_latest_job_index(analytics, shard_bases)
     latest_build = latest_build_metadata(analytics_latest_build, ci_health, parity)
+    yaml_url = yaml_url_for_build(latest_build, args.yaml_url)
+    log.info("Fetching build-pinned AMD YAML from %s", yaml_url)
+    yaml_text = fetch_yaml_text(yaml_url)
+    steps, architectures = parse_steps(yaml_text)
     buildkite_job_index = fetch_buildkite_job_index(
         latest_build.get("number") if latest_build else None,
         os.getenv("BUILDKITE_TOKEN", "").strip(),
@@ -1225,7 +1248,7 @@ def main() -> None:
         parity_exact_index=parity_exact_index,
         parity_norm_index=parity_norm_index,
         shard_bases=shard_bases,
-        yaml_url=args.yaml_url,
+        yaml_url=yaml_url,
     )
 
     out_path = output / "amd_test_matrix.json"

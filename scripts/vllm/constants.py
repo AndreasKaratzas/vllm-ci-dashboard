@@ -198,10 +198,8 @@ OMNI_SURGE_HEALTHY_RATIO = 0.7  # healthy threshold = floor(trigger * ratio)
 
 OMNI_REPO = "vllm-project/vllm-omni"
 OMNI_YAML_PATHS = (
-    ".buildkite/test-amd.yaml",
-    ".buildkite/test-amd-ready.yaml",
-    ".buildkite/test-amd-merge.yml",
-    ".buildkite/test-amd-merge.yaml",
+    ".buildkite/amd/test-amd-ready.yml",
+    ".buildkite/amd/test-amd-merge.yml",
 )
 
 # ---------------------------------------------------------------------------
