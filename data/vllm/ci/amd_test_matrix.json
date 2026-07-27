@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-27T01:33:45Z",
+  "generated_at": "2026-07-27T05:44:09Z",
   "source": {
     "yaml_url": "https://raw.githubusercontent.com/vllm-project/vllm/refs/heads/main/.buildkite/test-amd.yaml",
     "latest_build_number": 11269,
@@ -77,13 +77,13 @@
       }
     },
     "architecture_count": 3,
-    "hardware_cells": 190,
-    "latest_matched_cells": 190,
+    "hardware_cells": 189,
+    "latest_matched_cells": 189,
     "passing_cells": 138,
-    "failing_cells": 52,
+    "failing_cells": 51,
     "waiting_cells": 0,
     "unknown_cells": 0,
-    "fully_shared_groups": 1,
+    "fully_shared_groups": 0,
     "single_arch_groups": 131,
     "multi_variant_cells": 0
   },
@@ -91,8 +91,8 @@
     {
       "id": "mi250",
       "label": "MI250",
-      "group_count": 23,
-      "nightly_match_count": 23
+      "group_count": 22,
+      "nightly_match_count": 22
     },
     {
       "id": "mi300",
@@ -1493,163 +1493,13 @@
       "duplicate_group_size": 1
     },
     {
-      "id": "matrix-row-5bc8cd9dd71f6293",
-      "title": "V1 attention",
-      "canonical_title": "V1 attention",
-      "definition_fingerprint": "definition-36bbeb1f4250bc8f",
-      "command_fingerprint": "commands-34061a18454691d0",
-      "area": "Attention",
-      "yaml_order": 16,
-      "cells": {
-        "mi250": {
-          "exists": true,
-          "optional": false,
-          "variant_count": 1,
-          "variants": [
-            {
-              "label": "V1 attention (H100-MI250)",
-              "agent_pool": "mi250_1",
-              "optional": false,
-              "parallelism": 1,
-              "latest_matched": true,
-              "latest_match_count": 1,
-              "latest_state": "soft_fail",
-              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d14-4791-846d-c892dd034f4f&tab=output",
-              "aliases": [
-                "V1 attention (H100-MI250)"
-              ],
-              "raw_variant_count": 1,
-              "entries": [
-                {
-                  "label": "V1 attention (H100-MI250)",
-                  "agent_pool": "mi250_1",
-                  "optional": false,
-                  "parallelism": 1,
-                  "latest_matched": true,
-                  "latest_match_count": 1,
-                  "latest_state": "soft_fail",
-                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d14-4791-846d-c892dd034f4f&tab=output",
-                  "aliases": [
-                    "V1 attention (H100-MI250)"
-                  ],
-                  "raw_variant_count": 1
-                }
-              ]
-            }
-          ],
-          "latest_matched": true,
-          "latest_state": "soft_fail",
-          "latest_build_number": 11269,
-          "primary_label": "V1 attention (H100-MI250)",
-          "raw_variant_count": 1,
-          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2d14-4791-846d-c892dd034f4f&tab=output"
-        },
-        "mi300": {
-          "exists": true,
-          "optional": true,
-          "variant_count": 1,
-          "variants": [
-            {
-              "label": "V1 attention (H100-MI300)",
-              "agent_pool": "mi300_1",
-              "optional": true,
-              "parallelism": 1,
-              "latest_matched": true,
-              "latest_match_count": 1,
-              "latest_state": "soft_fail",
-              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dbc-46e5-8401-ee0d27b1b8e6&tab=output",
-              "aliases": [
-                "V1 attention (H100-MI300)"
-              ],
-              "raw_variant_count": 1,
-              "entries": [
-                {
-                  "label": "V1 attention (H100-MI300)",
-                  "agent_pool": "mi300_1",
-                  "optional": true,
-                  "parallelism": 1,
-                  "latest_matched": true,
-                  "latest_match_count": 1,
-                  "latest_state": "soft_fail",
-                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dbc-46e5-8401-ee0d27b1b8e6&tab=output",
-                  "aliases": [
-                    "V1 attention (H100-MI300)"
-                  ],
-                  "raw_variant_count": 1
-                }
-              ]
-            }
-          ],
-          "latest_matched": true,
-          "latest_state": "soft_fail",
-          "latest_build_number": 11269,
-          "primary_label": "V1 attention (H100-MI300)",
-          "raw_variant_count": 1,
-          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dbc-46e5-8401-ee0d27b1b8e6&tab=output"
-        },
-        "mi355": {
-          "exists": true,
-          "optional": false,
-          "variant_count": 1,
-          "variants": [
-            {
-              "label": "V1 attention (B200-MI355)",
-              "agent_pool": "mi355_1",
-              "optional": false,
-              "parallelism": 1,
-              "latest_matched": true,
-              "latest_match_count": 1,
-              "latest_state": "soft_fail",
-              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2de6-4b85-ac35-cb77794612fc&tab=output",
-              "aliases": [
-                "V1 attention (B200-MI355)"
-              ],
-              "raw_variant_count": 1,
-              "entries": [
-                {
-                  "label": "V1 attention (B200-MI355)",
-                  "agent_pool": "mi355_1",
-                  "optional": false,
-                  "parallelism": 1,
-                  "latest_matched": true,
-                  "latest_match_count": 1,
-                  "latest_state": "soft_fail",
-                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2de6-4b85-ac35-cb77794612fc&tab=output",
-                  "aliases": [
-                    "V1 attention (B200-MI355)"
-                  ],
-                  "raw_variant_count": 1
-                }
-              ]
-            }
-          ],
-          "latest_matched": true,
-          "latest_state": "soft_fail",
-          "latest_build_number": 11269,
-          "primary_label": "V1 attention (B200-MI355)",
-          "raw_variant_count": 1,
-          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2de6-4b85-ac35-cb77794612fc&tab=output"
-        }
-      },
-      "coverage_count": 3,
-      "nightly_coverage_count": 3,
-      "architectures_present": [
-        "mi250",
-        "mi300",
-        "mi355"
-      ],
-      "signature": "MI250 + MI300 + MI355",
-      "duplicate_group_id": "duplicate-group-d7fabe0d0253a6be",
-      "duplicate_group_size": 1
-    },
-    {
       "id": "matrix-row-13b2a8aee9a1734e",
       "title": "V1 others (CPU)",
       "canonical_title": "V1 others (CPU)",
       "definition_fingerprint": "definition-5f6035e46bbfd4ba",
       "command_fingerprint": "commands-9ad1061d5f0af2c8",
       "area": "V1",
-      "yaml_order": 17,
+      "yaml_order": 16,
       "cells": {
         "mi250": {
           "exists": true,
@@ -1717,7 +1567,7 @@
       "definition_fingerprint": "definition-abed1b793a8cacb9",
       "command_fingerprint": "commands-a0cdacf1fa45d184",
       "area": "Engine",
-      "yaml_order": 18,
+      "yaml_order": 17,
       "cells": {
         "mi250": {
           "exists": true,
@@ -1785,7 +1635,7 @@
       "definition_fingerprint": "definition-cc7367406c99166c",
       "command_fingerprint": "commands-ec77b7036d6ed971",
       "area": "Other",
-      "yaml_order": 19,
+      "yaml_order": 18,
       "cells": {
         "mi250": {
           "exists": true,
@@ -1853,7 +1703,7 @@
       "definition_fingerprint": "definition-3a31e8cc91da5038",
       "command_fingerprint": "commands-e37e81c5c047e331",
       "area": "Other",
-      "yaml_order": 20,
+      "yaml_order": 19,
       "cells": {
         "mi250": {
           "exists": true,
@@ -1921,7 +1771,7 @@
       "definition_fingerprint": "definition-e08b01c7ecfd5448",
       "command_fingerprint": "commands-c3f23c234acd259b",
       "area": "Other",
-      "yaml_order": 21,
+      "yaml_order": 20,
       "cells": {
         "mi250": {
           "exists": true,
@@ -1989,7 +1839,7 @@
       "definition_fingerprint": "definition-656d0bcbed274825",
       "command_fingerprint": "commands-49c2213ef20d9646",
       "area": "Other",
-      "yaml_order": 22,
+      "yaml_order": 21,
       "cells": {
         "mi250": {
           "exists": true,
@@ -2057,7 +1907,7 @@
       "definition_fingerprint": "definition-7f13d9ba1b163f52",
       "command_fingerprint": "commands-2f8a710704d279dc",
       "area": "Other",
-      "yaml_order": 23,
+      "yaml_order": 22,
       "cells": {
         "mi250": {
           "exists": false
@@ -2125,7 +1975,7 @@
       "definition_fingerprint": "definition-3135d001ea9c7220",
       "command_fingerprint": "commands-e620140ea5c3ac77",
       "area": "Distributed",
-      "yaml_order": 24,
+      "yaml_order": 23,
       "cells": {
         "mi250": {
           "exists": false
@@ -2193,7 +2043,7 @@
       "definition_fingerprint": "definition-510434b5770d3e9c",
       "command_fingerprint": "commands-5af4a9543d07aa96",
       "area": "Benchmarks",
-      "yaml_order": 25,
+      "yaml_order": 24,
       "cells": {
         "mi250": {
           "exists": false
@@ -2261,7 +2111,7 @@
       "definition_fingerprint": "definition-3d1fd05bbdf9bfac",
       "command_fingerprint": "commands-835ebe2cc77ba3d3",
       "area": "Compile",
-      "yaml_order": 26,
+      "yaml_order": 25,
       "cells": {
         "mi250": {
           "exists": false
@@ -2329,7 +2179,7 @@
       "definition_fingerprint": "definition-be6cdbead39d44de",
       "command_fingerprint": "commands-f4e0c9fbddcd77b7",
       "area": "Other",
-      "yaml_order": 27,
+      "yaml_order": 26,
       "cells": {
         "mi250": {
           "exists": false
@@ -2397,7 +2247,7 @@
       "definition_fingerprint": "definition-29c14b50fa6073e7",
       "command_fingerprint": "commands-ac3df29b6cc7c27e",
       "area": "Other",
-      "yaml_order": 28,
+      "yaml_order": 27,
       "cells": {
         "mi250": {
           "exists": false
@@ -2465,7 +2315,7 @@
       "definition_fingerprint": "definition-f2719d9fd506cc3f",
       "command_fingerprint": "commands-eb86a3748320e383",
       "area": "Compile",
-      "yaml_order": 29,
+      "yaml_order": 28,
       "cells": {
         "mi250": {
           "exists": false
@@ -2533,7 +2383,7 @@
       "definition_fingerprint": "definition-2273cafacf0043c5",
       "command_fingerprint": "commands-6148a16b47618132",
       "area": "Compile",
-      "yaml_order": 30,
+      "yaml_order": 29,
       "cells": {
         "mi250": {
           "exists": false
@@ -2601,7 +2451,7 @@
       "definition_fingerprint": "definition-669847b1f9484b64",
       "command_fingerprint": "commands-8f66a58510f5b3e4",
       "area": "Other",
-      "yaml_order": 31,
+      "yaml_order": 30,
       "cells": {
         "mi250": {
           "exists": false
@@ -2669,7 +2519,7 @@
       "definition_fingerprint": "definition-59349d584ee06265",
       "command_fingerprint": "commands-19d36565b0ccf955",
       "area": "Distributed",
-      "yaml_order": 32,
+      "yaml_order": 31,
       "cells": {
         "mi250": {
           "exists": false
@@ -2737,7 +2587,7 @@
       "definition_fingerprint": "definition-d1f559e73b14e20b",
       "command_fingerprint": "commands-11c9e8a1f63d14a1",
       "area": "Distributed",
-      "yaml_order": 33,
+      "yaml_order": 32,
       "cells": {
         "mi250": {
           "exists": false
@@ -2805,7 +2655,7 @@
       "definition_fingerprint": "definition-f6b7b7b9ff04082e",
       "command_fingerprint": "commands-d570a49c8dd9a7f7",
       "area": "Other",
-      "yaml_order": 34,
+      "yaml_order": 33,
       "cells": {
         "mi250": {
           "exists": false
@@ -2873,7 +2723,7 @@
       "definition_fingerprint": "definition-792900cb4459834e",
       "command_fingerprint": "commands-5f09c1bb9284c803",
       "area": "Engine",
-      "yaml_order": 35,
+      "yaml_order": 34,
       "cells": {
         "mi250": {
           "exists": false
@@ -2941,7 +2791,7 @@
       "definition_fingerprint": "definition-db7522a40e703b40",
       "command_fingerprint": "commands-636677e02731a672",
       "area": "Distributed",
-      "yaml_order": 36,
+      "yaml_order": 35,
       "cells": {
         "mi250": {
           "exists": false
@@ -3009,7 +2859,7 @@
       "definition_fingerprint": "definition-4f0979a4b924b56f",
       "command_fingerprint": "commands-66ee28def5f9ee9c",
       "area": "Distributed",
-      "yaml_order": 37,
+      "yaml_order": 36,
       "cells": {
         "mi250": {
           "exists": false
@@ -3077,7 +2927,7 @@
       "definition_fingerprint": "definition-79beed061c10a54a",
       "command_fingerprint": "commands-9902b9c1fe6f4561",
       "area": "Distributed",
-      "yaml_order": 38,
+      "yaml_order": 37,
       "cells": {
         "mi250": {
           "exists": false
@@ -3145,7 +2995,7 @@
       "definition_fingerprint": "definition-ae17034114820335",
       "command_fingerprint": "commands-af6f0bed83eaef07",
       "area": "Distributed",
-      "yaml_order": 39,
+      "yaml_order": 38,
       "cells": {
         "mi250": {
           "exists": false
@@ -3213,7 +3063,7 @@
       "definition_fingerprint": "definition-ec10722270c79a07",
       "command_fingerprint": "commands-70e39222cddee882",
       "area": "Distributed",
-      "yaml_order": 40,
+      "yaml_order": 39,
       "cells": {
         "mi250": {
           "exists": false
@@ -3281,7 +3131,7 @@
       "definition_fingerprint": "definition-65bf6e640b0d18f4",
       "command_fingerprint": "commands-c8a836670d6a4aea",
       "area": "Distributed",
-      "yaml_order": 41,
+      "yaml_order": 40,
       "cells": {
         "mi250": {
           "exists": false
@@ -3349,7 +3199,7 @@
       "definition_fingerprint": "definition-23b5b8853210aaba",
       "command_fingerprint": "commands-e8a40cfe962b601f",
       "area": "Distributed",
-      "yaml_order": 42,
+      "yaml_order": 41,
       "cells": {
         "mi250": {
           "exists": false
@@ -3417,7 +3267,7 @@
       "definition_fingerprint": "definition-b4e629e3cbbb5f20",
       "command_fingerprint": "commands-53fce9b20d48771b",
       "area": "Other",
-      "yaml_order": 43,
+      "yaml_order": 42,
       "cells": {
         "mi250": {
           "exists": false
@@ -3485,7 +3335,7 @@
       "definition_fingerprint": "definition-d5e0439340730109",
       "command_fingerprint": "commands-b6dd5893bce8c1be",
       "area": "Distributed",
-      "yaml_order": 44,
+      "yaml_order": 43,
       "cells": {
         "mi250": {
           "exists": false
@@ -3553,7 +3403,7 @@
       "definition_fingerprint": "definition-123b9b8d77aeac0e",
       "command_fingerprint": "commands-c02fd4f4bc09a8df",
       "area": "Distributed",
-      "yaml_order": 45,
+      "yaml_order": 44,
       "cells": {
         "mi250": {
           "exists": false
@@ -3621,7 +3471,7 @@
       "definition_fingerprint": "definition-6b1c6ecb441168d8",
       "command_fingerprint": "commands-646df4701be8a97c",
       "area": "Distributed",
-      "yaml_order": 46,
+      "yaml_order": 45,
       "cells": {
         "mi250": {
           "exists": false
@@ -3689,7 +3539,7 @@
       "definition_fingerprint": "definition-0adbbb6961e66184",
       "command_fingerprint": "commands-d2d2b8ba75714773",
       "area": "Engine",
-      "yaml_order": 47,
+      "yaml_order": 46,
       "cells": {
         "mi250": {
           "exists": false
@@ -3757,7 +3607,7 @@
       "definition_fingerprint": "definition-ebe12ca49985fbf3",
       "command_fingerprint": "commands-5fe30213d021cc3c",
       "area": "Entrypoints",
-      "yaml_order": 48,
+      "yaml_order": 47,
       "cells": {
         "mi250": {
           "exists": false
@@ -3825,7 +3675,7 @@
       "definition_fingerprint": "definition-b268c0edb84831c4",
       "command_fingerprint": "commands-dd3aee052856d776",
       "area": "Entrypoints",
-      "yaml_order": 49,
+      "yaml_order": 48,
       "cells": {
         "mi250": {
           "exists": false
@@ -3893,7 +3743,7 @@
       "definition_fingerprint": "definition-65785edd7ef6ae4b",
       "command_fingerprint": "commands-231b726b440785ee",
       "area": "Entrypoints",
-      "yaml_order": 50,
+      "yaml_order": 49,
       "cells": {
         "mi250": {
           "exists": false
@@ -4002,7 +3852,7 @@
       "definition_fingerprint": "definition-3ca0f914f21b3a0e",
       "command_fingerprint": "commands-79aa4fc9ca708883",
       "area": "Entrypoints",
-      "yaml_order": 51,
+      "yaml_order": 50,
       "cells": {
         "mi250": {
           "exists": false
@@ -4070,7 +3920,7 @@
       "definition_fingerprint": "definition-a9fe70fc6e09ff12",
       "command_fingerprint": "commands-982a4844dce21a66",
       "area": "Entrypoints",
-      "yaml_order": 52,
+      "yaml_order": 51,
       "cells": {
         "mi250": {
           "exists": false
@@ -4179,7 +4029,7 @@
       "definition_fingerprint": "definition-5e1faf8a92c4a5f7",
       "command_fingerprint": "commands-37bf4d2ed29a7f0d",
       "area": "Entrypoints",
-      "yaml_order": 53,
+      "yaml_order": 52,
       "cells": {
         "mi250": {
           "exists": false
@@ -4288,7 +4138,7 @@
       "definition_fingerprint": "definition-5889fa8e2bfb5ba6",
       "command_fingerprint": "commands-bd761a8da1828907",
       "area": "Entrypoints",
-      "yaml_order": 54,
+      "yaml_order": 53,
       "cells": {
         "mi250": {
           "exists": false
@@ -4356,7 +4206,7 @@
       "definition_fingerprint": "definition-de2c7fdcac0ef335",
       "command_fingerprint": "commands-f7694a542acd4232",
       "area": "Entrypoints",
-      "yaml_order": 55,
+      "yaml_order": 54,
       "cells": {
         "mi250": {
           "exists": false
@@ -4465,7 +4315,7 @@
       "definition_fingerprint": "definition-088dd52c71f6108b",
       "command_fingerprint": "commands-84287ea21464926d",
       "area": "Entrypoints",
-      "yaml_order": 56,
+      "yaml_order": 55,
       "cells": {
         "mi250": {
           "exists": false
@@ -4574,7 +4424,7 @@
       "definition_fingerprint": "definition-59467238d8ac1713",
       "command_fingerprint": "commands-e62ad003f818161e",
       "area": "Entrypoints",
-      "yaml_order": 57,
+      "yaml_order": 56,
       "cells": {
         "mi250": {
           "exists": false
@@ -4683,7 +4533,7 @@
       "definition_fingerprint": "definition-23374f082a2767bc",
       "command_fingerprint": "commands-3a28f5f404b94947",
       "area": "Entrypoints",
-      "yaml_order": 58,
+      "yaml_order": 57,
       "cells": {
         "mi250": {
           "exists": false
@@ -4751,7 +4601,7 @@
       "definition_fingerprint": "definition-70c058dffd792445",
       "command_fingerprint": "commands-5161d41b412849d2",
       "area": "Other",
-      "yaml_order": 59,
+      "yaml_order": 58,
       "cells": {
         "mi250": {
           "exists": false
@@ -4819,7 +4669,7 @@
       "definition_fingerprint": "definition-a43ca7dc2c142c98",
       "command_fingerprint": "commands-d55b566232b2ea9a",
       "area": "Evaluations",
-      "yaml_order": 60,
+      "yaml_order": 59,
       "cells": {
         "mi250": {
           "exists": false
@@ -4887,7 +4737,7 @@
       "definition_fingerprint": "definition-ea0699a3471341c3",
       "command_fingerprint": "commands-be8be16a695ddf58",
       "area": "Other",
-      "yaml_order": 61,
+      "yaml_order": 60,
       "cells": {
         "mi250": {
           "exists": false
@@ -4955,7 +4805,7 @@
       "definition_fingerprint": "definition-ee53acf48c40eca8",
       "command_fingerprint": "commands-463e53e7493f1000",
       "area": "Evaluations",
-      "yaml_order": 62,
+      "yaml_order": 61,
       "cells": {
         "mi250": {
           "exists": false
@@ -5023,7 +4873,7 @@
       "definition_fingerprint": "definition-62b5c47979d5e462",
       "command_fingerprint": "commands-96cd8dfe87b53660",
       "area": "Multi-Modal",
-      "yaml_order": 63,
+      "yaml_order": 62,
       "cells": {
         "mi250": {
           "exists": false
@@ -5091,7 +4941,7 @@
       "definition_fingerprint": "definition-bf3f673e7da644aa",
       "command_fingerprint": "commands-5cfb904cd6980088",
       "area": "Evaluations",
-      "yaml_order": 64,
+      "yaml_order": 63,
       "cells": {
         "mi250": {
           "exists": false
@@ -5159,7 +5009,7 @@
       "definition_fingerprint": "definition-aaa716ef27408ad9",
       "command_fingerprint": "commands-766e925b3db0b3dd",
       "area": "Evaluations",
-      "yaml_order": 65,
+      "yaml_order": 64,
       "cells": {
         "mi250": {
           "exists": false
@@ -5268,7 +5118,7 @@
       "definition_fingerprint": "definition-f0bf425627be57e2",
       "command_fingerprint": "commands-8232a64e09bb0213",
       "area": "Distributed",
-      "yaml_order": 66,
+      "yaml_order": 65,
       "cells": {
         "mi250": {
           "exists": false
@@ -5336,7 +5186,7 @@
       "definition_fingerprint": "definition-8b9dc8901a9acfc8",
       "command_fingerprint": "commands-48c2e3f9d519cc43",
       "area": "Evaluations",
-      "yaml_order": 67,
+      "yaml_order": 66,
       "cells": {
         "mi250": {
           "exists": false
@@ -5404,7 +5254,7 @@
       "definition_fingerprint": "definition-a9b0649854989633",
       "command_fingerprint": "commands-948f1985af76e0a5",
       "area": "Distributed",
-      "yaml_order": 68,
+      "yaml_order": 67,
       "cells": {
         "mi250": {
           "exists": false
@@ -5472,7 +5322,7 @@
       "definition_fingerprint": "definition-34eb2941ed024448",
       "command_fingerprint": "commands-fa3037209a0921d4",
       "area": "Distributed",
-      "yaml_order": 69,
+      "yaml_order": 68,
       "cells": {
         "mi250": {
           "exists": false
@@ -5540,7 +5390,7 @@
       "definition_fingerprint": "definition-84c9a53add84343b",
       "command_fingerprint": "commands-33eeb126ee29ab5f",
       "area": "Distributed",
-      "yaml_order": 70,
+      "yaml_order": 69,
       "cells": {
         "mi250": {
           "exists": false
@@ -5608,7 +5458,7 @@
       "definition_fingerprint": "definition-6dd7367242fa390f",
       "command_fingerprint": "commands-5ed40957e22bf22e",
       "area": "Evaluations",
-      "yaml_order": 71,
+      "yaml_order": 70,
       "cells": {
         "mi250": {
           "exists": false
@@ -5676,7 +5526,7 @@
       "definition_fingerprint": "definition-7918a411b8fa3fee",
       "command_fingerprint": "commands-8b23c730bb6790b0",
       "area": "Evaluations",
-      "yaml_order": 72,
+      "yaml_order": 71,
       "cells": {
         "mi250": {
           "exists": false
@@ -5744,7 +5594,7 @@
       "definition_fingerprint": "definition-4893af86c1b09ad5",
       "command_fingerprint": "commands-6eec158c4fba6cfe",
       "area": "Evaluations",
-      "yaml_order": 73,
+      "yaml_order": 72,
       "cells": {
         "mi250": {
           "exists": false
@@ -5853,7 +5703,7 @@
       "definition_fingerprint": "definition-c4eb1d1d596ff890",
       "command_fingerprint": "commands-8d3c94d027796817",
       "area": "Examples",
-      "yaml_order": 74,
+      "yaml_order": 73,
       "cells": {
         "mi250": {
           "exists": false
@@ -5962,7 +5812,7 @@
       "definition_fingerprint": "definition-04cd2527ca722b94",
       "command_fingerprint": "commands-3853bc9e1a40cec9",
       "area": "Other",
-      "yaml_order": 75,
+      "yaml_order": 74,
       "cells": {
         "mi250": {
           "exists": false
@@ -6030,7 +5880,7 @@
       "definition_fingerprint": "definition-0f21d83a11799804",
       "command_fingerprint": "commands-38dd9676811ad2f8",
       "area": "Kernels",
-      "yaml_order": 76,
+      "yaml_order": 75,
       "cells": {
         "mi250": {
           "exists": false
@@ -6139,7 +5989,7 @@
       "definition_fingerprint": "definition-1691e12891068167",
       "command_fingerprint": "commands-ce269823de4f2895",
       "area": "Kernels",
-      "yaml_order": 77,
+      "yaml_order": 76,
       "cells": {
         "mi250": {
           "exists": false
@@ -6207,7 +6057,7 @@
       "definition_fingerprint": "definition-37dcc9b7ab26fbeb",
       "command_fingerprint": "commands-77d9dfdc4e2eee2e",
       "area": "Kernels",
-      "yaml_order": 78,
+      "yaml_order": 77,
       "cells": {
         "mi250": {
           "exists": false
@@ -6275,7 +6125,7 @@
       "definition_fingerprint": "definition-a873346876024a7e",
       "command_fingerprint": "commands-6de1fe6a81600e45",
       "area": "Kernels",
-      "yaml_order": 79,
+      "yaml_order": 78,
       "cells": {
         "mi250": {
           "exists": false
@@ -6384,7 +6234,7 @@
       "definition_fingerprint": "definition-e8c029762a0f631f",
       "command_fingerprint": "commands-5b9c5b243f1c4bce",
       "area": "Kernels",
-      "yaml_order": 80,
+      "yaml_order": 79,
       "cells": {
         "mi250": {
           "exists": false
@@ -6493,7 +6343,7 @@
       "definition_fingerprint": "definition-a16f42b267fe3c4a",
       "command_fingerprint": "commands-755aed8aa8d97db2",
       "area": "Kernels",
-      "yaml_order": 81,
+      "yaml_order": 80,
       "cells": {
         "mi250": {
           "exists": false
@@ -6602,7 +6452,7 @@
       "definition_fingerprint": "definition-a1905f97ece91667",
       "command_fingerprint": "commands-57d1adb2fd085b7f",
       "area": "LoRA",
-      "yaml_order": 82,
+      "yaml_order": 81,
       "cells": {
         "mi250": {
           "exists": false
@@ -6670,7 +6520,7 @@
       "definition_fingerprint": "definition-7a87891282d2c52f",
       "command_fingerprint": "commands-2febb127bd8c9e70",
       "area": "Distributed",
-      "yaml_order": 83,
+      "yaml_order": 82,
       "cells": {
         "mi250": {
           "exists": false
@@ -6738,7 +6588,7 @@
       "definition_fingerprint": "definition-0b268aa03c9be13e",
       "command_fingerprint": "commands-4064adb2be664893",
       "area": "Other",
-      "yaml_order": 84,
+      "yaml_order": 83,
       "cells": {
         "mi250": {
           "exists": false
@@ -6806,7 +6656,7 @@
       "definition_fingerprint": "definition-fe3016f6ab55cc83",
       "command_fingerprint": "commands-d0c9a2c7e06cbbaa",
       "area": "Other",
-      "yaml_order": 85,
+      "yaml_order": 84,
       "cells": {
         "mi250": {
           "exists": false
@@ -6874,7 +6724,7 @@
       "definition_fingerprint": "definition-37b203b3f40ade04",
       "command_fingerprint": "commands-948ecaba57ef3100",
       "area": "Examples",
-      "yaml_order": 86,
+      "yaml_order": 85,
       "cells": {
         "mi250": {
           "exists": false
@@ -6942,7 +6792,7 @@
       "definition_fingerprint": "definition-c08887f7705da1ea",
       "command_fingerprint": "commands-c8b32f3c81c40739",
       "area": "Distributed",
-      "yaml_order": 87,
+      "yaml_order": 86,
       "cells": {
         "mi250": {
           "exists": false
@@ -7010,7 +6860,7 @@
       "definition_fingerprint": "definition-aad5ccbefd8d2453",
       "command_fingerprint": "commands-e890f53f9862f50f",
       "area": "Distributed",
-      "yaml_order": 88,
+      "yaml_order": 87,
       "cells": {
         "mi250": {
           "exists": false
@@ -7078,7 +6928,7 @@
       "definition_fingerprint": "definition-b1236e306a06e85a",
       "command_fingerprint": "commands-03f468778bfe5206",
       "area": "Spec Decode",
-      "yaml_order": 89,
+      "yaml_order": 88,
       "cells": {
         "mi250": {
           "exists": false
@@ -7146,7 +6996,7 @@
       "definition_fingerprint": "definition-d9032e861c320b07",
       "command_fingerprint": "commands-58146558b166efc9",
       "area": "Models",
-      "yaml_order": 90,
+      "yaml_order": 89,
       "cells": {
         "mi250": {
           "exists": false
@@ -7214,7 +7064,7 @@
       "definition_fingerprint": "definition-306cc8d73bc69f00",
       "command_fingerprint": "commands-478c2aad3172ece0",
       "area": "Models",
-      "yaml_order": 91,
+      "yaml_order": 90,
       "cells": {
         "mi250": {
           "exists": false
@@ -7282,7 +7132,7 @@
       "definition_fingerprint": "definition-0b8133d79cabc95e",
       "command_fingerprint": "commands-7146b63770969e8a",
       "area": "Models",
-      "yaml_order": 92,
+      "yaml_order": 91,
       "cells": {
         "mi250": {
           "exists": false
@@ -7350,7 +7200,7 @@
       "definition_fingerprint": "definition-0ed8885090163170",
       "command_fingerprint": "commands-920a9ad4c71ee066",
       "area": "Models",
-      "yaml_order": 93,
+      "yaml_order": 92,
       "cells": {
         "mi250": {
           "exists": false
@@ -7459,7 +7309,7 @@
       "definition_fingerprint": "definition-7c2d70d304d3c270",
       "command_fingerprint": "commands-57fa944130e3c4f7",
       "area": "Models",
-      "yaml_order": 94,
+      "yaml_order": 93,
       "cells": {
         "mi250": {
           "exists": false
@@ -7568,7 +7418,7 @@
       "definition_fingerprint": "definition-3036a7ed1ee53887",
       "command_fingerprint": "commands-5c1247dc00428503",
       "area": "Models",
-      "yaml_order": 95,
+      "yaml_order": 94,
       "cells": {
         "mi250": {
           "exists": false
@@ -7636,7 +7486,7 @@
       "definition_fingerprint": "definition-d5e013bcb8478d75",
       "command_fingerprint": "commands-4a4db1ba940f2b2b",
       "area": "Models",
-      "yaml_order": 96,
+      "yaml_order": 95,
       "cells": {
         "mi250": {
           "exists": false
@@ -7704,7 +7554,7 @@
       "definition_fingerprint": "definition-ee4f50e0e11f3fb3",
       "command_fingerprint": "commands-d8bedc74606b2e08",
       "area": "Models",
-      "yaml_order": 97,
+      "yaml_order": 96,
       "cells": {
         "mi250": {
           "exists": false
@@ -7772,7 +7622,7 @@
       "definition_fingerprint": "definition-62620e5daee2d222",
       "command_fingerprint": "commands-aff731ab31f3a98e",
       "area": "Multi-Modal",
-      "yaml_order": 98,
+      "yaml_order": 97,
       "cells": {
         "mi250": {
           "exists": false
@@ -7881,7 +7731,7 @@
       "definition_fingerprint": "definition-ce245693f91a9df4",
       "command_fingerprint": "commands-d5e37ffbb9f71fb9",
       "area": "Multi-Modal",
-      "yaml_order": 99,
+      "yaml_order": 98,
       "cells": {
         "mi250": {
           "exists": false
@@ -7949,7 +7799,7 @@
       "definition_fingerprint": "definition-23fcabdbc49c65c7",
       "command_fingerprint": "commands-816f14f5afb25682",
       "area": "Multi-Modal",
-      "yaml_order": 100,
+      "yaml_order": 99,
       "cells": {
         "mi250": {
           "exists": false
@@ -8058,7 +7908,7 @@
       "definition_fingerprint": "definition-2d565fe973d1f234",
       "command_fingerprint": "commands-c539826f72a7047f",
       "area": "Multi-Modal",
-      "yaml_order": 101,
+      "yaml_order": 100,
       "cells": {
         "mi250": {
           "exists": false
@@ -8167,7 +8017,7 @@
       "definition_fingerprint": "definition-86a63a15f49ff775",
       "command_fingerprint": "commands-45f40ef5156dd223",
       "area": "Multi-Modal",
-      "yaml_order": 102,
+      "yaml_order": 101,
       "cells": {
         "mi250": {
           "exists": false
@@ -8235,7 +8085,7 @@
       "definition_fingerprint": "definition-fb4b226b3f1b7bca",
       "command_fingerprint": "commands-fe568a07a2c11d68",
       "area": "Multi-Modal",
-      "yaml_order": 103,
+      "yaml_order": 102,
       "cells": {
         "mi250": {
           "exists": false
@@ -8303,7 +8153,7 @@
       "definition_fingerprint": "definition-eac5a13b22b64898",
       "command_fingerprint": "commands-266402db140ca42c",
       "area": "Multi-Modal",
-      "yaml_order": 104,
+      "yaml_order": 103,
       "cells": {
         "mi250": {
           "exists": false
@@ -8371,7 +8221,7 @@
       "definition_fingerprint": "definition-cac578bf54e5d9d0",
       "command_fingerprint": "commands-e8bf8780d099e401",
       "area": "Multi-Modal",
-      "yaml_order": 105,
+      "yaml_order": 104,
       "cells": {
         "mi250": {
           "exists": false
@@ -8480,7 +8330,7 @@
       "definition_fingerprint": "definition-bdca001b192a61c5",
       "command_fingerprint": "commands-e2374af2d4905a33",
       "area": "Multi-Modal",
-      "yaml_order": 106,
+      "yaml_order": 105,
       "cells": {
         "mi250": {
           "exists": false
@@ -8548,7 +8398,7 @@
       "definition_fingerprint": "definition-7dc1460b1a36320b",
       "command_fingerprint": "commands-faf08bf462cee971",
       "area": "Models",
-      "yaml_order": 107,
+      "yaml_order": 106,
       "cells": {
         "mi250": {
           "exists": false
@@ -8616,7 +8466,7 @@
       "definition_fingerprint": "definition-db021cc727e478d9",
       "command_fingerprint": "commands-fd6baee7ce208812",
       "area": "Other",
-      "yaml_order": 108,
+      "yaml_order": 107,
       "cells": {
         "mi250": {
           "exists": false
@@ -8684,7 +8534,7 @@
       "definition_fingerprint": "definition-13c63ce435016b46",
       "command_fingerprint": "commands-daf9a2d483a03e03",
       "area": "Other",
-      "yaml_order": 109,
+      "yaml_order": 108,
       "cells": {
         "mi250": {
           "exists": false
@@ -8752,7 +8602,7 @@
       "definition_fingerprint": "definition-3d5b043147fc03e3",
       "command_fingerprint": "commands-a085ea6a0a768127",
       "area": "Other",
-      "yaml_order": 110,
+      "yaml_order": 109,
       "cells": {
         "mi250": {
           "exists": false
@@ -8820,7 +8670,7 @@
       "definition_fingerprint": "definition-00cdb721552e8d0e",
       "command_fingerprint": "commands-79fbe1c2becc787b",
       "area": "Other",
-      "yaml_order": 111,
+      "yaml_order": 110,
       "cells": {
         "mi250": {
           "exists": false
@@ -8888,7 +8738,7 @@
       "definition_fingerprint": "definition-21b6b37d9280649b",
       "command_fingerprint": "commands-619768fd23891367",
       "area": "Other",
-      "yaml_order": 112,
+      "yaml_order": 111,
       "cells": {
         "mi250": {
           "exists": false
@@ -8956,7 +8806,7 @@
       "definition_fingerprint": "definition-ce013bf0154ba356",
       "command_fingerprint": "commands-0c16b883f8590b81",
       "area": "Entrypoints",
-      "yaml_order": 113,
+      "yaml_order": 112,
       "cells": {
         "mi250": {
           "exists": false
@@ -9024,7 +8874,7 @@
       "definition_fingerprint": "definition-ef51f6ffdbd7dea0",
       "command_fingerprint": "commands-baed1ec47b6aa24b",
       "area": "Other",
-      "yaml_order": 114,
+      "yaml_order": 113,
       "cells": {
         "mi250": {
           "exists": false
@@ -9092,7 +8942,7 @@
       "definition_fingerprint": "definition-51decfa16bb037f9",
       "command_fingerprint": "commands-e51389969f28e21c",
       "area": "Other",
-      "yaml_order": 115,
+      "yaml_order": 114,
       "cells": {
         "mi250": {
           "exists": false
@@ -9160,7 +9010,7 @@
       "definition_fingerprint": "definition-635b157df538c731",
       "command_fingerprint": "commands-3070edea92bc48a1",
       "area": "Other",
-      "yaml_order": 116,
+      "yaml_order": 115,
       "cells": {
         "mi250": {
           "exists": false
@@ -9228,7 +9078,7 @@
       "definition_fingerprint": "definition-d21bcc3f79fbaa20",
       "command_fingerprint": "commands-a210764166b3c635",
       "area": "Distributed",
-      "yaml_order": 117,
+      "yaml_order": 116,
       "cells": {
         "mi250": {
           "exists": false
@@ -9296,7 +9146,7 @@
       "definition_fingerprint": "definition-69fc9c1cdde07416",
       "command_fingerprint": "commands-4586ccf715d15ecb",
       "area": "Quantization",
-      "yaml_order": 118,
+      "yaml_order": 117,
       "cells": {
         "mi250": {
           "exists": false
@@ -9364,7 +9214,7 @@
       "definition_fingerprint": "definition-cc765cb3e0160dbb",
       "command_fingerprint": "commands-c26cf25476eea2e0",
       "area": "Other",
-      "yaml_order": 119,
+      "yaml_order": 118,
       "cells": {
         "mi250": {
           "exists": false
@@ -9432,7 +9282,7 @@
       "definition_fingerprint": "definition-42fbc77510e5a37c",
       "command_fingerprint": "commands-f5434aa428a5bf83",
       "area": "Other",
-      "yaml_order": 120,
+      "yaml_order": 119,
       "cells": {
         "mi250": {
           "exists": false
@@ -9500,7 +9350,7 @@
       "definition_fingerprint": "definition-112366f095653784",
       "command_fingerprint": "commands-8886f118c0dc3941",
       "area": "Other",
-      "yaml_order": 121,
+      "yaml_order": 120,
       "cells": {
         "mi250": {
           "exists": false
@@ -9609,7 +9459,7 @@
       "definition_fingerprint": "definition-985cc961c87c88a6",
       "command_fingerprint": "commands-59c3367049d3b05f",
       "area": "Other",
-      "yaml_order": 122,
+      "yaml_order": 121,
       "cells": {
         "mi250": {
           "exists": false
@@ -9677,7 +9527,7 @@
       "definition_fingerprint": "definition-ea123d7c4d53c17e",
       "command_fingerprint": "commands-26a464958715b872",
       "area": "Other",
-      "yaml_order": 123,
+      "yaml_order": 122,
       "cells": {
         "mi250": {
           "exists": false
@@ -9745,7 +9595,7 @@
       "definition_fingerprint": "definition-1b1c86c22658e75b",
       "command_fingerprint": "commands-9765ef0103dac4a6",
       "area": "Engine",
-      "yaml_order": 125,
+      "yaml_order": 124,
       "cells": {
         "mi250": {
           "exists": false
@@ -9813,7 +9663,7 @@
       "definition_fingerprint": "definition-8e4524d00775fc23",
       "command_fingerprint": "commands-fc3c3885939fa807",
       "area": "Spec Decode",
-      "yaml_order": 127,
+      "yaml_order": 126,
       "cells": {
         "mi250": {
           "exists": false
@@ -9881,7 +9731,7 @@
       "definition_fingerprint": "definition-4b5fc510a2b7b2ca",
       "command_fingerprint": "commands-d79a6873331bd249",
       "area": "Spec Decode",
-      "yaml_order": 128,
+      "yaml_order": 127,
       "cells": {
         "mi250": {
           "exists": false
@@ -9949,7 +9799,7 @@
       "definition_fingerprint": "definition-a48423f931a1d96d",
       "command_fingerprint": "commands-2b01359b12f40c1a",
       "area": "Spec Decode",
-      "yaml_order": 130,
+      "yaml_order": 129,
       "cells": {
         "mi250": {
           "exists": false
@@ -10017,7 +9867,7 @@
       "definition_fingerprint": "definition-09e38d032b575d15",
       "command_fingerprint": "commands-461a9fd8a6620f34",
       "area": "Spec Decode",
-      "yaml_order": 131,
+      "yaml_order": 130,
       "cells": {
         "mi250": {
           "exists": false
@@ -10126,7 +9976,7 @@
       "definition_fingerprint": "definition-31887c53ba62a5ca",
       "command_fingerprint": "commands-f08970f52bcf0b53",
       "area": "Other",
-      "yaml_order": 132,
+      "yaml_order": 131,
       "cells": {
         "mi250": {
           "exists": false
@@ -10188,13 +10038,122 @@
       "duplicate_group_size": 1
     },
     {
+      "id": "matrix-row-5bc8cd9dd71f6293",
+      "title": "V1 attention",
+      "canonical_title": "V1 attention",
+      "definition_fingerprint": "definition-ffa4b2587ec4170b",
+      "command_fingerprint": "commands-a227c2167d442387",
+      "area": "Attention",
+      "yaml_order": 132,
+      "cells": {
+        "mi250": {
+          "exists": false
+        },
+        "mi300": {
+          "exists": true,
+          "optional": true,
+          "variant_count": 1,
+          "variants": [
+            {
+              "label": "V1 attention (H100-MI300)",
+              "agent_pool": "mi300_1",
+              "optional": true,
+              "parallelism": 2,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dbc-46e5-8401-ee0d27b1b8e6&tab=output",
+              "aliases": [
+                "V1 attention (H100-MI300)"
+              ],
+              "raw_variant_count": 1,
+              "entries": [
+                {
+                  "label": "V1 attention (H100-MI300)",
+                  "agent_pool": "mi300_1",
+                  "optional": true,
+                  "parallelism": 2,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dbc-46e5-8401-ee0d27b1b8e6&tab=output",
+                  "aliases": [
+                    "V1 attention (H100-MI300)"
+                  ],
+                  "raw_variant_count": 1
+                }
+              ]
+            }
+          ],
+          "latest_matched": true,
+          "latest_state": "soft_fail",
+          "latest_build_number": 11269,
+          "primary_label": "V1 attention (H100-MI300)",
+          "raw_variant_count": 1,
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2dbc-46e5-8401-ee0d27b1b8e6&tab=output"
+        },
+        "mi355": {
+          "exists": true,
+          "optional": false,
+          "variant_count": 1,
+          "variants": [
+            {
+              "label": "V1 attention (B200-MI355)",
+              "agent_pool": "mi355_1",
+              "optional": false,
+              "parallelism": 2,
+              "latest_matched": true,
+              "latest_match_count": 1,
+              "latest_state": "soft_fail",
+              "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2de6-4b85-ac35-cb77794612fc&tab=output",
+              "aliases": [
+                "V1 attention (B200-MI355)"
+              ],
+              "raw_variant_count": 1,
+              "entries": [
+                {
+                  "label": "V1 attention (B200-MI355)",
+                  "agent_pool": "mi355_1",
+                  "optional": false,
+                  "parallelism": 2,
+                  "latest_matched": true,
+                  "latest_match_count": 1,
+                  "latest_state": "soft_fail",
+                  "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2de6-4b85-ac35-cb77794612fc&tab=output",
+                  "aliases": [
+                    "V1 attention (B200-MI355)"
+                  ],
+                  "raw_variant_count": 1
+                }
+              ]
+            }
+          ],
+          "latest_matched": true,
+          "latest_state": "soft_fail",
+          "latest_build_number": 11269,
+          "primary_label": "V1 attention (B200-MI355)",
+          "raw_variant_count": 1,
+          "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11269/steps/canvas?sid=019f9da8-2de6-4b85-ac35-cb77794612fc&tab=output"
+        }
+      },
+      "coverage_count": 2,
+      "nightly_coverage_count": 2,
+      "architectures_present": [
+        "mi300",
+        "mi355"
+      ],
+      "signature": "MI300 + MI355",
+      "duplicate_group_id": "duplicate-group-d7fabe0d0253a6be",
+      "duplicate_group_size": 1
+    },
+    {
       "id": "matrix-row-ca3befaacc562866",
       "title": "V1 Core + KV + Metrics",
       "canonical_title": "V1 Core + KV + Metrics",
       "definition_fingerprint": "definition-52f9392c4fe0f6fc",
       "command_fingerprint": "commands-edc48686331d08ec",
       "area": "V1",
-      "yaml_order": 134,
+      "yaml_order": 133,
       "cells": {
         "mi250": {
           "exists": false
@@ -10303,7 +10262,7 @@
       "definition_fingerprint": "definition-8050f16c494c782d",
       "command_fingerprint": "commands-a333e01ddca3eb85",
       "area": "V1",
-      "yaml_order": 135,
+      "yaml_order": 134,
       "cells": {
         "mi250": {
           "exists": false
@@ -10412,7 +10371,7 @@
       "definition_fingerprint": "definition-ece77b870d82a11d",
       "command_fingerprint": "commands-e2def489e245fdb5",
       "area": "Distributed",
-      "yaml_order": 136,
+      "yaml_order": 135,
       "cells": {
         "mi250": {
           "exists": false
@@ -10480,7 +10439,7 @@
       "definition_fingerprint": "definition-65a1df0fba69ff80",
       "command_fingerprint": "commands-cbbc5d345031a5b0",
       "area": "Other",
-      "yaml_order": 137,
+      "yaml_order": 136,
       "cells": {
         "mi250": {
           "exists": false
@@ -10548,7 +10507,7 @@
       "definition_fingerprint": "definition-c5bfcf172b2df85d",
       "command_fingerprint": "commands-ca40968ea5e54c2e",
       "area": "V1",
-      "yaml_order": 138,
+      "yaml_order": 137,
       "cells": {
         "mi250": {
           "exists": false
@@ -10616,7 +10575,7 @@
       "definition_fingerprint": "definition-55af9eeadf3aa544",
       "command_fingerprint": "commands-c3c0788dd3bafe76",
       "area": "Spec Decode",
-      "yaml_order": 139,
+      "yaml_order": 138,
       "cells": {
         "mi250": {
           "exists": false
@@ -10684,7 +10643,7 @@
       "definition_fingerprint": "definition-02e954284aa17076",
       "command_fingerprint": "commands-e5c6badb2479eb50",
       "area": "Distributed",
-      "yaml_order": 140,
+      "yaml_order": 139,
       "cells": {
         "mi250": {
           "exists": false
@@ -10752,7 +10711,7 @@
       "definition_fingerprint": "definition-cbd022d5a5501ab0",
       "command_fingerprint": "commands-ffba1f15ce67b230",
       "area": "Distributed",
-      "yaml_order": 141,
+      "yaml_order": 140,
       "cells": {
         "mi250": {
           "exists": false
@@ -10820,7 +10779,7 @@
       "definition_fingerprint": "definition-c911256d4472c524",
       "command_fingerprint": "commands-777f91b8ed629cb1",
       "area": "Distributed",
-      "yaml_order": 142,
+      "yaml_order": 141,
       "cells": {
         "mi250": {
           "exists": false
@@ -10888,7 +10847,7 @@
       "definition_fingerprint": "definition-5ed6752252949cc3",
       "command_fingerprint": "commands-d78d240ab94f169c",
       "area": "Distributed",
-      "yaml_order": 143,
+      "yaml_order": 142,
       "cells": {
         "mi250": {
           "exists": false
@@ -10956,7 +10915,7 @@
       "definition_fingerprint": "definition-9144386a96f3cff3",
       "command_fingerprint": "commands-eab3da0519313974",
       "area": "Other",
-      "yaml_order": 144,
+      "yaml_order": 143,
       "cells": {
         "mi250": {
           "exists": false
@@ -11024,7 +10983,7 @@
       "definition_fingerprint": "definition-264220cff368d969",
       "command_fingerprint": "commands-17f80c0ea2a3318f",
       "area": "Other",
-      "yaml_order": 145,
+      "yaml_order": 144,
       "cells": {
         "mi250": {
           "exists": false
@@ -11092,7 +11051,7 @@
       "definition_fingerprint": "definition-72e44316d1a96741",
       "command_fingerprint": "commands-5c8154f4a7647bfb",
       "area": "Other",
-      "yaml_order": 146,
+      "yaml_order": 145,
       "cells": {
         "mi250": {
           "exists": false
@@ -11160,7 +11119,7 @@
       "definition_fingerprint": "definition-06379f943d444c1d",
       "command_fingerprint": "commands-d51629a3430d0aea",
       "area": "Other",
-      "yaml_order": 147,
+      "yaml_order": 146,
       "cells": {
         "mi250": {
           "exists": false
@@ -11228,7 +11187,7 @@
       "definition_fingerprint": "definition-da63e9210fb7d836",
       "command_fingerprint": "commands-c6591dfabef117f6",
       "area": "V1",
-      "yaml_order": 148,
+      "yaml_order": 147,
       "cells": {
         "mi250": {
           "exists": false
@@ -11296,7 +11255,7 @@
       "definition_fingerprint": "definition-f67bf7ba9328172d",
       "command_fingerprint": "commands-70d543a85bde0fdd",
       "area": "V1",
-      "yaml_order": 149,
+      "yaml_order": 148,
       "cells": {
         "mi250": {
           "exists": false
@@ -11364,7 +11323,7 @@
       "definition_fingerprint": "definition-16242f0bb188b6aa",
       "command_fingerprint": "commands-4ef7fc1aae0289b8",
       "area": "Models",
-      "yaml_order": 150,
+      "yaml_order": 149,
       "cells": {
         "mi250": {
           "exists": false
@@ -11473,7 +11432,7 @@
       "definition_fingerprint": "definition-ce68c54c12e0c275",
       "command_fingerprint": "commands-47470aee197a58d1",
       "area": "Models",
-      "yaml_order": 151,
+      "yaml_order": 150,
       "cells": {
         "mi250": {
           "exists": false
@@ -11582,7 +11541,7 @@
       "definition_fingerprint": "definition-4949cd2d1cf2305a",
       "command_fingerprint": "commands-5802dc4cf2dff9ba",
       "area": "Attention",
-      "yaml_order": 152,
+      "yaml_order": 151,
       "cells": {
         "mi250": {
           "exists": false
@@ -11650,7 +11609,7 @@
       "definition_fingerprint": "definition-9720ac9284776bb7",
       "command_fingerprint": "commands-dd50ef8cc1c6162d",
       "area": "Distributed",
-      "yaml_order": 153,
+      "yaml_order": 152,
       "cells": {
         "mi250": {
           "exists": false
@@ -11718,7 +11677,7 @@
       "definition_fingerprint": "definition-9da3d8c348568eae",
       "command_fingerprint": "commands-0f4f022c27aeb5a8",
       "area": "Entrypoints",
-      "yaml_order": 155,
+      "yaml_order": 154,
       "cells": {
         "mi250": {
           "exists": false
@@ -11786,7 +11745,7 @@
       "definition_fingerprint": "definition-03cf5f85c0d80589",
       "command_fingerprint": "commands-92a4624a9fbc2699",
       "area": "Evaluations",
-      "yaml_order": 161,
+      "yaml_order": 160,
       "cells": {
         "mi250": {
           "exists": false
@@ -11854,7 +11813,7 @@
       "definition_fingerprint": "definition-7dd44e1ab79e1983",
       "command_fingerprint": "commands-2d9dd6e5f4e26671",
       "area": "Evaluations",
-      "yaml_order": 162,
+      "yaml_order": 161,
       "cells": {
         "mi250": {
           "exists": false
@@ -11922,7 +11881,7 @@
       "definition_fingerprint": "definition-c4aead333b8a9499",
       "command_fingerprint": "commands-71c391386b8485c5",
       "area": "Distributed",
-      "yaml_order": 164,
+      "yaml_order": 163,
       "cells": {
         "mi250": {
           "exists": false
@@ -11990,7 +11949,7 @@
       "definition_fingerprint": "definition-3fc5d2082a0b850e",
       "command_fingerprint": "commands-5b4500ade0cda626",
       "area": "Kernels",
-      "yaml_order": 167,
+      "yaml_order": 166,
       "cells": {
         "mi250": {
           "exists": false
@@ -12058,7 +12017,7 @@
       "definition_fingerprint": "definition-6ab7ec0ed1d05ac4",
       "command_fingerprint": "commands-6c82ca907f750f21",
       "area": "Models",
-      "yaml_order": 172,
+      "yaml_order": 171,
       "cells": {
         "mi250": {
           "exists": false
@@ -12126,7 +12085,7 @@
       "definition_fingerprint": "definition-ed9c5ed489de373e",
       "command_fingerprint": "commands-3f282cbd3b035eb4",
       "area": "Models",
-      "yaml_order": 174,
+      "yaml_order": 173,
       "cells": {
         "mi250": {
           "exists": false
@@ -12194,7 +12153,7 @@
       "definition_fingerprint": "definition-0ae2ed52e1166f45",
       "command_fingerprint": "commands-fe568a07a2c11d68",
       "area": "Multi-Modal",
-      "yaml_order": 180,
+      "yaml_order": 179,
       "cells": {
         "mi250": {
           "exists": false
@@ -12262,7 +12221,7 @@
       "definition_fingerprint": "definition-ce6f07d1a3f0a060",
       "command_fingerprint": "commands-faf08bf462cee971",
       "area": "Models",
-      "yaml_order": 181,
+      "yaml_order": 180,
       "cells": {
         "mi250": {
           "exists": false
@@ -12330,7 +12289,7 @@
       "definition_fingerprint": "definition-c8b240f3af9abb07",
       "command_fingerprint": "commands-4586ccf715d15ecb",
       "area": "Quantization",
-      "yaml_order": 182,
+      "yaml_order": 181,
       "cells": {
         "mi250": {
           "exists": false
