@@ -391,7 +391,7 @@ jobs:
       - name: Enforce test suite result
         if: github.event.inputs.skip_tests != 'true' && steps.run-tests.outputs.exit_code != '0'
         run: |
-          echo "::error::Dashboard tests failed; refusing to publish an unvalidated site."
+          echo "::error::Dashboard tests failed; refusing to publish a site that has not passed validation."
           exit 1
 
       # ── Phase 5: Commit + Deploy ──
