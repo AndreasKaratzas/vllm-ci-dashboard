@@ -54,6 +54,8 @@
     trajectoryWorkload: 'all',
     trajectoryHardware: 'all',
     trajectorySearch: '',
+    omniRange: '24h',
+    omniAge: 'all',
     perfView: 'performance',
     perfModel: 'all',
     perfDevice: 'all',
@@ -70,6 +72,7 @@
     ]),
     'ci-queue': new Set(['ops_queue_view', 'ops_queue_range', 'ops_queue_scope', 'ops_queue_history_queue', 'ops_detail']),
     'ci-hotness': new Set(['ops_trajectory_window', 'ops_detail']),
+    'ci-omni': new Set(['ops_omni_range', 'ops_omni_age', 'ops_detail']),
     'ci-perf-eval': new Set(['ops_perf_view', 'ops_perf_model', 'ops_perf_device', 'ops_detail']),
   };
   const ROUTE_DEFAULTS = {
@@ -95,6 +98,8 @@
     queue_scope: 'amd',
     queue_history_queue: 'fleet',
     trajectory_window: '24h',
+    omni_range: '24h',
+    omni_age: 'all',
     perf_view: 'performance',
     perf_model: 'all',
     perf_device: 'all',
@@ -172,6 +177,10 @@
 
   function normalizeLabel(label) {
     return String(label || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  }
+
+  function compareText(left, right) {
+    return String(left || '').localeCompare(String(right || ''), undefined, {sensitivity: 'base'});
   }
 
   function isRetiredQueue(queue) {
@@ -330,6 +339,10 @@
         ['queueHistoryQueue', 'queue_history_queue', null],
       ],
       'ci-hotness': [['trajectoryWindow', 'trajectory_window', ['24h', '72h', '7d', '30d']]],
+      'ci-omni': [
+        ['omniRange', 'omni_range', ['1h', '3h', '6h', '12h', '24h', '72h']],
+        ['omniAge', 'omni_age', ['all', 'lt1h', '1to3h', '3to6h', '6to12h', '12to24h', '1to3d', 'gte3d']],
+      ],
       'ci-perf-eval': [
         ['perfView', 'perf_view', ['performance', 'accuracy']],
         ['perfModel', 'perf_model', null],
@@ -2806,9 +2819,6 @@
   }
 
   function sortAmdMatrixRows(rows, mode) {
-    function compareText(left, right) {
-      return String(left || '').localeCompare(String(right || ''), undefined, {sensitivity: 'base'});
-    }
     return Array.from(rows || []).sort(function (left, right) {
       if (mode === 'name') {
         return compareText(left.title, right.title) || compareText(left.area, right.area);
@@ -2831,15 +2841,25 @@
   }
 
   function sortArchitectureSignalRows(rows, architectureId) {
-    function compareText(left, right) {
-      return String(left || '').localeCompare(String(right || ''), undefined, {sensitivity: 'base'});
-    }
     function latestState(row) {
       return (((row || {}).cells || {})[architectureId] || {}).latest_state || 'unobserved';
     }
     return Array.from(rows || []).sort(function (left, right) {
       return architectureSignalStateRank(latestState(left)) - architectureSignalStateRank(latestState(right))
         || compareText(left.title, right.title)
+        || compareText(left.area, right.area)
+        || compareText(left.id, right.id);
+    });
+  }
+
+  function runtimeTargetState(row) {
+    return observationState((row || {}).latest_amd_result || {});
+  }
+
+  function sortRuntimeTargetRows(rows) {
+    return Array.from(rows || []).sort(function (left, right) {
+      return architectureSignalStateRank(runtimeTargetState(left)) - architectureSignalStateRank(runtimeTargetState(right))
+        || compareText(left.label, right.label)
         || compareText(left.area, right.area)
         || compareText(left.id, right.id);
     });
@@ -2944,7 +2964,7 @@
       const targetSummary = gating.active_target_summary || {};
       const allTargets = Array.isArray(gating.active_target_groups) ? gating.active_target_groups : [];
       function targetState(row) {
-        return observationState(row.latest_amd_result || {});
+        return runtimeTargetState(row);
       }
       function isTargetIncident(row) {
         return isIncidentObservation({state: targetState(row)});
@@ -2960,12 +2980,7 @@
         unobserved: unobservedTargets,
         passed: passedTargets,
       };
-      const targetRows = (filters[state.healthResult] || allTargets).slice().sort(function (left, right) {
-        return architectureSignalStateRank(targetState(left)) - architectureSignalStateRank(targetState(right))
-          || compareText(left.label, right.label)
-          || compareText(left.area, right.area)
-          || compareText(left.id, right.id);
-      });
+      const targetRows = sortRuntimeTargetRows(filters[state.healthResult] || allTargets);
       host.append(statusStrip([
         {id: 'runtime-target-all', label: 'ACTIVE TARGET GROUPS', value: integer(targetSummary.target_group_count), meta: integer(targetSummary.canonical_group_count) + ' reviewed - ' + integer(targetSummary.active_outside_canonical_count) + ' active additions', onOpen: function () { setRouteState('ci-health', 'healthResult', 'all', 'health_result'); }},
         {id: 'runtime-target-incidents', label: 'INCIDENTS NOW', value: integer(incidentTargets.length), meta: 'latest exact AMD matrix result', tone: incidentTargets.length ? 'is-warning' : 'is-success', onOpen: function () { setRouteState('ci-health', 'healthResult', 'incident', 'health_result'); }},
@@ -6849,6 +6864,109 @@
 
   }
 
+  const OMNI_RANGE_WINDOWS = [
+    {id: '1h', label: '1 hour', hours: 1},
+    {id: '3h', label: '3 hours', hours: 3},
+    {id: '6h', label: '6 hours', hours: 6},
+    {id: '12h', label: '12 hours', hours: 12},
+    {id: '24h', label: '1 day', hours: 24},
+    {id: '72h', label: '3 days', hours: 72},
+  ];
+  const OMNI_AGE_BANDS = [
+    {id: 'all', label: 'All active', min: null, max: null},
+    {id: 'lt1h', label: '<1h', min: 0, max: 60},
+    {id: '1to3h', label: '1-3h', min: 60, max: 180},
+    {id: '3to6h', label: '3-6h', min: 180, max: 360},
+    {id: '6to12h', label: '6-12h', min: 360, max: 720},
+    {id: '12to24h', label: '12-24h', min: 720, max: 1440},
+    {id: '1to3d', label: '1-3d', min: 1440, max: 4320},
+    {id: 'gte3d', label: '3d+', min: 4320, max: null},
+  ];
+
+  function omniHistoryPoints(omni) {
+    const rows = ((((omni || {}).history || {}).points) || []);
+    return rows.map(function (point) {
+      const allFleet = point.all_fleet || {};
+      const amd = point.amd || {};
+      return {
+        ts: point.ts,
+        time: new Date(point.ts || '').getTime(),
+        allWaiting: Number(allFleet.waiting_observed || 0),
+        allRunning: Number(allFleet.running_observed || 0),
+        amdWaiting: Number(amd.waiting_observed || 0),
+        amdRunning: Number(amd.running_observed || 0),
+        waitingCoverage: allFleet.waiting_attribution || 'unavailable',
+        runningCoverage: allFleet.running_attribution || 'unavailable',
+        source: point,
+      };
+    }).filter(function (point) {
+      return Number.isFinite(point.time);
+    }).sort(function (left, right) {
+      return left.time - right.time;
+    });
+  }
+
+  function omniWindowPoints(points, rangeId) {
+    if (!points.length) return [];
+    const selected = OMNI_RANGE_WINDOWS.find(function (item) { return item.id === rangeId; }) || OMNI_RANGE_WINDOWS[4];
+    const latestTime = points[points.length - 1].time;
+    const cutoff = latestTime - selected.hours * 60 * 60 * 1000;
+    return points.filter(function (point) {
+      return point.time >= cutoff && point.time <= latestTime;
+    });
+  }
+
+  function omniAgeBand(job) {
+    if (!job || job.wait_min === null || job.wait_min === undefined || job.wait_min === '') return '';
+    const minutes = Number(job && job.wait_min);
+    if (!Number.isFinite(minutes) || minutes < 0) return '';
+    const band = OMNI_AGE_BANDS.slice(1).find(function (item) {
+      return minutes >= item.min && (item.max === null || minutes < item.max);
+    });
+    return band ? band.id : '';
+  }
+
+  function omniDailyRows(points) {
+    const byDay = new Map();
+    points.forEach(function (point) {
+      const day = new Date(point.time).toISOString().slice(0, 10);
+      if (!byDay.has(day)) byDay.set(day, []);
+      byDay.get(day).push(point);
+    });
+    const rows = Array.from(byDay.entries()).sort(function (left, right) {
+      return compareText(left[0], right[0]);
+    }).map(function (entry) {
+      const samples = entry[1].slice().sort(function (left, right) { return left.time - right.time; });
+      const last = samples[samples.length - 1];
+      return {
+        day: entry[0],
+        last: last,
+        waiting: last.allWaiting,
+        amdWaiting: last.amdWaiting,
+        peak: Math.max.apply(null, samples.map(function (point) { return point.allWaiting; })),
+        samples: samples.length,
+        complete: samples.every(function (point) { return point.waitingCoverage === 'complete'; }),
+        delta: null,
+      };
+    });
+    rows.forEach(function (row, index) {
+      if (!index) return;
+      const previous = rows[index - 1];
+      const dayGap = (
+        new Date(row.day + 'T00:00:00Z').getTime()
+        - new Date(previous.day + 'T00:00:00Z').getTime()
+      ) / (24 * 60 * 60 * 1000);
+      if (dayGap === 1) row.delta = row.waiting - previous.waiting;
+    });
+    return rows.slice(-7).reverse();
+  }
+
+  function signedInteger(number) {
+    if (!Number.isFinite(Number(number))) return '-';
+    const value = Number(number);
+    return (value > 0 ? '+' : '') + integer(value);
+  }
+
   async function renderOmni(host, ops) {
     const omni = ops.omni || {};
     const current = omni.current || {};
@@ -6886,6 +7004,75 @@
     const scopeNote = n('div', 'ops-evidence-note is-info');
     add(scopeNote, [n('strong', '', 'Collector status: ' + value(omni.status) + '. '), n('span', '', 'The current job ledger is fleet-wide. ' + integer(excludedJobs.length) + ' stale jobs are retained as evidence but excluded from active counts and queue analytics. The configured waiting heuristic (' + integer(heuristic.trigger) + ' trigger) is collector provenance only. '), linkButton('Inspect excluded stale jobs', function () { openJobsEvidence('Excluded stale Omni jobs', excludedJobs, 'Jobs beyond the collector age threshold; retained for exact Buildkite review but excluded from active analytics'); }, 'Inspect stale Omni jobs excluded from active analytics')]);
     host.append(scopeNote);
+    const allHistoryPoints = omniHistoryPoints(omni);
+    const points = omniWindowPoints(allHistoryPoints, state.omniRange);
+    const selectedRange = OMNI_RANGE_WINDOWS.find(function (item) { return item.id === state.omniRange; }) || OMNI_RANGE_WINDOWS[4];
+    const firstPoint = points.length > 1 ? points[0] : null;
+    const latestPoint = points.length ? points[points.length - 1] : null;
+    const waitingDelta = firstPoint && latestPoint ? latestPoint.allWaiting - firstPoint.allWaiting : null;
+    const waitingPeak = points.length ? Math.max.apply(null, points.map(function (point) { return point.allWaiting; })) : null;
+    const windowCoverage = points.length && points.every(function (point) { return point.waitingCoverage === 'complete'; }) ? 'complete' : 'partial';
+    function historyEvidence(rows) {
+      return rows.map(function (point) {
+        return {
+          label: shortDate(point.ts),
+          timestamp: point.ts,
+          valueSummary: integer(point.allWaiting) + ' observed waiting - ' + integer(point.allRunning) + ' observed running',
+          details: {
+            all_fleet_waiting_observed: point.allWaiting,
+            all_fleet_running_observed: point.allRunning,
+            amd_waiting_observed: point.amdWaiting,
+            amd_running_observed: point.amdRunning,
+            waiting_attribution: point.waitingCoverage,
+            running_attribution: point.runningCoverage,
+          },
+          sources: [{label: 'Open published queue history', url: SOURCE_ASSETS.queueHistory}],
+        };
+      });
+    }
+    const rangeToolbar = n('div', 'ops-toolbar ops-analytics-window-toolbar ops-omni-window-toolbar');
+    add(rangeToolbar, [
+      n('span', 'ops-toolbar-label', 'Queue history window'),
+      segmented(OMNI_RANGE_WINDOWS, state.omniRange, function (range) {
+        setRouteState('ci-omni', 'omniRange', range, 'omni_range');
+      }, 'Filter Omni queue history by time window'),
+      n('span', 'ops-window-context', 'Trailing ' + selectedRange.label + ' relative to the latest observed snapshot; sparse windows remain explicitly unavailable.'),
+    ]);
+    host.append(rangeToolbar);
+    host.append(statusStrip([
+      {
+        id: 'omni-window-latest',
+        label: 'OBSERVED QUEUED NOW',
+        value: latestPoint ? integer(latestPoint.allWaiting) : '-',
+        meta: latestPoint ? integer(latestPoint.amdWaiting) + ' AMD - ' + shortDate(latestPoint.ts) : 'No workload-attributed snapshot',
+        tone: latestPoint && latestPoint.allWaiting ? 'is-warning' : 'is-neutral',
+        onOpen: function () { openHistoryEvidence('Latest observed Omni queue', historyEvidence(latestPoint ? [latestPoint] : []), 'Explicit workload-attributed counts only', SOURCE_ASSETS.queueHistory); },
+      },
+      {
+        id: 'omni-window-change',
+        label: 'NET CHANGE IN ' + selectedRange.label.toUpperCase(),
+        value: waitingDelta === null ? '-' : signedInteger(waitingDelta),
+        meta: firstPoint ? 'from ' + shortDate(firstPoint.ts) + '; ' + windowCoverage + ' attribution across window' : 'Needs at least two observations in this window',
+        tone: waitingDelta > 0 ? 'is-warning' : waitingDelta < 0 ? 'is-success' : 'is-neutral',
+        onOpen: function () { openHistoryEvidence('Omni queue change in ' + selectedRange.label, historyEvidence(points), 'First-to-latest observed waiting count in the selected window', SOURCE_ASSETS.queueHistory); },
+      },
+      {
+        id: 'omni-window-peak',
+        label: 'WINDOW PEAK QUEUED',
+        value: waitingPeak === null ? '-' : integer(waitingPeak),
+        meta: integer(points.length) + ' attributed snapshots',
+        tone: waitingPeak ? 'is-warning' : 'is-neutral',
+        onOpen: function () { openHistoryEvidence('Omni queue observations in ' + selectedRange.label, historyEvidence(points), 'Every retained observation in the selected window', SOURCE_ASSETS.queueHistory); },
+      },
+      {
+        id: 'omni-window-coverage',
+        label: 'ATTRIBUTION COVERAGE',
+        value: points.length ? windowCoverage : '-',
+        meta: windowCoverage === 'complete' ? 'Every queued task in each snapshot was workload-classified' : 'Observed Omni counts may be lower bounds',
+        tone: windowCoverage === 'complete' ? 'is-success' : 'is-warning',
+        onOpen: function () { openHistoryEvidence('Omni workload attribution coverage', historyEvidence(points), 'Partial attribution is never converted into inferred Omni counts', SOURCE_ASSETS.queueHistory); },
+      },
+    ]));
     const queueRows = Array.from(affected).sort().map(function (name) {
       const relatedPending = pending.filter(function (job) { return (job.queue || 'unknown') === name; }).length;
       const relatedRunning = running.filter(function (job) { return (job.queue || 'unknown') === name; }).length;
@@ -6898,45 +7085,23 @@
       };
     });
     const grid = n('div', 'ops-grid ops-grid-main-aside ops-omni-grid');
-    let history = Array.isArray((ops.queue || {}).history) ? ops.queue.history : [];
-    if (!history.length) {
-      try { history = await fetchJSONL('data/vllm/ci/queue_timeseries.jsonl'); } catch (_) {}
-    }
-    const points = history.slice(-336).map(function (snap) {
-      let allWaiting = 0, allRunning = 0, amdWaiting = 0, amdRunningHistory = 0, supported = false;
-      for (const [name, q] of Object.entries(snap.queues || {})) {
-        if (isRetiredQueue(name)) continue;
-        const waitingByWorkload = q.waiting_by_workload || {};
-        const runningByWorkload = q.running_by_workload || {};
-        const hasWaiting = Object.prototype.hasOwnProperty.call(waitingByWorkload, 'omni');
-        const hasRunning = Object.prototype.hasOwnProperty.call(runningByWorkload, 'omni');
-        if (!hasWaiting && !hasRunning) continue;
-        supported = true;
-        const waitingCount = hasWaiting ? Number(waitingByWorkload.omni || 0) : 0;
-        const runningCount = hasRunning ? Number(runningByWorkload.omni || 0) : 0;
-        allWaiting += waitingCount;
-        allRunning += runningCount;
-        if (isAmdQueue(name)) { amdWaiting += waitingCount; amdRunningHistory += runningCount; }
-      }
-      return {ts: snap.ts, allWaiting: allWaiting, allRunning: allRunning, amdWaiting: amdWaiting, amdRunning: amdRunningHistory, supported: supported, snapshot: snap};
-    }).filter(function (point) { return point.supported; });
     if (points.length) {
-      const cp = chartPanel('Omni workload history: all fleet vs AMD', points.length + ' snapshots with explicit workload attribution', 'omni-history');
+      const cp = chartPanel('Omni queue history: ' + selectedRange.label, points.length + ' workload-attributed snapshots; observed counts only', 'omni-history');
       cp.root.classList.add('ops-omni-detail');
       grid.append(cp.root);
       requestAnimationFrame(function () {
         drawChart('omni-history', cp.canvas, {type: 'line', data: {labels: points.map(function (point) { return shortDate(point.ts); }), datasets: [
-          {label: 'All-fleet running', data: points.map(function (point) { return point.allRunning; }), borderColor: '#cf8dd9', backgroundColor: '#cf8dd9', pointRadius: 0, borderWidth: 2},
-          {label: 'All-fleet waiting', data: points.map(function (point) { return point.allWaiting; }), borderColor: '#e3a63a', backgroundColor: '#e3a63a', pointRadius: 0, borderWidth: 2},
-          {label: 'AMD running', data: points.map(function (point) { return point.amdRunning; }), borderColor: '#22b8ad', backgroundColor: '#22b8ad', pointRadius: 0, borderWidth: 1, borderDash: [4, 3]},
-          {label: 'AMD waiting', data: points.map(function (point) { return point.amdWaiting; }), borderColor: '#5ca8ff', backgroundColor: '#5ca8ff', pointRadius: 0, borderWidth: 1, borderDash: [4, 3]},
-        ]}, evidenceTitle: 'Omni all-fleet and AMD demand history', evidenceAsset: SOURCE_ASSETS.queueHistory, evidence: points.map(function (point) { return {label: shortDate(point.ts), timestamp: point.ts, valueSummary: integer(point.allRunning) + ' all-fleet running - ' + integer(point.amdRunning) + ' AMD running', details: {all_fleet_running: point.allRunning, all_fleet_waiting: point.allWaiting, amd_running: point.amdRunning, amd_waiting: point.amdWaiting, non_amd_running: point.allRunning - point.amdRunning, non_amd_waiting: point.allWaiting - point.amdWaiting}, sources: [{label: 'Open published queue history', url: SOURCE_ASSETS.queueHistory}]}; })});
+          {label: 'All-fleet waiting observed', data: points.map(function (point) { return point.allWaiting; }), borderColor: '#e3a63a', backgroundColor: '#e3a63a', pointRadius: 0, borderWidth: 2},
+          {label: 'All-fleet running observed', data: points.map(function (point) { return point.allRunning; }), borderColor: '#cf8dd9', backgroundColor: '#cf8dd9', pointRadius: 0, borderWidth: 2},
+          {label: 'AMD waiting observed', data: points.map(function (point) { return point.amdWaiting; }), borderColor: '#5ca8ff', backgroundColor: '#5ca8ff', pointRadius: 0, borderWidth: 1, borderDash: [4, 3]},
+          {label: 'AMD running observed', data: points.map(function (point) { return point.amdRunning; }), borderColor: '#22b8ad', backgroundColor: '#22b8ad', pointRadius: 0, borderWidth: 1, borderDash: [4, 3]},
+        ]}, evidenceTitle: 'Observed Omni all-fleet and AMD queue history', evidenceAsset: SOURCE_ASSETS.queueHistory, evidence: historyEvidence(points)});
       });
     } else {
       const unavailable = n('div', 'ops-stack');
-      unavailable.append(n('div', 'ops-evidence-note is-warning', 'Retained queue snapshots do not contain workload-attributed counts, so no Omni history is inferred from aggregate queue totals.'));
+      unavailable.append(n('div', 'ops-evidence-note is-warning', 'No workload-attributed Omni snapshots fall inside this window. Aggregate queue totals are never reclassified as Omni.'));
       unavailable.append(sourceActions([{label: 'Inspect published queue history', url: SOURCE_ASSETS.queueHistory}]));
-      const historyPanel = panel('Omni workload history unavailable', '0 snapshots with explicit Omni workload attribution', unavailable, 'ops-omni-detail');
+      const historyPanel = panel('Omni queue history unavailable for ' + selectedRange.label, '0 snapshots with explicit workload attribution', unavailable, 'ops-omni-detail');
       grid.append(historyPanel);
     }
     grid.append(panel('Current all-fleet queue distribution', queueRows.length + ' affected queues', dataTable([
@@ -6947,15 +7112,67 @@
       {label: 'Exact jobs', numeric: true, render: function (row) { return linkButton(integer(row.jobs), function () { openQueueDetail(row.name, ((((ops.queue || {}).snapshot || {}).queues || {})[row.name]) || {}, activeJobs); }, 'Inspect exact active Omni jobs on ' + row.name); }},
     ], queueRows), 'ops-omni-summary'));
     host.append(grid);
-    host.append(panel('Current all-fleet Omni jobs', integer(pending.length) + ' waiting - ' + integer(running.length) + ' running; every row is exact evidence', dataTable([
+
+    const dailyRows = omniDailyRows(allHistoryPoints);
+    host.append(panel('Day-over-day observed queued workload (UTC)', 'Last observation per UTC day; change is against the preceding day at its last observation', dataTable([
+      {label: 'UTC day', sticky: true, render: function (row) { return linkButton(row.day, function () { openHistoryEvidence('Omni queue observations on ' + row.day, historyEvidence(allHistoryPoints.filter(function (point) { return new Date(point.time).toISOString().slice(0, 10) === row.day; })), 'Every workload-attributed snapshot retained for this UTC day', SOURCE_ASSETS.queueHistory); }); }},
+      {label: 'Last observed queued', numeric: true, render: function (row) { return linkButton(integer(row.waiting), function () { openHistoryEvidence('Closing Omni queue observation on ' + row.day, historyEvidence([row.last]), 'Last retained observation for the UTC day', SOURCE_ASSETS.queueHistory); }); }},
+      {label: 'Day-over-day change', numeric: true, render: function (row) { return badge(row.delta === null ? 'unavailable' : signedInteger(row.delta), row.delta > 0 ? 'is-warning' : row.delta < 0 ? 'is-success' : 'is-neutral'); }},
+      {label: 'Daily peak', numeric: true, render: function (row) { return integer(row.peak); }},
+      {label: 'AMD queued', numeric: true, render: function (row) { return integer(row.amdWaiting); }},
+      {label: 'Last snapshot', render: function (row) { return shortDate(row.last.ts); }},
+      {label: 'Samples', numeric: true, render: function (row) { return integer(row.samples); }},
+      {label: 'Attribution', render: function (row) { return badge(row.complete ? 'complete' : 'partial lower bound', row.complete ? 'is-success' : 'is-warning'); }},
+    ], dailyRows), 'ops-domain-full ops-omni-daily'));
+
+    const ageOptions = OMNI_AGE_BANDS.map(function (band) {
+      const count = band.id === 'all'
+        ? activeJobs.length
+        : pendingLedger.filter(function (job) { return omniAgeBand(job) === band.id; }).length;
+      return {id: band.id, label: band.label + ' (' + integer(count) + ')'};
+    });
+    const selectedAge = OMNI_AGE_BANDS.find(function (band) { return band.id === state.omniAge; }) || OMNI_AGE_BANDS[0];
+    const visibleJobs = (state.omniAge === 'all'
+      ? activeJobs
+      : pendingLedger.filter(function (job) { return omniAgeBand(job) === state.omniAge; })
+    ).slice().sort(function (left, right) {
+      return Number(right.wait_min || 0) - Number(left.wait_min || 0)
+        || compareText(left.name, right.name);
+    });
+    const ageToolbar = n('div', 'ops-toolbar ops-analytics-window-toolbar ops-omni-age-toolbar');
+    add(ageToolbar, [
+      n('span', 'ops-toolbar-label', 'Queued task age'),
+      segmented(ageOptions, state.omniAge, function (ageBand) {
+        setRouteState('ci-omni', 'omniAge', ageBand, 'omni_age');
+      }, 'Filter exact Omni tasks by queued age'),
+      n('span', 'ops-window-context', state.omniAge === 'all' ? 'Active waiting and running tasks' : 'Queued tasks only; retained stale records remain visibly marked'),
+    ]);
+    host.append(ageToolbar);
+    const jobColumns = [
       {label: 'Job', sticky: true, render: function (r) { return externalLink(r.name || 'Unnamed job', r.url); }},
       {label: 'Queue', render: function (r) { return linkButton(value(r.queue), function () { openQueueDetail(r.queue, ((((ops.queue || {}).snapshot || {}).queues || {})[r.queue]) || {}, activeJobs); }, 'Inspect queue and exact jobs for ' + value(r.queue)); }},
       {label: 'Scope', render: function (r) { return badge(isAmdQueue(r.queue) ? 'AMD' : 'Non-AMD', isAmdQueue(r.queue) ? 'is-success' : 'is-info'); }},
       {label: 'State', render: function (r) { return linkedBadge(r.state, r.url); }},
       {label: 'Age', numeric: true, render: function (r) { return externalLink(duration(r.wait_min !== undefined ? r.wait_min : r.run_min), r.url); }},
+      {label: 'Analysis', render: function (r) { return badge(r.analysis_excluded ? 'stale excluded' : 'active', r.analysis_excluded ? 'is-warning' : 'is-success'); }},
       {label: 'Build', render: function (r) { return externalLink((r.pipeline || '?') + ' #' + value(r.build), r.build_url || buildUrl(r.pipeline, r.build), 'ops-mono'); }},
       {label: 'Source', render: function (r) { return linkedBadge(r.source || r.workload || 'omni', r.url, null, 'is-info'); }},
-    ], activeJobs, integer(activeJobs.length) + ' exact active Omni jobs across the fleet')));
+    ];
+    host.append(compactTablePanel(
+      state.omniAge === 'all' ? 'Current all-fleet Omni jobs' : 'Queued Omni tasks aged ' + selectedAge.label,
+      integer(visibleJobs.length) + ' exact source-backed tasks; no aggregate queue total is expanded into synthetic jobs',
+      jobColumns,
+      visibleJobs,
+      {
+        id: 'omni-job-browser',
+        limit: 20,
+        browserTitle: state.omniAge === 'all' ? 'Current all-fleet Omni jobs' : 'Queued Omni tasks aged ' + selectedAge.label,
+        browserSubtitle: 'Every row links to the exact Buildkite job; stale retained records are marked and excluded from active analytics',
+        searchPlaceholder: 'Filter job, queue, pipeline, branch, or state',
+        searchText: function (row) { return [row.name, row.queue, row.pipeline, row.branch, row.state].join(' '); },
+        geometry: {name: 'omni-jobs', minWidth: '1180px'},
+      }
+    ));
   }
 
   async function render(tabId, force) {
@@ -6998,6 +7215,14 @@
     openTestGroupHistory: openTestGroupHistory,
     loadSections: function (names) { return loadOperationSections(null, names || []); },
   };
+  if (window.__OPS_V2_TEST__) {
+    window.OpsV2Test = {
+      sortRuntimeTargetRows: sortRuntimeTargetRows,
+      omniWindowPoints: omniWindowPoints,
+      omniAgeBand: omniAgeBand,
+      omniDailyRows: omniDailyRows,
+    };
+  }
 
   function activeTab() {
     const panelEl = document.querySelector('.tab-panel.active');

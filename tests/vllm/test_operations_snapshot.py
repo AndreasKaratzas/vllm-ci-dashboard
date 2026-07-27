@@ -843,6 +843,24 @@ def test_v2_snapshot_transition_math_links_and_queue_provenance(tmp_path):
         "waiting_by_queue": {"amd_mi300_1": 2},
         "running_by_queue": {"amd_mi300_1": 1},
     }
+    omni_history = payload["omni"]["history"]
+    assert omni_history["summary"] == {
+        "snapshot_count": 1,
+        "first_observed_at": "2026-04-22T10:05:00Z",
+        "last_observed_at": "2026-04-22T10:05:00Z",
+        "complete_waiting_snapshot_count": 1,
+        "complete_running_snapshot_count": 0,
+    }
+    assert omni_history["points"][0]["all_fleet"] == {
+        "waiting_observed": 2,
+        "running_observed": 1,
+        "waiting_attributed": 2,
+        "running_attributed": 1,
+        "waiting_total": 2,
+        "running_total": 3,
+        "waiting_attribution": "complete",
+        "running_attribution": "partial",
+    }
     assert payload["omni"]["provenance"]["source_paths"] == {
         "queue_aggregates": "queue_timeseries.jsonl",
         "queue_jobs": "queue_jobs.json",
@@ -858,6 +876,63 @@ def test_v2_snapshot_transition_math_links_and_queue_provenance(tmp_path):
     assert [row["pipeline"] for row in payload["trajectory"]["pipelines"]] == ["ci"]
     assert payload["trajectory"]["pipelines"][0]["source_key"] == "ci.all_main_reliability"
     assert all("timestamp" in source for source in payload["sources"].values())
+
+
+def test_omni_history_keeps_observed_counts_and_coverage_without_inference():
+    history = [{
+        "ts": "2026-04-22T10:00:00Z",
+        "queues": {
+            "amd_mi300_1": {
+                "waiting": 3,
+                "running": 2,
+                "waiting_by_workload": {"omni": 2, "vllm": 1},
+                "running_by_workload": {"omni": 1},
+            },
+            "gpu_4_queue": {
+                "waiting": 5,
+                "running": 1,
+                "waiting_by_workload": {"omni": 1, "vllm": 2},
+                "running_by_workload": {"omni": 0, "vllm": 1},
+            },
+            "amd_mi355b_1": {
+                "waiting": 99,
+                "running": 99,
+                "waiting_by_workload": {"omni": 99},
+                "running_by_workload": {"omni": 99},
+            },
+        },
+    }, {
+        "ts": "2026-04-22T11:00:00Z",
+        "queues": {
+            "gpu_4_queue": {"waiting": 8, "running": 4},
+        },
+    }]
+
+    block = ops._omni_history(history)
+
+    assert block["summary"]["snapshot_count"] == 1
+    point = block["points"][0]
+    assert point["all_fleet"] == {
+        "waiting_observed": 3,
+        "running_observed": 1,
+        "waiting_attributed": 6,
+        "running_attributed": 2,
+        "waiting_total": 8,
+        "running_total": 3,
+        "waiting_attribution": "partial",
+        "running_attribution": "partial",
+    }
+    assert point["amd"] == {
+        "waiting_observed": 2,
+        "running_observed": 1,
+        "waiting_attributed": 3,
+        "running_attributed": 1,
+        "waiting_total": 3,
+        "running_total": 2,
+        "waiting_attribution": "complete",
+        "running_attribution": "partial",
+    }
+    assert "lower bound" in block["provenance"]["count_semantics"]
 
 
 def test_reliability_only_marks_mixed_pass_failure_jobs_flaky(tmp_path):
@@ -1847,3 +1922,13 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
     assert "p50_wait" not in history_row
     assert "current_wait" not in history_row
     assert "unused_collector_field" not in history_row
+
+    omni = json.loads(
+        (output.parent / manifest["sections"]["omni"]["path"]).read_text()
+    )["omni"]
+    assert omni["history"]["summary"]["snapshot_count"] == 1
+    assert omni["history"]["points"][0]["all_fleet"]["waiting_observed"] == 2
+    assert (
+        omni["history"]["provenance"]["source_path"]
+        == "queue_timeseries.jsonl"
+    )

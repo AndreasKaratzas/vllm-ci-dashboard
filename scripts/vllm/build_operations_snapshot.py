@@ -2733,7 +2733,126 @@ def _queue(snapshot: dict, queue_jobs: dict, history: list[dict]) -> dict:
     }
 
 
-def _omni(queue_snapshot: dict, queue_jobs: dict, heuristic: dict, issue_state: dict) -> dict:
+def _is_amd_queue(value: Any) -> bool:
+    name = str(value or "").strip().lower()
+    return (
+        (name == "amd-cpu" or name.startswith("amd_"))
+        and not _is_excluded_queue(name)
+    )
+
+
+def _nonnegative_count(value: Any) -> int:
+    number = _number(value)
+    return max(0, int(number)) if number is not None else 0
+
+
+def _omni_history_scope(queue_rows: list[dict]) -> tuple[dict, bool]:
+    waiting_total = 0
+    running_total = 0
+    waiting_attributed = 0
+    running_attributed = 0
+    waiting_observed = 0
+    running_observed = 0
+    has_explicit_omni = False
+
+    for stats in queue_rows:
+        waiting_total += _nonnegative_count(stats.get("waiting"))
+        running_total += _nonnegative_count(stats.get("running"))
+        waiting_split = stats.get("waiting_by_workload")
+        running_split = stats.get("running_by_workload")
+        if isinstance(waiting_split, dict):
+            waiting_attributed += sum(
+                _nonnegative_count(value) for value in waiting_split.values()
+            )
+            if "omni" in waiting_split:
+                has_explicit_omni = True
+                waiting_observed += _nonnegative_count(waiting_split.get("omni"))
+        if isinstance(running_split, dict):
+            running_attributed += sum(
+                _nonnegative_count(value) for value in running_split.values()
+            )
+            if "omni" in running_split:
+                has_explicit_omni = True
+                running_observed += _nonnegative_count(running_split.get("omni"))
+
+    if not queue_rows:
+        waiting_status = running_status = "unavailable"
+    else:
+        waiting_status = (
+            "complete" if waiting_attributed == waiting_total else "partial"
+        )
+        running_status = (
+            "complete" if running_attributed == running_total else "partial"
+        )
+    return {
+        "waiting_observed": waiting_observed,
+        "running_observed": running_observed,
+        "waiting_attributed": waiting_attributed,
+        "running_attributed": running_attributed,
+        "waiting_total": waiting_total,
+        "running_total": running_total,
+        "waiting_attribution": waiting_status,
+        "running_attribution": running_status,
+    }, has_explicit_omni
+
+
+def _omni_history(history: list[dict]) -> dict:
+    """Retain only explicit Omni workload history and its coverage contract."""
+    points = []
+    for snapshot in history:
+        queue_rows = [
+            stats
+            for name, stats in (snapshot.get("queues") or {}).items()
+            if not _is_excluded_queue(name) and isinstance(stats, dict)
+        ]
+        amd_rows = [
+            stats
+            for name, stats in (snapshot.get("queues") or {}).items()
+            if _is_amd_queue(name) and isinstance(stats, dict)
+        ]
+        all_fleet, all_supported = _omni_history_scope(queue_rows)
+        amd, amd_supported = _omni_history_scope(amd_rows)
+        if not all_supported and not amd_supported:
+            continue
+        points.append({
+            "ts": snapshot.get("ts"),
+            "all_fleet": all_fleet,
+            "amd": amd,
+        })
+
+    return {
+        "points": points,
+        "summary": {
+            "snapshot_count": len(points),
+            "first_observed_at": points[0]["ts"] if points else None,
+            "last_observed_at": points[-1]["ts"] if points else None,
+            "complete_waiting_snapshot_count": sum(
+                point["all_fleet"]["waiting_attribution"] == "complete"
+                for point in points
+            ),
+            "complete_running_snapshot_count": sum(
+                point["all_fleet"]["running_attribution"] == "complete"
+                for point in points
+            ),
+        },
+        "provenance": {
+            "source_path": SOURCE_FILES["queue_timeseries"],
+            "count_semantics": (
+                "Observed Omni workload counts only; partial attribution is a "
+                "lower bound and is never inferred from aggregate queue totals."
+            ),
+            "scope": "all non-retired queues, with AMD retained as a strict subset",
+        },
+    }
+
+
+def _omni(
+    queue_snapshot: dict,
+    queue_jobs: dict,
+    queue_history: list[dict],
+    heuristic: dict,
+    issue_state: dict,
+) -> dict:
     jobs = {
         state: [
             job for job in queue_jobs.get(state) or []
@@ -2779,6 +2898,7 @@ def _omni(queue_snapshot: dict, queue_jobs: dict, heuristic: dict, issue_state: 
         },
         "heuristic_thresholds": heuristic,
         "current_jobs": jobs,
+        "history": _omni_history(queue_history),
         "issue_state": issue_state,
         "provenance": {
             "queue_snapshot_ts": queue_snapshot.get("ts"),
@@ -2986,6 +3106,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
     omni = _omni(
         queue_snapshot,
         queue.get("queue_jobs") or {},
+        queue_history,
         loaded.get("omni_heuristic") or {},
         loaded.get("omni_issue_state") or {},
     )

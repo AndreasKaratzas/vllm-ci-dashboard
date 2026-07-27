@@ -1,6 +1,8 @@
 """Static contracts for the vLLM AMD CI Operations frontend boundary."""
 
 import json
+import shutil
+import subprocess
 
 from pathlib import Path
 
@@ -593,6 +595,87 @@ def test_architecture_signal_drilldown_sorts_nonpassing_results_before_passes_an
     assert all(rank == 3 for rank in ranks[first_passing:])
 
 
+def test_runtime_target_sort_uses_one_shared_in_scope_text_comparator():
+    shared_definition = "\n  function compareText(left, right) {"
+    assert OPS_JS.count(shared_definition) == 1
+    assert OPS_JS.index(shared_definition) < OPS_JS.index("async function renderHealth")
+    render_health = OPS_JS.index("async function renderHealth")
+    targets_start = OPS_JS.index(
+        "if (state.healthView === 'targets')",
+        render_health,
+    )
+    targets_branch = OPS_JS[
+        targets_start
+        :OPS_JS.index("if (state.healthView === 'gating')", targets_start)
+    ]
+    assert "sortRuntimeTargetRows(filters[state.healthResult] || allTargets)" in targets_branch
+
+
+def test_runtime_target_and_omni_helpers_execute_in_javascript():
+    if not shutil.which("node"):
+        import pytest
+
+        pytest.skip("node is not available")
+    script = r"""
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const sandbox = {
+  window: {__OPS_V2_TEST__: true},
+  document: {addEventListener: function () {}},
+  console: console,
+  URL: URL,
+};
+vm.createContext(sandbox);
+vm.runInContext(source, sandbox, {filename: process.argv[1]});
+const helpers = sandbox.window.OpsV2Test;
+assert.ok(helpers);
+
+const ordered = helpers.sortRuntimeTargetRows([
+  {id: 'pass-e2e', label: 'e2e Scheduling (1 GPU)', area: 'Other', latest_amd_result: {state: 'passed'}},
+  {id: 'unknown', label: 'Unknown Signal', area: 'Other', latest_amd_result: {state: 'unobserved'}},
+  {id: 'soft', label: 'Soft Incident', area: 'Other', latest_amd_result: {state: 'soft_failed'}},
+  {id: 'pass-basic', label: 'Basic Models Tests (Other)', area: 'Models', latest_amd_result: {state: 'passed'}},
+  {id: 'hard', label: 'Hard Incident', area: 'Other', latest_amd_result: {state: 'failed'}},
+]).map(function (row) { return row.id; });
+assert.equal(JSON.stringify(ordered), JSON.stringify([
+  'hard', 'soft', 'unknown', 'pass-basic', 'pass-e2e',
+]));
+
+[
+  [59.9, 'lt1h'], [60, '1to3h'], [180, '3to6h'], [360, '6to12h'],
+  [720, '12to24h'], [1440, '1to3d'], [4320, 'gte3d'],
+].forEach(function (pair) {
+  assert.equal(helpers.omniAgeBand({wait_min: pair[0]}), pair[1]);
+});
+assert.equal(helpers.omniAgeBand({}), '');
+
+const start = Date.parse('2026-04-22T10:00:00Z');
+const points = [0, 1, 2, 3].map(function (hours) {
+  return {time: start + hours * 3600000, allWaiting: hours};
+});
+assert.deepEqual(
+  helpers.omniWindowPoints(points, '1h').map(function (point) { return point.allWaiting; }),
+  [2, 3],
+);
+
+const daily = helpers.omniDailyRows([
+  {time: Date.parse('2026-04-20T23:00:00Z'), allWaiting: 2, amdWaiting: 1, waitingCoverage: 'complete'},
+  {time: Date.parse('2026-04-21T23:00:00Z'), allWaiting: 5, amdWaiting: 2, waitingCoverage: 'complete'},
+]);
+assert.equal(daily[0].day, '2026-04-21');
+assert.equal(daily[0].delta, 3);
+"""
+    result = subprocess.run(
+        ["node", "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_authoritative_group_catalog_preserves_id_and_variant_identity():
     assert "Array.isArray(reliability.group_catalog)" in OPS_JS
     assert "return reliability.group_catalog.map" in OPS_JS
@@ -859,13 +942,22 @@ def test_omni_is_all_fleet_and_never_infers_unsupported_history():
     assert "All current vLLM-Omni demand across the fleet" in OPS_JS
     assert "NON-AMD ACTIVE JOBS" in OPS_JS
     assert "Current all-fleet Omni jobs" in OPS_JS
-    assert "activeJobs, integer(activeJobs.length)" in OPS_JS
-    assert "hasWaiting && !hasRunning" in OPS_JS
-    assert "no Omni history is inferred" in OPS_JS
-    assert "All-fleet running" in OPS_JS
-    assert "AMD running" in OPS_JS
+    assert "function omniHistoryPoints" in OPS_JS
+    assert "waiting_observed" in OPS_JS
+    assert "Aggregate queue totals are never reclassified as Omni" in OPS_JS
+    assert "All-fleet running observed" in OPS_JS
+    assert "AMD running observed" in OPS_JS
     assert "const excludedPending = pendingLedger.filter" in OPS_JS
     assert "Inspect excluded stale jobs" in OPS_JS
+    assert "const OMNI_RANGE_WINDOWS" in OPS_JS
+    assert "{id: '1h', label: '1 hour', hours: 1}" in OPS_JS
+    assert "{id: '72h', label: '3 days', hours: 72}" in OPS_JS
+    assert "Day-over-day observed queued workload (UTC)" in OPS_JS
+    assert "function omniDailyRows" in OPS_JS
+    assert "const OMNI_AGE_BANDS" in OPS_JS
+    assert "Queued task age" in OPS_JS
+    assert "'ops_omni_range'" in OPS_JS
+    assert "'ops_omni_age'" in OPS_JS
     jobs = OPS_DATA["omni"]["current_jobs"]
     current = OPS_DATA["omni"]["current"]
     active_pending = [job for job in jobs["pending"] if not job.get("analysis_excluded")]
@@ -884,6 +976,14 @@ def test_omni_is_all_fleet_and_never_infers_unsupported_history():
         and job.get("url", "").startswith("https://buildkite.com/")
         for state in ("pending", "running")
         for job in jobs[state]
+    )
+    history = OPS_DATA["omni"]["history"]
+    assert history["summary"]["snapshot_count"] > 0
+    assert history["points"]
+    assert all(
+        point["all_fleet"]["waiting_attribution"] in {"complete", "partial"}
+        and point["all_fleet"]["running_attribution"] in {"complete", "partial"}
+        for point in history["points"]
     )
 
 
