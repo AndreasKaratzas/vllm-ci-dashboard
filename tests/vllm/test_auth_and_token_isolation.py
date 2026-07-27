@@ -280,7 +280,7 @@ class TestGitHubTokenIsolation:
         assert sync_step["env"]["PROJECTS_READ_TOKEN"] == "${{ secrets.PROJECTS_READ_TOKEN }}"
 
     def test_collectors_only_receive_the_read_token(self):
-        for name in ("manual-update.yml", "daily-update.yml", "hourly-master.yml"):
+        for name in ("daily-update.yml", "hourly-master.yml"):
             text = _read(WORKFLOWS / name)
             assert "PROJECTS_READ_TOKEN" in text
             assert "UPSTREAM_COMMENT_TOKEN" not in text

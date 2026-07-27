@@ -11,8 +11,10 @@ Buildkite YAMLs:
     trigger = max(OMNI_SURGE_FLOOR_TRIGGER, ceil(multiplier * total_groups))
     healthy = floor(trigger * healthy_ratio)
 
-If the YAML fetch fails, we fall back to ``OMNI_SURGE_FLOOR_TRIGGER`` so the
-watcher still works; the heuristic just becomes static for that run.
+If the YAML sources cannot all be read, the dashboard retains the last
+known-good heuristic (or exposes the static floor when none exists) and GitHub
+mutations are suppressed for that run. A moved or temporarily unavailable
+source must never silently lower the alert threshold or close an active issue.
 
 State lives at ``data/vllm/ci/open_omni_surge_issues.json`` so the watcher
 remembers which issue tracks the current surge across runs.
@@ -26,6 +28,7 @@ import math
 import os
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -176,6 +179,104 @@ def _compute_trigger(groups: list[dict]) -> tuple[int, int, dict]:
     return trigger, healthy, info
 
 
+def _read_last_good_heuristic() -> dict | None:
+    """Return the most recent usable dynamic heuristic, if one exists.
+
+    ``HEURISTIC_PATH`` is also the dashboard-facing status snapshot. Failed
+    runs keep the last valid counts in that file and add failure metadata, so
+    accept both a freshly fetched value and a previously retained one.
+    """
+    try:
+        data = json.loads(HEURISTIC_PATH.read_text())
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    try:
+        total = int(data.get("total_groups") or 0)
+        trigger = int(data.get("trigger") or 0)
+        healthy = int(data.get("healthy") or 0)
+    except (TypeError, ValueError):
+        return None
+    if (
+        total <= 0
+        or trigger < OMNI_SURGE_FLOOR_TRIGGER
+        or healthy < 0
+        or healthy > trigger
+    ):
+        return None
+    if data.get("fallback_floor_used"):
+        return None
+    if (
+        data.get("source_status") in {"partial", "unavailable"}
+        and not data.get("using_last_known_good")
+    ):
+        return None
+    return data
+
+
+def _derive_heuristic(
+    groups: list[dict],
+    fetched_paths: list[str],
+    last_good: dict | None,
+) -> tuple[int, int, dict]:
+    """Build a status-rich heuristic and indicate whether mutation is safe."""
+    configured_paths = list(OMNI_YAML_PATHS)
+    missing_paths = [path for path in configured_paths if path not in fetched_paths]
+    sources_complete = not missing_paths and bool(configured_paths)
+
+    if sources_complete:
+        trigger, healthy, info = _compute_trigger(groups)
+        info.update({
+            "yaml_paths_configured": configured_paths,
+            "yaml_paths_fetched": fetched_paths,
+            "yaml_paths_failed": [],
+            "source_status": "fresh",
+            "fallback_floor_used": False,
+            "using_last_known_good": False,
+            "mutations_suppressed": False,
+        })
+        return trigger, healthy, info
+
+    if last_good:
+        info = dict(last_good)
+        trigger = int(info["trigger"])
+        healthy = int(info["healthy"])
+        info.update({
+            "yaml_paths_configured": configured_paths,
+            "last_successful_yaml_paths": (
+                last_good.get("last_successful_yaml_paths")
+                or last_good.get("yaml_paths_fetched")
+                or []
+            ),
+            "yaml_paths_fetched": fetched_paths,
+            "yaml_paths_failed": missing_paths,
+            "source_status": "last_known_good",
+            "source_error": (
+                "Omni YAML discovery was incomplete; retained the last "
+                "known-good dynamic heuristic."
+            ),
+            "fallback_floor_used": False,
+            "using_last_known_good": True,
+            "mutations_suppressed": True,
+        })
+        return trigger, healthy, info
+
+    trigger, healthy, info = _compute_trigger(groups)
+    info.update({
+        "yaml_paths_configured": configured_paths,
+        "yaml_paths_fetched": fetched_paths,
+        "yaml_paths_failed": missing_paths,
+        "source_status": "partial" if fetched_paths else "unavailable",
+        "source_error": (
+            "Omni YAML discovery was incomplete and no last known-good "
+            "dynamic heuristic was available."
+        ),
+        "fallback_floor_used": not fetched_paths,
+        "using_last_known_good": False,
+        "mutations_suppressed": True,
+    })
+    return trigger, healthy, info
+
+
 def _current_omni_waiting(snapshot: dict) -> tuple[int, dict]:
     queues = snapshot.get("queues") or {}
     total = 0
@@ -280,20 +381,32 @@ def run() -> int:
         log.warning("No snapshot available; skipping")
         return 0
 
-    # Derive threshold from the omni YAMLs. Graceful fallback keeps the watcher
-    # functional even if vllm-omni is renamed or the YAML layout shifts.
+    # Every configured YAML is part of the test population. Partial discovery
+    # can lower the dynamic threshold, so it is diagnostic-only for this run.
     all_groups: list[dict] = []
     fetched_paths: list[str] = []
     for path in OMNI_YAML_PATHS:
         text = _fetch_yaml(path)
         if not text:
             continue
+        groups = _parse_test_groups(text)
+        if not groups:
+            log.warning("YAML %s contained no discoverable test groups", path)
+            continue
         fetched_paths.append(path)
-        all_groups.extend(_parse_test_groups(text))
+        all_groups.extend(groups)
 
-    trigger, healthy, info = _compute_trigger(all_groups)
-    info["yaml_paths_fetched"] = fetched_paths
-    info["fallback_floor_used"] = not fetched_paths
+    trigger, healthy, info = _derive_heuristic(
+        all_groups,
+        fetched_paths,
+        _read_last_good_heuristic(),
+    )
+    checked_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    info["generated_at"] = checked_at
+    if info["source_status"] == "fresh":
+        info["last_successful_at"] = checked_at
+    else:
+        info.setdefault("last_successful_at", None)
     HEURISTIC_PATH.parent.mkdir(parents=True, exist_ok=True)
     HEURISTIC_PATH.write_text(json.dumps(info, indent=2, sort_keys=True))
 
@@ -313,6 +426,16 @@ def run() -> int:
 
     if not token:
         log.warning("GITHUB_TOKEN not set; skipping GitHub mutations")
+        _write_state(state)
+        return 0
+
+    if info["mutations_suppressed"]:
+        log.error(
+            "Omni YAML discovery status=%s; suppressing GitHub mutations "
+            "(failed paths: %s)",
+            info["source_status"],
+            ", ".join(info["yaml_paths_failed"]) or "none",
+        )
         _write_state(state)
         return 0
 

@@ -13,6 +13,13 @@ from vllm import collect_analytics as ca
 NOW = datetime(2026, 4, 20, 12, 0, 0, tzinfo=timezone.utc)
 
 
+def test_analytics_writer_uses_compact_json(tmp_path):
+    output = tmp_path / "analytics.json"
+    ca.write_analytics(output, {"pipeline": {"builds": [1, 2]}})
+
+    assert output.read_text() == '{"pipeline":{"builds":[1,2]}}\n'
+
+
 def _iso(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 

@@ -93,13 +93,13 @@ class _StubbedApi:
 def stub_api(monkeypatch):
     api = _StubbedApi()
     # Pin OMNI_YAML_PATHS to a single path during tests — the production
-    # tuple lists four fallback locations and our stub returns the same
-    # text for every path, which would quadruple ``total_groups`` and
+    # tuple lists two additive pipeline files and our stub returns the same
+    # text for every path, which would double ``total_groups`` and
     # silently push ``trigger`` past the floor. Forcing a single path
     # keeps the group counts in this fixture equal to what each test
     # declares in ``_yaml_text``.
     monkeypatch.setattr(
-        osw, "OMNI_YAML_PATHS", (".buildkite/test-amd.yaml",), raising=False
+        osw, "OMNI_YAML_PATHS", (".buildkite/amd/test-amd-ready.yml",), raising=False
     )
     monkeypatch.setattr(osw, "_fetch_yaml", api.fetch_yaml)
     monkeypatch.setattr(osw, "_open_issue", api.open_issue)
@@ -141,8 +141,61 @@ class TestThreshold:
         assert info["pool_distribution"]["beta"] == 1
         assert info["pool_distribution"]["unknown"] == 1
 
+    def test_incomplete_dynamic_count_is_not_promoted_to_last_good(
+        self, isolated_paths, monkeypatch
+    ):
+        _, _, heuristic_path = isolated_paths
+        monkeypatch.setattr(
+            osw,
+            "OMNI_YAML_PATHS",
+            ("ready.yml", "merge.yml"),
+            raising=False,
+        )
+        _, _, info = osw._derive_heuristic(
+            [{"label": "ready-test"}],
+            ["ready.yml"],
+            None,
+        )
+        heuristic_path.write_text(json.dumps(info))
+
+        assert info["source_status"] == "partial"
+        assert info["mutations_suppressed"] is True
+        assert osw._read_last_good_heuristic() is None
+
+    def test_run_records_payload_freshness(self, isolated_paths, monkeypatch):
+        _, _, heuristic_path = isolated_paths
+        monkeypatch.setattr(
+            osw,
+            "OMNI_YAML_PATHS",
+            ("ready.yml", "merge.yml"),
+            raising=False,
+        )
+        monkeypatch.setattr(
+            osw,
+            "_read_last_snapshot",
+            lambda: {"ts": "2026-07-27T12:00:00Z", "queues": {}},
+        )
+        monkeypatch.setattr(
+            osw,
+            "_fetch_yaml",
+            lambda path: f"steps:\n  - label: {path}\n",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        assert osw.run() == 0
+        payload = json.loads(heuristic_path.read_text())
+        assert payload["source_status"] == "fresh"
+        assert payload["generated_at"].endswith("Z")
+        assert payload["last_successful_at"] == payload["generated_at"]
+
 
 class TestYamlParse:
+    def test_configured_paths_match_current_omni_layout(self):
+        assert osw.OMNI_YAML_PATHS == (
+            ".buildkite/amd/test-amd-ready.yml",
+            ".buildkite/amd/test-amd-merge.yml",
+        )
+
     def test_top_level_list(self):
         txt = "- label: a\n- label: b\n"
         assert len(osw._parse_test_groups(txt)) == 2
@@ -276,17 +329,60 @@ class TestRun:
         assert state.exists()
         assert heur.exists()
 
-    def test_yaml_fetch_failure_falls_back_to_floor(self, isolated_paths, stub_api, monkeypatch):
-        snaps, _, heur = isolated_paths
+    def test_yaml_fetch_failure_exposes_floor_without_mutating(
+        self, isolated_paths, stub_api, monkeypatch
+    ):
+        snaps, state, heur = isolated_paths
         monkeypatch.setattr(osw, "_fetch_yaml", lambda path: None)
         _write_snapshot(snaps, {"amd_mi250_1": {"waiting_by_workload": {"omni": 40}}})
         rc = osw.run()
         assert rc == 0
-        # Fallback — floor trigger, not derived. Should still open the issue.
-        assert stub_api.opened and stub_api.opened[0][1] == OMNI_SURGE_FLOOR_TRIGGER
+        # Without source evidence, the floor remains visible but cannot drive
+        # an issue open/close mutation.
+        assert stub_api.opened == []
+        assert stub_api.closed == []
         info = json.loads(heur.read_text())
         assert info["fallback_floor_used"] is True
         assert info["total_groups"] == 0
+        assert info["source_status"] == "unavailable"
+        assert info["mutations_suppressed"] is True
+        assert info["yaml_paths_failed"] == [".buildkite/amd/test-amd-ready.yml"]
+        assert json.loads(state.read_text())["last_trigger"] == OMNI_SURGE_FLOOR_TRIGGER
+
+    def test_yaml_fetch_failure_retains_last_good_heuristic_without_mutating(
+        self, isolated_paths, stub_api, monkeypatch
+    ):
+        snaps, state, heur = isolated_paths
+        last_trigger, last_healthy, last_info = osw._compute_trigger(
+            [{"label": f"t{i}", "agent_pool": "amd"} for i in range(40)]
+        )
+        last_info.update({
+            "yaml_paths_fetched": [".buildkite/amd/test-amd-ready.yml"],
+            "fallback_floor_used": False,
+        })
+        heur.write_text(json.dumps(last_info))
+        monkeypatch.setattr(osw, "_fetch_yaml", lambda path: None)
+        _write_snapshot(
+            snaps,
+            {"amd_mi250_1": {"waiting_by_workload": {"omni": last_trigger + 10}}},
+        )
+
+        rc = osw.run()
+
+        assert rc == 0
+        assert stub_api.opened == []
+        assert stub_api.closed == []
+        info = json.loads(heur.read_text())
+        assert info["total_groups"] == 40
+        assert info["trigger"] == last_trigger
+        assert info["healthy"] == last_healthy
+        assert info["source_status"] == "last_known_good"
+        assert info["using_last_known_good"] is True
+        assert info["fallback_floor_used"] is False
+        assert info["mutations_suppressed"] is True
+        persisted = json.loads(state.read_text())
+        assert persisted["last_trigger"] == last_trigger
+        assert persisted["open"] is None
 
     def test_runs_read_junk_lines_without_crashing(self, isolated_paths, stub_api):
         snaps, _, _ = isolated_paths

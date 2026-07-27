@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-07-27T20:45:00Z",
+  "generated_at": "2026-07-27T20:04:19Z",
   "amd_date": "2026-07-27",
   "upstream_date": "2026-07-27",
   "parity_pct": 0.0,
-  "total_tests": 784,
+  "total_tests": 785,
   "summary": {
     "upstream_only": 419,
-    "amd_only": 365
+    "amd_only": 366
   },
   "by_module": {
     "2 Node Test (4 GPUs)": {
@@ -311,7 +311,7 @@
     },
     "Basic Models Tests (Extra Initialization) 1": {
       "parity_pct": 100.0,
-      "upstream_only": 2
+      "upstream_only": 1
     },
     "Basic Models Tests (Extra Initialization) 2": {
       "parity_pct": 100.0,
@@ -482,6 +482,10 @@
       "upstream_only": 1
     },
     "Distributed Torchrun + Shutdown Tests (2 GPUs)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "Docker Build Metadata": {
       "parity_pct": 100.0,
       "upstream_only": 1
     },
@@ -1206,6 +1210,10 @@
       "amd_only": 1
     },
     "mi250_1: Cudagraph": {
+      "parity_pct": 100.0,
+      "amd_only": 1
+    },
+    "mi250_1: Docker Build Metadata (ROCm)": {
       "parity_pct": 100.0,
       "amd_only": 1
     },
@@ -2467,7 +2475,7 @@
       "name": "basic models tests (extra initialization)",
       "family_key": "basic models tests (extra initialization)",
       "family_name": "basic models tests (extra initialization)",
-      "amd_job_name": "mi300_1: Basic Models Tests (Extra Initialization) 2",
+      "amd_job_name": "mi300_1: Basic Models Tests (Extra Initialization) 1",
       "upstream_job_name": "Basic Models Tests (Extra Initialization) 1",
       "amd": {
         "total": 359,
@@ -2477,24 +2485,24 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 10823.76
+        "duration": 10823.760000000002
       },
       "upstream": {
         "total": 177,
-        "passed": 174,
-        "failed": 1,
+        "passed": 175,
+        "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 2,
-        "duration": 7220.73
+        "duration": 6241.87
       },
       "hardware": [
         "h100",
         "mi300"
       ],
       "hw_failures": {
-        "h100": 3
+        "h100": 2
       },
       "hw_canceled": null,
       "failure_tests": [],
@@ -2502,20 +2510,20 @@
         {
           "hw": "mi300",
           "url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=019fa2cd-a638-4b48-83ff-23f4928cf1d4&tab=output",
-          "job_name": "mi300_1: Basic Models Tests (Extra Initialization) 2",
+          "job_name": "mi300_1: Basic Models Tests (Extra Initialization) 1",
           "side": "amd"
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-bea8-4ca4-b696-d5217b208f0a&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa4c2-9663-46bf-8ea5-7cd197adcfd5&tab=output",
           "job_name": "Basic Models Tests (Extra Initialization) 1",
           "side": "upstream"
         }
       ],
       "delta": {
         "total": 182,
-        "passed": 185,
-        "failed": -1,
+        "passed": 184,
+        "failed": 0,
         "skipped": 0
       },
       "status": "both",
@@ -3751,6 +3759,62 @@
           "hw": "h100",
           "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-bdf5-4ba1-99b0-439bbe28968e&tab=output",
           "job_name": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
+          "side": "upstream"
+        }
+      ],
+      "delta": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0
+      },
+      "status": "both",
+      "backfilled": false
+    },
+    {
+      "name": "docker build metadata (rocm)",
+      "family_key": "docker build metadata (rocm)",
+      "family_name": "docker build metadata (rocm)",
+      "amd_job_name": "mi250_1: Docker Build Metadata (ROCm)",
+      "upstream_job_name": "Docker Build Metadata",
+      "amd": {
+        "total": 7,
+        "passed": 7,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 2.19
+      },
+      "upstream": {
+        "total": 7,
+        "passed": 7,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 2.41
+      },
+      "hardware": [
+        "h100",
+        "mi250"
+      ],
+      "hw_failures": null,
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "mi250",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=019fa2cd-a5ed-4be3-a55d-e16767123222&tab=output",
+          "job_name": "mi250_1: Docker Build Metadata (ROCm)",
+          "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-bdfa-485c-a2ba-fee6bf2a409c&tab=output",
+          "job_name": "Docker Build Metadata",
           "side": "upstream"
         }
       ],
@@ -5435,7 +5499,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 11790.759999999998
+        "duration": 11790.76
       },
       "upstream": {
         "total": 7833,
@@ -5465,7 +5529,7 @@
         {
           "hw": "mi355",
           "url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=019fa2cd-a684-4339-9808-e2f8352f5c86&tab=output",
-          "job_name": "mi355_1: Kernels Attention Test 1",
+          "job_name": "mi355_1: Kernels Attention Test 2",
           "side": "amd"
         },
         {
@@ -5508,7 +5572,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 6481.610000000001
+        "duration": 6481.61
       },
       "hardware": [
         "h100",
@@ -5526,7 +5590,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-be74-4360-8d81-6328e463a77c&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-be75-4068-8b82-9deb77b9fdc4&tab=output",
           "job_name": "Kernels Core Operation Test",
           "side": "upstream"
         }
@@ -5829,7 +5893,7 @@
       "family_key": "kernels moe test",
       "family_name": "kernels moe test",
       "amd_job_name": "mi300_1: Kernels MoE Test 1",
-      "upstream_job_name": "Kernels MoE Test 1",
+      "upstream_job_name": "Kernels MoE Test 2",
       "amd": {
         "total": 14625,
         "passed": 8614,
@@ -5838,7 +5902,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 12499.680000000002
+        "duration": 12499.68
       },
       "upstream": {
         "total": 20,
@@ -5870,13 +5934,13 @@
         {
           "hw": "mi355",
           "url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=019fa2cd-a684-432d-b6d0-127e22fa0ca5&tab=output",
-          "job_name": "mi355_1: Kernels MoE Test 3",
+          "job_name": "mi355_1: Kernels MoE Test 2",
           "side": "amd"
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-be79-4054-a03a-c2aef9ea6336&tab=output",
-          "job_name": "Kernels MoE Test 1",
+          "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-be79-439b-8712-65591ac814bd&tab=output",
+          "job_name": "Kernels MoE Test 2",
           "side": "upstream"
         }
       ],
@@ -6846,7 +6910,7 @@
       "name": "lora",
       "family_key": "lora",
       "family_name": "lora",
-      "amd_job_name": "mi300_1: LoRA 1",
+      "amd_job_name": "mi300_1: LoRA 2",
       "upstream_job_name": "LoRA 1",
       "amd": {
         "total": 6938,
@@ -6879,7 +6943,7 @@
         {
           "hw": "mi300",
           "url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=019fa2cd-a632-43e7-99b0-d64d43fc6689&tab=output",
-          "job_name": "mi300_1: LoRA 1",
+          "job_name": "mi300_1: LoRA 2",
           "side": "amd"
         },
         {
@@ -7196,21 +7260,19 @@
       },
       "upstream": {
         "total": 1,
-        "passed": 0,
+        "passed": 1,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
-        "error": 1,
+        "error": 0,
         "duration": 0.0
       },
       "hardware": [
         "h100",
         "mi300"
       ],
-      "hw_failures": {
-        "h100": 1
-      },
+      "hw_failures": null,
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
@@ -7222,14 +7284,14 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-bea3-4ace-8f87-d32c74ff758f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa4be-a30b-4268-8912-ac931c02b58e&tab=output",
           "job_name": "Model Runner V2 Examples",
           "side": "upstream"
         }
       ],
       "delta": {
         "total": 0,
-        "passed": 1,
+        "passed": 0,
         "failed": 0,
         "skipped": 0
       },
@@ -8508,7 +8570,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-be98-4e35-b7f7-e4a6890f9724&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa4bc-25a7-4fa2-9b96-2a343b97f963&tab=output",
           "job_name": "Python-only Installation",
           "side": "upstream"
         }
@@ -10130,7 +10192,7 @@
       "name": "transformers nightly models (initialization)",
       "family_key": "transformers nightly models (initialization)",
       "family_name": "transformers nightly models (initialization)",
-      "amd_job_name": "mi300_1: Transformers Nightly Models (Initialization) 1",
+      "amd_job_name": "mi300_1: Transformers Nightly Models (Initialization) 2",
       "upstream_job_name": null,
       "amd": {
         "total": 371,
@@ -10155,7 +10217,7 @@
         {
           "hw": "mi300",
           "url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=019fa2cd-a645-4411-929e-ff22616f2cd8&tab=output",
-          "job_name": "mi300_1: Transformers Nightly Models (Initialization) 1",
+          "job_name": "mi300_1: Transformers Nightly Models (Initialization) 2",
           "side": "amd"
         }
       ],
@@ -10176,7 +10238,7 @@
         "xfailed": 1,
         "xpassed": 0,
         "error": 0,
-        "duration": 43546.83
+        "duration": 43546.829999999994
       },
       "upstream": null,
       "hardware": [
@@ -10236,7 +10298,7 @@
       "name": "v1 attention (b200-mi355)",
       "family_key": "v1 attention",
       "family_name": "v1 attention",
-      "amd_job_name": "mi355_1: V1 attention (B200-MI355) 1",
+      "amd_job_name": "mi355_1: V1 attention (B200-MI355) 2",
       "upstream_job_name": "V1 attention (B200)",
       "amd": {
         "total": 3225,
@@ -10269,7 +10331,7 @@
         {
           "hw": "mi355",
           "url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=019fa2cd-a68d-451f-af7b-e00bdea61a1d&tab=output",
-          "job_name": "mi355_1: V1 attention (B200-MI355) 1",
+          "job_name": "mi355_1: V1 attention (B200-MI355) 2",
           "side": "amd"
         },
         {
@@ -10330,7 +10392,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-bdb3-4f98-976c-15ef4b6e5e95&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-bdb0-4096-b5be-8406c6f7ff53&tab=output",
           "job_name": "V1 attention (H100-MI300)",
           "side": "upstream"
         }
@@ -13610,12 +13672,6 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "Basic Models Tests (Extra Initialization) 1::__unidentified_failures__",
-      "amd_status": "missing",
-      "upstream_status": "failed",
-      "category": "upstream_only"
-    },
-    {
       "test_id": "Basic Models Tests (Extra Initialization) 2::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -13917,6 +13973,12 @@
     },
     {
       "test_id": "Distributed Torchrun + Shutdown Tests (2 GPUs)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Docker Build Metadata::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
@@ -14752,7 +14814,7 @@
     {
       "test_id": "Model Runner V2 Examples::__job_level__",
       "amd_status": "missing",
-      "upstream_status": "error",
+      "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
@@ -15459,6 +15521,12 @@
     },
     {
       "test_id": "mi250_1: Cudagraph::__passed__",
+      "amd_status": "passed",
+      "upstream_status": "missing",
+      "category": "amd_only"
+    },
+    {
+      "test_id": "mi250_1: Docker Build Metadata (ROCm)::__passed__",
       "amd_status": "passed",
       "upstream_status": "missing",
       "category": "amd_only"

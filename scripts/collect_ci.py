@@ -67,6 +67,52 @@ def _is_parity_excluded_group(norm: str) -> bool:
     return bool(_EXCLUDE_PATTERNS.match(norm.strip()))
 
 
+def _find_false_normalization_merges(
+    results: list[TestResult],
+) -> list[tuple[str, str, set[str]]]:
+    """Return accidental same-hardware merges in one parity input cohort.
+
+    Identically named tests on different hardware are expected to normalize
+    together. Multiple raw names on one hardware are only valid when the name
+    is a configured ``%N`` shard base.
+    """
+    from vllm.ci.analyzer import (
+        _SHARD_BASES,
+        _extract_hardware,
+        _normalize_job_name,
+    )
+
+    hw_norm_to_raw: dict[tuple[str, str], set[str]] = {}
+    for result in results:
+        norm = _normalize_job_name(result.job_name)
+        hw = _extract_hardware(result.job_name)
+        hw_norm_to_raw.setdefault((hw, norm), set()).add(result.job_name)
+
+    false_merges = []
+    for (hw, norm), raw_names in hw_norm_to_raw.items():
+        if len(raw_names) <= 1:
+            continue
+        if not any(norm.startswith(base) for base in _SHARD_BASES):
+            false_merges.append((hw, norm, raw_names))
+    return sorted(false_merges, key=lambda row: (row[0], row[1]))
+
+
+def _find_missing_parity_groups(
+    current_results: list[TestResult],
+    parity: dict,
+) -> list[str]:
+    """Return current AMD groups absent from a computed parity payload."""
+    from vllm.ci.analyzer import _normalize_job_name
+
+    current_names = {_normalize_job_name(result.job_name) for result in current_results}
+    parity_names = {group["name"] for group in parity.get("job_groups", [])}
+    return sorted(
+        name
+        for name in current_names - parity_names
+        if not _is_parity_excluded_group(name)
+    )
+
+
 def nightly_date(iso_str: str) -> str:
     """Convert UTC timestamp to 'nightly date' — the date the results represent.
 
@@ -790,43 +836,31 @@ def main():
             parity["upstream_build"] = up_build_num
 
             # ── Validation: verify no false merges ──
-            # Every group that absorbed multiple raw job names must be
-            # a known shard base. Log warnings for any false merges.
-            from vllm.ci.analyzer import _SHARD_BASES
-            norm_to_raw: dict[str, set] = {}
-            for r in latest_amd:
-                norm = _normalize_job_name(r.job_name)
-                norm_to_raw.setdefault(norm, set()).add(r.job_name)
-            false_merges = []
-            for norm, raws in norm_to_raw.items():
-                if len(raws) <= 1:
-                    continue
-                is_shard = any(norm.startswith(base) for base in _SHARD_BASES)
-                if not is_shard:
-                    false_merges.append((norm, raws))
+            # Multiple hardware variants are expected to share one normalized
+            # name. Only multiple raw names on the same hardware can indicate
+            # an accidental merge, and only current-build rows participate in
+            # the parity payload being validated here.
+            false_merges = _find_false_normalization_merges(current_amd)
             if false_merges:
                 log.warning(
                     "  VALIDATION: %d possible false merges detected! "
-                    "These groups absorb multiple raw jobs but are NOT shard bases:",
+                    "These same-hardware groups absorb multiple raw jobs but "
+                    "are NOT shard bases:",
                     len(false_merges),
                 )
-                for norm, raws in false_merges[:5]:
-                    log.warning("    '%s' <- %s", norm, sorted(raws))
+                for hw, norm, raws in false_merges[:5]:
+                    log.warning("    [%s] '%s' <- %s", hw, norm, sorted(raws))
 
             # ── Validation: verify parity key doesn't drop groups ──
             from vllm.ci.analyzer import _parity_key
-            amd_norms_in_results = {_normalize_job_name(r.job_name) for r in latest_amd}
-            parity_names = {g["name"] for g in parity.get("job_groups", [])}
-            from vllm.ci.analyzer import _EXCLUDE_PATTERNS
-            lost = {n for n in amd_norms_in_results - parity_names
-                    if not _EXCLUDE_PATTERNS.match(n)}
+            lost = _find_missing_parity_groups(current_amd, parity)
             if lost:
                 log.warning(
                     "  VALIDATION: %d AMD groups lost in parity matching! "
                     "Parity key collision may be dropping groups:",
                     len(lost),
                 )
-                for n in sorted(lost)[:5]:
+                for n in lost[:5]:
                     log.warning("    '%s' (parity_key='%s')", n, _parity_key(n))
 
             write_parity_report(parity, amd_date, up_date, output_dir)

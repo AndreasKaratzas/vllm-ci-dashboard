@@ -1,7 +1,7 @@
 name: Deploy to GitHub Pages
 
 on:
-  workflow_dispatch:  # Manual trigger only; daily deploys handled by daily-update.yml
+  workflow_dispatch:  # Manual trigger only; scheduled deploys are owned by hourly-master
 
 concurrency:
   group: gh-pages-deploy
@@ -47,6 +47,12 @@ jobs:
       - name: Render site data
         run: python scripts/render.py
 
+      - name: Rebuild v2 operations snapshot
+        run: python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
+
+      - name: Run dashboard data audit
+        run: python scripts/vllm/audit_dashboard_data.py
+
       - name: Assemble site
         run: python scripts/build_site.py --cache-bust-index
 
@@ -55,7 +61,9 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_site
           publish_branch: gh-pages
-          keep_files: true
+          # A manual full deployment is also an authoritative branch rebuild.
+          keep_files: false
+          force_orphan: true
 
       - name: Post-deploy validation
         id: post-deploy-validation

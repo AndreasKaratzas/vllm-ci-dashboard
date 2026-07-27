@@ -40,4 +40,13 @@ BK_ORG = "vllm"
 # Job name patterns to skip (non-test infrastructure jobs).
 # These are matched as substrings of lowercased job names.
 # Be specific — "pipeline" was matching "Pipeline + Context Parallelism" test group!
-SKIP_JOB_PATTERNS = ("bootstrap", "docker", "build image", "upload", "pipeline upload")
+# A bare "docker" used to drop the real "Docker Build Metadata (ROCm)" test.
+# Buildkite's infrastructure steps use the explicit :docker: emoji marker.
+SKIP_JOB_PATTERNS = (
+    "bootstrap",
+    ":docker:",
+    "docker build test image",
+    "build image",
+    "upload",
+    "pipeline upload",
+)

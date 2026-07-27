@@ -23,6 +23,9 @@ dashboard stays in sync.
 
 Env:
   PROJECTS_READ_TOKEN  read-only token used for Projects V2 evidence.
+  READY_TICKETS_USE_GH_CLI  ``"1"`` permits an authenticated local ``gh``
+                  session as a read-only Projects transport when no token is
+                  exported. This is intended for manual snapshot refreshes.
   UPSTREAM_COMMENT_TOKEN  environment-protected token used only to update the
                   pinned umbrella comment. It is never passed to collectors.
   READY_TICKETS_LIVE  ``"1"`` → request the scoped live write; anything
@@ -41,6 +44,8 @@ import json
 import logging
 import os
 import re
+import shutil
+import subprocess
 import sys
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -59,9 +64,10 @@ RESULTS_DIR = ROOT / "data" / "vllm" / "ci" / "test_results"
 OUT = ROOT / "data" / "vllm" / "ci" / "ready_tickets.json"
 STATE = ROOT / "data" / "vllm" / "ci" / "ready_tickets_state.json"
 # Snapshot of every item on project #39 (issue_number → {status, title, url}).
-# Written only in live mode — dashboard uses it to render the current column
-# (Backlog / Ready / In Progress / In Review / Done) next to each tracked
-# CI-failure issue. Dry-run cannot fetch Projects V2 board state.
+# Refreshed whenever a Projects read token is available in either live mode or
+# the workflow's forced read-only mode. The dashboard uses it to render the
+# current column (Backlog / Ready / In Progress / In Review / Done) next to
+# each tracked CI-failure issue.
 PROJECT_ITEMS_OUT = ROOT / "data" / "vllm" / "ci" / "project_items.json"
 
 # The Projects V2 board the team uses for triage.
@@ -459,6 +465,19 @@ def _rest_headers(token: str) -> dict:
     }
 
 
+def _gh_cli_read_available() -> bool:
+    """Whether the local GitHub CLI can provide a read-only API transport."""
+    if not shutil.which("gh"):
+        return False
+    result = subprocess.run(
+        ["gh", "auth", "status"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
 def _graphql_query(token: str, query: str, variables: dict) -> dict:
     """Execute a read-only GitHub GraphQL query.
 
@@ -469,14 +488,35 @@ def _graphql_query(token: str, query: str, variables: dict) -> dict:
         raise RuntimeError(
             "Ready Tickets GraphQL is read-only; mutations are prohibited"
         )
-    resp = requests.post(
-        GH_GRAPHQL,
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
-        json={"query": query, "variables": variables},
-        timeout=30,
-    )
-    resp.raise_for_status()
-    data = resp.json()
+    if token:
+        resp = requests.post(
+            GH_GRAPHQL,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+            },
+            json={"query": query, "variables": variables},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    else:
+        args = ["gh", "api", "graphql", "-f", f"query={query}"]
+        for name, value in variables.items():
+            if value is None:
+                continue
+            flag = "-F" if isinstance(value, (bool, int, float)) else "-f"
+            args.extend((flag, f"{name}={value}"))
+        result = subprocess.run(
+            args,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode:
+            detail = (result.stderr or result.stdout).strip()
+            raise RuntimeError(f"GitHub CLI GraphQL query failed: {detail}")
+        data = json.loads(result.stdout)
     if "errors" in data:
         raise RuntimeError(f"GraphQL error: {data['errors']}")
     return data["data"]
@@ -560,6 +600,50 @@ def _fetch_project_items_by_title(token: str, project_id: str) -> dict[str, dict
             break
         cursor = page["pageInfo"]["endCursor"]
     return out
+
+
+def _project_items_by_number(project_items_by_title: dict[str, dict]) -> dict[str, dict]:
+    """Convert the Projects title index into the dashboard's issue index."""
+    out: dict[str, dict] = {}
+    for title, item in project_items_by_title.items():
+        number = item.get("issueNumber")
+        if number is None:
+            continue
+        out[str(number)] = {
+            "issue_number": number,
+            "title": title,
+            "status": item.get("status") or "",
+            "issue_state": item.get("issueState") or "",
+            "url": item.get("url") or "",
+            "repo": item.get("repo") or "",
+        }
+    return out
+
+
+def _write_project_items_snapshot(
+    project_items_by_number: dict[str, dict],
+    generated_at: str,
+) -> None:
+    snapshot = {
+        "generated_at": generated_at,
+        "project": f"{PROJECT_ORG}/projects/{PROJECT_NUMBER}",
+        "project_url": f"https://github.com/orgs/{PROJECT_ORG}/projects/{PROJECT_NUMBER}",
+        "items_by_number": project_items_by_number,
+    }
+    PROJECT_ITEMS_OUT.parent.mkdir(parents=True, exist_ok=True)
+    PROJECT_ITEMS_OUT.write_text(json.dumps(snapshot, indent=2, sort_keys=True))
+
+
+def _refresh_project_items_snapshot(
+    token: str,
+    generated_at: str,
+) -> tuple[dict[str, dict], dict[str, dict]]:
+    """Fetch and persist Projects V2 evidence without mutating GitHub."""
+    project_id, _, _ = _fetch_project_meta(token)
+    by_title = _fetch_project_items_by_title(token, project_id)
+    by_number = _project_items_by_number(by_title)
+    _write_project_items_snapshot(by_number, generated_at)
+    return by_title, by_number
 
 
 def _is_post_umbrella_project_issue(issue_number: int | str | None) -> bool:
@@ -1137,6 +1221,11 @@ def run() -> int:
     scope_allowed = requested_write_scope == MASTER_COMMENT_WRITE_SCOPE
     allow_live = write_acknowledged and scope_allowed
     read_token = os.getenv("PROJECTS_READ_TOKEN") or os.getenv("GITHUB_TOKEN")
+    gh_cli_read = (
+        not read_token
+        and os.getenv("READY_TICKETS_USE_GH_CLI", "").strip() == "1"
+        and _gh_cli_read_available()
+    )
     write_token = os.getenv("UPSTREAM_COMMENT_TOKEN")
     live = live_requested and allow_live and bool(write_token)
     run_id = os.getenv("GITHUB_RUN_ID", "")
@@ -1246,6 +1335,7 @@ def run() -> int:
         return 0
 
     if not live:
+        forced_read_only = live_requested and not write_token
         if live_requested and not write_token:
             log.warning(
                 "READY_TICKETS_LIVE=1 but UPSTREAM_COMMENT_TOKEN is not set; "
@@ -1266,6 +1356,25 @@ def run() -> int:
             )
             log.info("Dry-run preflight: %d of %d plan entries match existing %s issues",
                      matched, len(plan), ISSUE_REPO)
+        # The scheduled workflow intentionally requests live mode but may lack
+        # the protected write token. Its Projects token is still useful
+        # read-only evidence, so refresh the board snapshot before returning.
+        # This path never writes ``STATE`` or invokes the comment updater.
+        if forced_read_only and (read_token or gh_cli_read):
+            try:
+                _, project_items_by_number = _refresh_project_items_snapshot(
+                    read_token or "",
+                    output["generated_at"],
+                )
+                log.info(
+                    "Refreshed read-only project #%d snapshot (%d items)",
+                    PROJECT_NUMBER,
+                    len(project_items_by_number),
+                )
+            except Exception as e:
+                # Preserve the prior snapshot and its timestamp on failure;
+                # replacing it with an empty fresh file would hide staleness.
+                log.warning("Could not refresh project #%d snapshot: %s", PROJECT_NUMBER, e)
         OUT.parent.mkdir(parents=True, exist_ok=True)
         OUT.write_text(json.dumps(output, indent=2, sort_keys=True))
         log.info("Wrote dry-run plan (%d tickets) to %s", len(plan), OUT)
@@ -1276,10 +1385,12 @@ def run() -> int:
     project_items_by_title: dict[str, dict] = {}
     project_items_by_number: dict[str, dict] = {}
     try:
-        if not read_token:
+        if not read_token and not gh_cli_read:
             raise RuntimeError("PROJECTS_READ_TOKEN is not configured")
-        project_id, _, _ = _fetch_project_meta(read_token)
-        project_items_by_title = _fetch_project_items_by_title(read_token, project_id)
+        project_items_by_title, project_items_by_number = _refresh_project_items_snapshot(
+            read_token or "",
+            output["generated_at"],
+        )
         for title, it in project_items_by_title.items():
             matchable = _is_post_umbrella_project_issue(it.get("issueNumber"))
             if (it.get("issueState") or "").lower() == "open":
@@ -1290,19 +1401,12 @@ def run() -> int:
                         "state": "open",
                         "repo": it.get("repo") or ISSUE_REPO,
                     }
-            num = it.get("issueNumber")
-            if num is None:
-                continue
-            project_items_by_number[str(num)] = {
-                "issue_number": num,
-                "title": title,
-                "status": it.get("status") or "",
-                "issue_state": it.get("issueState") or "",
-                "url": it.get("url") or "",
-                "repo": it.get("repo") or "",
-            }
     except Exception as e:
         log.warning("Could not refresh project #39 snapshot: %s", e)
+        # Preserve the historical live-mode contract when no prior snapshot is
+        # available: the dashboard still receives a well-shaped empty file.
+        if not PROJECT_ITEMS_OUT.exists():
+            _write_project_items_snapshot({}, output["generated_at"])
 
     # Only adopt per-group issues that are actually on project #39 and newer
     # than the static tracker. Legacy repo-wide CI tickets are intentionally
@@ -1349,15 +1453,6 @@ def run() -> int:
         entry["linked_prs"] = []
         entry["assignees"] = []
         entry["assignee"] = None
-
-    project_items_out = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "project": f"{PROJECT_ORG}/projects/{PROJECT_NUMBER}",
-        "project_url": f"https://github.com/orgs/{PROJECT_ORG}/projects/{PROJECT_NUMBER}",
-        "items_by_number": project_items_by_number,
-    }
-    PROJECT_ITEMS_OUT.parent.mkdir(parents=True, exist_ok=True)
-    PROJECT_ITEMS_OUT.write_text(json.dumps(project_items_out, indent=2, sort_keys=True))
 
     state = {
         "master_issue": {

@@ -38,6 +38,7 @@ def test_operations_data_is_lazy_loaded_with_bounded_first_render_payloads():
     assert "return loadOperationSections(manifest.shell, operationSectionNames(tabId))" in OPS_JS
     assert "const ops = await loadOperations(tabId)" in OPS_JS
     assert "fetchJSON('data/vllm/ci/operations_v2.json')" not in OPS_JS
+    assert "using compatibility snapshot" not in OPS_JS
 
     assert OPS_MANIFEST["schema_version"] == 2
     assert OPS_MANIFEST["bundle_version"] == 1
@@ -69,8 +70,8 @@ def test_operations_data_is_lazy_loaded_with_bounded_first_render_payloads():
     assert section_bytes["queue"] < 6_000_000
     assert manifest_bytes < (ROOT / "data" / "vllm" / "ci" / "operations_v2.json").stat().st_size * 0.05
     site_builder = (ROOT / "scripts" / "build_site.py").read_text()
-    assert "materialize_operations_bundle(output_dir / \"data\")" in site_builder
-    assert "write_snapshot_bundle(operations, payload, write_monolith=False" in site_builder
+    assert "materialize_operations_bundle(DATA, output_dir / \"data\", manifest)" in site_builder
+    assert "write_snapshot_bundle(output, payload, write_monolith=False" in site_builder
 
 
 def test_chart_library_does_not_block_dashboard_boot():
@@ -188,7 +189,7 @@ def test_amd_health_and_platform_comparison_are_distinct_first_visit_surfaces():
         "function openAmdGroupDetail",
         "AMD health by nightly",
         "Latest health by hardware variant",
-        "All AMD test groups",
+        "Retained AMD job-variant catalog",
         "AMD nightly test health",
         "AMD-first, upstream-only incident evidence",
         "function platformComparison",
@@ -241,6 +242,36 @@ def test_amd_health_and_platform_comparison_are_distinct_first_visit_surfaces():
         if row["comparison_eligible"]
     )
     assert comparison["summary"]["amd"]["child_retry_attempts"] <= comparison["summary"]["amd"]["retry_involved_attempts"]
+
+
+def test_amd_health_keeps_latest_and_historical_job_variant_counts_distinct():
+    segment = OPS_JS[
+        OPS_JS.index("function renderAmdHealth"):
+        OPS_JS.index("const AGENT_WINDOW_DAYS")
+    ]
+    for contract in (
+        "retained_group_count || summary.union_group_count || summary.group_count",
+        "label: 'LATEST JOB VARIANTS'",
+        "value: integer(summary.latest_group_count)",
+        "older variants retained only for history",
+        "const currentVariants = currentPassing.concat(currentIncidents, currentUnknown)",
+        "openAmdCatalog('Latest AMD job variants'",
+        "older names remain available as history and are not treated as missing incidents",
+        "'Historical only'",
+        "Not classified as current incidents",
+    ):
+        assert contract in segment
+
+    assert "integer(summary.latest_group_count) + ' / ' + integer(summary.group_count)" not in segment
+    assert "currentIncidents.length + missing.length" not in segment
+    assert "!['soft', 'hard', 'missing'].includes(latest)" not in OPS_JS
+
+    summary = OPS_DATA["amd_test_health"]["summary"]
+    retained = summary.get("retained_group_count", summary["union_group_count"])
+    assert retained == summary["group_count"] == len(
+        OPS_DATA["amd_test_health"]["group_catalog"]
+    )
+    assert summary["latest_group_count"] < retained
 
 
 def test_flake_visualizations_compare_amd_and_exact_cuda_equivalents():
@@ -403,6 +434,31 @@ def test_definition_parity_is_source_scoped_and_not_presented_as_runtime_health(
     assert "matrixData.rows || []).slice" not in OPS_JS
 
 
+def test_runtime_target_incident_attention_loads_and_filters_runtime_gating():
+    for contract in (
+        "{id: 'targets', label: 'Runtime targets'}",
+        "if (state.healthView === 'targets') return ['gating']",
+        "healthView: 'targets', healthResult: 'incident'",
+        "Runtime AMD target signal, not definition parity.",
+        "const incidentTargets = allTargets.filter(isTargetIncident)",
+        "filters[state.healthResult]",
+        "openGatingDetailWithEvidence(row, ops)",
+        "non-passing latest results first",
+    ):
+        assert contract in OPS_JS
+    assert (
+        "healthView: 'gating', healthResult: 'incident'"
+        not in OPS_JS
+    )
+
+
+def test_diagnostics_do_not_link_private_collector_state():
+    assert "row.record.published === false ? ''" in OPS_JS
+    assert 'sources[internal_source]["published"] = False' in (
+        ROOT / "scripts" / "vllm" / "build_operations_snapshot.py"
+    ).read_text()
+
+
 def test_blocked_nightly_is_separate_from_the_latest_test_signal():
     for contract in (
         "function amdNightlyPresentation",
@@ -431,10 +487,18 @@ def test_nightly_assessment_uses_explicit_movement_rules():
         "Stable incidents",
         "Recovered",
         "No net change",
+        "NIGHTLY VARIANT MOVEMENT",
+        "fewer job variants",
         "provisional while Buildkite is running",
     ):
         assert contract in OPS_JS
     assert "soft ? 'Degraded'" not in OPS_JS
+
+
+def test_nightly_counts_are_labeled_as_exact_job_variants():
+    assert "JOB VARIANTS OBSERVED" in OPS_JS
+    assert "NEW INCIDENT VARIANTS" in OPS_JS
+    assert "label: 'GROUPS OBSERVED'" not in OPS_JS
 
 
 def test_coverage_matrix_supports_route_safe_platform_name_and_area_sorting():
@@ -457,6 +521,76 @@ def test_coverage_matrix_supports_route_safe_platform_name_and_area_sorting():
     assert "const coverageSortToolbar" not in OPS_JS
     assert "const coverageSortGroup = n('div', 'ops-panel-header-actions')" in OPS_JS
     assert ".ops-page .ops-panel-header-trailing" in OPS_CSS
+
+
+def test_architecture_signal_drilldown_sorts_nonpassing_results_before_passes_and_names():
+    for contract in (
+        "const AMD_ARCHITECTURE_HARD_SIGNAL_STATES",
+        "'hard', 'failed', 'failing', 'incident', 'error', 'timed_out', 'broken'",
+        "'canceled', 'cancelled', 'expired'",
+        "const AMD_ARCHITECTURE_SOFT_SIGNAL_STATES",
+        "'soft', 'soft_fail', 'soft_failed'",
+        "function architectureSignalStateRank",
+        "if (AMD_ARCHITECTURE_HARD_SIGNAL_STATES.has(normalized)) return 0",
+        "if (AMD_ARCHITECTURE_SOFT_SIGNAL_STATES.has(normalized)) return 1",
+        "if (normalized === 'passed') return 3",
+        "function sortArchitectureSignalRows",
+        "architectureSignalStateRank(latestState(left)) - architectureSignalStateRank(latestState(right))",
+        "compareText(left.title, right.title)",
+        "const selectedRows = sortArchitectureSignalRows(architectureRows(architecture), architecture.id)",
+        "non-passing latest results first, then test group A-Z",
+    ):
+        assert contract in OPS_JS
+
+    matrix = json.loads(
+        (ROOT / "data" / "vllm" / "ci" / "amd_test_matrix.json").read_text()
+    )
+    mi300_rows = [
+        row
+        for row in matrix["rows"]
+        if row.get("cells", {}).get("mi300", {}).get("exists")
+    ]
+
+    hard_states = {
+        "hard", "failed", "failing", "incident", "error", "timed_out", "broken",
+        "canceled", "cancelled", "expired",
+    }
+    soft_states = {"soft", "soft_fail", "soft_failed"}
+
+    def sort_key(row):
+        state = str(
+            row.get("cells", {}).get("mi300", {}).get("latest_state")
+            or "unobserved"
+        ).strip().lower()
+        rank = (
+            0 if state in hard_states
+            else 1 if state in soft_states
+            else 3 if state == "passed"
+            else 2
+        )
+        return (
+            rank,
+            str(row.get("title") or "").casefold(),
+            str(row.get("area") or "").casefold(),
+            str(row.get("id") or "").casefold(),
+        )
+
+    ordered = sorted(mi300_rows, key=sort_key)
+    ranks = [sort_key(row)[0] for row in ordered]
+    assert ranks == sorted(ranks)
+    for rank in set(ranks):
+        titles = [row["title"] for row in ordered if sort_key(row)[0] == rank]
+        assert [title.casefold() for title in titles] == sorted(
+            title.casefold() for title in titles
+        )
+
+    ordered_titles = [row["title"] for row in ordered]
+    assert ordered_titles.index("Basic Models Tests (Other)") < ordered_titles.index(
+        "e2e Scheduling (1 GPU)"
+    )
+    first_passing = ranks.index(3)
+    assert all(rank < 3 for rank in ranks[:first_passing])
+    assert all(rank == 3 for rank in ranks[first_passing:])
 
 
 def test_authoritative_group_catalog_preserves_id_and_variant_identity():

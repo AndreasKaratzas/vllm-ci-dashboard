@@ -1150,6 +1150,13 @@ def write_gating_nightlies(output: Path, all_data: dict[str, dict[str, Any]], ge
     log.info("Wrote %s", out_path)
 
 
+def write_analytics(out_path: Path, payload: dict) -> None:
+    """Write the large analytics artifact without whitespace amplification."""
+    out_path.write_text(
+        json.dumps(payload, separators=(",", ":"), default=str) + "\n"
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Collect CI analytics for rich dashboard")
     parser.add_argument("--days", type=int, default=90, help="Days of history (default: 90)")
@@ -1312,7 +1319,7 @@ def main():
 
     # Write output
     out_path = output / "analytics.json"
-    out_path.write_text(json.dumps(all_data, indent=2, default=str))
+    write_analytics(out_path, all_data)
     log.info("Wrote %s", out_path)
     write_gating_nightlies(output, all_data, generated_at)
 

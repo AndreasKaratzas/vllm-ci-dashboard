@@ -747,6 +747,124 @@ class TestRunDryRun:
         data = json.loads(out.read_text())
         assert data["mode"] == "dry_run_forced"
 
+    def test_forced_dry_run_refreshes_project_items_with_read_token_only(
+        self, isolated_paths, monkeypatch
+    ):
+        results, out, state = isolated_paths
+        project_items_path = srt.PROJECT_ITEMS_OUT
+        d = _today_minus(1)
+        _write_jsonl(results / f"{d}_amd.jsonl", [
+            {"job_name": "mi250_1: G", "classname": "mi250_1: c",
+             "status": "failed", "build_number": 1},
+        ])
+        original_state = '{"checkpoint":"must remain untouched"}\n'
+        state.write_text(original_state)
+        project_items_path.write_text(json.dumps({
+            "generated_at": "2026-07-13T00:00:00Z",
+            "items_by_number": {"40240": {"issue_state": "OPEN"}},
+        }))
+
+        monkeypatch.setattr(
+            srt,
+            "_fetch_existing_ci_failure_issues",
+            lambda token, repo: {},
+        )
+        monkeypatch.setattr(
+            srt,
+            "_fetch_project_meta",
+            lambda token: ("PROJECT_ID", "STATUS_FIELD_ID", {}),
+        )
+        monkeypatch.setattr(
+            srt,
+            "_fetch_project_items_by_title",
+            lambda token, project_id: {
+                "[CI Failure]: Closed Group": {
+                    "itemId": "ITEM_1",
+                    "issueNumber": 40240,
+                    "issueState": "CLOSED",
+                    "status": "Done",
+                    "url": "https://github.com/vllm-project/vllm/issues/40240",
+                    "repo": "vllm-project/vllm",
+                }
+            },
+        )
+
+        def _no_upstream_write(*args, **kwargs):
+            raise AssertionError("forced dry-run must not update the master comment")
+
+        monkeypatch.setattr(srt, "_update_pinned_master_comment", _no_upstream_write)
+        monkeypatch.setenv("READY_TICKETS_LIVE", "1")
+        monkeypatch.setenv("READY_TICKETS_ALLOW_UPSTREAM_WRITES", "1")
+        monkeypatch.setenv("READY_TICKETS_WRITE_SCOPE", "master_comment_only")
+        monkeypatch.setenv("PROJECTS_READ_TOKEN", "dummy-read-token")
+
+        rc = srt.run()
+
+        assert rc == 0
+        assert json.loads(out.read_text())["mode"] == "dry_run_forced"
+        refreshed = json.loads(project_items_path.read_text())
+        assert refreshed["project"] == "vllm-project/projects/39"
+        assert refreshed["items_by_number"] == {
+            "40240": {
+                "issue_number": 40240,
+                "title": "[CI Failure]: Closed Group",
+                "status": "Done",
+                "issue_state": "CLOSED",
+                "url": "https://github.com/vllm-project/vllm/issues/40240",
+                "repo": "vllm-project/vllm",
+            }
+        }
+        assert state.read_text() == original_state
+
+    def test_graphql_can_use_authenticated_gh_cli_without_exporting_a_token(
+        self, monkeypatch
+    ):
+        captured = {}
+
+        def _run(args, **kwargs):
+            captured["args"] = args
+            return type("Result", (), {
+                "returncode": 0,
+                "stdout": '{"data":{"node":{"id":"PVT_1"}}}',
+                "stderr": "",
+            })()
+
+        monkeypatch.setattr(srt.subprocess, "run", _run)
+        payload = srt._graphql_query(
+            "",
+            "query($projectId: ID!) { node(id: $projectId) { id } }",
+            {"projectId": "PVT_1", "cursor": None},
+        )
+
+        assert payload == {"node": {"id": "PVT_1"}}
+        assert captured["args"][:3] == ["gh", "api", "graphql"]
+        assert "projectId=PVT_1" in captured["args"]
+        assert not any("cursor=" in arg for arg in captured["args"])
+
+    def test_forced_dry_run_preserves_prior_project_snapshot_on_read_failure(
+        self, isolated_paths, monkeypatch
+    ):
+        _, out, state = isolated_paths
+        project_items_path = srt.PROJECT_ITEMS_OUT
+        original_snapshot = '{"generated_at":"old","items_by_number":{"1":{}}}\n'
+        project_items_path.write_text(original_snapshot)
+
+        def _read_failure(*args, **kwargs):
+            raise RuntimeError("Projects API unavailable")
+
+        monkeypatch.setattr(srt, "_fetch_project_meta", _read_failure)
+        monkeypatch.setenv("READY_TICKETS_LIVE", "1")
+        monkeypatch.setenv("READY_TICKETS_ALLOW_UPSTREAM_WRITES", "1")
+        monkeypatch.setenv("READY_TICKETS_WRITE_SCOPE", "master_comment_only")
+        monkeypatch.setenv("PROJECTS_READ_TOKEN", "dummy-read-token")
+
+        rc = srt.run()
+
+        assert rc == 0
+        assert json.loads(out.read_text())["mode"] == "dry_run_forced"
+        assert project_items_path.read_text() == original_snapshot
+        assert not state.exists()
+
     def test_live_requested_without_explicit_allow_stays_paused(
         self, isolated_paths, monkeypatch, tmp_path
     ):

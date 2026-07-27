@@ -512,6 +512,7 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
     assert health["cohort"]["aggregation_key"] == ["build_number", "exact_job_name"]
     assert health["summary"] == {
         "build_count": 2,
+        "retained_group_count": 5,
         "group_count": 5,
         "union_group_count": 5,
         "latest_group_count": 3,
@@ -647,6 +648,7 @@ def test_amd_test_health_is_unavailable_for_missing_or_corrupt_results(tmp_path)
     assert missing["available"] is False
     assert missing["source_pipeline"] == "amd-ci"
     assert missing["summary"]["build_count"] == 0
+    assert missing["summary"]["retained_group_count"] == 0
     assert missing["summary"]["group_count"] == 0
     assert missing["summary"]["latest_build_number"] is None
     assert missing["builds"] == []
@@ -704,6 +706,53 @@ def test_latest_infrastructure_blocked_nightly_is_not_dropped_or_given_stale_res
         "severity": "critical",
         "count": 6,
     }
+
+
+def test_attention_uses_current_hardness_instead_of_newness():
+    soft_only = {
+        "pipelines": [{
+            "builds": [{
+                "failed_groups": [],
+                "soft_failed_groups": [{"name": "new soft"}],
+                "transitions": {
+                    "new": [{"name": "new soft", "state": "soft_failed"}],
+                },
+            }],
+        }],
+    }
+    shared = (
+        {},
+        {"active_target_summary": {"by_latest_amd_state": {}}},
+        {"snapshot": {}},
+        {"status": "healthy", "current": {}},
+    )
+    soft_attention = ops._attention(soft_only, *shared)
+
+    assert soft_attention == [{
+        "kind": "nightly_soft_failures",
+        "severity": "warning",
+        "count": 1,
+    }]
+
+    recurring_hard = {
+        "pipelines": [{
+            "builds": [{
+                "failed_groups": [{"name": "recurring hard"}],
+                "soft_failed_groups": [],
+                "transitions": {
+                    "new": [],
+                    "recurring": [{"name": "recurring hard", "state": "failed"}],
+                },
+            }],
+        }],
+    }
+    hard_attention = ops._attention(recurring_hard, *shared)
+
+    assert hard_attention == [{
+        "kind": "nightly_hard_failures",
+        "severity": "critical",
+        "count": 1,
+    }]
 
 
 def test_compact_queue_history_retains_observed_idle_rows_and_wait_provenance():

@@ -32,7 +32,34 @@ CI = VLLM / "ci"
 AMD_FAILURE_STATES = {"failed", "timed_out", "broken", "soft_fail"}
 AMD_WAITING_STATES = {"running", "scheduled", "assigned"}
 RESULT_SUFFIXES = {"amd-ci": "amd", "ci": "upstream"}
-CROSS_VIEW_GROUP_DRIFT_TOLERANCE = 1
+OPERATIONS_SOURCE_MAX_AGE_HOURS = 6
+OPERATIONS_FRESH_SOURCE_KEYS = frozenset({
+    "analytics",
+    "agent_health",
+    "amd_test_signal",
+    "ci_health",
+    "config_parity",
+    "gating_targets",
+    "gating_target_candidates",
+    "amd_test_matrix",
+    "capacity_monitor",
+    "queue_timeseries",
+    "queue_jobs",
+    "group_changes",
+    "omni_heuristic",
+    "project_items",
+    "ready_tickets",
+})
+OPERATIONS_SOURCE_MAX_AGE_OVERRIDES = {
+    # AMD nightlies run daily; this is source observation age, not collector age.
+    "amd_test_signal": 36,
+    # Ready Tickets is refreshed by a separate thrice-daily read-only workflow.
+    "project_items": 36,
+    "ready_tickets": 36,
+}
+PUBLIC_FILE_WARN_BYTES = 90 * 1024 * 1024
+PUBLIC_FILE_HARD_BYTES = 100 * 1024 * 1024
+PUBLIC_SITE_WARN_BYTES = 250 * 1024 * 1024
 
 
 def _mapping(value: Any) -> dict:
@@ -59,6 +86,18 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _parse_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _strict_positive_int_set(value: Any) -> set[int] | None:
@@ -243,6 +282,20 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         "Ready-ticket triage and per-group build evidence",
     ),
     DataSpec(
+        "data/vllm/ci/project_items.json",
+        ("scripts/vllm/sync_ready_tickets.py",),
+        ("docs/assets/js/ci-ready.js",),
+        ("generated_at", "items_by_number", "project", "project_url"),
+        "Read-only GitHub Projects status and issue-state evidence",
+    ),
+    DataSpec(
+        "data/vllm/ci/omni_surge_heuristic.json",
+        ("scripts/vllm/omni_surge_watcher.py",),
+        ("scripts/vllm/build_operations_snapshot.py",),
+        ("generated_at", "source_status", "total_groups", "trigger", "healthy"),
+        "Omni queue threshold derived from every current pipeline definition",
+    ),
+    DataSpec(
         "data/vllm/perf_eval/perf_eval.json",
         ("scripts/vllm/collect_perf_eval.py",),
         ("docs/assets/js/ops-v2.js", "docs/assets/js/ci-perf-eval.js"),
@@ -331,6 +384,7 @@ class DashboardAudit:
 
     def run(self) -> AuditReport:
         self.audit_data_inventory()
+        self.audit_publication_size()
         self.audit_operations_v2()
         self.audit_operations_bundle()
         self.audit_home_pr_issue_data()
@@ -491,6 +545,88 @@ class DashboardAudit:
                     )
         self.report.metrics["data_inventory"] = inventory
 
+    def audit_publication_size(self) -> None:
+        """Keep the static publication below explicit per-file and total budgets."""
+        manifest_path = self.root / "config/public_data_manifest.json"
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except (FileNotFoundError, json.JSONDecodeError) as exc:
+            self.error(
+                "public-manifest-invalid",
+                f"Could not read the public data manifest: {exc}",
+                self.rel(manifest_path),
+            )
+            return
+
+        data_root = self.root / "data"
+        published_sizes: dict[str, int] = {}
+        for manifest_field in ("required_files", "optional_files"):
+            for relative in manifest.get(manifest_field) or []:
+                path = data_root / str(relative)
+                if path.is_file():
+                    published_sizes[str(relative)] = path.stat().st_size
+        for pattern in manifest.get("optional_globs") or []:
+            for path in data_root.glob(str(pattern)):
+                if path.is_file():
+                    published_sizes[path.relative_to(data_root).as_posix()] = (
+                        path.stat().st_size
+                    )
+
+        operations_manifest_path = (
+            self.root / "data/vllm/ci/operations_v2_manifest.json"
+        )
+        operations_manifest = (
+            self.load_json("data/vllm/ci/operations_v2_manifest.json", {})
+            if operations_manifest_path.exists()
+            else {}
+        )
+        if isinstance(operations_manifest, dict):
+            for descriptor in _mapping(operations_manifest.get("sections")).values():
+                if not isinstance(descriptor, dict) or not descriptor.get("path"):
+                    continue
+                relative = f"vllm/ci/{descriptor['path']}"
+                published_sizes[relative] = _safe_int(descriptor.get("bytes"))
+
+        for relative, size in sorted(published_sizes.items()):
+            if size > PUBLIC_FILE_HARD_BYTES:
+                self.error(
+                    "public-file-budget",
+                    (
+                        f"{relative} is {size} bytes; the public-file hard budget is "
+                        f"{PUBLIC_FILE_HARD_BYTES} bytes"
+                    ),
+                    f"data/{relative}",
+                )
+            elif size > PUBLIC_FILE_WARN_BYTES:
+                self.warning(
+                    "public-file-near-budget",
+                    (
+                        f"{relative} is {size} bytes; warning budget is "
+                        f"{PUBLIC_FILE_WARN_BYTES} bytes"
+                    ),
+                    f"data/{relative}",
+                )
+
+        total = sum(published_sizes.values())
+        if total > PUBLIC_SITE_WARN_BYTES:
+            self.warning(
+                "public-site-payload",
+                (
+                    f"Allowlisted public data is approximately {total} bytes; "
+                    f"warning budget is {PUBLIC_SITE_WARN_BYTES} bytes"
+                ),
+                "config/public_data_manifest.json",
+            )
+        self.report.metrics["publication_size"] = {
+            "estimated_bytes": total,
+            "largest_files": dict(
+                sorted(
+                    published_sizes.items(),
+                    key=lambda item: (-item[1], item[0]),
+                )[:10]
+            ),
+        }
+
     def audit_operations_v2(self) -> None:
         relpath = "data/vllm/ci/operations_v2.json"
         payload = self.load_json(relpath, {})
@@ -498,6 +634,177 @@ class DashboardAudit:
             return
         if payload.get("schema_version") != 2:
             self.error("operations-schema", "operations_v2.json must use schema_version 2", relpath)
+
+        generated_at = _parse_timestamp(payload.get("generated_at"))
+        source_ages: dict[str, float] = {}
+        if generated_at is not None:
+            sources = _mapping(payload.get("sources"))
+            for source_name in sorted(OPERATIONS_FRESH_SOURCE_KEYS):
+                source = _mapping(sources.get(source_name))
+                source_at = _parse_timestamp(source.get("timestamp"))
+                if source_at is None:
+                    self.error(
+                        "operations-source-timestamp",
+                        f"operations source {source_name} has no valid timestamp",
+                        relpath,
+                    )
+                    continue
+                if source.get("timestamp_source") in {
+                    None,
+                    "",
+                    "file_mtime",
+                    "missing",
+                }:
+                    self.error(
+                        "operations-source-provenance",
+                        (
+                            f"operations source {source_name} freshness comes from "
+                            f"{source.get('timestamp_source') or 'an unspecified source'}; "
+                            "a payload observation timestamp is required"
+                        ),
+                        relpath,
+                    )
+                age_hours = (generated_at - source_at).total_seconds() / 3600
+                source_ages[source_name] = round(age_hours, 2)
+                if age_hours < -1:
+                    self.error(
+                        "operations-source-from-future",
+                        (
+                            f"operations source {source_name} is {-age_hours:.1f}h newer "
+                            "than the snapshot that embeds it"
+                        ),
+                        relpath,
+                    )
+                max_age_hours = OPERATIONS_SOURCE_MAX_AGE_OVERRIDES.get(
+                    source_name, OPERATIONS_SOURCE_MAX_AGE_HOURS
+                )
+                if age_hours >= -1 and age_hours > max_age_hours:
+                    self.error(
+                        "operations-stale-source",
+                        (
+                            f"operations source {source_name} is {age_hours:.1f}h older "
+                            f"than the snapshot; maximum is {max_age_hours}h"
+                        ),
+                        relpath,
+                    )
+
+        amd_test_health = _mapping(payload.get("amd_test_health"))
+        amd_health_summary = _mapping(amd_test_health.get("summary"))
+        amd_health_builds = _rows(amd_test_health.get("builds"))
+        amd_health_catalog = _rows(amd_test_health.get("group_catalog"))
+        if amd_test_health:
+            retained_count = _safe_int(
+                amd_health_summary.get("retained_group_count")
+                or amd_health_summary.get("union_group_count")
+                or amd_health_summary.get("group_count")
+            )
+            declared_catalog_counts = {
+                "retained_group_count": _safe_int(
+                    amd_health_summary.get("retained_group_count"), retained_count
+                ),
+                "group_count": _safe_int(amd_health_summary.get("group_count")),
+                "union_group_count": _safe_int(
+                    amd_health_summary.get("union_group_count")
+                ),
+            }
+            for field_name, declared in declared_catalog_counts.items():
+                if declared != len(amd_health_catalog):
+                    self.error(
+                        "operations-amd-retained-count",
+                        (
+                            f"amd_test_health.summary.{field_name}={declared} but "
+                            f"the retained catalog has {len(amd_health_catalog)} rows"
+                        ),
+                        relpath,
+                    )
+
+            if _safe_int(amd_health_summary.get("build_count")) != len(amd_health_builds):
+                self.error(
+                    "operations-amd-build-count",
+                    (
+                        f"amd_test_health.summary.build_count="
+                        f"{amd_health_summary.get('build_count')} but "
+                        f"{len(amd_health_builds)} build rows are published"
+                    ),
+                    relpath,
+                )
+
+            latest_counts = _mapping(amd_health_summary.get("latest_state_counts"))
+            latest_count = _safe_int(amd_health_summary.get("latest_group_count"))
+            latest_state_total = sum(
+                _safe_int(latest_counts.get(state))
+                for state in ("passed", "soft", "hard", "unknown")
+            )
+            if latest_count != latest_state_total:
+                self.error(
+                    "operations-amd-latest-state-count",
+                    (
+                        f"latest_group_count={latest_count} but latest state counts "
+                        f"sum to {latest_state_total}"
+                    ),
+                    relpath,
+                )
+
+            latest_build_number = _safe_int(
+                amd_health_summary.get("latest_build_number")
+            )
+            current_catalog_rows = sum(
+                _safe_int(_mapping(row).get("latest_build_number"))
+                == latest_build_number
+                for row in amd_health_catalog
+            )
+            if latest_build_number and current_catalog_rows != latest_count:
+                self.error(
+                    "operations-amd-latest-catalog-count",
+                    (
+                        f"latest build #{latest_build_number} has "
+                        f"{current_catalog_rows} current catalog rows but summary "
+                        f"reports {latest_count}"
+                    ),
+                    relpath,
+                )
+
+            latest_build = next(
+                (
+                    _mapping(row)
+                    for row in amd_health_builds
+                    if _safe_int(_mapping(row).get("build_number"))
+                    == latest_build_number
+                ),
+                {},
+            )
+            for raw_build in amd_health_builds:
+                build = _mapping(raw_build)
+                state_counts = _mapping(build.get("state_counts"))
+                state_total = sum(
+                    _safe_int(state_counts.get(state))
+                    for state in ("passed", "soft", "hard", "unknown")
+                )
+                observed = _safe_int(
+                    build.get("observed") or build.get("observed_groups")
+                )
+                if observed != state_total:
+                    self.error(
+                        "operations-amd-build-state-count",
+                        (
+                            f"AMD build #{build.get('build_number')} reports "
+                            f"{observed} observed variants but state counts sum to "
+                            f"{state_total}"
+                        ),
+                        relpath,
+                    )
+            if latest_build:
+                build_latest_counts = _mapping(latest_build.get("state_counts"))
+                if any(
+                    _safe_int(build_latest_counts.get(state))
+                    != _safe_int(latest_counts.get(state))
+                    for state in ("passed", "soft", "hard", "unknown")
+                ):
+                    self.error(
+                        "operations-amd-latest-build-count",
+                        "latest AMD build state counts do not match the summary",
+                        relpath,
+                    )
 
         definition_parity = _mapping(payload.get("definition_parity"))
         if definition_parity:
@@ -1087,6 +1394,10 @@ class DashboardAudit:
 
         self.report.metrics["operations_v2"] = {
             "active_targets": len(active),
+            "amd_latest_job_variants": _safe_int(
+                amd_health_summary.get("latest_group_count")
+            ),
+            "amd_retained_job_variants": len(amd_health_catalog),
             "linked_active_targets": linked_gating,
             "mixed_outcome_candidates": len(candidates),
             "reliability_groups": len(catalog),
@@ -1099,6 +1410,7 @@ class DashboardAudit:
             "other_main_builds": cohort_other_main,
             "retry_attempts": len(retry_attempts),
             "retry_recoveries": len(recoveries),
+            "source_age_hours": source_ages,
         }
 
     def audit_agent_health(self, payload: dict, relpath: str) -> None:
@@ -2156,21 +2468,12 @@ class DashboardAudit:
             observed_groups = arch_stats["matched"]
             if health_groups is not None and health_groups != observed_groups:
                 terminal_observed = observed_groups - arch_stats["waiting"]
-                diff = abs(int(health_groups) - int(observed_groups))
                 if terminal_observed <= health_groups <= observed_groups:
                     self.warning(
                         "matrix-health-hardware-count-in-progress",
                         f"{arch} matrix matched groups={observed_groups} including "
                         f"{arch_stats['waiting']} waiting cells; ci_health by_hardware "
                         f"currently reports {health_groups} observed terminal groups",
-                        "data/vllm/ci/amd_test_matrix.json",
-                    )
-                elif diff <= CROSS_VIEW_GROUP_DRIFT_TOLERANCE:
-                    self.warning(
-                        "matrix-health-hardware-count-drift",
-                        f"{arch} matrix matched groups={observed_groups} but ci_health "
-                        f"by_hardware groups={health_groups}; allowing one-group "
-                        "cross-view collector drift",
                         "data/vllm/ci/amd_test_matrix.json",
                     )
                 else:
@@ -2245,21 +2548,11 @@ class DashboardAudit:
         for arch, mstats in matrix_stats["by_arch"].items():
             pstats = parity_stats.get(arch, {})
             if pstats.get("total") != mstats["total"]:
-                diff = abs((pstats.get("total") or 0) - mstats["total"])
-                if diff <= CROSS_VIEW_GROUP_DRIFT_TOLERANCE:
-                    self.warning(
-                        "parity-matrix-hardware-total-drift",
-                        f"{arch} parity hardware total={pstats.get('total')} and AMD "
-                        f"matrix total={mstats['total']} differ by one group; allowing "
-                        "cross-view collector drift",
-                        "data/vllm/ci/parity_report.json",
-                    )
-                else:
-                    self.error(
-                        "parity-matrix-hardware-total",
-                        f"{arch} parity hardware total={pstats.get('total')} but AMD matrix total={mstats['total']}",
-                        "data/vllm/ci/parity_report.json",
-                    )
+                self.error(
+                    "parity-matrix-hardware-total",
+                    f"{arch} parity hardware total={pstats.get('total')} but AMD matrix total={mstats['total']}",
+                    "data/vllm/ci/parity_report.json",
+                )
             parity_failing = pstats.get("failing")
             if parity_failing != mstats["failing"]:
                 diff = abs((parity_failing or 0) - mstats["failing"])
@@ -2269,14 +2562,6 @@ class DashboardAudit:
                         f"{arch} parity failing groups={parity_failing} and AMD matrix "
                         f"failing cells={mstats['failing']} differ by {diff} while "
                         f"{mstats['waiting']} matrix cells are still waiting",
-                        "data/vllm/ci/parity_report.json",
-                    )
-                elif diff <= CROSS_VIEW_GROUP_DRIFT_TOLERANCE:
-                    self.warning(
-                        "parity-matrix-hardware-failing-drift",
-                        f"{arch} parity failing groups={parity_failing} and AMD matrix "
-                        f"failing cells={mstats['failing']} differ by one group; "
-                        "allowing cross-view collector drift",
                         "data/vllm/ci/parity_report.json",
                     )
                 else:
@@ -2541,6 +2826,8 @@ class DashboardAudit:
         hourly = self.root / ".github/workflows/hourly-master.yml"
         text = hourly.read_text(errors="ignore") if hourly.exists() else ""
         ordered_tokens = [
+            "name: Sync CI data from gh-pages",
+            "name: Collect AMD gating target list",
             "name: Collect CI data",
             "name: Collect CI analytics",
             "name: Collect test group changes",

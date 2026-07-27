@@ -97,6 +97,10 @@ class TestCIDataFreshness:
         assert (DATA / "vllm" / "ci" / "amd_test_matrix.json").exists(), \
             "amd_test_matrix.json does not exist"
 
+    def test_gating_targets_exists(self):
+        assert (DATA / "vllm" / "ci" / "gating_targets.json").exists(), \
+            "gating_targets.json does not exist"
+
     def test_ci_health_fresh(self):
         _skip_if_local()
         d = json.loads((DATA / "vllm" / "ci" / "ci_health.json").read_text())
@@ -127,6 +131,13 @@ class TestCIDataFreshness:
         ts = d.get("generated_at", "")
         assert ts, "amd_test_matrix.json has no generated_at"
         _check_freshness("amd_test_matrix.json", ts)
+
+    def test_gating_targets_fresh(self):
+        _skip_if_local()
+        d = json.loads((DATA / "vllm" / "ci" / "gating_targets.json").read_text())
+        ts = d.get("generated_at", "")
+        assert ts, "gating_targets.json has no generated_at"
+        _check_freshness("gating_targets.json", ts)
 
     def test_parity_report_has_job_links(self):
         """Verify parity report has job links (the bug we fixed)."""

@@ -77,6 +77,7 @@ QUEUE_HISTORY_SHARD_FIELDS = {
 
 SOURCE_FILES = {
     "analytics": "analytics.json",
+    "agent_health": "agent_health.json",
     "ci_health": "ci_health.json",
     "config_parity": "config_parity.json",
     "gating_targets": "gating_targets.json",
@@ -88,6 +89,8 @@ SOURCE_FILES = {
     "group_changes": "group_changes.json",
     "omni_heuristic": "omni_surge_heuristic.json",
     "omni_issue_state": "open_omni_surge_issues.json",
+    "project_items": "project_items.json",
+    "ready_tickets": "ready_tickets.json",
 }
 
 MULTISPACE_RE = re.compile(r"\s+")
@@ -982,6 +985,10 @@ def _amd_test_health(data_dir: Path, amd_analytics: Any) -> dict:
     )
     summary = {
         "build_count": len(builds),
+        # This is the historical union of exact Buildkite job names, not the
+        # denominator for the latest nightly. Keep the older aliases for
+        # compatibility, but give new clients an unambiguous field name.
+        "retained_group_count": len(catalog),
         "group_count": len(catalog),
         "union_group_count": len(catalog),
         "latest_group_count": int(latest.get("observed") or 0),
@@ -2859,9 +2866,15 @@ def _attention(nightly: dict, reliability: dict, gating: dict, queue: dict, omni
             "severity": "critical",
             "count": int(latest["test_jobs_blocked"]),
         })
-    new_groups = (latest.get("transitions") or {}).get("new") or []
-    if new_groups:
-        items.append({"kind": "nightly_new_failures", "severity": "critical", "count": len(new_groups)})
+    # Current severity must come from the current outcome, not movement alone.
+    # A newly soft-failing group is warning-level, while a recurring hard
+    # failure must remain critical.
+    if latest.get("failed_groups"):
+        items.append({
+            "kind": "nightly_hard_failures",
+            "severity": "critical",
+            "count": len(latest["failed_groups"]),
+        })
     if latest.get("soft_failed_groups"):
         items.append({
             "kind": "nightly_soft_failures",
@@ -2953,7 +2966,9 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         "primary_pipeline": "amd-ci",
         "pipeline_order": ["amd-ci", "ci"],
         "history_window_days": NIGHTLY_BUILD_LIMIT,
-        "transition_basis": "failed and soft-failed groups versus the preceding nightly",
+        "transition_basis": (
+            "exact failed and soft-failed job variants versus the preceding nightly"
+        ),
         "canonical_history": amd_nightly,
         "upstream_parity": upstream_parity,
         "pipelines": pipeline_blocks,
@@ -3000,6 +3015,17 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
     for name, path in paths.items():
         data = queue_snapshot if name == "queue_timeseries" else loaded.get(name) or {}
         sources[name] = _source_record(path, data, queue_snapshot.get("ts", "") if name == "queue_timeseries" else "")
+    for internal_source in ("agent_health", "omni_issue_state"):
+        sources[internal_source]["published"] = False
+    # The raw JSONL ledger is an internal build input, so diagnostics link to
+    # the published analytics source while retaining the actual latest AMD
+    # observation time rather than the wrapper regeneration time.
+    sources["amd_test_signal"] = {
+        "path": SOURCE_FILES["analytics"],
+        "timestamp": (amd_test_health.get("summary") or {}).get("latest_observed_at"),
+        "timestamp_source": "amd_test_health.summary.latest_observed_at",
+        "published": True,
+    }
 
     return {
         "schema_version": 2,
@@ -3192,7 +3218,7 @@ def write_snapshot_bundle(
         "schema_version": payload.get("schema_version"),
         "bundle_version": 1,
         "generated_at": payload.get("generated_at"),
-        "monolith": output.name,
+        "monolith": output.name if write_monolith else None,
         "shell": _operations_shell(payload),
         "sections": section_manifest,
     }

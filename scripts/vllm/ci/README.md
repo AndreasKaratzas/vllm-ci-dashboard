@@ -120,19 +120,22 @@ Quarantined tests are still collected and tracked, but excluded from failure cou
 
 ## GitHub Actions Integration
 
-Three workflows handle automated CI data collection:
+Four workflows divide canonical publication from focused manual/event collectors:
 
 | Workflow | Schedule | Purpose |
 |----------|----------|---------|
-| `daily-update.yml` | Hourly (:45) | Full data collection + site deployment |
-| `ci-collect.yml` | Daily (1 PM UTC) + webhook | Dedicated CI data collection from Buildkite |
-| `queue-monitor.yml` | Hourly (:15) + queue webhooks | Queue time-series snapshots, queue-latency issues, zombie-job issues |
+| `hourly-master.yml` | Every 30 minutes + Buildkite completion webhooks | Full collection, validation, and the only scheduled root-site deployment |
+| `daily-update.yml` | Manual | Focused GitHub-data refresh committed to `main` |
+| `ci-collect.yml` | Manual | Focused Buildkite CI refresh committed to `main` |
+| `queue-monitor.yml` | Queue webhooks + manual | Queue snapshots and bounded queue issue automation; canonical publication follows via `hourly-master.yml` |
 
 All secrets are managed via GitHub Actions encrypted secrets (Settings > Secrets > Actions). The `BUILDKITE_TOKEN` is never exposed in logs — GitHub automatically masks secret values.
 
 ### Webhook-Triggered Updates
 
-For real-time updates, `ci-collect.yml` can be triggered by Buildkite webhooks via `repository_dispatch`. Configure a Buildkite notification service to POST to the GitHub dispatches API with event type `buildkite_build_finished`.
+For build-completion updates, `hourly-master.yml` receives the
+`buildkite_build_finished` repository dispatch and performs a complete,
+validated publication.
 
 Buildkite queue freshness now uses those job-level webhook events (`job.scheduled`, `job.started`, `job.finished`) plus agent events (`agent.connected`, `agent.disconnected`, `agent.lost`, `agent.stopping`) to dispatch the lightweight `queue-monitor.yml` workflow. This keeps queue counts and zombie-job alerts fresher without forcing the heavier CI collectors to run on every queue change.
 
