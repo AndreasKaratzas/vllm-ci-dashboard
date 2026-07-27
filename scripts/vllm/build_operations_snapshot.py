@@ -2746,14 +2746,15 @@ def _nonnegative_count(value: Any) -> int:
     return max(0, int(number)) if number is not None else 0
 
 
-def _omni_history_scope(queue_rows: list[dict]) -> tuple[dict, bool]:
+def _omni_history_scope(queue_rows: list[dict]) -> dict:
     waiting_total = 0
     running_total = 0
     waiting_attributed = 0
     running_attributed = 0
     waiting_observed = 0
     running_observed = 0
-    has_explicit_omni = False
+    waiting_supported = False
+    running_supported = False
 
     for stats in queue_rows:
         waiting_total += _nonnegative_count(stats.get("waiting"))
@@ -2765,26 +2766,25 @@ def _omni_history_scope(queue_rows: list[dict]) -> tuple[dict, bool]:
                 _nonnegative_count(value) for value in waiting_split.values()
             )
             if "omni" in waiting_split:
-                has_explicit_omni = True
+                waiting_supported = True
                 waiting_observed += _nonnegative_count(waiting_split.get("omni"))
         if isinstance(running_split, dict):
             running_attributed += sum(
                 _nonnegative_count(value) for value in running_split.values()
             )
             if "omni" in running_split:
-                has_explicit_omni = True
+                running_supported = True
                 running_observed += _nonnegative_count(running_split.get("omni"))
 
-    if not queue_rows:
-        waiting_status = running_status = "unavailable"
-    else:
-        waiting_status = (
-            "complete" if waiting_attributed == waiting_total else "partial"
-        )
-        running_status = (
-            "complete" if running_attributed == running_total else "partial"
-        )
+    waiting_status = "unavailable"
+    running_status = "unavailable"
+    if queue_rows and waiting_supported:
+        waiting_status = "complete" if waiting_attributed == waiting_total else "partial"
+    if queue_rows and running_supported:
+        running_status = "complete" if running_attributed == running_total else "partial"
     return {
+        "waiting_supported": waiting_supported,
+        "running_supported": running_supported,
         "waiting_observed": waiting_observed,
         "running_observed": running_observed,
         "waiting_attributed": waiting_attributed,
@@ -2793,7 +2793,7 @@ def _omni_history_scope(queue_rows: list[dict]) -> tuple[dict, bool]:
         "running_total": running_total,
         "waiting_attribution": waiting_status,
         "running_attribution": running_status,
-    }, has_explicit_omni
+    }
 
 
 def _omni_history(history: list[dict]) -> dict:
@@ -2810,9 +2810,14 @@ def _omni_history(history: list[dict]) -> dict:
             for name, stats in (snapshot.get("queues") or {}).items()
             if _is_amd_queue(name) and isinstance(stats, dict)
         ]
-        all_fleet, all_supported = _omni_history_scope(queue_rows)
-        amd, amd_supported = _omni_history_scope(amd_rows)
-        if not all_supported and not amd_supported:
+        all_fleet = _omni_history_scope(queue_rows)
+        amd = _omni_history_scope(amd_rows)
+        if not any((
+            all_fleet["waiting_supported"],
+            all_fleet["running_supported"],
+            amd["waiting_supported"],
+            amd["running_supported"],
+        )):
             continue
         points.append({
             "ts": snapshot.get("ts"),
@@ -2861,10 +2866,16 @@ def _omni(
         ]
         for state in ("pending", "running")
     }
+    queue_rows = [
+        stats
+        for name, stats in (queue_snapshot.get("queues") or {}).items()
+        if not _is_excluded_queue(name) and isinstance(stats, dict)
+    ]
+    attribution = _omni_history_scope(queue_rows)
     waiting_by_queue: dict[str, int] = {}
     running_by_queue: dict[str, int] = {}
     for queue_name, stats in (queue_snapshot.get("queues") or {}).items():
-        if _is_excluded_queue(queue_name):
+        if _is_excluded_queue(queue_name) or not isinstance(stats, dict):
             continue
         waiting = int((stats.get("waiting_by_workload") or {}).get("omni") or 0)
         running = int((stats.get("running_by_workload") or {}).get("omni") or 0)
@@ -2873,12 +2884,28 @@ def _omni(
         if running:
             running_by_queue[queue_name] = running
 
-    waiting = sum(waiting_by_queue.values())
-    running = sum(running_by_queue.values())
-    if not waiting_by_queue:
-        waiting = sum(not job.get("analysis_excluded") for job in jobs["pending"])
-    if not running_by_queue:
-        running = sum(not job.get("analysis_excluded") for job in jobs["running"])
+    ledger = {
+        "waiting": sum(not job.get("analysis_excluded") for job in jobs["pending"]),
+        "running": sum(not job.get("analysis_excluded") for job in jobs["running"]),
+    }
+    count_basis = {
+        state: (
+            "observed_queue_workload_split"
+            if attribution[f"{state}_supported"]
+            else "active_job_ledger"
+        )
+        for state in ("waiting", "running")
+    }
+    waiting = (
+        attribution["waiting_observed"]
+        if attribution["waiting_supported"]
+        else ledger["waiting"]
+    )
+    running = (
+        attribution["running_observed"]
+        if attribution["running_supported"]
+        else ledger["running"]
+    )
 
     trigger = int(heuristic.get("trigger") or 0)
     healthy = int(heuristic.get("healthy") or 0)
@@ -2895,6 +2922,9 @@ def _omni(
             "running": running,
             "waiting_by_queue": waiting_by_queue,
             "running_by_queue": running_by_queue,
+            "ledger": ledger,
+            "count_basis": count_basis,
+            "attribution": attribution,
         },
         "heuristic_thresholds": heuristic,
         "current_jobs": jobs,
@@ -2918,6 +2948,7 @@ def _omni(
                 "queue_jobs": {
                     "path": SOURCE_FILES["queue_jobs"],
                     "timestamp": queue_jobs.get("ts"),
+                    "source_counts": _job_source_counts(queue_jobs),
                     "evidence_kind": "published retained job records",
                 },
                 "heuristic": {

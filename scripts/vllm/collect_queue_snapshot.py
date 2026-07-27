@@ -141,7 +141,7 @@ query ActiveJobs($org: ID!, $states: [JobStates!], $first: Int!, $after: String)
 """
 
 GRAPHQL_QUEUE_JOBS_Q = """
-query QueueJobs($org: ID!, $queue: ID!, $states: [JobStates!], $first: Int!, $after: String) {
+query QueueJobs($org: ID!, $queue: [ID!]!, $states: [JobStates!], $first: Int!, $after: String) {
   organization(slug: $org) {
     jobs(
       first: $first,
@@ -1035,7 +1035,7 @@ def fetch_active_cluster_jobs(
                     query=GRAPHQL_QUEUE_JOBS_Q,
                     variables={
                         "org": BK_ORG,
-                        "queue": queue_id,
+                        "queue": [queue_id],
                         "states": list(GRAPHQL_ACTIVE_STATES),
                         "first": GRAPHQL_PAGE_SIZE,
                     },

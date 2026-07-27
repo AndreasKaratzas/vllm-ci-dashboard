@@ -15,6 +15,10 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_PATH = ROOT / "config" / "public_data_manifest.json"
 BUILD_SCRIPT = ROOT / "scripts" / "build_site.py"
+README_PATH = ROOT / "README.md"
+README_RENDERER = ROOT / "scripts" / "render.py"
+VLLM_SCRIPTS_README = ROOT / "scripts" / "vllm" / "README.md"
+DASHBOARD_AUDIT = ROOT / "dashboards" / "dashboard-audit.md"
 
 
 def _load_build_site_module():
@@ -26,6 +30,25 @@ def _load_build_site_module():
 
 
 BUILD_SITE = _load_build_site_module()
+
+
+def test_operational_documentation_matches_the_canonical_publication_path() -> None:
+    readme = README_PATH.read_text()
+    renderer = README_RENDERER.read_text()
+    scripts_readme = VLLM_SCRIPTS_README.read_text()
+    audit = DASHBOARD_AUDIT.read_text()
+
+    for text in (readme, renderer):
+        assert "deployed automatically on every push to main" not in text
+        assert "scripts/vllm/collect_gating_targets.py" in text
+        assert "scripts/vllm/build_operations_snapshot.py" in text
+        assert "`gating_targets.json` is regenerated" in text
+        assert "`operations_v2.json` is a private build input" in text
+
+    assert "Every 30 min via `hourly-master.yml`" in scripts_readme
+    assert "operations_v2_manifest.json + operations_v2/*.json" in scripts_readme
+    assert "exact active-job ledger counts remain separate" in audit
+    assert "hard failures, soft failures, and" in audit
 
 
 def _write(path: Path, text: str = "{}\n") -> None:

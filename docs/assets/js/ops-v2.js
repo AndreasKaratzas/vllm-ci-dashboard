@@ -6888,13 +6888,25 @@
     return rows.map(function (point) {
       const allFleet = point.all_fleet || {};
       const amd = point.amd || {};
+      const waitingSupported = allFleet.waiting_supported === true
+        || (allFleet.waiting_supported === undefined && ['complete', 'partial'].includes(allFleet.waiting_attribution));
+      const runningSupported = allFleet.running_supported === true
+        || (allFleet.running_supported === undefined && ['complete', 'partial'].includes(allFleet.running_attribution));
+      const amdWaitingSupported = amd.waiting_supported === true
+        || (amd.waiting_supported === undefined && ['complete', 'partial'].includes(amd.waiting_attribution));
+      const amdRunningSupported = amd.running_supported === true
+        || (amd.running_supported === undefined && ['complete', 'partial'].includes(amd.running_attribution));
       return {
         ts: point.ts,
         time: new Date(point.ts || '').getTime(),
-        allWaiting: Number(allFleet.waiting_observed || 0),
-        allRunning: Number(allFleet.running_observed || 0),
-        amdWaiting: Number(amd.waiting_observed || 0),
-        amdRunning: Number(amd.running_observed || 0),
+        allWaiting: waitingSupported ? Number(allFleet.waiting_observed || 0) : null,
+        allRunning: runningSupported ? Number(allFleet.running_observed || 0) : null,
+        amdWaiting: amdWaitingSupported ? Number(amd.waiting_observed || 0) : null,
+        amdRunning: amdRunningSupported ? Number(amd.running_observed || 0) : null,
+        waitingSupported: waitingSupported,
+        runningSupported: runningSupported,
+        amdWaitingSupported: amdWaitingSupported,
+        amdRunningSupported: amdRunningSupported,
         waitingCoverage: allFleet.waiting_attribution || 'unavailable',
         runningCoverage: allFleet.running_attribution || 'unavailable',
         source: point,
@@ -6928,7 +6940,11 @@
 
   function omniDailyRows(points) {
     const byDay = new Map();
-    points.forEach(function (point) {
+    points.filter(function (point) {
+      return point.allWaiting !== null
+        && point.allWaiting !== undefined
+        && Number.isFinite(Number(point.allWaiting));
+    }).forEach(function (point) {
       const day = new Date(point.time).toISOString().slice(0, 10);
       if (!byDay.has(day)) byDay.set(day, []);
       byDay.get(day).push(point);
@@ -6970,6 +6986,9 @@
   async function renderOmni(host, ops) {
     const omni = ops.omni || {};
     const current = omni.current || {};
+    const currentAttribution = current.attribution || {};
+    const currentLedger = current.ledger || {};
+    const currentBasis = current.count_basis || {};
     const heuristic = omni.heuristic_thresholds || {};
     const jobs = omni.current_jobs || {};
     add(host, pageHeader('Omni', 'All current vLLM-Omni demand across the fleet, split into AMD and non-AMD execution scopes.', (omni.provenance || {}).queue_snapshot_ts, externalLink('Open Omni source', SOURCE_ASSETS.operations, 'ops-button')));
@@ -6988,6 +7007,17 @@
     const amdRunning = running.filter(function (job) { return isAmdQueue(job.queue); });
     const nonAmdPending = pending.filter(function (job) { return !isAmdQueue(job.queue); });
     const nonAmdRunning = running.filter(function (job) { return !isAmdQueue(job.queue); });
+    const ledgerWaiting = Number.isFinite(Number(currentLedger.waiting)) ? Number(currentLedger.waiting) : pending.length;
+    const ledgerRunning = Number.isFinite(Number(currentLedger.running)) ? Number(currentLedger.running) : running.length;
+    const attributedWaiting = currentAttribution.waiting_supported ? integer(currentAttribution.waiting_observed) : 'unavailable';
+    const attributedRunning = currentAttribution.running_supported ? integer(currentAttribution.running_observed) : 'unavailable';
+    const attributionSummary = (
+      'Exact active-job ledger: ' + integer(ledgerWaiting) + ' waiting and ' + integer(ledgerRunning)
+      + ' running. Separately observed queue workload split: ' + attributedWaiting + ' waiting ('
+      + value(currentAttribution.waiting_attribution) + ') and ' + attributedRunning + ' running ('
+      + value(currentAttribution.running_attribution) + '). Current aggregate basis: '
+      + value(currentBasis.waiting) + ' waiting and ' + value(currentBasis.running) + ' running.'
+    );
     function openJobsEvidence(title, rows, evidenceNote) {
       if (!rows.length) {
         openMetricDetail({label: title, value: 0, meta: 'No source-backed jobs in this scope.', sources: [{label: 'Open published Omni snapshot', url: SOURCE_ASSETS.operations}]});
@@ -7002,10 +7032,11 @@
       {id: 'omni-queues', label: 'AFFECTED QUEUES', value: integer(affected.size), meta: integer(Array.from(affected).filter(isAmdQueue).length) + ' AMD - ' + integer(Array.from(affected).filter(function (name) { return !isAmdQueue(name); }).length) + ' non-AMD', onOpen: function () { openHistoryEvidence('Omni queue distribution', Array.from(affected).map(function (name) { return {label: name, valueSummary: integer(waitingByQueue[name] || 0) + ' waiting - ' + integer(runningByQueue[name] || 0) + ' running', sources: [{label: 'Open published Omni snapshot', url: SOURCE_ASSETS.operations}], onOpen: function () { openQueueDetail(name, (((ops.queue || {}).snapshot || {}).queues || {})[name] || {}, activeJobs); }}; }), 'Current all-fleet queue distribution', SOURCE_ASSETS.operations); }},
     ]));
     const scopeNote = n('div', 'ops-evidence-note is-info');
-    add(scopeNote, [n('strong', '', 'Collector status: ' + value(omni.status) + '. '), n('span', '', 'The current job ledger is fleet-wide. ' + integer(excludedJobs.length) + ' stale jobs are retained as evidence but excluded from active counts and queue analytics. The configured waiting heuristic (' + integer(heuristic.trigger) + ' trigger) is collector provenance only. '), linkButton('Inspect excluded stale jobs', function () { openJobsEvidence('Excluded stale Omni jobs', excludedJobs, 'Jobs beyond the collector age threshold; retained for exact Buildkite review but excluded from active analytics'); }, 'Inspect stale Omni jobs excluded from active analytics')]);
+    add(scopeNote, [n('strong', '', 'Collector status: ' + value(omni.status) + '. '), n('span', '', 'The current job ledger is fleet-wide. ' + attributionSummary + ' These evidence types are never forced to agree. ' + integer(excludedJobs.length) + ' stale jobs are retained as evidence but excluded from active counts and queue analytics. The configured waiting heuristic (' + integer(heuristic.trigger) + ' trigger) is collector provenance only. '), linkButton('Inspect excluded stale jobs', function () { openJobsEvidence('Excluded stale Omni jobs', excludedJobs, 'Jobs beyond the collector age threshold; retained for exact Buildkite review but excluded from active analytics'); }, 'Inspect stale Omni jobs excluded from active analytics')]);
     host.append(scopeNote);
     const allHistoryPoints = omniHistoryPoints(omni);
-    const points = omniWindowPoints(allHistoryPoints, state.omniRange);
+    const waitingHistoryPoints = allHistoryPoints.filter(function (point) { return point.waitingSupported; });
+    const points = omniWindowPoints(waitingHistoryPoints, state.omniRange);
     const selectedRange = OMNI_RANGE_WINDOWS.find(function (item) { return item.id === state.omniRange; }) || OMNI_RANGE_WINDOWS[4];
     const firstPoint = points.length > 1 ? points[0] : null;
     const latestPoint = points.length ? points[points.length - 1] : null;
@@ -7017,12 +7048,16 @@
         return {
           label: shortDate(point.ts),
           timestamp: point.ts,
-          valueSummary: integer(point.allWaiting) + ' observed waiting - ' + integer(point.allRunning) + ' observed running',
+          valueSummary: (point.waitingSupported ? integer(point.allWaiting) : 'unavailable') + ' observed waiting - ' + (point.runningSupported ? integer(point.allRunning) : 'unavailable') + ' observed running',
           details: {
             all_fleet_waiting_observed: point.allWaiting,
             all_fleet_running_observed: point.allRunning,
             amd_waiting_observed: point.amdWaiting,
             amd_running_observed: point.amdRunning,
+            waiting_supported: point.waitingSupported,
+            running_supported: point.runningSupported,
+            amd_waiting_supported: point.amdWaitingSupported,
+            amd_running_supported: point.amdRunningSupported,
             waiting_attribution: point.waitingCoverage,
             running_attribution: point.runningCoverage,
           },
@@ -7044,7 +7079,7 @@
         id: 'omni-window-latest',
         label: 'OBSERVED QUEUED NOW',
         value: latestPoint ? integer(latestPoint.allWaiting) : '-',
-        meta: latestPoint ? integer(latestPoint.amdWaiting) + ' AMD - ' + shortDate(latestPoint.ts) : 'No workload-attributed snapshot',
+        meta: latestPoint ? (latestPoint.amdWaitingSupported ? integer(latestPoint.amdWaiting) : 'unavailable') + ' AMD - ' + shortDate(latestPoint.ts) : 'No workload-attributed snapshot',
         tone: latestPoint && latestPoint.allWaiting ? 'is-warning' : 'is-neutral',
         onOpen: function () { openHistoryEvidence('Latest observed Omni queue', historyEvidence(latestPoint ? [latestPoint] : []), 'Explicit workload-attributed counts only', SOURCE_ASSETS.queueHistory); },
       },
@@ -7113,7 +7148,7 @@
     ], queueRows), 'ops-omni-summary'));
     host.append(grid);
 
-    const dailyRows = omniDailyRows(allHistoryPoints);
+    const dailyRows = omniDailyRows(waitingHistoryPoints);
     host.append(panel('Day-over-day observed queued workload (UTC)', 'Last observation per UTC day; change is against the preceding day at its last observation', dataTable([
       {label: 'UTC day', sticky: true, render: function (row) { return linkButton(row.day, function () { openHistoryEvidence('Omni queue observations on ' + row.day, historyEvidence(allHistoryPoints.filter(function (point) { return new Date(point.time).toISOString().slice(0, 10) === row.day; })), 'Every workload-attributed snapshot retained for this UTC day', SOURCE_ASSETS.queueHistory); }); }},
       {label: 'Last observed queued', numeric: true, render: function (row) { return linkButton(integer(row.waiting), function () { openHistoryEvidence('Closing Omni queue observation on ' + row.day, historyEvidence([row.last]), 'Last retained observation for the UTC day', SOURCE_ASSETS.queueHistory); }); }},
@@ -7218,6 +7253,7 @@
   if (window.__OPS_V2_TEST__) {
     window.OpsV2Test = {
       sortRuntimeTargetRows: sortRuntimeTargetRows,
+      omniHistoryPoints: omniHistoryPoints,
       omniWindowPoints: omniWindowPoints,
       omniAgeBand: omniAgeBand,
       omniDailyRows: omniDailyRows,

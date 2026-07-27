@@ -165,7 +165,9 @@ class TestGraphqlQueueMetrics:
         jobs = cqs.fetch_active_cluster_jobs("fake-token", {"amd_mi355_1": "ClusterQueueID"})
 
         assert calls[0][0] == cqs.GRAPHQL_QUEUE_JOBS_Q
-        assert calls[0][1]["queue"] == "ClusterQueueID"
+        assert "$queue: [ID!]!" in calls[0][0]
+        assert "clusterQueue: $queue" in calls[0][0]
+        assert calls[0][1]["queue"] == ["ClusterQueueID"]
         assert jobs[0]["queue"] == "amd_mi355_1"
         assert jobs[0]["state"] == "SCHEDULED"
 

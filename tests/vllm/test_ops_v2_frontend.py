@@ -651,6 +651,29 @@ assert.equal(JSON.stringify(ordered), JSON.stringify([
 });
 assert.equal(helpers.omniAgeBand({}), '');
 
+const historyPoints = helpers.omniHistoryPoints({history: {points: [{
+  ts: '2026-04-22T10:00:00Z',
+  all_fleet: {
+    waiting_supported: true,
+    running_supported: false,
+    waiting_observed: 5,
+    running_observed: 0,
+    waiting_attribution: 'partial',
+    running_attribution: 'unavailable',
+  },
+  amd: {
+    waiting_supported: false,
+    running_supported: false,
+    waiting_observed: 0,
+    running_observed: 0,
+    waiting_attribution: 'unavailable',
+    running_attribution: 'unavailable',
+  },
+}]}});
+assert.equal(historyPoints[0].allWaiting, 5);
+assert.equal(historyPoints[0].allRunning, null);
+assert.equal(historyPoints[0].amdWaiting, null);
+
 const start = Date.parse('2026-04-22T10:00:00Z');
 const points = [0, 1, 2, 3].map(function (hours) {
   return {time: start + hours * 3600000, allWaiting: hours};
@@ -944,6 +967,8 @@ def test_omni_is_all_fleet_and_never_infers_unsupported_history():
     assert "Current all-fleet Omni jobs" in OPS_JS
     assert "function omniHistoryPoints" in OPS_JS
     assert "waiting_observed" in OPS_JS
+    assert "Exact active-job ledger:" in OPS_JS
+    assert "These evidence types are never forced to agree" in OPS_JS
     assert "Aggregate queue totals are never reclassified as Omni" in OPS_JS
     assert "All-fleet running observed" in OPS_JS
     assert "AMD running observed" in OPS_JS
@@ -968,8 +993,15 @@ def test_omni_is_all_fleet_and_never_infers_unsupported_history():
         for job in jobs[state]
         if job.get("analysis_excluded")
     ]
-    assert len(active_pending) == current["waiting"]
-    assert len(active_running) == current["running"]
+    assert len(active_pending) == current["ledger"]["waiting"]
+    assert len(active_running) == current["ledger"]["running"]
+    for state in ("waiting", "running"):
+        if current["count_basis"][state] == "observed_queue_workload_split":
+            assert current["attribution"][f"{state}_supported"] is True
+            assert current[state] == current["attribution"][f"{state}_observed"]
+        else:
+            assert current["count_basis"][state] == "active_job_ledger"
+            assert current[state] == current["ledger"][state]
     assert all(job.get("exclusion_reason") for job in excluded)
     assert all(
         job.get("workload") == "omni"
@@ -980,11 +1012,11 @@ def test_omni_is_all_fleet_and_never_infers_unsupported_history():
     history = OPS_DATA["omni"]["history"]
     assert history["summary"]["snapshot_count"] > 0
     assert history["points"]
-    assert all(
-        point["all_fleet"]["waiting_attribution"] in {"complete", "partial"}
-        and point["all_fleet"]["running_attribution"] in {"complete", "partial"}
-        for point in history["points"]
-    )
+    for point in history["points"]:
+        for state in ("waiting", "running"):
+            scope = point["all_fleet"]
+            expected = {"complete", "partial"} if scope[f"{state}_supported"] else {"unavailable"}
+            assert scope[f"{state}_attribution"] in expected
 
 
 def test_release_layout_scroll_accessibility_and_home_reconciliation():

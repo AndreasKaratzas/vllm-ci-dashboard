@@ -12,12 +12,14 @@ Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-07-27 
 
 Interactive dashboard with a **Home** view for PRs, project #39 issues, and test parity, plus CI operations views.
 
-Hosted on GitHub Pages — deployed automatically on every push to main.
+Hosted on GitHub Pages. Pushes to `main` run CI; the production site and fresh
+operational data are published by the scheduled/dispatch
+`.github/workflows/hourly-master.yml` workflow or the manual Pages workflow.
 
 ## Site Layout
 
 - `docs/` — static shell assets (HTML, CSS, JS)
-- `data/` — published JSON payloads fetched by the shell at runtime, including `data/site/projects.json`
+- `data/` — collector inputs and generated payloads; the site assembler publishes only the explicit public manifest
 - `scripts/build_site.py` — assembles `docs/` + `data/` into `_site/` for Pages deploys
 
 ## Views
@@ -25,10 +27,10 @@ Hosted on GitHub Pages — deployed automatically on every push to main.
 | View | Description |
 |------|-------------|
 | **Home** | PRs, project #39 issues, and ROCm vs upstream test parity |
-| **CI Health** | Latest Buildkite nightly health, parity details, failures, flakes, and links |
+| **CI Health** | Latest exact AMD job variants by architecture, separately reviewed runtime targets, definition parity, diagnostics, and evidence links |
 | **CI Analytics** | Nightly build comparison, recent builds, group trends, AMD hardware matrix, queue comparison |
 | **Queue Monitor** | Buildkite queue workload, wait-time charts, active job overlays, admin triage, and AMD capacity projections |
-| **Hotness / Omni / Ready / Admin** | Focused operational views for workload spikes, Omni queues, ready tickets, and dashboard admin tasks |
+| **Hotness / Omni / Ready / Admin** | Workload trajectories; exact Omni active-job evidence, 1h–3d queue windows, queued-age bands, daily deltas, and explicit partial-attribution labels; ready tickets; and admin tasks |
 
 ## Markdown Dashboards
 
@@ -47,9 +49,11 @@ The main data path is `.github/workflows/hourly-master.yml`, which runs every 30
 | `scripts/vllm/collect_analytics.py` | Windowed CI analytics from parsed test-result JSONL plus Buildkite metadata |
 | `scripts/vllm/collect_amd_test_matrix.py` | AMD hardware matrix from upstream `test-amd.yaml`, matched against the latest AMD nightly |
 | `scripts/vllm/collect_gating_proposals.py` | Open vLLM PRs from tracked AMD engineers that add new `.buildkite/test_areas` AMD mirrors |
+| `scripts/vllm/collect_gating_targets.py` | Regenerate the canonical AMD gating target snapshot from `config/vllm_amd_gating_targets.json` |
 | `scripts/vllm/collect_gating_target_candidates.py` | Review-only audit of upstream nightly GPU jobs against the canonical AMD gating target list |
-| `scripts/vllm/collect_queue_snapshot.py` | Queue timeseries and active job overlays |
+| `scripts/vllm/collect_queue_snapshot.py` | Queue timeseries, workload-attributed counts, and the exact active-job ledger |
 | `scripts/vllm/collect_capacity_monitor.py` | AMD queue capacity limits plus mirror test-group dependency projections |
+| `scripts/vllm/build_operations_snapshot.py` | Build the versioned operations manifest and lazy CI Health, Queue, and Omni read-model shards |
 | `scripts/vllm/audit_dashboard_data.py` | Cross-surface audit for data totals, frontend assumptions, links, and deploy safety |
 | `scripts/render.py` | Generate markdown dashboards and site data |
 | `scripts/build_site.py` | Assemble `docs/` and `data/` into `_site/` for Pages |
@@ -63,14 +67,25 @@ python scripts/collect_ci.py --days 8 --pipeline both --output data/vllm/ci/
 python scripts/vllm/collect_analytics.py --days 30 --output data/vllm/ci/
 python scripts/vllm/collect_amd_test_matrix.py --output data/vllm/ci/
 python scripts/vllm/collect_gating_proposals.py --output data/vllm/ci/
+python scripts/vllm/collect_gating_targets.py --output data/vllm/ci/
 python scripts/vllm/collect_gating_target_candidates.py --output data/vllm/ci/
+python scripts/vllm/collect_queue_snapshot.py
 python scripts/vllm/collect_capacity_monitor.py --output data/vllm/ci/
-python scripts/vllm/audit_dashboard_data.py
+python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
+python scripts/vllm/audit_dashboard_data.py --strict-warnings
 python scripts/render.py
 python scripts/build_site.py --cache-bust-index
 ```
 
 Configure tracked projects in [`config/projects.yaml`](config/projects.yaml).
+The authoritative AMD gating target configuration is
+`config/vllm_amd_gating_targets.json`; `gating_targets.json` is regenerated
+from it on every canonical run. `operations_v2.json` is a private build input,
+while the allowlisted operations manifest and lazy shards are generated public
+artifacts. Canonical deployments replace `gh-pages`, so retired artifacts are
+purged instead of surviving indefinitely. Do not hand-edit or delete generated
+data solely because its commit timestamp is old; the dashboard audit validates
+that every high-value input still has a producer and consumer.
 
 ## Local development (Nix)
 
