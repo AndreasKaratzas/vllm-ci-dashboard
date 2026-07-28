@@ -63,7 +63,7 @@ MAX_ISSUE_ROWS = 50
 OWNERSHIP_MARKER_PREFIX = "vllm-ci-dashboard:managed-alert:ci-area-regression"
 DASHBOARD_URL = (
     "https://andreaskaratzas.github.io/vllm-ci-dashboard/"
-    "?ops_health_view=ownership#ci-health"
+    "?ops_ready_view=ownership#ci-ready"
 )
 UPSTREAM_PARITY_EXAMPLE = "https://github.com/vllm-project/vllm/pull/49340"
 COMMIT_IN_YAML_URL_RE = re.compile(

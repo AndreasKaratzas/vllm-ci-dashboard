@@ -148,16 +148,12 @@ function renderStartupError(message,detail){
         fetchJSON("data/vllm/parity_report.json", { timeoutMs: 7000 }),
         fetchJSON("data/vllm/ci/ci_health.json", { timeoutMs: 7000 }),
         fetchJSON("data/vllm/ci/parity_report.json", { timeoutMs: 7000 }),
-        fetchJSON("data/vllm/ci/ready_tickets.json", { timeoutMs: 7000 }),
-        fetchJSON("data/vllm/ci/project_items.json", { timeoutMs: 5000 }),
         fetchJSON("data/vllm/ci/amd_test_matrix.json", { timeoutMs: 7000 }),
       ]).then(function(extra) {
         dataMap["vllm"].parityReport = extra[0];
         dataMap["vllm"].ciHealth = extra[1];
         dataMap["vllm"].ciParity = extra[2];
-        dataMap["vllm"].readyTickets = extra[3];
-        dataMap["vllm"].projectItems = extra[4];
-        dataMap["vllm"].amdTestMatrix = extra[5];
+        dataMap["vllm"].amdTestMatrix = extra[3];
         var nextTs = _computeLatestTs(dataMap["vllm"]);
         if (nextTs) latestTs = nextTs;
         updateSidebarTs(latestTs);
@@ -166,10 +162,10 @@ function renderStartupError(message,detail){
     }
 
     function loadHomeData() {
-      // Load vLLM data only. ``readyTickets`` is the Projects V2 #39 view of
-      // ``ci-failure`` issues — the Projects card uses it to enrich each tracked
-      // issue with streak / break-frequency / hardware metadata so the reader
-      // doesn't need to click through to see how long a group has been broken.
+      // Load only public vLLM data here. Ready Tickets and CI ownership are
+      // intentionally fetched by their protected renderer after a live
+      // sign-in check; the anonymous dashboard bootstrap must not prefetch
+      // either operational dataset.
       return Promise.all([
         fetchJSON("data/vllm/prs.json", { timeoutMs: 6000 }),
         fetchJSON("data/vllm/issues.json", { timeoutMs: 6000 }),

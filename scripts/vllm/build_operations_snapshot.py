@@ -3772,7 +3772,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         definition_parity,
     )
     ownership = loaded.get("ci_ownership") or {}
-    gating["ownership"] = (
+    ownership = (
         ownership
         if ownership.get("schema_version") == 1
         else {
@@ -3841,6 +3841,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         "reliability": reliability,
         "definition_parity": definition_parity,
         "gating": gating,
+        "ownership": ownership,
         "queue": queue,
         "trajectory": trajectory,
         "omni": omni,
@@ -3975,6 +3976,7 @@ def _operation_sections(payload: dict) -> dict[str, dict]:
         "reliability": {"reliability": payload.get("reliability") or {}},
         "definition_parity": {"definition_parity": payload.get("definition_parity") or {}},
         "gating": {"gating": payload.get("gating") or {}},
+        "ownership": {"ownership": payload.get("ownership") or {}},
         "queue": {"queue": _compact_queue(payload.get("queue") or {})},
         "trajectory": {"trajectory": payload.get("trajectory") or {}},
         "omni": {"omni": payload.get("omni") or {}},

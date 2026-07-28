@@ -6,8 +6,8 @@
  *   1. Sign in — user pastes a GitHub PAT. We verify via GET api.github.com/user
  *      (which has CORS), match the returned numeric ``id`` against the allowlist
  *      in ``data/users.json``, and create a session. The PAT stays in memory
- *      only; reload keeps the identity record but asks again only when the user
- *      wants token-backed actions.
+ *      only. Reload keeps the identity record, but every protected view stays
+ *      locked until the PAT is re-verified for that browser tab.
  *   2. Access help — the dashboard explains that access is granted manually
  *      by the repo owner. We no longer route public access requests through
  *      GitHub issues because this repository is operated as an owner /
@@ -26,10 +26,13 @@
  *
  * Threat model
  * ------------
- * This is NOT strong access control. The protected tabs contain no sensitive
- * data — they are gated against accidental clicks, not determined attackers.
- * A user with DevTools can set sessionStorage manually and bypass everything.
- * That's fine for the stated threat model.
+ * This is an authenticated UI boundary, not server-side confidentiality.
+ * Protected datasets are requested only after a current in-memory PAT has
+ * been verified, and a persisted identity record alone cannot unlock them.
+ * The repository and GitHub Pages deployment are public, however, so a
+ * determined user can still read any statically published artifact directly
+ * or alter the client runtime with DevTools. Truly private data requires an
+ * authenticated backend or private hosting.
  */
 (function() {
   'use strict';
@@ -99,11 +102,11 @@
   window.__authGate = {
     isAuthed: function() {
       var s = getSession();
-      return !!(s && s.mode === 'user' && s.login);
+      return !!(s && s.mode === 'user' && s.login && _currentPat);
     },
     isAdmin: function() {
       var s = getSession();
-      return !!(s && s.mode === 'user' && s.login && s.admin === true);
+      return !!(s && s.mode === 'user' && s.login && _currentPat && s.admin === true);
     },
     isGuest: function() {
       var s = getSession();
@@ -249,7 +252,7 @@
     var meta = getTabMeta(id);
     if (!meta || !(meta.requiresAuth || meta.adminOnly)) return true;
     var session = getSession();
-    var isAuthed = !!(session && session.mode === 'user' && session.login);
+    var isAuthed = !!(session && session.mode === 'user' && session.login && _currentPat);
     if (meta.adminOnly) {
       return !!(isAuthed && session.admin === true);
     }
@@ -258,7 +261,7 @@
 
   function applyTabVisibility() {
     var session = getSession();
-    var isAuthed = !!(session && session.mode === 'user' && session.login);
+    var isAuthed = !!(session && session.mode === 'user' && session.login && _currentPat);
     var isAdmin = !!(isAuthed && session.admin === true);
 
     // Body-level markers drive the guest/member/admin styling and give
@@ -355,8 +358,8 @@
       note.style.lineHeight = '1.35';
       note.style.color = '#8b949e';
       note.textContent = _currentPat
-        ? 'Session unlocked for this tab. Build dispatches and encrypted-token actions can use the in-memory PAT.'
-        : 'Session restored. Re-enter your PAT only when you want token-backed actions such as launching builds or writing admin changes.';
+        ? 'Session unlocked for this tab. Protected views and token-backed actions can use the in-memory PAT.'
+        : 'Session restored but locked. Re-enter your PAT to open protected views or use token-backed actions.';
       existing.appendChild(note);
 
       var row = document.createElement('div');
@@ -467,6 +470,7 @@
             email: user.email,
             admin: (db.admin_id && db.admin_id === me.id) ? true : false,
             signed_in_at: new Date().toISOString(),
+            verified_at: new Date().toISOString(),
           });
           if (window.__tokenVault) {
             try { await window.__tokenVault.unlock(pat, me.id); }
@@ -579,7 +583,21 @@
         if (session.id && me.id !== session.id) {
           throw new Error('PAT belongs to @' + me.login + ', not the signed-in account.');
         }
+        var db = await loadUsers();
+        var user = (db.users || []).find(function(u) { return u.github_id === me.id; });
+        if (!user) {
+          throw new Error('@' + me.login + ' is no longer on the allowlist. Contact @' + DASHBOARD_OWNER + ' for access.');
+        }
         _currentPat = pat;
+        setSession({
+          mode: 'user',
+          login: me.login,
+          id: me.id,
+          email: user.email,
+          admin: (db.admin_id && db.admin_id === me.id) ? true : false,
+          signed_in_at: session.signed_in_at || new Date().toISOString(),
+          verified_at: new Date().toISOString(),
+        });
         if (window.__tokenVault) {
           await window.__tokenVault.unlock(pat, me.id);
         }

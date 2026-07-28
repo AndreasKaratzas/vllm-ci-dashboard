@@ -66,15 +66,16 @@ def test_ready_defers_large_evidence_until_its_panel_is_active():
     assert "function renderIfActive()" in READY_V2
     assert "panel.classList.contains('active')" in READY_V2
     assert "function initializeReadyRoute()" in READY_V2
-    assert "exposeReadyNavigation();" in READY_V2
+    assert "exposeReadyNavigation" not in READY_V2
     assert "document.addEventListener('DOMContentLoaded', initializeReadyRoute)" in READY_V2
     assert "document.addEventListener('auth:changed', initializeReadyRoute)" in READY_V2
     assert "window.addEventListener('hashchange'" in READY_V2
-    assert "window.OpsV2.loadSections(['reliability'])" in READY_V2
+    assert "loadOperations(['reliability'])" in READY_V2
+    assert "loadOperations(['ownership'])" in READY_V2
 
 
-def test_ready_evidence_is_strictly_read_only():
-    assert "Read-only failure evidence is public" in READY_V2
+def test_ready_evidence_is_signed_in_and_strictly_read_only():
+    assert "Signed-in, read-only failure evidence" in READY_V2
     assert "const plan = await actions.loadPlan()" in READY_V2
     assert "Read only" in READY_V2
     for prohibited in (
@@ -87,7 +88,48 @@ def test_ready_evidence_is_strictly_read_only():
         "loadEngineers",
     ):
         assert prohibited not in READY
-    assert "canAccessTab" not in READY_V2
+    assert "gate.canAccessTab('ci-ready')" in READY_V2
+
+
+def test_ready_v2_checks_auth_before_any_protected_fetch():
+    render_body = READY_V2.split("async function render()", 1)[1].split(
+        "\n  function renderIfActive()", 1
+    )[0]
+    auth_check = render_body.index("gate.canAccessTab('ci-ready')")
+    auth_return = render_body.index("signInRequired(container);", auth_check)
+    ownership_fetch = render_body.index("loadOperations(['ownership'])")
+    ticket_fetch = render_body.index("actions.loadPlan()")
+    reliability_fetch = render_body.index("loadOperations(['reliability'])")
+    assert auth_check < auth_return < min(ownership_fetch, ticket_fetch, reliability_fetch)
+    assert "promptSignIn" in READY_V2
+    assert "classList.remove('__gate-locked')" not in READY_V2
+
+
+def test_ready_routes_tickets_and_ci_ownership_under_one_protected_page():
+    for contract in (
+        "new Set(['tickets', 'ownership'])",
+        "ops_ready_view",
+        "'aria-label': 'Ready Tickets view'",
+        "role: 'group'",
+        "'aria-pressed': active ? 'true' : 'false'",
+        "{ id: 'tickets', label: 'Tickets' }",
+        "{ id: 'ownership', label: 'CI ownership' }",
+        "window.OpsV2.renderOwnership(ownershipHost, ownershipOperations)",
+        "window.OpsV2.loadSections(names)",
+        "operationsPromises.delete('ownership')",
+    ):
+        assert contract in READY_V2
+
+
+def test_ready_migrates_legacy_ci_health_ownership_links():
+    migration = READY_V2.split("function migrateLegacyOwnershipRoute()", 1)[1].split(
+        "\n  function readyTabs", 1
+    )[0]
+    assert "url.searchParams.get('ops_health_view') !== 'ownership'" in migration
+    assert "url.searchParams.delete('ops_health_view')" in migration
+    assert "url.searchParams.set('ops_ready_view', 'ownership')" in migration
+    assert "url.hash = 'ci-ready'" in migration
+    assert "window.__dashboardNav.switchTab('ci-ready', { updateHash: false })" in migration
 
 
 def test_ready_has_bounded_filters_and_exact_retained_build_sources():
@@ -227,7 +269,7 @@ def test_control_css_scopes_tables_and_all_required_viewports():
 
 
 def test_release_assets_are_cache_busted():
-    assert "ops-control-v2.css?v=3" in INDEX
+    assert "ops-control-v2.css?v=4" in INDEX
     assert "ci-testbuild.js?v=5" in INDEX
-    assert "ci-ready.js?v=7" in INDEX
+    assert "ci-ready.js?v=8" in INDEX
     assert "ci-admin.js?v=3" in INDEX

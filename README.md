@@ -1,6 +1,6 @@
 # Project Dashboard
 
-Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-07-28 03:33 UTC**
+Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-07-28 03:55 UTC**
 
 ## Overview
 
@@ -27,10 +27,18 @@ operational data are published by the scheduled/dispatch
 | View | Description |
 |------|-------------|
 | **Home** | PRs, project #39 issues, and ROCm vs upstream test parity |
-| **CI Health** | Latest exact AMD job variants by architecture, reviewed runtime targets with explicit mapping/no-definition reasons, ranked CI ownership and escalation, definition parity, diagnostics, and evidence links |
+| **CI Health** | Latest exact AMD job variants by architecture, reviewed runtime targets with explicit mapping/no-definition reasons, definition parity, diagnostics, and evidence links |
 | **CI Analytics** | Nightly build comparison, recent builds, group trends, AMD hardware matrix, queue comparison |
 | **Queue Monitor** | Buildkite queue workload, wait-time charts, active job overlays, admin triage, and AMD capacity projections |
-| **Hotness / Omni / Ready / Admin** | Workload trajectories; exact Omni active-job evidence, 1h–3d queue windows, queued-age bands, daily deltas, and explicit partial-attribution labels; ready tickets; and admin tasks |
+| **Hotness / Omni** | Workload trajectories; exact Omni active-job evidence, 1h–3d queue windows, queued-age bands, daily deltas, and explicit partial-attribution labels |
+| **Ready Tickets** | Signed-in AMD failure evidence plus ranked CI ownership, escalation chains, assignments, and managed regression issues |
+| **Admin** | Signed-in dashboard access administration |
+
+Ready Tickets and its CI ownership view require a freshly verified GitHub PAT
+before their data is requested or rendered. This is a client-side access
+boundary for the current static deployment, not server-side confidentiality:
+the repository and GitHub Pages artifacts are public. Private operational data
+would require an authenticated backend or private hosting.
 
 ## Markdown Dashboards
 
@@ -112,7 +120,7 @@ evaluates every exact AMD matrix definition, attributes each definition through
 a parity snapshot pinned to that nightly's exact vLLM commit, and reconciles one state-owned issue
 per area in `AndreasKaratzas/vllm-ci-dashboard`. Current regressions, exact
 Buildkite evidence, upstream parity gaps, the ranked chain, and the actual
-GitHub assignees are shown in **CI Health → CI ownership**.
+GitHub assignees are shown in **Ready Tickets → CI ownership**.
 
 Availability is deliberately not committed. The workflow reads the private
 `CI_OWNER_AVAILABILITY_JSON` secret:
@@ -167,7 +175,7 @@ install the scoped replacement and remove the legacy secret when rotation is
 complete.
 
 The public Projects V2 API can add and update items but cannot create saved
-views, so the canonical operational view is **CI Health → CI ownership**. The
+views, so the canonical operational view is **Ready Tickets → CI ownership**. The
 Project keeps the same three labels for interactive filtering; saved label
 views, if desired, must be created once in the GitHub UI. The existing
 `amd-main-failure` issue remains a broad all-main rollup, while area issues are

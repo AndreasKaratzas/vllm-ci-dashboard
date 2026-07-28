@@ -71,6 +71,13 @@ raw operational inputs    --> build_operations_snapshot.py
 audit_dashboard_data.py   --> validates data/ + docs/assets/js + workflows
 ```
 
+Ready Tickets and its CI ownership subview are guarded by a freshly verified
+GitHub PAT in the browser, and their renderers do not fetch protected-view data
+before that check passes. Because the repository and Pages deployment are
+public static hosting, this is an application boundary rather than
+server-enforced confidentiality; private payloads require an authenticated
+backend or private hosting.
+
 Runtime target matching is intentionally conservative. Exact build-pinned matrix
 labels win; definition-parity aliases are the fallback. Only an explicit
 trailing `%N` target can aggregate numbered shards. Duplicate matrix identities

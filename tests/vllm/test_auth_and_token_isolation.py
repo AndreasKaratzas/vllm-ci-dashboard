@@ -423,6 +423,29 @@ class TestTabGatingHardening:
             "boot() should not erase the stored identity on reload; only the PAT should stay ephemeral"
         )
 
+    def test_protected_views_require_a_current_verified_pat(self):
+        src = _read(JS / "auth.js")
+        can_access = src.split("function canAccessTab(id)", 1)[1].split(
+            "\n  function applyTabVisibility()", 1
+        )[0]
+        assert "_currentPat" in can_access, (
+            "a persisted identity record alone must not unlock protected views"
+        )
+        unlock = src.split("function buildUnlockOverlay(login)", 1)[1].split(
+            "\n  function teardown()", 1
+        )[0]
+        assert "var db = await loadUsers();" in unlock
+        assert "is no longer on the allowlist" in unlock
+
+    def test_anonymous_bootstrap_does_not_prefetch_ready_data(self):
+        dashboard = _read(JS / "dashboard.js")
+        for protected_path in (
+            'fetchJSON("data/vllm/ci/ready_tickets.json"',
+            'fetchJSON("data/vllm/ci/project_items.json"',
+            'fetchJSON("data/vllm/ci/operations_v2/ownership.json"',
+        ):
+            assert protected_path not in dashboard
+
     def test_auth_js_stamps_body_auth_class(self):
         src = _read(JS / "auth.js")
         assert "__auth-guest" in src, (
@@ -514,13 +537,45 @@ class TestTabGatingHardening:
 
     def test_ready_render_refuses_guests(self):
         src = _read(JS / "ci-ready.js")
-        assert "canAccessTab" in src or "isAuthed" in src, (
-            "ci-ready.js render() must check the auth gate before "
-            "drawing the triage view (which decrypts the engineer roster)"
+        marker = "(function renderReadyControlV2()"
+        assert marker in src
+        active = src.split(marker, 1)[1]
+        assert "gate.canAccessTab('ci-ready')" in active, (
+            "the active Ready v2 renderer must enforce the shared tab policy; "
+            "a guard in the disabled legacy renderer is insufficient"
         )
-        assert "promptSignIn" in src, (
+        render_body = active.split("async function render()", 1)[1].split(
+            "\n  function renderIfActive()", 1
+        )[0]
+        auth_check = render_body.index("gate.canAccessTab('ci-ready')")
+        auth_return = render_body.index("return;", render_body.index("if (!allowed)"))
+        protected_fetches = (
+            render_body.index("loadOperations(['ownership'])"),
+            render_body.index("actions.loadPlan()"),
+            render_body.index("loadOperations(['reliability'])"),
+        )
+        assert auth_check < auth_return < min(protected_fetches), (
+            "Ready must return for guests before loading ticket or ownership data"
+        )
+        assert "promptSignIn" in active, (
             "ci-ready.js should offer a direct sign-in path from the locked state"
         )
+        assert "classList.remove('__gate-locked')" not in active, (
+            "the Ready renderer must not undo auth.js's protected-tab decoration"
+        )
+
+    def test_ready_ownership_uses_the_same_protected_route(self):
+        src = _read(JS / "ci-ready.js")
+        active = src.split("(function renderReadyControlV2()", 1)[1]
+        assert "ops_ready_view" in active
+        assert "{ id: 'ownership', label: 'CI ownership' }" in active
+        assert (
+            "window.OpsV2.renderOwnership(ownershipHost, "
+            "ownershipOperations)"
+        ) in active
+        assert "loadOperations(['ownership'])" in active
+        assert "url.searchParams.set('ops_ready_view', 'ownership')" in active
+        assert "url.hash = 'ci-ready'" in active
 
     def test_admin_tab_still_checks_is_admin(self):
         # This was already in place; lock it in as part of the gating
@@ -539,11 +594,12 @@ class TestTabGatingHardening:
         # future edit that forgets to bump is caught here.
         html = _read(ROOT / "docs" / "index.html")
         minimums = {
-            "auth.js": 3,
+            "auth.js": 4,
             "utils.js": 57,
-            "dashboard.js": 53,
+            "dashboard.js": 59,
             "ci-testbuild.js": 4,
-            "ci-ready.js": 3,
+            "ci-ready.js": 8,
+            "ops-v2.js": 11,
         }
         for fname, floor in minimums.items():
             m = re.search(

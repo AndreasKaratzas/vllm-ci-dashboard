@@ -427,8 +427,14 @@ window.__OPS_CONTROL_V2_READY__ = true;
   const h = window.el;
   const actions = window.OpsReadyActions;
   let renderSeq = 0;
-  let operationsPromise = null;
+  const operationsPromises = new Map();
+  const READY_VIEWS = new Set(['tickets', 'ownership']);
+  const OPERATION_SECTION_ASSETS = {
+    reliability: 'data/vllm/ci/operations_v2/reliability.json',
+    ownership: 'data/vllm/ci/operations_v2/ownership.json',
+  };
   const viewState = {
+    view: 'tickets',
     query: '',
     status: 'failing',
     build: '',
@@ -450,25 +456,121 @@ window.__OPS_CONTROL_V2_READY__ = true;
     return node;
   }
 
-  function loadOperations() {
-    if (!operationsPromise) {
+  function loadOperations(sectionNames) {
+    const names = Array.from(sectionNames || []).sort();
+    const key = names.join(',');
+    if (!operationsPromises.has(key)) {
+      let request;
       if (window.OpsV2 && typeof window.OpsV2.loadSections === 'function') {
-        operationsPromise = window.OpsV2.loadSections(['reliability']);
+        request = window.OpsV2.loadSections(names);
       } else {
-        operationsPromise = fetch('data/vllm/ci/operations_v2/reliability.json?_=' + Math.floor(Date.now() / 300000))
-          .then(function(response) { return response.ok ? response.json() : null; });
+        request = Promise.all(names.map(function(name) {
+          const path = OPERATION_SECTION_ASSETS[name];
+          if (!path) return Promise.resolve(null);
+          return fetch(path + '?_=' + Math.floor(Date.now() / 300000))
+            .then(function(response) { return response.ok ? response.json() : null; });
+        })).then(function(sections) {
+          return sections.reduce(function(combined, section) {
+            return Object.assign(combined, section || {});
+          }, {});
+        });
       }
-      operationsPromise = operationsPromise.catch(function() { return null; });
+      operationsPromises.set(key, request.catch(function() {
+        operationsPromises.delete(key);
+        return null;
+      }));
     }
-    return operationsPromise;
+    return operationsPromises.get(key);
   }
 
-  function exposeReadyNavigation() {
-    const button = document.querySelector('[data-tab="ci-ready"]');
-    if (!button) return;
-    button.classList.remove('__gate-locked');
-    button.setAttribute('title', 'View Ready Tickets evidence');
-    button.setAttribute('aria-disabled', 'false');
+  function replaceReadyUrl(mutator) {
+    try {
+      const url = new URL(window.location.href);
+      mutator(url);
+      window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+    } catch (_) {}
+  }
+
+  function syncReadyRoute() {
+    replaceReadyUrl(function(url) {
+      const requested = url.searchParams.get('ops_ready_view');
+      viewState.view = READY_VIEWS.has(requested) ? requested : 'tickets';
+      Array.from(url.searchParams.keys()).forEach(function(key) {
+        if (key.startsWith('ops_') && key !== 'ops_ready_view') url.searchParams.delete(key);
+      });
+      if (viewState.view === 'tickets') url.searchParams.delete('ops_ready_view');
+    });
+  }
+
+  function setReadyView(next) {
+    if (!READY_VIEWS.has(next)) return;
+    viewState.view = next;
+    replaceReadyUrl(function(url) {
+      Array.from(url.searchParams.keys()).forEach(function(key) {
+        if (key.startsWith('ops_') && key !== 'ops_ready_view') url.searchParams.delete(key);
+      });
+      if (next === 'tickets') url.searchParams.delete('ops_ready_view');
+      else url.searchParams.set('ops_ready_view', next);
+      url.hash = 'ci-ready';
+    });
+    renderIfActive();
+  }
+
+  function migrateLegacyOwnershipRoute() {
+    let migrated = false;
+    replaceReadyUrl(function(url) {
+      if (url.searchParams.get('ops_health_view') !== 'ownership') return;
+      url.searchParams.delete('ops_health_view');
+      url.searchParams.set('ops_ready_view', 'ownership');
+      url.hash = 'ci-ready';
+      migrated = true;
+    });
+    if (migrated && window.__dashboardNav && typeof window.__dashboardNav.switchTab === 'function') {
+      window.__dashboardNav.switchTab('ci-ready', { updateHash: false });
+    }
+    return migrated;
+  }
+
+  function readyTabs(container) {
+    const tabs = h('div', {
+      cls: 'ops-segmented ocv2-ready-subnav',
+      role: 'group',
+      'aria-label': 'Ready Tickets view',
+    });
+    [
+      { id: 'tickets', label: 'Tickets' },
+      { id: 'ownership', label: 'CI ownership' },
+    ].forEach(function(item) {
+      const active = item.id === viewState.view;
+      const button = h('button', {
+        cls: 'ops-segment' + (active ? ' is-active' : ''),
+        type: 'button',
+        text: item.label,
+        'aria-pressed': active ? 'true' : 'false',
+        'data-ready-view': item.id,
+      });
+      button.addEventListener('click', function() { setReadyView(item.id); });
+      tabs.append(button);
+    });
+    container.append(tabs);
+  }
+
+  function signInRequired(container) {
+    const signIn = h('button', {
+      cls: 'ocv2-button is-primary',
+      type: 'button',
+      text: 'Sign in',
+    });
+    signIn.addEventListener('click', function() {
+      const auth = window.__authGate;
+      if (auth && auth.promptSignIn) auth.promptSignIn();
+    });
+    container.append(ui.state(
+      'is-warning',
+      'Sign in required',
+      'Ready Tickets and CI ownership are available only to signed-in dashboard members.',
+      signIn
+    ));
   }
 
   function buildRefs(summary) {
@@ -848,7 +950,7 @@ window.__OPS_CONTROL_V2_READY__ = true;
       paused ? 'Automation paused' : live ? 'Live evidence snapshot' : 'Dry-run evidence snapshot',
       paused
         ? (plan.pause_reason || 'No upstream mutations are being performed.')
-        : 'Read-only failure evidence is public. Current failures share one master tracker; manually filed issues are linked as evidence and never modified.'
+        : 'Signed-in, read-only failure evidence. Current failures share one master tracker; manually filed issues are linked as evidence and never modified.'
     );
     const sources = h('div', { cls: 'ocv2-actions' });
     if (plan.master_issue && plan.master_issue.url) sources.append(ui.external('Shared master tracker #' + plan.master_issue.number, plan.master_issue.url));
@@ -862,12 +964,49 @@ window.__OPS_CONTROL_V2_READY__ = true;
     const seq = ++renderSeq;
     const container = document.getElementById('ci-ready-view');
     if (!container) return;
-    exposeReadyNavigation();
+    syncReadyRoute();
     ui.page(container, {
       id: 'ready-tickets',
       title: 'Ready Tickets',
-      description: 'Public AMD nightly failure evidence with exact Buildkite and issue sources.',
+      description: 'Signed-in AMD nightly ticket evidence and CI ownership status.',
     });
+    const gate = window.__authGate;
+    const allowed = !!(gate && typeof gate.canAccessTab === 'function'
+      ? gate.canAccessTab('ci-ready')
+      : (gate && gate.isAuthed && gate.isAuthed()));
+    if (!allowed) {
+      operationsPromises.clear();
+      signInRequired(container);
+      return;
+    }
+    readyTabs(container);
+    if (viewState.view === 'ownership') {
+      const ownershipLoading = ui.state('', 'Loading CI ownership', 'Fetching the signed-in ownership and escalation snapshot.');
+      container.append(ownershipLoading);
+      const ownershipOperations = await loadOperations(['ownership']);
+      if (seq !== renderSeq) return;
+      ownershipLoading.remove();
+      if (!ownershipOperations) {
+        container.append(ui.state(
+          'is-warning',
+          'CI ownership snapshot unavailable',
+          'The ownership section could not be loaded. Retry now or reload after the collector publishes it.',
+          ui.button('Retry', function() {
+            operationsPromises.delete('ownership');
+            renderIfActive();
+          }, '', 'Retry loading CI ownership')
+        ));
+        return;
+      }
+      if (!window.OpsV2 || typeof window.OpsV2.renderOwnership !== 'function') {
+        container.append(ui.state('is-warning', 'CI ownership renderer unavailable', 'Reload after the latest dashboard assets have been deployed.'));
+        return;
+      }
+      const ownershipHost = h('section', { cls: 'ops-v2-host ocv2-ownership-host' });
+      container.append(ownershipHost);
+      window.OpsV2.renderOwnership(ownershipHost, ownershipOperations);
+      return;
+    }
     const loading = ui.state('', 'Loading Ready Tickets evidence', 'Fetching the retained summary, strict operations catalog, and project links.');
     container.append(loading);
     const plan = await actions.loadPlan();
@@ -878,7 +1017,7 @@ window.__OPS_CONTROL_V2_READY__ = true;
     }
     const [projectItems, operations] = await Promise.all([
       actions.loadProjectItems(),
-      loadOperations(),
+      loadOperations(['reliability']),
     ]);
     if (seq !== renderSeq) return;
     loading.remove();
@@ -892,7 +1031,7 @@ window.__OPS_CONTROL_V2_READY__ = true;
   }
 
   function initializeReadyRoute() {
-    exposeReadyNavigation();
+    migrateLegacyOwnershipRoute();
     renderIfActive();
   }
 

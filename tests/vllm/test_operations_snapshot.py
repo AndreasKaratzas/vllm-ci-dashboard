@@ -322,7 +322,7 @@ def _fixture_data(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def test_ci_ownership_snapshot_is_embedded_but_raw_source_is_private(tmp_path):
+def test_ci_ownership_snapshot_is_top_level_but_raw_source_is_private(tmp_path):
     data_dir = _fixture_data(tmp_path)
     ownership = {
         "schema_version": 1,
@@ -335,7 +335,8 @@ def test_ci_ownership_snapshot_is_embedded_but_raw_source_is_private(tmp_path):
 
     payload = ops.build_snapshot(data_dir, generated_at=GENERATED_AT)
 
-    assert payload["gating"]["ownership"] == ownership
+    assert payload["ownership"] == ownership
+    assert "ownership" not in payload["gating"]
     assert payload["sources"]["ci_ownership"]["published"] is False
 
 
@@ -2440,8 +2441,22 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
     assert json.loads(output.read_text()) == payload
     assert manifest["bundle_version"] == 1
     assert manifest["generated_at"] == GENERATED_AT
+    assert set(manifest["sections"]) == {
+        "nightly",
+        "amd_test_health",
+        "amd_agent_health",
+        "reliability",
+        "definition_parity",
+        "gating",
+        "ownership",
+        "queue",
+        "trajectory",
+        "omni",
+        "diagnostics",
+    }
     assert "reliability" not in manifest["shell"]
     assert "amd_agent_health" not in manifest["shell"]
+    assert "ownership" not in manifest["shell"]
     assert len(manifest["shell"]["nightly"]["pipelines"]) == 1
     assert manifest["shell"]["nightly"]["pipelines"][0]["pipeline"] == "amd-ci"
     assert len(manifest["shell"]["nightly"]["pipelines"][0]["builds"]) <= 7
@@ -2470,6 +2485,15 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
     assert "p50_wait" not in history_row
     assert "current_wait" not in history_row
     assert "unused_collector_field" not in history_row
+
+    gating = json.loads(
+        (output.parent / manifest["sections"]["gating"]["path"]).read_text()
+    )["gating"]
+    ownership = json.loads(
+        (output.parent / manifest["sections"]["ownership"]["path"]).read_text()
+    )["ownership"]
+    assert "ownership" not in gating
+    assert ownership == payload["ownership"]
 
     omni = json.loads(
         (output.parent / manifest["sections"]["omni"]["path"]).read_text()

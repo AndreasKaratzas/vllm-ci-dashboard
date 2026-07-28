@@ -53,6 +53,7 @@ def test_operations_data_is_lazy_loaded_with_bounded_first_render_payloads():
         "amd_agent_health",
         "reliability",
         "definition_parity",
+        "ownership",
         "queue",
         "omni",
         "diagnostics",
@@ -99,11 +100,12 @@ def test_v2_owns_all_operational_views():
     assert ".ops-page .ops-perf-metric-grid" in OPS_CSS
 
 
-def test_ci_ownership_view_is_routed_and_fail_closed():
+def test_ci_ownership_renderer_is_reusable_and_removed_from_ci_health():
     for contract in (
-        "'ownership'",
-        "{id: 'ownership', label: 'CI ownership'}",
         "function openOwnershipAreaDetail",
+        "function renderOwnership(host, ops)",
+        "const ownership = (ops || {}).ownership || {};",
+        "renderOwnership: renderOwnership",
         "CI test-area ownership",
         "Availability-aware, fail-closed assignment",
         "Private availability is missing or stale",
@@ -112,9 +114,18 @@ def test_ci_ownership_view_is_routed_and_fail_closed():
         "automation issue text contains no user mentions",
     ):
         assert contract in OPS_JS
-    assert "if (state.healthView === 'ownership') return ['gating'];" in OPS_JS
+    assert (
+        "['healthView', 'health_view', "
+        "['overview', 'targets', 'gating', 'coverage', 'diagnostics']]"
+    ) in OPS_JS
+    assert "{id: 'ownership', label: 'CI ownership'}" not in OPS_JS
+    assert "if (state.healthView === 'ownership')" not in OPS_JS
+    assert "gating.ownership" not in OPS_JS
     assert "architectureSignalStateRank(ownershipAreaState(left))" in OPS_JS
     assert "compareText(left.source_file, right.source_file)" in OPS_JS
+    assert OPS_JS.index("function renderOwnership(host, ops)") < OPS_JS.index(
+        "async function renderHealth"
+    )
 
 
 def test_legacy_renderers_yield_to_v2():

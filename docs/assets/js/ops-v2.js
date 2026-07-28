@@ -312,7 +312,7 @@
   function syncRouteState(tabId) {
     const specs = {
       'ci-health': [
-        ['healthView', 'health_view', ['overview', 'targets', 'ownership', 'gating', 'coverage', 'diagnostics']],
+        ['healthView', 'health_view', ['overview', 'targets', 'gating', 'coverage', 'diagnostics']],
         ['healthCoverageSort', 'health_sort', ['platform', 'name', 'area']],
         ['healthResult', 'health_result', ['all', 'incident', 'unobserved', 'passed']],
       ],
@@ -2195,7 +2195,6 @@
     if (tabId === 'ci-health') {
       if (state.healthView === 'overview') return ['nightly', 'amd_test_health'];
       if (state.healthView === 'targets') return ['gating'];
-      if (state.healthView === 'ownership') return ['gating'];
       if (state.healthView === 'gating') return ['definition_parity'];
       if (state.healthView === 'diagnostics') return ['diagnostics'];
       return [];
@@ -2983,7 +2982,6 @@
   function healthTabs(host) {
     host.append(segmented([
       {id: 'overview', label: 'Overview'}, {id: 'targets', label: 'Runtime targets'},
-      {id: 'ownership', label: 'CI ownership'},
       {id: 'gating', label: 'Definition parity'},
       {id: 'coverage', label: 'Coverage'}, {id: 'diagnostics', label: 'Diagnostics'},
     ], state.healthView, function (id) { setRouteState('ci-health', 'healthView', id, 'health_view'); }, 'CI Health view'));
@@ -3058,6 +3056,68 @@
       true,
       'ci-ownership-area'
     );
+  }
+
+  function renderOwnership(host, ops) {
+    const ownership = (ops || {}).ownership || {};
+    const summary = ownership.summary || {};
+    const availability = ownership.availability || {};
+    const project = ownership.project || {};
+    if (ownership.available !== true) {
+      const unavailable = n('div', 'ops-evidence-note is-warning');
+      add(unavailable, [
+        n('strong', '', 'CI ownership status is unavailable. '),
+        n('span', '', value(ownership.unavailable_reason || 'The managed ownership snapshot has not been generated yet.')),
+      ]);
+      host.append(unavailable);
+      return;
+    }
+    host.append(statusStrip([
+      {id: 'ownership-areas', label: 'OWNED TEST AREAS', value: integer(summary.areas), meta: 'complete primary / secondary / tertiary chains'},
+      {id: 'ownership-regressing', label: 'AREAS REGRESSING', value: integer(summary.areas_with_incidents), meta: integer(summary.incidents) + ' target regressions', tone: Number(summary.areas_with_incidents) ? 'is-warning' : 'is-success'},
+      {id: 'ownership-parity', label: 'UPSTREAM PARITY GAPS', value: integer(summary.upstream_parity_gaps), meta: 'commit-pinned upstream-only definitions', tone: Number(summary.upstream_parity_gaps) ? 'is-warning' : 'is-success'},
+      {id: 'ownership-unmapped', label: 'UNMAPPED TARGETS', value: integer(summary.unmapped_targets), meta: 'never assigned by a lossy fallback', tone: Number(summary.unmapped_targets) ? 'is-warning' : 'is-success'},
+    ]));
+    const policyNote = n('div', 'ops-evidence-note ' + (availability.fresh ? 'is-info' : 'is-warning'));
+    add(policyNote, [
+      n('strong', '', 'Availability-aware, fail-closed assignment. '),
+      n('span', '', availability.fresh
+        ? 'Private availability is fresh. The first in-hours, non-PTO owner is selected in rank order.'
+        : 'Private availability is missing or stale, so regressions escalate to the CI lead.'),
+      n('span', '', ' GitHub assignability is checked before mutation, and automation issue text contains no user mentions.'),
+      project.url ? n('span', '', ' ') : null,
+      project.url ? externalLink('Open AMD CI Operations project', project.url) : null,
+      project.url ? n('span', '', '.') : null,
+    ]);
+    host.append(policyNote);
+    const areas = Array.from(ownership.areas || []).sort(function (left, right) {
+      return architectureSignalStateRank(ownershipAreaState(left)) - architectureSignalStateRank(ownershipAreaState(right))
+        || compareText(left.source_file, right.source_file);
+    });
+    const areaColumns = [
+      {label: 'Test area', sticky: true, width: '230px', render: function (row) { return linkButton(row.source_file || row.area, function () { openOwnershipAreaDetail(row); }); }},
+      {label: 'Latest status', width: '150px', render: function (row) { const result = ownershipAreaState(row); return linkedBadge(result, (row.issue || {}).url, function () { openOwnershipAreaDetail(row); }, toneForState(result)); }},
+      {label: 'Selected engineer', width: '240px', render: function (row) { return linkButton(ownershipSelectedName(row), function () { openOwnershipAreaDetail(row); }); }},
+      {label: 'Runtime targets', width: '190px', render: function (row) { const counts = row.counts || {}; return integer(counts.incidents) + ' incident - ' + integer(counts.passed) + ' pass - ' + integer(counts.unobserved) + ' unresolved'; }},
+      {label: 'Parity gaps', width: '120px', render: function (row) { return integer((row.counts || {}).upstream_parity_gaps); }},
+      {label: 'Managed issue', width: '130px', render: function (row) { const issue = row.issue || {}; if (issue.url) return externalLink('#' + integer(issue.number), issue.url, 'ops-mono'); if (issue.suppressed) return badge('suppressed', 'is-neutral'); return n('span', 'ops-cell-muted', '-'); }},
+    ];
+    host.append(compactTablePanel(
+      'CI test-area ownership',
+      'Incident areas first, then source filename; owner chains are rank ordered',
+      areaColumns,
+      areas,
+      {
+        id: 'ci-ownership-browser',
+        limit: 18,
+        alwaysBrowse: areas.length > 0,
+        browserTitle: 'CI test-area ownership and escalation',
+        browserSubtitle: 'Runtime regression, parity, owner availability, and managed issue status',
+        searchPlaceholder: 'Filter area, engineer, status, or assignment reason',
+        searchText: function (row) { return [row.source_file, ownershipAreaState(row), ownershipSelectedName(row), ownershipChainText(row), row.assignment_reason, row.selection_reason, (row.regressions || []).map(function (item) { return item.label; }).join(' ')].join(' '); },
+        geometry: {name: 'ci-ownership', minWidth: '1090px'},
+      }
+    ));
   }
 
   async function renderHealth(host, ops) {
@@ -3205,69 +3265,6 @@
           searchPlaceholder: 'Filter target group, area, result, or assessment',
           searchText: function (row) { const resolution = targetResolutionPresentation(row); return [row.label, row.area, targetState(row), row.assessment, resolution.status, resolution.reason, resolution.method, resolution.mappingQuality, resolution.commandSimilarityPct, resolution.amdDefinitionLabels.join(' ')].join(' '); },
           geometry: {name: 'runtime-targets', minWidth: '1070px'},
-        }
-      ));
-      return;
-    }
-
-    if (state.healthView === 'ownership') {
-      const ownership = gating.ownership || {};
-      const summary = ownership.summary || {};
-      const availability = ownership.availability || {};
-      const project = ownership.project || {};
-      if (ownership.available !== true) {
-        const unavailable = n('div', 'ops-evidence-note is-warning');
-        add(unavailable, [
-          n('strong', '', 'CI ownership status is unavailable. '),
-          n('span', '', value(ownership.unavailable_reason || 'The managed ownership snapshot has not been generated yet.')),
-        ]);
-        host.append(unavailable);
-        return;
-      }
-      host.append(statusStrip([
-        {id: 'ownership-areas', label: 'OWNED TEST AREAS', value: integer(summary.areas), meta: 'complete primary / secondary / tertiary chains'},
-        {id: 'ownership-regressing', label: 'AREAS REGRESSING', value: integer(summary.areas_with_incidents), meta: integer(summary.incidents) + ' target regressions', tone: Number(summary.areas_with_incidents) ? 'is-warning' : 'is-success'},
-        {id: 'ownership-parity', label: 'UPSTREAM PARITY GAPS', value: integer(summary.upstream_parity_gaps), meta: 'commit-pinned upstream-only definitions', tone: Number(summary.upstream_parity_gaps) ? 'is-warning' : 'is-success'},
-        {id: 'ownership-unmapped', label: 'UNMAPPED TARGETS', value: integer(summary.unmapped_targets), meta: 'never assigned by a lossy fallback', tone: Number(summary.unmapped_targets) ? 'is-warning' : 'is-success'},
-      ]));
-      const policyNote = n('div', 'ops-evidence-note ' + (availability.fresh ? 'is-info' : 'is-warning'));
-      add(policyNote, [
-        n('strong', '', 'Availability-aware, fail-closed assignment. '),
-        n('span', '', availability.fresh
-          ? 'Private availability is fresh. The first in-hours, non-PTO owner is selected in rank order.'
-          : 'Private availability is missing or stale, so regressions escalate to the CI lead.'),
-        n('span', '', ' GitHub assignability is checked before mutation, and automation issue text contains no user mentions.'),
-        project.url ? n('span', '', ' ') : null,
-        project.url ? externalLink('Open AMD CI Operations project', project.url) : null,
-        project.url ? n('span', '', '.') : null,
-      ]);
-      host.append(policyNote);
-      const areas = Array.from(ownership.areas || []).sort(function (left, right) {
-        return architectureSignalStateRank(ownershipAreaState(left)) - architectureSignalStateRank(ownershipAreaState(right))
-          || compareText(left.source_file, right.source_file);
-      });
-      const areaColumns = [
-        {label: 'Test area', sticky: true, width: '230px', render: function (row) { return linkButton(row.source_file || row.area, function () { openOwnershipAreaDetail(row); }); }},
-        {label: 'Latest status', width: '150px', render: function (row) { const counts = row.counts || {}; const result = ownershipAreaState(row); return linkedBadge(result, (row.issue || {}).url, function () { openOwnershipAreaDetail(row); }, toneForState(result)); }},
-        {label: 'Selected engineer', width: '240px', render: function (row) { return linkButton(ownershipSelectedName(row), function () { openOwnershipAreaDetail(row); }); }},
-        {label: 'Runtime targets', width: '190px', render: function (row) { const counts = row.counts || {}; return integer(counts.incidents) + ' incident - ' + integer(counts.passed) + ' pass - ' + integer(counts.unobserved) + ' unresolved'; }},
-        {label: 'Parity gaps', width: '120px', render: function (row) { return integer((row.counts || {}).upstream_parity_gaps); }},
-        {label: 'Managed issue', width: '130px', render: function (row) { const issue = row.issue || {}; if (issue.url) return externalLink('#' + integer(issue.number), issue.url, 'ops-mono'); if (issue.suppressed) return badge('suppressed', 'is-neutral'); return n('span', 'ops-cell-muted', '-'); }},
-      ];
-      host.append(compactTablePanel(
-        'CI test-area ownership',
-        'Incident areas first, then source filename; owner chains are rank ordered',
-        areaColumns,
-        areas,
-        {
-          id: 'ci-ownership-browser',
-          limit: 18,
-          alwaysBrowse: areas.length > 0,
-          browserTitle: 'CI test-area ownership and escalation',
-          browserSubtitle: 'Runtime regression, parity, owner availability, and managed issue status',
-          searchPlaceholder: 'Filter area, engineer, status, or assignment reason',
-          searchText: function (row) { return [row.source_file, ownershipAreaState(row), ownershipSelectedName(row), ownershipChainText(row), row.assignment_reason, row.selection_reason, (row.regressions || []).map(function (item) { return item.label; }).join(' ')].join(' '); },
-          geometry: {name: 'ci-ownership', minWidth: '1090px'},
         }
       ));
       return;
@@ -7491,6 +7488,7 @@
 
   window.OpsV2 = {
     render: render,
+    renderOwnership: renderOwnership,
     state: state,
     openTestGroupHistory: openTestGroupHistory,
     loadSections: function (names) { return loadOperationSections(null, names || []); },
