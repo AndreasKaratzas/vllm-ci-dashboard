@@ -26,6 +26,12 @@ def _config():
     }
 
 
+def test_malformed_availability_secret_returns_fail_closed_marker(monkeypatch):
+    monkeypatch.setenv("CI_OWNER_AVAILABILITY_JSON", "{not-json")
+
+    assert watcher._read_availability() is watcher.MALFORMED_AVAILABILITY
+
+
 def _area():
     return {
         "area": "kernels",

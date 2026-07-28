@@ -45,7 +45,6 @@ ENGINEERS: tuple[Engineer, ...] = (
     Engineer("divakar-amd", "Divakar Verma"),
     Engineer("fxmarty-amd", "Felix Marty"),
     Engineer("gchinora", "Gyula Chinoradszki"),
-    Engineer("gyohuangxin", "Xin Huang"),
     Engineer("kenroche-amd", "Kenneth J Roche"),
     Engineer("mawong-amd", "Matt Wong"),
     Engineer("micah-wil", "Micah Williamson"),

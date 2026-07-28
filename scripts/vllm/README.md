@@ -25,11 +25,12 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 
 All scripts read the `BUILDKITE_TOKEN` from environment variables. This is managed via GitHub Actions encrypted secrets — never hardcode tokens in source files.
 
-The CI ownership watcher additionally reads `CI_OWNER_AVAILABILITY_JSON` from
-an encrypted Actions secret. Its schema is documented in the root README.
-Working hours and PTO never enter generated public data or managed issue state;
-individual availability states are not rendered. Missing or stale availability
-escalates to the CI lead.
+The CI ownership watcher reads regional working-hour profiles from
+`config/vllm_ci_ownership.json` and optional PTO/temporary overrides from the
+encrypted `CI_OWNER_AVAILABILITY_JSON` Actions secret. Its schema is documented
+in the root README. Individual availability states and private PTO ranges never
+enter generated public data or managed issue state. A stale or malformed
+private snapshot escalates to the CI lead.
 
 Project synchronization uses the repository `GITHUB_TOKEN` only to list the
 dashboard's managed issues. The separate `PROJECTS_WRITE_TOKEN` secret is used

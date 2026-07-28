@@ -46,6 +46,10 @@ def test_operational_documentation_matches_the_canonical_publication_path() -> N
         assert "scripts/vllm/ci_area_regression_watcher.py" in text
         assert "Ready Tickets → CI ownership" in text
         assert "CI_OWNER_AVAILABILITY_JSON" in text
+        assert "Europe/Belgrade" in text
+        assert "America/Chicago" in text
+        assert "An omitted private snapshot means no PTO has been declared" in text
+        assert "Availability is deliberately not committed" not in text
         assert "PROJECTS_WRITE_TOKEN" in text
         assert "`gating_targets.json` is regenerated" in text
         assert "`operations_v2.json` is a private build input" in text

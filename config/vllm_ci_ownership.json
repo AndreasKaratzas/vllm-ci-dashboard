@@ -16,6 +16,32 @@
     "mentions": false,
     "issue_grain": "test_area"
   },
+  "working_hours_profiles": {
+    "EU": {
+      "timezone": "Europe/Belgrade",
+      "weekdays": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "start": "09:00",
+      "end": "17:00"
+    },
+    "NA": {
+      "timezone": "America/Chicago",
+      "weekdays": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "start": "09:00",
+      "end": "17:00"
+    }
+  },
   "project": {
     "id": "PVT_kwHOAofB1M4BepHY",
     "number": 2,
@@ -41,55 +67,63 @@
   "owners": [
     {
       "display_name": "Chinoradszki, Gyula",
-      "github_login": "gchinora"
+      "github_login": "gchinora",
+      "working_hours_profile": "EU"
     },
     {
       "display_name": "Fu, Charlie",
-      "github_login": "charlifu"
-    },
-    {
-      "display_name": "Huang, Xin",
-      "github_login": "gyohuangxin"
+      "github_login": "charlifu",
+      "working_hours_profile": "NA"
     },
     {
       "display_name": "Jain, Aarushi",
-      "github_login": "aarushjain29"
+      "github_login": "aarushjain29",
+      "working_hours_profile": "NA"
     },
     {
       "display_name": "Koncarevic, Stefan",
-      "github_login": "stefankoncarevic"
+      "github_login": "stefankoncarevic",
+      "working_hours_profile": "EU"
     },
     {
       "display_name": "Marty, Felix",
-      "github_login": "fxmarty-amd"
+      "github_login": "fxmarty-amd",
+      "working_hours_profile": "EU"
     },
     {
       "display_name": "Music, Dino",
-      "github_login": "music-dino"
+      "github_login": "music-dino",
+      "working_hours_profile": "EU"
     },
     {
       "display_name": "Ramic, Djordje",
-      "github_login": "djramic"
+      "github_login": "djramic",
+      "working_hours_profile": "EU"
     },
     {
       "display_name": "Verma, Divakar",
-      "github_login": "divakar-amd"
+      "github_login": "divakar-amd",
+      "working_hours_profile": "NA"
     },
     {
       "display_name": "Williamson, Micah",
-      "github_login": "micah-wil"
+      "github_login": "micah-wil",
+      "working_hours_profile": "NA"
     },
     {
       "display_name": "Wong, Matt",
-      "github_login": "mawong-amd"
+      "github_login": "mawong-amd",
+      "working_hours_profile": "NA"
     },
     {
       "display_name": "Zhang, Pei",
-      "github_login": "peizhang56"
+      "github_login": "peizhang56",
+      "working_hours_profile": "NA"
     },
     {
       "display_name": "Andreas Karatzas",
-      "github_login": "AndreasKaratzas"
+      "github_login": "AndreasKaratzas",
+      "working_hours_profile": "NA"
     }
   ],
   "areas": {
@@ -124,7 +158,7 @@
     "benchmarks.yaml": [
       {
         "rank": 1,
-        "github_login": "gyohuangxin"
+        "github_login": "aarushjain29"
       },
       {
         "rank": 2,
@@ -184,7 +218,7 @@
       },
       {
         "rank": 2,
-        "github_login": "gyohuangxin"
+        "github_login": "stefankoncarevic"
       },
       {
         "rank": 3,
@@ -268,7 +302,7 @@
       },
       {
         "rank": 2,
-        "github_login": "gyohuangxin"
+        "github_login": "gchinora"
       },
       {
         "rank": 3,
@@ -314,7 +348,7 @@
       },
       {
         "rank": 3,
-        "github_login": "gyohuangxin"
+        "github_login": "mawong-amd"
       }
     ],
     "misc.yaml": [
@@ -348,7 +382,7 @@
     "model_runner_v2.yaml": [
       {
         "rank": 1,
-        "github_login": "gyohuangxin"
+        "github_login": "djramic"
       },
       {
         "rank": 2,
@@ -426,7 +460,7 @@
       },
       {
         "rank": 3,
-        "github_login": "gyohuangxin"
+        "github_login": "charlifu"
       }
     ],
     "pytorch.yaml": [

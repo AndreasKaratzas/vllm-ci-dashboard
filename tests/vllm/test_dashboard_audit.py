@@ -373,6 +373,92 @@ def test_dashboard_audit_allows_in_progress_hardware_count_drift(tmp_path):
     assert "parity-matrix-hardware-failing-in-progress" in warning_codes
 
 
+def test_dashboard_audit_allows_retry_recovery_final_state_drift(tmp_path):
+    """Retained failed tests may precede a passed final Buildkite retry."""
+    ci = tmp_path / "data/vllm/ci"
+    ci.mkdir(parents=True)
+
+    (ci / "analytics.json").write_text(
+        json.dumps({"amd-ci": {"builds": [{"number": 123}]}})
+    )
+    (ci / "ci_health.json").write_text(
+        json.dumps(
+            {
+                "amd": {
+                    "latest_build": {
+                        "build_number": 123,
+                        "by_hardware": {"mi300": {"groups": 1}},
+                    }
+                }
+            }
+        )
+    )
+    (ci / "parity_report.json").write_text(
+        json.dumps(
+            {
+                "job_groups": [
+                    {
+                        "name": "recovered by retry",
+                        "hardware": ["mi300"],
+                        "amd": {"total": 1, "failed": 1},
+                        "hw_failures": {"mi300": 1},
+                    }
+                ]
+            }
+        )
+    )
+    (ci / "amd_test_matrix.json").write_text(
+        json.dumps(
+            {
+                "source": {"latest_build_number": 123},
+                "summary": {
+                    "unique_groups": 1,
+                    "architecture_count": 1,
+                    "hardware_cells": 1,
+                    "latest_matched_cells": 1,
+                    "passing_cells": 1,
+                    "failing_cells": 0,
+                    "waiting_cells": 0,
+                    "unknown_cells": 0,
+                    "fully_shared_groups": 1,
+                    "single_arch_groups": 1,
+                    "multi_variant_cells": 0,
+                },
+                "architectures": [
+                    {
+                        "id": "mi300",
+                        "label": "MI300",
+                        "group_count": 1,
+                        "nightly_match_count": 1,
+                    }
+                ],
+                "rows": [
+                    {
+                        "title": "recovered by retry",
+                        "coverage_count": 1,
+                        "nightly_coverage_count": 1,
+                        "cells": {
+                            "mi300": {
+                                "exists": True,
+                                "latest_matched": True,
+                                "latest_state": "passed",
+                            }
+                        },
+                    }
+                ],
+            }
+        )
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_amd_matrix()
+
+    assert not audit.report.errors
+    assert {
+        finding.code for finding in audit.report.warnings
+    } == {"parity-matrix-hardware-failing-final-state-drift"}
+
+
 def test_dashboard_audit_rejects_one_group_cross_view_hardware_drift(tmp_path):
     ci = tmp_path / "data/vllm/ci"
     ci.mkdir(parents=True)

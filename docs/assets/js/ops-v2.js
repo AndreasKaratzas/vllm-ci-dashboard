@@ -3025,7 +3025,7 @@
     ];
     content.append(panel(
       'Escalation chain',
-      'Assignment evaluates private working-hours and PTO data in rank order; individual availability is not published',
+      'Assignment evaluates regional working hours and private PTO overrides in rank order; individual availability is not published',
       dataTable(chainColumns, row.owners || [], integer((row.owners || []).length) + ' ranked owners', {name: 'ownership-chain', minWidth: '540px'})
     ));
     const regressions = row.regressions || [];
@@ -3078,12 +3078,15 @@
       {id: 'ownership-parity', label: 'UPSTREAM PARITY GAPS', value: integer(summary.upstream_parity_gaps), meta: 'commit-pinned upstream-only definitions', tone: Number(summary.upstream_parity_gaps) ? 'is-warning' : 'is-success'},
       {id: 'ownership-unmapped', label: 'UNMAPPED TARGETS', value: integer(summary.unmapped_targets), meta: 'never assigned by a lossy fallback', tone: Number(summary.unmapped_targets) ? 'is-warning' : 'is-success'},
     ]));
-    const policyNote = n('div', 'ops-evidence-note ' + (availability.fresh ? 'is-info' : 'is-warning'));
+    const scheduleOnly = availability.reason === 'working_hours_profiles';
+    const policyNote = n('div', 'ops-evidence-note ' + (availability.fresh && !scheduleOnly ? 'is-info' : 'is-warning'));
     add(policyNote, [
       n('strong', '', 'Availability-aware, fail-closed assignment. '),
-      n('span', '', availability.fresh
-        ? 'Private availability is fresh. The first in-hours, non-PTO owner is selected in rank order.'
-        : 'Private availability is missing or stale, so regressions escalate to the CI lead.'),
+      n('span', '', scheduleOnly
+        ? 'Regional working hours are active, but no private PTO snapshot is configured. The first in-hours owner is selected in rank order.'
+        : (availability.fresh
+          ? 'Private PTO data is fresh. The first in-hours, non-PTO owner is selected in rank order.'
+          : 'Private availability is malformed or stale, so regressions escalate to the CI lead.')),
       n('span', '', ' GitHub assignability is checked before mutation, and automation issue text contains no user mentions.'),
       project.url ? n('span', '', ' ') : null,
       project.url ? externalLink('Open AMD CI Operations project', project.url) : null,

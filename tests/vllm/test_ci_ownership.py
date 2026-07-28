@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from vllm.ci.ownership import (
+    MALFORMED_AVAILABILITY,
     build_ownership_status,
     evaluate_availability,
     infer_target_area,
@@ -67,28 +68,28 @@ def test_committed_rotation_matches_the_31_requested_rank_chains():
     expected = {
         "attention": ["djramic", "aarushjain29", "peizhang56"],
         "basic_correctness": ["gchinora", "music-dino", "divakar-amd"],
-        "benchmarks": ["gyohuangxin", "gchinora", "djramic"],
+        "benchmarks": ["aarushjain29", "gchinora", "djramic"],
         "compile": ["charlifu", "stefankoncarevic", "mawong-amd"],
         "cuda": ["gchinora", "aarushjain29", "music-dino"],
         "disaggregated": ["divakar-amd", "stefankoncarevic", "djramic"],
-        "distributed": ["charlifu", "gyohuangxin", "aarushjain29"],
+        "distributed": ["charlifu", "stefankoncarevic", "aarushjain29"],
         "docker": ["mawong-amd", "peizhang56", "divakar-amd"],
         "e2e_integration": ["music-dino", "aarushjain29", "mawong-amd"],
         "engine": ["micah-wil", "divakar-amd", "stefankoncarevic"],
         "entrypoints": ["AndreasKaratzas", "charlifu", "stefankoncarevic"],
         "expert_parallelism": ["divakar-amd", "charlifu", "gchinora"],
-        "fault_tolerance": ["djramic", "gyohuangxin", "mawong-amd"],
+        "fault_tolerance": ["djramic", "gchinora", "mawong-amd"],
         "kernels": ["stefankoncarevic", "micah-wil", "djramic"],
         "lm_eval": ["peizhang56", "fxmarty-amd", "music-dino"],
-        "lora": ["divakar-amd", "music-dino", "gyohuangxin"],
+        "lora": ["divakar-amd", "music-dino", "mawong-amd"],
         "misc": ["AndreasKaratzas", "micah-wil", "gchinora"],
         "model_executor": ["gchinora", "charlifu", "aarushjain29"],
-        "model_runner_v2": ["gyohuangxin", "stefankoncarevic", "music-dino"],
+        "model_runner_v2": ["djramic", "stefankoncarevic", "music-dino"],
         "models_basic": ["aarushjain29", "peizhang56", "micah-wil"],
         "models_distributed": ["aarushjain29", "gchinora", "charlifu"],
         "models_language": ["mawong-amd", "AndreasKaratzas", "stefankoncarevic"],
         "models_multimodal": ["mawong-amd", "AndreasKaratzas", "music-dino"],
-        "plugins": ["peizhang56", "aarushjain29", "gyohuangxin"],
+        "plugins": ["peizhang56", "aarushjain29", "charlifu"],
         "pytorch": ["charlifu", "djramic", "micah-wil"],
         "quantization": ["fxmarty-amd", "micah-wil", "AndreasKaratzas"],
         "ray_compat": ["divakar-amd", "music-dino", "AndreasKaratzas"],
@@ -102,6 +103,112 @@ def test_committed_rotation_matches_the_31_requested_rank_chains():
         area: [owner["github_login"] for owner in chain]
         for area, chain in config["areas"].items()
     } == expected
+    assert {owner["github_login"] for owner in config["owners"]} == {
+        "AndreasKaratzas",
+        "aarushjain29",
+        "charlifu",
+        "djramic",
+        "divakar-amd",
+        "fxmarty-amd",
+        "gchinora",
+        "mawong-amd",
+        "micah-wil",
+        "music-dino",
+        "peizhang56",
+        "stefankoncarevic",
+    }
+    assert config["working_hours_profiles"] == {
+        "EU": {
+            "timezone": "Europe/Belgrade",
+            "working_hours": {
+                "weekdays": [0, 1, 2, 3, 4],
+                "start": "09:00",
+                "end": "17:00",
+            },
+        },
+        "NA": {
+            "timezone": "America/Chicago",
+            "working_hours": {
+                "weekdays": [0, 1, 2, 3, 4],
+                "start": "09:00",
+                "end": "17:00",
+            },
+        },
+    }
+    assert {
+        owner["github_login"]: owner["working_hours_profile"]
+        for owner in config["owners"]
+    } == {
+        "gchinora": "EU",
+        "charlifu": "NA",
+        "aarushjain29": "NA",
+        "stefankoncarevic": "EU",
+        "fxmarty-amd": "EU",
+        "music-dino": "EU",
+        "djramic": "EU",
+        "divakar-amd": "NA",
+        "micah-wil": "NA",
+        "mawong-amd": "NA",
+        "peizhang56": "NA",
+        "AndreasKaratzas": "NA",
+    }
+
+
+def test_committed_regional_hours_drive_ranked_availability_without_private_overrides():
+    from vllm.ci.ownership import load_ownership_config
+
+    config = load_ownership_config(ROOT / "config" / "vllm_ci_ownership.json")
+    availability, source = evaluate_availability(
+        None,
+        config["owners"],
+        working_hours_profiles=config["working_hours_profiles"],
+        now=NOW,
+    )
+
+    assert source == {
+        "configured": True,
+        "fresh": True,
+        "reason": "working_hours_profiles",
+        "generated_at": "",
+        "private_overrides_configured": False,
+    }
+    assert availability["gchinora"]["status"] == "available"
+    assert availability["stefankoncarevic"]["status"] == "available"
+    assert availability["charlifu"]["status"] == "unavailable"
+    assert availability["micah-wil"]["status"] == "unavailable"
+
+
+def test_private_pto_overrides_committed_regional_hours():
+    from vllm.ci.ownership import load_ownership_config
+
+    config = load_ownership_config(ROOT / "config" / "vllm_ci_ownership.json")
+    raw = {
+        "schema_version": 1,
+        "generated_at": "2026-07-28T11:59:00Z",
+        "owners": {
+            "gchinora": {
+                "pto": [
+                    {
+                        "start": "2026-07-28T00:00:00Z",
+                        "end": "2026-07-29T00:00:00Z",
+                    }
+                ]
+            }
+        },
+    }
+    availability, source = evaluate_availability(
+        raw,
+        config["owners"],
+        working_hours_profiles=config["working_hours_profiles"],
+        now=NOW,
+    )
+
+    assert source["private_overrides_configured"] is True
+    assert availability["gchinora"] == {
+        "status": "unavailable",
+        "reason": "unavailable",
+    }
+    assert availability["stefankoncarevic"]["status"] == "available"
 
 
 def test_config_requires_complete_distinct_rank_chain():
@@ -126,6 +233,45 @@ def test_missing_availability_fails_closed_to_ci_lead():
     assert selected["owner"]["github_login"] == "ci-lead"
     assert selected["escalated_to_ci_lead"] is True
     assert all("availability" not in row for row in selected["chain"])
+
+
+def test_malformed_availability_fails_closed_even_with_regional_profiles():
+    config = _config()
+    for owner in config["owners"]:
+        owner["working_hours_profile"] = "EU"
+    profiles = {
+        "EU": {
+            "timezone": "Europe/Belgrade",
+            "working_hours": {
+                "weekdays": [0, 1, 2, 3, 4],
+                "start": "09:00",
+                "end": "17:00",
+            },
+        }
+    }
+
+    availability, source = evaluate_availability(
+        MALFORMED_AVAILABILITY,
+        config["owners"],
+        working_hours_profiles=profiles,
+        now=NOW,
+    )
+    selected = select_owner(
+        config["areas"]["kernels"],
+        availability,
+        config["ci_lead"],
+    )
+
+    assert source == {
+        "configured": True,
+        "fresh": False,
+        "reason": "availability_malformed",
+        "generated_at": "",
+        "private_overrides_configured": True,
+    }
+    assert all(row["status"] == "unknown" for row in availability.values())
+    assert selected["owner"]["github_login"] == "ci-lead"
+    assert selected["escalated_to_ci_lead"] is True
 
 
 def test_selection_walks_ranks_and_stops_at_first_available():

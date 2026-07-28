@@ -2613,7 +2613,8 @@ class DashboardAudit:
 
         for arch, mstats in matrix_stats["by_arch"].items():
             pstats = parity_stats.get(arch, {})
-            if pstats.get("total") != mstats["total"]:
+            totals_match = pstats.get("total") == mstats["total"]
+            if not totals_match:
                 self.error(
                     "parity-matrix-hardware-total",
                     f"{arch} parity hardware total={pstats.get('total')} but AMD matrix total={mstats['total']}",
@@ -2628,6 +2629,15 @@ class DashboardAudit:
                         f"{arch} parity failing groups={parity_failing} and AMD matrix "
                         f"failing cells={mstats['failing']} differ by {diff} while "
                         f"{mstats['waiting']} matrix cells are still waiting",
+                        "data/vllm/ci/parity_report.json",
+                    )
+                elif totals_match:
+                    self.warning(
+                        "parity-matrix-hardware-failing-final-state-drift",
+                        f"{arch} parity retained test-result failing groups={parity_failing} "
+                        f"but AMD matrix final-job failing cells={mstats['failing']}; "
+                        f"hardware totals agree at {mstats['total']} and a retry can "
+                        "change the final Buildkite state",
                         "data/vllm/ci/parity_report.json",
                     )
                 else:

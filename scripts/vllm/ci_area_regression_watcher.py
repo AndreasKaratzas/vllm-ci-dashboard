@@ -31,6 +31,7 @@ from vllm.ci.managed_issue import (  # noqa: E402
     validate_target_repo,
 )
 from vllm.ci.ownership import (  # noqa: E402
+    MALFORMED_AVAILABILITY,
     build_ownership_status,
     evaluate_availability,
     isoformat_z,
@@ -89,7 +90,7 @@ def _read_availability() -> Any:
         return json.loads(raw)
     except json.JSONDecodeError:
         log.error("CI_OWNER_AVAILABILITY_JSON is not valid JSON; failing closed")
-        return None
+        return MALFORMED_AVAILABILITY
 
 
 def _source_generated_at() -> datetime | None:
@@ -419,6 +420,7 @@ def run() -> int:
     availability, availability_source = evaluate_availability(
         _read_availability(),
         config["owners"],
+        working_hours_profiles=config.get("working_hours_profiles"),
         now=now,
     )
     observed_at = isoformat_z(now)

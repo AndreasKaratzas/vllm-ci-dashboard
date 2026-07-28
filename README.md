@@ -63,7 +63,7 @@ The main data path is `.github/workflows/hourly-master.yml`, which runs every 30
 | `scripts/vllm/collect_queue_snapshot.py` | Queue timeseries, workload-attributed counts, and the exact active-job ledger |
 | `scripts/vllm/collect_capacity_monitor.py` | AMD queue capacity limits plus mirror test-group dependency projections |
 | `scripts/vllm/build_operations_snapshot.py` | Build the versioned operations manifest and lazy CI Health, Queue, and Omni read-model shards |
-| `scripts/vllm/ci_area_regression_watcher.py` | Reconcile one dashboard-repository issue per regressing test area using the ranked owner chain, private availability, and exact AMD evidence |
+| `scripts/vllm/ci_area_regression_watcher.py` | Reconcile one dashboard-repository issue per regressing test area using the ranked owner chain, regional hours/private PTO, and exact AMD evidence |
 | `scripts/vllm/sync_ci_operations_project.py` | Add open managed dashboard issues to the single AMD CI Operations Project by workstream |
 | `scripts/vllm/ensure_ci_operations_labels.py` | Ensure the managed-issue and Project workstream labels exist before any watcher runs |
 | `scripts/vllm/audit_dashboard_data.py` | Cross-surface audit for data totals, frontend assumptions, links, and deploy safety |
@@ -122,8 +122,18 @@ per area in `AndreasKaratzas/vllm-ci-dashboard`. Current regressions, exact
 Buildkite evidence, upstream parity gaps, the ranked chain, and the actual
 GitHub assignees are shown in **Ready Tickets → CI ownership**.
 
-Availability is deliberately not committed. The workflow reads the private
-`CI_OWNER_AVAILABILITY_JSON` secret:
+The ownership config carries two shared, DST-aware working-hours profiles.
+They are operational shifts, not claims about an engineer's home location:
+
+| Profile | Local hours | Time zone | Engineers |
+|---|---|---|---|
+| EU | Monday–Friday, 09:00–17:00 | `Europe/Belgrade` | `gchinora`, `stefankoncarevic`, `fxmarty-amd`, `music-dino`, `djramic` |
+| NA | Monday–Friday, 09:00–17:00 | `America/Chicago` | `charlifu`, `aarushjain29`, `divakar-amd`, `micah-wil`, `mawong-amd`, `peizhang56`, `AndreasKaratzas` |
+
+With no private override configured, assignment uses these profiles and treats
+the PTO list as empty. PTO and temporary overrides remain private in the
+`CI_OWNER_AVAILABILITY_JSON` secret. A private record may supply only `pto`;
+the committed regional profile provides its time zone and hours:
 
 ```json
 {
@@ -131,12 +141,6 @@ Availability is deliberately not committed. The workflow reads the private
   "generated_at": "2026-07-28T12:00:00Z",
   "owners": {
     "github-login": {
-      "timezone": "Europe/London",
-      "working_hours": {
-        "weekdays": [0, 1, 2, 3, 4],
-        "start": "09:00",
-        "end": "17:00"
-      },
       "pto": [
         {
           "start": "2026-08-03T00:00:00Z",
@@ -148,14 +152,16 @@ Availability is deliberately not committed. The workflow reads the private
 }
 ```
 
-The snapshot expires after 24 hours and therefore needs a live schedule/PTO
-producer; a hand-written, fixed timestamp is not a production configuration.
-Missing, stale, or malformed availability fails closed to the CI lead. The
-watcher also verifies that the selected login can be assigned in this
-repository; otherwise it assigns the CI lead. If neither account is verifiably
-assignable, the watcher refuses to open an unassigned issue. Individual
-availability states remain private. Automated issue text never uses `@`
-mentions and no issue can be opened outside the dashboard repository.
+When present, the private snapshot expires after 24 hours and therefore needs a
+live PTO producer; a hand-written, fixed timestamp is not a production
+configuration. Stale or malformed private availability fails closed to the CI
+lead. An omitted private snapshot means no PTO has been declared and the
+regional schedules remain active. The watcher also verifies that the selected
+login can be assigned in this repository; otherwise it assigns the CI lead. If
+neither account is verifiably assignable, the watcher refuses to open an
+unassigned issue. Individual availability states remain private. Automated
+issue text never uses `@` mentions and no issue can be opened outside the
+dashboard repository.
 
 Use one GitHub Project, **AMD CI Operations**, with label-backed views instead
 of three separate projects: `workstream:infra`, `workstream:dashboard-ci`, and

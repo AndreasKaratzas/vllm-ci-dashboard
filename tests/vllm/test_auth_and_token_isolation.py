@@ -752,6 +752,28 @@ class TestAuthEntryGate:
             for forbidden in ("password_hash", "password", "salt", "iterations", "pat"):
                 assert forbidden not in u
 
+    def test_ci_ownership_engineers_are_registered_by_github_id(self):
+        import json
+        db = json.loads(_read(ROOT / "data" / "users.json"))
+
+        registered_ids = {user["github_id"] for user in db["users"]}
+        expected_ids = {
+            4076731,    # charlifu
+            37017866,   # stefankoncarevic
+            42451412,   # AndreasKaratzas
+            58434250,   # djramic
+            111048524,  # music-dino
+            137818590,  # divakar-amd
+            142941703,  # aarushjain29
+            156021403,  # mawong-amd
+            180171742,  # fxmarty-amd
+            181019437,  # micah-wil
+            197772173,  # gchinora
+            212501953,  # peizhang56
+        }
+        assert expected_ids <= registered_ids
+        assert 42127654 not in registered_ids  # gyohuangxin
+
 
 # ---------------------------------------------------------------------------
 # 5. Secrets hygiene in committed files.
