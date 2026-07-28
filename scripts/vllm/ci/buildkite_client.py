@@ -68,11 +68,12 @@ def _paginate(url: str, params: Optional[dict] = None) -> list:
     results = []
     params = dict(params or {})
     page = 0
-    while url:
-        resp = _request(url, params=params if page == 0 else None)
+    next_url: Optional[str] = url
+    while next_url:
+        resp = _request(next_url, params=params if page == 0 else None)
         results.extend(resp.json())
         page += 1
-        url = resp.links.get("next", {}).get("url")
+        next_url = resp.links.get("next", {}).get("url")
     return results
 
 

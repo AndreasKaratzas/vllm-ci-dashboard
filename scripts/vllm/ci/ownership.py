@@ -237,7 +237,7 @@ def validate_ownership_config(payload: Any) -> dict:
     raw_project = payload.get("project")
     if not isinstance(raw_project, dict):
         raise ValueError("Ownership config requires one linked GitHub project")
-    project = {
+    project: dict[str, Any] = {
         "id": str(raw_project.get("id") or "").strip(),
         "number": raw_project.get("number"),
         "title": str(raw_project.get("title") or "").strip(),
@@ -395,14 +395,15 @@ def evaluate_availability(
                 "generated_at": isoformat_z(generated),
             }
 
-        records = raw.get("owners")
-        if not isinstance(records, dict):
+        raw_records = raw.get("owners")
+        if not isinstance(raw_records, dict):
             return unknown, {
                 "configured": True,
                 "fresh": False,
                 "reason": "availability_owners_invalid",
                 "generated_at": isoformat_z(generated),
             }
+        records = raw_records
         source = {
             "configured": True,
             "fresh": True,
