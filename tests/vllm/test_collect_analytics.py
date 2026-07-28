@@ -75,6 +75,120 @@ def test_bk_get_waits_for_longest_buildkite_rate_limit_reset(monkeypatch):
     assert sleeps == [42]
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(ca.requests.Timeout("read timed out"), id="timeout"),
+        pytest.param(ca.requests.ConnectionError("connection reset"), id="connection"),
+    ],
+)
+def test_bk_get_retries_transport_errors_with_exponential_backoff(monkeypatch, error):
+    success = ca.requests.Response()
+    success.status_code = 200
+    success._content = b'[{"number": 42}]'
+    responses = [error, error, success]
+    sleeps = []
+    timeouts = []
+
+    def fake_get(*args, **kwargs):
+        timeouts.append(kwargs["timeout"])
+        result = responses.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(ca.requests, "get", fake_get)
+    monkeypatch.setattr(ca.time, "sleep", sleeps.append)
+
+    assert ca.bk_get("/builds", "fake-token") == [{"number": 42}]
+    assert sleeps == [2, 4]
+    assert timeouts == [(10, 30), (10, 45), (10, 60)]
+
+
+def test_bk_get_read_timeout_growth_is_capped():
+    assert ca._request_timeout(0) == (10, 30)
+    assert ca._request_timeout(1) == (10, 45)
+    assert ca._request_timeout(ca.BK_GET_MAX_ATTEMPTS - 1) == (10, 60)
+
+
+def test_bk_get_retries_transient_http_status(monkeypatch):
+    unavailable = ca.requests.Response()
+    unavailable.status_code = 503
+    unavailable.url = "https://api.buildkite.com/v2/builds"
+
+    success = ca.requests.Response()
+    success.status_code = 200
+    success._content = b"[]"
+
+    responses = [unavailable, success]
+    sleeps = []
+    monkeypatch.setattr(ca.requests, "get", lambda *args, **kwargs: responses.pop(0))
+    monkeypatch.setattr(ca.time, "sleep", sleeps.append)
+
+    assert ca.bk_get("/builds", "fake-token") == []
+    assert sleeps == [2]
+
+
+def test_bk_get_exhausted_transient_http_retries_raise(monkeypatch):
+    unavailable = ca.requests.Response()
+    unavailable.status_code = 503
+    unavailable.url = "https://api.buildkite.com/v2/builds"
+    attempts = []
+    sleeps = []
+
+    def fail(*args, **kwargs):
+        attempts.append(1)
+        return unavailable
+
+    monkeypatch.setattr(ca.requests, "get", fail)
+    monkeypatch.setattr(ca.time, "sleep", sleeps.append)
+
+    with pytest.raises(ca.requests.HTTPError):
+        ca.bk_get("/builds", "fake-token")
+
+    assert len(attempts) == ca.BK_GET_MAX_ATTEMPTS
+    assert sleeps == [2, 4, 8, 16]
+
+
+def test_bk_get_exhausted_transport_retries_raise_last_error(monkeypatch):
+    attempts = []
+    sleeps = []
+
+    def fail(*args, **kwargs):
+        attempts.append(1)
+        raise ca.requests.Timeout("read timed out")
+
+    monkeypatch.setattr(ca.requests, "get", fail)
+    monkeypatch.setattr(ca.time, "sleep", sleeps.append)
+
+    with pytest.raises(ca.requests.Timeout, match="read timed out"):
+        ca.bk_get("/builds", "fake-token")
+
+    assert len(attempts) == ca.BK_GET_MAX_ATTEMPTS
+    assert sleeps == [2, 4, 8, 16]
+
+
+def test_bk_get_does_not_retry_non_transient_http_error(monkeypatch):
+    unauthorized = ca.requests.Response()
+    unauthorized.status_code = 401
+    unauthorized.url = "https://api.buildkite.com/v2/builds"
+    attempts = []
+    sleeps = []
+
+    def fail(*args, **kwargs):
+        attempts.append(1)
+        return unauthorized
+
+    monkeypatch.setattr(ca.requests, "get", fail)
+    monkeypatch.setattr(ca.time, "sleep", sleeps.append)
+
+    with pytest.raises(ca.requests.HTTPError):
+        ca.bk_get("/builds", "fake-token")
+
+    assert attempts == [1]
+    assert sleeps == []
+
+
 class TestWindowedAnalytics:
     def test_fetch_pipeline_builds_includes_page_two_and_deduplicates(self, monkeypatch):
         page_one = [

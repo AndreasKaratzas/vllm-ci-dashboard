@@ -61,6 +61,14 @@ GATING_NIGHTLY_LIMIT = 30
 # The AMD all-main ledger exists for the 30-minute live alert, not long-range
 # browser analytics. Bounding it keeps analytics.json from growing needlessly.
 AMD_MAIN_OBSERVATION_LIMIT = 24
+BK_GET_MAX_ATTEMPTS = 5
+BK_GET_BACKOFF_SECONDS = 2
+BK_GET_MAX_BACKOFF_SECONDS = 60
+BK_GET_CONNECT_TIMEOUT_SECONDS = 10
+BK_GET_INITIAL_READ_TIMEOUT_SECONDS = 30
+BK_GET_READ_TIMEOUT_STEP_SECONDS = 15
+BK_GET_MAX_READ_TIMEOUT_SECONDS = 60
+BK_GET_RETRY_STATUS_CODES = frozenset({500, 502, 503, 504, 520, 522, 524})
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 OUTPUT = ROOT / "data" / "vllm" / "ci"
@@ -161,28 +169,86 @@ def _rate_limit_wait_seconds(headers, attempt):
         return 5 * (attempt + 1)
 
 
+def _request_retry_wait_seconds(attempt):
+    """Return a capped exponential delay for a zero-based request attempt."""
+    return min(BK_GET_BACKOFF_SECONDS * (2**attempt), BK_GET_MAX_BACKOFF_SECONDS)
+
+
+def _request_timeout(attempt):
+    """Bound connect time while allowing a slow response more time on retry."""
+    read_timeout = min(
+        BK_GET_INITIAL_READ_TIMEOUT_SECONDS + BK_GET_READ_TIMEOUT_STEP_SECONDS * attempt,
+        BK_GET_MAX_READ_TIMEOUT_SECONDS,
+    )
+    return BK_GET_CONNECT_TIMEOUT_SECONDS, read_timeout
+
+
 def bk_get(path, token, params=None):
-    """Fetch one Buildkite REST page with timeout and rate-limit retries."""
+    """Fetch one Buildkite REST page with bounded transient-error retries."""
     headers = {"Authorization": f"Bearer {token}"}
     url = f"{BK_API_BASE}{path}"
     p = dict(params or {})
-    for attempt in range(3):
+    for attempt in range(BK_GET_MAX_ATTEMPTS):
         try:
-            resp = requests.get(url, headers=headers, params=p, timeout=30)
-            if resp.status_code == 429:
-                if attempt == 2:
-                    resp.raise_for_status()
-                wait = _rate_limit_wait_seconds(resp.headers, attempt)
-                log.warning("Rate limited, retrying in %ds", wait)
-                time.sleep(wait)
-                continue
-            resp.raise_for_status()
-            payload = resp.json()
-            return payload if isinstance(payload, list) else [payload]
-        except requests.exceptions.Timeout:
-            if attempt == 2:
+            resp = requests.get(
+                url,
+                headers=headers,
+                params=p,
+                timeout=_request_timeout(attempt),
+            )
+        except (
+            requests.exceptions.Timeout,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.ChunkedEncodingError,
+        ) as exc:
+            if attempt == BK_GET_MAX_ATTEMPTS - 1:
                 raise
-            time.sleep(3)
+            wait = _request_retry_wait_seconds(attempt)
+            log.warning(
+                "Buildkite request %s page %s failed (%s), retry %d/%d in %ds",
+                path,
+                p.get("page", 1),
+                type(exc).__name__,
+                attempt + 1,
+                BK_GET_MAX_ATTEMPTS,
+                wait,
+            )
+            time.sleep(wait)
+            continue
+
+        if resp.status_code == 429:
+            if attempt == BK_GET_MAX_ATTEMPTS - 1:
+                resp.raise_for_status()
+            wait = _rate_limit_wait_seconds(resp.headers, attempt)
+            log.warning(
+                "Buildkite request %s page %s rate limited, retry %d/%d in %ds",
+                path,
+                p.get("page", 1),
+                attempt + 1,
+                BK_GET_MAX_ATTEMPTS,
+                wait,
+            )
+            time.sleep(wait)
+            continue
+        if resp.status_code in BK_GET_RETRY_STATUS_CODES:
+            if attempt == BK_GET_MAX_ATTEMPTS - 1:
+                resp.raise_for_status()
+            wait = _request_retry_wait_seconds(attempt)
+            log.warning(
+                "Buildkite request %s page %s returned HTTP %d, retry %d/%d in %ds",
+                path,
+                p.get("page", 1),
+                resp.status_code,
+                attempt + 1,
+                BK_GET_MAX_ATTEMPTS,
+                wait,
+            )
+            time.sleep(wait)
+            continue
+
+        resp.raise_for_status()
+        payload = resp.json()
+        return payload if isinstance(payload, list) else [payload]
     return []
 
 

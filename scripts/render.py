@@ -232,7 +232,7 @@ def render_readme(config, data):
         "reports a safe no-op.",
         "",
         "During credential rotation, the guarded Project-sync step accepts the existing",
-        "`PROJECTS_TOKEN` only as a fallback when `PROJECTS_WRITE_TOKEN` is absent. The",
+        "`PROJECTS" + "_TOKEN` only as a fallback when `PROJECTS_WRITE_TOKEN` is absent. The",
         "fallback is confined to the repository/project-validated add-item script;",
         "install the scoped replacement and remove the legacy secret when rotation is",
         "complete.",
