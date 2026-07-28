@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-28T01:07:16Z",
+  "generated_at": "2026-07-28T03:20:06Z",
   "amd_date": "2026-07-27",
   "upstream_date": "2026-07-27",
   "parity_pct": 0.0,
@@ -6852,10 +6852,10 @@
     },
     {
       "name": "lm eval small models (mi300)",
-      "family_key": "lm eval small models",
-      "family_name": "lm eval small models",
+      "family_key": "lm eval small models (hardware variants)",
+      "family_name": "lm eval small models (hardware variants)",
       "amd_job_name": "mi300_1: LM Eval Small Models (MI300)",
-      "upstream_job_name": "LM Eval Small Models",
+      "upstream_job_name": "LM Eval Small Models (1xB200)",
       "amd": {
         "total": 6,
         "passed": 6,
@@ -6867,17 +6867,17 @@
         "duration": 602.21
       },
       "upstream": {
-        "total": 8,
-        "passed": 8,
+        "total": 6,
+        "passed": 6,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1684.82
+        "duration": 1672.66
       },
       "hardware": [
-        "h100",
+        "b200",
         "mi300"
       ],
       "hw_failures": null,
@@ -6891,15 +6891,15 @@
           "side": "amd"
         },
         {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-be89-469f-b9f2-077d8b1a7da7&tab=output",
-          "job_name": "LM Eval Small Models",
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-be89-4a10-82e5-4b3691c1530d&tab=output",
+          "job_name": "LM Eval Small Models (1xB200)",
           "side": "upstream"
         }
       ],
       "delta": {
-        "total": -2,
-        "passed": -2,
+        "total": 0,
+        "passed": 0,
         "failed": 0,
         "skipped": 0
       },
@@ -10879,8 +10879,8 @@
     },
     {
       "name": "weight loading multiple gpu",
-      "family_key": "weight loading multiple gpu (2 gpus)",
-      "family_name": "weight loading multiple gpu (2 gpus)",
+      "family_key": "weight loading multiple gpu",
+      "family_name": "weight loading multiple gpu",
       "amd_job_name": "mi300_2: Weight Loading Multiple GPU",
       "upstream_job_name": "Weight Loading Multiple GPU",
       "amd": {
@@ -12305,40 +12305,6 @@
           "hw": "b200",
           "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-be88-45fc-b42b-4aa6f2a7e71a&tab=output",
           "job_name": "LM Eval PCP (4xB200)",
-          "side": "upstream"
-        }
-      ],
-      "status": "upstream_only",
-      "backfilled": false
-    },
-    {
-      "name": "lm eval small models (1 gpus)",
-      "family_key": "lm eval small models (1 gpus)",
-      "family_name": "lm eval small models (1 gpus)",
-      "amd_job_name": null,
-      "upstream_job_name": "LM Eval Small Models (1xB200)",
-      "amd": null,
-      "upstream": {
-        "total": 6,
-        "passed": 6,
-        "failed": 0,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0,
-        "error": 0,
-        "duration": 1672.66
-      },
-      "hardware": [
-        "b200"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [
-        {
-          "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/80394/steps/canvas?jid=019fa22a-be89-4a10-82e5-4b3691c1530d&tab=output",
-          "job_name": "LM Eval Small Models (1xB200)",
           "side": "upstream"
         }
       ],
