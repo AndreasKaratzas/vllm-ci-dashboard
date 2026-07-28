@@ -1,15 +1,15 @@
 {
-  "generated_at": "2026-07-28T07:27:25Z",
+  "generated_at": "2026-07-28T12:28:59Z",
   "window_builds": 10,
-  "total_flaky": 7,
+  "total_flaky": 8,
   "tests": [
     {
-      "test_id": "mi250_1: Python-only Installation::__job_level__",
+      "test_id": "mi355_1: V1 Spec Decode::__job_level__",
       "label": "flaky",
       "pass_rate": 0.25,
       "appearances": 4,
-      "last_seen": "2026-07-27",
-      "first_failure": "2026-07-25",
+      "last_seen": "2026-07-28",
+      "first_failure": "2026-07-22",
       "failure_streak": 3,
       "history": [
         "P",
@@ -17,7 +17,7 @@
         "F",
         "F"
       ],
-      "module": "mi250_1: Python-only Installation",
+      "module": "mi355_1: V1 Spec Decode",
       "mean_duration": 0.0
     },
     {
@@ -54,19 +54,19 @@
       "mean_duration": 0.0
     },
     {
-      "test_id": "mi355_1: V1 Spec Decode::__job_level__",
+      "test_id": "mi355_2: Weight Loading Multiple GPU::__job_level__",
       "label": "flaky",
       "pass_rate": 0.3333,
       "appearances": 3,
-      "last_seen": "2026-07-24",
-      "first_failure": "2026-07-22",
+      "last_seen": "2026-07-28",
+      "first_failure": "2026-07-24",
       "failure_streak": 2,
       "history": [
         "P",
         "F",
         "F"
       ],
-      "module": "mi355_1: V1 Spec Decode",
+      "module": "mi355_2: Weight Loading Multiple GPU",
       "mean_duration": 0.0
     },
     {
@@ -93,6 +93,29 @@
       "mean_duration": 0.0
     },
     {
+      "test_id": "mi355_2: Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (B200-MI355)::__job_level__",
+      "label": "flaky",
+      "pass_rate": 0.6,
+      "appearances": 30,
+      "last_seen": "2026-07-28",
+      "first_failure": "2026-07-28",
+      "failure_streak": 1,
+      "history": [
+        "P",
+        "P",
+        "P",
+        "F",
+        "F",
+        "F",
+        "P",
+        "P",
+        "P",
+        "F"
+      ],
+      "module": "mi355_2: Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (B200-MI355)",
+      "mean_duration": 0.0
+    },
+    {
       "test_id": "mi325_1: Python-only Installation::__job_level__",
       "label": "flaky",
       "pass_rate": 0.625,
@@ -114,26 +137,26 @@
       "mean_duration": 0.0
     },
     {
-      "test_id": "mi355_2: Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (B200-MI355)::__job_level__",
+      "test_id": "mi355_1: Examples::__job_level__",
       "label": "flaky",
       "pass_rate": 0.7,
-      "appearances": 29,
-      "last_seen": "2026-07-27",
-      "first_failure": null,
-      "failure_streak": 0,
+      "appearances": 30,
+      "last_seen": "2026-07-28",
+      "first_failure": "2026-07-28",
+      "failure_streak": 1,
       "history": [
         "P",
         "P",
         "P",
-        "P",
-        "F",
-        "F",
         "F",
         "P",
+        "F",
         "P",
-        "P"
+        "P",
+        "P",
+        "F"
       ],
-      "module": "mi355_2: Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (B200-MI355)",
+      "module": "mi355_1: Examples",
       "mean_duration": 0.0
     }
   ]
