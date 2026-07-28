@@ -1,8 +1,8 @@
 """GitHub helpers for state-owned dashboard alert issues.
 
-Each watcher stores the one issue number it owns. Reconciliation never searches
-for issues by label and therefore can update or close only that tracked issue.
-A manually closed issue stays suppressed until the underlying signal recovers.
+Each watcher stores the one issue number it owns. When local state is missing,
+reconciliation can recover an open issue only by its exact HTML ownership marker.
+A manually closed issue stays suppressed until the signal recovers or changes.
 """
 
 from __future__ import annotations
@@ -20,6 +20,14 @@ DASHBOARD_REPO = "AndreasKaratzas/vllm-ci-dashboard"
 log = logging.getLogger(__name__)
 
 
+def _html_ownership_markers(body: str) -> set[str]:
+    return {
+        line.strip()
+        for line in str(body or "").splitlines()
+        if line.strip().startswith("<!--") and line.strip().endswith("-->")
+    }
+
+
 def validate_target_repo(repo: str) -> None:
     if repo.strip().lower() != DASHBOARD_REPO.lower():
         raise RuntimeError(f"Issue automation is restricted to {DASHBOARD_REPO}")
@@ -32,6 +40,13 @@ def repo_owner(repo: str) -> str:
 
 def normalize_managed_state(state: Any) -> dict:
     data = dict(state) if isinstance(state, dict) else {}
+    suppressed = bool(data.get("suppressed"))
+    last_fingerprint = str(data.get("last_fingerprint") or "")
+    suppressed_fingerprint = str(data.get("suppressed_fingerprint") or "")
+    if suppressed and not suppressed_fingerprint:
+        # Backward-compatible recovery for states written before the dedicated
+        # suppression fingerprint was introduced.
+        suppressed_fingerprint = last_fingerprint
     issue = data.get("issue")
     if isinstance(issue, int) and not isinstance(issue, bool):
         issue = {"number": issue, "opened_at": ""}
@@ -49,8 +64,9 @@ def normalize_managed_state(state: Any) -> dict:
         **data,
         "schema_version": 1,
         "issue": issue,
-        "suppressed": bool(data.get("suppressed")),
-        "last_fingerprint": str(data.get("last_fingerprint") or ""),
+        "suppressed": suppressed,
+        "suppressed_fingerprint": suppressed_fingerprint,
+        "last_fingerprint": last_fingerprint,
         "last_run": str(data.get("last_run") or ""),
     }
 
@@ -61,6 +77,7 @@ class GitHubIssueClient:
         self.token = token
         self.repo = repo
         self.owner = repo_owner(repo)
+        self._open_issues_by_marker: dict[str, list[int]] | None = None
 
     @property
     def headers(self) -> dict[str, str]:
@@ -88,6 +105,53 @@ class GitHubIssueClient:
         state = str(payload.get("state") or "").lower()
         return state if state in {"open", "closed"} else None
 
+    def find_open_issue(self, ownership_marker: str) -> int | None:
+        """Find the oldest open issue containing the exact marker on its own line."""
+        if self._open_issues_by_marker is None:
+            issues_by_marker: dict[str, list[int]] = {}
+            page = 1
+            while True:
+                try:
+                    response = requests.get(
+                        f"{GH_API}/repos/{self.repo}/issues",
+                        headers=self.headers,
+                        params={"state": "open", "per_page": 100, "page": page},
+                        timeout=30,
+                    )
+                except requests.RequestException as error:
+                    raise RuntimeError("Open managed-issue recovery lookup failed") from error
+                if response.status_code >= 300:
+                    raise RuntimeError(
+                        "Open managed-issue recovery lookup failed: "
+                        f"HTTP {response.status_code}"
+                    )
+                payload = response.json()
+                if not isinstance(payload, list):
+                    raise RuntimeError(
+                        "Open managed-issue recovery lookup returned invalid JSON"
+                    )
+                for issue in payload:
+                    if not isinstance(issue, dict) or issue.get("pull_request"):
+                        continue
+                    number = issue.get("number")
+                    if not isinstance(number, int) or isinstance(number, bool):
+                        continue
+                    for marker in _html_ownership_markers(str(issue.get("body") or "")):
+                        issues_by_marker.setdefault(marker, []).append(number)
+                if len(payload) < 100:
+                    break
+                page += 1
+            self._open_issues_by_marker = issues_by_marker
+
+        matches = self._open_issues_by_marker.get(ownership_marker, [])
+        if len(matches) > 1:
+            log.error(
+                "Found %d open issues with ownership marker %s; recovering the oldest",
+                len(matches),
+                ownership_marker,
+            )
+        return min(matches) if matches else None
+
     def ensure_label(self, name: str, color: str, description: str) -> bool:
         encoded = quote(name, safe="")
         response = requests.get(
@@ -111,17 +175,43 @@ class GitHubIssueClient:
             return False
         return True
 
+    def ensure_issue_labels(
+        self,
+        number: int,
+        label_specs: list[tuple[str, str, str]],
+    ) -> bool:
+        """Add managed labels without replacing unrelated labels on the issue."""
+        labels = [
+            name
+            for name, color, description in label_specs
+            if self.ensure_label(name, color, description)
+        ]
+        if not labels:
+            return True
+        response = requests.post(
+            f"{GH_API}/repos/{self.repo}/issues/{number}/labels",
+            headers=self.headers,
+            json={"labels": labels},
+            timeout=30,
+        )
+        if response.status_code not in {200, 201}:
+            log.warning("Add labels to issue #%d failed: %d", number, response.status_code)
+            return False
+        return True
+
     def open_issue(
         self,
         title: str,
         body: str,
         label_specs: list[tuple[str, str, str]],
+        assignees: list[str] | None = None,
     ) -> int | None:
         labels = [
             name
             for name, color, description in label_specs
             if self.ensure_label(name, color, description)
         ]
+        desired_assignees = self._normalized_assignees(assignees)
         response = requests.post(
             f"{GH_API}/repos/{self.repo}/issues",
             headers=self.headers,
@@ -129,7 +219,7 @@ class GitHubIssueClient:
                 "title": title,
                 "body": body,
                 "labels": labels,
-                "assignees": [self.owner],
+                "assignees": desired_assignees,
             },
             timeout=30,
         )
@@ -137,13 +227,27 @@ class GitHubIssueClient:
             log.error("Open managed issue failed: %d %s", response.status_code, response.text[:200])
             return None
         number = (response.json() or {}).get("number")
-        return int(number) if isinstance(number, int) and not isinstance(number, bool) else None
+        if not isinstance(number, int) or isinstance(number, bool):
+            return None
+        if self._open_issues_by_marker is not None:
+            for marker in _html_ownership_markers(body):
+                self._open_issues_by_marker.setdefault(marker, []).append(number)
+        return int(number)
 
-    def update_issue(self, number: int, title: str, body: str) -> bool:
+    def update_issue(
+        self,
+        number: int,
+        title: str,
+        body: str,
+        assignees: list[str] | None = None,
+    ) -> bool:
+        payload: dict[str, Any] = {"title": title, "body": body}
+        if assignees is not None:
+            payload["assignees"] = self._normalized_assignees(assignees)
         response = requests.patch(
             f"{GH_API}/repos/{self.repo}/issues/{number}",
             headers=self.headers,
-            json={"title": title, "body": body},
+            json=payload,
             timeout=30,
         )
         if response.status_code >= 300:
@@ -151,17 +255,52 @@ class GitHubIssueClient:
             return False
         return True
 
-    def ensure_owner_assigned(self, number: int) -> bool:
-        response = requests.post(
-            f"{GH_API}/repos/{self.repo}/issues/{number}/assignees",
+    def _normalized_assignees(self, assignees: list[str] | None) -> list[str]:
+        requested = [self.owner] if assignees is None else assignees
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for value in requested:
+            login = str(value or "").strip()
+            folded = login.lower()
+            if not login or folded in seen:
+                continue
+            seen.add(folded)
+            normalized.append(login)
+        return normalized
+
+    def is_assignable(self, login: str) -> bool:
+        encoded = quote(str(login or "").strip(), safe="")
+        if not encoded:
+            return False
+        response = requests.get(
+            f"{GH_API}/repos/{self.repo}/assignees/{encoded}",
             headers=self.headers,
-            json={"assignees": [self.owner]},
             timeout=30,
         )
-        if response.status_code not in {200, 201}:
-            log.warning("Assign owner on issue #%d failed: %d", number, response.status_code)
+        if response.status_code == 204:
+            return True
+        if response.status_code != 404:
+            log.warning(
+                "Check whether %s is assignable failed: %d",
+                login,
+                response.status_code,
+            )
+        return False
+
+    def set_assignees(self, number: int, assignees: list[str] | None = None) -> bool:
+        response = requests.patch(
+            f"{GH_API}/repos/{self.repo}/issues/{number}",
+            headers=self.headers,
+            json={"assignees": self._normalized_assignees(assignees)},
+            timeout=30,
+        )
+        if response.status_code >= 300:
+            log.warning("Set assignees on issue #%d failed: %d", number, response.status_code)
             return False
         return True
+
+    def ensure_owner_assigned(self, number: int) -> bool:
+        return self.set_assignees(number, [self.owner])
 
     def comment_issue(self, number: int, body: str) -> bool:
         response = requests.post(
@@ -200,6 +339,7 @@ def reconcile_managed_issue(
     observed_at: str,
     label_specs: list[tuple[str, str, str]],
     client: GitHubIssueClient,
+    assignees: list[str] | None = None,
 ) -> dict:
     """Reconcile one state-owned umbrella issue with an alert signal."""
     normalized = normalize_managed_state(state)
@@ -212,6 +352,7 @@ def reconcile_managed_issue(
     )
     issue = normalized.get("issue")
     number = int((issue or {}).get("number") or 0)
+    recovered = False
 
     if number:
         remote_state = client.issue_state(number, ownership_marker)
@@ -223,33 +364,91 @@ def reconcile_managed_issue(
             number = 0
             if active:
                 normalized["suppressed"] = True
+                normalized["suppressed_fingerprint"] = (
+                    normalized["last_fingerprint"] or fingerprint
+                )
                 log.info("Issue was manually closed; suppressing until the signal recovers")
 
     if active:
         if normalized["suppressed"]:
-            normalized["last_fingerprint"] = fingerprint
-        elif number:
-            client.ensure_owner_assigned(number)
-            if normalized["last_fingerprint"] != fingerprint:
-                if client.update_issue(number, title, managed_body):
+            suppressed_fingerprint = normalized["suppressed_fingerprint"]
+            if fingerprint != suppressed_fingerprint:
+                normalized["suppressed"] = False
+                normalized["suppressed_fingerprint"] = ""
+                log.info("Managed signal changed; clearing manual-close suppression")
+            else:
+                normalized["last_run"] = observed_at
+                return normalized
+
+    if not number and not normalized["suppressed"]:
+        find_open_issue = getattr(client, "find_open_issue", None)
+        if callable(find_open_issue):
+            try:
+                recovered_number = find_open_issue(ownership_marker)
+            except Exception as error:
+                log.warning("Managed-issue recovery lookup failed; refusing mutation: %s", error)
+                return normalized
+            if isinstance(recovered_number, int) and not isinstance(recovered_number, bool):
+                if recovered_number > 0:
+                    number = recovered_number
+                    normalized["issue"] = {
+                        "number": number,
+                        "opened_at": str((issue or {}).get("opened_at") or observed_at),
+                    }
+                    recovered = True
+                    log.info("Recovered open managed issue #%d from its ownership marker", number)
+
+    if active:
+        if number:
+            ensure_issue_labels = getattr(client, "ensure_issue_labels", None)
+            if callable(ensure_issue_labels):
+                ensure_issue_labels(number, label_specs)
+            if assignees is None:
+                client.ensure_owner_assigned(number)
+            else:
+                client.set_assignees(number, assignees)
+            if recovered or normalized["last_fingerprint"] != fingerprint:
+                updated = (
+                    client.update_issue(number, title, managed_body)
+                    if assignees is None
+                    else client.update_issue(number, title, managed_body, assignees)
+                )
+                if updated:
                     normalized["last_fingerprint"] = fingerprint
         else:
-            opened_number = client.open_issue(title, managed_body, label_specs)
+            opened_number = (
+                client.open_issue(title, managed_body, label_specs)
+                if assignees is None
+                else client.open_issue(
+                    title,
+                    managed_body,
+                    label_specs,
+                    assignees,
+                )
+            )
             if opened_number:
                 normalized["issue"] = {
                     "number": opened_number,
                     "opened_at": observed_at,
                 }
+                normalized["suppressed_fingerprint"] = ""
                 normalized["last_fingerprint"] = fingerprint
     else:
         if number:
-            client.ensure_owner_assigned(number)
+            ensure_issue_labels = getattr(client, "ensure_issue_labels", None)
+            if callable(ensure_issue_labels):
+                ensure_issue_labels(number, label_specs)
+            if assignees is None:
+                client.ensure_owner_assigned(number)
+            else:
+                client.set_assignees(number, assignees)
             client.comment_issue(number, recovery_body)
             if client.close_issue(number):
                 normalized["issue"] = None
                 number = 0
         if not number:
             normalized["suppressed"] = False
+            normalized["suppressed_fingerprint"] = ""
             normalized["last_fingerprint"] = ""
 
     normalized["last_run"] = observed_at

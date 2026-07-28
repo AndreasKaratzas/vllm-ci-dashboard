@@ -312,7 +312,7 @@
   function syncRouteState(tabId) {
     const specs = {
       'ci-health': [
-        ['healthView', 'health_view', ['overview', 'targets', 'gating', 'coverage', 'diagnostics']],
+        ['healthView', 'health_view', ['overview', 'targets', 'ownership', 'gating', 'coverage', 'diagnostics']],
         ['healthCoverageSort', 'health_sort', ['platform', 'name', 'area']],
         ['healthResult', 'health_result', ['all', 'incident', 'unobserved', 'passed']],
       ],
@@ -1565,6 +1565,97 @@
     return exact || '';
   }
 
+  const TARGET_RESOLUTION_LABELS = {
+    matched: 'Matched AMD definition',
+    no_amd_definition: 'No one-to-one AMD definition',
+    stale_target_alias: 'Target mapping needs review',
+    ambiguous: 'Ambiguous AMD mapping',
+    not_observed: 'Not observed in latest AMD build',
+  };
+
+  const TARGET_RESOLUTION_METHOD_LABELS = {
+    exact_matrix_label: 'Exact matrix label',
+    shard_template: 'Authorized shard template',
+    definition_parity: 'Definition parity identity',
+  };
+
+  function humanizeIdentifier(identifier) {
+    return String(identifier || '').replaceAll('_', ' ').trim();
+  }
+
+  function targetResolutionPresentation(group) {
+    const resolution = (group || {}).runtime_resolution || {};
+    const status = String(resolution.status || '').toLowerCase();
+    const latestState = observationState((group || {}).latest_amd_result || {});
+    const fallbackStatus = latestState === 'passed' || isIncidentObservation({state: latestState})
+      ? 'matched'
+      : 'not_observed';
+    const normalizedStatus = TARGET_RESOLUTION_LABELS[status] ? status : fallbackStatus;
+    const commits = resolution.source_commits || {};
+    const labels = Array.isArray(resolution.amd_definition_labels)
+      ? resolution.amd_definition_labels.filter(Boolean)
+      : [];
+    const alignment = String(resolution.source_alignment || 'unavailable');
+    const alignmentLabels = {
+      same_commit: 'AMD matrix and definition parity use the same commit',
+      different_commits: 'AMD matrix and definition parity use different commits',
+      unavailable: 'Source-commit alignment unavailable',
+    };
+    return {
+      status: normalizedStatus,
+      label: TARGET_RESOLUTION_LABELS[normalizedStatus],
+      reason: String(resolution.reason || '').trim(),
+      method: String(resolution.method || '').trim(),
+      methodLabel: TARGET_RESOLUTION_METHOD_LABELS[resolution.method]
+        || humanizeIdentifier(resolution.method)
+        || 'Unavailable',
+      targetIdentityKey: String(resolution.target_identity_key || '').trim(),
+      amdDefinitionLabels: labels,
+      candidateCount: resolution.candidate_count !== null
+        && resolution.candidate_count !== undefined
+        && resolution.candidate_count !== ''
+        && Number.isFinite(Number(resolution.candidate_count))
+        ? Number(resolution.candidate_count)
+        : null,
+      mappingQuality: humanizeIdentifier(resolution.mapping_quality),
+      commandSimilarityPct: resolution.command_similarity_pct !== null
+        && resolution.command_similarity_pct !== undefined
+        && Number.isFinite(Number(resolution.command_similarity_pct))
+        ? Number(resolution.command_similarity_pct)
+        : null,
+      sourceCommits: {
+        amdMatrix: String(commits.amd_matrix || '').trim(),
+        definitionParity: String(commits.definition_parity || '').trim(),
+      },
+      sourceAlignment: alignment,
+      sourceAlignmentLabel: alignmentLabels[alignment] || humanizeIdentifier(alignment),
+      sourceUrls: resolution.source_urls || {},
+    };
+  }
+
+  function targetAssessmentText(group) {
+    const stateName = observationState((group || {}).latest_amd_result || {});
+    const unresolved = stateName !== 'passed' && !isIncidentObservation({state: stateName});
+    const resolution = targetResolutionPresentation(group);
+    if (unresolved) {
+      return resolution.reason
+        ? resolution.label + ' - ' + resolution.reason
+        : resolution.label;
+    }
+    return humanizeIdentifier((group || {}).assessment) || resolution.label;
+  }
+
+  function targetNoSignalBreakdown(groups) {
+    const result = {noDefinition: 0, needsReview: 0, notObserved: 0};
+    for (const group of groups || []) {
+      const status = targetResolutionPresentation(group).status;
+      if (status === 'no_amd_definition') result.noDefinition += 1;
+      else if (status === 'stale_target_alias' || status === 'ambiguous') result.needsReview += 1;
+      else result.notObserved += 1;
+    }
+    return result;
+  }
+
   function openGatingDetail(group, ops) {
     const reliability = canonicalReliability(ops);
     const combined = combinedGatingReliability(group, reliability);
@@ -1614,15 +1705,30 @@
     const plan = group.reviewed_plan || {};
     const latest = group.latest_amd_result || {};
     const main = group.main_reliability || {};
+    const resolution = targetResolutionPresentation(group);
+    const shortCommit = function (commit) {
+      return commit ? String(commit).slice(0, 12) : null;
+    };
     openDetailDrawer({
       id: 'gating-' + (group.id || group.label),
       title: group.label || group.name || 'Reviewed target',
       subtitle: 'Reviewed plan, current AMD signal, and upstream history',
-      description: 'Plan membership is configuration intent. The latest result is AMD; reliability, streaks, and incidents are upstream.',
+      description: resolution.reason || 'Plan membership is configuration intent. The latest result is AMD; reliability, streaks, and incidents are upstream.',
       fields: [
         {label: 'Reviewed plan', value: plan.label || plan.status},
+        {label: 'Plan note', value: plan.note},
         {label: 'Latest AMD result', value: latest.state},
-        {label: 'Assessment', value: group.assessment},
+        {label: 'Assessment', value: targetAssessmentText(group)},
+        {label: 'Runtime resolution', value: resolution.label},
+        {label: 'Resolution method', value: resolution.methodLabel},
+        {label: 'Target identity', value: resolution.targetIdentityKey},
+        {label: 'AMD definitions', value: resolution.amdDefinitionLabels.join(', ')},
+        {label: 'Candidate definitions', value: resolution.candidateCount !== null ? integer(resolution.candidateCount) : null},
+        {label: 'Mapping quality', value: resolution.mappingQuality},
+        {label: 'Command similarity', value: resolution.commandSimilarityPct !== null ? resolution.commandSimilarityPct.toFixed(1) + '%' : null},
+        {label: 'Source alignment', value: resolution.sourceAlignmentLabel},
+        {label: 'AMD matrix commit', value: shortCommit(resolution.sourceCommits.amdMatrix)},
+        {label: 'Definition parity commit', value: shortCommit(resolution.sourceCommits.definitionParity)},
         {label: 'Upstream main runs', value: main.runs !== undefined ? integer(main.runs) : null},
         {label: 'Upstream main incidents', value: main.incident_count !== undefined ? integer(main.incident_count) + ' (' + value(main.incident_rate_pct) + '%)' : null},
         {label: 'Upstream nightly streak', value: group.nightly_green_streak !== undefined ? integer(group.nightly_green_streak) : null},
@@ -1631,6 +1737,8 @@
       sources: [
         plan.source_url ? {label: 'Open reviewed configuration', url: plan.source_url} : null,
         gatingEvidenceUrl(group) ? {label: 'Open latest AMD evidence', url: gatingEvidenceUrl(group)} : null,
+        resolution.sourceUrls.amd_matrix ? {label: 'Open AMD matrix definition source', url: resolution.sourceUrls.amd_matrix} : null,
+        resolution.sourceUrls.definition_parity ? {label: 'Open definition-parity source', url: resolution.sourceUrls.definition_parity} : null,
         {label: 'Open published reliability catalog', url: SOURCE_ASSETS.operations},
       ],
       content: content,
@@ -2087,6 +2195,7 @@
     if (tabId === 'ci-health') {
       if (state.healthView === 'overview') return ['nightly', 'amd_test_health'];
       if (state.healthView === 'targets') return ['gating'];
+      if (state.healthView === 'ownership') return ['gating'];
       if (state.healthView === 'gating') return ['definition_parity'];
       if (state.healthView === 'diagnostics') return ['diagnostics'];
       return [];
@@ -2874,9 +2983,81 @@
   function healthTabs(host) {
     host.append(segmented([
       {id: 'overview', label: 'Overview'}, {id: 'targets', label: 'Runtime targets'},
+      {id: 'ownership', label: 'CI ownership'},
       {id: 'gating', label: 'Definition parity'},
       {id: 'coverage', label: 'Coverage'}, {id: 'diagnostics', label: 'Diagnostics'},
     ], state.healthView, function (id) { setRouteState('ci-health', 'healthView', id, 'health_view'); }, 'CI Health view'));
+  }
+
+  function ownershipAreaState(row) {
+    const counts = (row || {}).counts || {};
+    if (Number(counts.hard || 0)) return 'hard';
+    if (Number(counts.soft || 0)) return 'soft';
+    if (Number(counts.unobserved || 0)) return 'unknown';
+    return 'passed';
+  }
+
+  function ownershipSelectedName(row) {
+    const selected = (row || {}).selected_owner || {};
+    const actual = (row || {}).actual_assignee || {};
+    if (actual.display_name && actual.github_login !== selected.github_login) {
+      return actual.display_name + ' (CI fallback)';
+    }
+    return selected.display_name || 'Unassigned';
+  }
+
+  function ownershipChainText(row) {
+    return ((row || {}).owners || []).map(function (owner) {
+      return integer(owner.rank) + ' ' + value(owner.display_name);
+    }).join(' · ');
+  }
+
+  function openOwnershipAreaDetail(row) {
+    const counts = row.counts || {};
+    const content = n('div', 'ops-detail-stack');
+    content.append(statusStrip([
+      {id: 'owner-area-incidents', label: 'CURRENT REGRESSIONS', value: integer(counts.incidents), meta: integer(counts.hard) + ' hard - ' + integer(counts.soft) + ' soft', tone: Number(counts.incidents) ? 'is-warning' : 'is-success'},
+      {id: 'owner-area-targets', label: 'RUNTIME TARGETS', value: integer(counts.targets), meta: integer(counts.passed) + ' passed - ' + integer(counts.unobserved) + ' unresolved'},
+      {id: 'owner-area-parity', label: 'UPSTREAM PARITY GAPS', value: integer(counts.upstream_parity_gaps), meta: row.source_file || row.area, tone: Number(counts.upstream_parity_gaps) ? 'is-warning' : 'is-success'},
+      {id: 'owner-area-assignee', label: 'GITHUB ASSIGNEE', value: ownershipSelectedName(row), meta: row.assignment_reason || row.selection_reason || 'not reconciled'},
+    ]));
+    const chainColumns = [
+      {label: 'Rank', width: '80px', render: function (owner) { return n('span', 'ops-mono', integer(owner.rank)); }},
+      {label: 'Engineer', width: '260px', render: function (owner) { return value(owner.display_name); }},
+    ];
+    content.append(panel(
+      'Escalation chain',
+      'Assignment evaluates private working-hours and PTO data in rank order; individual availability is not published',
+      dataTable(chainColumns, row.owners || [], integer((row.owners || []).length) + ' ranked owners', {name: 'ownership-chain', minWidth: '540px'})
+    ));
+    const regressions = row.regressions || [];
+    const regressionColumns = [
+      {label: 'Target group', sticky: true, width: '400px', render: function (item) { return item.url ? externalLink(item.label, item.url) : value(item.label); }},
+      {label: 'Latest result', width: '130px', render: function (item) { return badge(value(item.result), toneForState(item.result)); }},
+      {label: 'Build', width: '100px', render: function (item) { return item.build_number ? n('span', 'ops-mono', '#' + integer(item.build_number)) : n('span', 'ops-cell-muted', '-'); }},
+      {label: 'Observed', width: '180px', render: function (item) { return shortDate(item.observed_at); }},
+    ];
+    content.append(panel(
+      'Current AMD regressions',
+      regressions.length ? 'Exact latest AMD job evidence' : 'No current regression',
+      dataTable(regressionColumns, regressions, integer(regressions.length) + ' current regressions', {name: 'ownership-regressions', minWidth: '820px'})
+    ));
+    const gaps = row.upstream_parity_gaps || [];
+    const gapColumns = [
+      {label: 'Upstream-only definition', sticky: true, width: '500px', render: function (item) { return item.url ? externalLink(item.label, item.url) : value(item.label); }},
+    ];
+    content.append(panel(
+      'Upstream parity work',
+      'Definitions present upstream without a one-to-one AMD definition',
+      dataTable(gapColumns, gaps, integer(gaps.length) + ' parity gaps', {name: 'ownership-parity', minWidth: '520px'})
+    ));
+    openOverlay(
+      row.source_file || row.area || 'CI ownership',
+      'Regression response, escalation, runtime signal, and parity obligations',
+      content,
+      true,
+      'ci-ownership-area'
+    );
   }
 
   async function renderHealth(host, ops) {
@@ -2974,6 +3155,7 @@
       const unobservedTargets = allTargets.filter(function (row) {
         return targetState(row) !== 'passed' && !isTargetIncident(row);
       });
+      const noSignalBreakdown = targetNoSignalBreakdown(unobservedTargets);
       const filters = {
         all: allTargets,
         incident: incidentTargets,
@@ -2984,7 +3166,7 @@
       host.append(statusStrip([
         {id: 'runtime-target-all', label: 'ACTIVE TARGET GROUPS', value: integer(targetSummary.target_group_count), meta: integer(targetSummary.canonical_group_count) + ' reviewed - ' + integer(targetSummary.active_outside_canonical_count) + ' active additions', onOpen: function () { setRouteState('ci-health', 'healthResult', 'all', 'health_result'); }},
         {id: 'runtime-target-incidents', label: 'INCIDENTS NOW', value: integer(incidentTargets.length), meta: 'latest exact AMD matrix result', tone: incidentTargets.length ? 'is-warning' : 'is-success', onOpen: function () { setRouteState('ci-health', 'healthResult', 'incident', 'health_result'); }},
-        {id: 'runtime-target-unobserved', label: 'NO CURRENT SIGNAL', value: integer(unobservedTargets.length), meta: 'not classified as a pass or incident', tone: unobservedTargets.length ? 'is-warning' : 'is-success', onOpen: function () { setRouteState('ci-health', 'healthResult', 'unobserved', 'health_result'); }},
+        {id: 'runtime-target-unobserved', label: 'UNRESOLVED TARGETS', value: integer(unobservedTargets.length), meta: integer(noSignalBreakdown.noDefinition) + ' no one-to-one definition - ' + integer(noSignalBreakdown.needsReview) + ' mapping review - ' + integer(noSignalBreakdown.notObserved) + ' not observed', tone: unobservedTargets.length ? 'is-warning' : 'is-success', onOpen: function () { setRouteState('ci-health', 'healthResult', 'unobserved', 'health_result'); }},
         {id: 'runtime-target-passed', label: 'PASSING NOW', value: integer(passedTargets.length), meta: percent(passedTargets.length, allTargets.length) + ' of active target groups', tone: passedTargets.length ? 'is-success' : 'is-neutral', onOpen: function () { setRouteState('ci-health', 'healthResult', 'passed', 'health_result'); }},
       ]));
       const runtimeNote = n('div', 'ops-evidence-note is-info');
@@ -3006,7 +3188,7 @@
         {label: 'Target group', sticky: true, width: '400px', render: function (row) { return linkButton(row.label, function () { openGatingDetailWithEvidence(row, ops); }); }},
         {label: 'Area', width: '170px', render: function (row) { return value(row.area); }},
         {label: 'Latest AMD result', width: '160px', render: function (row) { const latest = row.latest_amd_result || {}; return linkedBadge(targetState(row), gatingEvidenceUrl(row), function () { openGatingDetailWithEvidence(row, ops); }, toneForState(targetState(row))); }},
-        {label: 'Assessment', width: '230px', render: function (row) { return linkButton(value(row.assessment).replaceAll('_', ' '), function () { openGatingDetailWithEvidence(row, ops); }); }},
+        {label: 'Assessment', width: '330px', render: function (row) { return linkButton(targetAssessmentText(row), function () { openGatingDetailWithEvidence(row, ops); }); }},
         {label: 'Build', width: '110px', render: function (row) { const latest = row.latest_amd_result || {}; const url = gatingEvidenceUrl(row); return url ? externalLink('#' + value(latest.build_number), url, 'ops-mono') : n('span', 'ops-cell-muted', '-'); }},
       ];
       host.append(compactTablePanel(
@@ -3021,8 +3203,71 @@
           browserTitle: 'Runtime AMD target-group signal',
           browserSubtitle: 'Exact AMD outcomes first by result severity, then alphabetically',
           searchPlaceholder: 'Filter target group, area, result, or assessment',
-          searchText: function (row) { return [row.label, row.area, targetState(row), row.assessment].join(' '); },
+          searchText: function (row) { const resolution = targetResolutionPresentation(row); return [row.label, row.area, targetState(row), row.assessment, resolution.status, resolution.reason, resolution.method, resolution.mappingQuality, resolution.commandSimilarityPct, resolution.amdDefinitionLabels.join(' ')].join(' '); },
           geometry: {name: 'runtime-targets', minWidth: '1070px'},
+        }
+      ));
+      return;
+    }
+
+    if (state.healthView === 'ownership') {
+      const ownership = gating.ownership || {};
+      const summary = ownership.summary || {};
+      const availability = ownership.availability || {};
+      const project = ownership.project || {};
+      if (ownership.available !== true) {
+        const unavailable = n('div', 'ops-evidence-note is-warning');
+        add(unavailable, [
+          n('strong', '', 'CI ownership status is unavailable. '),
+          n('span', '', value(ownership.unavailable_reason || 'The managed ownership snapshot has not been generated yet.')),
+        ]);
+        host.append(unavailable);
+        return;
+      }
+      host.append(statusStrip([
+        {id: 'ownership-areas', label: 'OWNED TEST AREAS', value: integer(summary.areas), meta: 'complete primary / secondary / tertiary chains'},
+        {id: 'ownership-regressing', label: 'AREAS REGRESSING', value: integer(summary.areas_with_incidents), meta: integer(summary.incidents) + ' target regressions', tone: Number(summary.areas_with_incidents) ? 'is-warning' : 'is-success'},
+        {id: 'ownership-parity', label: 'UPSTREAM PARITY GAPS', value: integer(summary.upstream_parity_gaps), meta: 'commit-pinned upstream-only definitions', tone: Number(summary.upstream_parity_gaps) ? 'is-warning' : 'is-success'},
+        {id: 'ownership-unmapped', label: 'UNMAPPED TARGETS', value: integer(summary.unmapped_targets), meta: 'never assigned by a lossy fallback', tone: Number(summary.unmapped_targets) ? 'is-warning' : 'is-success'},
+      ]));
+      const policyNote = n('div', 'ops-evidence-note ' + (availability.fresh ? 'is-info' : 'is-warning'));
+      add(policyNote, [
+        n('strong', '', 'Availability-aware, fail-closed assignment. '),
+        n('span', '', availability.fresh
+          ? 'Private availability is fresh. The first in-hours, non-PTO owner is selected in rank order.'
+          : 'Private availability is missing or stale, so regressions escalate to the CI lead.'),
+        n('span', '', ' GitHub assignability is checked before mutation, and automation issue text contains no user mentions.'),
+        project.url ? n('span', '', ' ') : null,
+        project.url ? externalLink('Open AMD CI Operations project', project.url) : null,
+        project.url ? n('span', '', '.') : null,
+      ]);
+      host.append(policyNote);
+      const areas = Array.from(ownership.areas || []).sort(function (left, right) {
+        return architectureSignalStateRank(ownershipAreaState(left)) - architectureSignalStateRank(ownershipAreaState(right))
+          || compareText(left.source_file, right.source_file);
+      });
+      const areaColumns = [
+        {label: 'Test area', sticky: true, width: '230px', render: function (row) { return linkButton(row.source_file || row.area, function () { openOwnershipAreaDetail(row); }); }},
+        {label: 'Latest status', width: '150px', render: function (row) { const counts = row.counts || {}; const result = ownershipAreaState(row); return linkedBadge(result, (row.issue || {}).url, function () { openOwnershipAreaDetail(row); }, toneForState(result)); }},
+        {label: 'Selected engineer', width: '240px', render: function (row) { return linkButton(ownershipSelectedName(row), function () { openOwnershipAreaDetail(row); }); }},
+        {label: 'Runtime targets', width: '190px', render: function (row) { const counts = row.counts || {}; return integer(counts.incidents) + ' incident - ' + integer(counts.passed) + ' pass - ' + integer(counts.unobserved) + ' unresolved'; }},
+        {label: 'Parity gaps', width: '120px', render: function (row) { return integer((row.counts || {}).upstream_parity_gaps); }},
+        {label: 'Managed issue', width: '130px', render: function (row) { const issue = row.issue || {}; if (issue.url) return externalLink('#' + integer(issue.number), issue.url, 'ops-mono'); if (issue.suppressed) return badge('suppressed', 'is-neutral'); return n('span', 'ops-cell-muted', '-'); }},
+      ];
+      host.append(compactTablePanel(
+        'CI test-area ownership',
+        'Incident areas first, then source filename; owner chains are rank ordered',
+        areaColumns,
+        areas,
+        {
+          id: 'ci-ownership-browser',
+          limit: 18,
+          alwaysBrowse: areas.length > 0,
+          browserTitle: 'CI test-area ownership and escalation',
+          browserSubtitle: 'Runtime regression, parity, owner availability, and managed issue status',
+          searchPlaceholder: 'Filter area, engineer, status, or assignment reason',
+          searchText: function (row) { return [row.source_file, ownershipAreaState(row), ownershipSelectedName(row), ownershipChainText(row), row.assignment_reason, row.selection_reason, (row.regressions || []).map(function (item) { return item.label; }).join(' ')].join(' '); },
+          geometry: {name: 'ci-ownership', minWidth: '1090px'},
         }
       ));
       return;
@@ -7253,6 +7498,9 @@
   if (window.__OPS_V2_TEST__) {
     window.OpsV2Test = {
       sortRuntimeTargetRows: sortRuntimeTargetRows,
+      targetResolutionPresentation: targetResolutionPresentation,
+      targetAssessmentText: targetAssessmentText,
+      targetNoSignalBreakdown: targetNoSignalBreakdown,
       omniHistoryPoints: omniHistoryPoints,
       omniWindowPoints: omniWindowPoints,
       omniAgeBand: omniAgeBand,

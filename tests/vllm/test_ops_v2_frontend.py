@@ -99,6 +99,24 @@ def test_v2_owns_all_operational_views():
     assert ".ops-page .ops-perf-metric-grid" in OPS_CSS
 
 
+def test_ci_ownership_view_is_routed_and_fail_closed():
+    for contract in (
+        "'ownership'",
+        "{id: 'ownership', label: 'CI ownership'}",
+        "function openOwnershipAreaDetail",
+        "CI test-area ownership",
+        "Availability-aware, fail-closed assignment",
+        "Private availability is missing or stale",
+        "UNMAPPED TARGETS",
+        "GitHub assignability is checked before mutation",
+        "automation issue text contains no user mentions",
+    ):
+        assert contract in OPS_JS
+    assert "if (state.healthView === 'ownership') return ['gating'];" in OPS_JS
+    assert "architectureSignalStateRank(ownershipAreaState(left))" in OPS_JS
+    assert "compareText(left.source_file, right.source_file)" in OPS_JS
+
+
 def test_legacy_renderers_yield_to_v2():
     js_dir = ROOT / "docs" / "assets" / "js"
     for name in (
@@ -410,7 +428,6 @@ def test_definition_parity_is_source_scoped_and_not_presented_as_runtime_health(
         "Current target",
         "Readiness",
         "Target origin",
-        "Owner",
         "REVIEWED TARGETS",
         "LINKED AMD RESULTS",
     ):
@@ -452,6 +469,31 @@ def test_runtime_target_incident_attention_loads_and_filters_runtime_gating():
         "healthView: 'gating', healthResult: 'incident'"
         not in OPS_JS
     )
+
+
+def test_runtime_target_resolution_is_explained_and_drillable():
+    for contract in (
+        "function targetResolutionPresentation",
+        "function targetAssessmentText",
+        "function targetNoSignalBreakdown",
+        "No one-to-one AMD definition",
+        "Target mapping needs review",
+        "Ambiguous AMD mapping",
+        "Not observed in latest AMD build",
+        "runtime_resolution",
+        "source_commits",
+        "source_alignment",
+        "source_urls",
+        "AMD matrix commit",
+        "Definition parity commit",
+        "Resolution method",
+        "AMD definitions",
+        "Plan note",
+        "mapping review",
+    ):
+        assert contract in OPS_JS
+    assert "targetAssessmentText(row)" in OPS_JS
+    assert "resolution.amdDefinitionLabels.join(' ')" in OPS_JS
 
 
 def test_diagnostics_do_not_link_private_collector_state():
@@ -642,6 +684,48 @@ const ordered = helpers.sortRuntimeTargetRows([
 assert.equal(JSON.stringify(ordered), JSON.stringify([
   'hard', 'soft', 'unknown', 'pass-basic', 'pass-e2e',
 ]));
+
+const staleResolution = helpers.targetResolutionPresentation({
+  latest_amd_result: {state: 'unknown'},
+    runtime_resolution: {
+    status: 'stale_target_alias',
+    method: 'definition_parity',
+    reason: 'Reviewed label no longer identifies the current 2-GPU definition.',
+    target_identity_key: 'gpqa eval',
+    amd_definition_labels: ['GPQA Eval (2xH100-2xMI300)'],
+    candidate_count: 2,
+    source_commits: {amd_matrix: 'abcdef1234567890', definition_parity: '123456abcdef7890'},
+    source_alignment: 'different_commits',
+    source_urls: {amd_matrix: 'https://example.com/amd', definition_parity: 'https://example.com/parity'},
+    mapping_quality: 'partial_commands',
+    command_similarity_pct: 61.9,
+  },
+});
+assert.equal(staleResolution.label, 'Target mapping needs review');
+assert.equal(staleResolution.methodLabel, 'Definition parity identity');
+assert.equal(staleResolution.sourceAlignment, 'different_commits');
+assert.equal(staleResolution.sourceAlignmentLabel, 'AMD matrix and definition parity use different commits');
+assert.equal(staleResolution.sourceCommits.amdMatrix, 'abcdef1234567890');
+assert.equal(staleResolution.amdDefinitionLabels.length, 1);
+assert.equal(staleResolution.candidateCount, 2);
+assert.equal(staleResolution.mappingQuality, 'partial commands');
+assert.equal(staleResolution.commandSimilarityPct, 61.9);
+assert.ok(helpers.targetAssessmentText({
+  latest_amd_result: {state: 'unknown'},
+  runtime_resolution: {
+    status: 'no_amd_definition',
+    reason: 'No matching test-amd.yaml definition.',
+  },
+}).includes('No one-to-one AMD definition'));
+assert.deepEqual(
+  helpers.targetNoSignalBreakdown([
+    {latest_amd_result: {state: 'unknown'}, runtime_resolution: {status: 'no_amd_definition'}},
+    {latest_amd_result: {state: 'unknown'}, runtime_resolution: {status: 'stale_target_alias'}},
+    {latest_amd_result: {state: 'unknown'}, runtime_resolution: {status: 'ambiguous'}},
+    {latest_amd_result: {state: 'unknown'}, runtime_resolution: {status: 'not_observed'}},
+  ]),
+  {noDefinition: 1, needsReview: 2, notObserved: 1},
+);
 
 [
   [59.9, 'lt1h'], [60, '1to3h'], [180, '3to6h'], [360, '6to12h'],

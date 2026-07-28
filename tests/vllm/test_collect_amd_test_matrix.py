@@ -222,6 +222,7 @@ def test_latest_build_metadata_falls_back_to_ci_health_and_parity():
 
     assert meta == {
         "number": 8193,
+        "created_at": "2026-05-04T06:00:03Z",
         "date": "2026-05-04",
         "web_url": "https://buildkite.com/vllm/amd-ci/builds/8193",
         "message": "AMD Full CI Run - nightly",

@@ -299,11 +299,12 @@ class TestHourlyMasterWorkflow:
             "upstream project #39 automation is paused"
         )
 
-    def test_test_failure_issue_assigns_and_mentions_repo_owner(self):
+    def test_test_failure_issue_assigns_without_mentioning_repo_owner(self):
         text = _load_workflow_text("hourly-master.yml")
         assert "issues.addAssignees" in text
         assert "assignees: [context.repo.owner]" in text
-        assert "cc @${context.repo.owner} for visibility." in text
+        assert "GitHub assignee: ${context.repo.owner}." in text
+        assert "cc @${context.repo.owner}" not in text
 
     def test_test_failure_issue_leads_with_concise_failed_test_names(self):
         text = _load_workflow_text("hourly-master.yml")
@@ -334,11 +335,12 @@ class TestNoOrphanedCronSchedules:
 
 
 class TestNightlyCIWorkflow:
-    def test_nightly_failure_issue_assigns_and_mentions_repo_owner(self):
+    def test_nightly_failure_issue_assigns_without_mentioning_repo_owner(self):
         text = _load_workflow_text("nightly-ci.yml")
         assert "issues.addAssignees" in text
         assert "assignees: [context.repo.owner]" in text
-        assert "cc @${context.repo.owner} for visibility." in text
+        assert "GitHub assignee: ${context.repo.owner}." in text
+        assert "cc @${context.repo.owner}" not in text
 
 
 # ---------------------------------------------------------------------------
@@ -956,3 +958,62 @@ class TestAlertAutomationWorkflow:
     def test_alert_state_is_committed_with_collected_data(self):
         text = _load_workflow_text("hourly-master.yml")
         assert "git add data/ dashboards/ README.md" in text
+
+    def test_ranked_ci_area_watcher_runs_after_matrix_and_persists_before_rebuild(self):
+        data = _load_workflow("hourly-master.yml")
+        job = next(iter(data["jobs"].values()))
+        steps = job.get("steps", []) or []
+        names = [step.get("name") for step in steps]
+
+        ensure_labels = names.index("Ensure CI Operations issue labels")
+        first_issue_watcher = names.index("Watch queue latency (open/close issues)")
+        matrix = names.index("Collect AMD test matrix")
+        ownership_parity = names.index("Collect build-pinned CI ownership parity")
+        first_build = names.index("Build v2 operations snapshot")
+        watcher = names.index("Watch AMD CI test-area regressions (ranked owners)")
+        project_sync = names.index("Sync managed issues to AMD CI Operations project")
+        persist = names.index("Persist CI ownership issue state")
+        second_build = names.index("Rebuild v2 operations snapshot with CI ownership")
+
+        assert (
+            ensure_labels
+            < first_issue_watcher
+            and
+            matrix
+            < ownership_parity
+            < first_build
+            < watcher
+            < project_sync
+            < persist
+            < second_build
+        )
+        assert steps[ensure_labels]["run"] == (
+            "python scripts/vllm/ensure_ci_operations_labels.py"
+        )
+        assert {"GITHUB_TOKEN", "GITHUB_REPOSITORY"} <= set(
+            steps[ensure_labels].get("env") or {}
+        )
+        assert steps[ownership_parity]["run"] == (
+            "python scripts/vllm/collect_ownership_parity.py "
+            "--input-dir data/vllm/ci --output data/vllm/ci"
+        )
+        assert "GITHUB_TOKEN" in (steps[ownership_parity].get("env") or {})
+        assert steps[watcher]["run"] == "python scripts/vllm/ci_area_regression_watcher.py"
+        assert {
+            "GITHUB_TOKEN",
+            "GITHUB_REPOSITORY",
+            "GITHUB_RUN_ID",
+            "CI_OWNER_AVAILABILITY_JSON",
+        } <= set(steps[watcher].get("env") or {})
+        assert steps[persist].get("if") == "always()"
+        assert "open_ci_area_regression_issues.json" in steps[persist]["run"]
+        assert "git push origin main" in steps[persist]["run"]
+        assert steps[project_sync]["run"] == (
+            "python scripts/vllm/sync_ci_operations_project.py"
+        )
+        assert steps[project_sync].get("continue-on-error") is True
+        assert {
+            "GITHUB_TOKEN",
+            "GITHUB_REPOSITORY",
+            "PROJECTS_WRITE_TOKEN",
+        } <= set(steps[project_sync].get("env") or {})

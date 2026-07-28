@@ -70,6 +70,24 @@ class TestRoster:
         logins = {e.github_login for e in ENGINEERS}
         assert "AndreasKaratzas" in logins, "dashboard admin must appear in the roster"
 
+    def test_ci_owner_work_logins_are_current(self):
+        logins = {e.github_login for e in ENGINEERS}
+        assert {
+            "aarushjain29",
+            "charlifu",
+            "djramic",
+            "divakar-amd",
+            "fxmarty-amd",
+            "gchinora",
+            "gyohuangxin",
+            "mawong-amd",
+            "micah-wil",
+            "music-dino",
+            "peizhang56",
+            "stefankoncarevic",
+        } <= logins
+        assert "micah-williamson" not in logins
+
     def test_engineer_has_no_email_field(self):
         # PII guarantee: the Engineer dataclass must not carry an email.
         # If this fails, a future contributor added email back and the

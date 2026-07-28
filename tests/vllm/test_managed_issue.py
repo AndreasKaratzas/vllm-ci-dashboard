@@ -1,0 +1,266 @@
+from __future__ import annotations
+
+from vllm.ci import managed_issue
+from vllm.ci.managed_issue import (
+    DASHBOARD_REPO,
+    GitHubIssueClient,
+    reconcile_managed_issue,
+)
+
+
+MARKER = "<!-- exact-managed-alert:v1 -->"
+LABEL_SPECS = [
+    ("automated", "123456", "Managed by automation"),
+    ("workstream:dev", "654321", "Development work"),
+]
+
+
+class _Response:
+    def __init__(self, status_code: int, payload):
+        self.status_code = status_code
+        self._payload = payload
+        self.text = ""
+
+    def json(self):
+        return self._payload
+
+
+def _reconcile(state, client, *, active=True, fingerprint="fingerprint"):
+    return reconcile_managed_issue(
+        state,
+        active=active,
+        fingerprint=fingerprint,
+        title="Managed alert",
+        body="Current evidence",
+        ownership_marker=MARKER,
+        recovery_body="Recovered",
+        observed_at="2026-07-28T12:00:00Z",
+        label_specs=LABEL_SPECS,
+        client=client,
+    )
+
+
+def test_client_finds_exact_marker_across_paginated_open_issues(monkeypatch):
+    first_page = [
+        {
+            "number": index + 1,
+            "body": f"not an exact marker: {MARKER}",
+        }
+        for index in range(100)
+    ]
+    second_page = [
+        {"number": 222, "body": f"heading\n{MARKER}\nbody"},
+        {
+            "number": 111,
+            "body": f"{MARKER}\nolder duplicate",
+        },
+        {
+            "number": 99,
+            "body": MARKER,
+            "pull_request": {"url": "https://api.github.test/pulls/99"},
+        },
+    ]
+    calls = []
+
+    def fake_get(url, *, headers, params, timeout):
+        calls.append((url, params))
+        payload = first_page if params["page"] == 1 else second_page
+        return _Response(200, payload)
+
+    monkeypatch.setattr(managed_issue.requests, "get", fake_get)
+    client = GitHubIssueClient("token", DASHBOARD_REPO)
+
+    assert client.find_open_issue(MARKER) == 111
+    assert client.find_open_issue(MARKER) == 111
+    assert [params["page"] for _, params in calls] == [1, 2]
+    assert all(params["state"] == "open" for _, params in calls)
+    assert all(params["per_page"] == 100 for _, params in calls)
+
+
+def test_client_adds_managed_labels_without_replacing_existing_labels(monkeypatch):
+    posts = []
+
+    def fake_post(url, *, headers, json, timeout):
+        posts.append((url, json))
+        return _Response(200, [])
+
+    monkeypatch.setattr(managed_issue.requests, "post", fake_post)
+    client = GitHubIssueClient("token", DASHBOARD_REPO)
+    monkeypatch.setattr(client, "ensure_label", lambda *args: True)
+
+    assert client.ensure_issue_labels(42, LABEL_SPECS)
+    assert posts == [
+        (
+            f"{managed_issue.GH_API}/repos/{DASHBOARD_REPO}/issues/42/labels",
+            {"labels": ["automated", "workstream:dev"]},
+        )
+    ]
+
+
+class _RecoveringClient:
+    def __init__(self):
+        self.events = []
+
+    def find_open_issue(self, ownership_marker):
+        self.events.append(("find", ownership_marker))
+        return 42
+
+    def ensure_issue_labels(self, number, label_specs):
+        self.events.append(("labels", number, label_specs))
+        return True
+
+    def ensure_owner_assigned(self, number):
+        self.events.append(("assign", number))
+        return True
+
+    def update_issue(self, number, title, body):
+        self.events.append(("update", number, title, body))
+        return True
+
+    def open_issue(self, title, body, label_specs):
+        raise AssertionError("recovery must happen before opening a duplicate")
+
+
+class _TrackedClient:
+    def __init__(self):
+        self.labels = []
+        self.updated = []
+
+    def issue_state(self, number, ownership_marker):
+        return "open"
+
+    def ensure_issue_labels(self, number, label_specs):
+        self.labels.append((number, label_specs))
+        return True
+
+    def ensure_owner_assigned(self, number):
+        return True
+
+    def update_issue(self, number, title, body):
+        self.updated.append(number)
+        return True
+
+
+def test_reconcile_adds_label_specs_to_unchanged_tracked_issue():
+    client = _TrackedClient()
+    state = {
+        "issue": {"number": 7, "opened_at": "2026-07-28T10:00:00Z"},
+        "last_fingerprint": "fingerprint",
+    }
+
+    reconciled = _reconcile(state, client)
+
+    assert reconciled["issue"]["number"] == 7
+    assert client.labels == [(7, LABEL_SPECS)]
+    assert client.updated == []
+
+
+def test_reconcile_recovers_marker_owned_issue_before_opening_duplicate():
+    client = _RecoveringClient()
+
+    reconciled = _reconcile(
+        {"last_fingerprint": "fingerprint"},
+        client,
+    )
+
+    assert reconciled["issue"] == {
+        "number": 42,
+        "opened_at": "2026-07-28T12:00:00Z",
+    }
+    assert reconciled["last_fingerprint"] == "fingerprint"
+    assert [event[0] for event in client.events] == [
+        "find",
+        "labels",
+        "assign",
+        "update",
+    ]
+    assert MARKER in client.events[-1][3]
+
+
+class _FailedRecoveryClient:
+    def __init__(self):
+        self.opened = False
+
+    def find_open_issue(self, ownership_marker):
+        raise RuntimeError("temporary GitHub API failure")
+
+    def open_issue(self, title, body, label_specs):
+        self.opened = True
+        return 99
+
+
+def test_reconcile_refuses_to_open_when_recovery_lookup_fails():
+    client = _FailedRecoveryClient()
+
+    reconciled = _reconcile({}, client)
+
+    assert reconciled["issue"] is None
+    assert client.opened is False
+
+
+class _SuppressionClient:
+    def __init__(self):
+        self.state = "open"
+        self.next_number = 10
+        self.opened = []
+
+    def issue_state(self, number, ownership_marker):
+        return self.state
+
+    def find_open_issue(self, ownership_marker):
+        return None
+
+    def ensure_owner_assigned(self, number):
+        return True
+
+    def open_issue(self, title, body, label_specs):
+        self.next_number += 1
+        self.opened.append(self.next_number)
+        self.state = "open"
+        return self.next_number
+
+
+def test_same_fingerprint_stays_suppressed_until_signal_recovery():
+    client = _SuppressionClient()
+    state = {
+        "issue": {"number": 7, "opened_at": "2026-07-28T10:00:00Z"},
+        "last_fingerprint": "same",
+    }
+    client.state = "closed"
+
+    suppressed = _reconcile(state, client, fingerprint="same")
+    assert suppressed["suppressed"] is True
+    assert suppressed["suppressed_fingerprint"] == "same"
+
+    still_suppressed = _reconcile(suppressed, client, fingerprint="same")
+    assert still_suppressed["issue"] is None
+    assert client.opened == []
+
+    recovered = _reconcile(
+        still_suppressed,
+        client,
+        active=False,
+        fingerprint="",
+    )
+    assert recovered["suppressed"] is False
+    assert recovered["suppressed_fingerprint"] == ""
+
+    reopened = _reconcile(recovered, client, fingerprint="same")
+    assert reopened["issue"]["number"] == 11
+
+
+def test_changed_fingerprint_automatically_clears_suppression():
+    client = _SuppressionClient()
+    suppressed = {
+        "issue": None,
+        "suppressed": True,
+        "suppressed_fingerprint": "old",
+        "last_fingerprint": "old",
+    }
+
+    reconciled = _reconcile(suppressed, client, fingerprint="new")
+
+    assert reconciled["issue"]["number"] == 11
+    assert reconciled["suppressed"] is False
+    assert reconciled["suppressed_fingerprint"] == ""
+    assert reconciled["last_fingerprint"] == "new"

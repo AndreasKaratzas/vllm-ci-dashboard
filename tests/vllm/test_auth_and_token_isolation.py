@@ -252,9 +252,18 @@ class TestBuildkiteTokenIsolation:
 # ---------------------------------------------------------------------------
 
 class TestGitHubTokenIsolation:
-    def test_legacy_combined_projects_token_is_gone(self):
+    def test_legacy_combined_projects_token_is_confined_to_guarded_rotation_fallback(self):
+        needle = "PROJECTS" + "_TOKEN"
+        hits = []
         for path in [*(ROOT / "scripts").rglob("*.py"), *WORKFLOWS.glob("*.yml")]:
-            assert "PROJECTS" + "_TOKEN" not in _read(path), path
+            if needle in _read(path):
+                hits.append(path.relative_to(ROOT).as_posix())
+        assert hits == [".github/workflows/hourly-master.yml"]
+        workflow = _read(WORKFLOWS / "hourly-master.yml")
+        assert (
+            "secrets.PROJECTS_WRITE_TOKEN || secrets.PROJECTS_TOKEN"
+            in workflow
+        )
 
     def test_upstream_write_token_has_exactly_two_consumers(self):
         hits = []

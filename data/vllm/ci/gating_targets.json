@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-28T01:03:20Z",
+  "generated_at": "2026-07-28T03:02:08Z",
   "source": {
     "config_path": "config/vllm_amd_gating_targets.json",
     "description": "Canonical AMD gating target list supplied by the ROCm CI owners."
@@ -146,7 +146,7 @@
       "readiness_signal": "red",
       "target_signal": "red",
       "owner": "",
-      "note": ""
+      "note": "Covered within the broader AMD Kernels MoE Test; no one-to-one 1-GPU AMD definition."
     },
     {
       "id": 9,
@@ -510,7 +510,7 @@
       "readiness_signal": "yellow",
       "target_signal": "green",
       "owner": "",
-      "note": "todo"
+      "note": "AMD Kernels Core covers the top-k subtest only; the fused DeepSeek V4 kernel has no AMD definition."
     },
     {
       "id": 37,
@@ -523,7 +523,7 @@
       "readiness_signal": "yellow",
       "target_signal": "green",
       "owner": "",
-      "note": "todo"
+      "note": "Covered within the broader AMD Kernels Attention Test; no one-to-one DiffKV definition."
     },
     {
       "id": 38,
@@ -549,7 +549,7 @@
       "readiness_signal": "yellow",
       "target_signal": "green",
       "owner": "",
-      "note": "todo"
+      "note": "Covered within the broader AMD Kernels MoE Test; no one-to-one FusedMoE layer definition."
     },
     {
       "id": 40,
@@ -562,7 +562,7 @@
       "readiness_signal": "yellow",
       "target_signal": "green",
       "owner": "",
-      "note": "todo"
+      "note": "No AMD TurboQuant KV-cache definition."
     },
     {
       "id": 41,
@@ -588,7 +588,7 @@
       "readiness_signal": "yellow",
       "target_signal": "green",
       "owner": "",
-      "note": "todo"
+      "note": "No one-to-one distributed 2-GPU AMD definition; the bare AMD step matches the unfiltered upstream suite."
     },
     {
       "id": 43,
@@ -614,7 +614,7 @@
       "readiness_signal": "yellow",
       "target_signal": "green",
       "owner": "",
-      "note": "todo"
+      "note": "No AMD Quantized Fusions definition; AMD quantization and fusion jobs run different suites."
     },
     {
       "id": 45,
@@ -627,7 +627,7 @@
       "readiness_signal": "purple",
       "target_signal": "green",
       "owner": "",
-      "note": "not supported due to infra"
+      "note": "No AMD multi-node definition; same-node checks are not equivalent."
     },
     {
       "id": 46,
@@ -787,7 +787,7 @@
     },
     {
       "id": 58,
-      "label": "DeepSeek V2-Lite Sync EPLB Accuracy",
+      "label": "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100)",
       "area": "engine",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -800,7 +800,7 @@
     },
     {
       "id": 59,
-      "label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy",
+      "label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100)",
       "area": "engine",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -865,7 +865,7 @@
     },
     {
       "id": 64,
-      "label": "LM Eval Large Models (4 GPUs)(H100)",
+      "label": "LM Eval Large Models (4xH100)",
       "area": "lm-eval",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -878,7 +878,7 @@
     },
     {
       "id": 65,
-      "label": "GPQA Eval (GPT-OSS) (H100)",
+      "label": "GPQA Eval (GPT-OSS) (2xH100)",
       "area": "lm-eval",
       "gating_signal": "red",
       "pf_signal": "green",

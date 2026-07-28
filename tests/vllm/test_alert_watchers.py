@@ -75,16 +75,20 @@ def test_managed_issue_owns_one_issue_and_respects_manual_close():
     assert unchanged["issue"]["number"] == number
 
     client.states[number] = "closed"
-    suppressed = _reconcile(unchanged, client, active=True, fingerprint="new")
+    suppressed = _reconcile(unchanged, client, active=True, fingerprint="fp")
     assert suppressed["issue"] is None
     assert suppressed["suppressed"] is True
+    assert suppressed["suppressed_fingerprint"] == "fp"
     assert len(client.opened) == 1
 
-    healthy = _reconcile(suppressed, client, active=False, fingerprint="")
-    assert healthy["suppressed"] is False
+    still_suppressed = _reconcile(suppressed, client, active=True, fingerprint="fp")
+    assert still_suppressed["issue"] is None
+    assert len(client.opened) == 1
 
-    reopened = _reconcile(healthy, client, active=True, fingerprint="later")
+    reopened = _reconcile(still_suppressed, client, active=True, fingerprint="later")
     assert reopened["issue"]["number"] == 102
+    assert reopened["suppressed"] is False
+    assert reopened["suppressed_fingerprint"] == ""
 
 
 def test_managed_issue_closes_only_the_tracked_issue_on_recovery():
@@ -243,7 +247,8 @@ def test_amd_issue_body_contains_exact_job_evidence_and_rule():
     assert "job-42" in body
     assert "latest eligible attempt" in body
     assert "72 hours" in body
-    assert "cc @AndreasKaratzas" in body
+    assert "GitHub assignee: AndreasKaratzas." in body
+    assert "@AndreasKaratzas" not in body
 
 
 def _duration_reliability(recent, baseline):
@@ -324,7 +329,8 @@ def test_duration_issue_body_has_exact_evidence_and_auto_close_rule():
     assert "Queue wait is excluded" in body
     assert "baseline is fixed" in body
     assert "Resolution: recent median below baseline" in body
-    assert "cc @AndreasKaratzas" in body
+    assert "GitHub assignee: AndreasKaratzas." in body
+    assert "@AndreasKaratzas" not in body
 
 
 def _agent_row(

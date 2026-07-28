@@ -110,7 +110,7 @@ jobs:
             ].join('\n');
 
             const title = `Nightly CI failure — ${date}`;
-            const labels = ['ci-failure', 'automated'];
+            const labels = ['ci-failure', 'automated', 'workstream:dashboard-ci'];
 
             // Check for existing open issue with same label to avoid duplicates
             const existing = await github.rest.issues.listForRepo({
@@ -156,7 +156,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 title,
-                body: `${body}\n\ncc @${context.repo.owner} for visibility.`,
+                body: `${body}\n\nGitHub assignee: ${context.repo.owner}.`,
                 labels,
                 assignees: [context.repo.owner],
               });

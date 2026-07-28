@@ -55,6 +55,7 @@ OWNERSHIP_MARKER = "<!-- vllm-ci-dashboard:managed-alert:agent-health:v1 -->"
 LABEL_SPECS = [
     ("ci-agent-health", "b60205", "Concentrated infra-suspect failures on an AMD CI node"),
     ("automated", "6f42c1", "Managed by dashboard automation"),
+    ("workstream:infra", "0e8a16", "AMD CI infrastructure and capacity"),
 ]
 DASHBOARD_BASE = "https://andreaskaratzas.github.io/vllm-ci-dashboard/"
 
@@ -331,7 +332,7 @@ def _issue_body(events: list[dict], payload: dict, run_url: str, owner: str) -> 
         lines.extend(["", f"{len(events) - MAX_ISSUE_EVENTS} additional qualifying events are retained in watcher state."])
     lines.extend([
         "",
-        f"cc @{owner}",
+        f"GitHub assignee: {owner}.",
         "",
         f"*Managed by agent_health_issue_watcher.py from {run_url}. Only this tracked umbrella issue can be updated or closed by the watcher.*",
     ])

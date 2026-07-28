@@ -925,6 +925,7 @@ def latest_build_metadata(
     )
     return {
         "number": number,
+        "created_at": created_at,
         "date": date,
         "web_url": build_url,
         "message": amd_latest.get("message") or "AMD Full CI Run - nightly",
@@ -1146,6 +1147,7 @@ def build_matrix(
         "source": {
             "yaml_url": yaml_url,
             "latest_build_number": latest_build.get("number") if latest_build else None,
+            "latest_build_created_at": latest_build.get("created_at") if latest_build else None,
             "latest_build_date": latest_build.get("date") if latest_build else None,
             "latest_build_url": latest_build.get("web_url") if latest_build else None,
             "latest_build_message": latest_build.get("message") if latest_build else None,

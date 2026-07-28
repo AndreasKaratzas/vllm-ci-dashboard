@@ -454,6 +454,50 @@ class TestOpenAgentHealthIssues:
         assert d["issue"] is None or isinstance(d["issue"], dict)
 
 
+class TestCiOwnership:
+    def test_status_schema(self):
+        d = _load_json_or_skip("ci_ownership.json")
+        _assert_has_keys(
+            d,
+            {
+                "schema_version",
+                "generated_at",
+                "available",
+                "policy",
+                "availability",
+                "ci_lead",
+                "summary",
+                "areas",
+                "unmapped_targets",
+            },
+            "ci_ownership.json",
+        )
+        assert d["schema_version"] == 1
+        assert isinstance(d["areas"], list)
+        assert all(
+            {"area", "source_file", "owners", "counts", "regressions", "issue"}
+            <= set(row)
+            for row in d["areas"]
+        )
+        assert all(len(row["owners"]) == 3 for row in d["areas"])
+        assert not any(
+            "availability" in owner
+            for row in d["areas"]
+            for owner in row["owners"]
+        )
+        assert not any("@" in json.dumps(row) for row in d["areas"])
+
+    def test_managed_issue_state_schema(self):
+        d = _load_json_or_skip("open_ci_area_regression_issues.json")
+        _assert_has_keys(
+            d,
+            {"schema_version", "areas", "last_run"},
+            "open_ci_area_regression_issues.json",
+        )
+        assert d["schema_version"] == 1
+        assert isinstance(d["areas"], dict)
+
+
 class TestConfigParity:
     def test_top_level_keys(self):
         d = _load_json_or_skip("config_parity.json")

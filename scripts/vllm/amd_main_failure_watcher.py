@@ -51,6 +51,7 @@ OWNERSHIP_MARKER = "<!-- vllm-ci-dashboard:managed-alert:amd-main-failure:v1 -->
 LABEL_SPECS = [
     ("amd-main-failure", "d73a49", "Unresolved AMD test-group failure on origin/main"),
     ("automated", "6f42c1", "Managed by dashboard automation"),
+    ("workstream:dev", "1d76db", "AMD CI test-area development"),
 ]
 DASHBOARD_URL = (
     "https://andreaskaratzas.github.io/vllm-ci-dashboard/"
@@ -347,7 +348,7 @@ def _issue_body(active: dict[str, dict], reliability: dict, run_url: str, owner:
         lines.extend(["", f"{len(rows) - MAX_ISSUE_ROWS} additional groups are retained in watcher state."])
     lines.extend([
         "",
-        f"cc @{owner}",
+        f"GitHub assignee: {owner}.",
         "",
         f"*Managed by amd_main_failure_watcher.py from {run_url}. Only this tracked umbrella issue can be updated or closed by the watcher.*",
     ])

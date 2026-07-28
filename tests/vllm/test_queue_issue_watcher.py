@@ -172,7 +172,8 @@ class TestIssueTemplates:
         assert "| p50 wait | 54.5m |" in body
         assert "| p90 wait | 69.0m |" in body
         assert "| p99 wait | 69.0m |" in body
-        assert "cc @AndreasKaratzas for visibility." in body
+        assert "GitHub assignee: AndreasKaratzas." in body
+        assert "@AndreasKaratzas" not in body
         assert "p75 wait" not in body
         assert "avg wait" not in body
         assert "max wait" not in body

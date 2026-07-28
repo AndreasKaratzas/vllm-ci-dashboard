@@ -93,7 +93,8 @@ class TestRun:
         number, title, body = api.opened[0]
         assert "amd_mi250_1" in title
         assert "275.0m" in body
-        assert "cc @AndreasKaratzas for visibility." in body
+        assert "GitHub assignee: AndreasKaratzas." in body
+        assert "@AndreasKaratzas" not in body
         persisted = json.loads(state.read_text())
         assert persisted["open"]["amd_mi250_1"]["number"] == number
 

@@ -158,7 +158,7 @@ def _open_issue_body(queue: str, stats: dict, run_url: str, owner_login: str) ->
         f"{_format_metric_row('p99 wait', _format_wait(stats.get('p99_wait')))}\n"
         f"This issue will auto-close once p90 drops below {P90_HEALTHY_MIN:.0f}m, "
         f"or after 24h if the queue stays elevated.\n\n"
-        f"cc @{owner_login} for visibility.\n\n"
+        f"GitHub assignee: {owner_login}.\n\n"
         f"*Opened by `queue_issue_watcher.py` from {run_url}.*\n"
     )
 
@@ -173,7 +173,7 @@ def _open_issue(token: str, repo: str, queue: str, stats: dict, run_url: str) ->
         json={
             "title": title,
             "body": body,
-            "labels": [LABEL, "automated"],
+            "labels": [LABEL, "automated", "workstream:infra"],
             "assignees": [owner_login],
         },
         timeout=30,

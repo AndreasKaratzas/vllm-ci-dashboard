@@ -72,7 +72,7 @@ class _StubbedApi:
         self._next += 1
         owner = repo.split("/", 1)[0]
         body = (
-            f"cc @{owner} for visibility.\n\n"
+            f"GitHub assignee: {owner}.\n\n"
             f"Auto-opened by `omni_surge_watcher.py` from {run_url}. Will auto-close once the "
             f"waiting count drops to {heuristic['healthy']}.\n"
         )
@@ -258,7 +258,8 @@ class TestRun:
         assert len(stub_api.opened) == 1
         assert stub_api.opened[0][0] == 40  # waiting
         assert stub_api.opened[0][1] == OMNI_SURGE_FLOOR_TRIGGER
-        assert "cc @AndreasKaratzas for visibility." in stub_api.opened[0][3]
+        assert "GitHub assignee: AndreasKaratzas." in stub_api.opened[0][3]
+        assert "@AndreasKaratzas" not in stub_api.opened[0][3]
         persisted = json.loads(state.read_text())
         assert persisted["open"] == stub_api.opened[0][2]
         assert persisted["last_value"] == 40

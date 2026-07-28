@@ -9,14 +9,35 @@ from vllm import config_parity
 from vllm.config_parity import ConfigStep, _match_config_steps
 
 
-def _step(label: str, identity: str, commands: list[str], source: str) -> ConfigStep:
+def _step(
+    label: str,
+    identity: str,
+    commands: list[str],
+    source: str,
+    *,
+    definition_id: str = "",
+    group: str = "test",
+    agent_pool: str = "",
+    semantic_title: str = "",
+    fingerprint: str = "",
+    num_gpus: int | None = None,
+) -> ConfigStep:
     return ConfigStep(
         label=label,
-        normalized_label=label.lower(),
+        normalized_label=config_parity._normalize_job_name(label),
         identity_key=identity,
         source_file=source,
-        group="test",
+        group=group,
         commands=commands,
+        definition_id=definition_id,
+        agent_pool=agent_pool,
+        semantic_title=semantic_title,
+        definition_fingerprint=fingerprint,
+        member_definition_ids=(definition_id,) if definition_id else (),
+        member_labels=(label,),
+        member_groups=(group,),
+        member_agent_pools=(agent_pool,),
+        num_gpus=num_gpus,
     )
 
 
@@ -75,6 +96,32 @@ def test_source_snapshot_resolves_main_once_and_pins_archive_to_commit(monkeypat
     ]
 
 
+def test_live_hardware_aliases_share_intended_identity_families():
+    small_models = "lm eval small models (hardware variants)"
+    assert config_parity._config_identity_key(
+        "LM Eval Small Models (1xB200)",
+        None,
+    ) == small_models
+    assert config_parity._config_identity_key(
+        "LM Eval Small Models (MI300)",
+        None,
+    ) == small_models
+    assert config_parity._config_identity_key(
+        "LM Eval Small Models (2xB200-2xMI300)",
+        None,
+    ) == small_models
+
+    distributed = "distributed tests (2 gpus)"
+    assert config_parity._config_identity_key(
+        "Distributed Tests (2xB200)",
+        None,
+    ) == distributed
+    assert config_parity._config_identity_key(
+        "Distributed Tests (2xH100-2xMI300)",
+        None,
+    ) == distributed
+
+
 def test_exact_commands_and_platform_neutral_titles_form_a_twin():
     amd = _step(
         "Docker Build Metadata (ROCm)",
@@ -96,6 +143,84 @@ def test_exact_commands_and_platform_neutral_titles_form_a_twin():
     assert len(matches) == 1
     assert matches[0].match_method == "command_twin"
     assert matches[0].command_similarity == 1.0
+
+
+def test_unique_exact_command_twin_overrides_conflicting_gpu_metadata_identity():
+    amd = _step(
+        "Extract Hidden States Integration",
+        "extract hidden states integration (2 gpus)",
+        ["pytest tests/extract_hidden_states"],
+        ".buildkite/test-amd.yaml",
+    )
+    topology_match = _step(
+        "Extract Hidden States Integration (2 GPUs)",
+        "extract hidden states integration (2 gpus)",
+        ["pytest -m distributed tests/extract_hidden_states"],
+        ".buildkite/test_areas/misc.yaml",
+    )
+    command_match = _step(
+        "Extract Hidden States Integration",
+        "extract hidden states integration",
+        ["pytest tests/extract_hidden_states"],
+        ".buildkite/test_areas/misc.yaml",
+    )
+
+    matches, amd_only, upstream_only = _match_config_steps(
+        [amd],
+        [topology_match, command_match],
+        [],
+    )
+
+    assert not amd_only
+    assert len(matches) == 1
+    assert matches[0].match_method == "command_twin"
+    assert matches[0].amd_step is amd
+    assert matches[0].nvidia_step is command_match
+    assert upstream_only == [topology_match]
+
+
+def test_command_twin_override_is_exported_for_every_coalesced_member(
+    monkeypatch,
+):
+    identity = "extract hidden states integration (2 gpus)"
+    amd_mi300 = _step(
+        "Extract Hidden States Integration (MI300)",
+        identity,
+        ["pytest tests/extract_hidden_states"],
+        ".buildkite/test-amd.yaml",
+        definition_id="amd#extract-mi300",
+        semantic_title="Extract Hidden States Integration",
+        fingerprint="extract",
+        num_gpus=2,
+    )
+    amd_mi355 = _step(
+        "Extract Hidden States Integration (MI355)",
+        identity,
+        ["pytest tests/extract_hidden_states"],
+        ".buildkite/test-amd.yaml",
+        definition_id="amd#extract-mi355",
+        semantic_title="Extract Hidden States Integration",
+        fingerprint="extract",
+        num_gpus=2,
+    )
+    upstream = _step(
+        "Extract Hidden States Integration",
+        identity,
+        ["pytest tests/extract_hidden_states"],
+        ".buildkite/test_areas/misc.yaml",
+        definition_id="upstream#extract",
+        num_gpus=2,
+    )
+    monkeypatch.setattr(
+        config_parity,
+        "_load_config_steps",
+        lambda: ([amd_mi355, amd_mi300], [upstream], []),
+    )
+
+    overrides = config_parity.extract_parity_key_overrides()
+
+    assert overrides[amd_mi300.normalized_label] == identity
+    assert overrides[amd_mi355.normalized_label] == identity
 
 
 def test_command_twin_requires_nonempty_commands():
@@ -121,3 +246,673 @@ def test_ambiguous_exact_command_candidates_remain_unmatched():
     assert not matches
     assert amd_only == [amd]
     assert {step.identity_key for step in upstream_only} == {"up-a", "up-b"}
+
+
+def test_shared_gpu_identity_preserves_distinct_v1_definitions():
+    identity = "v1 e2e (4 gpus)"
+    amd_generic = _step(
+        "V1 e2e (4 GPUs)",
+        identity,
+        ["pytest tests/v1/e2e.py"],
+        ".buildkite/test-amd.yaml",
+    )
+    amd_h100 = _step(
+        "V1 e2e (4xH100-4xMI300)",
+        identity,
+        ["pytest tests/v1/e2e.py"],
+        ".buildkite/test-amd.yaml",
+    )
+    upstream_generic = _step(
+        "V1 e2e (4 GPUs)",
+        identity,
+        ["pytest tests/v1/e2e.py"],
+        ".buildkite/test_areas/engine.yaml",
+    )
+    upstream_h100 = _step(
+        "V1 e2e (4xH100)",
+        identity,
+        ["pytest tests/v1/e2e.py"],
+        ".buildkite/test_areas/engine.yaml",
+    )
+
+    matches, amd_only, upstream_only = _match_config_steps(
+        [amd_h100, amd_generic],
+        [upstream_generic, upstream_h100],
+        [],
+    )
+
+    assert not amd_only
+    assert not upstream_only
+    assert {
+        (match.amd_step.label, match.nvidia_step.label)
+        for match in matches
+    } == {
+        ("V1 e2e (4 GPUs)", "V1 e2e (4 GPUs)"),
+        ("V1 e2e (4xH100-4xMI300)", "V1 e2e (4xH100)"),
+    }
+
+    reversed_matches, reversed_amd_only, reversed_upstream_only = (
+        _match_config_steps(
+            [amd_generic, amd_h100],
+            [upstream_h100, upstream_generic],
+            [],
+        )
+    )
+    assert not reversed_amd_only
+    assert not reversed_upstream_only
+    assert {
+        (match.amd_step.label, match.nvidia_step.label)
+        for match in reversed_matches
+    } == {
+        (match.amd_step.label, match.nvidia_step.label)
+        for match in matches
+    }
+
+
+def test_identity_assignment_prefers_counterparts_over_crossed_commands():
+    identity = "workload (4 gpus)"
+    amd_generic = _step(
+        "Workload (4 GPUs)",
+        identity,
+        ["pytest workload --hardware=h100"],
+        ".buildkite/test-amd.yaml",
+    )
+    amd_h100 = _step(
+        "Workload (4xH100-4xMI300)",
+        identity,
+        ["pytest workload --hardware=generic"],
+        ".buildkite/test-amd.yaml",
+    )
+    upstream_generic = _step(
+        "Workload (4 GPUs)",
+        identity,
+        ["pytest workload --hardware=generic"],
+        ".buildkite/test_areas/basic.yaml",
+    )
+    upstream_h100 = _step(
+        "Workload (4xH100)",
+        identity,
+        ["pytest workload --hardware=h100"],
+        ".buildkite/test_areas/basic.yaml",
+    )
+
+    matches, amd_only, upstream_only = _match_config_steps(
+        [amd_generic, amd_h100],
+        [upstream_h100, upstream_generic],
+        [],
+    )
+
+    assert not amd_only
+    assert not upstream_only
+    assert {
+        (match.amd_step.label, match.nvidia_step.label)
+        for match in matches
+    } == {
+        ("Workload (4 GPUs)", "Workload (4 GPUs)"),
+        ("Workload (4xH100-4xMI300)", "Workload (4xH100)"),
+    }
+
+
+def test_lm_eval_coalesces_h100_replicas_and_retains_a100_definition():
+    identity = "lm eval large models (4 gpus)"
+    amd_a100 = _step(
+        "LM Eval Large Models (4xA100-4xMI300)",
+        identity,
+        ["pytest eval.py --models ampere"],
+        ".buildkite/test-amd.yaml",
+        definition_id="amd#a100-mi300",
+        group="mi300",
+        semantic_title="LM Eval Large Models (4xA100-4xMI)",
+        fingerprint="ampere",
+    )
+    amd_h100_mi300 = _step(
+        "LM Eval Large Models (4xH100-4xMI300)",
+        identity,
+        ["pytest eval.py --models hopper"],
+        ".buildkite/test-amd.yaml",
+        definition_id="amd#h100-mi300",
+        group="mi300",
+        agent_pool="mi300",
+        semantic_title="LM Eval Large Models (4xH100-4xMI)",
+        fingerprint="hopper",
+    )
+    amd_h100_mi355 = _step(
+        "LM Eval Large Models (4xH100-4xMI355)",
+        identity,
+        ["pytest eval.py --models hopper"],
+        ".buildkite/test-amd.yaml",
+        definition_id="amd#h100-mi355",
+        group="mi355",
+        agent_pool="mi355",
+        semantic_title="LM Eval Large Models (4xH100-4xMI)",
+        fingerprint="hopper",
+    )
+    upstream_h100 = _step(
+        "LM Eval Large Models (4xH100)",
+        identity,
+        ["pytest eval.py --models hopper"],
+        ".buildkite/test_areas/lm_eval.yaml",
+    )
+
+    matches, amd_only, upstream_only = _match_config_steps(
+        [amd_h100_mi355, amd_a100, amd_h100_mi300],
+        [upstream_h100],
+        [],
+    )
+
+    assert not upstream_only
+    assert amd_only == [amd_a100]
+    assert len(matches) == 1
+    assert matches[0].nvidia_step is upstream_h100
+    assert matches[0].amd_step.label == (
+        "LM Eval Large Models (4xH100-4xMI300)"
+    )
+    assert matches[0].amd_step.physical_member_count == 2
+    assert set(matches[0].amd_step.member_definition_ids) == {
+        "amd#h100-mi300",
+        "amd#h100-mi355",
+    }
+    assert set(matches[0].amd_step.member_groups) == {"mi300", "mi355"}
+    assert set(matches[0].amd_step.member_agent_pools) == {"mi300", "mi355"}
+
+    reversed_matches, reversed_amd_only, reversed_upstream_only = (
+        _match_config_steps(
+            [amd_h100_mi300, amd_a100, amd_h100_mi355],
+            [upstream_h100],
+            [],
+        )
+    )
+    assert not reversed_upstream_only
+    assert reversed_amd_only == [amd_a100]
+    assert {
+        (match.amd_step.label, match.nvidia_step.label)
+        for match in reversed_matches
+    } == {
+        (match.amd_step.label, match.nvidia_step.label)
+        for match in matches
+    }
+
+
+def test_batch_invariance_maps_h100_without_consuming_a100_or_b200():
+    identity = "batch invariance"
+    amd = _step(
+        "Batch Invariance (H100-MI250)",
+        identity,
+        ["pytest tests/batch_invariance"],
+        ".buildkite/test-amd.yaml",
+    )
+    upstream_a100 = _step(
+        "Batch Invariance (A100)",
+        identity,
+        ["pytest tests/batch_invariance"],
+        ".buildkite/test_areas/models.yaml",
+    )
+    upstream_h100 = _step(
+        "Batch Invariance (H100)",
+        identity,
+        ["pytest tests/batch_invariance"],
+        ".buildkite/test_areas/models.yaml",
+    )
+    upstream_b200 = _step(
+        "Batch Invariance (B200)",
+        identity,
+        ["pytest tests/batch_invariance"],
+        ".buildkite/test_areas/models.yaml",
+    )
+
+    matches, amd_only, upstream_only = _match_config_steps(
+        [amd],
+        [upstream_b200, upstream_a100, upstream_h100],
+        [],
+    )
+
+    assert not amd_only
+    assert len(matches) == 1
+    assert matches[0].nvidia_step is upstream_h100
+    assert {step.label for step in upstream_only} == {
+        "Batch Invariance (A100)",
+        "Batch Invariance (B200)",
+    }
+
+
+def test_distributed_variants_do_not_cross_h100_and_b200_hardware():
+    identity = "distributed tests (2 gpus)"
+    amd_mi300 = _step(
+        "Distributed Tests (2xH100-2xMI300)",
+        identity,
+        ["pytest tests/distributed --mode upstream"],
+        ".buildkite/test-amd.yaml",
+        definition_id="amd#distributed-mi300",
+        semantic_title="Distributed Tests (2xH100-2xMI)",
+        fingerprint="upstream-shape",
+    )
+    amd_mi355 = _step(
+        "Distributed Tests (2xH100-2xMI355)",
+        identity,
+        ["pytest tests/distributed --mode amd-only"],
+        ".buildkite/test-amd.yaml",
+        definition_id="amd#distributed-mi355",
+        semantic_title="Distributed Tests (2xH100-2xMI)",
+        fingerprint="different-shape",
+    )
+    upstream_h100 = _step(
+        "Distributed Tests (2xH100)",
+        identity,
+        ["pytest tests/distributed --mode upstream"],
+        ".buildkite/test_areas/distributed.yaml",
+    )
+    upstream_b200 = _step(
+        "Distributed Tests (2xB200)",
+        identity,
+        ["pytest tests/distributed --mode amd-only"],
+        ".buildkite/test_areas/distributed.yaml",
+    )
+
+    matches, amd_only, upstream_only = _match_config_steps(
+        [amd_mi355, amd_mi300],
+        [upstream_b200, upstream_h100],
+        [],
+    )
+
+    assert {
+        (match.amd_step.label, match.nvidia_step.label)
+        for match in matches
+    } == {
+        (
+            "Distributed Tests (2xH100-2xMI300)",
+            "Distributed Tests (2xH100)",
+        )
+    }
+    assert amd_only == [amd_mi355]
+    assert upstream_only == [upstream_b200]
+
+
+def test_gpqa_identical_commands_still_pair_by_reference_hardware():
+    identity = "gpqa eval (gpt-oss)"
+    amd_h100 = _step(
+        "GPQA Eval (GPT-OSS) (H100-MI300)",
+        identity,
+        ["python benchmarks/gpqa.py"],
+        ".buildkite/test-amd.yaml",
+    )
+    amd_b200 = _step(
+        "GPQA Eval (GPT-OSS) (B200-MI355)",
+        identity,
+        ["python benchmarks/gpqa.py"],
+        ".buildkite/test-amd.yaml",
+    )
+    upstream_h100 = _step(
+        "GPQA Eval (GPT-OSS) (H100)",
+        identity,
+        ["python benchmarks/gpqa.py"],
+        ".buildkite/test_areas/lm_eval.yaml",
+    )
+    upstream_b200 = _step(
+        "GPQA Eval (GPT-OSS) (B200)",
+        identity,
+        ["python benchmarks/gpqa.py"],
+        ".buildkite/test_areas/lm_eval.yaml",
+    )
+
+    matches, amd_only, upstream_only = _match_config_steps(
+        [amd_b200, amd_h100],
+        [upstream_h100, upstream_b200],
+        [],
+    )
+
+    assert not amd_only
+    assert not upstream_only
+    assert {
+        (match.amd_step.label, match.nvidia_step.label)
+        for match in matches
+    } == {
+        (
+            "GPQA Eval (GPT-OSS) (H100-MI300)",
+            "GPQA Eval (GPT-OSS) (H100)",
+        ),
+        (
+            "GPQA Eval (GPT-OSS) (B200-MI355)",
+            "GPQA Eval (GPT-OSS) (B200)",
+        ),
+    }
+
+
+def test_plural_hardware_labels_do_not_cross_h100_and_b200():
+    identity = "kernels fusedmoe layer test (2 gpus)"
+    amd = _step(
+        "Kernels FusedMoE Layer Test (2xH100-2xMI300)",
+        identity,
+        ["pytest tests/kernels/fused_moe"],
+        ".buildkite/test-amd.yaml",
+    )
+    upstream_h100 = _step(
+        "Kernels FusedMoE Layer Test (2 H100s)",
+        identity,
+        ["pytest tests/kernels/fused_moe"],
+        ".buildkite/test_areas/kernels.yaml",
+    )
+    upstream_b200 = _step(
+        "Kernels FusedMoE Layer Test (2 B200s)",
+        identity,
+        ["pytest tests/kernels/fused_moe"],
+        ".buildkite/test_areas/kernels.yaml",
+    )
+
+    matches, amd_only, upstream_only = _match_config_steps(
+        [amd],
+        [upstream_b200, upstream_h100],
+        [],
+    )
+
+    assert not amd_only
+    assert len(matches) == 1
+    assert matches[0].nvidia_step is upstream_h100
+    assert upstream_only == [upstream_b200]
+
+
+def test_reference_hardware_splits_matrix_equivalent_sharded_definitions():
+    identity = "v1 attention"
+    semantic_title = "V1 attention"
+    fingerprint = "same-execution"
+    amd_h100 = _step(
+        "V1 attention (H100-MI300) %N",
+        identity,
+        ["pytest v1/attention --shard=$$BUILDKITE_PARALLEL_JOB"],
+        ".buildkite/test-amd.yaml",
+        definition_id="amd#v1-attention-h100",
+        semantic_title=semantic_title,
+        fingerprint=fingerprint,
+    )
+    amd_b200 = _step(
+        "V1 attention (B200-MI355) %N",
+        identity,
+        ["pytest v1/attention --shard=$$BUILDKITE_PARALLEL_JOB"],
+        ".buildkite/test-amd.yaml",
+        definition_id="amd#v1-attention-b200",
+        semantic_title=semantic_title,
+        fingerprint=fingerprint,
+    )
+    upstream_h100_mirror = _step(
+        "V1 attention (H100-MI300)",
+        identity,
+        ["pytest v1/attention --shard=$$BUILDKITE_PARALLEL_JOB"],
+        ".buildkite/test_areas/attention.yaml",
+        definition_id="upstream#v1-attention-h100",
+    )
+    upstream_b200 = _step(
+        "V1 attention (B200)",
+        identity,
+        ["pytest v1/attention --shard=$$BUILDKITE_PARALLEL_JOB"],
+        ".buildkite/test_areas/attention.yaml",
+        definition_id="upstream#v1-attention-b200",
+    )
+    mirrors = [{
+        "nvidia_label": upstream_h100_mirror.label,
+        "identity_key": identity,
+        "source_file": upstream_h100_mirror.source_file,
+        "nvidia_definition_id": upstream_h100_mirror.definition_id,
+    }]
+
+    matches, amd_only, upstream_only = _match_config_steps(
+        [amd_h100, amd_b200],
+        [upstream_h100_mirror, upstream_b200],
+        mirrors,
+    )
+
+    assert not upstream_only
+    assert len(matches) == 1
+    assert matches[0].amd_step is amd_b200
+    assert matches[0].nvidia_step is upstream_b200
+    assert matches[0].amd_step.physical_member_count == 1
+    assert amd_only == [amd_h100]
+    assert config_parity._matrix_semantic_amd_count(
+        [amd_h100, amd_b200]
+    ) == 1
+    assert len(config_parity._semantic_amd_steps(
+        [amd_h100, amd_b200]
+    )) == 2
+
+
+def test_identical_collision_rows_are_reported_instead_of_dropped():
+    first = _step(
+        "Quantization",
+        "quantization",
+        ["pytest tests/quantization"],
+        ".buildkite/test-amd.yaml",
+    )
+    second = _step(
+        "Quantization",
+        "quantization",
+        ["pytest tests/quantization"],
+        ".buildkite/test-amd.yaml",
+    )
+    upstream = _step(
+        "Quantization",
+        "quantization",
+        ["pytest tests/quantization"],
+        ".buildkite/test_areas/quantization.yaml",
+    )
+
+    matches, amd_only, upstream_only = _match_config_steps(
+        [first, second],
+        [upstream],
+        [],
+    )
+
+    assert len(matches) == 1
+    assert len(amd_only) == 1
+    assert amd_only[0] is first or amd_only[0] is second
+    assert not upstream_only
+
+
+def test_report_counts_every_parsed_definition_and_documents_collision_policy(
+    monkeypatch,
+):
+    amd = [
+        _step(
+            "Shared A (MI300)",
+            "shared",
+            ["pytest a"],
+            ".buildkite/test-amd.yaml",
+            definition_id="amd#a-mi300",
+            group="mi300",
+            agent_pool="pool-mi300",
+            semantic_title="Shared A",
+            fingerprint="a",
+        ),
+        _step(
+            "Shared A (MI355)",
+            "shared",
+            ["pytest a"],
+            ".buildkite/test-amd.yaml",
+            definition_id="amd#a-mi355",
+            group="mi355",
+            agent_pool="pool-mi355",
+            semantic_title="Shared A",
+            fingerprint="a",
+        ),
+        _step(
+            "Shared B",
+            "shared",
+            ["pytest b"],
+            ".buildkite/test-amd.yaml",
+            definition_id="amd#b",
+            semantic_title="Shared B",
+            fingerprint="b",
+        ),
+    ]
+    upstream = [
+        _step(
+            "Shared A (H100)",
+            "shared",
+            ["pytest a"],
+            ".buildkite/test_areas/basic.yaml",
+            definition_id="upstream#a",
+        ),
+        _step(
+            "Shared B",
+            "shared",
+            ["pytest b"],
+            ".buildkite/test_areas/basic.yaml",
+            definition_id="upstream#b",
+        ),
+    ]
+    provenance = {
+        "commit_sha": "a" * 40,
+        "fetched_at": "2026-07-28T00:00:00Z",
+        "matching_rules": [
+            "Retain provenance for every parsed YAML definition.",
+            "Use a deterministic maximum-cardinality one-to-one assignment.",
+        ],
+    }
+    monkeypatch.setattr(
+        config_parity,
+        "_load_config_steps",
+        lambda: (amd, upstream, []),
+    )
+    monkeypatch.setattr(config_parity, "_source_provenance", lambda: provenance)
+
+    report = config_parity.build_config_parity()
+
+    assert report["summary"]["total_amd_steps"] == 2
+    assert report["summary"]["amd_parity_nodes"] == 2
+    assert report["summary"]["amd_matrix_semantic_rows"] == 2
+    assert report["summary"]["amd_hardware_split_rows"] == 0
+    assert report["summary"]["raw_amd_steps"] == 3
+    assert report["summary"]["amd_execution_replica_rows"] == 1
+    assert report["summary"]["amd_matrix_replica_rows"] == 1
+    assert report["summary"]["total_nvidia_steps"] == 2
+    assert report["summary"]["unique_amd_identities"] == 1
+    assert report["summary"]["unique_nvidia_identities"] == 1
+    assert report["summary"]["amd_identity_collision_rows"] == 1
+    assert report["summary"]["nvidia_identity_collision_rows"] == 1
+    assert report["summary"]["matched"] == 2
+    assert report["summary"]["amd_only"] == 0
+    assert report["summary"]["nvidia_only"] == 0
+    assert "one-to-one" in " ".join(report["source"]["matching_rules"])
+    shared_a = next(
+        match
+        for match in report["matches"]
+        if match["nvidia_label"] == "Shared A (H100)"
+    )
+    assert shared_a["amd_physical_member_count"] == 2
+    assert set(shared_a["amd_member_definition_ids"]) == {
+        "amd#a-mi300",
+        "amd#a-mi355",
+    }
+    assert set(shared_a["amd_member_agent_pools"]) == {
+        "pool-mi300",
+        "pool-mi355",
+    }
+
+
+def test_inline_mirror_excludes_only_its_exact_collision_row():
+    identity = "v1 e2e (4 gpus)"
+    amd = _step(
+        "V1 e2e (4 GPUs)",
+        identity,
+        ["pytest available"],
+        ".buildkite/test-amd.yaml",
+        definition_id="amd#generic",
+    )
+    mirrored = _step(
+        "V1 e2e (4xH100)",
+        identity,
+        ["pytest mirrored"],
+        ".buildkite/test_areas/basic.yaml",
+        definition_id="upstream#h100",
+    )
+    available = _step(
+        "V1 e2e (4 GPUs)",
+        identity,
+        ["pytest available"],
+        ".buildkite/test_areas/basic.yaml",
+        definition_id="upstream#generic",
+    )
+    mirrors = [{
+        "nvidia_label": mirrored.label,
+        "normalized": mirrored.normalized_label,
+        "identity_key": identity,
+        "source_file": mirrored.source_file,
+        "nvidia_definition_id": mirrored.definition_id,
+    }]
+
+    matches, amd_only, upstream_only = _match_config_steps(
+        [amd],
+        [available, mirrored],
+        mirrors,
+    )
+
+    assert not amd_only
+    assert not upstream_only
+    assert len(matches) == 1
+    assert matches[0].nvidia_step is available
+
+
+def test_inline_mirror_blocks_cross_identity_nightly_command_twin():
+    amd = _step(
+        "Spec Decode Draft Model",
+        "spec decode draft model",
+        ["pytest tests/spec_decode/draft_model"],
+        ".buildkite/test-amd.yaml",
+        definition_id="amd#spec-decode-draft",
+    )
+    mirrored = _step(
+        "Spec Decode Draft Model",
+        "spec decode draft model",
+        ["pytest tests/spec_decode/draft_model"],
+        ".buildkite/test_areas/spec_decode.yaml",
+        definition_id="upstream#spec-decode-draft",
+    )
+    nightly_b200 = _step(
+        "Spec Decode Draft Model Nightly B200",
+        "spec decode draft model nightly b200",
+        ["pytest tests/spec_decode/draft_model"],
+        ".buildkite/test_areas/spec_decode.yaml",
+        definition_id="upstream#spec-decode-draft-b200",
+    )
+    mirrors = [{
+        "nvidia_label": mirrored.label,
+        "identity_key": mirrored.identity_key,
+        "source_file": mirrored.source_file,
+        "nvidia_definition_id": mirrored.definition_id,
+    }]
+
+    matches, amd_only, upstream_only = _match_config_steps(
+        [amd],
+        [nightly_b200, mirrored],
+        mirrors,
+    )
+
+    assert not matches
+    assert amd_only == [amd]
+    assert upstream_only == [nightly_b200]
+
+
+def test_source_provenance_describes_collision_safe_matching(monkeypatch):
+    snapshot = config_parity.ConfigSourceSnapshot(
+        commit_sha="b" * 40,
+        files={},
+        fetched_at="2026-07-28T00:00:00Z",
+    )
+    monkeypatch.setattr(
+        config_parity,
+        "_load_source_snapshot",
+        lambda: snapshot,
+    )
+
+    rules = config_parity._source_provenance()["matching_rules"]
+    joined = " ".join(rules)
+
+    assert "every parsed YAML definition" in joined
+    assert "physical AMD count separately" in joined
+    assert "same matrix canonical title, execution fingerprint" in joined
+    assert "projected reference hardware, and GPU count" in joined
+    assert "total_amd_steps as collision-safe parity nodes" in joined
+    assert "amd_matrix_semantic_rows separately" in joined
+    assert "exact upstream definition ID" in joined
+    assert "including an inline mirror, blocks this fallback" in joined
+    assert "reference-hardware or GPU-count mismatches" in joined
+    assert "maximum-cardinality one-to-one assignment" in joined
+    assert "exact YAML label" in joined
+    assert "Ambiguous command matches remain unmatched" in joined

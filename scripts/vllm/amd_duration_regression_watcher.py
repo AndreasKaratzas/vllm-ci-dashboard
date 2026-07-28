@@ -60,6 +60,7 @@ LABEL_SPECS = [
         "AMD main test-group completion time is at least 15 percent slower",
     ),
     ("automated", "6f42c1", "Managed by dashboard automation"),
+    ("workstream:dev", "1d76db", "AMD CI test-area development"),
 ]
 DASHBOARD_URL = (
     "https://andreaskaratzas.github.io/vllm-ci-dashboard/"
@@ -445,7 +446,7 @@ def _issue_body(active: dict[str, dict], reliability: dict, run_url: str, owner:
     lines.extend(
         [
             "",
-            f"cc @{owner}",
+            f"GitHub assignee: {owner}.",
             "",
             (
                 f"*Managed by amd_duration_regression_watcher.py from {run_url}. "

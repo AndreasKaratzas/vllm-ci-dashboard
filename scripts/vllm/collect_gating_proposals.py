@@ -32,15 +32,20 @@ GITHUB_REPO = "vllm-project/vllm"
 TEST_AREAS_PREFIX = ".buildkite/test_areas/"
 TRACKED_AUTHORS = (
     "AndreasKaratzas",
-    "micah-wil",
-    "charlifu",
-    "divakar-amd",
-    "mawong-amd",
     "Fangzhou-Ai",
     "aarushjain29",
-    "stefankoncarevic",
+    "charlifu",
     "djramic",
+    "divakar-amd",
+    "fxmarty-amd",
+    "gchinora",
+    "gyohuangxin",
+    "mawong-amd",
+    "micah-wil",
+    "music-dino",
     "okorzh-amd",
+    "peizhang56",
+    "stefankoncarevic",
 )
 
 DEFAULT_LOOKBACK_DAYS = 35

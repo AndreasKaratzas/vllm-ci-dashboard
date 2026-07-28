@@ -26,6 +26,178 @@ def test_hardware_fold_key_preserves_gpu_counts() -> None:
     assert "(2 gpus)" in two_gpus
 
 
+def test_percent_n_targets_aggregate_only_their_numbered_runtime_shards() -> None:
+    targets = {
+        "groups": [
+            {
+                "id": 1,
+                "label": "Kernels MoE Test %N",
+                "gating_signal": "green",
+                "pf_signal": "green",
+                "assigned_signal": "green",
+            },
+            {
+                "id": 2,
+                "label": "Kernels MoE Test 2",
+                "gating_signal": "red",
+                "pf_signal": "red",
+                "assigned_signal": "red",
+            },
+        ]
+    }
+    upstream_build = {
+        "number": 100,
+        "web_url": "https://buildkite.com/vllm/ci/builds/100",
+        "jobs": [
+            {
+                "raw_name": "Kernels MoE Test 1",
+                "q": "gpu_1_queue",
+                "state": "passed",
+                "job_id": "shard-1",
+            },
+            {
+                "raw_name": "Kernels MoE Test 2",
+                "q": "gpu_1_queue",
+                "state": "failed",
+                "job_id": "exact-2",
+            },
+            {
+                "raw_name": "Kernels MoE Test 3",
+                "q": "gpu_1_queue",
+                "state": "soft_fail",
+                "job_id": "shard-3",
+            },
+            {
+                "raw_name": "Unrelated GPU Test 7",
+                "q": "gpu_1_queue",
+                "state": "passed",
+                "job_id": "unrelated-7",
+            },
+        ],
+    }
+
+    rows, summary = collector.collect_upstream_candidates(
+        upstream_build,
+        None,
+        targets,
+        {"pull_requests": []},
+    )
+
+    template = next(row for row in rows if row.get("target_id") == 1)
+    assert template["decision"] == "canonical"
+    assert template["label"] == "Kernels MoE Test %N"
+    assert template["canonical_key"] == collector.hardware_fold_key("Kernels MoE Test %N")
+    assert template["shard_count"] == 2
+    assert template["shard_states"] == {"passed": 1, "soft_fail": 1}
+    assert template["state"] == "soft_fail"
+    assert [
+        (row["label"], row["shard_index"])
+        for row in template["runtime_shards"]
+    ] == [
+        ("Kernels MoE Test 1", 1),
+        ("Kernels MoE Test 3", 3),
+    ]
+
+    exact_numeric = next(row for row in rows if row.get("target_id") == 2)
+    assert exact_numeric["decision"] == "canonical"
+    assert exact_numeric["label"] == "Kernels MoE Test 2"
+    assert "runtime_shards" not in exact_numeric
+
+    new_rows = [row for row in rows if row["decision"] == "new_candidate"]
+    assert [row["label"] for row in new_rows] == ["Unrelated GPU Test 7"]
+    assert summary["canonical_match_count"] == 2
+    assert summary["new_candidate_count"] == 1
+    assert summary["missing_from_upstream_count"] == 0
+
+
+def test_percent_n_aggregation_preserves_hardware_counts() -> None:
+    targets = {
+        "groups": [
+            {"id": 1, "label": "FP8 MoE (1 H100) %N"},
+            {"id": 2, "label": "FP8 MoE (2 H100s) %N"},
+        ]
+    }
+    upstream_build = {
+        "number": 100,
+        "web_url": "https://buildkite.com/vllm/ci/builds/100",
+        "jobs": [
+            {
+                "raw_name": "FP8 MoE (1 H100) 1",
+                "q": "gpu_1_queue",
+                "state": "passed",
+                "job_id": "one-gpu",
+            },
+            {
+                "raw_name": "FP8 MoE (2 H100s) 1",
+                "q": "gpu_2_queue",
+                "state": "passed",
+                "job_id": "two-gpu",
+            },
+        ],
+    }
+
+    rows, summary = collector.collect_upstream_candidates(
+        upstream_build,
+        None,
+        targets,
+        {"pull_requests": []},
+    )
+
+    canonical = {
+        row["target_id"]: row
+        for row in rows
+        if row["decision"] == "canonical"
+    }
+    assert canonical[1]["runtime_shards"][0]["label"] == "FP8 MoE (1 H100) 1"
+    assert canonical[2]["runtime_shards"][0]["label"] == "FP8 MoE (2 H100s) 1"
+    assert canonical[1]["canonical_key"] != canonical[2]["canonical_key"]
+    assert summary["canonical_match_count"] == 2
+    assert summary["new_candidate_count"] == 0
+    assert summary["missing_from_upstream_count"] == 0
+
+
+def test_distinct_exact_targets_survive_shared_hardware_fold_key() -> None:
+    targets = {
+        "groups": [
+            {"id": 1, "label": "V1 e2e (4 GPUs)"},
+            {"id": 2, "label": "V1 e2e (4xH100)"},
+        ]
+    }
+    upstream_build = {
+        "number": 100,
+        "web_url": "https://buildkite.com/vllm/ci/builds/100",
+        "jobs": [
+            {
+                "raw_name": "V1 e2e (4 GPUs)",
+                "q": "gpu_4_queue",
+                "state": "passed",
+                "job_id": "generic-four",
+            },
+            {
+                "raw_name": "V1 e2e (4xH100)",
+                "q": "gpu_4_queue",
+                "state": "passed",
+                "job_id": "h100-four",
+            },
+        ],
+    }
+
+    rows, summary = collector.collect_upstream_candidates(
+        upstream_build,
+        None,
+        targets,
+        {"pull_requests": []},
+    )
+
+    canonical = [row for row in rows if row["decision"] == "canonical"]
+    assert [(row["target_id"], row["label"]) for row in canonical] == [
+        (1, "V1 e2e (4 GPUs)"),
+        (2, "V1 e2e (4xH100)"),
+    ]
+    assert summary["canonical_match_count"] == 2
+    assert summary["missing_from_upstream_count"] == 0
+
+
 def test_gpu_like_detection_understands_default_buildkite_gpu_queues() -> None:
     assert collector.is_gpu_like_job({"raw_name": "Entrypoints Integration", "q": "gpu_1_queue"})
     assert collector.is_gpu_like_job({"raw_name": "Distributed Comm Ops", "q": "gpu_4_queue"})

@@ -195,6 +195,13 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         "Commit-pinned vLLM AMD/upstream CI source-definition parity",
     ),
     DataSpec(
+        "data/vllm/ci/ownership_config_parity.json",
+        ("scripts/vllm/collect_ownership_parity.py",),
+        ("scripts/vllm/ci_area_regression_watcher.py",),
+        ("generated_at", "source", "summary", "matches", "amd_only", "nvidia_only"),
+        "Ownership attribution pinned to the exact latest AMD nightly commit",
+    ),
+    DataSpec(
         "data/vllm/ci/analytics.json",
         ("scripts/vllm/collect_analytics.py",),
         ("scripts/vllm/build_operations_snapshot.py", "docs/assets/js/ci-analytics.js"),
@@ -902,9 +909,45 @@ class DashboardAudit:
         wrong_history_pipeline = []
         wrong_history_evidence = []
         wrong_history_urls = []
+        invalid_runtime_resolutions = []
+        runtime_resolution_counts: dict[str, int] = {}
+        allowed_runtime_resolutions = {
+            "matched",
+            "no_amd_definition",
+            "stale_target_alias",
+            "ambiguous",
+            "not_observed",
+        }
         for raw_row in active:
             row = _mapping(raw_row)
             latest = _mapping(row.get("latest_amd_result"))
+            resolution = _mapping(row.get("runtime_resolution"))
+            resolution_status = str(resolution.get("status") or "")
+            runtime_resolution_counts[resolution_status] = (
+                runtime_resolution_counts.get(resolution_status, 0) + 1
+            )
+            latest_state = str(latest.get("state") or "unknown")
+            resolution_invalid = (
+                resolution_status not in allowed_runtime_resolutions
+                or (
+                    latest_state in {"passed", "soft", "hard"}
+                    and resolution_status != "matched"
+                )
+                or (
+                    resolution_status
+                    in {"no_amd_definition", "stale_target_alias", "ambiguous"}
+                    and (
+                        latest_state != "unknown"
+                        or bool(_rows(latest.get("evidence")))
+                    )
+                )
+                or (
+                    resolution_status == "not_observed"
+                    and latest_state != "unknown"
+                )
+            )
+            if resolution_invalid:
+                invalid_runtime_resolutions.append(row.get("label"))
             if latest.get("source_pipeline") != "amd-ci":
                 wrong_latest_pipeline.append(row.get("label"))
             latest_evidence = _rows(latest.get("evidence"))
@@ -998,6 +1041,29 @@ class DashboardAudit:
                     f"{len(wrong_history_pipeline)} reliability summaries and "
                     f"{len(wrong_history_evidence)} evidence lists do not source history from ci; "
                     f"{len(wrong_history_urls)} rows contain non-ci history links"
+                ),
+                relpath,
+            )
+        if invalid_runtime_resolutions:
+            self.error(
+                "operations-gating-runtime-resolution",
+                (
+                    f"{len(invalid_runtime_resolutions)} gating rows have a "
+                    "runtime-resolution status inconsistent with AMD evidence"
+                ),
+                relpath,
+            )
+        declared_resolution_counts = _mapping(
+            active_summary.get("by_runtime_resolution")
+        )
+        if declared_resolution_counts and declared_resolution_counts != dict(
+            sorted(runtime_resolution_counts.items())
+        ):
+            self.error(
+                "operations-gating-runtime-resolution-count",
+                (
+                    "active_target_summary.by_runtime_resolution does not match "
+                    "the runtime target rows"
                 ),
                 relpath,
             )

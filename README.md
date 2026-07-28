@@ -1,6 +1,6 @@
 # Project Dashboard
 
-Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-07-28 01:18 UTC**
+Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-07-28 03:04 UTC**
 
 ## Overview
 
@@ -27,7 +27,7 @@ operational data are published by the scheduled/dispatch
 | View | Description |
 |------|-------------|
 | **Home** | PRs, project #39 issues, and ROCm vs upstream test parity |
-| **CI Health** | Latest exact AMD job variants by architecture, separately reviewed runtime targets, definition parity, diagnostics, and evidence links |
+| **CI Health** | Latest exact AMD job variants by architecture, reviewed runtime targets with explicit mapping/no-definition reasons, ranked CI ownership and escalation, definition parity, diagnostics, and evidence links |
 | **CI Analytics** | Nightly build comparison, recent builds, group trends, AMD hardware matrix, queue comparison |
 | **Queue Monitor** | Buildkite queue workload, wait-time charts, active job overlays, admin triage, and AMD capacity projections |
 | **Hotness / Omni / Ready / Admin** | Workload trajectories; exact Omni active-job evidence, 1h–3d queue windows, queued-age bands, daily deltas, and explicit partial-attribution labels; ready tickets; and admin tasks |
@@ -48,12 +48,16 @@ The main data path is `.github/workflows/hourly-master.yml`, which runs every 30
 | `scripts/collect_ci.py` | Buildkite nightly test results, CI health, parity, flaky/failure data |
 | `scripts/vllm/collect_analytics.py` | Windowed CI analytics from parsed test-result JSONL plus Buildkite metadata |
 | `scripts/vllm/collect_amd_test_matrix.py` | AMD hardware matrix from upstream `test-amd.yaml`, matched against the latest AMD nightly |
+| `scripts/vllm/collect_ownership_parity.py` | Build a source-area parity map from the exact vLLM commit used by the latest AMD nightly |
 | `scripts/vllm/collect_gating_proposals.py` | Open vLLM PRs from tracked AMD engineers that add new `.buildkite/test_areas` AMD mirrors |
 | `scripts/vllm/collect_gating_targets.py` | Regenerate the canonical AMD gating target snapshot from `config/vllm_amd_gating_targets.json` |
-| `scripts/vllm/collect_gating_target_candidates.py` | Review-only audit of upstream nightly GPU jobs against the canonical AMD gating target list |
+| `scripts/vllm/collect_gating_target_candidates.py` | Review-only audit of upstream nightly GPU jobs against the canonical AMD gating target list, including authorized `%N` shard expansion |
 | `scripts/vllm/collect_queue_snapshot.py` | Queue timeseries, workload-attributed counts, and the exact active-job ledger |
 | `scripts/vllm/collect_capacity_monitor.py` | AMD queue capacity limits plus mirror test-group dependency projections |
 | `scripts/vllm/build_operations_snapshot.py` | Build the versioned operations manifest and lazy CI Health, Queue, and Omni read-model shards |
+| `scripts/vllm/ci_area_regression_watcher.py` | Reconcile one dashboard-repository issue per regressing test area using the ranked owner chain, private availability, and exact AMD evidence |
+| `scripts/vllm/sync_ci_operations_project.py` | Add open managed dashboard issues to the single AMD CI Operations Project by workstream |
+| `scripts/vllm/ensure_ci_operations_labels.py` | Ensure the managed-issue and Project workstream labels exist before any watcher runs |
 | `scripts/vllm/audit_dashboard_data.py` | Cross-surface audit for data totals, frontend assumptions, links, and deploy safety |
 | `scripts/render.py` | Generate markdown dashboards and site data |
 | `scripts/build_site.py` | Assemble `docs/` and `data/` into `_site/` for Pages |
@@ -66,12 +70,15 @@ python scripts/collect.py
 python scripts/collect_ci.py --days 8 --pipeline both --output data/vllm/ci/
 python scripts/vllm/collect_analytics.py --days 30 --output data/vllm/ci/
 python scripts/vllm/collect_amd_test_matrix.py --output data/vllm/ci/
+python scripts/vllm/collect_ownership_parity.py --input-dir data/vllm/ci --output data/vllm/ci
 python scripts/vllm/collect_gating_proposals.py --output data/vllm/ci/
 python scripts/vllm/collect_gating_targets.py --output data/vllm/ci/
 python scripts/vllm/collect_gating_target_candidates.py --output data/vllm/ci/
 python scripts/vllm/collect_queue_snapshot.py
 python scripts/vllm/collect_capacity_monitor.py --output data/vllm/ci/
 python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
+python scripts/vllm/ci_area_regression_watcher.py
+python scripts/vllm/sync_ci_operations_project.py
 python scripts/vllm/audit_dashboard_data.py --strict-warnings
 python scripts/render.py
 python scripts/build_site.py --cache-bust-index
@@ -86,6 +93,86 @@ artifacts. Canonical deployments replace `gh-pages`, so retired artifacts are
 purged instead of surviving indefinitely. Do not hand-edit or delete generated
 data solely because its commit timestamp is old; the dashboard audit validates
 that every high-value input still has a producer and consumer.
+
+Runtime target results follow a fail-closed identity chain: exact build-pinned
+AMD matrix labels first, then current upstream-to-AMD definition-parity aliases.
+Only reviewed labels ending in `%N` may absorb numbered runtime shards; unrelated
+numeric suffixes and GPU counts remain distinct. Colliding matrix rows are merged
+with hard/soft incidents taking precedence over passes, while retaining every
+exact Buildkite link. A target with no selected result is classified separately
+as lacking a one-to-one AMD definition, mapping review, ambiguous, or defined but not observed;
+the CI Health drawer shows that reason, the matched AMD labels, and source-commit
+alignment.
+
+### CI ownership and regression issues
+
+[`config/vllm_ci_ownership.json`](config/vllm_ci_ownership.json) is the
+authoritative 31-area primary/secondary/tertiary rotation. The hourly workflow
+evaluates every exact AMD matrix definition, attributes each definition through
+a parity snapshot pinned to that nightly's exact vLLM commit, and reconciles one state-owned issue
+per area in `AndreasKaratzas/vllm-ci-dashboard`. Current regressions, exact
+Buildkite evidence, upstream parity gaps, the ranked chain, and the actual
+GitHub assignees are shown in **CI Health → CI ownership**.
+
+Availability is deliberately not committed. The workflow reads the private
+`CI_OWNER_AVAILABILITY_JSON` secret:
+
+```json
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-28T12:00:00Z",
+  "owners": {
+    "github-login": {
+      "timezone": "Europe/London",
+      "working_hours": {
+        "weekdays": [0, 1, 2, 3, 4],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "pto": [
+        {
+          "start": "2026-08-03T00:00:00Z",
+          "end": "2026-08-05T00:00:00Z"
+        }
+      ]
+    }
+  }
+}
+```
+
+The snapshot expires after 24 hours and therefore needs a live schedule/PTO
+producer; a hand-written, fixed timestamp is not a production configuration.
+Missing, stale, or malformed availability fails closed to the CI lead. The
+watcher also verifies that the selected login can be assigned in this
+repository; otherwise it assigns the CI lead. If neither account is verifiably
+assignable, the watcher refuses to open an unassigned issue. Individual
+availability states remain private. Automated issue text never uses `@`
+mentions and no issue can be opened outside the dashboard repository.
+
+Use one GitHub Project, **AMD CI Operations**, with label-backed views instead
+of three separate projects: `workstream:infra`, `workstream:dashboard-ci`, and
+`workstream:dev`. This keeps one lifecycle per incident while still providing
+the requested Infra, dashboard CI, and development queues. The Project sync
+requires a `PROJECTS_WRITE_TOKEN` Actions secret with Projects V2 write access;
+for a classic PAT this is the `project` scope, and the token owner must be able
+to update Andreas Karatzas's Project. The repository-scoped `GITHUB_TOKEN`
+cannot update a user-owned Project. If the secret is absent, issue
+reconciliation and dashboard deployment continue while Project synchronization
+reports a safe no-op.
+
+During credential rotation, the guarded Project-sync step accepts the existing
+`PROJECTS_TOKEN` only as a fallback when `PROJECTS_WRITE_TOKEN` is absent. The
+fallback is confined to the repository/project-validated add-item script;
+install the scoped replacement and remove the legacy secret when rotation is
+complete.
+
+The public Projects V2 API can add and update items but cannot create saved
+views, so the canonical operational view is **CI Health → CI ownership**. The
+Project keeps the same three labels for interactive filtering; saved label
+views, if desired, must be created once in the GitHub UI. The existing
+`amd-main-failure` issue remains a broad all-main rollup, while area issues are
+the exact latest-nightly ownership queue; their evidence scopes are intentionally
+distinct.
 
 ## Local development (Nix)
 

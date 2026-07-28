@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vllm.constants import is_excluded_queue  # noqa: E402
+from vllm.collect_gating_target_candidates import hardware_fold_key  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -91,12 +92,14 @@ SOURCE_FILES = {
     "omni_issue_state": "open_omni_surge_issues.json",
     "project_items": "project_items.json",
     "ready_tickets": "ready_tickets.json",
+    "ci_ownership": "ci_ownership.json",
 }
 
 MULTISPACE_RE = re.compile(r"\s+")
 AMD_PREFIX_RE = re.compile(r"^AMD:\s*", re.IGNORECASE)
 INTERNAL_AMD_PREFIX_RE = re.compile(r"^mi\d{3,4}b?_\d+:\s*", re.IGNORECASE)
 AMD_DEVICE_SUFFIX_RE = re.compile(r"\s*\((mi\d{3,4}b?_\d+)\)\s*$", re.IGNORECASE)
+SHARD_TEMPLATE_SUFFIX_RE = re.compile(r"\s*%N\s*$", re.IGNORECASE)
 AMD_TARGET_SUFFIX_RE = re.compile(
     r"(?<=\d)(?:x)?mi\d{2,4}b?(?:[_-]\d+)?(?=\))",
     re.IGNORECASE,
@@ -488,6 +491,7 @@ def _strict_group_label(value: Any) -> str:
 def _target_match_key(value: Any) -> str:
     """Join an AMD mirror label to its CUDA target without folding GPU variants."""
     text = _strict_group_label(value).lower()
+    text = SHARD_TEMPLATE_SUFFIX_RE.sub("", text)
     text = re.sub(r"-\s*\d+x?mi\d{2,4}b?(?:[_-]\d+)?(?=\))", "", text)
     text = re.sub(r"-\s*\d*x?mi(?=\))", "", text)
     return MULTISPACE_RE.sub(" ", text).strip()
@@ -2288,51 +2292,239 @@ def _reliability(pipeline_analytics: Any, pipeline_slug: str = "ci") -> dict:
     }
 
 
-def _matrix_evidence(matrix: dict) -> dict[str, dict]:
-    evidence_by_key: dict[str, dict] = {}
-    for row in matrix.get("rows") or []:
-        evidence = []
-        for architecture, cell in (row.get("cells") or {}).items():
-            if not cell.get("exists"):
-                continue
-            raw_state = cell.get("latest_state") or "unknown"
-            evidence.append({
-                "architecture": architecture,
-                "state": _historical_state({"state": raw_state}),
-                "raw_state": raw_state,
-                "build_number": cell.get("latest_build_number") or (matrix.get("source") or {}).get("latest_build_number"),
-                "url": cell.get("latest_url") or "",
-                "source": "amd_matrix",
-                "source_pipeline": "amd-ci",
-            })
+MATRIX_STATE_RANK = {"passed": 0, "unknown": 1, "soft": 2, "hard": 3}
+
+
+def _matrix_evidence_item(
+    matrix: dict,
+    row: dict,
+    architecture: str,
+    cell: dict,
+    *,
+    definition: dict | None = None,
+) -> dict:
+    definition = definition or cell
+    raw_state = definition.get("latest_state") or cell.get("latest_state") or "unknown"
+    return {
+        "architecture": architecture,
+        "state": _historical_state({"state": raw_state}),
+        "raw_state": raw_state,
+        "build_number": (
+            definition.get("latest_build_number")
+            or cell.get("latest_build_number")
+            or (matrix.get("source") or {}).get("latest_build_number")
+        ),
+        "url": definition.get("latest_url") or cell.get("latest_url") or "",
+        "source": "amd_matrix",
+        "source_pipeline": "amd-ci",
+        "matrix_row_id": row.get("id"),
+        "matrix_title": row.get("title") or row.get("canonical_title"),
+        "definition_label": (
+            definition.get("label")
+            or cell.get("primary_label")
+            or row.get("title")
+            or row.get("canonical_title")
+        ),
+    }
+
+
+def _merge_matrix_evidence(bundles: list[dict], observed_at: Any) -> dict:
+    evidence_by_identity: dict[tuple[Any, ...], dict] = {}
+    definition_labels = set()
+    matrix_row_ids = set()
+    alias_kinds = set()
+    for bundle in bundles:
+        definition_labels.update(bundle.get("_definition_labels") or [])
+        matrix_row_ids.update(bundle.get("_matrix_row_ids") or [])
+        alias_kinds.update(bundle.get("_alias_kinds") or [])
+        for item in bundle.get("evidence") or []:
+            url = str(item.get("url") or "")
+            identity = (
+                url,
+                item.get("matrix_row_id"),
+                item.get("architecture"),
+                item.get("definition_label"),
+            )
+            previous = evidence_by_identity.get(identity)
+            if (
+                previous is None
+                or MATRIX_STATE_RANK.get(str(item.get("state") or "unknown"), 1)
+                > MATRIX_STATE_RANK.get(str(previous.get("state") or "unknown"), 1)
+            ):
+                evidence_by_identity[identity] = item
+    evidence = sorted(
+        evidence_by_identity.values(),
+        key=lambda item: (
+            -MATRIX_STATE_RANK.get(str(item.get("state") or "unknown"), 1),
+            str(item.get("architecture") or ""),
+            str(item.get("definition_label") or ""),
+            str(item.get("url") or ""),
+        ),
+    )
+    state = max(
+        (str(item.get("state") or "unknown") for item in evidence),
+        key=lambda value: MATRIX_STATE_RANK.get(value, 1),
+        default="unknown",
+    )
+    build_numbers = [
+        number
+        for item in evidence
+        if (number := _strict_int(item.get("build_number"))) is not None
+    ]
+    return {
+        "state": state,
+        "build_number": max(build_numbers, default=None),
+        "observed_at": observed_at,
+        "source_pipeline": "amd-ci",
+        "evidence": evidence,
+        "_definition_labels": sorted(
+            str(label) for label in definition_labels if str(label or "").strip()
+        ),
+        "_matrix_row_ids": sorted(
+            str(row_id) for row_id in matrix_row_ids if str(row_id or "").strip()
+        ),
+        "_alias_kinds": sorted(
+            str(kind) for kind in alias_kinds if str(kind or "").strip()
+        ),
+    }
+
+
+def _matrix_evidence(
+    matrix: dict,
+) -> tuple[dict[str, dict], dict[str, dict]]:
+    """Index canonical rows and exact YAML aliases without losing collisions."""
+    exact_bundles_by_key: dict[str, list[dict]] = defaultdict(list)
+    canonical_bundles_by_key: dict[str, list[dict]] = defaultdict(list)
+
+    def add_bundle(
+        labels: set[str],
+        evidence: list[dict],
+        row: dict,
+        alias_kind: str,
+    ) -> None:
         if not evidence:
-            continue
-        states = {item["state"] for item in evidence}
-        if "hard" in states:
-            state = "hard"
-        elif "soft" in states:
-            state = "soft"
-        elif states == {"passed"}:
-            state = "passed"
-        else:
-            state = "unknown"
-        evidence_by_key[_target_match_key(row.get("canonical_title") or row.get("title"))] = {
-            "state": state,
-            "build_number": max((item.get("build_number") or 0 for item in evidence), default=None),
-            "observed_at": matrix.get("generated_at"),
-            "source_pipeline": "amd-ci",
-            "evidence": evidence,
-        }
-    return evidence_by_key
+            return
+        bundle = _merge_matrix_evidence(
+            [{
+                "evidence": evidence,
+                "_definition_labels": {
+                    item.get("definition_label") for item in evidence
+                },
+                "_matrix_row_ids": {row.get("id")},
+                "_alias_kinds": {alias_kind},
+            }],
+            matrix.get("generated_at"),
+        )
+        for label in labels:
+            key = _target_match_key(label)
+            if key:
+                destination = (
+                    exact_bundles_by_key
+                    if alias_kind == "yaml_label"
+                    else canonical_bundles_by_key
+                )
+                destination[key].append(bundle)
+
+    for row in matrix.get("rows") or []:
+        canonical_evidence = []
+        canonical_title = str(
+            row.get("canonical_title") or row.get("title") or ""
+        )
+        row_title = str(row.get("title") or "")
+        canonical_labels = {canonical_title}
+        has_variant_labels = False
+        for architecture, cell in (row.get("cells") or {}).items():
+            if not isinstance(cell, dict) or not cell.get("exists"):
+                continue
+            canonical_evidence.append(
+                _matrix_evidence_item(matrix, row, architecture, cell)
+            )
+            for variant in cell.get("variants") or []:
+                if not isinstance(variant, dict):
+                    continue
+                has_variant_labels = True
+                variant_evidence = [
+                    _matrix_evidence_item(
+                        matrix,
+                        row,
+                        architecture,
+                        cell,
+                        definition=variant,
+                    )
+                ]
+                variant_labels = {
+                    str(variant.get("label") or ""),
+                    *(str(label or "") for label in variant.get("aliases") or []),
+                }
+                add_bundle(variant_labels, variant_evidence, row, "yaml_label")
+                for entry in variant.get("entries") or []:
+                    if not isinstance(entry, dict):
+                        continue
+                    entry_labels = {
+                        str(entry.get("label") or ""),
+                        *(str(label or "") for label in entry.get("aliases") or []),
+                    }
+                    add_bundle(
+                        entry_labels,
+                        [
+                            _matrix_evidence_item(
+                                matrix,
+                                row,
+                                architecture,
+                                cell,
+                                definition=entry,
+                            )
+                        ],
+                        row,
+                        "yaml_label",
+                    )
+        add_bundle(
+            canonical_labels,
+            canonical_evidence,
+            row,
+            "canonical_title",
+        )
+        legacy_title = row_title or canonical_title
+        if not has_variant_labels and legacy_title:
+            add_bundle(
+                {legacy_title},
+                canonical_evidence,
+                row,
+                "yaml_label",
+            )
+
+    return (
+        {
+            key: _merge_matrix_evidence(bundles, matrix.get("generated_at"))
+            for key, bundles in exact_bundles_by_key.items()
+        },
+        {
+            key: _merge_matrix_evidence(bundles, matrix.get("generated_at"))
+            for key, bundles in canonical_bundles_by_key.items()
+        },
+    )
 
 
-def _assessment(latest: dict, reliability: dict) -> str:
+def _assessment(
+    latest: dict,
+    reliability: dict,
+    runtime_resolution: dict | None = None,
+) -> str:
     state = latest.get("state") or "unknown"
     if state == "hard":
         return "failing_now"
     if state == "soft":
         return "soft_failing_now"
     if state != "passed":
+        resolution_status = (runtime_resolution or {}).get("status")
+        if resolution_status == "no_amd_definition":
+            return "no_matching_amd_definition"
+        if resolution_status == "stale_target_alias":
+            return "target_mapping_needs_review"
+        if resolution_status == "ambiguous":
+            return "ambiguous_amd_mapping"
+        if resolution_status == "not_observed":
+            return "no_recent_amd_observation"
         return "no_recent_amd_signal"
     if reliability.get("available") is not True or not int(reliability.get("runs") or 0):
         return "passed_without_history"
@@ -2401,17 +2593,441 @@ def _target_history_summary(histories: list[dict]) -> dict:
     }
 
 
-def _gating(targets: dict, candidates: dict, matrix: dict, capacity: dict, reliability: dict) -> dict:
+def _definition_label_key(value: Any) -> str:
+    return MULTISPACE_RE.sub(
+        " ",
+        str(value or "").strip().replace(r"\%N", "%N"),
+    ).casefold()
+
+
+def _commit_from_definition_url(value: Any) -> str:
+    match = re.search(r"/([0-9a-f]{40})(?:/|$)", str(value or ""), re.IGNORECASE)
+    return match.group(1).lower() if match else ""
+
+
+def _runtime_resolution_context(matrix: dict, definition_parity: dict) -> dict:
+    matrix_url = str((matrix.get("source") or {}).get("yaml_url") or "")
+    parity_source = definition_parity.get("source") or {}
+    parity_url = str(
+        parity_source.get("amd_definition_url")
+        or parity_source.get("commit_url")
+        or ""
+    )
+    matrix_commit = _commit_from_definition_url(matrix_url)
+    parity_commit = str(parity_source.get("commit_sha") or "").lower()
+    if matrix_commit and parity_commit:
+        source_alignment = (
+            "same_commit" if matrix_commit == parity_commit else "different_commits"
+        )
+    else:
+        source_alignment = "unavailable"
+    return {
+        "source_commits": {
+            "amd_matrix": matrix_commit,
+            "definition_parity": parity_commit,
+        },
+        "source_alignment": source_alignment,
+        "source_urls": {
+            "amd_matrix": matrix_url,
+            "definition_parity": parity_url,
+        },
+    }
+
+
+def _public_matrix_evidence(bundle: dict) -> dict:
+    return {
+        key: value
+        for key, value in bundle.items()
+        if not str(key).startswith("_")
+    }
+
+
+def _candidate_source_labels(group: dict, candidates: dict) -> list[str]:
+    target_id = str(group.get("id"))
+    labels = []
+    for row in candidates.get("rows") or []:
+        if str(row.get("target_id")) != target_id:
+            continue
+        if row.get("decision") != "canonical":
+            continue
+        label = str(row.get("label") or "").strip()
+        if label:
+            labels.append(label)
+        for shard in row.get("runtime_shards") or []:
+            shard_label = str((shard or {}).get("label") or "").strip()
+            if shard_label:
+                labels.append(shard_label)
+    reviewed_label = str(group.get("label") or "").strip()
+    return list(dict.fromkeys([*labels, reviewed_label]))
+
+
+def _parity_rows_for_labels(
+    labels: list[str],
+    parity_rows: list[dict],
+    *,
+    label_field: str,
+) -> tuple[list[dict], list[dict]]:
+    exact_index: dict[str, list[dict]] = defaultdict(list)
+    folded_index: dict[str, list[dict]] = defaultdict(list)
+    for row in parity_rows:
+        if not isinstance(row, dict):
+            continue
+        label = row.get(label_field)
+        if not label:
+            continue
+        exact_index[_definition_label_key(label)].append(row)
+        folded_index[hardware_fold_key(label)].append(row)
+
+    exact = []
+    for label in labels:
+        exact.extend(exact_index.get(_definition_label_key(label), []))
+    if exact:
+        return list({id(row): row for row in exact}.values()), []
+
+    folded = []
+    ambiguous = []
+    for label in labels:
+        matches = folded_index.get(hardware_fold_key(label), [])
+        identities = {
+            (
+                str(row.get("identity_key") or ""),
+                str(row.get("amd_label") or row.get("label") or ""),
+            )
+            for row in matches
+        }
+        if len(identities) == 1:
+            folded.extend(matches)
+        elif len(identities) > 1:
+            ambiguous.extend(matches)
+    return (
+        list({id(row): row for row in folded}.values()),
+        list({id(row): row for row in ambiguous}.values()),
+    )
+
+
+def _parity_match_shadowed_by_exact_commands(
+    match: dict,
+    definition_parity: dict,
+) -> bool:
+    """Reject a metadata identity that steals an exact command/title twin."""
+    try:
+        similarity = float(match.get("command_similarity"))
+    except (TypeError, ValueError):
+        return False
+    if similarity >= 0.999999:
+        return False
+    amd_commands = tuple(str(command) for command in match.get("amd_commands") or [])
+    amd_label = _definition_label_key(match.get("amd_label"))
+    if not amd_commands or not amd_label:
+        return False
+    return any(
+        _definition_label_key(row.get("label")) == amd_label
+        and tuple(str(command) for command in row.get("commands") or [])
+        == amd_commands
+        for row in definition_parity.get("nvidia_only") or []
+        if isinstance(row, dict)
+    )
+
+
+def _resolve_runtime_matrix(
+    group: dict,
+    candidates: dict,
+    exact_matrix_by_key: dict[str, dict],
+    canonical_matrix_by_key: dict[str, dict],
+    matrix: dict,
+    definition_parity: dict,
+    context: dict,
+) -> tuple[dict, dict]:
+    label = str(group.get("label") or "")
+    direct_key = _target_match_key(label)
+    direct = exact_matrix_by_key.get(direct_key)
+    canonical_candidate = canonical_matrix_by_key.get(direct_key)
+    if direct:
+        latest = _public_matrix_evidence(direct)
+        status = "matched" if latest.get("state") != "unknown" else "not_observed"
+        method = (
+            "shard_template"
+            if SHARD_TEMPLATE_SUFFIX_RE.search(_strict_group_label(label))
+            else "exact_matrix_label"
+        )
+        resolution = {
+            "status": status,
+            "method": method,
+            "reason": (
+                "Matched the reviewed target to exact AMD nightly matrix evidence."
+                if status == "matched"
+                else "The AMD definition matched, but the latest matrix has no terminal result."
+            ),
+            "target_identity_key": direct_key,
+            "amd_definition_labels": direct.get("_definition_labels") or [],
+            "candidate_count": len(direct.get("_matrix_row_ids") or []),
+            "mapping_quality": "exact_label",
+            "command_similarity_pct": None,
+            **context,
+        }
+        return latest, resolution
+
+    source_labels = _candidate_source_labels(group, candidates)
+    parity_matches, ambiguous_matches = _parity_rows_for_labels(
+        source_labels,
+        definition_parity.get("matches") or [],
+        label_field="nvidia_label",
+    )
+    shadowed_parity_matches = [
+        row
+        for row in parity_matches
+        if _parity_match_shadowed_by_exact_commands(row, definition_parity)
+    ]
+    parity_matches = [
+        row for row in parity_matches if row not in shadowed_parity_matches
+    ]
+    resolved = []
+    for parity_row in parity_matches:
+        amd_label = str(parity_row.get("amd_label") or "")
+        bundle = exact_matrix_by_key.get(_target_match_key(amd_label))
+        if bundle:
+            resolved.append((parity_row, bundle))
+    if resolved:
+        merged = _merge_matrix_evidence(
+            [bundle for _row, bundle in resolved],
+            matrix.get("generated_at"),
+        )
+        latest = _public_matrix_evidence(merged)
+        identities = sorted({
+            str(row.get("identity_key") or "")
+            for row, _bundle in resolved
+            if row.get("identity_key")
+        })
+        amd_labels = sorted({
+            str(label)
+            for row, bundle in resolved
+            for label in [
+                row.get("amd_label"),
+                *(bundle.get("_definition_labels") or []),
+            ]
+            if str(label or "").strip()
+        })
+        matrix_row_ids = {
+            str(row_id)
+            for _row, bundle in resolved
+            for row_id in (bundle.get("_matrix_row_ids") or [])
+            if str(row_id or "").strip()
+        }
+        status = "matched" if latest.get("state") != "unknown" else "not_observed"
+        similarities = []
+        for row, _bundle in resolved:
+            try:
+                similarities.append(float(row.get("command_similarity")))
+            except (TypeError, ValueError):
+                continue
+        minimum_similarity = min(similarities, default=None)
+        exact_commands = (
+            minimum_similarity is not None
+            and minimum_similarity >= 0.999999
+        )
+        if exact_commands:
+            matched_reason = (
+                "Resolved through exact-command definition parity and linked "
+                "to exact AMD nightly evidence."
+            )
+            mapping_quality = "exact_commands"
+        elif minimum_similarity is not None:
+            matched_reason = (
+                "Resolved through definition identity and linked to exact AMD "
+                "nightly evidence; the paired command lists are only partially "
+                "equivalent."
+            )
+            mapping_quality = "partial_commands"
+        else:
+            matched_reason = (
+                "Resolved through definition parity and linked to exact AMD "
+                "nightly evidence; command similarity is unavailable."
+            )
+            mapping_quality = "unavailable"
+        resolution = {
+            "status": status,
+            "method": "definition_parity",
+            "reason": (
+                matched_reason
+                if status == "matched"
+                else "Definition parity resolved the AMD step, but its latest "
+                "matrix result is not terminal."
+            ),
+            "target_identity_key": ", ".join(identities),
+            "amd_definition_labels": amd_labels,
+            "candidate_count": len(matrix_row_ids),
+            "mapping_quality": mapping_quality,
+            "command_similarity_pct": (
+                round(minimum_similarity * 100, 1)
+                if minimum_similarity is not None
+                else None
+            ),
+            **context,
+        }
+        return latest, resolution
+
+    empty_latest = {
+        "state": "unknown",
+        "build_number": None,
+        "observed_at": matrix.get("generated_at"),
+        "source_pipeline": "amd-ci",
+        "evidence": [],
+    }
+    if parity_matches:
+        amd_labels = sorted({
+            str(row.get("amd_label") or "")
+            for row in parity_matches
+            if row.get("amd_label")
+        })
+        return empty_latest, {
+            "status": "stale_target_alias",
+            "method": "definition_parity",
+            "reason": (
+                "A current definition-parity alias exists, but its AMD label is "
+                "absent from the build-pinned nightly matrix."
+            ),
+            "target_identity_key": ", ".join(sorted({
+                str(row.get("identity_key") or "")
+                for row in parity_matches
+                if row.get("identity_key")
+            })),
+            "amd_definition_labels": amd_labels,
+            "candidate_count": len(amd_labels),
+            **context,
+        }
+    if shadowed_parity_matches:
+        return empty_latest, {
+            "status": "no_amd_definition",
+            "method": "definition_parity",
+            "reason": (
+                "The apparent AMD identity is reserved by an exact-command "
+                "upstream definition; this target has no one-to-one AMD mapping."
+            ),
+            "target_identity_key": ", ".join(sorted({
+                str(row.get("identity_key") or "")
+                for row in shadowed_parity_matches
+                if row.get("identity_key")
+            })),
+            "amd_definition_labels": [],
+            "candidate_count": 0,
+            **context,
+        }
+    if ambiguous_matches:
+        return empty_latest, {
+            "status": "ambiguous",
+            "method": "definition_parity",
+            "reason": (
+                "Multiple definition identities match this reviewed label; "
+                "no AMD result was selected."
+            ),
+            "target_identity_key": "",
+            "amd_definition_labels": sorted({
+                str(row.get("amd_label") or "")
+                for row in ambiguous_matches
+                if row.get("amd_label")
+            }),
+            "candidate_count": len(ambiguous_matches),
+            **context,
+        }
+
+    nvidia_only, nvidia_only_ambiguous = _parity_rows_for_labels(
+        source_labels,
+        definition_parity.get("nvidia_only") or [],
+        label_field="label",
+    )
+    if nvidia_only:
+        identities = sorted({
+            str(row.get("identity_key") or "")
+            for row in nvidia_only
+            if row.get("identity_key")
+        })
+        return empty_latest, {
+            "status": "no_amd_definition",
+            "method": "definition_parity",
+            "reason": (
+                "The current upstream definition has no one-to-one AMD "
+                "definition in the parity snapshot."
+            ),
+            "target_identity_key": ", ".join(identities),
+            "amd_definition_labels": [],
+            "candidate_count": 0,
+            **context,
+        }
+    if nvidia_only_ambiguous:
+        return empty_latest, {
+            "status": "ambiguous",
+            "method": "definition_parity",
+            "reason": (
+                "Multiple upstream-only definitions match this reviewed label; "
+                "the AMD mapping needs review."
+            ),
+            "target_identity_key": "",
+            "amd_definition_labels": [],
+            "candidate_count": len(nvidia_only_ambiguous),
+            **context,
+        }
+    if not (
+        definition_parity.get("matches")
+        or definition_parity.get("nvidia_only")
+    ):
+        return empty_latest, {
+            "status": "not_observed",
+            "method": "unresolved",
+            "reason": (
+                "No matching AMD matrix evidence was published, and definition "
+                "parity is unavailable."
+            ),
+            "target_identity_key": "",
+            "amd_definition_labels": [],
+            "candidate_count": 0,
+            **context,
+        }
+    return empty_latest, {
+        "status": "stale_target_alias",
+        "method": "unresolved",
+        "reason": (
+            (
+                "Only a lossy canonical matrix title matched; an exact YAML "
+                "label or definition-parity identity is required."
+            )
+            if canonical_candidate
+            else (
+                "The reviewed label did not resolve to a current "
+                "upstream-to-AMD definition identity."
+            )
+        ),
+        "target_identity_key": "",
+        "amd_definition_labels": [],
+        "candidate_count": 0,
+        **context,
+    }
+
+
+def _gating(
+    targets: dict,
+    candidates: dict,
+    matrix: dict,
+    capacity: dict,
+    reliability: dict,
+    definition_parity: dict | None = None,
+) -> dict:
+    definition_parity = definition_parity or {}
     groups = list(targets.get("groups") or [])
     target_summary = dict(targets.get("summary") or {})
     candidate_summary = dict(candidates.get("summary") or {})
     matrix_summary = dict(matrix.get("summary") or {})
     matrix_cells = int(matrix_summary.get("hardware_cells") or 0)
-    matrix_by_key = _matrix_evidence(matrix)
+    exact_matrix_by_key, canonical_matrix_by_key = _matrix_evidence(matrix)
+    resolution_context = _runtime_resolution_context(matrix, definition_parity)
     history_pipeline = str(reliability.get("source_pipeline") or "ci")
     catalog_by_key: dict[str, list[dict]] = defaultdict(list)
+    numbered_catalog_by_base: dict[str, list[dict]] = defaultdict(list)
     for row in reliability.get("group_catalog") or []:
-        catalog_by_key[_target_match_key(row.get("name"))].append(row)
+        catalog_key = _target_match_key(row.get("name"))
+        catalog_by_key[catalog_key].append(row)
+        numbered = re.fullmatch(r"(?P<base>.+)\s+(?P<shard>\d+)", catalog_key)
+        if numbered:
+            numbered_catalog_by_base[numbered.group("base")].append(row)
     parity_by_id: dict[Any, list[dict]] = defaultdict(list)
     for row in candidates.get("rows") or []:
         if row.get("target_id") and row.get("url"):
@@ -2425,7 +3041,12 @@ def _gating(targets: dict, candidates: dict, matrix: dict, capacity: dict, relia
 
     def enrich(group: dict, reviewed: bool) -> dict:
         key = _target_match_key(group.get("label"))
-        histories = catalog_by_key.get(key) or []
+        histories = list(catalog_by_key.get(key) or [])
+        if SHARD_TEMPLATE_SUFFIX_RE.search(
+            _strict_group_label(group.get("label"))
+        ):
+            histories.extend(numbered_catalog_by_base.get(key) or [])
+        histories = list({id(row): row for row in histories}.values())
         history = max(
             histories,
             key=lambda row: str(row.get("latest_observed_at") or ""),
@@ -2447,13 +3068,15 @@ def _gating(targets: dict, candidates: dict, matrix: dict, capacity: dict, relia
             key=lambda row: str(row.get("observed_at") or ""),
             default=None,
         )
-        latest = matrix_by_key.get(key) or {
-            "state": "unknown",
-            "build_number": None,
-            "observed_at": matrix.get("generated_at"),
-            "source_pipeline": "amd-ci",
-            "evidence": [],
-        }
+        latest, runtime_resolution = _resolve_runtime_matrix(
+            group,
+            candidates,
+            exact_matrix_by_key,
+            canonical_matrix_by_key,
+            matrix,
+            definition_parity,
+            resolution_context,
+        )
         aggregate_group_ids = sorted({
             str(group_id)
             for row in histories
@@ -2520,10 +3143,15 @@ def _gating(targets: dict, candidates: dict, matrix: dict, capacity: dict, relia
                 "note": group.get("note") or "",
             },
             "latest_amd_result": latest,
+            "runtime_resolution": runtime_resolution,
             "main_reliability": reliability_summary,
             "nightly_green_streak": target_history.get("nightly_green_streak") or 0,
             "last_incident": latest_incident,
-            "assessment": _assessment(latest, reliability_summary),
+            "assessment": _assessment(
+                latest,
+                reliability_summary,
+                runtime_resolution,
+            ),
             "evidence": evidence,
         }
 
@@ -2550,10 +3178,18 @@ def _gating(targets: dict, candidates: dict, matrix: dict, capacity: dict, relia
         str((row.get("latest_amd_result") or {}).get("state") or "unknown")
         for row in active_groups
     )
+    runtime_resolutions = Counter(
+        str((row.get("runtime_resolution") or {}).get("status") or "unknown")
+        for row in active_groups
+    )
     return {
         "definitions": {
             "reviewed_plan": "Intent from the reviewed target configuration; not an ownership assignment.",
-            "latest_amd_result": "Latest exact AMD matrix evidence for this group.",
+            "latest_amd_result": "Latest exact AMD matrix evidence resolved for this group.",
+            "runtime_resolution": (
+                "How the reviewed label resolved to AMD evidence, or why no "
+                "one-to-one runtime result was selected."
+            ),
             "main_reliability": "Terminal outcomes across all retained upstream ci branch=main builds.",
             "historical_evidence": "Reliability, streaks, incidents, and retained execution references come from upstream ci.",
             "upstream_parity": "Upstream ci evidence is the historical reliability reference.",
@@ -2582,6 +3218,7 @@ def _gating(targets: dict, candidates: dict, matrix: dict, capacity: dict, relia
             "active_outside_canonical_count": len(active_extras),
             "by_assessment": dict(sorted(assessments.items())),
             "by_latest_amd_state": dict(sorted(observed_states.items())),
+            "by_runtime_resolution": dict(sorted(runtime_resolutions.items())),
         },
         "active_target_groups": active_groups,
         "candidate_summary": candidate_summary,
@@ -3132,6 +3769,19 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         loaded.get("amd_test_matrix") or {},
         loaded.get("capacity_monitor") or {},
         reliability,
+        definition_parity,
+    )
+    ownership = loaded.get("ci_ownership") or {}
+    gating["ownership"] = (
+        ownership
+        if ownership.get("schema_version") == 1
+        else {
+            "schema_version": 1,
+            "available": False,
+            "unavailable_reason": "ownership_snapshot_unavailable",
+            "areas": [],
+            "summary": {},
+        }
     )
     queue = _queue(queue_snapshot, loaded.get("queue_jobs") or {}, queue_history)
     omni = _omni(
@@ -3167,7 +3817,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
     for name, path in paths.items():
         data = queue_snapshot if name == "queue_timeseries" else loaded.get(name) or {}
         sources[name] = _source_record(path, data, queue_snapshot.get("ts", "") if name == "queue_timeseries" else "")
-    for internal_source in ("agent_health", "omni_issue_state"):
+    for internal_source in ("agent_health", "omni_issue_state", "ci_ownership"):
         sources[internal_source]["published"] = False
     # The raw JSONL ledger is an internal build input, so diagnostics link to
     # the published analytics source while retaining the actual latest AMD

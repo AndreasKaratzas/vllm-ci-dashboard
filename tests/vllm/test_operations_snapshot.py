@@ -322,6 +322,23 @@ def _fixture_data(tmp_path: Path) -> Path:
     return tmp_path
 
 
+def test_ci_ownership_snapshot_is_embedded_but_raw_source_is_private(tmp_path):
+    data_dir = _fixture_data(tmp_path)
+    ownership = {
+        "schema_version": 1,
+        "generated_at": GENERATED_AT,
+        "available": True,
+        "summary": {"areas": 25, "areas_with_incidents": 2},
+        "areas": [{"area": "kernels", "counts": {"incidents": 1}}],
+    }
+    _write_json(data_dir / "ci_ownership.json", ownership)
+
+    payload = ops.build_snapshot(data_dir, generated_at=GENERATED_AT)
+
+    assert payload["gating"]["ownership"] == ownership
+    assert payload["sources"]["ci_ownership"]["published"] is False
+
+
 def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tmp_path):
     alpha = "mi300_1: Alpha tests"
     beta = "mi355b_2: Beta tests"
@@ -1287,6 +1304,442 @@ def test_gating_pass_without_upstream_history_is_not_consistently_passing():
     assert row["assessment"] == "passed_without_history"
 
 
+def test_gating_resolves_percent_n_matrix_and_numbered_history_variants():
+    targets = {"groups": [{"id": 22, "label": "Kernels Attention Test %N"}]}
+    matrix = {
+        "generated_at": GENERATED_AT,
+        "source": {
+            "latest_build_number": 11301,
+            "yaml_url": (
+                "https://raw.githubusercontent.com/vllm-project/vllm/"
+                "7f599d78546819948c32f2b23d913507bbb38875/.buildkite/test-amd.yaml"  # commit SHA
+            ),
+        },
+        "rows": [{
+            "id": "attention",
+            "canonical_title": "Kernels Attention Test",
+            "cells": {
+                "mi300": {
+                    "exists": True,
+                    "latest_state": "passed",
+                    "latest_build_number": 11301,
+                    "latest_url": (
+                        "https://buildkite.com/vllm/amd-ci/builds/11301/steps/"
+                        "canvas?sid=019fa2cd-a62d-46b6-a4e2-0df8be229132"
+                    ),
+                },
+                "mi355": {
+                    "exists": True,
+                    "latest_state": "soft_fail",
+                    "latest_build_number": 11301,
+                    "latest_url": (
+                        "https://buildkite.com/vllm/amd-ci/builds/11301/steps/"
+                        "canvas?sid=mi355-soft"
+                    ),
+                },
+            },
+        }],
+    }
+    reliability = {
+        "available": True,
+        "source_pipeline": "ci",
+        "group_catalog": [
+            {
+                "id": "attention-1",
+                "name": "Kernels Attention Test 1",
+                "runs": 2,
+                "passed": 2,
+                "failed": 0,
+                "soft_failed": 0,
+                "observations": [],
+            },
+            {
+                "id": "attention-2",
+                "name": "Kernels Attention Test 2",
+                "runs": 2,
+                "passed": 2,
+                "failed": 0,
+                "soft_failed": 0,
+                "observations": [],
+            },
+        ],
+    }
+
+    row = ops._gating(
+        targets,
+        {"rows": []},
+        matrix,
+        {},
+        reliability,
+    )["active_target_groups"][0]
+
+    assert row["latest_amd_result"]["state"] == "soft"
+    assert row["latest_amd_result"]["build_number"] == 11301
+    assert len(row["latest_amd_result"]["evidence"]) == 2
+    assert any(
+        "sid=019fa2cd-a62d-46b6-a4e2-0df8be229132" in evidence["url"]
+        for evidence in row["latest_amd_result"]["evidence"]
+    )
+    assert row["runtime_resolution"]["status"] == "matched"
+    assert row["runtime_resolution"]["method"] == "shard_template"
+    assert row["main_reliability"]["variant_count"] == 2
+    assert row["main_reliability"]["runs"] == 4
+
+
+def test_matrix_collision_merge_is_order_independent_and_incident_first():
+    rows = [
+        {
+            "id": "distributed-mi300",
+            "canonical_title": "Distributed Tests (2xH100-2xMI)",
+            "cells": {"mi300": {
+                "exists": True,
+                "latest_state": "passed",
+                "latest_build_number": 11301,
+                "latest_url": (
+                    "https://buildkite.com/vllm/amd-ci/builds/11301/steps/"
+                    "canvas?sid=shared-step"
+                ),
+            }},
+        },
+        {
+            "id": "distributed-mi355",
+            "canonical_title": "Distributed Tests (2xH100-2xMI)",
+            "cells": {"mi355": {
+                "exists": True,
+                "latest_state": "soft_fail",
+                "latest_build_number": 11301,
+                "latest_url": (
+                    "https://buildkite.com/vllm/amd-ci/builds/11301/steps/"
+                    "canvas?sid=shared-step"
+                ),
+            }},
+        },
+    ]
+
+    outputs = []
+    for ordered_rows in (rows, list(reversed(rows))):
+        gating = ops._gating(
+            {"groups": [{"id": 87, "label": "Distributed Tests (2xH100)"}]},
+            {"rows": []},
+            {
+                "generated_at": GENERATED_AT,
+                "source": {"latest_build_number": 11301},
+                "rows": ordered_rows,
+            },
+            {},
+            {},
+        )
+        outputs.append(gating["active_target_groups"][0])
+
+    assert [row["latest_amd_result"]["state"] for row in outputs] == ["soft", "soft"]
+    assert [
+        [
+            (evidence["architecture"], evidence["url"])
+            for evidence in row["latest_amd_result"]["evidence"]
+        ]
+        for row in outputs
+    ] == [[
+        (
+            "mi355",
+            "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=shared-step",
+        ),
+        (
+            "mi300",
+            "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=shared-step",
+        ),
+    ]] * 2
+
+
+def test_exact_matrix_alias_does_not_fold_h100_target_into_b200_variant():
+    matrix = {
+        "generated_at": GENERATED_AT,
+        "source": {"latest_build_number": 11301},
+        "rows": [{
+            "id": "v1-attention",
+            "canonical_title": "V1 attention",
+            "cells": {
+                "mi300": {
+                    "exists": True,
+                    "latest_state": "passed",
+                    "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=h100",
+                    "variants": [{
+                        "label": "V1 attention (H100-MI300)",
+                        "latest_state": "passed",
+                        "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=h100",
+                        "aliases": ["V1 attention (H100-MI300)"],
+                    }],
+                },
+                "mi355": {
+                    "exists": True,
+                    "latest_state": "soft_fail",
+                    "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=b200",
+                    "variants": [{
+                        "label": "V1 attention (B200-MI355)",
+                        "latest_state": "soft_fail",
+                        "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=b200",
+                        "aliases": ["V1 attention (B200-MI355)"],
+                    }],
+                },
+            },
+        }],
+    }
+
+    row = ops._gating(
+        {"groups": [{"id": 103, "label": "V1 attention (H100-MI300)"}]},
+        {"rows": []},
+        matrix,
+        {},
+        {},
+    )["active_target_groups"][0]
+
+    assert row["latest_amd_result"]["state"] == "passed"
+    assert [item["architecture"] for item in row["latest_amd_result"]["evidence"]] == [
+        "mi300"
+    ]
+    assert row["runtime_resolution"]["method"] == "exact_matrix_label"
+
+
+def test_exact_yaml_alias_does_not_absorb_lossy_canonical_sibling():
+    matrix = {
+        "generated_at": GENERATED_AT,
+        "source": {"latest_build_number": 11301},
+        "rows": [
+            {
+                "id": "small-models",
+                "title": "LM Eval Small Models",
+                "canonical_title": "LM Eval Small Models",
+                "cells": {"mi300": {
+                    "exists": True,
+                    "latest_state": "passed",
+                    "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=base",
+                    "variants": [{
+                        "label": "LM Eval Small Models",
+                        "latest_state": "passed",
+                        "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=base",
+                        "aliases": ["LM Eval Small Models"],
+                    }],
+                }},
+            },
+            {
+                "id": "small-models-rocm",
+                "title": "LM Eval Small Models (MI300)",
+                "canonical_title": "LM Eval Small Models",
+                "cells": {"mi300": {
+                    "exists": True,
+                    "latest_state": "soft_fail",
+                    "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=rocm",
+                    "variants": [{
+                        "label": "LM Eval Small Models (MI300)",
+                        "latest_state": "soft_fail",
+                        "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=rocm",
+                        "aliases": ["LM Eval Small Models (MI300)"],
+                    }],
+                }},
+            },
+        ],
+    }
+
+    row = ops._gating(
+        {"groups": [{"id": 113, "label": "LM Eval Small Models"}]},
+        {"rows": []},
+        matrix,
+        {},
+        {},
+    )["active_target_groups"][0]
+
+    assert row["latest_amd_result"]["state"] == "passed"
+    assert [item["url"] for item in row["latest_amd_result"]["evidence"]] == [
+        "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=base"
+    ]
+
+
+def test_lossy_canonical_title_does_not_rescue_stale_hardwareless_target():
+    matrix = {
+        "generated_at": GENERATED_AT,
+        "source": {"latest_build_number": 11301},
+        "rows": [{
+            "id": "qwen-b200",
+            "canonical_title": "Qwen Sync Accuracy",
+            "cells": {"mi355": {
+                "exists": True,
+                "latest_state": "soft_fail",
+                "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=b200",
+                "variants": [{
+                    "label": "Qwen Sync Accuracy (B200-MI355)",
+                    "latest_state": "soft_fail",
+                    "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=b200",
+                    "aliases": ["Qwen Sync Accuracy (B200-MI355)"],
+                }],
+            }},
+        }],
+    }
+    parity = {"matches": [
+        {
+            "identity_key": "qwen sync accuracy (4 gpus)",
+            "nvidia_label": "Qwen Sync Accuracy (4xH100)",
+            "amd_label": "Qwen Sync Accuracy (4xH100-4xMI300)",
+        },
+        {
+            "identity_key": "qwen sync accuracy (2 gpus)",
+            "nvidia_label": "Qwen Sync Accuracy (2xB200)",
+            "amd_label": "Qwen Sync Accuracy (B200-MI355)",
+        },
+    ]}
+
+    row = ops._gating(
+        {"groups": [{"id": 59, "label": "Qwen Sync Accuracy"}]},
+        {"rows": [{
+            "target_id": 59,
+            "decision": "missing_from_upstream",
+            "label": "Qwen Sync Accuracy",
+        }]},
+        matrix,
+        {},
+        {},
+        parity,
+    )["active_target_groups"][0]
+
+    assert row["latest_amd_result"]["state"] == "unknown"
+    assert row["latest_amd_result"]["evidence"] == []
+    assert row["runtime_resolution"]["status"] == "stale_target_alias"
+    assert "lossy canonical matrix title" in row["runtime_resolution"]["reason"]
+
+
+def test_definition_parity_resolves_non_syntactic_amd_alias():
+    target = {"id": 70, "label": "Batch Invariance (A100)"}
+    matrix = {
+        "generated_at": GENERATED_AT,
+        "source": {"latest_build_number": 11301},
+        "rows": [{
+            "id": "batch-mi250",
+            "canonical_title": "Batch Invariance",
+            "cells": {"mi250": {
+                "exists": True,
+                "latest_state": "passed",
+                "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=batch",
+                "variants": [{
+                    "label": "Batch Invariance (H100-MI250)",
+                    "latest_state": "passed",
+                    "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=batch",
+                    "aliases": ["Batch Invariance (H100-MI250)"],
+                }],
+            }},
+        }],
+    }
+    parity = {
+        "source": {"commit_sha": "a" * 40},
+        "matches": [{
+            "identity_key": "batch invariance",
+            "nvidia_label": "Batch Invariance (A100)",
+            "amd_label": "Batch Invariance (H100-MI250)",
+            "command_similarity": 0.6698,
+        }],
+    }
+
+    row = ops._gating(
+        {"groups": [target]},
+        {"rows": []},
+        matrix,
+        {},
+        {},
+        parity,
+    )["active_target_groups"][0]
+
+    assert row["latest_amd_result"]["state"] == "passed"
+    assert row["runtime_resolution"]["status"] == "matched"
+    assert row["runtime_resolution"]["method"] == "definition_parity"
+    assert row["runtime_resolution"]["target_identity_key"] == "batch invariance"
+    assert row["runtime_resolution"]["amd_definition_labels"] == [
+        "Batch Invariance (H100-MI250)"
+    ]
+    assert row["runtime_resolution"]["mapping_quality"] == "partial_commands"
+    assert row["runtime_resolution"]["command_similarity_pct"] == 67.0
+
+
+def test_parity_metadata_cannot_steal_an_exact_command_twin():
+    matrix = {
+        "generated_at": GENERATED_AT,
+        "source": {"latest_build_number": 11301},
+        "rows": [{
+            "id": "extract-hidden-states",
+            "canonical_title": "Extract Hidden States Integration",
+            "cells": {"mi300": {
+                "exists": True,
+                "latest_state": "passed",
+                "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=extract",
+                "variants": [{
+                    "label": "Extract Hidden States Integration",
+                    "latest_state": "passed",
+                    "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=extract",
+                    "aliases": ["Extract Hidden States Integration"],
+                }],
+            }},
+        }],
+    }
+    commands = ["pytest tests/extract_hidden_states"]
+    parity = {
+        "matches": [{
+            "identity_key": "extract hidden states integration (2 gpus)",
+            "nvidia_label": "Extract Hidden States Integration (2 GPUs)",
+            "amd_label": "Extract Hidden States Integration",
+            "command_similarity": 0.8794,
+            "amd_commands": commands,
+        }],
+        "nvidia_only": [{
+            "identity_key": "extract hidden states integration",
+            "label": "Extract Hidden States Integration",
+            "commands": commands,
+        }],
+    }
+
+    row = ops._gating(
+        {"groups": [{
+            "id": 42,
+            "label": "Extract Hidden States Integration (2 GPUs)",
+        }]},
+        {"rows": []},
+        matrix,
+        {},
+        {},
+        parity,
+    )["active_target_groups"][0]
+
+    assert row["latest_amd_result"]["state"] == "unknown"
+    assert row["runtime_resolution"]["status"] == "no_amd_definition"
+    assert row["assessment"] == "no_matching_amd_definition"
+
+
+def test_unresolved_runtime_target_distinguishes_no_definition_from_stale_alias():
+    parity = {
+        "matches": [{
+            "identity_key": "gpqa eval (gpt-oss) (2 gpus)",
+            "nvidia_label": "GPQA Eval (GPT-OSS) (2xH100)",
+            "amd_label": "GPQA Eval (GPT-OSS) (2xH100-2xMI300)",
+        }],
+        "nvidia_only": [{
+            "identity_key": "lm eval turboquant kv cache",
+            "label": "LM Eval TurboQuant KV Cache",
+        }],
+    }
+    result = ops._gating(
+        {"groups": [
+            {"id": 40, "label": "LM Eval TurboQuant KV Cache"},
+            {"id": 65, "label": "GPQA Eval (GPT-OSS) (H100)"},
+        ]},
+        {"rows": []},
+        {"generated_at": GENERATED_AT, "rows": []},
+        {},
+        {},
+        parity,
+    )
+    by_id = {row["id"]: row for row in result["active_target_groups"]}
+
+    assert by_id[40]["runtime_resolution"]["status"] == "no_amd_definition"
+    assert by_id[40]["assessment"] == "no_matching_amd_definition"
+    assert by_id[65]["runtime_resolution"]["status"] == "stale_target_alias"
+    assert by_id[65]["assessment"] == "target_mapping_needs_review"
+
+
 def test_group_catalog_retains_linked_terminal_main_observations(tmp_path):
     reliability = ops.build_snapshot(_fixture_data(tmp_path), generated_at=GENERATED_AT)["reliability"]
     candidates = {row["name"]: row for row in reliability["group_catalog"]}
@@ -1543,7 +1996,8 @@ def test_gating_never_promotes_upstream_history_to_latest_amd_result():
         "source_pipeline": "amd-ci",
         "evidence": [],
     }
-    assert group["assessment"] == "no_recent_amd_signal"
+    assert group["assessment"] == "no_recent_amd_observation"
+    assert group["runtime_resolution"]["status"] == "not_observed"
     assert group["main_reliability"]["latest_state"] == "passed"
     assert group["nightly_green_streak"] == 1
     assert {row["source_pipeline"] for row in group["evidence"]} == {"ci"}

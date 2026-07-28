@@ -318,7 +318,7 @@ def _open_issue(
         f"- dynamic component (`ceil(groups × {OMNI_SURGE_MULTIPLIER})`): {heuristic['dynamic_component']}\n"
         f"- healthy threshold (close at or below): **{heuristic['healthy']}**\n\n"
         f"<details><summary>Per-pool distribution from omni YAMLs</summary>\n\n{pools}\n</details>\n\n"
-        f"cc @{owner_login} for visibility.\n\n"
+        f"GitHub assignee: {owner_login}.\n\n"
         f"Auto-opened by `omni_surge_watcher.py` from {run_url}. Will auto-close once the "
         f"waiting count drops to {heuristic['healthy']}.\n"
     )
@@ -328,7 +328,7 @@ def _open_issue(
         json={
             "title": title,
             "body": body,
-            "labels": [LABEL, "automated"],
+            "labels": [LABEL, "automated", "workstream:infra"],
             "assignees": [owner_login],
         },
         timeout=30,

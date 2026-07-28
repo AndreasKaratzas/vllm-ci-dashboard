@@ -48,6 +48,12 @@ jobs:
       - name: Install dependencies
         run: pip install requests pyyaml pytest cryptography
 
+      - name: Ensure CI Operations issue labels
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python scripts/vllm/ensure_ci_operations_labels.py
+
       # ── Phase 1: Queue snapshot (fast, ~15s) ──
       - name: Sync queue data from gh-pages
         run: |
@@ -189,6 +195,11 @@ jobs:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Collect build-pinned CI ownership parity
+        run: python scripts/vllm/collect_ownership_parity.py --input-dir data/vllm/ci --output data/vllm/ci
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Collect AMD gating proposals
         run: python scripts/vllm/collect_gating_proposals.py --output data/vllm/ci/
         env:
@@ -198,6 +209,38 @@ jobs:
         run: python scripts/vllm/collect_gating_target_candidates.py --output data/vllm/ci/
 
       - name: Build v2 operations snapshot
+        run: python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
+
+      - name: Watch AMD CI test-area regressions (ranked owners)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          CI_OWNER_AVAILABILITY_JSON: ${{ secrets.CI_OWNER_AVAILABILITY_JSON }}
+        run: python scripts/vllm/ci_area_regression_watcher.py
+
+      - name: Sync managed issues to AMD CI Operations project
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          # Prefer the least-privilege replacement. The legacy secret remains
+          # a temporary fallback so Project sync is operational during rotation.
+          PROJECTS_WRITE_TOKEN: ${{ secrets.PROJECTS_WRITE_TOKEN || secrets.PROJECTS_TOKEN }}
+        run: python scripts/vllm/sync_ci_operations_project.py
+
+      - name: Persist CI ownership issue state
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/vllm/ci/open_ci_area_regression_issues.json
+          if ! git diff --cached --quiet; then
+            git commit -m "auto: update CI ownership issue state [skip ci]"
+            git push origin main
+          fi
+
+      - name: Rebuild v2 operations snapshot with CI ownership
         run: python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
 
       # ── Perf Eval (AMD nightly perf + accuracy) ──
@@ -511,8 +554,8 @@ jobs:
               await github.rest.issues.create({
                 owner: context.repo.owner, repo: context.repo.repo,
                 title,
-                body: `${body}\n\ncc @${context.repo.owner} for visibility.`,
-                labels: ['ci-failure', 'automated'],
+                body: `${body}\n\nGitHub assignee: ${context.repo.owner}.`,
+                labels: ['ci-failure', 'automated', 'workstream:dashboard-ci'],
                 assignees: [context.repo.owner],
               });
             }

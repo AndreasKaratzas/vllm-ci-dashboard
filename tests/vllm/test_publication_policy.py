@@ -42,6 +42,11 @@ def test_operational_documentation_matches_the_canonical_publication_path() -> N
         assert "deployed automatically on every push to main" not in text
         assert "scripts/vllm/collect_gating_targets.py" in text
         assert "scripts/vllm/build_operations_snapshot.py" in text
+        assert "scripts/vllm/collect_ownership_parity.py" in text
+        assert "scripts/vllm/ci_area_regression_watcher.py" in text
+        assert "CI Health → CI ownership" in text
+        assert "CI_OWNER_AVAILABILITY_JSON" in text
+        assert "PROJECTS_WRITE_TOKEN" in text
         assert "`gating_targets.json` is regenerated" in text
         assert "`operations_v2.json` is a private build input" in text
 

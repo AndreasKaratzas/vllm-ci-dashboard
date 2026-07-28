@@ -19,9 +19,10 @@ import logging
 import os
 import re
 import tarfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
@@ -33,6 +34,10 @@ from vllm.ci.analyzer import (
     _parity_key_base,
     commands_similarity,
     similarity_color,
+)
+from vllm.collect_amd_test_matrix import (
+    canonical_title as matrix_canonical_title,
+    definition_fingerprint as matrix_definition_fingerprint,
 )
 
 log = logging.getLogger(__name__)
@@ -56,6 +61,16 @@ class ConfigStep:
     source_file: str
     group: str
     commands: list[str] = field(default_factory=list)
+    definition_id: str = ""
+    agent_pool: str = ""
+    working_dir: str = ""
+    semantic_title: str = ""
+    definition_fingerprint: str = ""
+    member_definition_ids: tuple[str, ...] = ()
+    member_labels: tuple[str, ...] = ()
+    member_groups: tuple[str, ...] = ()
+    member_agent_pools: tuple[str, ...] = ()
+    physical_member_count: int = 1
     timeout_in_minutes: Optional[int] = None
     num_gpus: Optional[int] = None
     parallelism: Optional[int] = None
@@ -195,8 +210,47 @@ def _source_provenance() -> dict:
         "upstream_definitions_url": f"https://github.com/{VLLM_REPOSITORY}/tree/{snapshot.commit_sha}/.buildkite/test_areas",
         "fetched_at": snapshot.fetched_at,
         "matching_rules": [
-            "Match exact normalized YAML identities first.",
-            "For unmatched definitions, accept a unique twin only when both command lists are non-empty and normalize to an exact command match.",
+            (
+                "Retain provenance for every parsed YAML definition and report "
+                "the physical AMD count separately."
+            ),
+            (
+                "Coalesce only AMD architecture replicas with the same matrix "
+                "canonical title, execution fingerprint, projected reference "
+                "hardware, and GPU count; preserve every member definition ID, "
+                "label, group, and agent pool."
+            ),
+            (
+                "Report total_amd_steps as collision-safe parity nodes and "
+                "amd_matrix_semantic_rows separately as the matrix row count."
+            ),
+            (
+                "Exclude inline mirrors by exact upstream definition ID (or an "
+                "exact source-file/raw-label fallback), never by a lossy "
+                "normalized label."
+            ),
+            (
+                "Reject explicit reference-hardware or GPU-count mismatches "
+                "before matching shared normalized identities."
+            ),
+            "Prefer an exact YAML label with an exact normalized command list.",
+            (
+                "Before shared-identity matching, reserve unique bidirectional "
+                "exact-command/title twins across different identities so GPU "
+                "metadata cannot hide a command-equivalent counterpart. An "
+                "exact same-identity definition, including an inline mirror, "
+                "blocks this fallback."
+            ),
+            (
+                "Within a shared identity, use a deterministic maximum-cardinality "
+                "one-to-one assignment weighted by projected counterpart label, "
+                "hardware, exact label, and commands."
+            ),
+            (
+                "For unmatched identities, accept a unique twin only when both "
+                "command lists are non-empty and normalize to an exact command "
+                "match."
+            ),
             f"Command twins also require a platform-neutral title similarity of at least {COMMAND_TWIN_TITLE_THRESHOLD:.0%}.",
             "Ambiguous command matches remain unmatched for manual review.",
         ],
@@ -242,6 +296,7 @@ _CONFIG_IDENTITY_ALIASES = {
     # Keep that family distinct from the plain "LM Eval Small Models" row so
     # the AMD variants do not show up as AMD-only.
     "lm eval small models (b200)": "lm eval small models (hardware variants)",
+    "lm eval small models (1 gpus)": "lm eval small models (hardware variants)",
     "lm eval small models (mi300)": "lm eval small models (hardware variants)",
     "lm eval small models (2xb200-2xmi300)": "lm eval small models (hardware variants)",
     "lm eval small models (2xb200-2xmi355)": "lm eval small models (hardware variants)",
@@ -266,7 +321,12 @@ def _config_identity_key(label: str, num_gpus) -> str:
     return key
 
 
-def _parse_step(item: dict, source_file: str, group: str) -> ConfigStep:
+def _parse_step(
+    item: dict,
+    source_file: str,
+    group: str,
+    yaml_index: int = 0,
+) -> ConfigStep:
     """Parse a single step dictionary into a ConfigStep."""
     label = item.get('label', 'unknown')
     cmds = item.get('commands', [])
@@ -275,6 +335,8 @@ def _parse_step(item: dict, source_file: str, group: str) -> ConfigStep:
     cmds = _flatten_commands(cmds)
 
     num_gpus = item.get('num_devices') or item.get('num_gpus')
+    step_key = str(item.get("key") or "").strip()
+    definition_id = f"{source_file}#{step_key or yaml_index}"
 
     return ConfigStep(
         label=label,
@@ -283,6 +345,15 @@ def _parse_step(item: dict, source_file: str, group: str) -> ConfigStep:
         source_file=source_file,
         group=group,
         commands=cmds,
+        definition_id=definition_id,
+        agent_pool=str(item.get("agent_pool") or ""),
+        working_dir=str(item.get("working_dir") or ""),
+        semantic_title=matrix_canonical_title(label),
+        definition_fingerprint=matrix_definition_fingerprint(item),
+        member_definition_ids=(definition_id,),
+        member_labels=(label,),
+        member_groups=(group,),
+        member_agent_pools=(str(item.get("agent_pool") or ""),),
         timeout_in_minutes=item.get('timeout_in_minutes'),
         num_gpus=num_gpus,
         parallelism=item.get('parallelism'),
@@ -314,7 +385,7 @@ def _parse_amd_data(data: dict) -> list[ConfigStep]:
     if not data:
         return []
     steps = []
-    for item in data.get('steps', []):
+    for yaml_index, item in enumerate(data.get('steps', [])):
         agent_pool = item.get('agent_pool', '')
         if 'mi355' in agent_pool:
             group = 'mi355'
@@ -322,7 +393,14 @@ def _parse_amd_data(data: dict) -> list[ConfigStep]:
             group = 'mi325'
         else:
             group = 'amd'
-        steps.append(_parse_step(item, '.buildkite/test-amd.yaml', group))
+        steps.append(
+            _parse_step(
+                item,
+                '.buildkite/test-amd.yaml',
+                group,
+                yaml_index,
+            )
+        )
     return steps
 
 
@@ -338,8 +416,8 @@ def _parse_nvidia_data(
             continue
         group_name = data.get('group', Path(filename).stem)
 
-        for item in data.get('steps', []):
-            step = _parse_step(item, filename, group_name)
+        for yaml_index, item in enumerate(data.get('steps', [])):
+            step = _parse_step(item, filename, group_name, yaml_index)
             nvidia_steps.append(step)
 
             mirror = item.get('mirror')
@@ -362,6 +440,7 @@ def _parse_nvidia_data(
                     "commands_overridden": commands_overridden,
                     "command_similarity": commands_similarity(step.commands, amd_cmds),
                     "source_file": filename,
+                    "nvidia_definition_id": step.definition_id,
                 })
 
     return nvidia_steps, mirrors
@@ -417,8 +496,428 @@ def _title_similarity(amd_step: ConfigStep, nvidia_step: ConfigStep) -> float:
     return max(sequence, token_score)
 
 
-def _dedupe_steps(steps: list[ConfigStep]) -> dict[str, ConfigStep]:
-    return {step.identity_key: step for step in reversed(steps)}
+def _yaml_label_key(value: str) -> str:
+    """Normalize insignificant YAML label formatting without folding hardware."""
+    return re.sub(r"\s+", " ", str(value or "").strip()).casefold()
+
+
+REFERENCE_HARDWARE = r"(?:gh200|gb200|h200|h100|a100|b200|l40s?)"
+REFERENCE_HARDWARE_RE = re.compile(
+    rf"(?:(?P<count>\d+)\s*x\s*)?(?P<hardware>{REFERENCE_HARDWARE})\b",
+    re.IGNORECASE,
+)
+REFERENCE_HARDWARE_SPACE_RE = re.compile(
+    rf"(?P<count>\d+)\s+(?P<hardware>{REFERENCE_HARDWARE})s?\b",
+    re.IGNORECASE,
+)
+GENERIC_GPU_COUNT_RE = re.compile(
+    r"\(\s*(?P<count>\d+)\s+gpus?\s*\)",
+    re.IGNORECASE,
+)
+AMD_COUNTERPART_PAIR_RE = re.compile(
+    rf"(?:(?P<count>\d+)\s*x\s*)?"
+    rf"(?P<hardware>{REFERENCE_HARDWARE})\s*-\s*"
+    r"(?:(?P<amd_count>\d+)\s*x\s*)?mi\d{2,4}b?",
+    re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True)
+class HardwareProjection:
+    """Reference-platform identity retained before broad label normalization."""
+    counterpart_key: str
+    hardware: str = ""
+    gpu_count: Optional[int] = None
+    kind: str = "none"
+
+
+def _hardware_projection(step: ConfigStep) -> HardwareProjection:
+    label = re.sub(
+        r"\s*%n\s*$",
+        "",
+        _yaml_label_key(step.label),
+    )
+
+    def counterpart_replacement(match: re.Match) -> str:
+        count = match.group("count")
+        hardware = match.group("hardware").casefold()
+        return f"{count}x{hardware}" if count else hardware
+
+    counterpart = AMD_COUNTERPART_PAIR_RE.sub(
+        counterpart_replacement,
+        label,
+    )
+    counterpart = re.sub(
+        rf"\(\s*(?P<count>\d+)\s+gpus?\s*\)\s*"
+        rf"\(\s*(?P<hardware>{REFERENCE_HARDWARE})\s*\)",
+        lambda match: (
+            f"({match.group('count')}x"
+            f"{match.group('hardware').casefold()})"
+        ),
+        counterpart,
+        flags=re.IGNORECASE,
+    )
+    counterpart = REFERENCE_HARDWARE_SPACE_RE.sub(
+        lambda match: (
+            f"{match.group('count')}x"
+            f"{match.group('hardware').casefold()}"
+        ),
+        counterpart,
+    )
+    counterpart = re.sub(r"\s+", " ", counterpart).strip()
+
+    space_explicit = REFERENCE_HARDWARE_SPACE_RE.search(label)
+    explicit = REFERENCE_HARDWARE_RE.search(label) or space_explicit
+    if explicit:
+        count = _gpu_count(explicit.group("count"))
+        if count is None:
+            if (
+                space_explicit
+                and space_explicit.group("hardware").casefold()
+                == explicit.group("hardware").casefold()
+            ):
+                count = _gpu_count(space_explicit.group("count"))
+        if count is None:
+            count = _gpu_count(step.num_gpus)
+        if count is None:
+            generic = GENERIC_GPU_COUNT_RE.search(label)
+            count = _gpu_count(generic.group("count")) if generic else None
+        return HardwareProjection(
+            counterpart_key=counterpart,
+            hardware=explicit.group("hardware").casefold(),
+            gpu_count=count,
+            kind="explicit",
+        )
+
+    generic = GENERIC_GPU_COUNT_RE.search(label)
+    count = _gpu_count(generic.group("count")) if generic else _gpu_count(
+        step.num_gpus
+    )
+    return HardwareProjection(
+        counterpart_key=counterpart,
+        gpu_count=count,
+        kind="generic" if count else "none",
+    )
+
+
+def _hardware_compatibility(
+    left: ConfigStep,
+    right: ConfigStep,
+) -> int | None:
+    left_projection = _hardware_projection(left)
+    right_projection = _hardware_projection(right)
+    if (
+        left_projection.hardware
+        and right_projection.hardware
+        and left_projection.hardware != right_projection.hardware
+    ):
+        return None
+    if (
+        left_projection.gpu_count
+        and right_projection.gpu_count
+        and left_projection.gpu_count != right_projection.gpu_count
+    ):
+        return None
+    if left_projection.hardware and right_projection.hardware:
+        return 3
+    if left_projection.kind == "generic" and right_projection.kind == "generic":
+        return 2
+    return 1 if (left_projection.hardware or right_projection.hardware) else 2
+
+
+def _counterpart_labels_match(left: ConfigStep, right: ConfigStep) -> bool:
+    return (
+        _hardware_projection(left).counterpart_key
+        == _hardware_projection(right).counterpart_key
+    )
+
+
+def _step_sort_key(index: int, step: ConfigStep) -> tuple:
+    """Stable ordering for collision groups and otherwise identical rows."""
+    return (
+        str(step.identity_key).casefold(),
+        _yaml_label_key(step.label),
+        tuple(str(command) for command in step.commands),
+        str(step.source_file).casefold(),
+        str(step.definition_id).casefold(),
+        str(step.group).casefold(),
+        index,
+    )
+
+
+def _semantic_amd_steps(
+    steps: list[ConfigStep],
+) -> list[ConfigStep]:
+    """Coalesce only matrix-equivalent AMD execution replicas."""
+    fingerprints_by_title: dict[str, set[str]] = {}
+    for step in steps:
+        if not step.semantic_title or not step.definition_fingerprint:
+            continue
+        fingerprints_by_title.setdefault(step.semantic_title, set()).add(
+            step.definition_fingerprint
+        )
+
+    groups: dict[tuple[str, ...], list[tuple[int, ConfigStep]]] = {}
+    for index, step in enumerate(steps):
+        if not step.semantic_title or not step.definition_fingerprint:
+            key = ("physical", step.definition_id or str(index))
+        else:
+            projection = _hardware_projection(step)
+            key_parts = [
+                "semantic",
+                step.semantic_title,
+            ]
+            if len(fingerprints_by_title.get(step.semantic_title, set())) > 1:
+                key_parts.append(step.definition_fingerprint)
+            key_parts.extend((
+                projection.hardware,
+                str(projection.gpu_count or ""),
+            ))
+            key = tuple(key_parts)
+        groups.setdefault(key, []).append((index, step))
+
+    logical_steps = []
+    for members in groups.values():
+        members.sort(key=lambda item: _step_sort_key(item[0], item[1]))
+        representative = members[0][1]
+        if len(members) == 1:
+            logical_steps.append(representative)
+            continue
+        logical_steps.append(
+            replace(
+                representative,
+                member_definition_ids=tuple(
+                    step.definition_id for _index, step in members
+                ),
+                member_labels=tuple(
+                    step.label for _index, step in members
+                ),
+                member_groups=tuple(
+                    step.group for _index, step in members
+                ),
+                member_agent_pools=tuple(
+                    step.agent_pool for _index, step in members
+                ),
+                physical_member_count=len(members),
+            )
+        )
+    return logical_steps
+
+
+def _matrix_semantic_amd_count(steps: list[ConfigStep]) -> int:
+    """Count rows under the AMD matrix's title/fingerprint policy."""
+    fingerprints_by_title: dict[str, set[str]] = {}
+    for step in steps:
+        if step.semantic_title and step.definition_fingerprint:
+            fingerprints_by_title.setdefault(step.semantic_title, set()).add(
+                step.definition_fingerprint
+            )
+
+    keys: set[tuple[str, ...]] = set()
+    for index, step in enumerate(steps):
+        if not step.semantic_title or not step.definition_fingerprint:
+            key = ("physical", step.definition_id or str(index))
+        elif len(fingerprints_by_title.get(step.semantic_title, set())) > 1:
+            key = (
+                "semantic",
+                step.semantic_title,
+                step.definition_fingerprint,
+            )
+        else:
+            key = ("semantic", step.semantic_title)
+        keys.add(key)
+    return len(keys)
+
+
+def _exact_commands(left: ConfigStep, right: ConfigStep) -> bool:
+    return bool(
+        left.commands
+        and right.commands
+        and commands_similarity(left.commands, right.commands) >= 0.999999
+    )
+
+
+def _raw_label_similarity(left: ConfigStep, right: ConfigStep) -> float:
+    return SequenceMatcher(
+        None,
+        _yaml_label_key(left.label),
+        _yaml_label_key(right.label),
+    ).ratio()
+
+
+def _identity_edge_weight(
+    amd_step: ConfigStep,
+    nvidia_step: ConfigStep,
+) -> tuple[int, ...] | None:
+    """Return the lexicographic weight for one compatible identity edge."""
+    hardware_rank = _hardware_compatibility(amd_step, nvidia_step)
+    if hardware_rank is None:
+        return None
+    return (
+        int(_counterpart_labels_match(amd_step, nvidia_step)),
+        hardware_rank,
+        int(
+            _yaml_label_key(amd_step.label)
+            == _yaml_label_key(nvidia_step.label)
+        ),
+        int(_exact_commands(amd_step, nvidia_step)),
+        round(commands_similarity(amd_step.commands, nvidia_step.commands) * 1_000_000),
+        round(_raw_label_similarity(amd_step, nvidia_step) * 1_000_000),
+        round(_title_similarity(amd_step, nvidia_step) * 1_000_000),
+    )
+
+
+def _pair_signature(pairs: tuple[tuple[int, ConfigStep, int, ConfigStep], ...]) -> tuple:
+    """Stable tie-breaker for equally weighted assignments."""
+    return tuple(sorted(
+        (
+            _step_sort_key(amd_index, amd_step),
+            _step_sort_key(nvidia_index, nvidia_step),
+        )
+        for amd_index, amd_step, nvidia_index, nvidia_step in pairs
+    ))
+
+
+def _optimal_identity_pairs(
+    amd_refs: list[tuple[int, ConfigStep]],
+    nvidia_refs: list[tuple[int, ConfigStep]],
+) -> list[tuple[int, ConfigStep, int, ConfigStep]]:
+    """Find a maximum-cardinality, maximum-weight compatible assignment."""
+    if not amd_refs or not nvidia_refs:
+        return []
+
+    sorted_amd = sorted(
+        amd_refs,
+        key=lambda item: _step_sort_key(item[0], item[1]),
+    )
+    sorted_nvidia = sorted(
+        nvidia_refs,
+        key=lambda item: _step_sort_key(item[0], item[1]),
+    )
+
+    # Mask the smaller side. Identity collision buckets are normally tiny, and
+    # this orientation also keeps the exact dynamic program bounded when one
+    # side has many more definitions than the other.
+    rows_are_amd = len(sorted_amd) >= len(sorted_nvidia)
+    rows = sorted_amd if rows_are_amd else sorted_nvidia
+    choices = sorted_nvidia if rows_are_amd else sorted_amd
+    empty_score = (0,) * 8
+
+    def prefer(
+        candidate: tuple[
+            tuple[int, ...],
+            tuple[tuple[int, ConfigStep, int, ConfigStep], ...],
+        ],
+        incumbent: tuple[
+            tuple[int, ...],
+            tuple[tuple[int, ConfigStep, int, ConfigStep], ...],
+        ],
+    ) -> bool:
+        if candidate[0] != incumbent[0]:
+            return candidate[0] > incumbent[0]
+        return _pair_signature(candidate[1]) < _pair_signature(incumbent[1])
+
+    @lru_cache(maxsize=None)
+    def solve(
+        row_offset: int,
+        used_choices: int,
+    ) -> tuple[
+        tuple[int, ...],
+        tuple[tuple[int, ConfigStep, int, ConfigStep], ...],
+    ]:
+        if row_offset >= len(rows):
+            return empty_score, ()
+
+        best = solve(row_offset + 1, used_choices)
+        row_index, row_step = rows[row_offset]
+        for choice_offset, (choice_index, choice_step) in enumerate(choices):
+            bit = 1 << choice_offset
+            if used_choices & bit:
+                continue
+            if rows_are_amd:
+                amd_index, amd_step = row_index, row_step
+                nvidia_index, nvidia_step = choice_index, choice_step
+            else:
+                amd_index, amd_step = choice_index, choice_step
+                nvidia_index, nvidia_step = row_index, row_step
+            edge_weight = _identity_edge_weight(amd_step, nvidia_step)
+            if edge_weight is None:
+                continue
+
+            remaining_score, remaining_pairs = solve(
+                row_offset + 1,
+                used_choices | bit,
+            )
+            score = (
+                remaining_score[0] + 1,
+                *(
+                    remaining_score[index + 1] + value
+                    for index, value in enumerate(edge_weight)
+                ),
+            )
+            candidate = (
+                score,
+                (
+                    (amd_index, amd_step, nvidia_index, nvidia_step),
+                    *remaining_pairs,
+                ),
+            )
+            if prefer(candidate, best):
+                best = candidate
+        return best
+
+    _score, pairs = solve(0, 0)
+    return sorted(
+        pairs,
+        key=lambda pair: (
+            _step_sort_key(pair[0], pair[1]),
+            _step_sort_key(pair[2], pair[3]),
+        ),
+    )
+
+
+def _mirrored_nvidia_indices(
+    nvidia_steps: list[ConfigStep],
+    mirrors: list[dict],
+) -> set[int]:
+    """Resolve each inline mirror to one exact upstream YAML definition."""
+    mirrored: set[int] = set()
+    for mirror in mirrors:
+        definition_id = str(mirror.get("nvidia_definition_id") or "")
+        if definition_id:
+            exact_id = [
+                (index, step)
+                for index, step in enumerate(nvidia_steps)
+                if index not in mirrored
+                and step.definition_id == definition_id
+            ]
+            if exact_id:
+                index, _step = min(
+                    exact_id,
+                    key=lambda item: _step_sort_key(item[0], item[1]),
+                )
+                mirrored.add(index)
+                continue
+
+        identity = str(mirror.get("identity_key") or "")
+        raw_label = str(mirror.get("nvidia_label") or "")
+        source_file = str(mirror.get("source_file") or "")
+        candidates = [
+            (index, step)
+            for index, step in enumerate(nvidia_steps)
+            if index not in mirrored
+            and step.identity_key == identity
+            and str(step.label) == raw_label
+            and step.source_file == source_file
+        ]
+        if not candidates:
+            continue
+        index, _step = min(
+            candidates,
+            key=lambda item: _step_sort_key(item[0], item[1]),
+        )
+        mirrored.add(index)
+    return mirrored
 
 
 def _match_config_steps(
@@ -426,99 +925,259 @@ def _match_config_steps(
     nvidia_steps: list[ConfigStep],
     mirrors: list[dict],
 ) -> tuple[list[ConfigMatch], list[ConfigStep], list[ConfigStep]]:
-    """Match definitions by identity, then by unique exact-command twins."""
-    amd_by_identity = _dedupe_steps(amd_steps)
-    nvidia_by_identity = _dedupe_steps(nvidia_steps)
-    mirrored_nvidia = {mirror["identity_key"] for mirror in mirrors}
+    """Match logical definitions one-to-one while preserving physical provenance."""
+    logical_amd_steps = _semantic_amd_steps(amd_steps)
+    amd_refs = list(enumerate(logical_amd_steps))
+    nvidia_refs = list(enumerate(nvidia_steps))
+    mirrored_nvidia = _mirrored_nvidia_indices(nvidia_steps, mirrors)
     matches: list[ConfigMatch] = []
-    matched_amd: set[str] = set()
-    matched_nvidia: set[str] = set()
+    matched_amd: set[int] = set()
+    matched_nvidia: set[int] = set(mirrored_nvidia)
 
-    for identity, amd_step in amd_by_identity.items():
-        nvidia_step = nvidia_by_identity.get(identity)
-        if nvidia_step is None:
-            continue
+    def add_match(
+        amd_index: int,
+        amd_step: ConfigStep,
+        nvidia_index: int,
+        nvidia_step: ConfigStep,
+    ) -> None:
         similarity = commands_similarity(amd_step.commands, nvidia_step.commands)
         matches.append(ConfigMatch(
             amd_step=amd_step,
             nvidia_step=nvidia_step,
             command_similarity=similarity,
             color=similarity_color(similarity),
-            match_method="identity",
+            match_method=(
+                "identity"
+                if amd_step.identity_key == nvidia_step.identity_key
+                else "command_twin"
+            ),
             title_similarity=_title_similarity(amd_step, nvidia_step),
         ))
-        matched_amd.add(identity)
-        matched_nvidia.add(identity)
+        matched_amd.add(amd_index)
+        matched_nvidia.add(nvidia_index)
 
-    # Build unique-best proposals first, then reject a proposal if multiple AMD
-    # definitions target the same upstream identity. Exact commands alone are
-    # insufficient when labels are ambiguous.
-    proposals = []
-    candidates_by_nvidia: dict[str, list[tuple[float, str]]] = {}
-    for amd_identity, amd_step in amd_by_identity.items():
-        if amd_identity in matched_amd or not amd_step.commands:
-            continue
-        candidates = []
-        for nvidia_identity, nvidia_step in nvidia_by_identity.items():
-            if nvidia_identity in matched_nvidia or nvidia_identity in mirrored_nvidia:
-                continue
-            if not nvidia_step.commands:
-                continue
-            command_score = commands_similarity(amd_step.commands, nvidia_step.commands)
-            if command_score < 0.999999:
-                continue
-            title_score = _title_similarity(amd_step, nvidia_step)
-            if title_score >= COMMAND_TWIN_TITLE_THRESHOLD:
-                candidates.append((title_score, nvidia_identity, nvidia_step))
-                candidates_by_nvidia.setdefault(nvidia_identity, []).append(
-                    (title_score, amd_identity)
-                )
-        candidates.sort(key=lambda row: (-row[0], row[1]))
-        if not candidates:
-            continue
-        best_score = candidates[0][0]
-        best = [row for row in candidates if abs(row[0] - best_score) < 1e-9]
-        if len(best) == 1:
-            proposals.append((best_score, amd_identity, amd_step, best[0][1], best[0][2]))
-
-    for title_score, amd_identity, amd_step, nvidia_identity, nvidia_step in sorted(
-        proposals, key=lambda row: (-row[0], row[1], row[3]),
-    ):
-        reverse_candidates = sorted(
-            candidates_by_nvidia.get(nvidia_identity, []),
-            key=lambda row: (-row[0], row[1]),
-        )
-        if not reverse_candidates:
-            continue
-        reverse_best_score = reverse_candidates[0][0]
-        reverse_best = [
-            row for row in reverse_candidates
-            if abs(row[0] - reverse_best_score) < 1e-9
+    def unmatched_amd() -> list[tuple[int, ConfigStep]]:
+        return [
+            ref for ref in amd_refs
+            if ref[0] not in matched_amd
         ]
-        if len(reverse_best) != 1 or reverse_best[0][1] != amd_identity:
-            continue
-        matches.append(ConfigMatch(
-            amd_step=amd_step,
-            nvidia_step=nvidia_step,
-            command_similarity=1.0,
-            color="green",
-            match_method="command_twin",
-            title_similarity=title_score,
-        ))
-        matched_amd.add(amd_identity)
-        matched_nvidia.add(nvidia_identity)
+
+    def unmatched_nvidia() -> list[tuple[int, ConfigStep]]:
+        return [
+            ref for ref in nvidia_refs
+            if ref[0] not in matched_nvidia
+        ]
+
+    # Strongest evidence: exact YAML labels with exact normalized commands.
+    # Iterate because resolving a singleton can expose another singleton in the
+    # same collision graph without relying on source order.
+    while True:
+        available_amd = unmatched_amd()
+        available_nvidia = unmatched_nvidia()
+        by_amd = {
+            amd_index: [
+                (nvidia_index, nvidia_step)
+                for nvidia_index, nvidia_step in available_nvidia
+                if _yaml_label_key(amd_step.label)
+                == _yaml_label_key(nvidia_step.label)
+                and _exact_commands(amd_step, nvidia_step)
+                and _hardware_compatibility(amd_step, nvidia_step) is not None
+            ]
+            for amd_index, amd_step in available_amd
+        }
+        by_nvidia = {
+            nvidia_index: [
+                (amd_index, amd_step)
+                for amd_index, amd_step in available_amd
+                if _yaml_label_key(amd_step.label)
+                == _yaml_label_key(nvidia_step.label)
+                and _exact_commands(amd_step, nvidia_step)
+                and _hardware_compatibility(amd_step, nvidia_step) is not None
+            ]
+            for nvidia_index, nvidia_step in available_nvidia
+        }
+        pairs = []
+        for amd_index, amd_step in available_amd:
+            candidates = by_amd.get(amd_index) or []
+            if len(candidates) != 1:
+                continue
+            nvidia_index, nvidia_step = candidates[0]
+            reverse = by_nvidia.get(nvidia_index) or []
+            if len(reverse) == 1 and reverse[0][0] == amd_index:
+                pairs.append((
+                    _step_sort_key(amd_index, amd_step),
+                    _step_sort_key(nvidia_index, nvidia_step),
+                    amd_index,
+                    amd_step,
+                    nvidia_index,
+                    nvidia_step,
+                ))
+        if not pairs:
+            break
+        for _amd_key, _nvidia_key, amd_index, amd_step, nvidia_index, nvidia_step in sorted(pairs):
+            if amd_index in matched_amd or nvidia_index in matched_nvidia:
+                continue
+            add_match(amd_index, amd_step, nvidia_index, nvidia_step)
+
+    # Reserve unique, bidirectional exact-command/title pairs before matching
+    # remaining shared identities. This retains the metadata-conflict override
+    # while allowing multiple definitions to coexist under one identity. A
+    # mirrored definition is unavailable for a direct pair but still blocks a
+    # cross-identity fallback from claiming its standalone AMD duplicate.
+    amd_with_exact_identity = {
+        amd_index
+        for amd_index, amd_step in amd_refs
+        if any(
+            amd_step.identity_key == nvidia_step.identity_key
+            and _exact_commands(amd_step, nvidia_step)
+            and _hardware_compatibility(amd_step, nvidia_step) is not None
+            for _nvidia_index, nvidia_step in nvidia_refs
+        )
+    }
+    nvidia_with_exact_identity = {
+        nvidia_index
+        for nvidia_index, nvidia_step in nvidia_refs
+        if any(
+            amd_step.identity_key == nvidia_step.identity_key
+            and _exact_commands(amd_step, nvidia_step)
+            and _hardware_compatibility(amd_step, nvidia_step) is not None
+            for _amd_index, amd_step in amd_refs
+        )
+    }
+    while True:
+        available_amd = unmatched_amd()
+        available_nvidia = unmatched_nvidia()
+        by_amd: dict[
+            int,
+            list[tuple[tuple[int, int], int, ConfigStep]],
+        ] = {}
+        by_nvidia: dict[
+            int,
+            list[tuple[tuple[int, int], int, ConfigStep]],
+        ] = {}
+        for amd_index, amd_step in available_amd:
+            for nvidia_index, nvidia_step in available_nvidia:
+                if (
+                    amd_index in amd_with_exact_identity
+                    or nvidia_index in nvidia_with_exact_identity
+                ):
+                    continue
+                if amd_step.identity_key == nvidia_step.identity_key:
+                    continue
+                if not _exact_commands(amd_step, nvidia_step):
+                    continue
+                if _hardware_compatibility(amd_step, nvidia_step) is None:
+                    continue
+                title_score = _title_similarity(amd_step, nvidia_step)
+                if title_score < COMMAND_TWIN_TITLE_THRESHOLD:
+                    continue
+                twin_score = (
+                    int(_counterpart_labels_match(amd_step, nvidia_step)),
+                    round(title_score * 1_000_000),
+                )
+                by_amd.setdefault(amd_index, []).append(
+                    (twin_score, nvidia_index, nvidia_step)
+                )
+                by_nvidia.setdefault(nvidia_index, []).append(
+                    (twin_score, amd_index, amd_step)
+                )
+
+        proposals = []
+        for amd_index, amd_step in available_amd:
+            candidates = by_amd.get(amd_index) or []
+            if not candidates:
+                continue
+            best_score = max(row[0] for row in candidates)
+            best = [row for row in candidates if row[0] == best_score]
+            if len(best) != 1:
+                continue
+            _twin_score, nvidia_index, nvidia_step = best[0]
+            reverse_candidates = by_nvidia.get(nvidia_index) or []
+            reverse_score = max(
+                (row[0] for row in reverse_candidates),
+                default=(-1, -1),
+            )
+            reverse_best = [
+                row for row in reverse_candidates
+                if row[0] == reverse_score
+            ]
+            if len(reverse_best) != 1 or reverse_best[0][1] != amd_index:
+                continue
+            proposals.append((
+                _step_sort_key(amd_index, amd_step),
+                _step_sort_key(nvidia_index, nvidia_step),
+                amd_index,
+                amd_step,
+                nvidia_index,
+                nvidia_step,
+            ))
+        if not proposals:
+            break
+        for (
+            _amd_key,
+            _nvidia_key,
+            amd_index,
+            amd_step,
+            nvidia_index,
+            nvidia_step,
+        ) in sorted(proposals):
+            if amd_index in matched_amd or nvidia_index in matched_nvidia:
+                continue
+            add_match(amd_index, amd_step, nvidia_index, nvidia_step)
+
+    # Finally pair remaining definitions only within the same identity. Solve
+    # the whole collision bucket at once: a greedy edge can consume the only
+    # hardware-compatible counterpart available to another definition.
+    identities = sorted({
+        step.identity_key
+        for _index, step in [*unmatched_amd(), *unmatched_nvidia()]
+    })
+    for identity in identities:
+        available_amd = [
+            ref for ref in unmatched_amd()
+            if ref[1].identity_key == identity
+        ]
+        available_nvidia = [
+            ref for ref in unmatched_nvidia()
+            if ref[1].identity_key == identity
+        ]
+        for (
+            amd_index,
+            amd_step,
+            nvidia_index,
+            nvidia_step,
+        ) in _optimal_identity_pairs(available_amd, available_nvidia):
+            add_match(amd_index, amd_step, nvidia_index, nvidia_step)
 
     amd_only = [
-        step for identity, step in amd_by_identity.items()
-        if identity not in matched_amd and identity not in mirrored_nvidia
+        step for index, step in amd_refs
+        if index not in matched_amd
     ]
     nvidia_only = [
-        step for identity, step in nvidia_by_identity.items()
-        if identity not in matched_nvidia and identity not in mirrored_nvidia
+        step for index, step in nvidia_refs
+        if index not in matched_nvidia
     ]
-    matches.sort(key=lambda match: (match.command_similarity, match.amd_step.label.lower()))
-    amd_only.sort(key=lambda step: step.label.lower())
-    nvidia_only.sort(key=lambda step: step.label.lower())
+    matches.sort(key=lambda match: (
+        match.command_similarity,
+        _yaml_label_key(match.amd_step.label),
+        _yaml_label_key(match.nvidia_step.label),
+        match.amd_step.source_file,
+        match.nvidia_step.source_file,
+    ))
+    amd_only.sort(key=lambda step: (
+        _yaml_label_key(step.label),
+        step.identity_key,
+        step.source_file,
+        step.group,
+        tuple(step.commands),
+    ))
+    nvidia_only.sort(key=lambda step: (
+        _yaml_label_key(step.label),
+        step.identity_key,
+        step.source_file,
+        step.group,
+        tuple(step.commands),
+    ))
     return matches, amd_only, nvidia_only
 
 
@@ -539,9 +1198,16 @@ def extract_parity_key_overrides() -> dict[str, str]:
     canonical_by_label: dict[str, str] = {}
     for match in matches:
         canonical = match.amd_step.identity_key
-        for step in (match.amd_step, match.nvidia_step):
-            identities_by_label.setdefault(step.normalized_label, set()).add(canonical)
-            canonical_by_label[step.normalized_label] = canonical
+        labels = {
+            *(match.amd_step.member_labels or (match.amd_step.label,)),
+            match.nvidia_step.label,
+        }
+        for label in labels:
+            normalized_label = _normalize_job_name(label)
+            identities_by_label.setdefault(normalized_label, set()).add(
+                canonical
+            )
+            canonical_by_label[normalized_label] = canonical
 
     overrides: dict[str, str] = {}
     for normalized_label, canonical in canonical_by_label.items():
@@ -572,14 +1238,22 @@ def build_config_parity() -> dict:
     if nvidia_steps is None:
         return {"error": "Failed to list test_areas/ from upstream"}
 
-    matches, amd_only, nvidia_only = _match_config_steps(amd_steps, nvidia_steps, mirrors)
-    amd_deduped = _dedupe_steps(amd_steps)
-    nvidia_deduped = _dedupe_steps(nvidia_steps)
-
+    logical_amd_steps = _semantic_amd_steps(amd_steps)
+    matches, amd_only, nvidia_only = _match_config_steps(
+        amd_steps,
+        nvidia_steps,
+        mirrors,
+    )
     # Compute summary metrics
-    total_amd = len(amd_deduped)
-    total_nvidia = len(nvidia_deduped)
-    match_rate = len(matches) / (len(matches) + len(amd_only)) * 100 if (len(matches) + len(amd_only)) > 0 else 0
+    raw_amd = len(amd_steps)
+    total_amd = len(logical_amd_steps)
+    matrix_amd = _matrix_semantic_amd_count(amd_steps)
+    total_nvidia = len(nvidia_steps)
+    match_rate = (
+        len(matches) / (len(matches) + len(amd_only)) * 100
+        if (len(matches) + len(amd_only)) > 0
+        else 0
+    )
     avg_similarity = (
         sum(m.command_similarity for m in matches) / len(matches) * 100
         if matches else 0
@@ -594,7 +1268,25 @@ def build_config_parity() -> dict:
         "source": source,
         "summary": {
             "total_amd_steps": total_amd,
+            "amd_parity_nodes": total_amd,
+            "amd_matrix_semantic_rows": matrix_amd,
+            "amd_hardware_split_rows": total_amd - matrix_amd,
+            "raw_amd_steps": raw_amd,
+            "amd_execution_replica_rows": raw_amd - total_amd,
+            "amd_matrix_replica_rows": raw_amd - matrix_amd,
             "total_nvidia_steps": total_nvidia,
+            "unique_amd_identities": len({
+                step.identity_key for step in logical_amd_steps
+            }),
+            "unique_nvidia_identities": len({
+                step.identity_key for step in nvidia_steps
+            }),
+            "amd_identity_collision_rows": total_amd - len({
+                step.identity_key for step in logical_amd_steps
+            }),
+            "nvidia_identity_collision_rows": total_nvidia - len({
+                step.identity_key for step in nvidia_steps
+            }),
             "matched": len(matches),
             "identity_matches": identity_matches,
             "command_twins": command_twins,
@@ -614,6 +1306,25 @@ def build_config_parity() -> dict:
                 "title_similarity": round(m.title_similarity, 4),
                 "match_method": m.match_method,
                 "color": m.color,
+                "amd_group": m.amd_step.group,
+                "nvidia_group": m.nvidia_step.group,
+                "amd_definition_id": m.amd_step.definition_id,
+                "nvidia_definition_id": m.nvidia_step.definition_id,
+                "amd_physical_member_count": m.amd_step.physical_member_count,
+                "amd_member_definition_ids": list(
+                    m.amd_step.member_definition_ids
+                    or (m.amd_step.definition_id,)
+                ),
+                "amd_member_labels": list(
+                    m.amd_step.member_labels or (m.amd_step.label,)
+                ),
+                "amd_member_groups": list(
+                    m.amd_step.member_groups or (m.amd_step.group,)
+                ),
+                "amd_member_agent_pools": list(
+                    m.amd_step.member_agent_pools
+                    or (m.amd_step.agent_pool,)
+                ),
                 "amd_source": m.amd_step.source_file,
                 "nvidia_source": m.nvidia_step.source_file,
                 "amd_source_url": _source_url(m.amd_step.source_file, commit_sha),
@@ -629,6 +1340,16 @@ def build_config_parity() -> dict:
                 "normalized": s.normalized_label,
                 "identity_key": s.identity_key,
                 "group": s.group,
+                "definition_id": s.definition_id,
+                "physical_member_count": s.physical_member_count,
+                "member_definition_ids": list(
+                    s.member_definition_ids or (s.definition_id,)
+                ),
+                "member_labels": list(s.member_labels or (s.label,)),
+                "member_groups": list(s.member_groups or (s.group,)),
+                "member_agent_pools": list(
+                    s.member_agent_pools or (s.agent_pool,)
+                ),
                 "source": s.source_file,
                 "source_url": _source_url(s.source_file, commit_sha),
                 "commands": s.commands,
@@ -640,6 +1361,7 @@ def build_config_parity() -> dict:
                 "label": s.label,
                 "normalized": s.normalized_label,
                 "identity_key": s.identity_key,
+                "definition_id": s.definition_id,
                 "source": s.source_file,
                 "source_url": _source_url(s.source_file, commit_sha),
                 "commands": s.commands,
@@ -650,6 +1372,7 @@ def build_config_parity() -> dict:
             {
                 "nvidia_label": m["nvidia_label"],
                 "identity_key": m["identity_key"],
+                "nvidia_definition_id": m.get("nvidia_definition_id", ""),
                 "commands_overridden": m["commands_overridden"],
                 "command_similarity": round(m["command_similarity"], 4),
                 "color": similarity_color(m["command_similarity"]),

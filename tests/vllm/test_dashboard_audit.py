@@ -159,6 +159,7 @@ def test_operations_audit_rejects_cross_pipeline_links_and_trajectory(tmp_path):
 
     assert "operations-gating-latest-source-url" in codes
     assert "operations-gating-history-source-pipeline" in codes
+    assert "operations-gating-runtime-resolution" in codes
     assert "operations-trajectory-scope" in codes
 
 

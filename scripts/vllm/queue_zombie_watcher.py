@@ -159,7 +159,7 @@ def _issue_body(queue: str, jobs: list[dict], opened_ts: str, jobs_ts: str, run_
         )
     lines.extend([
         "",
-        f"cc @{owner_login} for visibility.",
+        f"GitHub assignee: {owner_login}.",
         "",
         f"*Managed by `queue_zombie_watcher.py` from {run_url}.*",
     ])
@@ -174,7 +174,7 @@ def _open_issue(token: str, repo: str, title: str, body: str) -> int | None:
         json={
             "title": title,
             "body": body,
-            "labels": [LABEL, "automated"],
+            "labels": [LABEL, "automated", "workstream:infra"],
             "assignees": [owner_login],
         },
         timeout=30,
