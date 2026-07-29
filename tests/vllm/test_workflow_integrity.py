@@ -267,6 +267,32 @@ class TestHourlyMasterWorkflow:
             "Deploy to GitHub Pages"
         )
 
+    def test_success_issue_closure_requires_executed_tests_and_successful_workflow(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        close = next(
+            step
+            for step in steps
+            if step.get("name") == "Close issue on test success"
+        )
+        condition = close.get("if", "")
+        assert "success()" in condition
+        assert "steps.run-tests.outcome == 'success'" in condition
+        assert "steps.run-tests.outputs.exit_code == '0'" in condition
+        assert "always()" not in condition
+
+    def test_final_main_publication_retries_push_races_and_fails_closed(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        publish = next(step for step in steps if step.get("name") == "Commit and push")
+        script = publish.get("run", "")
+        assert "for attempt in 1 2 3" in script
+        assert "git pull --rebase origin main" in script
+        assert "git push origin HEAD:main" in script
+        assert "refusing to deploy unpublished output" in script
+        assert "Failed to publish collected dashboard data" in script
+        assert "exit 1" in script
+
     def test_has_buildkite_token(self):
         text = _load_workflow_text("hourly-master.yml")
         assert "BUILDKITE_TOKEN" in text
@@ -953,7 +979,8 @@ class TestAlertAutomationWorkflow:
             "open_agent_health_issues.json",
         ):
             assert state_file in persist_run
-        assert "git push origin main" in persist_run
+        assert "if ! git push origin HEAD:main; then" in persist_run
+        assert "deferring it to the final data commit" in persist_run
 
     def test_alert_state_is_committed_with_collected_data(self):
         text = _load_workflow_text("hourly-master.yml")
@@ -1007,7 +1034,8 @@ class TestAlertAutomationWorkflow:
         } <= set(steps[watcher].get("env") or {})
         assert steps[persist].get("if") == "always()"
         assert "open_ci_area_regression_issues.json" in steps[persist]["run"]
-        assert "git push origin main" in steps[persist]["run"]
+        assert "if ! git push origin HEAD:main; then" in steps[persist]["run"]
+        assert "deferring it to the final data commit" in steps[persist]["run"]
         assert steps[project_sync]["run"] == (
             "python scripts/vllm/sync_ci_operations_project.py"
         )
