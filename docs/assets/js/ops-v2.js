@@ -3025,7 +3025,7 @@
     ];
     content.append(panel(
       'Escalation chain',
-      'Assignment evaluates regional working hours and private PTO overrides in rank order; individual availability is not published',
+      'Assignment evaluates Serbia and Chicago working hours in rank order; per-owner routing state is not published',
       dataTable(chainColumns, row.owners || [], integer((row.owners || []).length) + ' ranked owners', {name: 'ownership-chain', minWidth: '540px'})
     ));
     const regressions = row.regressions || [];
@@ -3078,15 +3078,15 @@
       {id: 'ownership-parity', label: 'UPSTREAM PARITY GAPS', value: integer(summary.upstream_parity_gaps), meta: 'commit-pinned upstream-only definitions', tone: Number(summary.upstream_parity_gaps) ? 'is-warning' : 'is-success'},
       {id: 'ownership-unmapped', label: 'UNMAPPED TARGETS', value: integer(summary.unmapped_targets), meta: 'never assigned by a lossy fallback', tone: Number(summary.unmapped_targets) ? 'is-warning' : 'is-success'},
     ]));
-    const scheduleOnly = availability.reason === 'working_hours_profiles';
-    const policyNote = n('div', 'ops-evidence-note ' + (availability.fresh && !scheduleOnly ? 'is-info' : 'is-warning'));
+    const workingHoursConfigured = availability.configured === true
+      && availability.fresh === true
+      && availability.reason === 'working_hours_profiles';
+    const policyNote = n('div', 'ops-evidence-note ' + (workingHoursConfigured ? 'is-info' : 'is-warning'));
     add(policyNote, [
-      n('strong', '', 'Availability-aware, fail-closed assignment. '),
-      n('span', '', scheduleOnly
-        ? 'Regional working hours are active, but no private PTO snapshot is configured. The first in-hours owner is selected in rank order.'
-        : (availability.fresh
-          ? 'Private PTO data is fresh. The first in-hours, non-PTO owner is selected in rank order.'
-          : 'Private availability is malformed or stale, so regressions escalate to the CI lead.')),
+      n('strong', '', 'Regional working-hours routing. '),
+      n('span', '', workingHoursConfigured
+        ? 'EU follows 09:00–17:00 Serbia time (Europe/Belgrade) and NA follows 09:00–17:00 Chicago time (America/Chicago), Monday through Friday. The first in-hours owner is selected in rank order. Missing or invalid working-hour schedules fail closed to the CI lead, even when the regional profile source is healthy.'
+        : 'Regional working-hour profiles are unavailable or invalid. Missing or invalid working-hour schedules fail closed to the CI lead.'),
       n('span', '', ' GitHub assignability is checked before mutation, and automation issue text contains no user mentions.'),
       project.url ? n('span', '', ' ') : null,
       project.url ? externalLink('Open AMD CI Operations project', project.url) : null,
@@ -3115,7 +3115,7 @@
         limit: 18,
         alwaysBrowse: areas.length > 0,
         browserTitle: 'CI test-area ownership and escalation',
-        browserSubtitle: 'Runtime regression, parity, owner availability, and managed issue status',
+        browserSubtitle: 'Runtime regression, parity, working-hours routing, and managed issue status',
         searchPlaceholder: 'Filter area, engineer, status, or assignment reason',
         searchText: function (row) { return [row.source_file, ownershipAreaState(row), ownershipSelectedName(row), ownershipChainText(row), row.assignment_reason, row.selection_reason, (row.regressions || []).map(function (item) { return item.label; }).join(' ')].join(' '); },
         geometry: {name: 'ci-ownership', minWidth: '1090px'},

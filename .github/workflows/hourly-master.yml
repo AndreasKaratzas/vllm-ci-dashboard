@@ -218,7 +218,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_RUN_ID: ${{ github.run_id }}
-          CI_OWNER_AVAILABILITY_JSON: ${{ secrets.CI_OWNER_AVAILABILITY_JSON }}
         run: python scripts/vllm/ci_area_regression_watcher.py
 
       - name: Sync managed issues to AMD CI Operations project
@@ -330,8 +329,8 @@ jobs:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
         run: python scripts/vllm/collect_test_builds.py
 
-      # Ready Tickets / project #39 automation is intentionally paused.
-      # Do not reintroduce a sync step here without an explicit human review.
+      # Ready Tickets is refreshed by ready-tickets-live.yml under the shared
+      # deploy lock. Keep the write out of this long-running collection job.
 
       # ── Phase 3: GitHub data (PRs, issues, activity, ~1min) ──
       - name: Check GitHub data freshness

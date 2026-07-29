@@ -3,8 +3,9 @@
 
 This utility reports individual issues whose body or comments still contain
 legacy ready-ticket automation. It intentionally has no write mode: the
-dashboard's only permitted upstream write is the managed comment on the
-validated umbrella issue in ``sync_ready_tickets.py``.
+upstream Project #39 and all vLLM issues remain read-only. Ready Tickets writes
+only its managed automation comment on dashboard issue #255 through
+``sync_ready_tickets.py``.
 
 Scope is deliberately narrow:
 

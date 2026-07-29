@@ -107,14 +107,18 @@ def test_ci_ownership_renderer_is_reusable_and_removed_from_ci_health():
         "const ownership = (ops || {}).ownership || {};",
         "renderOwnership: renderOwnership",
         "CI test-area ownership",
-        "Availability-aware, fail-closed assignment",
-        "Regional working hours are active",
-        "Private availability is malformed or stale",
+        "Regional working-hours routing",
+        "Missing or invalid working-hour schedules",
+        "Europe/Belgrade",
+        "America/Chicago",
         "UNMAPPED TARGETS",
         "GitHub assignability is checked before mutation",
         "automation issue text contains no user mentions",
     ):
         assert contract in OPS_JS
+    assert "private PTO" not in OPS_JS
+    assert "Private availability" not in OPS_JS
+    assert "availability.fresh === true" in OPS_JS
     assert (
         "['healthView', 'health_view', "
         "['overview', 'targets', 'gating', 'coverage', 'diagnostics']]"

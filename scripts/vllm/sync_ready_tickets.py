@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Sync AMD nightly failures into one upstream tracking issue.
+"""Sync AMD nightly failures into one dashboard-owned tracking issue.
 
 For every AMD test group that is currently failing in the most recent nightly,
 this script derives summary metrics and writes them to
 ``data/vllm/ci/ready_tickets.json`` for the dashboard.
 
-Live mode has exactly one upstream write capability: update one pinned,
-pre-existing comment on a validated umbrella issue. Individual issues and
-project fields are read-only. This module cannot create, close, reopen,
-relabel, reassign, or rewrite any issue, including the umbrella issue itself.
+Live mode has exactly one write capability: create or update one marked,
+automation-owned comment on a validated issue in the dashboard repository.
+Upstream issues and Project #39 fields are read-only. This module cannot create,
+close, reopen, relabel, reassign, or rewrite any issue, including the dashboard
+tracker itself.
 
 A 2-month Buildkite backfill is done from the on-disk nightly JSONLs in
 ``data/vllm/ci/test_results/*_amd.jsonl`` — so we can report first-failure,
@@ -17,22 +18,24 @@ API calls.
 
 Defaults to **dry-run**. Dry-run writes a plan to
 ``data/vllm/ci/ready_tickets.json`` so the dashboard shows the same grouped
-data it would publish live. Live mode updates the managed umbrella comment and
+data it would publish live. Live mode updates the managed tracker comment and
 then writes the resulting comment metadata back into the same JSON so the
 dashboard stays in sync.
 
 Env:
   PROJECTS_READ_TOKEN  optional read-only token used for Projects V2 evidence;
                   public projects are read anonymously when it is absent.
-  UPSTREAM_COMMENT_TOKEN  environment-protected token used only to update the
-                  pinned umbrella comment. It is never passed to collectors.
+  DASHBOARD_COMMENT_TOKEN  repository-scoped token used only to update the
+                  dashboard-owned managed comment. Actions supplies its built-in
+                  ``GITHUB_TOKEN`` under this name.
   READY_TICKETS_LIVE  ``"1"`` → request the scoped live write; anything
                   else → dry run.
-  READY_TICKETS_ALLOW_UPSTREAM_WRITES  second explicit ack required for live
-                  mutation. Without this the script refuses to touch upstream
-                  issues even if ``READY_TICKETS_LIVE=1`` and a token exists.
-  READY_TICKETS_WRITE_SCOPE  must equal ``"master_comment_only"``. Any other
-                  value fails closed before an upstream write is attempted.
+  READY_TICKETS_ALLOW_DASHBOARD_WRITES  second explicit ack required for live
+                  mutation. Without this the script refuses to touch the
+                  dashboard issue even if ``READY_TICKETS_LIVE=1`` and a token
+                  exists.
+  READY_TICKETS_WRITE_SCOPE  must equal ``"dashboard_comment_only"``. Any other
+                  value fails closed before a dashboard write is attempted.
   READY_TICKETS_REQUIRE_PROJECT_REFRESH  ``"1"`` makes a failed Projects
                   snapshot refresh fail the run after preserving the prior
                   snapshot. Scheduled workflows should enable this.
@@ -63,10 +66,10 @@ RESULTS_DIR = ROOT / "data" / "vllm" / "ci" / "test_results"
 OUT = ROOT / "data" / "vllm" / "ci" / "ready_tickets.json"
 STATE = ROOT / "data" / "vllm" / "ci" / "ready_tickets_state.json"
 # Snapshot of every item on project #39 (issue_number → {status, title, url}).
-# Refreshed from the public Projects REST API whenever the workflow requests
-# live mode, including its forced read-only fallback. The dashboard uses it to
-# render the current column (Backlog / Ready / In Progress / In Review / Done)
-# next to each tracked CI-failure issue.
+# Refreshed from the public Projects REST API whenever a scheduled sync runs,
+# including its forced read-only fallback. The dashboard uses it to render the
+# current column (Backlog / Ready / In Progress / In Review / Done) next to each
+# tracked CI-failure issue.
 PROJECT_ITEMS_OUT = ROOT / "data" / "vllm" / "ci" / "project_items.json"
 
 # The Projects V2 board the team uses for triage.
@@ -75,15 +78,18 @@ PROJECT_NUMBER = 39
 ISSUE_REPO = "vllm-project/vllm"
 LABEL = "ci-failure"
 ISSUE_MODE = "single_master"
-MASTER_ISSUE_NUMBER = 40554
-MASTER_ISSUE_TITLE = "[AMD][CI Failure][Tracker] Static dashboard tracker for current CI failures"
-MASTER_ISSUE_URL = f"https://github.com/{ISSUE_REPO}/issues/{MASTER_ISSUE_NUMBER}"
+PROJECT_ISSUE_CUTOVER_NUMBER = 40554
+MASTER_ISSUE_REPO = "AndreasKaratzas/vllm-ci-dashboard"
+MASTER_ISSUE_NUMBER = 255
+MASTER_ISSUE_TITLE = "[AMD][CI Failure][Tracker] Current nightly failures"
+MASTER_ISSUE_URL = (
+    f"https://github.com/{MASTER_ISSUE_REPO}/issues/{MASTER_ISSUE_NUMBER}"
+)
 MASTER_COMMENT_MARKER = "<!-- ready-tickets-master-comment -->"
-MASTER_COMMENT_ID = 4291606592
 MASTER_ISSUE_OWNER = "AndreasKaratzas"
-MASTER_COMMENT_OWNER = "AndreasKaratzas"
+MASTER_COMMENT_OWNER = "github-actions[bot]"
 MASTER_ISSUE_BODY_SENTINEL = "single dashboard-managed umbrella issue"
-MASTER_COMMENT_WRITE_SCOPE = "master_comment_only"
+MASTER_COMMENT_WRITE_SCOPE = "dashboard_comment_only"
 
 # 2-month backfill window for break-frequency / first-failure metrics.
 BACKFILL_DAYS = 60
@@ -94,8 +100,8 @@ TEST_AMD_YAML_URL = (
     "https://raw.githubusercontent.com/vllm-project/vllm/main/.buildkite/test-amd.yaml"
 )
 PAUSE_REASON = (
-    "Ready Tickets upstream writes are paused. Live mode requires the exact "
-    "master_comment_only scope; individual issues and project fields are "
+    "Ready Tickets dashboard writes are paused. Live mode requires the exact "
+    "dashboard_comment_only scope; upstream issues and project fields are "
     "always read-only."
 )
 
@@ -348,7 +354,7 @@ def _collect_latest_failing_groups(
     """Return the normalized failing groups from the newest AMD nightly build.
 
     The historical summary view intentionally spans 60 days, but the live
-    upstream tracker comment must mirror Buildkite's current nightly state.
+    dashboard tracker comment must mirror Buildkite's current nightly state.
     That means we only count groups that are failing in the newest AMD build,
     with Buildkite's ``%N`` shards collapsed back to one logical test group.
     """
@@ -635,7 +641,7 @@ def _refresh_project_items_snapshot(
 
 def _is_post_umbrella_project_issue(issue_number: int | str | None) -> bool:
     try:
-        return int(issue_number) > int(MASTER_ISSUE_NUMBER)
+        return int(issue_number) > PROJECT_ISSUE_CUTOVER_NUMBER
     except (TypeError, ValueError):
         return False
 
@@ -643,10 +649,9 @@ def _is_post_umbrella_project_issue(issue_number: int | str | None) -> bool:
 def _filter_matchable_existing(existing: dict[str, dict]) -> dict[str, dict]:
     """Only adopt post-umbrella per-group issues from project #39.
 
-    The static tracker issue is the only automation-owned upstream surface now.
-    Any per-group work item we attach back onto a failing group must therefore
-    be a newer, human-managed follow-up issue, not one of the legacy tickets
-    that predate the tracker switch.
+    Upstream issue #40554 is the migration cutover. Any per-group work item we
+    attach back onto a failing group must be a newer, human-managed follow-up,
+    not one of the legacy tickets that predates the tracker switch.
     """
     out: dict[str, dict] = {}
     for title, meta in (existing or {}).items():
@@ -828,7 +833,7 @@ def _master_comment_body(failing: list[dict], run_url: str) -> str:
         "",
         "## AMD nightly CI summary",
         "",
-        "This umbrella issue tracks every AMD nightly test group that is currently failing.",
+        "This dashboard tracker covers every AMD nightly test group that is currently failing.",
         "The dashboard automation updates one managed comment three times per day; it does not mutate per-group upstream issues.",
         "",
         "### Snapshot",
@@ -890,72 +895,95 @@ def _master_comment_body(failing: list[dict], run_url: str) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def _expected_master_comment_id() -> int:
-    """Validate that committed state still points at the pinned comment."""
+def _expected_master_comment_id() -> int | None:
+    """Return the state-pinned bot comment, or ``None`` before bootstrap."""
     try:
         state = json.loads(STATE.read_text())
         master = state["master_issue"]
         issue_number = int(master["issue_number"])
-        comment_id = int(master["comment_id"])
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        raise RuntimeError("Pinned umbrella-comment state is missing or invalid") from exc
-    if issue_number != MASTER_ISSUE_NUMBER or comment_id != MASTER_COMMENT_ID:
-        raise RuntimeError("Pinned umbrella-comment state does not match the write allowlist")
+        raise RuntimeError("Dashboard-tracker state is missing or invalid") from exc
+    if issue_number != MASTER_ISSUE_NUMBER:
+        raise RuntimeError("Dashboard-tracker state does not match the write allowlist")
+
+    raw_comment_id = master.get("comment_id")
+    raw_comment_url = master.get("comment_url")
+    if raw_comment_id in (None, "") and raw_comment_url in (None, ""):
+        return None
+    try:
+        comment_id = int(raw_comment_id)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("Dashboard-tracker comment state is invalid") from exc
+    expected_url = f"{MASTER_ISSUE_URL}#issuecomment-{comment_id}"
+    if comment_id <= 0 or str(raw_comment_url) != expected_url:
+        raise RuntimeError("Dashboard-tracker comment state is invalid")
     return comment_id
 
 
 def _retained_master_comment() -> dict | None:
-    """Return the pinned umbrella-comment link without making a GitHub call."""
+    """Return the state-pinned bot comment without making a GitHub call."""
     try:
-        state = json.loads(STATE.read_text())
-        master = state["master_issue"]
-        issue_number = int(master["issue_number"])
-        comment_id = int(master["comment_id"])
+        comment_id = _expected_master_comment_id()
+        if comment_id is None:
+            return None
+        master = json.loads(STATE.read_text())["master_issue"]
         comment_url = str(master["comment_url"])
-    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
-        return None
-    expected_url = f"{MASTER_ISSUE_URL}#issuecomment-{MASTER_COMMENT_ID}"
-    if (
-        issue_number != MASTER_ISSUE_NUMBER
-        or comment_id != MASTER_COMMENT_ID
-        or comment_url != expected_url
-    ):
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError, RuntimeError):
         return None
     return {"id": comment_id, "url": comment_url, "action": "retained"}
 
 
-def _update_pinned_master_comment(
-    token: str, *, body: str, expected_comment_id: int
+def _sync_dashboard_tracker_comment(
+    token: str, *, body: str, expected_comment_id: int | None
 ) -> dict:
+    """Create once, then update the bot-owned comment on the fixed tracker.
+
+    Discovery by marker lets a retry recover if GitHub accepted the initial
+    comment but the generated state commit raced or failed. Any duplicate,
+    foreign-owned, or state-mismatched marker fails closed.
+    """
     _validate_master_issue_target(token)
-    if int(expected_comment_id) != MASTER_COMMENT_ID:
-        raise RuntimeError("Refusing to update an unapproved umbrella comment")
-    comments = _issue_comments(token, ISSUE_REPO, MASTER_ISSUE_NUMBER)
+    comments = _issue_comments(token, MASTER_ISSUE_REPO, MASTER_ISSUE_NUMBER)
     marked = [
         comment
         for comment in comments
         if MASTER_COMMENT_MARKER in (comment.get("body") or "")
     ]
-    if len(marked) != 1:
+    if len(marked) > 1:
         raise RuntimeError(
-            "Expected exactly one managed umbrella comment; refusing to write"
+            "Found multiple managed dashboard comments; refusing to write"
         )
-    existing = marked[0]
-    existing_owner = ((existing.get("user") or {}).get("login") or "").strip()
-    if int(existing.get("id") or 0) != expected_comment_id:
-        raise RuntimeError("Managed marker is not on the pinned umbrella comment")
-    if existing_owner != MASTER_COMMENT_OWNER:
-        raise RuntimeError("Pinned umbrella comment is owned by another account")
-    resp = requests.patch(
-        f"{GH_API}/repos/{ISSUE_REPO}/issues/comments/{expected_comment_id}",
-        headers=_rest_headers(token),
-        json={"body": body},
-        timeout=30,
+
+    existing = marked[0] if marked else None
+    existing_id = int((existing or {}).get("id") or 0)
+    existing_owner = (
+        (((existing or {}).get("user") or {}).get("login") or "").strip()
     )
-    action = "updated"
+    if existing:
+        if existing_owner != MASTER_COMMENT_OWNER:
+            raise RuntimeError("Managed dashboard comment is owned by another account")
+        if expected_comment_id is not None and existing_id != expected_comment_id:
+            raise RuntimeError("Managed dashboard comment does not match committed state")
+        action = "updated"
+        resp = requests.patch(
+            f"{GH_API}/repos/{MASTER_ISSUE_REPO}/issues/comments/{existing_id}",
+            headers=_rest_headers(token),
+            json={"body": body},
+            timeout=30,
+        )
+    else:
+        if expected_comment_id is not None:
+            raise RuntimeError("State-pinned dashboard comment is missing")
+        action = "created"
+        resp = requests.post(
+            f"{GH_API}/repos/{MASTER_ISSUE_REPO}/issues/{MASTER_ISSUE_NUMBER}/comments",
+            headers=_rest_headers(token),
+            json={"body": body},
+            timeout=30,
+        )
     if resp.status_code >= 400:
         log.error(
-            "%s master issue comment on #%s returned %d: %s",
+            "%s dashboard tracker comment on #%s returned %d: %s",
             action.upper(),
             MASTER_ISSUE_NUMBER,
             resp.status_code,
@@ -964,21 +992,22 @@ def _update_pinned_master_comment(
     resp.raise_for_status()
     comment = resp.json()
     comment_id = int(comment.get("id") or 0)
-    verified = _issue_comments(token, ISSUE_REPO, MASTER_ISSUE_NUMBER)
-    verified_comment = next(
-        (c for c in reversed(verified) if int(c.get("id") or 0) == comment_id),
-        None,
-    )
+    verified = _issue_comments(token, MASTER_ISSUE_REPO, MASTER_ISSUE_NUMBER)
+    verified_marked = [
+        c for c in verified if MASTER_COMMENT_MARKER in (c.get("body") or "")
+    ]
+    verified_comment = verified_marked[0] if len(verified_marked) == 1 else None
     verified_owner = (
         ((verified_comment or {}).get("user") or {}).get("login") or ""
     ).strip()
     if (
         not verified_comment
+        or int(verified_comment.get("id") or 0) != comment_id
         or verified_comment.get("body") != body
         or verified_owner != MASTER_COMMENT_OWNER
     ):
         raise RuntimeError(
-            "Master issue comment verification failed: GitHub did not persist "
+            "Dashboard tracker comment verification failed: GitHub did not persist "
             "the expected automation comment body"
         )
     return {
@@ -999,7 +1028,7 @@ def _issue_details(token: str, repo_full_name: str, issue_number: int) -> dict:
 
 
 def _validate_master_issue_target(token: str) -> dict:
-    issue = _issue_details(token, ISSUE_REPO, MASTER_ISSUE_NUMBER)
+    issue = _issue_details(token, MASTER_ISSUE_REPO, MASTER_ISSUE_NUMBER)
     title = (issue.get("title") or "").strip()
     author = ((issue.get("user") or {}).get("login") or "").strip()
     body = issue.get("body") or ""
@@ -1017,7 +1046,7 @@ def _validate_master_issue_target(token: str) -> dict:
         problems.append("body sentinel missing")
     if problems:
         raise RuntimeError(
-            "Refusing to update the configured master issue because it no longer "
+            "Refusing to update the configured dashboard tracker because it no longer "
             "matches the dedicated dashboard-owned tracker: "
             + "; ".join(problems)
         )
@@ -1200,7 +1229,7 @@ def _enrich_dry_run_plan(plan: list[dict], existing: dict[str, dict]) -> None:
 def run() -> int:
     live_requested = os.getenv("READY_TICKETS_LIVE", "").strip() == "1"
     write_acknowledged = (
-        os.getenv("READY_TICKETS_ALLOW_UPSTREAM_WRITES", "").strip() == "1"
+        os.getenv("READY_TICKETS_ALLOW_DASHBOARD_WRITES", "").strip() == "1"
     )
     requested_write_scope = os.getenv("READY_TICKETS_WRITE_SCOPE", "").strip()
     scope_allowed = requested_write_scope == MASTER_COMMENT_WRITE_SCOPE
@@ -1209,7 +1238,7 @@ def run() -> int:
     require_project_refresh = (
         os.getenv("READY_TICKETS_REQUIRE_PROJECT_REFRESH", "").strip() == "1"
     )
-    write_token = os.getenv("UPSTREAM_COMMENT_TOKEN")
+    write_token = os.getenv("DASHBOARD_COMMENT_TOKEN")
     live = live_requested and allow_live and bool(write_token)
     run_id = os.getenv("GITHUB_RUN_ID", "")
     run_url = f"https://github.com/AndreasKaratzas/vllm-ci-dashboard/actions/runs/{run_id}" if run_id else ""
@@ -1260,13 +1289,14 @@ def run() -> int:
             "action": "pending_master_comment",
             "issue_number": MASTER_ISSUE_NUMBER,
             "issue_url": MASTER_ISSUE_URL,
-            "project_status": "Tracked in master issue",
+            "project_status": "Tracked in dashboard tracker",
             "linked_prs": [],
             "assignees": [],
             "assignee": None,
         })
 
     master_issue = {
+        "repo": MASTER_ISSUE_REPO,
         "number": MASTER_ISSUE_NUMBER,
         "title": MASTER_ISSUE_TITLE,
         "url": MASTER_ISSUE_URL,
@@ -1292,7 +1322,7 @@ def run() -> int:
         log.warning(
             "READY_TICKETS_LIVE=1 without both the explicit write ack and "
             "READY_TICKETS_WRITE_SCOPE=%s — forcing paused mode with no "
-            "upstream GitHub calls",
+            "dashboard issue writes",
             MASTER_COMMENT_WRITE_SCOPE,
         )
         paused_output = dict(output)
@@ -1321,7 +1351,7 @@ def run() -> int:
         forced_read_only = live_requested and not write_token
         if live_requested and not write_token:
             log.warning(
-                "READY_TICKETS_LIVE=1 but UPSTREAM_COMMENT_TOKEN is not set; "
+                "READY_TICKETS_LIVE=1 but DASHBOARD_COMMENT_TOKEN is not set; "
                 "forcing read-only dry-run"
             )
             output["mode"] = "dry_run_forced"
@@ -1340,7 +1370,7 @@ def run() -> int:
             log.info("Dry-run preflight: %d of %d plan entries match existing %s issues",
                      matched, len(plan), ISSUE_REPO)
         # The scheduled workflow intentionally requests live mode but may lack
-        # the protected write token. Project #39 is public, so refresh its
+        # a dashboard write token. Project #39 is public, so refresh its
         # snapshot anonymously when no optional read token is configured. This
         # path never writes ``STATE`` or invokes the comment updater.
         project_refresh_failed = False
@@ -1403,11 +1433,11 @@ def run() -> int:
             _write_project_items_snapshot({}, output["generated_at"])
 
     # Only adopt per-group issues that are actually on project #39 and newer
-    # than the static tracker. Legacy repo-wide CI tickets are intentionally
+    # than the upstream migration cutover. Legacy repo-wide CI tickets are intentionally
     # ignored now.
     _enrich_dry_run_plan(plan, existing_manual_issues)
 
-    master_comment = _update_pinned_master_comment(
+    master_comment = _sync_dashboard_tracker_comment(
         write_token,
         body=master_comment_body,
         expected_comment_id=_expected_master_comment_id(),
@@ -1443,7 +1473,7 @@ def run() -> int:
         entry["issue_number"] = master_issue["number"]
         entry["issue_url"] = master_issue["url"]
         entry["action"] = "updated_master_issue_comment"
-        entry["project_status"] = "Tracked in master issue"
+        entry["project_status"] = "Tracked in dashboard tracker"
         entry["linked_prs"] = []
         entry["assignees"] = []
         entry["assignee"] = None
@@ -1462,7 +1492,7 @@ def run() -> int:
     STATE.write_text(json.dumps(state, indent=2, sort_keys=True))
     OUT.write_text(json.dumps(output, indent=2, sort_keys=True))
     log.info(
-        "%s master issue comment on #%s with %d failing groups.",
+        "%s dashboard tracker comment on #%s with %d failing groups.",
         master_comment["action"].capitalize(),
         master_issue["number"],
         len(plan),

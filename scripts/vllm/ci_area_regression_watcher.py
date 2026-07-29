@@ -4,9 +4,9 @@
 The latest AMD runtime result is read from the exact 160-row test matrix after
 the operations bundle is freshly built. Test targets are attributed back to their commit-pinned upstream
 ``.buildkite/test_areas/*.yaml`` source, then assigned through the ranked owner
-chain. Working-hours/PTO data is private runtime input. Missing availability,
-an unavailable chain, or an unassignable selected account escalates to the CI
-lead. Issue text intentionally contains no ``@`` mentions.
+chain. Working hours come only from the committed regional profiles. A missing
+schedule, an out-of-hours chain, or an unassignable selected account escalates
+to the CI lead. Issue text intentionally contains no ``@`` mentions.
 """
 
 from __future__ import annotations
@@ -31,7 +31,6 @@ from vllm.ci.managed_issue import (  # noqa: E402
     validate_target_repo,
 )
 from vllm.ci.ownership import (  # noqa: E402
-    MALFORMED_AVAILABILITY,
     build_ownership_status,
     evaluate_availability,
     isoformat_z,
@@ -80,17 +79,6 @@ def _load_json(path: Path) -> dict:
     except (OSError, json.JSONDecodeError):
         return {}
     return value if isinstance(value, dict) else {}
-
-
-def _read_availability() -> Any:
-    raw = os.getenv("CI_OWNER_AVAILABILITY_JSON", "").strip()
-    if not raw:
-        return None
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        log.error("CI_OWNER_AVAILABILITY_JSON is not valid JSON; failing closed")
-        return MALFORMED_AVAILABILITY
 
 
 def _source_generated_at() -> datetime | None:
@@ -418,7 +406,6 @@ def run() -> int:
         _mark_unavailable_status(now, "ownership_config_invalid")
         return 0
     availability, availability_source = evaluate_availability(
-        _read_availability(),
         config["owners"],
         working_hours_profiles=config.get("working_hours_profiles"),
         now=now,

@@ -25,12 +25,18 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 
 All scripts read the `BUILDKITE_TOKEN` from environment variables. This is managed via GitHub Actions encrypted secrets — never hardcode tokens in source files.
 
-The CI ownership watcher reads regional working-hour profiles from
-`config/vllm_ci_ownership.json` and optional PTO/temporary overrides from the
-encrypted `CI_OWNER_AVAILABILITY_JSON` Actions secret. Its schema is documented
-in the root README. Individual availability states and private PTO ranges never
-enter generated public data or managed issue state. A stale or malformed
-private snapshot escalates to the CI lead.
+The CI ownership watcher reads its only availability input from the committed
+regional working-hour profiles in `config/vllm_ci_ownership.json`. EU follows
+09:00–17:00 Serbia time (`Europe/Belgrade`) and NA follows 09:00–17:00 Chicago
+time (`America/Chicago`), Monday through Friday. Assignment walks ranks 1→2→3
+and falls back to the CI lead when no ranked owner is in hours or the schedule
+cannot be evaluated safely.
+
+Ready Tickets reads upstream vLLM Project #39 as public, read-only evidence; it
+does not mutate that Project's issues, comments, or fields. Its sole writable
+Ready Tickets surface is one automation-owned managed comment on dashboard
+issue #255, created or updated with the repository-scoped `GITHUB_TOKEN` and
+`issues: write`.
 
 Project synchronization uses the repository `GITHUB_TOKEN` only to list the
 dashboard's managed issues. The separate `PROJECTS_WRITE_TOKEN` secret is used

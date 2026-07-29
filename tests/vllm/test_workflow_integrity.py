@@ -913,18 +913,45 @@ class TestWorkflowPipInstallMatchesImports:
 
     def test_ready_tickets_live_uses_explicit_allow_flag(self):
         wf = _load_workflow_text("ready-tickets-live.yml")
-        assert "READY_TICKETS_ALLOW_UPSTREAM_WRITES" in wf, (
+        assert "READY_TICKETS_ALLOW_DASHBOARD_WRITES" in wf, (
             "ready-tickets-live.yml must set the second explicit allow flag "
-            "before sync_ready_tickets.py can touch upstream"
+            "before sync_ready_tickets.py can update the dashboard tracker"
         )
-        assert "READY_TICKETS_WRITE_SCOPE: 'master_comment_only'" in wf, (
-            "ready-tickets-live.yml must restrict upstream writes to the "
-            "validated umbrella comment"
+        assert "READY_TICKETS_WRITE_SCOPE: 'dashboard_comment_only'" in wf, (
+            "ready-tickets-live.yml must restrict writes to the validated "
+            "dashboard-owned tracker comment"
         )
-        assert "sync master issue" in wf.lower(), (
-            "ready-tickets-live.yml should describe the single-master-issue "
+        assert "sync dashboard tracker" in wf.lower(), (
+            "ready-tickets-live.yml should describe the dashboard tracker "
             "mode in its commit message or comments"
         )
+
+    def test_ready_tickets_live_retries_publication_without_an_environment(self):
+        data = _load_workflow("ready-tickets-live.yml")
+        job = data["jobs"]["sync"]
+        assert "environment" not in job
+
+        sync = next(
+            step
+            for step in job["steps"]
+            if step.get("name") == "Refresh dashboard-owned AMD nightly tracker"
+        )
+        assert sync["env"]["DASHBOARD_COMMENT_TOKEN"] == "${{ secrets.GITHUB_TOKEN }}"
+        assert sync["env"]["READY_TICKETS_ALLOW_DASHBOARD_WRITES"] == "1"
+        assert sync["env"]["READY_TICKETS_WRITE_SCOPE"] == "dashboard_comment_only"
+
+        publish = next(
+            step
+            for step in job["steps"]
+            if step.get("name") == "Commit + push data snapshot"
+        )
+        script = publish["run"]
+        assert "for attempt in 1 2 3" in script
+        assert "git pull --rebase origin main" in script
+        assert "git rebase --abort || true" in script
+        assert "git push origin HEAD:main" in script
+        assert "Failed to publish Ready Tickets data after 3 attempts" in script
+        assert "exit 1" in script
 
 
 class TestManualHourlyUpdateFreshness:
@@ -1030,8 +1057,10 @@ class TestAlertAutomationWorkflow:
             "GITHUB_TOKEN",
             "GITHUB_REPOSITORY",
             "GITHUB_RUN_ID",
-            "CI_OWNER_AVAILABILITY_JSON",
         } <= set(steps[watcher].get("env") or {})
+        assert "CI_OWNER_AVAILABILITY_JSON" not in (
+            steps[watcher].get("env") or {}
+        )
         assert steps[persist].get("if") == "always()"
         assert "open_ci_area_regression_issues.json" in steps[persist]["run"]
         assert "if ! git push origin HEAD:main; then" in steps[persist]["run"]

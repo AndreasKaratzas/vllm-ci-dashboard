@@ -201,7 +201,8 @@ def test_ready_resolves_strict_operations_evidence_and_exact_group_urls():
     ):
         assert contract in READY_V2
     assert "Dedicated issues" in READY_V2
-    assert "shared master #" in READY_V2
+    assert "dashboard tracker #" in READY_V2
+    assert "shared master #" not in READY_V2
 
 
 def test_testbuild_retains_launch_and_links_every_available_source():

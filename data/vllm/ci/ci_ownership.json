@@ -3392,7 +3392,6 @@
     "configured": true,
     "fresh": true,
     "generated_at": "",
-    "private_overrides_configured": false,
     "reason": "working_hours_profiles"
   },
   "available": true,
@@ -3405,7 +3404,7 @@
   "issue_mutations": "enabled",
   "policy": {
     "assignment": "first available owner by ascending rank; otherwise CI lead",
-    "availability": "regional working hours plus private PTO overrides; stale private data fails closed",
+    "availability": "regional working hours only; missing or invalid schedules fail closed",
     "issue_grain": "one state-owned issue per test area",
     "mentions": "issue bodies never use @ mentions",
     "repository": "AndreasKaratzas/vllm-ci-dashboard",

@@ -45,15 +45,18 @@ def test_operational_documentation_matches_the_canonical_publication_path() -> N
         assert "scripts/vllm/collect_ownership_parity.py" in text
         assert "scripts/vllm/ci_area_regression_watcher.py" in text
         assert "Ready Tickets → CI ownership" in text
-        assert "CI_OWNER_AVAILABILITY_JSON" in text
+        assert "CI_OWNER_AVAILABILITY_JSON" not in text
         assert "Europe/Belgrade" in text
         assert "America/Chicago" in text
-        assert "An omitted private snapshot means no PTO has been declared" in text
-        assert "Availability is deliberately not committed" not in text
+        assert "Assignment uses only these committed regional schedules" in text
+        assert "a schedule cannot be" in text
+        assert "evaluated safely" in text
         assert "PROJECTS_WRITE_TOKEN" in text
         assert "`gating_targets.json` is regenerated" in text
         assert "`operations_v2.json` is a private build input" in text
 
+    assert "CI_OWNER_AVAILABILITY_JSON" not in scripts_readme
+    assert "regional working-hour profiles" in scripts_readme
     assert "Every 30 min via `hourly-master.yml`" in scripts_readme
     assert "operations_v2_manifest.json + operations_v2/*.json" in scripts_readme
     assert "exact active-job ledger counts remain separate" in audit

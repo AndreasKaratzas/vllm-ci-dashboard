@@ -2,8 +2,8 @@
  * Ready Tickets — dashboard view for the AMD nightly failure summary.
  *
  * Reads ``data/vllm/ci/ready_tickets.json`` written by
- * ``scripts/vllm/sync_ready_tickets.py`` and renders the one upstream master
- * issue plus the per-group failure table that feeds that issue body.
+ * ``scripts/vllm/sync_ready_tickets.py`` and renders the dashboard-owned
+ * tracker plus read-only Project #39 evidence for each failing group.
  */
 
 window.__OPS_CONTROL_V2_READY__ = true;
@@ -26,6 +26,7 @@ window.__OPS_CONTROL_V2_READY__ = true;
   let readyTableSort = { key: null, dir: 'asc' };
   const CI_FAILURE_PREFIX_RE = /^\[CI Failure\]:\s*/i;
   const HW_PREFIX_RE = /^mi\d+_\d+:\s*/i;
+  const PROJECT_ISSUE_CUTOVER_NUMBER = 40554;
 
   async function loadPlan() {
     try {
@@ -47,12 +48,12 @@ window.__OPS_CONTROL_V2_READY__ = true;
     const paused = !!(plan && (plan.feature_paused || plan.mode === 'paused'));
     const dryRun = plan && plan.mode !== 'live' && !paused;
     const msg = paused
-      ? (plan.pause_reason || 'Ready Tickets automation is paused. This dashboard will not create or update upstream CI issues.')
+      ? (plan.pause_reason || 'Ready Tickets automation is paused. Project #39 remains read-only and the dashboard tracker will not be updated.')
       : plan && plan.mode === 'live' && plan.issue_mode === 'single_master'
-        ? 'Live mode updates one managed comment on the upstream master issue instead of opening per-group tickets.'
+        ? 'Live mode updates one managed comment on dashboard issue #255. Upstream vLLM issues and Project #39 remain read-only.'
         : dryRun
-          ? 'Dry-run mode — no issues will be created or modified.'
-          : `Live mode — the syncer is managing tickets on ${plan.project}.`;
+          ? 'Dry-run mode — Project #39 evidence is read-only and the dashboard tracker will not be modified.'
+          : 'Live mode — the dashboard tracker sync is active; upstream evidence is read-only.';
     const bg = paused ? '#2b161b' : dryRun ? '#1f2933' : '#0f2a1a';
     const bd = paused ? C.r : dryRun ? C.y : C.g;
     const card = h('div', { style: { background: bg, border: `1px solid ${bd}`, borderRadius: '6px', padding: '10px 14px', marginBottom: '14px', fontSize: '13px' } });
@@ -68,7 +69,7 @@ window.__OPS_CONTROL_V2_READY__ = true;
     const master = plan && plan.master_issue;
     if (!master || !master.url) return;
     const card = h('div', { style: { background: C.bg, border: `1px solid ${C.bd}`, borderRadius: '8px', padding: '14px 18px', marginBottom: '12px' } });
-    card.append(h('div', { text: 'Master Issue', style: { fontSize: '10px', color: C.m, textTransform: 'uppercase', letterSpacing: '0.05em' } }));
+    card.append(h('div', { text: 'Dashboard tracker', style: { fontSize: '10px', color: C.m, textTransform: 'uppercase', letterSpacing: '0.05em' } }));
     const row = h('div', { style: { display: 'flex', gap: '10px', alignItems: 'baseline', flexWrap: 'wrap', marginTop: '6px' } });
     row.append(h('a', {
       href: master.url,
@@ -77,10 +78,10 @@ window.__OPS_CONTROL_V2_READY__ = true;
       text: `#${master.number || '—'}`,
       style: { color: C.b, fontWeight: '700', fontSize: '18px' },
     }));
-    row.append(h('span', { text: master.title || 'AMD CI Issues Master', style: { color: C.t, fontWeight: '600' } }));
+    row.append(h('span', { text: master.title || 'Current AMD nightly failures', style: { color: C.t, fontWeight: '600' } }));
     card.append(row);
     card.append(h('p', {
-      text: 'Every currently failing AMD nightly group is tracked in this single upstream issue. The table below is the detailed breakdown that gets published there.',
+      text: 'Every currently failing AMD nightly group is summarized in this dashboard-owned issue. The table below is published to its single managed automation comment; Project #39 is read-only evidence.',
       style: { color: C.m, marginTop: '8px', marginBottom: 0, fontSize: '13px' },
     }));
     const comment = plan && plan.master_issue_comment;
@@ -126,14 +127,14 @@ window.__OPS_CONTROL_V2_READY__ = true;
       .toLowerCase();
   }
 
-  function buildProjectIssueIndexes(projectItems, masterIssueNumber) {
+  function buildProjectIssueIndexes(projectItems, projectIssueCutoverNumber) {
     const byTitle = {};
     const byNorm = {};
     const items = projectItems && projectItems.items_by_number ? projectItems.items_by_number : {};
     Object.keys(items).forEach(function(key) {
       const item = items[key] || {};
       const num = Number(item.issue_number || key);
-      if (!(num > masterIssueNumber)) return;
+      if (!(num > projectIssueCutoverNumber)) return;
       const issueState = String(item.issue_state || '').trim().toLowerCase();
       if (issueState && issueState !== 'open') return;
       const title = String(item.title || '').trim();
@@ -144,13 +145,13 @@ window.__OPS_CONTROL_V2_READY__ = true;
       if (!byNorm[norm]) byNorm[norm] = [];
       byNorm[norm].push(item);
     });
-    return { byTitle, byNorm, masterIssueNumber };
+    return { byTitle, byNorm, projectIssueCutoverNumber };
   }
 
   function pickProjectIssueForTicket(ticket, indexes) {
     if (!ticket) return null;
     const ticketNum = Number(ticket.issue_number);
-    if (ticketNum && ticket.project_status && ticketNum > indexes.masterIssueNumber) {
+    if (ticketNum && ticket.project_status && ticketNum > indexes.projectIssueCutoverNumber) {
       return {
         issue_number: ticketNum,
         url: ticket.issue_url,
@@ -198,7 +199,7 @@ window.__OPS_CONTROL_V2_READY__ = true;
       case 'latest_builds': return _readySortBuild(s);
       case 'project_issue': {
         const n = Number(ticket && ticket.issue_number);
-        return Number.isFinite(n) && ticket && ticket.project_status !== 'Tracked in master issue' ? n : null;
+        return Number.isFinite(n) && ticket && !String(ticket.project_status || '').startsWith('Tracked in ') ? n : null;
       }
       default: return null;
     }
@@ -230,8 +231,8 @@ window.__OPS_CONTROL_V2_READY__ = true;
   function renderMetricsTable(container, plan, projectItems) {
     const card = h('div', { style: { background: C.bg, border: `1px solid ${C.bd}`, borderRadius: '8px', padding: '14px 18px', marginBottom: '12px' } });
     card.append(h('h3', { text: `Failing test groups (${(plan.tickets || []).length})`, style: { marginTop: 0, fontSize: '15px' } }));
-    const masterIssueNumber = Number(plan && plan.master_issue && plan.master_issue.number) || 40554;
-    const projectIssueIndexes = buildProjectIssueIndexes(projectItems, masterIssueNumber);
+    const trackerIssueNumber = Number(plan && plan.master_issue && plan.master_issue.number) || 255;
+    const projectIssueIndexes = buildProjectIssueIndexes(projectItems, PROJECT_ISSUE_CUTOVER_NUMBER);
 
     if (!plan.tickets || !plan.tickets.length) {
       card.append(h('p', { text: 'No AMD nightly test groups currently failing. Nothing to triage.', style: { color: C.m, fontSize: '13px' } }));
@@ -322,7 +323,7 @@ window.__OPS_CONTROL_V2_READY__ = true;
             href: (plan.master_issue && plan.master_issue.url) || t.issue_url,
             target: '_blank',
             rel: 'noopener',
-            text: `Shared #${masterIssueNumber}`,
+            text: `Tracker #${trackerIssueNumber}`,
             style: { color: C.b, fontWeight: '600' },
           }));
         }
@@ -386,7 +387,7 @@ window.__OPS_CONTROL_V2_READY__ = true;
     }
     container.innerHTML = '';
     container.append(h('h2', { text: 'Ready Tickets', style: { marginBottom: '6px' } }));
-    container.append(h('p', { text: 'AMD nightly failure tracking view for the upstream summary issue.', style: { color: C.m, marginTop: 0, marginBottom: '14px' } }));
+    container.append(h('p', { text: 'AMD nightly failure tracking for dashboard issue #255, with read-only evidence from upstream Project #39.', style: { color: C.m, marginTop: 0, marginBottom: '14px' } }));
 
     const plan = await loadPlan();
     if (seq !== renderSeq) return;
@@ -400,7 +401,7 @@ window.__OPS_CONTROL_V2_READY__ = true;
     renderSummaryCards(container, plan);
     if (plan.feature_paused || plan.mode === 'paused') {
       container.append(h('p', {
-        text: 'This feature is frozen. The dashboard is not creating, updating, or proposing upstream project #39 issues from this tab.',
+        text: 'This feature is paused. Project #39 remains read-only and dashboard issue #255 is not being updated.',
         style: { color: C.m, marginTop: 0 },
       }));
       return;
@@ -797,9 +798,9 @@ window.__OPS_CONTROL_V2_READY__ = true;
     evidence.body.append(builds);
     evidence.body.append(hardwareEvidence(summary));
     const issueRow = h('div', { id: 'ocv2-ready-issue', cls: 'ocv2-source-list' });
-    if (issue && issue.url) issueRow.append(ui.external('Project issue #' + issue.issue_number, issue.url));
-    if (plan.master_issue && plan.master_issue.url) issueRow.append(ui.external('Master issue #' + plan.master_issue.number, plan.master_issue.url));
-    if (plan.master_issue_comment && plan.master_issue_comment.url) issueRow.append(ui.external('Latest automation update', plan.master_issue_comment.url));
+    if (issue && issue.url) issueRow.append(ui.external('Read-only Project #39 issue #' + issue.issue_number, issue.url));
+    if (plan.master_issue && plan.master_issue.url) issueRow.append(ui.external('Dashboard tracker #' + plan.master_issue.number, plan.master_issue.url));
+    if (plan.master_issue_comment && plan.master_issue_comment.url) issueRow.append(ui.external('Latest tracker update', plan.master_issue_comment.url));
     if (!issueRow.childNodes.length) issueRow.append(h('span', { cls: 'ocv2-unavailable', text: 'No issue source retained' }));
     evidence.body.append(issueRow);
     content.append(evidence.root);
@@ -809,22 +810,22 @@ window.__OPS_CONTROL_V2_READY__ = true;
   function issueEvidence(row, plan, indexes) {
     const ticket = row.ticket;
     const linked = projectIssue(ticket, indexes);
-    if (linked && linked.url) return ui.external('#' + linked.issue_number, linked.url, '', linked.status || 'Open project issue');
+    if (linked && linked.url) return ui.external('#' + linked.issue_number, linked.url, '', linked.status || 'Open read-only Project #39 issue');
     if (ticket && ticket.issue_url) {
       const masterNumber = plan.master_issue && plan.master_issue.number;
-      const label = ticket.issue_number === masterNumber ? 'Shared #' + ticket.issue_number : '#' + ticket.issue_number;
+      const label = ticket.issue_number === masterNumber ? 'Tracker #' + ticket.issue_number : '#' + ticket.issue_number;
       return ui.external(label, ticket.issue_url);
     }
     if (plan.master_issue && plan.master_issue.url) {
-      return ui.external('Shared #' + plan.master_issue.number, plan.master_issue.url);
+      return ui.external('Tracker #' + plan.master_issue.number, plan.master_issue.url);
     }
     return h('span', { cls: 'ocv2-unavailable', text: 'No issue evidence' });
   }
 
   function renderEvidence(container, plan, projectItems, operations) {
     const rows = groupRows(plan, operations);
-    const masterNumber = Number(plan.master_issue && plan.master_issue.number) || 40554;
-    const indexes = actions.buildProjectIssueIndexes(projectItems, masterNumber);
+    const trackerNumber = Number(plan.master_issue && plan.master_issue.number) || 255;
+    const indexes = actions.buildProjectIssueIndexes(projectItems, PROJECT_ISSUE_CUTOVER_NUMBER);
     const currentRows = rows.filter(function(row) { return row.cohort === 'current'; });
     const reportedCurrent = Number(plan.failing_groups_total);
     const failing = Number.isFinite(reportedCurrent) ? reportedCurrent : currentRows.length;
@@ -846,7 +847,7 @@ window.__OPS_CONTROL_V2_READY__ = true;
       { value: 'stale', label: 'Stale last-known failures' },
       { value: 'recovered', label: 'Recovered in window' },
       { value: 'volatile', label: 'Multiple state changes' },
-      { value: 'linked', label: 'Has project issue' },
+      { value: 'linked', label: 'Has Project #39 issue' },
       { value: 'all', label: 'All tracked groups' },
     ], viewState.status, 'Filter by group status');
     const build = input({ type: 'search', value: viewState.build, placeholder: 'Build number', 'aria-label': 'Filter by Buildkite build number' });
@@ -868,7 +869,7 @@ window.__OPS_CONTROL_V2_READY__ = true;
       { label: 'Stale last-known', value: stale, meta: 'absent from latest AMD summary', tone: stale ? 'is-warning' : '', onClick: function() { chooseStatus('stale'); } },
       { label: 'Recovered', value: recovered, meta: 'tracked but green latest', tone: 'is-success', onClick: function() { chooseStatus('recovered'); } },
       { label: 'Mixed outcomes', value: volatile, meta: '2+ flips in ' + (plan.window_days || 60) + 'd', tone: volatile ? 'is-warning' : '', onClick: function() { chooseStatus('volatile'); } },
-      { label: 'Dedicated issues', value: linked, meta: 'shared master #' + masterNumber + ' excluded', tone: linked ? 'is-info' : '', onClick: function() { chooseStatus('linked'); } },
+      { label: 'Dedicated issues', value: linked, meta: 'dashboard tracker #' + trackerNumber + ' excluded', tone: linked ? 'is-info' : '', onClick: function() { chooseStatus('linked'); } },
     ]));
 
     const evidencePanel = ui.panel('Group evidence', failing + ' failing normalized groups, ' + stale + ' stale, ' + recovered + ' recovered', []);
@@ -947,15 +948,15 @@ window.__OPS_CONTROL_V2_READY__ = true;
     const paused = plan.feature_paused || plan.mode === 'paused';
     const banner = ui.state(
       paused ? 'is-danger' : live ? 'is-success' : 'is-warning',
-      paused ? 'Automation paused' : live ? 'Live evidence snapshot' : 'Dry-run evidence snapshot',
+      paused ? 'Automation paused' : live ? 'Live dashboard tracker' : 'Dry-run evidence snapshot',
       paused
-        ? (plan.pause_reason || 'No upstream mutations are being performed.')
-        : 'Signed-in, read-only failure evidence. Current failures share one master tracker; manually filed issues are linked as evidence and never modified.'
+        ? (plan.pause_reason || 'The dashboard tracker is not being updated; upstream evidence remains read-only.')
+        : 'Signed-in, read-only failure evidence from Project #39 and upstream vLLM issues. Current failures share dashboard issue #255, whose managed automation comment is updated with the repository token.'
     );
     const sources = h('div', { cls: 'ocv2-actions' });
-    if (plan.master_issue && plan.master_issue.url) sources.append(ui.external('Shared master tracker #' + plan.master_issue.number, plan.master_issue.url));
-    if (plan.master_issue_comment && plan.master_issue_comment.url) sources.append(ui.external('Latest automation update', plan.master_issue_comment.url));
-    sources.append(ui.badge('Read only', 'is-info'));
+    if (plan.master_issue && plan.master_issue.url) sources.append(ui.external('Dashboard tracker #' + plan.master_issue.number, plan.master_issue.url));
+    if (plan.master_issue_comment && plan.master_issue_comment.url) sources.append(ui.external('Latest tracker update', plan.master_issue_comment.url));
+    sources.append(ui.badge('Read only: Project #39', 'is-info'));
     banner.append(sources);
     container.append(banner);
   }

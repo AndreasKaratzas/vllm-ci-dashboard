@@ -3,9 +3,9 @@
 The dashboard is a static GitHub Pages site, so these aren't Selenium tests.
 They're static-analysis tests on the committed source files:
 
-    1. Admin tokens (BUILDKITE_TOKEN, UPSTREAM_COMMENT_TOKEN) are never used on any
-       per-user write path. User-initiated writes must use the user's own
-       tokens, never the admin's.
+    1. Admin tokens such as BUILDKITE_TOKEN are never used on any per-user
+       write path. User-initiated writes must use the user's own tokens, never
+       the admin's.
     2. The Test Build browser flow uses the user's BK token to create the
        build, and the workflow's job never touches BUILDKITE_TOKEN.
     3. The auth gate:
@@ -17,8 +17,10 @@ They're static-analysis tests on the committed source files:
     4. The signup workflow uses github.event.issue.user.id as the anti-spoof
        anchor (GitHub itself authenticates the issue author). Without that,
        anyone could spoof another engineer's signup.
-    5. Ready Tickets separates read-only project access from its one protected,
-       pinned umbrella-comment write and fails into dry-run without that token.
+    5. Ready Tickets keeps upstream Project #39 read-only. Its sole write uses
+       the repository's built-in GITHUB_TOKEN to create or update one marked,
+       bot-owned comment on a dashboard-owned tracker, and fails into dry-run
+       without that token.
 
 If any of these asserts break, security review the change before merging.
 """
@@ -265,28 +267,38 @@ class TestGitHubTokenIsolation:
             in workflow
         )
 
-    def test_upstream_write_token_has_exactly_two_consumers(self):
+    def test_dashboard_write_token_has_exactly_two_consumers_and_legacy_token_is_gone(self):
         hits = []
         for path in [*(ROOT / "scripts").rglob("*.py"), *WORKFLOWS.glob("*.yml")]:
-            if "UPSTREAM_COMMENT_TOKEN" in _read(path):
+            if "DASHBOARD_COMMENT_TOKEN" in _read(path):
                 hits.append(path.relative_to(ROOT).as_posix())
         assert sorted(hits) == [
             ".github/workflows/ready-tickets-live.yml",
             "scripts/vllm/sync_ready_tickets.py",
         ]
+        for path in [*(ROOT / "scripts").rglob("*.py"), *WORKFLOWS.glob("*.yml")]:
+            assert "UPSTREAM_COMMENT_TOKEN" not in _read(path)
 
-    def test_live_workflow_is_environment_protected_and_pinned_to_main(self):
+    def test_live_workflow_uses_builtin_repo_token_and_is_pinned_to_main(self):
         workflow = yaml.safe_load(_read(WORKFLOWS / "ready-tickets-live.yml"))
         job = workflow["jobs"]["sync"]
-        assert job["environment"] == "upstream-comment-write"
+        assert "environment" not in job
         assert job["if"] == "github.ref == 'refs/heads/main'"
+        assert workflow["permissions"]["contents"] == "write"
+        assert workflow["permissions"]["issues"] == "write"
         checkout = next(
             step for step in job["steps"] if str(step.get("uses", "")).startswith("actions/checkout@")
         )
         assert checkout["with"]["ref"] == "main"
-        sync_step = next(step for step in job["steps"] if step.get("name") == "Refresh AMD nightly master issue")
-        assert sync_step["env"]["UPSTREAM_COMMENT_TOKEN"] == "${{ secrets.UPSTREAM_COMMENT_TOKEN }}"
+        sync_step = next(
+            step
+            for step in job["steps"]
+            if step.get("name") == "Refresh dashboard-owned AMD nightly tracker"
+        )
+        assert sync_step["env"]["DASHBOARD_COMMENT_TOKEN"] == "${{ secrets.GITHUB_TOKEN }}"
         assert sync_step["env"]["PROJECTS_READ_TOKEN"] == "${{ secrets.PROJECTS_READ_TOKEN }}"
+        assert sync_step["env"]["READY_TICKETS_ALLOW_DASHBOARD_WRITES"] == "1"
+        assert sync_step["env"]["READY_TICKETS_WRITE_SCOPE"] == "dashboard_comment_only"
         assert sync_step["env"]["READY_TICKETS_REQUIRE_PROJECT_REFRESH"] == "1"
         publish_step = next(
             step for step in job["steps"] if step.get("name") == "Commit + push data snapshot"
@@ -302,21 +314,26 @@ class TestGitHubTokenIsolation:
             text = _read(WORKFLOWS / name)
             assert "PROJECTS_READ_TOKEN" in text
             assert "UPSTREAM_COMMENT_TOKEN" not in text
+            assert "DASHBOARD_COMMENT_TOKEN" not in text
 
     def test_project_collectors_are_read_only(self):
         collect = _read(ROOT / "scripts" / "collect.py")
         ready = _read(SCRIPTS / "sync_ready_tickets.py")
         assert "does not permit GraphQL mutations" in collect
         assert "/projectsV2/" in ready
-        assert "requests.get(" in ready
-        assert "requests.post(" not in ready
-        assert "requests.put(" not in ready
-        assert "requests.delete(" not in ready
+        assert 'PROJECT_ORG = "vllm-project"' in ready
+        assert "PROJECT_NUMBER = 39" in ready
+        assert 'MASTER_ISSUE_REPO = "AndreasKaratzas/vllm-ci-dashboard"' in ready
+        project_reader = ready.split("def _fetch_project_items_rest(", 1)[1]
+        project_reader = project_reader.split("\ndef ", 1)[0]
+        assert "requests.get(" in project_reader
+        for method in ("post", "put", "patch", "delete"):
+            assert f"requests.{method}(" not in project_reader
 
     def test_sync_ready_tickets_falls_back_to_dry_run_without_token(self):
         src = _read(SCRIPTS / "sync_ready_tickets.py")
         assert "READY_TICKETS_LIVE" in src
-        assert "UPSTREAM_COMMENT_TOKEN is not set" in src
+        assert "DASHBOARD_COMMENT_TOKEN is not set" in src
         assert "dry_run_forced" in src
 
 

@@ -1,9 +1,8 @@
-"""Ranked CI ownership, availability, and test-area attribution.
+"""Ranked CI ownership, working-hours routing, and test-area attribution.
 
 The ownership configuration contains names, GitHub logins, ranked test-area
-chains, and shared regional working-hours profiles. PTO and temporary
-availability overrides are supplied at runtime through a private JSON snapshot.
-Stale or malformed private availability fails closed to the configured CI lead.
+chains, and shared regional working-hours profiles. Missing or invalid schedules
+fail closed to the configured CI lead.
 """
 
 from __future__ import annotations
@@ -19,9 +18,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from vllm.collect_gating_target_candidates import hardware_fold_key
 
 
-AVAILABILITY_MAX_AGE = timedelta(hours=24)
-AVAILABILITY_FUTURE_SKEW = timedelta(minutes=15)
-MALFORMED_AVAILABILITY = object()
 INCIDENT_STATES = {"failed", "hard", "soft", "soft_fail", "soft_failed"}
 PASS_STATES = {"passed", "pass"}
 MULTISPACE_RE = re.compile(r"\s+")
@@ -308,36 +304,7 @@ def _within_working_hours(now: datetime, record: dict) -> bool | None:
     return False
 
 
-def _on_pto(now: datetime, record: dict) -> bool | None:
-    raw_ranges = record.get("pto")
-    if raw_ranges is None:
-        return False
-    if not isinstance(raw_ranges, list):
-        return None
-    for raw_range in raw_ranges:
-        if not isinstance(raw_range, dict):
-            return None
-        start = parse_timestamp(raw_range.get("start"))
-        end = parse_timestamp(raw_range.get("end"))
-        if start is None or end is None or end <= start:
-            return None
-        if start <= now < end:
-            return True
-    return False
-
-
-def _explicit_availability(now: datetime, record: dict) -> bool | None:
-    if "available" not in record:
-        return None
-    available = record.get("available")
-    valid_until = parse_timestamp(record.get("valid_until"))
-    if not isinstance(available, bool) or valid_until is None or valid_until <= now:
-        return None
-    return available
-
-
 def evaluate_availability(
-    raw: Any,
     owners: list[dict],
     *,
     working_hours_profiles: dict[str, dict[str, Any]] | None = None,
@@ -348,139 +315,57 @@ def evaluate_availability(
     unknown = {
         owner["github_login"].casefold(): {
             "status": "unknown",
-            "reason": "availability_unconfigured",
+            "reason": "working_hours_unconfigured",
         }
         for owner in owners
     }
-    if raw is MALFORMED_AVAILABILITY:
-        return unknown, {
-            "configured": True,
-            "fresh": False,
-            "reason": "availability_malformed",
-            "generated_at": "",
-            "private_overrides_configured": True,
-        }
-    if raw is None and profiles:
-        records: dict[str, Any] = {}
-        source = {
-            "configured": True,
-            "fresh": True,
-            "reason": "working_hours_profiles",
-            "generated_at": "",
-            "private_overrides_configured": False,
-        }
-    elif not isinstance(raw, dict) or raw.get("schema_version") != 1:
+    if not profiles:
         return unknown, {
             "configured": False,
             "fresh": False,
-            "reason": "availability_unconfigured",
+            "reason": "working_hours_unconfigured",
             "generated_at": "",
         }
-
-    else:
-        generated = parse_timestamp(raw.get("generated_at"))
-        if generated is None:
-            return unknown, {
-                "configured": True,
-                "fresh": False,
-                "reason": "availability_timestamp_invalid",
-                "generated_at": "",
-            }
-        age = observed - generated
-        if age < -AVAILABILITY_FUTURE_SKEW or age > AVAILABILITY_MAX_AGE:
-            return unknown, {
-                "configured": True,
-                "fresh": False,
-                "reason": "availability_stale",
-                "generated_at": isoformat_z(generated),
-            }
-
-        raw_records = raw.get("owners")
-        if not isinstance(raw_records, dict):
-            return unknown, {
-                "configured": True,
-                "fresh": False,
-                "reason": "availability_owners_invalid",
-                "generated_at": isoformat_z(generated),
-            }
-        records = raw_records
-        source = {
-            "configured": True,
-            "fresh": True,
-            "reason": "fresh",
-            "generated_at": isoformat_z(generated),
-            "private_overrides_configured": True,
-        }
+    source = {
+        "configured": True,
+        "fresh": True,
+        "reason": "working_hours_profiles",
+        "generated_at": "",
+    }
 
     evaluated: dict[str, dict[str, str]] = {}
     for owner in owners:
         login = owner["github_login"]
-        private_record = next(
-            (
-                value
-                for key, value in records.items()
-                if str(key).casefold() == login.casefold()
-            ),
-            None,
-        )
         profile_name = str(owner.get("working_hours_profile") or "").upper()
         profile = profiles.get(profile_name)
-        record: dict[str, Any] = {}
-        if isinstance(profile, dict):
-            record = {
-                "timezone": profile.get("timezone"),
-                "working_hours": profile.get("working_hours"),
-                "pto": [],
-            }
-        if private_record is not None and not isinstance(private_record, dict):
+        if not isinstance(profile, dict):
             evaluated[login.casefold()] = {
                 "status": "unknown",
-                "reason": "owner_availability_invalid",
+                "reason": "working_hours_profile_missing",
             }
             continue
-        if isinstance(private_record, dict):
-            record.update(private_record)
-        if not record:
-            evaluated[login.casefold()] = {
-                "status": "unknown",
-                "reason": "owner_availability_missing",
-            }
-            continue
-        explicit = _explicit_availability(observed, record)
-        in_hours = _within_working_hours(observed, record)
-        if "available" in record and in_hours is None:
-            if explicit is None:
-                evaluated[login.casefold()] = {
-                    "status": "unknown",
-                    "reason": "explicit_availability_invalid",
-                }
-            else:
-                evaluated[login.casefold()] = {
-                    "status": "available" if explicit else "unavailable",
-                    "reason": "explicit_availability",
-                }
-            continue
-        on_pto = _on_pto(observed, record)
-        if ("available" in record and explicit is None) or on_pto is None or in_hours is None:
+        in_hours = _within_working_hours(observed, profile)
+        if in_hours is None:
             evaluated[login.casefold()] = {
                 "status": "unknown",
                 "reason": "schedule_invalid",
             }
-        elif explicit is False or on_pto:
-            evaluated[login.casefold()] = {
-                "status": "unavailable",
-                "reason": "unavailable",
-            }
         elif not in_hours:
             evaluated[login.casefold()] = {
                 "status": "unavailable",
-                "reason": "unavailable",
+                "reason": "outside_working_hours",
             }
         else:
             evaluated[login.casefold()] = {
                 "status": "available",
                 "reason": "within_working_hours",
             }
+
+    if any(record["status"] == "unknown" for record in evaluated.values()):
+        source.update({
+            "fresh": False,
+            "reason": "working_hours_profiles_invalid",
+        })
 
     return evaluated, source
 
@@ -494,7 +379,7 @@ def select_owner(
     for owner in sorted(chain, key=lambda row: row["rank"]):
         status = availability.get(
             owner["github_login"].casefold(),
-            {"status": "unknown", "reason": "owner_availability_missing"},
+            {"status": "unknown", "reason": "working_hours_profile_missing"},
         )
         row = {**owner, "availability": status["status"]}
         evaluated_chain.append(row)
@@ -816,7 +701,7 @@ def build_ownership_status(
         "policy": {
             "issue_grain": "one state-owned issue per test area",
             "assignment": "first available owner by ascending rank; otherwise CI lead",
-            "availability": "regional working hours plus private PTO overrides; stale private data fails closed",
+            "availability": "regional working hours only; missing or invalid schedules fail closed",
             "mentions": "issue bodies never use @ mentions",
             "repository": "AndreasKaratzas/vllm-ci-dashboard",
             "workstream": "dev",

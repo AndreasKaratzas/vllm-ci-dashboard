@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 from vllm.ci.ownership import (
-    MALFORMED_AVAILABILITY,
     build_ownership_status,
     evaluate_availability,
     infer_target_area,
@@ -154,12 +153,11 @@ def test_committed_rotation_matches_the_31_requested_rank_chains():
     }
 
 
-def test_committed_regional_hours_drive_ranked_availability_without_private_overrides():
+def test_committed_regional_hours_drive_ranked_availability():
     from vllm.ci.ownership import load_ownership_config
 
     config = load_ownership_config(ROOT / "config" / "vllm_ci_ownership.json")
     availability, source = evaluate_availability(
-        None,
         config["owners"],
         working_hours_profiles=config["working_hours_profiles"],
         now=NOW,
@@ -170,45 +168,11 @@ def test_committed_regional_hours_drive_ranked_availability_without_private_over
         "fresh": True,
         "reason": "working_hours_profiles",
         "generated_at": "",
-        "private_overrides_configured": False,
     }
     assert availability["gchinora"]["status"] == "available"
     assert availability["stefankoncarevic"]["status"] == "available"
     assert availability["charlifu"]["status"] == "unavailable"
     assert availability["micah-wil"]["status"] == "unavailable"
-
-
-def test_private_pto_overrides_committed_regional_hours():
-    from vllm.ci.ownership import load_ownership_config
-
-    config = load_ownership_config(ROOT / "config" / "vllm_ci_ownership.json")
-    raw = {
-        "schema_version": 1,
-        "generated_at": "2026-07-28T11:59:00Z",
-        "owners": {
-            "gchinora": {
-                "pto": [
-                    {
-                        "start": "2026-07-28T00:00:00Z",
-                        "end": "2026-07-29T00:00:00Z",
-                    }
-                ]
-            }
-        },
-    }
-    availability, source = evaluate_availability(
-        raw,
-        config["owners"],
-        working_hours_profiles=config["working_hours_profiles"],
-        now=NOW,
-    )
-
-    assert source["private_overrides_configured"] is True
-    assert availability["gchinora"] == {
-        "status": "unavailable",
-        "reason": "unavailable",
-    }
-    assert availability["stefankoncarevic"]["status"] == "available"
 
 
 def test_config_requires_complete_distinct_rank_chain():
@@ -219,9 +183,9 @@ def test_config_requires_complete_distinct_rank_chain():
         validate_ownership_config(payload)
 
 
-def test_missing_availability_fails_closed_to_ci_lead():
+def test_missing_working_hours_profiles_fail_closed_to_ci_lead():
     config = _config()
-    availability, source = evaluate_availability(None, config["owners"], now=NOW)
+    availability, source = evaluate_availability(config["owners"], now=NOW)
 
     selected = select_owner(
         config["areas"]["kernels"],
@@ -229,13 +193,19 @@ def test_missing_availability_fails_closed_to_ci_lead():
         config["ci_lead"],
     )
 
-    assert source["configured"] is False
+    assert source == {
+        "configured": False,
+        "fresh": False,
+        "reason": "working_hours_unconfigured",
+        "generated_at": "",
+    }
+    assert all(row["status"] == "unknown" for row in availability.values())
     assert selected["owner"]["github_login"] == "ci-lead"
     assert selected["escalated_to_ci_lead"] is True
     assert all("availability" not in row for row in selected["chain"])
 
 
-def test_malformed_availability_fails_closed_even_with_regional_profiles():
+def test_invalid_regional_schedule_fails_closed_to_ci_lead():
     config = _config()
     for owner in config["owners"]:
         owner["working_hours_profile"] = "EU"
@@ -244,14 +214,13 @@ def test_malformed_availability_fails_closed_even_with_regional_profiles():
             "timezone": "Europe/Belgrade",
             "working_hours": {
                 "weekdays": [0, 1, 2, 3, 4],
-                "start": "09:00",
+                "start": "invalid",
                 "end": "17:00",
             },
         }
     }
 
     availability, source = evaluate_availability(
-        MALFORMED_AVAILABILITY,
         config["owners"],
         working_hours_profiles=profiles,
         now=NOW,
@@ -262,43 +231,35 @@ def test_malformed_availability_fails_closed_even_with_regional_profiles():
         config["ci_lead"],
     )
 
-    assert source == {
-        "configured": True,
-        "fresh": False,
-        "reason": "availability_malformed",
-        "generated_at": "",
-        "private_overrides_configured": True,
-    }
+    assert source["configured"] is True
+    assert source["fresh"] is False
+    assert source["reason"] != "working_hours_profiles"
     assert all(row["status"] == "unknown" for row in availability.values())
+    assert all(row["reason"] == "schedule_invalid" for row in availability.values())
     assert selected["owner"]["github_login"] == "ci-lead"
     assert selected["escalated_to_ci_lead"] is True
 
 
 def test_selection_walks_ranks_and_stops_at_first_available():
     config = _config()
-    raw = {
-        "schema_version": 1,
-        "generated_at": "2026-07-28T11:59:00Z",
-        "owners": {
-            "primary": {
-                "available": False,
-                "valid_until": "2026-07-28T13:00:00Z",
-            },
-            "secondary": {
-                "available": True,
-                "valid_until": "2026-07-28T13:00:00Z",
-            },
-            "tertiary": {
-                "available": True,
-                "valid_until": "2026-07-28T13:00:00Z",
-            },
-            "ci-lead": {
-                "available": True,
-                "valid_until": "2026-07-28T13:00:00Z",
-            },
+    availability = {
+        "primary": {
+            "status": "unavailable",
+            "reason": "outside_working_hours",
+        },
+        "secondary": {
+            "status": "available",
+            "reason": "within_working_hours",
+        },
+        "tertiary": {
+            "status": "available",
+            "reason": "within_working_hours",
+        },
+        "ci-lead": {
+            "status": "available",
+            "reason": "within_working_hours",
         },
     }
-    availability, _ = evaluate_availability(raw, config["owners"], now=NOW)
 
     selected = select_owner(
         config["areas"]["kernels"],
@@ -316,56 +277,71 @@ def test_selection_walks_ranks_and_stops_at_first_available():
     assert all("availability" not in row for row in selected["chain"])
 
 
-def test_working_hours_and_pto_are_evaluated_without_exposing_schedule():
+def test_working_hours_are_evaluated_without_exposing_schedule():
     config = _config()
-    raw = {
-        "schema_version": 1,
-        "generated_at": "2026-07-28T11:59:00Z",
-        "owners": {
-            "primary": {
-                "timezone": "UTC",
-                "working_hours": {
-                    "weekdays": [0, 1, 2, 3, 4],
-                    "start": "09:00",
-                    "end": "17:00",
-                },
-                "pto": [
-                    {
-                        "start": "2026-07-28T00:00:00Z",
-                        "end": "2026-07-29T00:00:00Z",
-                    }
-                ],
+    for owner in config["owners"]:
+        owner["working_hours_profile"] = "TEST"
+    profiles = {
+        "TEST": {
+            "timezone": "UTC",
+            "working_hours": {
+                "weekdays": [0, 1, 2, 3, 4],
+                "start": "09:00",
+                "end": "17:00",
             },
-        },
+        }
     }
-    availability, source = evaluate_availability(raw, config["owners"], now=NOW)
+    availability, source = evaluate_availability(
+        config["owners"],
+        working_hours_profiles=profiles,
+        now=NOW,
+    )
 
     assert source["fresh"] is True
     assert availability["primary"] == {
-        "status": "unavailable",
-        "reason": "unavailable",
+        "status": "available",
+        "reason": "within_working_hours",
     }
-    assert "pto" not in availability["primary"]
     assert "timezone" not in availability["primary"]
+    assert "working_hours" not in availability["primary"]
 
 
-def test_stale_availability_is_never_treated_as_available():
+def test_missing_owner_profile_is_never_treated_as_available():
     config = _config()
-    raw = {
-        "schema_version": 1,
-        "generated_at": "2026-07-26T11:00:00Z",
-        "owners": {
-            "primary": {
-                "available": True,
-                "valid_until": "2026-07-30T00:00:00Z",
-            }
-        },
+    profiles = {
+        "EU": {
+            "timezone": "Europe/Belgrade",
+            "working_hours": {
+                "weekdays": [0, 1, 2, 3, 4],
+                "start": "09:00",
+                "end": "17:00",
+            },
+        }
     }
 
-    availability, source = evaluate_availability(raw, config["owners"], now=NOW)
+    availability, source = evaluate_availability(
+        config["owners"],
+        working_hours_profiles=profiles,
+        now=NOW,
+    )
+    selected = select_owner(
+        config["areas"]["kernels"],
+        availability,
+        config["ci_lead"],
+    )
 
-    assert source["reason"] == "availability_stale"
-    assert availability["primary"]["status"] == "unknown"
+    assert source["configured"] is True
+    assert source["fresh"] is False
+    assert source["reason"] != "working_hours_profiles"
+    assert all(
+        row == {
+            "status": "unknown",
+            "reason": "working_hours_profile_missing",
+        }
+        for row in availability.values()
+    )
+    assert selected["owner"]["github_login"] == "ci-lead"
+    assert selected["escalated_to_ci_lead"] is True
 
 
 def test_target_area_prefers_commit_pinned_definition_source():
@@ -472,7 +448,6 @@ def test_matrix_category_is_not_used_as_a_lossy_area_fallback():
 def test_status_groups_regressions_and_parity_gaps_by_area():
     config = _config()
     availability, availability_source = evaluate_availability(
-        None,
         config["owners"],
         now=NOW,
     )

@@ -565,9 +565,11 @@ if (amdUrl !== 'https://buildkite.com/vllm/amd-ci/builds/456/steps/canvas?sid=st
         assert "label: 'Project issue'" in text, (
             "ci-ready.js should show a separate project-issue column in single-master mode"
         )
-        assert "num > masterIssueNumber" in text, (
-            "ci-ready.js should only attach per-group issue links for post-umbrella project items"
+        assert "const PROJECT_ISSUE_CUTOVER_NUMBER = 40554;" in text
+        assert "num > projectIssueCutoverNumber" in text, (
+            "ci-ready.js should only attach per-group issue links after the upstream migration cutoff"
         )
+        assert "buildProjectIssueIndexes(projectItems, PROJECT_ISSUE_CUTOVER_NUMBER)" in text
 
     def test_dashboard_uses_project_issues_and_tagged_pr_workbench(self):
         text = (JS / "dashboard.js").read_text()
