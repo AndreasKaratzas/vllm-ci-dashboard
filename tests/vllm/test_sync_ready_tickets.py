@@ -693,7 +693,7 @@ class TestPublicProjectSnapshot:
         def item(number, state, title, status):
             return {
                 "id": number,
-                "node_id": f"PVTI_{number}",
+                "node_id": f"project-item-{number}",
                 "content_type": "Issue",
                 "content": {
                     "number": number,
