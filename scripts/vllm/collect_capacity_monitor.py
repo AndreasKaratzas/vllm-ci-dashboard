@@ -33,34 +33,11 @@ log = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 OUTPUT = ROOT / "data" / "vllm" / "ci"
+CAPACITY_CONFIG_PATH = ROOT / "config" / "vllm_amd_queue_capacity.json"
 
 GITHUB_REPO = "vllm-project/vllm"
 GITHUB_REF = "main"
 TEST_AREAS_DIR = ".buildkite/test_areas"
-DEFAULT_THEORETICAL_GROUPS = 125
-
-# Capacity rows from the Buildkite cluster screenshot. Keep this list scoped to
-# AMD queues owned by this dashboard view; other queues remain visible in the
-# live Queue Monitor but are intentionally excluded from capacity projections.
-CAPACITY_QUEUES: tuple[dict[str, Any], ...] = (
-    {"id": "amd_mi250_1", "label": "mi250_1", "max_agents": 78},
-    {"id": "amd_mi250_2", "label": "mi250_2", "max_agents": 24},
-    {"id": "amd_mi250_4", "label": "mi250_4", "max_agents": 16},
-    {"id": "amd_mi250_8", "label": "mi250_8", "max_agents": 4},
-    {"id": "amd_mi300_1", "label": "mi300_1", "max_agents": 264},
-    {"id": "amd_mi300_2", "label": "mi300_2", "max_agents": 40},
-    {"id": "amd_mi300_4", "label": "mi300_4", "max_agents": 30},
-    {"id": "amd_mi300_8", "label": "mi300_8", "max_agents": 3},
-    {"id": "amd_mi325_1", "label": "mi325_1", "max_agents": 180},
-    {"id": "amd_mi325_2", "label": "mi325_2", "max_agents": 8},
-    {"id": "amd_mi325_4", "label": "mi325_4", "max_agents": 4},
-    {"id": "amd_mi325_8", "label": "mi325_8", "max_agents": 1},
-    {"id": "amd_mi355_1", "label": "mi355_1", "max_agents": 39},
-    {"id": "amd_mi355_2", "label": "mi355_2", "max_agents": 20},
-    {"id": "amd_mi355_4", "label": "mi355_4", "max_agents": 3},
-    {"id": "amd_mi355_8", "label": "mi355_8", "max_agents": 1},
-)
-CAPACITY_BY_QUEUE = {row["id"]: row for row in CAPACITY_QUEUES}
 
 SKIP_DIRS = {
     ".git",
@@ -92,6 +69,151 @@ BINARY_EXTS = {
     ".zip",
 }
 MULTISPACE_RE = re.compile(r"\s+")
+
+
+def load_capacity_config(path: Path = CAPACITY_CONFIG_PATH) -> dict[str, Any]:
+    """Load and validate the authoritative AMD queue-capacity configuration."""
+
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Unable to read AMD queue capacity config {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path} must contain a JSON object")
+    if payload.get("schema_version") != 1:
+        raise ValueError(f"{path} must use schema_version 1")
+
+    projection = payload.get("projection")
+    if not isinstance(projection, dict):
+        raise ValueError(f"{path} must contain a projection object")
+    for field in (
+        "target_groups",
+        "declared_current_mirror_groups",
+        "declared_existing_groups",
+        "declared_new_groups",
+    ):
+        value = projection.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(f"{path} projection.{field} must be a non-negative integer")
+    if projection["target_groups"] <= 0:
+        raise ValueError(f"{path} projection.target_groups must be positive")
+    if not str(projection.get("note") or "").strip():
+        raise ValueError(f"{path} projection.note must be non-empty")
+
+    workload_pipelines = payload.get("workload_pipelines")
+    if not isinstance(workload_pipelines, dict):
+        raise ValueError(f"{path} must contain a workload_pipelines object")
+    for workload in ("omni", "main"):
+        pipelines = workload_pipelines.get(workload)
+        if (
+            not isinstance(pipelines, list)
+            or not pipelines
+            or any(not isinstance(item, str) or not item.strip() for item in pipelines)
+        ):
+            raise ValueError(
+                f"{path} workload_pipelines.{workload} must be a non-empty string list"
+            )
+
+    scope = payload.get("scope")
+    if not isinstance(scope, dict):
+        raise ValueError(f"{path} must contain a scope object")
+    excluded_classes = scope.get("excluded_queue_classes")
+    if not isinstance(excluded_classes, list) or "perf_eval" not in {
+        str(item).strip().lower() for item in excluded_classes
+    }:
+        raise ValueError(f"{path} scope.excluded_queue_classes must include perf_eval")
+
+    raw_queues = payload.get("queues")
+    if not isinstance(raw_queues, list) or not raw_queues:
+        raise ValueError(f"{path} must contain a non-empty queues list")
+    normalized_queues: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for index, raw in enumerate(raw_queues):
+        if not isinstance(raw, dict):
+            raise ValueError(f"{path} queues[{index}] must be an object")
+        queue_id = str(raw.get("id") or "").strip().lower()
+        label = str(raw.get("label") or "").strip()
+        family = str(raw.get("family") or "").strip().upper()
+        lifecycle = str(raw.get("lifecycle") or "").strip().lower()
+        gpus_per_job = raw.get("gpus_per_job")
+        max_concurrent_jobs = raw.get("max_concurrent_jobs")
+        monitored = raw.get("monitored")
+        capacity_eligible = raw.get("capacity_eligible")
+        if not queue_id.startswith("amd_") or "perf_eval" in queue_id:
+            raise ValueError(
+                f"{path} queues[{index}].id must be a standard amd_ queue, not perf_eval"
+            )
+        if queue_id in seen_ids:
+            raise ValueError(f"{path} has duplicate queue id {queue_id}")
+        if not label or not family:
+            raise ValueError(f"{path} queues[{index}] must have non-empty label and family")
+        if (
+            not isinstance(gpus_per_job, int)
+            or isinstance(gpus_per_job, bool)
+            or gpus_per_job not in {1, 2, 4, 8}
+        ):
+            raise ValueError(f"{path} queues[{index}].gpus_per_job must be 1, 2, 4, or 8")
+        if (
+            not isinstance(max_concurrent_jobs, int)
+            or isinstance(max_concurrent_jobs, bool)
+            or max_concurrent_jobs < 0
+        ):
+            raise ValueError(
+                f"{path} queues[{index}].max_concurrent_jobs must be a non-negative integer"
+            )
+        if not isinstance(monitored, bool) or not isinstance(capacity_eligible, bool):
+            raise ValueError(
+                f"{path} queues[{index}] monitored and capacity_eligible must be booleans"
+            )
+        if lifecycle not in {"active", "retiring"}:
+            raise ValueError(f"{path} queues[{index}].lifecycle must be active or retiring")
+        if lifecycle == "retiring" and capacity_eligible:
+            raise ValueError(f"{path} queues[{index}] cannot be retiring and capacity eligible")
+        seen_ids.add(queue_id)
+        normalized_queues.append(
+            {
+                "id": queue_id,
+                "label": label,
+                "family": family,
+                "gpus_per_job": gpus_per_job,
+                "max_concurrent_jobs": max_concurrent_jobs,
+                "monitored": monitored,
+                "capacity_eligible": capacity_eligible,
+                "lifecycle": lifecycle,
+            }
+        )
+
+    normalized = dict(payload)
+    normalized["queues"] = normalized_queues
+    return normalized
+
+
+def _configured_queue_rows(config: dict[str, Any]) -> tuple[dict[str, Any], ...]:
+    rows: list[dict[str, Any]] = []
+    for queue in config["queues"]:
+        if not queue["monitored"]:
+            continue
+        max_concurrent_jobs = int(queue["max_concurrent_jobs"])
+        gpus_per_job = int(queue["gpus_per_job"])
+        gpu_capacity = max_concurrent_jobs * gpus_per_job
+        rows.append(
+            {
+                **queue,
+                # Keep max_agents as a compatibility alias for the legacy queue
+                # view while making the actual unit explicit in the new schema.
+                "max_agents": max_concurrent_jobs,
+                "gpu_capacity": gpu_capacity,
+                "eight_gpu_node_equivalents": round(gpu_capacity / 8, 2),
+            }
+        )
+    return tuple(rows)
+
+
+CAPACITY_CONFIG = load_capacity_config()
+PROJECTION_CONFIG = CAPACITY_CONFIG["projection"]
+DEFAULT_THEORETICAL_GROUPS = int(PROJECTION_CONFIG["target_groups"])
+CAPACITY_QUEUES = _configured_queue_rows(CAPACITY_CONFIG)
+CAPACITY_BY_QUEUE = {row["id"]: row for row in CAPACITY_QUEUES}
 
 
 def _github_headers() -> dict[str, str]:
@@ -230,7 +352,9 @@ def parse_amd_mirror_groups(repo_root: Path) -> list[dict[str, Any]]:
             amd = mirror.get("amd") or {}
             if not isinstance(amd, dict):
                 amd = {}
-            label = clean_text(step.get("label")) or clean_text(step.get("key")) or f"{area} #{idx + 1}"
+            label = (
+                clean_text(step.get("label")) or clean_text(step.get("key")) or f"{area} #{idx + 1}"
+            )
             key = clean_text(step.get("key")) or slugify(label)
             device = clean_text(amd.get("device") or step.get("device"))
             queue = queue_from_device(device)
@@ -240,24 +364,26 @@ def parse_amd_mirror_groups(repo_root: Path) -> list[dict[str, Any]]:
             scope = dependency_scope(repo_root, dependencies)
             parallelism = max(1, _safe_int(amd.get("parallelism") or step.get("parallelism"), 1))
             timeout = _safe_int(amd.get("timeout_in_minutes") or step.get("timeout_in_minutes"), 0)
-            groups.append({
-                "key": key,
-                "label": label,
-                "area": area,
-                "yaml_file": yaml_path.relative_to(repo_root).as_posix(),
-                "yaml_index": idx,
-                "device": device,
-                "queue": queue,
-                "in_capacity_scope": queue in CAPACITY_BY_QUEUE,
-                "parallelism": parallelism,
-                "timeout_in_minutes": timeout,
-                "optional": bool(step.get("optional") or amd.get("optional")),
-                "source_file_dependencies": dependencies,
-                "dependency_file_count": scope["file_count"],
-                "dependency_lines": scope["line_count"],
-                "missing_dependencies": scope["missing_dependencies"],
-                "_dependency_files": sorted(scope["files"]),
-            })
+            groups.append(
+                {
+                    "key": key,
+                    "label": label,
+                    "area": area,
+                    "yaml_file": yaml_path.relative_to(repo_root).as_posix(),
+                    "yaml_index": idx,
+                    "device": device,
+                    "queue": queue,
+                    "in_capacity_scope": queue in CAPACITY_BY_QUEUE,
+                    "parallelism": parallelism,
+                    "timeout_in_minutes": timeout,
+                    "optional": bool(step.get("optional") or amd.get("optional")),
+                    "source_file_dependencies": dependencies,
+                    "dependency_file_count": scope["file_count"],
+                    "dependency_lines": scope["line_count"],
+                    "missing_dependencies": scope["missing_dependencies"],
+                    "_dependency_files": sorted(scope["files"]),
+                }
+            )
     return groups
 
 
@@ -290,7 +416,54 @@ def _queue_rollups(groups: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return rollups
 
 
-def _summary(groups: list[dict[str, Any]], queue_rollups: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def _capacity_totals(rows: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> dict[str, Any]:
+    concurrent_jobs = sum(int(row.get("max_concurrent_jobs") or 0) for row in rows)
+    gpus = sum(int(row.get("gpu_capacity") or 0) for row in rows)
+    return {
+        "queue_count": len(rows),
+        "concurrent_jobs": concurrent_jobs,
+        "gpus": gpus,
+        "eight_gpu_node_equivalents": round(gpus / 8, 2),
+    }
+
+
+def _family_rollups(queue_rollups: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    families: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in queue_rollups.values():
+        families[str(row["family"])].append(row)
+
+    output: list[dict[str, Any]] = []
+    for family, rows in families.items():
+        eligible = [row for row in rows if row.get("capacity_eligible")]
+        retiring = [row for row in rows if row.get("lifecycle") == "retiring"]
+        monitored_capacity = _capacity_totals(rows)
+        future_capacity = _capacity_totals(eligible)
+        output.append(
+            {
+                "family": family,
+                "lifecycle": "retiring" if len(retiring) == len(rows) else "active",
+                "queue_count": len(rows),
+                "capacity_eligible_queue_count": len(eligible),
+                "max_concurrent_jobs": monitored_capacity["concurrent_jobs"],
+                "gpu_capacity": monitored_capacity["gpus"],
+                "eight_gpu_node_equivalents": monitored_capacity["eight_gpu_node_equivalents"],
+                "future_max_concurrent_jobs": future_capacity["concurrent_jobs"],
+                "future_gpu_capacity": future_capacity["gpus"],
+                "future_eight_gpu_node_equivalents": future_capacity["eight_gpu_node_equivalents"],
+                "gated_groups": sum(int(row.get("gated_groups") or 0) for row in rows),
+                "gated_jobs": sum(int(row.get("gated_jobs") or 0) for row in rows),
+                "gated_gpu_demand": sum(
+                    int(row.get("gated_jobs") or 0) * int(row.get("gpus_per_job") or 0)
+                    for row in rows
+                ),
+            }
+        )
+    return output
+
+
+def _summary(
+    groups: list[dict[str, Any]], queue_rollups: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
     capacity_groups = [group for group in groups if group.get("in_capacity_scope")]
     all_dependency_files: dict[str, int] = {}
     for group in groups:
@@ -303,20 +476,48 @@ def _summary(groups: list[dict[str, Any]], queue_rollups: dict[str, dict[str, An
     total_dependency_lines = sum(int(group.get("dependency_lines") or 0) for group in groups)
     total_dependency_files = sum(int(group.get("dependency_file_count") or 0) for group in groups)
     gated_group_count = len(groups)
+    monitored_rows = list(queue_rollups.values())
+    eligible_rows = [row for row in monitored_rows if row.get("capacity_eligible")]
+    retiring_rows = [row for row in monitored_rows if row.get("lifecycle") == "retiring"]
+    monitored_capacity = _capacity_totals(monitored_rows)
+    future_capacity = _capacity_totals(eligible_rows)
+    retiring_capacity = _capacity_totals(retiring_rows)
     return {
         "queue_count": len(CAPACITY_QUEUES),
-        "total_capacity": sum(int(q["max_agents"]) for q in CAPACITY_QUEUES),
+        "monitored_queue_count": len(monitored_rows),
+        "capacity_eligible_queue_count": len(eligible_rows),
+        # Legacy aliases retained for the current Capacity Monitor frontend.
+        "total_capacity": monitored_capacity["concurrent_jobs"],
+        "future_eligible_capacity": future_capacity["concurrent_jobs"],
+        "total_gpu_capacity": monitored_capacity["gpus"],
+        "future_eligible_gpu_capacity": future_capacity["gpus"],
+        "total_eight_gpu_node_equivalents": monitored_capacity["eight_gpu_node_equivalents"],
+        "future_eligible_eight_gpu_node_equivalents": future_capacity["eight_gpu_node_equivalents"],
+        "capacity": {
+            "monitored": monitored_capacity,
+            "future_eligible": future_capacity,
+            "retiring": retiring_capacity,
+        },
         "gated_group_count": gated_group_count,
         "capacity_scoped_group_count": len(capacity_groups),
         "gated_job_count": sum(int(group.get("parallelism") or 1) for group in capacity_groups),
+        "gated_gpu_demand": sum(
+            int(group.get("parallelism") or 1)
+            * int(CAPACITY_BY_QUEUE.get(str(group.get("queue")), {}).get("gpus_per_job") or 0)
+            for group in capacity_groups
+        ),
         "total_dependency_files": total_dependency_files,
         "total_dependency_lines": total_dependency_lines,
         "unique_dependency_files": len(all_dependency_files),
         "average_dependency_files_per_group": round(total_dependency_files / gated_group_count, 1)
-        if gated_group_count else 0,
+        if gated_group_count
+        else 0,
         "average_dependency_lines_per_group": round(total_dependency_lines / gated_group_count, 1)
-        if gated_group_count else 0,
-        "queues_with_gated_work": sum(1 for row in queue_rollups.values() if row["gated_groups"] > 0),
+        if gated_group_count
+        else 0,
+        "queues_with_gated_work": sum(
+            1 for row in queue_rollups.values() if row["gated_groups"] > 0
+        ),
     }
 
 
@@ -325,31 +526,128 @@ def _projection(
     queue_rollups: dict[str, dict[str, Any]],
     theoretical_groups: int,
 ) -> dict[str, Any]:
-    base_groups = max(1, int(summary.get("capacity_scoped_group_count") or summary.get("gated_group_count") or 1))
+    base_groups = max(
+        1, int(summary.get("capacity_scoped_group_count") or summary.get("gated_group_count") or 1)
+    )
     scale = theoretical_groups / base_groups
     queue_rows = []
     for queue_id, row in queue_rollups.items():
-        max_agents = int(row.get("max_agents") or 0)
-        projected_jobs = round(float(row.get("gated_jobs") or 0) * scale, 1)
+        max_concurrent_jobs = int(row.get("max_concurrent_jobs") or 0)
+        gpus_per_job = int(row.get("gpus_per_job") or 0)
+        capacity_eligible = bool(row.get("capacity_eligible"))
+        future_max_concurrent_jobs = max_concurrent_jobs if capacity_eligible else 0
+        raw_projected_jobs = float(row.get("gated_jobs") or 0) * scale
+        projected_jobs = round(raw_projected_jobs, 1)
+        projected_gpu_demand = round(raw_projected_jobs * gpus_per_job, 1)
         projected_lines = round(float(row.get("dependency_lines") or 0) * scale)
-        queue_rows.append({
-            "id": queue_id,
-            "label": row["label"],
-            "max_agents": max_agents,
-            "projected_jobs": projected_jobs,
-            "projected_dependency_lines": projected_lines,
-            "projected_capacity_ratio": round(projected_jobs / max_agents, 4) if max_agents else 0,
-        })
-    bottleneck = max(queue_rows, key=lambda row: row["projected_capacity_ratio"], default=None)
+        current_ratio = (
+            round(raw_projected_jobs / max_concurrent_jobs, 4)
+            if max_concurrent_jobs
+            else (None if raw_projected_jobs else 0)
+        )
+        future_ratio = current_ratio if capacity_eligible else (None if raw_projected_jobs else 0)
+        projected_gap_jobs = round(
+            max(0.0, raw_projected_jobs - future_max_concurrent_jobs),
+            1,
+        )
+        queue_rows.append(
+            {
+                "id": queue_id,
+                "label": row["label"],
+                "family": row["family"],
+                "gpus_per_job": gpus_per_job,
+                "lifecycle": row["lifecycle"],
+                "monitored": bool(row.get("monitored")),
+                "capacity_eligible": capacity_eligible,
+                "max_agents": max_concurrent_jobs,
+                "max_concurrent_jobs": max_concurrent_jobs,
+                "gpu_capacity": int(row.get("gpu_capacity") or 0),
+                "eight_gpu_node_equivalents": float(row.get("eight_gpu_node_equivalents") or 0),
+                "future_max_concurrent_jobs": future_max_concurrent_jobs,
+                "future_gpu_capacity": future_max_concurrent_jobs * gpus_per_job,
+                "projected_jobs": projected_jobs,
+                "projected_gpu_demand": projected_gpu_demand,
+                "projected_eight_gpu_node_equivalents": round(
+                    projected_gpu_demand / 8,
+                    2,
+                ),
+                "projected_dependency_lines": projected_lines,
+                "projected_capacity_ratio": current_ratio,
+                "projected_future_capacity_ratio": future_ratio,
+                "projected_gap_jobs": projected_gap_jobs,
+                "projected_gap_gpus": round(projected_gap_jobs * gpus_per_job, 1),
+                "requires_migration": bool(not capacity_eligible and raw_projected_jobs > 0),
+            }
+        )
+    eligible_demand_rows = [
+        row for row in queue_rows if row["capacity_eligible"] and float(row["projected_jobs"]) > 0
+    ]
+    bottleneck = max(
+        eligible_demand_rows,
+        key=lambda row: float(row["projected_future_capacity_ratio"] or 0),
+        default=None,
+    )
     projected_total_jobs = round(sum(row["projected_jobs"] for row in queue_rows), 1)
-    total_capacity = int(summary.get("total_capacity") or 0)
+    projected_total_gpus = round(sum(row["projected_gpu_demand"] for row in queue_rows), 1)
+    monitored_capacity = summary["capacity"]["monitored"]
+    future_capacity = summary["capacity"]["future_eligible"]
+    total_capacity = int(monitored_capacity["concurrent_jobs"])
+    future_concurrent_jobs = int(future_capacity["concurrent_jobs"])
+    future_gpus = int(future_capacity["gpus"])
+    configured_target = int(PROJECTION_CONFIG["target_groups"])
+    declared_existing = int(PROJECTION_CONFIG["declared_existing_groups"])
+    declared_new = int(PROJECTION_CONFIG["declared_new_groups"])
     return {
+        "model": "linear_configured_parallelism_sensitivity",
+        "target_groups": theoretical_groups,
         "theoretical_groups": theoretical_groups,
+        "configured_target_groups": configured_target,
+        "declared_current_mirror_groups": int(
+            PROJECTION_CONFIG["declared_current_mirror_groups"]
+        ),
+        "declared_existing_groups": declared_existing,
+        "declared_new_groups": declared_new,
+        "declared_total_groups": declared_existing + declared_new,
+        "planning_headroom_groups": configured_target - declared_existing - declared_new,
+        "note": str(PROJECTION_CONFIG["note"]),
+        "base_groups": base_groups,
         "scale": round(scale, 4),
         "projected_total_jobs": projected_total_jobs,
-        "projected_dependency_lines": round(float(summary.get("total_dependency_lines") or 0) * scale),
-        "projected_capacity_ratio": round(projected_total_jobs / total_capacity, 4) if total_capacity else 0,
+        "projected_total_gpus": projected_total_gpus,
+        "projected_eight_gpu_node_equivalents": round(projected_total_gpus / 8, 2),
+        "projected_dependency_lines": round(
+            float(summary.get("total_dependency_lines") or 0) * scale
+        ),
+        "projected_capacity_ratio": round(projected_total_jobs / total_capacity, 4)
+        if total_capacity
+        else 0,
+        "future_slot_capacity_ratio": (
+            round(projected_total_jobs / future_concurrent_jobs, 4) if future_concurrent_jobs else 0
+        ),
+        "future_gpu_capacity_ratio": (
+            round(projected_total_gpus / future_gpus, 4) if future_gpus else 0
+        ),
+        "future_capacity": future_capacity,
         "bottleneck_queue": bottleneck["id"] if bottleneck else "",
+        "bottleneck_capacity_ratio": (
+            bottleneck["projected_future_capacity_ratio"] if bottleneck else 0
+        ),
+        "queues_over_capacity": [
+            row["id"]
+            for row in queue_rows
+            if row["capacity_eligible"] and float(row["projected_gap_jobs"]) > 0
+        ],
+        "queues_requiring_migration": [
+            row["id"] for row in queue_rows if row["requires_migration"]
+        ],
+        "projected_gap_jobs": round(
+            sum(float(row["projected_gap_jobs"]) for row in queue_rows),
+            1,
+        ),
+        "projected_gap_gpus": round(
+            sum(float(row["projected_gap_gpus"]) for row in queue_rows),
+            1,
+        ),
         "queues": queue_rows,
     }
 
@@ -365,32 +663,51 @@ def build_capacity_payload(
     groups = parse_amd_mirror_groups(repo_root)
     queue_rollups = _queue_rollups(groups)
     summary = _summary(groups, queue_rollups)
-    theoretical = theoretical_groups or DEFAULT_THEORETICAL_GROUPS
+    theoretical = (
+        DEFAULT_THEORETICAL_GROUPS if theoretical_groups is None else int(theoretical_groups)
+    )
+    if theoretical <= 0:
+        raise ValueError("theoretical_groups must be positive")
     public_groups = []
     for group in groups:
         clean_group = {k: v for k, v in group.items() if not k.startswith("_")}
         public_groups.append(clean_group)
     return {
+        "schema_version": 2,
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "source": {
             "kind": source_kind,
             "github_repo": github_repo,
             "ref": ref,
             "test_areas_path": TEST_AREAS_DIR,
+            "capacity_config_path": CAPACITY_CONFIG_PATH.relative_to(ROOT).as_posix(),
+            "capacity_config_schema_version": CAPACITY_CONFIG["schema_version"],
+        },
+        "scope": {
+            **CAPACITY_CONFIG["scope"],
+            "monitored_queues": [row["id"] for row in CAPACITY_QUEUES],
+            "workload_pipelines": CAPACITY_CONFIG["workload_pipelines"],
         },
         "assumptions": {
-            "capacity_basis": "Buildkite connected-agent peak capacity from the AMD queue screenshot",
+            "capacity_basis": (
+                "User-supplied maximum concurrent jobs for standard AMD queues. "
+                "perf_eval queues are excluded and MI325 is monitored but excluded "
+                "from future eligible capacity because it is retiring."
+            ),
             "projection_model": (
-                "Naive scale-up of current mirror.amd group count, configured "
-                "parallelism, and source_file_dependencies line scope. The "
-                "frontend also scales observed queue peaks from the live "
-                "queue history for pressure estimates."
+                "Linear sensitivity scaling of current mirror.amd group count, "
+                "configured parallelism, GPU demand, and source dependency scope. "
+                "It is a planning scenario, not a forecast of simultaneous demand."
             ),
             "default_theoretical_groups": theoretical,
+            "configured_target_groups": DEFAULT_THEORETICAL_GROUPS,
         },
         "summary": summary,
+        "families": _family_rollups(queue_rollups),
         "queues": list(queue_rollups.values()),
-        "groups": sorted(public_groups, key=lambda g: (g["yaml_file"], g["yaml_index"], g["label"].lower())),
+        "groups": sorted(
+            public_groups, key=lambda g: (g["yaml_file"], g["yaml_index"], g["label"].lower())
+        ),
         "projection": _projection(summary, queue_rollups, theoretical),
     }
 
@@ -402,10 +719,12 @@ def _candidate_repo_roots(explicit: str | None) -> list[Path]:
     env_root = os.getenv("VLLM_REPO_ROOT", "").strip()
     if env_root:
         candidates.append(Path(env_root))
-    candidates.extend([
-        ROOT.parent / "vllm",
-        Path("/app/vllm"),
-    ])
+    candidates.extend(
+        [
+            ROOT.parent / "vllm",
+            Path("/app/vllm"),
+        ]
+    )
     out: list[Path] = []
     seen: set[str] = set()
     for path in candidates:

@@ -219,6 +219,7 @@ class TestBuildkiteTokenIsolation:
             "collect_amd_test_matrix.py",
             "collect_queue_snapshot.py",
             "collect_hotness.py",
+            "collect_workload_mapping.py",
             "collect_ci.py",
             "collect_analytics.py",
             "collect_test_builds.py",
@@ -244,6 +245,12 @@ class TestBuildkiteTokenIsolation:
 
     def test_amd_matrix_collector_buildkite_access_is_read_only(self):
         src = _read(ROOT / "scripts" / "vllm" / "collect_amd_test_matrix.py")
+        assert "requests.get(" in src
+        for method in ("post", "put", "patch", "delete"):
+            assert f"requests.{method}(" not in src
+
+    def test_workload_mapping_collector_buildkite_access_is_read_only(self):
+        src = _read(ROOT / "scripts" / "vllm" / "collect_workload_mapping.py")
         assert "requests.get(" in src
         for method in ("post", "put", "patch", "delete"):
             assert f"requests.{method}(" not in src

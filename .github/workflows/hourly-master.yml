@@ -110,7 +110,7 @@ jobs:
       # ── Phase 2: CI data collection (Buildkite, ~3min) ──
       - name: Sync CI data from gh-pages
         run: |
-          for f in ci_health.json parity_report.json config_parity.json flaky_tests.json failure_trends.json quarantine.json analytics.json gating_nightlies.json gating_targets.json gating_target_candidates.json shard_bases.json group_changes.json amd_test_matrix.json gating_proposals.json hotness.json operations_v2.json; do
+          for f in ci_health.json parity_report.json config_parity.json flaky_tests.json failure_trends.json quarantine.json analytics.json gating_nightlies.json gating_targets.json gating_target_candidates.json shard_bases.json group_changes.json amd_test_matrix.json gating_proposals.json hotness.json workload_mapping.json operations_v2.json; do
             LIVE=$(git show origin/gh-pages:data/vllm/ci/$f 2>/dev/null || true)
             if [ -n "$LIVE" ]; then
               echo "$LIVE" > data/vllm/ci/$f
@@ -127,6 +127,11 @@ jobs:
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
         run: python scripts/vllm/collect_hotness.py
+
+      - name: Collect vLLM/Omni AMD workload mappings
+        env:
+          BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
+        run: python scripts/vllm/collect_workload_mapping.py --output data/vllm/ci/workload_mapping.json
 
       - name: Collect CI data
         run: |

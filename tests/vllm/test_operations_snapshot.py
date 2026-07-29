@@ -254,6 +254,71 @@ def _fixture_data(tmp_path: Path) -> Path:
             },
         ],
     })
+    _write_json(tmp_path / "capacity_monitor.json", {
+        "schema_version": 2,
+        "generated_at": "2026-04-22T10:04:30Z",
+        "projection": {
+            "target_groups": 160,
+            "declared_existing_groups": 147,
+            "declared_new_groups": 10,
+            "declared_total_groups": 157,
+            "base_groups": 54,
+            "projected_total_gpus": 269,
+        },
+        "summary": {
+            "capacity": {
+                "future_eligible": {
+                    "queue_count": 1,
+                    "concurrent_jobs": 232,
+                    "gpus": 232,
+                    "eight_gpu_node_equivalents": 29,
+                },
+                "retiring": {
+                    "queue_count": 0,
+                    "concurrent_jobs": 0,
+                    "gpus": 0,
+                    "eight_gpu_node_equivalents": 0,
+                },
+            },
+        },
+        "queues": [{
+            "id": "amd_mi300_1",
+            "label": "mi300_1",
+            "family": "MI300",
+            "gpus_per_job": 1,
+            "max_concurrent_jobs": 232,
+            "future_max_concurrent_jobs": 232,
+            "gpu_capacity": 232,
+            "future_gpu_capacity": 232,
+            "monitored": True,
+            "capacity_eligible": True,
+            "lifecycle": "active",
+        }],
+    })
+    _write_json(tmp_path / "workload_mapping.json", {
+        "schema_version": 1,
+        "generated_at": "2026-04-22T10:04:45Z",
+        "window": {
+            "days": 14,
+            "start_date": "2026-04-09",
+            "end_date": "2026-04-22",
+            "complete": True,
+            "lower_bound": False,
+        },
+        "scope": {
+            "queues": ["amd_mi300_1"],
+            "excluded_queue_classes": ["perf_eval"],
+            "workload_pipelines": {
+                "omni": ["vllm-omni-amd-ci"],
+                "main": ["ci", "amd-ci", "amd-distributed-inference-ci"],
+            },
+        },
+        "totals": {
+            "omni": {"mapped_jobs": 2, "started_jobs": 2, "mapped_gpu_slots": 2},
+            "main": {"mapped_jobs": 10, "started_jobs": 8, "mapped_gpu_slots": 10},
+        },
+        "daily": [],
+    })
     current_queue = {
         "ts": "2026-04-22T10:05:00Z",
         "total_waiting": 2,
@@ -288,6 +353,8 @@ def _fixture_data(tmp_path: Path) -> Path:
             "name": "Omni pending",
             "state": "scheduled",
             "workload": "omni",
+            "pipeline": "vllm-omni-amd-ci",
+            "queue": "amd_mi300_1",
             "source": "webhook",
             "analysis_excluded": False,
             "url": "https://buildkite.com/vllm/vllm-omni/builds/1/steps/pending",
@@ -296,6 +363,8 @@ def _fixture_data(tmp_path: Path) -> Path:
             "name": "Omni running",
             "state": "running",
             "workload": "omni",
+            "pipeline": "vllm-omni-amd-ci",
+            "queue": "amd_mi300_1",
             "source": "webhook",
             "analysis_excluded": False,
             "url": "https://buildkite.com/vllm/vllm-omni/builds/1/steps/running",
@@ -854,16 +923,16 @@ def test_v2_snapshot_transition_math_links_and_queue_provenance(tmp_path):
         "history": "queue_timeseries.jsonl",
         "jobs": "queue_jobs.json",
     }
-    assert payload["omni"]["status"] == "elevated"
+    assert payload["omni"]["status"] == "healthy"
     assert payload["omni"]["current"] == {
-        "waiting": 2,
+        "waiting": 1,
         "running": 1,
-        "waiting_by_queue": {"amd_mi300_1": 2},
+        "waiting_by_queue": {"amd_mi300_1": 1},
         "running_by_queue": {"amd_mi300_1": 1},
         "ledger": {"waiting": 1, "running": 1},
         "count_basis": {
-            "waiting": "observed_queue_workload_split",
-            "running": "observed_queue_workload_split",
+            "waiting": "exact_pipeline_active_job_ledger",
+            "running": "exact_pipeline_active_job_ledger",
         },
         "attribution": {
             "waiting_supported": True,
@@ -886,7 +955,7 @@ def test_v2_snapshot_transition_math_links_and_queue_provenance(tmp_path):
         "complete_waiting_snapshot_count": 1,
         "complete_running_snapshot_count": 0,
     }
-    assert omni_history["points"][0]["all_fleet"] == {
+    assert omni_history["points"][0]["amd"] == {
         "waiting_supported": True,
         "running_supported": True,
         "waiting_observed": 2,
@@ -903,16 +972,122 @@ def test_v2_snapshot_transition_math_links_and_queue_provenance(tmp_path):
         "queue_jobs": "queue_jobs.json",
         "heuristic": "omni_surge_heuristic.json",
         "issue_state": "open_omni_surge_issues.json",
+        "mapping_history": "workload_mapping.json",
     }
     assert payload["trajectory"]["provenance"]["source_paths"] == {
         "build_history": "analytics.json",
         "group_changes": "group_changes.json",
+        "capacity": "capacity_monitor.json",
+        "target_topology": "amd_test_matrix.json",
+        "historical_load": "workload_mapping.json",
     }
     assert payload["trajectory"]["source_pipeline"] == "ci"
     assert payload["trajectory"]["pipeline_order"] == ["ci"]
     assert [row["pipeline"] for row in payload["trajectory"]["pipelines"]] == ["ci"]
     assert payload["trajectory"]["pipelines"][0]["source_key"] == "ci.all_main_reliability"
     assert all("timestamp" in source for source in payload["sources"].values())
+
+
+def test_exact_capacity_projection_expands_parallelism_and_queue_width():
+    capacity = {
+        "projection": {
+            "target_groups": 2,
+            "declared_existing_groups": 1,
+            "declared_new_groups": 1,
+            "projected_total_gpus": 4,
+        },
+        "summary": {
+            "capacity": {
+                "future_eligible": {
+                    "queue_count": 2,
+                    "concurrent_jobs": 21,
+                    "gpus": 28,
+                    "eight_gpu_node_equivalents": 3.5,
+                },
+                "retiring": {"gpus": 220},
+            },
+        },
+        "queues": [
+            {
+                "id": "amd_mi300_1",
+                "label": "mi300_1",
+                "family": "MI300",
+                "gpus_per_job": 1,
+                "future_max_concurrent_jobs": 20,
+                "future_gpu_capacity": 20,
+                "capacity_eligible": True,
+            },
+            {
+                "id": "amd_mi300_8",
+                "label": "mi300_8",
+                "family": "MI300",
+                "gpus_per_job": 8,
+                "future_max_concurrent_jobs": 1,
+                "future_gpu_capacity": 8,
+                "capacity_eligible": True,
+            },
+        ],
+    }
+    matrix = {
+        "source": {
+            "latest_build_number": 7,
+            "latest_build_date": "2026-04-22",
+        },
+        "rows": [
+            {
+                "id": "one",
+                "cells": {
+                    "mi300": {
+                        "exists": True,
+                        "variants": [{
+                            "agent_pool": "mi300_1",
+                            "parallelism": 2,
+                            "latest_url": "https://buildkite.com/vllm/amd-ci/builds/7/steps/canvas?sid=step-one",
+                        }],
+                    },
+                },
+            },
+            {
+                "id": "eight",
+                "cells": {
+                    "mi300": {
+                        "exists": True,
+                        "variants": [{
+                            "agent_pool": "mi300_8",
+                            "parallelism": 2,
+                            "latest_url": "https://buildkite.com/vllm/amd-ci/builds/7/steps/canvas?sid=step-eight",
+                        }],
+                    },
+                },
+            },
+        ],
+    }
+    amd_analytics = {
+        "builds": [{
+            "number": 7,
+            "date": "2026-04-22",
+            "jobs": [
+                {"name": "one-1", "q": "amd_mi300_1", "step_id": "step-one", "wall_completion_mins": 10},
+                {"name": "one-2", "q": "amd_mi300_1", "step_id": "step-one", "wall_completion_mins": 20},
+                {"name": "eight-1", "q": "amd_mi300_8", "step_id": "step-eight", "wall_completion_mins": 30},
+                {"name": "eight-2", "q": "amd_mi300_8", "step_id": "step-eight", "wall_completion_mins": 40},
+            ],
+        }],
+    }
+
+    projection = ops._exact_target_topology(capacity, matrix, amd_analytics)
+
+    assert projection["groups"] == 2
+    assert projection["jobs"] == 4
+    assert projection["gpu_slots"] == 18
+    assert projection["scenarios"][0]["shape_gap_gpus"] == 8
+    assert projection["scenarios"][0]["queue_gaps"][0]["id"] == "amd_mi300_8"
+    assert projection["scenarios"][1]["family_gap_gpus"] == 8
+    assert projection["recommendation"]["net_new_hardware_required_for_one_suite"] is False
+    assert projection["recommendation"]["repartition_possible_within_family"] is True
+    assert projection["runtime_estimate"]["selected_jobs"] == 4
+    assert projection["runtime_estimate"]["median_agent_hours"] == 1.67
+    assert projection["runtime_estimate"]["median_gpu_hours"] == 9.83
 
 
 def test_omni_history_keeps_observed_counts_and_coverage_without_inference():
@@ -945,22 +1120,10 @@ def test_omni_history_keeps_observed_counts_and_coverage_without_inference():
         },
     }]
 
-    block = ops._omni_history(history)
+    block = ops._omni_history(history, {"amd_mi300_1"})
 
     assert block["summary"]["snapshot_count"] == 1
     point = block["points"][0]
-    assert point["all_fleet"] == {
-        "waiting_supported": True,
-        "running_supported": True,
-        "waiting_observed": 3,
-        "running_observed": 1,
-        "waiting_attributed": 6,
-        "running_attributed": 2,
-        "waiting_total": 8,
-        "running_total": 3,
-        "waiting_attribution": "partial",
-        "running_attribution": "partial",
-    }
     assert point["amd"] == {
         "waiting_supported": True,
         "running_supported": True,
@@ -980,7 +1143,7 @@ def test_omni_keeps_partial_aggregate_and_exact_job_ledger_distinct():
     queue_snapshot = {
         "ts": "2026-04-22T12:00:00Z",
         "queues": {
-            "gpu_4_queue": {
+            "amd_mi300_1": {
                 "waiting": 8,
                 "running": 10,
                 "waiting_by_workload": {"omni": 1, "vllm": 3},
@@ -991,11 +1154,21 @@ def test_omni_keeps_partial_aggregate_and_exact_job_ledger_distinct():
     queue_jobs = {
         "ts": queue_snapshot["ts"],
         "pending": [
-            {"workload": "omni", "queue": "gpu_4_queue", "analysis_excluded": False}
+            {
+                "workload": "omni",
+                "pipeline": "vllm-omni-amd-ci",
+                "queue": "amd_mi300_1",
+                "analysis_excluded": False,
+            }
             for _ in range(3)
         ],
         "running": [
-            {"workload": "omni", "queue": "gpu_4_queue", "analysis_excluded": False}
+            {
+                "workload": "omni",
+                "pipeline": "vllm-omni-amd-ci",
+                "queue": "amd_mi300_1",
+                "analysis_excluded": False,
+            }
             for _ in range(4)
         ],
     }
@@ -1006,14 +1179,21 @@ def test_omni_keeps_partial_aggregate_and_exact_job_ledger_distinct():
         [queue_snapshot],
         {"healthy": 1, "trigger": 3},
         {},
+        {
+            "scope": {
+                "queues": ["amd_mi300_1"],
+                "workload_pipelines": {"omni": ["vllm-omni-amd-ci"]},
+            },
+        },
+        {},
     )
 
-    assert omni["current"]["waiting"] == 1
-    assert omni["current"]["running"] == 2
+    assert omni["current"]["waiting"] == 3
+    assert omni["current"]["running"] == 4
     assert omni["current"]["ledger"] == {"waiting": 3, "running": 4}
     assert omni["current"]["count_basis"] == {
-        "waiting": "observed_queue_workload_split",
-        "running": "observed_queue_workload_split",
+        "waiting": "exact_pipeline_active_job_ledger",
+        "running": "exact_pipeline_active_job_ledger",
     }
     assert omni["current"]["attribution"]["waiting_attribution"] == "partial"
     assert omni["current"]["attribution"]["running_attribution"] == "partial"
@@ -1022,25 +1202,39 @@ def test_omni_keeps_partial_aggregate_and_exact_job_ledger_distinct():
 def test_omni_uses_job_ledger_when_workload_aggregate_is_unavailable():
     queue_snapshot = {
         "ts": "2026-04-22T12:00:00Z",
-        "queues": {"gpu_4_queue": {"waiting": 3, "running": 2}},
+        "queues": {"amd_mi300_1": {"waiting": 3, "running": 2}},
     }
     queue_jobs = {
         "ts": queue_snapshot["ts"],
         "pending": [{
             "workload": "omni",
-            "queue": "gpu_4_queue",
+            "pipeline": "vllm-omni-amd-ci",
+            "queue": "amd_mi300_1",
             "analysis_excluded": False,
         }],
         "running": [],
     }
 
-    omni = ops._omni(queue_snapshot, queue_jobs, [queue_snapshot], {}, {})
+    omni = ops._omni(
+        queue_snapshot,
+        queue_jobs,
+        [queue_snapshot],
+        {},
+        {},
+        {
+            "scope": {
+                "queues": ["amd_mi300_1"],
+                "workload_pipelines": {"omni": ["vllm-omni-amd-ci"]},
+            },
+        },
+        {},
+    )
 
     assert omni["current"]["waiting"] == 1
     assert omni["current"]["running"] == 0
     assert omni["current"]["count_basis"] == {
-        "waiting": "active_job_ledger",
-        "running": "active_job_ledger",
+        "waiting": "exact_pipeline_active_job_ledger",
+        "running": "exact_pipeline_active_job_ledger",
     }
     assert omni["current"]["attribution"]["waiting_attribution"] == "unavailable"
     assert omni["current"]["attribution"]["running_attribution"] == "unavailable"
@@ -2499,7 +2693,7 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
         (output.parent / manifest["sections"]["omni"]["path"]).read_text()
     )["omni"]
     assert omni["history"]["summary"]["snapshot_count"] == 1
-    assert omni["history"]["points"][0]["all_fleet"]["waiting_observed"] == 2
+    assert omni["history"]["points"][0]["amd"]["waiting_observed"] == 2
     assert (
         omni["history"]["provenance"]["source_path"]
         == "queue_timeseries.jsonl"

@@ -1,44 +1,193 @@
 {
-  "generated_at": "2026-07-29T22:38:38Z",
+  "schema_version": 2,
+  "generated_at": "2026-07-29T23:13:19Z",
   "source": {
-    "kind": "github_archive",
+    "kind": "local",
     "github_repo": "vllm-project/vllm",
     "ref": "main",
-    "test_areas_path": ".buildkite/test_areas"
+    "test_areas_path": ".buildkite/test_areas",
+    "capacity_config_path": "config/vllm_amd_queue_capacity.json",
+    "capacity_config_schema_version": 1
+  },
+  "scope": {
+    "monitored_hardware_families": [
+      "MI250",
+      "MI300",
+      "MI325",
+      "MI355"
+    ],
+    "excluded_queue_classes": [
+      "perf_eval"
+    ],
+    "monitored_queues": [
+      "amd_mi250_1",
+      "amd_mi250_2",
+      "amd_mi250_4",
+      "amd_mi250_8",
+      "amd_mi300_1",
+      "amd_mi300_2",
+      "amd_mi300_4",
+      "amd_mi300_8",
+      "amd_mi325_1",
+      "amd_mi325_2",
+      "amd_mi325_4",
+      "amd_mi325_8",
+      "amd_mi355_1",
+      "amd_mi355_2",
+      "amd_mi355_4",
+      "amd_mi355_8"
+    ],
+    "workload_pipelines": {
+      "omni": [
+        "vllm-omni-amd-ci"
+      ],
+      "main": [
+        "ci",
+        "amd-ci",
+        "amd-distributed-inference-ci"
+      ]
+    }
   },
   "assumptions": {
-    "capacity_basis": "Buildkite connected-agent peak capacity from the AMD queue screenshot",
-    "projection_model": "Naive scale-up of current mirror.amd group count, configured parallelism, and source_file_dependencies line scope. The frontend also scales observed queue peaks from the live queue history for pressure estimates.",
-    "default_theoretical_groups": 125
+    "capacity_basis": "User-supplied maximum concurrent jobs for standard AMD queues. perf_eval queues are excluded and MI325 is monitored but excluded from future eligible capacity because it is retiring.",
+    "projection_model": "Linear sensitivity scaling of current mirror.amd group count, configured parallelism, GPU demand, and source dependency scope. It is a planning scenario, not a forecast of simultaneous demand.",
+    "default_theoretical_groups": 160,
+    "configured_target_groups": 160
   },
   "summary": {
     "queue_count": 16,
-    "total_capacity": 715,
+    "monitored_queue_count": 16,
+    "capacity_eligible_queue_count": 12,
+    "total_capacity": 680,
+    "future_eligible_capacity": 480,
+    "total_gpu_capacity": 970,
+    "future_eligible_gpu_capacity": 750,
+    "total_eight_gpu_node_equivalents": 121.25,
+    "future_eligible_eight_gpu_node_equivalents": 93.75,
+    "capacity": {
+      "monitored": {
+        "queue_count": 16,
+        "concurrent_jobs": 680,
+        "gpus": 970,
+        "eight_gpu_node_equivalents": 121.25
+      },
+      "future_eligible": {
+        "queue_count": 12,
+        "concurrent_jobs": 480,
+        "gpus": 750,
+        "eight_gpu_node_equivalents": 93.75
+      },
+      "retiring": {
+        "queue_count": 4,
+        "concurrent_jobs": 200,
+        "gpus": 220,
+        "eight_gpu_node_equivalents": 27.5
+      }
+    },
     "gated_group_count": 53,
     "capacity_scoped_group_count": 53,
     "gated_job_count": 65,
-    "total_dependency_files": 73119,
-    "total_dependency_lines": 24341495,
-    "unique_dependency_files": 4150,
-    "average_dependency_files_per_group": 1379.6,
-    "average_dependency_lines_per_group": 459273.5,
+    "gated_gpu_demand": 89,
+    "total_dependency_files": 72860,
+    "total_dependency_lines": 24022486,
+    "unique_dependency_files": 4126,
+    "average_dependency_files_per_group": 1374.7,
+    "average_dependency_lines_per_group": 453254.5,
     "queues_with_gated_work": 5
   },
+  "families": [
+    {
+      "family": "MI250",
+      "lifecycle": "active",
+      "queue_count": 4,
+      "capacity_eligible_queue_count": 4,
+      "max_concurrent_jobs": 122,
+      "gpu_capacity": 222,
+      "eight_gpu_node_equivalents": 27.75,
+      "future_max_concurrent_jobs": 122,
+      "future_gpu_capacity": 222,
+      "future_eight_gpu_node_equivalents": 27.75,
+      "gated_groups": 6,
+      "gated_jobs": 6,
+      "gated_gpu_demand": 6
+    },
+    {
+      "family": "MI300",
+      "lifecycle": "active",
+      "queue_count": 4,
+      "capacity_eligible_queue_count": 4,
+      "max_concurrent_jobs": 293,
+      "gpu_capacity": 424,
+      "eight_gpu_node_equivalents": 53.0,
+      "future_max_concurrent_jobs": 293,
+      "future_gpu_capacity": 424,
+      "future_eight_gpu_node_equivalents": 53.0,
+      "gated_groups": 47,
+      "gated_jobs": 59,
+      "gated_gpu_demand": 83
+    },
+    {
+      "family": "MI325",
+      "lifecycle": "retiring",
+      "queue_count": 4,
+      "capacity_eligible_queue_count": 0,
+      "max_concurrent_jobs": 200,
+      "gpu_capacity": 220,
+      "eight_gpu_node_equivalents": 27.5,
+      "future_max_concurrent_jobs": 0,
+      "future_gpu_capacity": 0,
+      "future_eight_gpu_node_equivalents": 0.0,
+      "gated_groups": 0,
+      "gated_jobs": 0,
+      "gated_gpu_demand": 0
+    },
+    {
+      "family": "MI355",
+      "lifecycle": "active",
+      "queue_count": 4,
+      "capacity_eligible_queue_count": 4,
+      "max_concurrent_jobs": 65,
+      "gpu_capacity": 104,
+      "eight_gpu_node_equivalents": 13.0,
+      "future_max_concurrent_jobs": 65,
+      "future_gpu_capacity": 104,
+      "future_eight_gpu_node_equivalents": 13.0,
+      "gated_groups": 0,
+      "gated_jobs": 0,
+      "gated_gpu_demand": 0
+    }
+  ],
   "queues": [
     {
       "id": "amd_mi250_1",
       "label": "mi250_1",
+      "family": "MI250",
+      "gpus_per_job": 1,
+      "max_concurrent_jobs": 78,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active",
       "max_agents": 78,
+      "gpu_capacity": 78,
+      "eight_gpu_node_equivalents": 9.75,
       "gated_groups": 6,
       "gated_jobs": 6,
-      "dependency_file_count": 4450,
-      "dependency_lines": 1461595,
-      "max_group_dependency_lines": 964347
+      "dependency_file_count": 4436,
+      "dependency_lines": 1443729,
+      "max_group_dependency_lines": 948653
     },
     {
       "id": "amd_mi250_2",
       "label": "mi250_2",
+      "family": "MI250",
+      "gpus_per_job": 2,
+      "max_concurrent_jobs": 24,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active",
       "max_agents": 24,
+      "gpu_capacity": 48,
+      "eight_gpu_node_equivalents": 6.0,
       "gated_groups": 0,
       "gated_jobs": 0,
       "dependency_file_count": 0,
@@ -48,7 +197,15 @@
     {
       "id": "amd_mi250_4",
       "label": "mi250_4",
+      "family": "MI250",
+      "gpus_per_job": 4,
+      "max_concurrent_jobs": 16,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active",
       "max_agents": 16,
+      "gpu_capacity": 64,
+      "eight_gpu_node_equivalents": 8.0,
       "gated_groups": 0,
       "gated_jobs": 0,
       "dependency_file_count": 0,
@@ -58,7 +215,15 @@
     {
       "id": "amd_mi250_8",
       "label": "mi250_8",
+      "family": "MI250",
+      "gpus_per_job": 8,
+      "max_concurrent_jobs": 4,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active",
       "max_agents": 4,
+      "gpu_capacity": 32,
+      "eight_gpu_node_equivalents": 4.0,
       "gated_groups": 0,
       "gated_jobs": 0,
       "dependency_file_count": 0,
@@ -68,37 +233,69 @@
     {
       "id": "amd_mi300_1",
       "label": "mi300_1",
-      "max_agents": 264,
+      "family": "MI300",
+      "gpus_per_job": 1,
+      "max_concurrent_jobs": 232,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active",
+      "max_agents": 232,
+      "gpu_capacity": 232,
+      "eight_gpu_node_equivalents": 29.0,
       "gated_groups": 37,
       "gated_jobs": 49,
-      "dependency_file_count": 61414,
-      "dependency_lines": 20431130,
-      "max_group_dependency_lines": 967823
+      "dependency_file_count": 61193,
+      "dependency_lines": 20151544,
+      "max_group_dependency_lines": 952032
     },
     {
       "id": "amd_mi300_2",
       "label": "mi300_2",
-      "max_agents": 40,
+      "family": "MI300",
+      "gpus_per_job": 2,
+      "max_concurrent_jobs": 30,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active",
+      "max_agents": 30,
+      "gpu_capacity": 60,
+      "eight_gpu_node_equivalents": 7.5,
       "gated_groups": 5,
       "gated_jobs": 5,
-      "dependency_file_count": 7115,
-      "dependency_lines": 2405214,
-      "max_group_dependency_lines": 945138
+      "dependency_file_count": 7091,
+      "dependency_lines": 2383933,
+      "max_group_dependency_lines": 929471
     },
     {
       "id": "amd_mi300_4",
       "label": "mi300_4",
-      "max_agents": 30,
+      "family": "MI300",
+      "gpus_per_job": 4,
+      "max_concurrent_jobs": 29,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active",
+      "max_agents": 29,
+      "gpu_capacity": 116,
+      "eight_gpu_node_equivalents": 14.5,
       "gated_groups": 4,
       "gated_jobs": 4,
       "dependency_file_count": 140,
-      "dependency_lines": 43556,
-      "max_group_dependency_lines": 10889
+      "dependency_lines": 43280,
+      "max_group_dependency_lines": 10820
     },
     {
       "id": "amd_mi300_8",
       "label": "mi300_8",
-      "max_agents": 3,
+      "family": "MI300",
+      "gpus_per_job": 8,
+      "max_concurrent_jobs": 2,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active",
+      "max_agents": 2,
+      "gpu_capacity": 16,
+      "eight_gpu_node_equivalents": 2.0,
       "gated_groups": 1,
       "gated_jobs": 1,
       "dependency_file_count": 0,
@@ -108,7 +305,15 @@
     {
       "id": "amd_mi325_1",
       "label": "mi325_1",
-      "max_agents": 180,
+      "family": "MI325",
+      "gpus_per_job": 1,
+      "max_concurrent_jobs": 188,
+      "monitored": true,
+      "capacity_eligible": false,
+      "lifecycle": "retiring",
+      "max_agents": 188,
+      "gpu_capacity": 188,
+      "eight_gpu_node_equivalents": 23.5,
       "gated_groups": 0,
       "gated_jobs": 0,
       "dependency_file_count": 0,
@@ -118,7 +323,15 @@
     {
       "id": "amd_mi325_2",
       "label": "mi325_2",
+      "family": "MI325",
+      "gpus_per_job": 2,
+      "max_concurrent_jobs": 8,
+      "monitored": true,
+      "capacity_eligible": false,
+      "lifecycle": "retiring",
       "max_agents": 8,
+      "gpu_capacity": 16,
+      "eight_gpu_node_equivalents": 2.0,
       "gated_groups": 0,
       "gated_jobs": 0,
       "dependency_file_count": 0,
@@ -128,7 +341,15 @@
     {
       "id": "amd_mi325_4",
       "label": "mi325_4",
+      "family": "MI325",
+      "gpus_per_job": 4,
+      "max_concurrent_jobs": 4,
+      "monitored": true,
+      "capacity_eligible": false,
+      "lifecycle": "retiring",
       "max_agents": 4,
+      "gpu_capacity": 16,
+      "eight_gpu_node_equivalents": 2.0,
       "gated_groups": 0,
       "gated_jobs": 0,
       "dependency_file_count": 0,
@@ -138,7 +359,15 @@
     {
       "id": "amd_mi325_8",
       "label": "mi325_8",
-      "max_agents": 1,
+      "family": "MI325",
+      "gpus_per_job": 8,
+      "max_concurrent_jobs": 0,
+      "monitored": true,
+      "capacity_eligible": false,
+      "lifecycle": "retiring",
+      "max_agents": 0,
+      "gpu_capacity": 0,
+      "eight_gpu_node_equivalents": 0.0,
       "gated_groups": 0,
       "gated_jobs": 0,
       "dependency_file_count": 0,
@@ -148,7 +377,15 @@
     {
       "id": "amd_mi355_1",
       "label": "mi355_1",
-      "max_agents": 39,
+      "family": "MI355",
+      "gpus_per_job": 1,
+      "max_concurrent_jobs": 48,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active",
+      "max_agents": 48,
+      "gpu_capacity": 48,
+      "eight_gpu_node_equivalents": 6.0,
       "gated_groups": 0,
       "gated_jobs": 0,
       "dependency_file_count": 0,
@@ -158,7 +395,15 @@
     {
       "id": "amd_mi355_2",
       "label": "mi355_2",
-      "max_agents": 20,
+      "family": "MI355",
+      "gpus_per_job": 2,
+      "max_concurrent_jobs": 8,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active",
+      "max_agents": 8,
+      "gpu_capacity": 16,
+      "eight_gpu_node_equivalents": 2.0,
       "gated_groups": 0,
       "gated_jobs": 0,
       "dependency_file_count": 0,
@@ -168,7 +413,15 @@
     {
       "id": "amd_mi355_4",
       "label": "mi355_4",
-      "max_agents": 3,
+      "family": "MI355",
+      "gpus_per_job": 4,
+      "max_concurrent_jobs": 8,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active",
+      "max_agents": 8,
+      "gpu_capacity": 32,
+      "eight_gpu_node_equivalents": 4.0,
       "gated_groups": 0,
       "gated_jobs": 0,
       "dependency_file_count": 0,
@@ -178,7 +431,15 @@
     {
       "id": "amd_mi355_8",
       "label": "mi355_8",
+      "family": "MI355",
+      "gpus_per_job": 8,
+      "max_concurrent_jobs": 1,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active",
       "max_agents": 1,
+      "gpu_capacity": 8,
+      "eight_gpu_node_equivalents": 1.0,
       "gated_groups": 0,
       "gated_jobs": 0,
       "dependency_file_count": 0,
@@ -209,7 +470,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 116,
-      "dependency_lines": 61175,
+      "dependency_lines": 61120,
       "missing_dependencies": []
     },
     {
@@ -230,8 +491,8 @@
         "tests/basic_correctness/test_cpu_offload",
         "tests/basic_correctness/test_mem.py"
       ],
-      "dependency_file_count": 2731,
-      "dependency_lines": 945286,
+      "dependency_file_count": 2721,
+      "dependency_lines": 929619,
       "missing_dependencies": [
         "tests/basic_correctness/test_basic_correctness",
         "tests/basic_correctness/test_cpu_offload"
@@ -253,8 +514,8 @@
         "vllm/",
         "tests/benchmarks/"
       ],
-      "dependency_file_count": 2748,
-      "dependency_lines": 948284,
+      "dependency_file_count": 2738,
+      "dependency_lines": 932617,
       "missing_dependencies": []
     },
     {
@@ -275,7 +536,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 35,
-      "dependency_lines": 10889,
+      "dependency_lines": 10820,
       "missing_dependencies": []
     },
     {
@@ -296,7 +557,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 35,
-      "dependency_lines": 10889,
+      "dependency_lines": 10820,
       "missing_dependencies": []
     },
     {
@@ -317,7 +578,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 35,
-      "dependency_lines": 10889,
+      "dependency_lines": 10820,
       "missing_dependencies": []
     },
     {
@@ -338,7 +599,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 35,
-      "dependency_lines": 10889,
+      "dependency_lines": 10820,
       "missing_dependencies": []
     },
     {
@@ -360,7 +621,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 36,
-      "dependency_lines": 11144,
+      "dependency_lines": 11075,
       "missing_dependencies": []
     },
     {
@@ -387,7 +648,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 266,
-      "dependency_lines": 102669,
+      "dependency_lines": 102146,
       "missing_dependencies": [
         "vllm/executor/",
         "vllm/worker/worker_base.py"
@@ -425,7 +686,7 @@
         "tests/test_jit_monitor.py"
       ],
       "dependency_file_count": 147,
-      "dependency_lines": 51522,
+      "dependency_lines": 51443,
       "missing_dependencies": [
         "vllm/entrypoints/logger.py",
         "tests/test_sequence",
@@ -452,7 +713,7 @@
         "tests/v1/test_tensor_ipc_queue.py"
       ],
       "dependency_file_count": 33,
-      "dependency_lines": 18047,
+      "dependency_lines": 18036,
       "missing_dependencies": []
     },
     {
@@ -471,8 +732,8 @@
         "vllm/v1/",
         "tests/v1/e2e/general/"
       ],
-      "dependency_file_count": 342,
-      "dependency_lines": 134497,
+      "dependency_file_count": 341,
+      "dependency_lines": 133903,
       "missing_dependencies": []
     },
     {
@@ -492,8 +753,8 @@
         "tests/v1/e2e/general/",
         "vllm/platforms/rocm.py"
       ],
-      "dependency_file_count": 343,
-      "dependency_lines": 135563,
+      "dependency_file_count": 342,
+      "dependency_lines": 134969,
       "missing_dependencies": []
     },
     {
@@ -528,8 +789,8 @@
         "vllm/v1/",
         "tests/v1/e2e/spec_decode"
       ],
-      "dependency_file_count": 2067,
-      "dependency_lines": 683620,
+      "dependency_file_count": 2060,
+      "dependency_lines": 681093,
       "missing_dependencies": []
     },
     {
@@ -548,8 +809,8 @@
         "vllm/",
         "tests/entrypoints/llm"
       ],
-      "dependency_file_count": 2740,
-      "dependency_lines": 946687,
+      "dependency_file_count": 2730,
+      "dependency_lines": 931018,
       "missing_dependencies": []
     },
     {
@@ -569,8 +830,8 @@
         "tests/entrypoints/serve",
         "tests/entrypoints/scale_out"
       ],
-      "dependency_file_count": 2778,
-      "dependency_lines": 953441,
+      "dependency_file_count": 2768,
+      "dependency_lines": 937756,
       "missing_dependencies": []
     },
     {
@@ -590,8 +851,8 @@
         "tests/entrypoints/openai",
         "tests/entrypoints/test_chat_utils"
       ],
-      "dependency_file_count": 2802,
-      "dependency_lines": 967823,
+      "dependency_file_count": 2792,
+      "dependency_lines": 952032,
       "missing_dependencies": [
         "tests/entrypoints/test_chat_utils"
       ]
@@ -613,8 +874,8 @@
         "tests/entrypoints/openai",
         "tests/entrypoints/test_chat_utils"
       ],
-      "dependency_file_count": 2802,
-      "dependency_lines": 967823,
+      "dependency_file_count": 2792,
+      "dependency_lines": 952032,
       "missing_dependencies": [
         "tests/entrypoints/test_chat_utils"
       ]
@@ -638,8 +899,8 @@
         "tests/entrypoints/anthropic",
         "tests/entrypoints/generate"
       ],
-      "dependency_file_count": 2757,
-      "dependency_lines": 951489,
+      "dependency_file_count": 2746,
+      "dependency_lines": 935221,
       "missing_dependencies": []
     },
     {
@@ -664,8 +925,8 @@
         "vllm/platforms/rocm.py",
         "vllm/model_executor/model_loader/"
       ],
-      "dependency_file_count": 1283,
-      "dependency_lines": 363205,
+      "dependency_file_count": 1274,
+      "dependency_lines": 358003,
       "missing_dependencies": []
     },
     {
@@ -711,8 +972,8 @@
         "vllm/envs.py",
         "vllm/platforms/rocm.py"
       ],
-      "dependency_file_count": 134,
-      "dependency_lines": 66963,
+      "dependency_file_count": 133,
+      "dependency_lines": 66603,
       "missing_dependencies": []
     },
     {
@@ -737,8 +998,8 @@
         "vllm/platforms/rocm.py",
         "vllm/model_executor/kernels/"
       ],
-      "dependency_file_count": 488,
-      "dependency_lines": 110395,
+      "dependency_file_count": 486,
+      "dependency_lines": 109772,
       "missing_dependencies": []
     },
     {
@@ -764,8 +1025,8 @@
         "vllm/_aiter_ops.py",
         "vllm/platforms/rocm.py"
       ],
-      "dependency_file_count": 544,
-      "dependency_lines": 145037,
+      "dependency_file_count": 542,
+      "dependency_lines": 143552,
       "missing_dependencies": [
         "csrc/quantization/cutlass_w8a8/moe/"
       ]
@@ -792,8 +1053,8 @@
         "vllm/_aiter_ops.py",
         "vllm/platforms/rocm.py"
       ],
-      "dependency_file_count": 1008,
-      "dependency_lines": 410837,
+      "dependency_file_count": 1001,
+      "dependency_lines": 406427,
       "missing_dependencies": []
     },
     {
@@ -858,8 +1119,8 @@
         "vllm/v1/",
         "tests/v1/spec_decode"
       ],
-      "dependency_file_count": 1993,
-      "dependency_lines": 652980,
+      "dependency_file_count": 1985,
+      "dependency_lines": 650388,
       "missing_dependencies": []
     },
     {
@@ -892,8 +1153,8 @@
         "tests/v1/test_request.py",
         "tests/v1/test_outputs.py"
       ],
-      "dependency_file_count": 1995,
-      "dependency_lines": 658643,
+      "dependency_file_count": 1988,
+      "dependency_lines": 656117,
       "missing_dependencies": []
     },
     {
@@ -937,8 +1198,8 @@
         "tests/v1/metrics",
         "tests/entrypoints/openai/correctness/test_lmeval.py"
       ],
-      "dependency_file_count": 2256,
-      "dependency_lines": 766852,
+      "dependency_file_count": 2246,
+      "dependency_lines": 763428,
       "missing_dependencies": []
     },
     {
@@ -960,7 +1221,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 468,
-      "dependency_lines": 89102,
+      "dependency_lines": 89085,
       "missing_dependencies": []
     },
     {
@@ -991,8 +1252,8 @@
         "tests/v1/tracing",
         "tests/tracing/"
       ],
-      "dependency_file_count": 2010,
-      "dependency_lines": 662643,
+      "dependency_file_count": 2003,
+      "dependency_lines": 660148,
       "missing_dependencies": []
     },
     {
@@ -1013,7 +1274,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 3,
-      "dependency_lines": 2482,
+      "dependency_lines": 2477,
       "missing_dependencies": []
     },
     {
@@ -1039,8 +1300,8 @@
         "vllm/_aiter_ops.py",
         "vllm/platforms/rocm.py"
       ],
-      "dependency_file_count": 1356,
-      "dependency_lines": 426719,
+      "dependency_file_count": 1352,
+      "dependency_lines": 425237,
       "missing_dependencies": []
     },
     {
@@ -1061,8 +1322,8 @@
         "tests/models/transformers/test_backend.py",
         "tests/models/test_registry.py"
       ],
-      "dependency_file_count": 2733,
-      "dependency_lines": 945507,
+      "dependency_file_count": 2723,
+      "dependency_lines": 929840,
       "missing_dependencies": []
     },
     {
@@ -1081,8 +1342,8 @@
         "vllm/",
         "tests/models/language"
       ],
-      "dependency_file_count": 2783,
-      "dependency_lines": 952063,
+      "dependency_file_count": 2773,
+      "dependency_lines": 936143,
       "missing_dependencies": []
     },
     {
@@ -1109,8 +1370,8 @@
         "vllm/_aiter_ops.py",
         "vllm/platforms/rocm.py"
       ],
-      "dependency_file_count": 1264,
-      "dependency_lines": 420909,
+      "dependency_file_count": 1262,
+      "dependency_lines": 419744,
       "missing_dependencies": []
     },
     {
@@ -1129,8 +1390,8 @@
         "vllm/",
         "tests/models/language/generation"
       ],
-      "dependency_file_count": 2738,
-      "dependency_lines": 946732,
+      "dependency_file_count": 2728,
+      "dependency_lines": 931065,
       "missing_dependencies": []
     },
     {
@@ -1149,8 +1410,8 @@
         "vllm/",
         "tests/models/language/pooling"
       ],
-      "dependency_file_count": 2753,
-      "dependency_lines": 948375,
+      "dependency_file_count": 2743,
+      "dependency_lines": 932455,
       "missing_dependencies": []
     },
     {
@@ -1169,8 +1430,8 @@
         "vllm/",
         "tests/models/multimodal"
       ],
-      "dependency_file_count": 2818,
-      "dependency_lines": 964347,
+      "dependency_file_count": 2808,
+      "dependency_lines": 948653,
       "missing_dependencies": []
     },
     {
@@ -1189,8 +1450,8 @@
         "vllm/",
         "tests/models/multimodal"
       ],
-      "dependency_file_count": 2818,
-      "dependency_lines": 964347,
+      "dependency_file_count": 2808,
+      "dependency_lines": 948653,
       "missing_dependencies": []
     },
     {
@@ -1209,8 +1470,8 @@
         "vllm/",
         "tests/models/multimodal"
       ],
-      "dependency_file_count": 2818,
-      "dependency_lines": 964347,
+      "dependency_file_count": 2808,
+      "dependency_lines": 948653,
       "missing_dependencies": []
     },
     {
@@ -1229,8 +1490,8 @@
         "vllm/",
         "tests/models/multimodal"
       ],
-      "dependency_file_count": 2818,
-      "dependency_lines": 964347,
+      "dependency_file_count": 2808,
+      "dependency_lines": 948653,
       "missing_dependencies": []
     },
     {
@@ -1253,7 +1514,7 @@
         "vllm/model_executor/model_loader/"
       ],
       "dependency_file_count": 67,
-      "dependency_lines": 30194,
+      "dependency_lines": 30144,
       "missing_dependencies": []
     },
     {
@@ -1273,8 +1534,8 @@
         "tests/models/multimodal/generation",
         "tests/models/multimodal/test_mapping.py"
       ],
-      "dependency_file_count": 2762,
-      "dependency_lines": 954524,
+      "dependency_file_count": 2752,
+      "dependency_lines": 938857,
       "missing_dependencies": []
     },
     {
@@ -1293,8 +1554,8 @@
         "vllm/",
         "tests/models/multimodal/pooling"
       ],
-      "dependency_file_count": 2747,
-      "dependency_lines": 948031,
+      "dependency_file_count": 2737,
+      "dependency_lines": 932364,
       "missing_dependencies": []
     },
     {
@@ -1339,8 +1600,8 @@
         "vllm/_aiter_ops.py",
         "vllm/platforms/rocm.py"
       ],
-      "dependency_file_count": 911,
-      "dependency_lines": 206659,
+      "dependency_file_count": 909,
+      "dependency_lines": 205691,
       "missing_dependencies": [
         "vllm/sampling_metadata.py"
       ]
@@ -1366,8 +1627,8 @@
         "tests/v1/e2e/spec_decode/",
         "vllm/platforms/rocm.py"
       ],
-      "dependency_file_count": 967,
-      "dependency_lines": 218542,
+      "dependency_file_count": 965,
+      "dependency_lines": 217545,
       "missing_dependencies": []
     },
     {
@@ -1392,8 +1653,8 @@
         "tests/v1/e2e/spec_decode/",
         "vllm/platforms/rocm.py"
       ],
-      "dependency_file_count": 970,
-      "dependency_lines": 218862,
+      "dependency_file_count": 968,
+      "dependency_lines": 217865,
       "missing_dependencies": []
     },
     {
@@ -1417,8 +1678,8 @@
         "tests/v1/e2e/spec_decode/",
         "vllm/platforms/rocm.py"
       ],
-      "dependency_file_count": 967,
-      "dependency_lines": 218542,
+      "dependency_file_count": 965,
+      "dependency_lines": 217545,
       "missing_dependencies": []
     },
     {
@@ -1442,8 +1703,8 @@
         "tests/v1/e2e/spec_decode/",
         "vllm/platforms/rocm.py"
       ],
-      "dependency_file_count": 967,
-      "dependency_lines": 218542,
+      "dependency_file_count": 965,
+      "dependency_lines": 217545,
       "missing_dependencies": []
     },
     {
@@ -1462,146 +1723,429 @@
         "vllm/",
         "tests/weight_loading"
       ],
-      "dependency_file_count": 2736,
-      "dependency_lines": 945138,
+      "dependency_file_count": 2726,
+      "dependency_lines": 929471,
       "missing_dependencies": []
     }
   ],
   "projection": {
-    "theoretical_groups": 125,
-    "scale": 2.3585,
-    "projected_total_jobs": 153.4,
-    "projected_dependency_lines": 57409186,
-    "projected_capacity_ratio": 0.2145,
+    "model": "linear_configured_parallelism_sensitivity",
+    "target_groups": 160,
+    "theoretical_groups": 160,
+    "configured_target_groups": 160,
+    "declared_current_mirror_groups": 54,
+    "declared_existing_groups": 147,
+    "declared_new_groups": 10,
+    "declared_total_groups": 157,
+    "planning_headroom_groups": 3,
+    "note": "147 existing + 10 new = 157 declared groups; target 160 includes 3 groups of planning headroom.",
+    "base_groups": 53,
+    "scale": 3.0189,
+    "projected_total_jobs": 196.2,
+    "projected_total_gpus": 268.7,
+    "projected_eight_gpu_node_equivalents": 33.59,
+    "projected_dependency_lines": 72520712,
+    "projected_capacity_ratio": 0.2885,
+    "future_slot_capacity_ratio": 0.4088,
+    "future_gpu_capacity_ratio": 0.3583,
+    "future_capacity": {
+      "queue_count": 12,
+      "concurrent_jobs": 480,
+      "gpus": 750,
+      "eight_gpu_node_equivalents": 93.75
+    },
     "bottleneck_queue": "amd_mi300_8",
+    "bottleneck_capacity_ratio": 1.5094,
+    "queues_over_capacity": [
+      "amd_mi300_8"
+    ],
+    "queues_requiring_migration": [],
+    "projected_gap_jobs": 1.0,
+    "projected_gap_gpus": 8.0,
     "queues": [
       {
         "id": "amd_mi250_1",
         "label": "mi250_1",
+        "family": "MI250",
+        "gpus_per_job": 1,
+        "lifecycle": "active",
+        "monitored": true,
+        "capacity_eligible": true,
         "max_agents": 78,
-        "projected_jobs": 14.2,
-        "projected_dependency_lines": 3447158,
-        "projected_capacity_ratio": 0.1821
+        "max_concurrent_jobs": 78,
+        "gpu_capacity": 78,
+        "eight_gpu_node_equivalents": 9.75,
+        "future_max_concurrent_jobs": 78,
+        "future_gpu_capacity": 78,
+        "projected_jobs": 18.1,
+        "projected_gpu_demand": 18.1,
+        "projected_eight_gpu_node_equivalents": 2.26,
+        "projected_dependency_lines": 4358427,
+        "projected_capacity_ratio": 0.2322,
+        "projected_future_capacity_ratio": 0.2322,
+        "projected_gap_jobs": 0.0,
+        "projected_gap_gpus": 0.0,
+        "requires_migration": false
       },
       {
         "id": "amd_mi250_2",
         "label": "mi250_2",
+        "family": "MI250",
+        "gpus_per_job": 2,
+        "lifecycle": "active",
+        "monitored": true,
+        "capacity_eligible": true,
         "max_agents": 24,
+        "max_concurrent_jobs": 24,
+        "gpu_capacity": 48,
+        "eight_gpu_node_equivalents": 6.0,
+        "future_max_concurrent_jobs": 24,
+        "future_gpu_capacity": 48,
         "projected_jobs": 0.0,
+        "projected_gpu_demand": 0.0,
+        "projected_eight_gpu_node_equivalents": 0.0,
         "projected_dependency_lines": 0,
-        "projected_capacity_ratio": 0.0
+        "projected_capacity_ratio": 0.0,
+        "projected_future_capacity_ratio": 0.0,
+        "projected_gap_jobs": 0.0,
+        "projected_gap_gpus": 0.0,
+        "requires_migration": false
       },
       {
         "id": "amd_mi250_4",
         "label": "mi250_4",
+        "family": "MI250",
+        "gpus_per_job": 4,
+        "lifecycle": "active",
+        "monitored": true,
+        "capacity_eligible": true,
         "max_agents": 16,
+        "max_concurrent_jobs": 16,
+        "gpu_capacity": 64,
+        "eight_gpu_node_equivalents": 8.0,
+        "future_max_concurrent_jobs": 16,
+        "future_gpu_capacity": 64,
         "projected_jobs": 0.0,
+        "projected_gpu_demand": 0.0,
+        "projected_eight_gpu_node_equivalents": 0.0,
         "projected_dependency_lines": 0,
-        "projected_capacity_ratio": 0.0
+        "projected_capacity_ratio": 0.0,
+        "projected_future_capacity_ratio": 0.0,
+        "projected_gap_jobs": 0.0,
+        "projected_gap_gpus": 0.0,
+        "requires_migration": false
       },
       {
         "id": "amd_mi250_8",
         "label": "mi250_8",
+        "family": "MI250",
+        "gpus_per_job": 8,
+        "lifecycle": "active",
+        "monitored": true,
+        "capacity_eligible": true,
         "max_agents": 4,
+        "max_concurrent_jobs": 4,
+        "gpu_capacity": 32,
+        "eight_gpu_node_equivalents": 4.0,
+        "future_max_concurrent_jobs": 4,
+        "future_gpu_capacity": 32,
         "projected_jobs": 0.0,
+        "projected_gpu_demand": 0.0,
+        "projected_eight_gpu_node_equivalents": 0.0,
         "projected_dependency_lines": 0,
-        "projected_capacity_ratio": 0.0
+        "projected_capacity_ratio": 0.0,
+        "projected_future_capacity_ratio": 0.0,
+        "projected_gap_jobs": 0.0,
+        "projected_gap_gpus": 0.0,
+        "requires_migration": false
       },
       {
         "id": "amd_mi300_1",
         "label": "mi300_1",
-        "max_agents": 264,
-        "projected_jobs": 115.6,
-        "projected_dependency_lines": 48186627,
-        "projected_capacity_ratio": 0.4379
+        "family": "MI300",
+        "gpus_per_job": 1,
+        "lifecycle": "active",
+        "monitored": true,
+        "capacity_eligible": true,
+        "max_agents": 232,
+        "max_concurrent_jobs": 232,
+        "gpu_capacity": 232,
+        "eight_gpu_node_equivalents": 29.0,
+        "future_max_concurrent_jobs": 232,
+        "future_gpu_capacity": 232,
+        "projected_jobs": 147.9,
+        "projected_gpu_demand": 147.9,
+        "projected_eight_gpu_node_equivalents": 18.49,
+        "projected_dependency_lines": 60834850,
+        "projected_capacity_ratio": 0.6376,
+        "projected_future_capacity_ratio": 0.6376,
+        "projected_gap_jobs": 0.0,
+        "projected_gap_gpus": 0.0,
+        "requires_migration": false
       },
       {
         "id": "amd_mi300_2",
         "label": "mi300_2",
-        "max_agents": 40,
-        "projected_jobs": 11.8,
-        "projected_dependency_lines": 5672675,
-        "projected_capacity_ratio": 0.295
+        "family": "MI300",
+        "gpus_per_job": 2,
+        "lifecycle": "active",
+        "monitored": true,
+        "capacity_eligible": true,
+        "max_agents": 30,
+        "max_concurrent_jobs": 30,
+        "gpu_capacity": 60,
+        "eight_gpu_node_equivalents": 7.5,
+        "future_max_concurrent_jobs": 30,
+        "future_gpu_capacity": 60,
+        "projected_jobs": 15.1,
+        "projected_gpu_demand": 30.2,
+        "projected_eight_gpu_node_equivalents": 3.77,
+        "projected_dependency_lines": 7196779,
+        "projected_capacity_ratio": 0.5031,
+        "projected_future_capacity_ratio": 0.5031,
+        "projected_gap_jobs": 0.0,
+        "projected_gap_gpus": 0.0,
+        "requires_migration": false
       },
       {
         "id": "amd_mi300_4",
         "label": "mi300_4",
-        "max_agents": 30,
-        "projected_jobs": 9.4,
-        "projected_dependency_lines": 102726,
-        "projected_capacity_ratio": 0.3133
+        "family": "MI300",
+        "gpus_per_job": 4,
+        "lifecycle": "active",
+        "monitored": true,
+        "capacity_eligible": true,
+        "max_agents": 29,
+        "max_concurrent_jobs": 29,
+        "gpu_capacity": 116,
+        "eight_gpu_node_equivalents": 14.5,
+        "future_max_concurrent_jobs": 29,
+        "future_gpu_capacity": 116,
+        "projected_jobs": 12.1,
+        "projected_gpu_demand": 48.3,
+        "projected_eight_gpu_node_equivalents": 6.04,
+        "projected_dependency_lines": 130657,
+        "projected_capacity_ratio": 0.4164,
+        "projected_future_capacity_ratio": 0.4164,
+        "projected_gap_jobs": 0.0,
+        "projected_gap_gpus": 0.0,
+        "requires_migration": false
       },
       {
         "id": "amd_mi300_8",
         "label": "mi300_8",
-        "max_agents": 3,
-        "projected_jobs": 2.4,
+        "family": "MI300",
+        "gpus_per_job": 8,
+        "lifecycle": "active",
+        "monitored": true,
+        "capacity_eligible": true,
+        "max_agents": 2,
+        "max_concurrent_jobs": 2,
+        "gpu_capacity": 16,
+        "eight_gpu_node_equivalents": 2.0,
+        "future_max_concurrent_jobs": 2,
+        "future_gpu_capacity": 16,
+        "projected_jobs": 3.0,
+        "projected_gpu_demand": 24.2,
+        "projected_eight_gpu_node_equivalents": 3.02,
         "projected_dependency_lines": 0,
-        "projected_capacity_ratio": 0.8
+        "projected_capacity_ratio": 1.5094,
+        "projected_future_capacity_ratio": 1.5094,
+        "projected_gap_jobs": 1.0,
+        "projected_gap_gpus": 8.0,
+        "requires_migration": false
       },
       {
         "id": "amd_mi325_1",
         "label": "mi325_1",
-        "max_agents": 180,
+        "family": "MI325",
+        "gpus_per_job": 1,
+        "lifecycle": "retiring",
+        "monitored": true,
+        "capacity_eligible": false,
+        "max_agents": 188,
+        "max_concurrent_jobs": 188,
+        "gpu_capacity": 188,
+        "eight_gpu_node_equivalents": 23.5,
+        "future_max_concurrent_jobs": 0,
+        "future_gpu_capacity": 0,
         "projected_jobs": 0.0,
+        "projected_gpu_demand": 0.0,
+        "projected_eight_gpu_node_equivalents": 0.0,
         "projected_dependency_lines": 0,
-        "projected_capacity_ratio": 0.0
+        "projected_capacity_ratio": 0.0,
+        "projected_future_capacity_ratio": 0,
+        "projected_gap_jobs": 0.0,
+        "projected_gap_gpus": 0.0,
+        "requires_migration": false
       },
       {
         "id": "amd_mi325_2",
         "label": "mi325_2",
+        "family": "MI325",
+        "gpus_per_job": 2,
+        "lifecycle": "retiring",
+        "monitored": true,
+        "capacity_eligible": false,
         "max_agents": 8,
+        "max_concurrent_jobs": 8,
+        "gpu_capacity": 16,
+        "eight_gpu_node_equivalents": 2.0,
+        "future_max_concurrent_jobs": 0,
+        "future_gpu_capacity": 0,
         "projected_jobs": 0.0,
+        "projected_gpu_demand": 0.0,
+        "projected_eight_gpu_node_equivalents": 0.0,
         "projected_dependency_lines": 0,
-        "projected_capacity_ratio": 0.0
+        "projected_capacity_ratio": 0.0,
+        "projected_future_capacity_ratio": 0,
+        "projected_gap_jobs": 0.0,
+        "projected_gap_gpus": 0.0,
+        "requires_migration": false
       },
       {
         "id": "amd_mi325_4",
         "label": "mi325_4",
+        "family": "MI325",
+        "gpus_per_job": 4,
+        "lifecycle": "retiring",
+        "monitored": true,
+        "capacity_eligible": false,
         "max_agents": 4,
+        "max_concurrent_jobs": 4,
+        "gpu_capacity": 16,
+        "eight_gpu_node_equivalents": 2.0,
+        "future_max_concurrent_jobs": 0,
+        "future_gpu_capacity": 0,
         "projected_jobs": 0.0,
+        "projected_gpu_demand": 0.0,
+        "projected_eight_gpu_node_equivalents": 0.0,
         "projected_dependency_lines": 0,
-        "projected_capacity_ratio": 0.0
+        "projected_capacity_ratio": 0.0,
+        "projected_future_capacity_ratio": 0,
+        "projected_gap_jobs": 0.0,
+        "projected_gap_gpus": 0.0,
+        "requires_migration": false
       },
       {
         "id": "amd_mi325_8",
         "label": "mi325_8",
-        "max_agents": 1,
+        "family": "MI325",
+        "gpus_per_job": 8,
+        "lifecycle": "retiring",
+        "monitored": true,
+        "capacity_eligible": false,
+        "max_agents": 0,
+        "max_concurrent_jobs": 0,
+        "gpu_capacity": 0,
+        "eight_gpu_node_equivalents": 0.0,
+        "future_max_concurrent_jobs": 0,
+        "future_gpu_capacity": 0,
         "projected_jobs": 0.0,
+        "projected_gpu_demand": 0.0,
+        "projected_eight_gpu_node_equivalents": 0.0,
         "projected_dependency_lines": 0,
-        "projected_capacity_ratio": 0.0
+        "projected_capacity_ratio": 0,
+        "projected_future_capacity_ratio": 0,
+        "projected_gap_jobs": 0.0,
+        "projected_gap_gpus": 0.0,
+        "requires_migration": false
       },
       {
         "id": "amd_mi355_1",
         "label": "mi355_1",
-        "max_agents": 39,
+        "family": "MI355",
+        "gpus_per_job": 1,
+        "lifecycle": "active",
+        "monitored": true,
+        "capacity_eligible": true,
+        "max_agents": 48,
+        "max_concurrent_jobs": 48,
+        "gpu_capacity": 48,
+        "eight_gpu_node_equivalents": 6.0,
+        "future_max_concurrent_jobs": 48,
+        "future_gpu_capacity": 48,
         "projected_jobs": 0.0,
+        "projected_gpu_demand": 0.0,
+        "projected_eight_gpu_node_equivalents": 0.0,
         "projected_dependency_lines": 0,
-        "projected_capacity_ratio": 0.0
+        "projected_capacity_ratio": 0.0,
+        "projected_future_capacity_ratio": 0.0,
+        "projected_gap_jobs": 0.0,
+        "projected_gap_gpus": 0.0,
+        "requires_migration": false
       },
       {
         "id": "amd_mi355_2",
         "label": "mi355_2",
-        "max_agents": 20,
+        "family": "MI355",
+        "gpus_per_job": 2,
+        "lifecycle": "active",
+        "monitored": true,
+        "capacity_eligible": true,
+        "max_agents": 8,
+        "max_concurrent_jobs": 8,
+        "gpu_capacity": 16,
+        "eight_gpu_node_equivalents": 2.0,
+        "future_max_concurrent_jobs": 8,
+        "future_gpu_capacity": 16,
         "projected_jobs": 0.0,
+        "projected_gpu_demand": 0.0,
+        "projected_eight_gpu_node_equivalents": 0.0,
         "projected_dependency_lines": 0,
-        "projected_capacity_ratio": 0.0
+        "projected_capacity_ratio": 0.0,
+        "projected_future_capacity_ratio": 0.0,
+        "projected_gap_jobs": 0.0,
+        "projected_gap_gpus": 0.0,
+        "requires_migration": false
       },
       {
         "id": "amd_mi355_4",
         "label": "mi355_4",
-        "max_agents": 3,
+        "family": "MI355",
+        "gpus_per_job": 4,
+        "lifecycle": "active",
+        "monitored": true,
+        "capacity_eligible": true,
+        "max_agents": 8,
+        "max_concurrent_jobs": 8,
+        "gpu_capacity": 32,
+        "eight_gpu_node_equivalents": 4.0,
+        "future_max_concurrent_jobs": 8,
+        "future_gpu_capacity": 32,
         "projected_jobs": 0.0,
+        "projected_gpu_demand": 0.0,
+        "projected_eight_gpu_node_equivalents": 0.0,
         "projected_dependency_lines": 0,
-        "projected_capacity_ratio": 0.0
+        "projected_capacity_ratio": 0.0,
+        "projected_future_capacity_ratio": 0.0,
+        "projected_gap_jobs": 0.0,
+        "projected_gap_gpus": 0.0,
+        "requires_migration": false
       },
       {
         "id": "amd_mi355_8",
         "label": "mi355_8",
+        "family": "MI355",
+        "gpus_per_job": 8,
+        "lifecycle": "active",
+        "monitored": true,
+        "capacity_eligible": true,
         "max_agents": 1,
+        "max_concurrent_jobs": 1,
+        "gpu_capacity": 8,
+        "eight_gpu_node_equivalents": 1.0,
+        "future_max_concurrent_jobs": 1,
+        "future_gpu_capacity": 8,
         "projected_jobs": 0.0,
+        "projected_gpu_demand": 0.0,
+        "projected_eight_gpu_node_equivalents": 0.0,
         "projected_dependency_lines": 0,
-        "projected_capacity_ratio": 0.0
+        "projected_capacity_ratio": 0.0,
+        "projected_future_capacity_ratio": 0.0,
+        "projected_gap_jobs": 0.0,
+        "projected_gap_gpus": 0.0,
+        "requires_migration": false
       }
     ]
   }

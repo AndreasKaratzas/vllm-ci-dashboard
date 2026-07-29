@@ -85,6 +85,7 @@ SOURCE_FILES = {
     "gating_target_candidates": "gating_target_candidates.json",
     "amd_test_matrix": "amd_test_matrix.json",
     "capacity_monitor": "capacity_monitor.json",
+    "workload_mapping": "workload_mapping.json",
     "queue_timeseries": "queue_timeseries.jsonl",
     "queue_jobs": "queue_jobs.json",
     "group_changes": "group_changes.json",
@@ -3433,32 +3434,29 @@ def _omni_history_scope(queue_rows: list[dict]) -> dict:
     }
 
 
-def _omni_history(history: list[dict]) -> dict:
-    """Retain only explicit Omni workload history and its coverage contract."""
+def _omni_history(
+    history: list[dict],
+    allowed_queues: set[str] | None = None,
+) -> dict:
+    """Retain explicit Omni occupancy only for the configured AMD queues."""
+    allowed_queues = allowed_queues or {
+        str(name)
+        for snapshot in history
+        for name in (snapshot.get("queues") or {})
+        if _is_amd_queue(name)
+    }
     points = []
     for snapshot in history:
-        queue_rows = [
-            stats
-            for name, stats in (snapshot.get("queues") or {}).items()
-            if not _is_excluded_queue(name) and isinstance(stats, dict)
-        ]
         amd_rows = [
             stats
             for name, stats in (snapshot.get("queues") or {}).items()
-            if _is_amd_queue(name) and isinstance(stats, dict)
+            if name in allowed_queues and isinstance(stats, dict)
         ]
-        all_fleet = _omni_history_scope(queue_rows)
         amd = _omni_history_scope(amd_rows)
-        if not any((
-            all_fleet["waiting_supported"],
-            all_fleet["running_supported"],
-            amd["waiting_supported"],
-            amd["running_supported"],
-        )):
+        if not any((amd["waiting_supported"], amd["running_supported"])):
             continue
         points.append({
             "ts": snapshot.get("ts"),
-            "all_fleet": all_fleet,
             "amd": amd,
         })
 
@@ -3469,11 +3467,11 @@ def _omni_history(history: list[dict]) -> dict:
             "first_observed_at": points[0]["ts"] if points else None,
             "last_observed_at": points[-1]["ts"] if points else None,
             "complete_waiting_snapshot_count": sum(
-                point["all_fleet"]["waiting_attribution"] == "complete"
+                point["amd"]["waiting_attribution"] == "complete"
                 for point in points
             ),
             "complete_running_snapshot_count": sum(
-                point["all_fleet"]["running_attribution"] == "complete"
+                point["amd"]["running_attribution"] == "complete"
                 for point in points
             ),
         },
@@ -3483,7 +3481,8 @@ def _omni_history(history: list[dict]) -> dict:
                 "Observed Omni workload counts only; partial attribution is a "
                 "lower bound and is never inferred from aggregate queue totals."
             ),
-            "scope": "all non-retired queues, with AMD retained as a strict subset",
+            "scope": "configured standard AMD queues only; perf-eval queues are excluded",
+            "queues": sorted(allowed_queues),
         },
     }
 
@@ -3494,28 +3493,61 @@ def _omni(
     queue_history: list[dict],
     heuristic: dict,
     issue_state: dict,
+    workload_mapping: dict | None = None,
+    capacity: dict | None = None,
 ) -> dict:
+    workload_mapping = workload_mapping or {}
+    capacity = capacity or {}
+    mapping_scope = workload_mapping.get("scope") or {}
+    allowed_queues = {
+        str(name)
+        for name in mapping_scope.get("queues") or []
+        if str(name) and not _is_excluded_queue(name)
+    }
+    if not allowed_queues:
+        allowed_queues = {
+            str(row.get("id"))
+            for row in capacity.get("queues") or []
+            if isinstance(row, dict)
+            and row.get("monitored") is not False
+            and row.get("id")
+            and not _is_excluded_queue(row.get("id"))
+        }
+    omni_pipelines = {
+        str(name)
+        for name in (
+            (mapping_scope.get("workload_pipelines") or {}).get("omni")
+            or ["vllm-omni-amd-ci"]
+        )
+        if str(name)
+    }
     jobs = {
         state: [
             job for job in queue_jobs.get(state) or []
-            if str(job.get("workload") or "").lower() == "omni"
-            and not _is_excluded_queue(job.get("queue") or job.get("q"))
+            if str(job.get("pipeline") or "") in omni_pipelines
+            and str(job.get("queue") or job.get("q") or "") in allowed_queues
         ]
         for state in ("pending", "running")
     }
     queue_rows = [
         stats
         for name, stats in (queue_snapshot.get("queues") or {}).items()
-        if not _is_excluded_queue(name) and isinstance(stats, dict)
+        if name in allowed_queues and isinstance(stats, dict)
     ]
     attribution = _omni_history_scope(queue_rows)
     waiting_by_queue: dict[str, int] = {}
     running_by_queue: dict[str, int] = {}
-    for queue_name, stats in (queue_snapshot.get("queues") or {}).items():
-        if _is_excluded_queue(queue_name) or not isinstance(stats, dict):
-            continue
-        waiting = int((stats.get("waiting_by_workload") or {}).get("omni") or 0)
-        running = int((stats.get("running_by_workload") or {}).get("omni") or 0)
+    for queue_name in sorted(allowed_queues):
+        waiting = sum(
+            not job.get("analysis_excluded")
+            and str(job.get("queue") or job.get("q") or "") == queue_name
+            for job in jobs["pending"]
+        )
+        running = sum(
+            not job.get("analysis_excluded")
+            and str(job.get("queue") or job.get("q") or "") == queue_name
+            for job in jobs["running"]
+        )
         if waiting:
             waiting_by_queue[queue_name] = waiting
         if running:
@@ -3525,24 +3557,9 @@ def _omni(
         "waiting": sum(not job.get("analysis_excluded") for job in jobs["pending"]),
         "running": sum(not job.get("analysis_excluded") for job in jobs["running"]),
     }
-    count_basis = {
-        state: (
-            "observed_queue_workload_split"
-            if attribution[f"{state}_supported"]
-            else "active_job_ledger"
-        )
-        for state in ("waiting", "running")
-    }
-    waiting = (
-        attribution["waiting_observed"]
-        if attribution["waiting_supported"]
-        else ledger["waiting"]
-    )
-    running = (
-        attribution["running_observed"]
-        if attribution["running_supported"]
-        else ledger["running"]
-    )
+    count_basis = {"waiting": "exact_pipeline_active_job_ledger", "running": "exact_pipeline_active_job_ledger"}
+    waiting = ledger["waiting"]
+    running = ledger["running"]
 
     trigger = int(heuristic.get("trigger") or 0)
     healthy = int(heuristic.get("healthy") or 0)
@@ -3565,7 +3582,15 @@ def _omni(
         },
         "heuristic_thresholds": heuristic,
         "current_jobs": jobs,
-        "history": _omni_history(queue_history),
+        "history": _omni_history(queue_history, allowed_queues),
+        "mapping_history": workload_mapping,
+        "scope": {
+            "label": "vLLM Omni CI",
+            "queues": sorted(allowed_queues),
+            "pipelines": sorted(omni_pipelines),
+            "excluded_queue_classes": mapping_scope.get("excluded_queue_classes") or ["perf_eval"],
+            "count_semantics": "exact pipeline identity plus exact configured queue allowlist",
+        },
         "issue_state": issue_state,
         "provenance": {
             "queue_snapshot_ts": queue_snapshot.get("ts"),
@@ -3575,6 +3600,7 @@ def _omni(
                 "queue_jobs": SOURCE_FILES["queue_jobs"],
                 "heuristic": SOURCE_FILES["omni_heuristic"],
                 "issue_state": SOURCE_FILES["omni_issue_state"],
+                "mapping_history": SOURCE_FILES["workload_mapping"],
             },
             "sources": {
                 "queue_aggregates": {
@@ -3598,12 +3624,531 @@ def _omni(
                     "timestamp": issue_state.get("last_snapshot_ts"),
                     "evidence_kind": "published issue watcher state",
                 },
+                "mapping_history": {
+                    "path": SOURCE_FILES["workload_mapping"],
+                    "timestamp": workload_mapping.get("generated_at"),
+                    "evidence_kind": "published unique-job AMD mapping aggregate",
+                },
             },
         },
     }
 
 
-def _trajectory(reliability: dict, group_changes: dict) -> dict:
+def _queue_capacity_catalog(capacity: dict) -> dict[str, dict]:
+    """Normalize the central AMD queue catalog for projection joins."""
+    catalog: dict[str, dict] = {}
+    for raw in capacity.get("queues") or []:
+        if not isinstance(raw, dict):
+            continue
+        queue_id = str(raw.get("id") or "").strip()
+        if not queue_id:
+            continue
+        catalog[queue_id] = {
+            "id": queue_id,
+            "label": raw.get("label") or queue_id.removeprefix("amd_"),
+            "family": raw.get("family") or "unknown",
+            "gpus_per_job": max(1, int(raw.get("gpus_per_job") or 1)),
+            "max_concurrent_jobs": max(
+                0,
+                int(
+                    raw.get("future_max_concurrent_jobs")
+                    if raw.get("future_max_concurrent_jobs") is not None
+                    else raw.get("max_concurrent_jobs")
+                    or raw.get("max_agents")
+                    or 0
+                ),
+            ),
+            "gpu_capacity": max(
+                0,
+                int(
+                    raw.get("future_gpu_capacity")
+                    if raw.get("future_gpu_capacity") is not None
+                    else raw.get("gpu_capacity")
+                    or 0
+                ),
+            ),
+            "monitored": raw.get("monitored") is not False,
+            "capacity_eligible": raw.get("capacity_eligible") is not False,
+            "lifecycle": raw.get("lifecycle") or "active",
+        }
+    return catalog
+
+
+def _target_runtime_estimate(
+    amd_test_matrix: dict,
+    amd_analytics: dict,
+    queue_catalog: dict[str, dict],
+    *,
+    window_days: int = 14,
+) -> dict:
+    """Estimate occupied work as the sum of per-command-job wall-time medians."""
+    selected_step_ids: set[str] = set()
+    for row in amd_test_matrix.get("rows") or []:
+        cells = row.get("cells") or {}
+        cell = next(
+            (
+                cells.get(architecture)
+                for architecture in ("mi250", "mi300", "mi355")
+                if isinstance(cells.get(architecture), dict)
+                and cells[architecture].get("exists") is True
+            ),
+            None,
+        )
+        for variant in (cell or {}).get("variants") or []:
+            query = parse_qs(urlparse(str(variant.get("latest_url") or "")).query)
+            step_id = str((query.get("sid") or [""])[0]).strip()
+            if step_id:
+                selected_step_ids.add(step_id)
+
+    source = amd_test_matrix.get("source") or {}
+    try:
+        anchor_number = int(source.get("latest_build_number"))
+    except (TypeError, ValueError):
+        anchor_number = 0
+    builds = [
+        row for row in amd_analytics.get("builds") or []
+        if isinstance(row, dict)
+    ]
+    anchor = next(
+        (
+            row for row in builds
+            if int(row.get("number") or 0) == anchor_number
+        ),
+        None,
+    )
+    if not anchor or not selected_step_ids:
+        return {
+            "available": False,
+            "window_days": window_days,
+            "reason": "anchor build or semantic-matrix step IDs unavailable",
+        }
+
+    selected_jobs = [
+        job for job in anchor.get("jobs") or []
+        if str(job.get("step_id") or "") in selected_step_ids
+        and str(job.get("q") or "") in queue_catalog
+    ]
+    selected_keys = {
+        (str(job.get("name") or ""), str(job.get("q") or ""))
+        for job in selected_jobs
+        if job.get("name") and job.get("q")
+    }
+    try:
+        window_end = datetime.fromisoformat(
+            str(source.get("latest_build_date"))
+        ).date()
+    except (TypeError, ValueError):
+        return {
+            "available": False,
+            "window_days": window_days,
+            "reason": "matrix anchor date unavailable",
+        }
+    window_start = window_end - timedelta(days=max(1, window_days) - 1)
+    window_builds = [
+        build for build in builds
+        if window_start.isoformat()
+        <= str(build.get("date") or "")[:10]
+        <= window_end.isoformat()
+    ]
+
+    samples: dict[tuple[str, str], list[float]] = defaultdict(list)
+    missing_duration_observations = 0
+    for build in window_builds:
+        for job in build.get("jobs") or []:
+            key = (str(job.get("name") or ""), str(job.get("q") or ""))
+            if key not in selected_keys:
+                continue
+            raw_duration = job.get("wall_completion_mins")
+            if raw_duration is None:
+                raw_duration = job.get("dur")
+            duration_value = _number(raw_duration)
+            if duration_value is None or duration_value < 0:
+                missing_duration_observations += 1
+                continue
+            samples[key].append(float(duration_value))
+
+    per_queue: dict[str, dict] = defaultdict(
+        lambda: {
+            "jobs": 0,
+            "sampled_jobs": 0,
+            "median_agent_hours": 0.0,
+            "median_gpu_hours": 0.0,
+        }
+    )
+    sample_counts = []
+    for name, queue_id in sorted(selected_keys):
+        queue = queue_catalog[queue_id]
+        row = per_queue[queue_id]
+        row["jobs"] += 1
+        durations = samples.get((name, queue_id)) or []
+        if not durations:
+            continue
+        median_minutes = median(durations)
+        row["sampled_jobs"] += 1
+        row["median_agent_hours"] += median_minutes / 60
+        row["median_gpu_hours"] += (
+            median_minutes * int(queue["gpus_per_job"]) / 60
+        )
+        sample_counts.append(len(durations))
+
+    normalized_queues = {
+        queue_id: {
+            **row,
+            "median_agent_hours": round(row["median_agent_hours"], 2),
+            "median_gpu_hours": round(row["median_gpu_hours"], 2),
+        }
+        for queue_id, row in sorted(per_queue.items())
+    }
+    return {
+        "available": bool(sample_counts),
+        "method": "sum_of_per_command_job_wall_time_medians",
+        "window_days": window_days,
+        "window_start_date": window_start.isoformat(),
+        "window_end_date": window_end.isoformat(),
+        "canonical_builds": len(window_builds),
+        "selected_step_ids": len(selected_step_ids),
+        "selected_jobs": len(selected_keys),
+        "sampled_jobs": len(sample_counts),
+        "missing_job_medians": len(selected_keys) - len(sample_counts),
+        "missing_duration_observations": missing_duration_observations,
+        "samples_per_job": {
+            "minimum": min(sample_counts) if sample_counts else 0,
+            "median": median(sample_counts) if sample_counts else 0,
+            "maximum": max(sample_counts) if sample_counts else 0,
+        },
+        "median_agent_hours": round(
+            sum(row["median_agent_hours"] for row in per_queue.values()),
+            2,
+        ),
+        "median_gpu_hours": round(
+            sum(row["median_gpu_hours"] for row in per_queue.values()),
+            2,
+        ),
+        "queues": normalized_queues,
+        "semantics": (
+            "Each selected command-job key uses its median Buildkite "
+            "finished_at-started_at wall time across canonical AMD nightlies. "
+            "Queue wait and superseded retry attempts are excluded; timeouts "
+            "and terminal failure states remain in the medians."
+        ),
+    }
+
+
+def _historical_capacity_load(
+    workload_mapping: dict,
+    queue_catalog: dict[str, dict],
+    future_capacity_gpus: int,
+) -> dict:
+    """Summarize completed GPU work without treating averages as burst demand."""
+    window = workload_mapping.get("window") or {}
+    totals = workload_mapping.get("totals") or {}
+    try:
+        window_start = datetime.fromisoformat(
+            str(window.get("start_date"))
+        ).replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        window_start = None
+    generated_at = _parse_dt(workload_mapping.get("generated_at"))
+    elapsed_hours = (
+        (generated_at - window_start).total_seconds() / 3600
+        if generated_at and window_start and generated_at > window_start
+        else float(int(window.get("days") or 0) * 24)
+    )
+    eligible_gpu_hours = 0.0
+    retiring_gpu_hours = 0.0
+    total_gpu_hours = 0.0
+    for workload in ("omni", "main"):
+        workload_row = totals.get(workload) or {}
+        total_gpu_hours += float(workload_row.get("gpu_hours") or 0)
+        for queue_id, queue_row in (workload_row.get("by_queue") or {}).items():
+            gpu_hours = float((queue_row or {}).get("gpu_hours") or 0)
+            queue = queue_catalog.get(queue_id) or {}
+            if queue.get("capacity_eligible") is True:
+                eligible_gpu_hours += gpu_hours
+            else:
+                retiring_gpu_hours += gpu_hours
+    observed_average_gpus = total_gpu_hours / elapsed_hours if elapsed_hours > 0 else None
+    eligible_average_gpus = eligible_gpu_hours / elapsed_hours if elapsed_hours > 0 else None
+    return {
+        "available": bool(elapsed_hours > 0 and workload_mapping.get("generated_at")),
+        "window_days": window.get("days"),
+        "window_start_date": window.get("start_date"),
+        "window_end_date": window.get("end_date"),
+        "elapsed_hours": round(elapsed_hours, 2),
+        "complete": window.get("complete") is True,
+        "total_completed_gpu_hours": round(total_gpu_hours, 2),
+        "eligible_queue_gpu_hours": round(eligible_gpu_hours, 2),
+        "retiring_queue_gpu_hours": round(retiring_gpu_hours, 2),
+        "observed_average_gpus": round(observed_average_gpus, 1)
+        if observed_average_gpus is not None
+        else None,
+        "eligible_queue_average_gpus": round(eligible_average_gpus, 1)
+        if eligible_average_gpus is not None
+        else None,
+        "post_migration_average_utilization_pct": round(
+            observed_average_gpus / future_capacity_gpus * 100,
+            1,
+        ) if observed_average_gpus is not None and future_capacity_gpus else None,
+        "semantics": (
+            "Completed started-to-finished GPU-hours for exactly attributed "
+            "Omni and main-vLLM jobs. Unfinished jobs and records longer than "
+            "24 hours are excluded. Average load does not measure burst "
+            "concurrency or prove cross-hardware compatibility."
+        ),
+    }
+
+
+def _exact_target_topology(
+    capacity: dict,
+    amd_test_matrix: dict,
+    amd_analytics: dict | None = None,
+    workload_mapping: dict | None = None,
+) -> dict:
+    """Project one full semantic AMD matrix onto its configured queue topology.
+
+    Each semantic row is counted once.  When a row exists on multiple
+    architectures, the same precedence used by the mirror plan is applied:
+    MI250, then MI300, then MI355.  Parallelism is expanded into command jobs,
+    and queue width converts those jobs into simultaneous GPU slots.
+    """
+    catalog = _queue_capacity_catalog(capacity)
+    demand: dict[str, dict] = {
+        queue_id: {
+            **queue,
+            "group_ids": set(),
+            "jobs": 0,
+            "gpu_slots": 0,
+        }
+        for queue_id, queue in catalog.items()
+        if queue["capacity_eligible"]
+    }
+    selected_groups = 0
+    unassigned_groups = 0
+    for index, row in enumerate(amd_test_matrix.get("rows") or []):
+        if not isinstance(row, dict):
+            continue
+        cells = row.get("cells") or {}
+        cell = next(
+            (
+                cells.get(architecture)
+                for architecture in ("mi250", "mi300", "mi355")
+                if isinstance(cells.get(architecture), dict)
+                and cells[architecture].get("exists") is True
+            ),
+            None,
+        )
+        if not cell:
+            unassigned_groups += 1
+            continue
+        group_id = str(row.get("id") or f"matrix-row-{index}")
+        group_assigned = False
+        for variant in cell.get("variants") or []:
+            if not isinstance(variant, dict):
+                continue
+            label = str(variant.get("agent_pool") or "").strip()
+            queue_id = label if label.startswith("amd_") else f"amd_{label}"
+            queue = demand.get(queue_id)
+            if queue is None:
+                continue
+            try:
+                jobs = max(1, int(variant.get("parallelism") or 1))
+            except (TypeError, ValueError):
+                jobs = 1
+            queue["group_ids"].add(group_id)
+            queue["jobs"] += jobs
+            queue["gpu_slots"] += jobs * queue["gpus_per_job"]
+            group_assigned = True
+        if group_assigned:
+            selected_groups += 1
+        else:
+            unassigned_groups += 1
+
+    queue_rows = []
+    for queue_id in sorted(demand):
+        queue = demand[queue_id]
+        jobs = int(queue["jobs"])
+        max_jobs = int(queue["max_concurrent_jobs"])
+        gap_jobs = max(0, jobs - max_jobs)
+        queue_rows.append({
+            key: value
+            for key, value in queue.items()
+            if key != "group_ids"
+        } | {
+            "groups": len(queue["group_ids"]),
+            "capacity_ratio": round(jobs / max_jobs, 4) if max_jobs else (1.0 if not jobs else None),
+            "gap_jobs": gap_jobs,
+            "gap_gpus": gap_jobs * int(queue["gpus_per_job"]),
+        })
+
+    jobs = sum(row["jobs"] for row in queue_rows)
+    gpu_slots = sum(row["gpu_slots"] for row in queue_rows)
+    future_capacity = (
+        (capacity.get("summary") or {}).get("capacity") or {}
+    ).get("future_eligible") or (capacity.get("projection") or {}).get("future_capacity") or {}
+
+    family_rows = []
+    for family in sorted({
+        str(row.get("family") or "unknown") for row in queue_rows
+    }):
+        family_queues = [row for row in queue_rows if row["family"] == family]
+        family_rows.append({
+            "family": family,
+            "groups": sum(row["groups"] for row in family_queues),
+            "jobs": sum(row["jobs"] for row in family_queues),
+            "gpu_slots": sum(row["gpu_slots"] for row in family_queues),
+            "gpu_capacity": sum(row["gpu_capacity"] for row in family_queues),
+        })
+
+    scenarios = []
+    for suites in (1, 2):
+        queue_gaps = []
+        for row in queue_rows:
+            demand_jobs = row["jobs"] * suites
+            gap_jobs = max(0, demand_jobs - row["max_concurrent_jobs"])
+            if gap_jobs:
+                queue_gaps.append({
+                    "id": row["id"],
+                    "label": row["label"],
+                    "family": row["family"],
+                    "gpus_per_job": row["gpus_per_job"],
+                    "demand_jobs": demand_jobs,
+                    "capacity_jobs": row["max_concurrent_jobs"],
+                    "gap_jobs": gap_jobs,
+                    "gap_gpus": gap_jobs * row["gpus_per_job"],
+                })
+        family_gaps = []
+        for family in family_rows:
+            demand_gpus = int(family["gpu_slots"]) * suites
+            gap_gpus = max(0, demand_gpus - int(family["gpu_capacity"]))
+            if gap_gpus:
+                family_gaps.append({
+                    "family": family["family"],
+                    "demand_gpus": demand_gpus,
+                    "capacity_gpus": int(family["gpu_capacity"]),
+                    "gap_gpus": gap_gpus,
+                })
+        scenario_gpu_slots = gpu_slots * suites
+        capacity_gpus = int(future_capacity.get("gpus") or 0)
+        scenarios.append({
+            "full_suites": suites,
+            "groups": selected_groups * suites,
+            "jobs": jobs * suites,
+            "gpu_slots": scenario_gpu_slots,
+            "aggregate_capacity_gpus": capacity_gpus,
+            "aggregate_utilization_pct": round(
+                scenario_gpu_slots / capacity_gpus * 100,
+                1,
+            ) if capacity_gpus else None,
+            "aggregate_gap_gpus": max(0, scenario_gpu_slots - capacity_gpus),
+            "fits_aggregate_capacity": bool(capacity_gpus and scenario_gpu_slots <= capacity_gpus),
+            "fits_family_capacity": not family_gaps,
+            "fits_queue_shapes": not queue_gaps,
+            "family_gaps": family_gaps,
+            "family_gap_gpus": sum(row["gap_gpus"] for row in family_gaps),
+            "queue_gaps": queue_gaps,
+            "shape_gap_gpus": sum(row["gap_gpus"] for row in queue_gaps),
+        })
+
+    projection = capacity.get("projection") or {}
+    declared_total = int(projection.get("declared_total_groups") or 0)
+    if not declared_total:
+        declared_total = int(projection.get("declared_existing_groups") or 0) + int(
+            projection.get("declared_new_groups") or 0
+        )
+    one_suite = scenarios[0]
+    only_gap = one_suite["queue_gaps"][0] if len(one_suite["queue_gaps"]) == 1 else None
+    repartition_possible = bool(
+        only_gap
+        and next(
+            (
+                row["gpu_capacity"] - row["gpu_slots"]
+                for row in family_rows
+                if row["family"] == only_gap["family"]
+            ),
+            0,
+        ) >= only_gap["gap_gpus"]
+    )
+    return {
+        "available": bool(selected_groups and queue_rows),
+        "method": "exact_one_cell_per_semantic_matrix_row",
+        "source_path": SOURCE_FILES["amd_test_matrix"],
+        "architecture_precedence": ["mi250", "mi300", "mi355"],
+        "target_groups": int(projection.get("target_groups") or selected_groups),
+        "declared_current_mirror_groups": int(
+            projection.get("declared_current_mirror_groups") or 0
+        ),
+        "observed_current_mirror_groups": int(projection.get("base_groups") or 0),
+        "declared_existing_groups": int(projection.get("declared_existing_groups") or 0),
+        "declared_new_groups": int(projection.get("declared_new_groups") or 0),
+        "declared_total_groups": declared_total,
+        "planning_headroom_groups": max(
+            0,
+            int(projection.get("target_groups") or selected_groups) - declared_total,
+        ),
+        "groups": selected_groups,
+        "unassigned_groups": unassigned_groups,
+        "jobs": jobs,
+        "gpu_slots": gpu_slots,
+        "eight_gpu_node_equivalents": round(gpu_slots / 8, 2),
+        "future_capacity": future_capacity,
+        "retiring_capacity": (
+            (capacity.get("summary") or {}).get("capacity") or {}
+        ).get("retiring") or {},
+        "queues": queue_rows,
+        "families": family_rows,
+        "runtime_estimate": _target_runtime_estimate(
+            amd_test_matrix,
+            amd_analytics or {},
+            catalog,
+        ),
+        "historical_load": _historical_capacity_load(
+            workload_mapping or {},
+            catalog,
+            int(future_capacity.get("gpus") or 0),
+        ),
+        "scenarios": scenarios,
+        "target_depends_on_retiring_capacity": any(
+            row["jobs"] and row["lifecycle"] == "retiring"
+            for row in queue_rows
+        ),
+        "recommendation": {
+            "net_new_hardware_required_for_one_suite": not (
+                one_suite["fits_aggregate_capacity"] and repartition_possible
+            ),
+            "queue_shape_change_required": not one_suite["fits_queue_shapes"],
+            "repartition_possible_within_family": repartition_possible,
+            "bottleneck_queue": only_gap["id"] if only_gap else None,
+            "additional_runner_jobs": only_gap["gap_jobs"] if only_gap else 0,
+            "additional_runner_gpus": only_gap["gap_gpus"] if only_gap else 0,
+            "summary": (
+                f"Repartition {only_gap['gap_gpus']} spare {only_gap['family']} GPUs "
+                f"into {only_gap['gap_jobs']} additional {only_gap['label']} runner; "
+                "no net-new silicon is required for one full suite."
+                if repartition_possible and only_gap
+                else (
+                    "One full suite fits both aggregate capacity and every queue shape."
+                    if one_suite["fits_aggregate_capacity"] and one_suite["fits_queue_shapes"]
+                    else "Additional or migrated queue capacity is required for one full suite."
+                )
+            ),
+        },
+        "linear_sensitivity": projection,
+        "caveat": (
+            "The linear sensitivity preserves the current mirror mix and is not the "
+            "hardware answer. Exact matrix topology is used for the target because "
+            "the expanded target is more multi-GPU-heavy."
+        ),
+    }
+
+
+def _trajectory(
+    reliability: dict,
+    group_changes: dict,
+    capacity: dict,
+    amd_test_matrix: dict,
+    amd_analytics: dict,
+    workload_mapping: dict,
+) -> dict:
     cohort = reliability.get("cohort") or {}
     denominator = reliability.get("denominator") or {}
     return {
@@ -3625,10 +4170,19 @@ def _trajectory(reliability: dict, group_changes: dict) -> dict:
             "recent": list(group_changes.get("changes") or [])[:CHANGE_LIMIT],
             "source_path": SOURCE_FILES["group_changes"],
         },
+        "capacity_projection": _exact_target_topology(
+            capacity,
+            amd_test_matrix,
+            amd_analytics,
+            workload_mapping,
+        ),
         "provenance": {
             "source_paths": {
                 "build_history": SOURCE_FILES["analytics"],
                 "group_changes": SOURCE_FILES["group_changes"],
+                "capacity": SOURCE_FILES["capacity_monitor"],
+                "target_topology": SOURCE_FILES["amd_test_matrix"],
+                "historical_load": SOURCE_FILES["workload_mapping"],
             },
             "build_history": {
                 "path": SOURCE_FILES["analytics"],
@@ -3639,6 +4193,18 @@ def _trajectory(reliability: dict, group_changes: dict) -> dict:
             "group_changes": {
                 "path": SOURCE_FILES["group_changes"],
                 "evidence_kind": "published repository change aggregate",
+            },
+            "capacity": {
+                "path": SOURCE_FILES["capacity_monitor"],
+                "evidence_kind": "published queue quota and mirror projection aggregate",
+            },
+            "target_topology": {
+                "path": SOURCE_FILES["amd_test_matrix"],
+                "evidence_kind": "published semantic AMD matrix topology",
+            },
+            "historical_load": {
+                "path": SOURCE_FILES["workload_mapping"],
+                "evidence_kind": "published completed GPU-hour aggregate",
             },
         },
     }
@@ -3790,8 +4356,17 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         queue_history,
         loaded.get("omni_heuristic") or {},
         loaded.get("omni_issue_state") or {},
+        loaded.get("workload_mapping") or {},
+        loaded.get("capacity_monitor") or {},
     )
-    trajectory = _trajectory(reliability, loaded.get("group_changes") or {})
+    trajectory = _trajectory(
+        reliability,
+        loaded.get("group_changes") or {},
+        loaded.get("capacity_monitor") or {},
+        loaded.get("amd_test_matrix") or {},
+        analytics.get("amd-ci") or {},
+        loaded.get("workload_mapping") or {},
+    )
     attention = _attention(nightly, reliability, gating, queue, omni)
     status = "critical" if any(row["severity"] == "critical" for row in attention) else (
         "attention" if any(row["severity"] == "warning" for row in attention) else "healthy"

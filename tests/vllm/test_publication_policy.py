@@ -234,6 +234,7 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
         "vllm/ci/omni_surge_heuristic.json",
         "vllm/ci/queue_timeseries.jsonl",
         "vllm/ci/ready_tickets.json",
+        "vllm/ci/workload_mapping.json",
         "vllm/perf_eval/perf_eval.json",
         "vllm/prs.json",
     } <= allowed_exact

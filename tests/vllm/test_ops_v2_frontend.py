@@ -942,15 +942,15 @@ def test_retired_mi355b_queues_are_excluded_on_every_frontend_path():
     assert "isRetiredQueue(name)" in OPS_JS
 
 
-def test_amd_cpu_is_included_in_amd_queue_and_omni_scope():
+def test_amd_cpu_is_included_in_general_amd_scope_but_omni_uses_exact_allowlist():
     assert "function isAmdQueue" in OPS_JS
     assert "name === 'amd-cpu' || name.startsWith('amd_')" in OPS_JS
     assert "!isAmdQueue(entry[0])" in OPS_JS
     assert "state.queueScope === 'all' || isAmdQueue(job.queue)" in OPS_JS
     assert "state.queueScope === 'all' || isAmdQueue(name)" in OPS_JS
-    assert "const amdPending = pending.filter" in OPS_JS
-    assert "return isAmdQueue(job.queue)" in OPS_JS
-    assert "ALL-FLEET ACTIVE JOBS" in OPS_JS
+    assert "const configuredScope = omni.scope || {}" in OPS_JS
+    assert "configuredScope.queues || []" in OPS_JS
+    assert "OMNI MAPPED - 14D" in OPS_JS
     assert OPS_JS.count("startsWith('amd_')") == 1
 
 
@@ -1039,6 +1039,17 @@ def test_trajectory_uses_current_all_main_observations_not_stale_hotness():
     assert "including AMD MI mirror queues" in OPS_JS
 
 
+def test_trajectory_has_exact_capacity_projection_subview():
+    assert "trajectoryView: 'workload'" in OPS_JS
+    assert "{id: 'capacity', label: 'Capacity projection'}" in OPS_JS
+    assert "function renderCapacityProjection" in OPS_JS
+    assert "ONE-SUITE BURST" in OPS_JS
+    assert "POST-MI325 POOL" in OPS_JS
+    assert "No net-new GPUs" in OPS_JS
+    assert "Why exact topology is " in OPS_JS
+    assert "Exact one-cell-per-semantic-row topology" in OPS_JS
+
+
 def test_pipeline_evidence_links_fail_closed_in_the_renderer():
     assert "function pipelineUrlMatches" in OPS_JS
     assert "function exactPipelineEvidenceUrl" in OPS_JS
@@ -1061,23 +1072,24 @@ def test_empty_tables_and_mobile_evidence_have_single_scroll_surfaces():
     assert '.ops-segmented[aria-label="CI Analytics view"]' in OPS_CSS
 
 
-def test_omni_is_all_fleet_and_never_infers_unsupported_history():
-    assert "All current vLLM-Omni demand across the fleet" in OPS_JS
-    assert "NON-AMD ACTIVE JOBS" in OPS_JS
-    assert "Current all-fleet Omni jobs" in OPS_JS
+def test_omni_is_exact_pipeline_and_amd_queue_scoped_with_mapping_histogram():
+    assert "Unique vLLM-Omni jobs mapped to the configured standard AMD queues" in OPS_JS
+    assert "MAIN VLLM MAPPED - 14D" in OPS_JS
+    assert "Jobs mapped to AMD queues by UTC day" in OPS_JS
+    assert "data/vllm/ci/workload_mapping.json" in OPS_JS
     assert "function omniHistoryPoints" in OPS_JS
     assert "waiting_observed" in OPS_JS
-    assert "Exact active-job ledger:" in OPS_JS
-    assert "These evidence types are never forced to agree" in OPS_JS
+    assert "exact pipeline identity plus the configured queue allowlist" in OPS_JS
+    assert "Mapped and started are deliberately separate" in OPS_JS
     assert "Aggregate queue totals are never reclassified as Omni" in OPS_JS
-    assert "All-fleet running observed" in OPS_JS
     assert "AMD running observed" in OPS_JS
     assert "const excludedPending = pendingLedger.filter" in OPS_JS
     assert "Inspect excluded stale jobs" in OPS_JS
     assert "const OMNI_RANGE_WINDOWS" in OPS_JS
     assert "{id: '1h', label: '1 hour', hours: 1}" in OPS_JS
     assert "{id: '72h', label: '3 days', hours: 72}" in OPS_JS
-    assert "Day-over-day observed queued workload (UTC)" in OPS_JS
+    assert "Legacy closing occupancy context (UTC)" in OPS_JS
+    assert "do not interpret this as daily job volume" in OPS_JS
     assert "function omniDailyRows" in OPS_JS
     assert "const OMNI_AGE_BANDS" in OPS_JS
     assert "Queued task age" in OPS_JS
@@ -1100,7 +1112,7 @@ def test_omni_is_all_fleet_and_never_infers_unsupported_history():
             assert current["attribution"][f"{state}_supported"] is True
             assert current[state] == current["attribution"][f"{state}_observed"]
         else:
-            assert current["count_basis"][state] == "active_job_ledger"
+            assert current["count_basis"][state] == "exact_pipeline_active_job_ledger"
             assert current[state] == current["ledger"][state]
     assert all(job.get("exclusion_reason") for job in excluded)
     assert all(
@@ -1114,7 +1126,7 @@ def test_omni_is_all_fleet_and_never_infers_unsupported_history():
     assert history["points"]
     for point in history["points"]:
         for state in ("waiting", "running"):
-            scope = point["all_fleet"]
+            scope = point["amd"]
             expected = {"complete", "partial"} if scope[f"{state}_supported"] else {"unavailable"}
             assert scope[f"{state}_attribution"] in expected
 

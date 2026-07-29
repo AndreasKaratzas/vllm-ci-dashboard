@@ -1,0 +1,193 @@
+{
+  "schema_version": 1,
+  "projection": {
+    "target_groups": 160,
+    "declared_current_mirror_groups": 54,
+    "declared_existing_groups": 147,
+    "declared_new_groups": 10,
+    "note": "147 existing + 10 new = 157 declared groups; target 160 includes 3 groups of planning headroom."
+  },
+  "workload_pipelines": {
+    "omni": [
+      "vllm-omni-amd-ci"
+    ],
+    "main": [
+      "ci",
+      "amd-ci",
+      "amd-distributed-inference-ci"
+    ]
+  },
+  "scope": {
+    "monitored_hardware_families": [
+      "MI250",
+      "MI300",
+      "MI325",
+      "MI355"
+    ],
+    "excluded_queue_classes": [
+      "perf_eval"
+    ]
+  },
+  "queues": [
+    {
+      "id": "amd_mi250_1",
+      "label": "mi250_1",
+      "family": "MI250",
+      "gpus_per_job": 1,
+      "max_concurrent_jobs": 78,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active"
+    },
+    {
+      "id": "amd_mi250_2",
+      "label": "mi250_2",
+      "family": "MI250",
+      "gpus_per_job": 2,
+      "max_concurrent_jobs": 24,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active"
+    },
+    {
+      "id": "amd_mi250_4",
+      "label": "mi250_4",
+      "family": "MI250",
+      "gpus_per_job": 4,
+      "max_concurrent_jobs": 16,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active"
+    },
+    {
+      "id": "amd_mi250_8",
+      "label": "mi250_8",
+      "family": "MI250",
+      "gpus_per_job": 8,
+      "max_concurrent_jobs": 4,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active"
+    },
+    {
+      "id": "amd_mi300_1",
+      "label": "mi300_1",
+      "family": "MI300",
+      "gpus_per_job": 1,
+      "max_concurrent_jobs": 232,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active"
+    },
+    {
+      "id": "amd_mi300_2",
+      "label": "mi300_2",
+      "family": "MI300",
+      "gpus_per_job": 2,
+      "max_concurrent_jobs": 30,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active"
+    },
+    {
+      "id": "amd_mi300_4",
+      "label": "mi300_4",
+      "family": "MI300",
+      "gpus_per_job": 4,
+      "max_concurrent_jobs": 29,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active"
+    },
+    {
+      "id": "amd_mi300_8",
+      "label": "mi300_8",
+      "family": "MI300",
+      "gpus_per_job": 8,
+      "max_concurrent_jobs": 2,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active"
+    },
+    {
+      "id": "amd_mi325_1",
+      "label": "mi325_1",
+      "family": "MI325",
+      "gpus_per_job": 1,
+      "max_concurrent_jobs": 188,
+      "monitored": true,
+      "capacity_eligible": false,
+      "lifecycle": "retiring"
+    },
+    {
+      "id": "amd_mi325_2",
+      "label": "mi325_2",
+      "family": "MI325",
+      "gpus_per_job": 2,
+      "max_concurrent_jobs": 8,
+      "monitored": true,
+      "capacity_eligible": false,
+      "lifecycle": "retiring"
+    },
+    {
+      "id": "amd_mi325_4",
+      "label": "mi325_4",
+      "family": "MI325",
+      "gpus_per_job": 4,
+      "max_concurrent_jobs": 4,
+      "monitored": true,
+      "capacity_eligible": false,
+      "lifecycle": "retiring"
+    },
+    {
+      "id": "amd_mi325_8",
+      "label": "mi325_8",
+      "family": "MI325",
+      "gpus_per_job": 8,
+      "max_concurrent_jobs": 0,
+      "monitored": true,
+      "capacity_eligible": false,
+      "lifecycle": "retiring"
+    },
+    {
+      "id": "amd_mi355_1",
+      "label": "mi355_1",
+      "family": "MI355",
+      "gpus_per_job": 1,
+      "max_concurrent_jobs": 48,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active"
+    },
+    {
+      "id": "amd_mi355_2",
+      "label": "mi355_2",
+      "family": "MI355",
+      "gpus_per_job": 2,
+      "max_concurrent_jobs": 8,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active"
+    },
+    {
+      "id": "amd_mi355_4",
+      "label": "mi355_4",
+      "family": "MI355",
+      "gpus_per_job": 4,
+      "max_concurrent_jobs": 8,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active"
+    },
+    {
+      "id": "amd_mi355_8",
+      "label": "mi355_8",
+      "family": "MI355",
+      "gpus_per_job": 8,
+      "max_concurrent_jobs": 1,
+      "monitored": true,
+      "capacity_eligible": true,
+      "lifecycle": "active"
+    }
+  ]
+}

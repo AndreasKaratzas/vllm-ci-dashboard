@@ -161,7 +161,7 @@ var DashboardTabs = (function() {
     },
     { id: 'ci-queue', label: 'Queue Monitor', section: 'vLLM', family: 'ci' },
     { id: 'ci-hotness', label: 'CI Workload Trajectory', section: 'vLLM', family: 'ci' },
-    { id: 'ci-omni', label: 'Omni', section: 'vLLM', family: 'ci' },
+    { id: 'ci-omni', label: 'vLLM Omni CI', section: 'vLLM', family: 'ci' },
     {
       id: 'ci-testbuild',
       label: 'Test Build',

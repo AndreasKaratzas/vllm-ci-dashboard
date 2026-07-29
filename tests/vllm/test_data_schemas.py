@@ -358,6 +358,113 @@ class TestQueueJobs:
             assert not missing, f"running job missing {sorted(missing)}: {j.get('name')}"
 
 
+class TestWorkloadMapping:
+    def test_top_level_and_scope_schema(self):
+        d = _load_json_or_skip("workload_mapping.json")
+        _assert_has_keys(
+            d,
+            {
+                "schema_version",
+                "generated_at",
+                "collection_start",
+                "timezone",
+                "window",
+                "scope",
+                "semantics",
+                "query",
+                "totals",
+                "daily",
+            },
+            "workload_mapping.json",
+        )
+        assert d["schema_version"] == 1
+        assert d["timezone"] == "UTC"
+        _assert_has_keys(
+            d["scope"],
+            {"queues", "excluded_queue_classes", "workload_pipelines"},
+            "workload_mapping.json.scope",
+        )
+        queues = d["scope"]["queues"]
+        assert isinstance(queues, list) and queues
+        assert len(queues) == len(set(queues))
+        assert all(queue.startswith("amd_") for queue in queues)
+        assert not any("perf_eval" in queue for queue in queues)
+        assert "perf_eval" in d["scope"]["excluded_queue_classes"]
+        pipelines = d["scope"]["workload_pipelines"]
+        assert all(
+            isinstance(pipelines.get(workload), list) and pipelines[workload]
+            for workload in ("omni", "main")
+        )
+
+    def test_window_and_daily_rows_are_complete_and_ordered(self):
+        d = _load_json_or_skip("workload_mapping.json")
+        window = d["window"]
+        _assert_has_keys(
+            window,
+            {"days", "start_date", "end_date", "complete", "lower_bound"},
+            "workload_mapping.json.window",
+        )
+        assert window["days"] == 14
+        assert window["lower_bound"] is (not window["complete"])
+
+        daily = d["daily"]
+        assert isinstance(daily, list) and daily
+        dates = [row["date"] for row in daily]
+        assert dates == sorted(set(dates))
+        window_rows = [
+            row
+            for row in daily
+            if window["start_date"] <= row["date"] <= window["end_date"]
+        ]
+        if window["complete"]:
+            assert len(window_rows) == window["days"]
+            assert all(
+                row.get("complete") is True and row.get("lower_bound") is False
+                for row in window_rows
+            )
+
+        for row in daily:
+            _assert_has_keys(
+                row,
+                {"date", "complete", "lower_bound", "workloads"},
+                f"workload_mapping.json.daily[{row.get('date')}]",
+            )
+            assert row["lower_bound"] is (not row["complete"])
+            assert set(row["workloads"]) == {"omni", "main"}
+
+    def test_totals_match_the_declared_window(self):
+        d = _load_json_or_skip("workload_mapping.json")
+        window = d["window"]
+        rows = [
+            row
+            for row in d["daily"]
+            if window["start_date"] <= row["date"] <= window["end_date"]
+        ]
+        queue_allowlist = set(d["scope"]["queues"])
+        integer_fields = (
+            "mapped_jobs",
+            "started_jobs",
+            "finished_jobs",
+            "mapped_gpu_slots",
+        )
+
+        for workload in ("omni", "main"):
+            total = d["totals"][workload]
+            _assert_has_keys(
+                total,
+                {*integer_fields, "gpu_hours", "by_queue"},
+                f"workload_mapping.json.totals.{workload}",
+            )
+            for field in integer_fields:
+                assert isinstance(total[field], int) and total[field] >= 0
+                assert total[field] == sum(
+                    int(row["workloads"][workload][field]) for row in rows
+                )
+            assert total["mapped_gpu_slots"] >= total["mapped_jobs"]
+            assert float(total["gpu_hours"]) >= 0
+            assert set(total["by_queue"]) <= queue_allowlist
+
+
 class TestOpenQueueIssues:
     def test_top_level_keys(self):
         d = _load_json_or_skip("open_queue_issues.json")

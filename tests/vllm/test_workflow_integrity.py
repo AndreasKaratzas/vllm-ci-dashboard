@@ -192,6 +192,35 @@ class TestHourlyMasterWorkflow:
         text = _load_workflow_text("hourly-master.yml")
         assert "collect_queue_snapshot.py" in text
 
+    def test_workload_mapping_is_seeded_and_collected_before_operations_builds(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        names = [step.get("name") for step in steps]
+
+        sync_index = names.index("Sync CI data from gh-pages")
+        collect_index = names.index("Collect vLLM/Omni AMD workload mappings")
+        first_build = names.index("Build v2 operations snapshot")
+        second_build = names.index(
+            "Rebuild v2 operations snapshot with CI ownership"
+        )
+        assert sync_index < collect_index < first_build < second_build
+
+        sync_run = steps[sync_index].get("run", "")
+        assert "workload_mapping.json" in sync_run
+        collect = steps[collect_index]
+        assert collect["run"] == (
+            "python scripts/vllm/collect_workload_mapping.py "
+            "--output data/vllm/ci/workload_mapping.json"
+        )
+        assert collect.get("env", {}).get("BUILDKITE_TOKEN") == (
+            "${{ secrets.BUILDKITE_TOKEN }}"
+        )
+        for step in steps[collect_index + 1 :]:
+            assert (
+                "git show origin/gh-pages:data/vllm/ci/workload_mapping.json"
+                not in (step.get("run", "") or "")
+            )
+
     def test_calls_collect_group_changes(self):
         text = _load_workflow_text("hourly-master.yml")
         assert "collect_group_changes.py" in text
