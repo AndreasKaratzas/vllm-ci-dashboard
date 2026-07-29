@@ -1,13 +1,13 @@
 {
-  "generated_at": "2026-07-29T21:39:35Z",
+  "generated_at": "2026-07-29T22:41:47Z",
   "source": {
     "repository": "vllm-project/vllm",
     "branch": "main",
-    "commit_sha": "435c4dad97f90d7f1f72523be9d03dab2663bcd0",
-    "commit_url": "https://github.com/vllm-project/vllm/commit/435c4dad97f90d7f1f72523be9d03dab2663bcd0",
-    "amd_definition_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-    "upstream_definitions_url": "https://github.com/vllm-project/vllm/tree/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas",
-    "fetched_at": "2026-07-29T21:39:35Z",
+    "commit_sha": "fa2a2589bd2a1fce0851df7fd42ffb54b6195f04",
+    "commit_url": "https://github.com/vllm-project/vllm/commit/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04",
+    "amd_definition_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+    "upstream_definitions_url": "https://github.com/vllm-project/vllm/tree/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas",
+    "fetched_at": "2026-07-29T22:41:47Z",
     "matching_rules": [
       "Retain provenance for every parsed YAML definition and report the physical AMD count separately.",
       "Coalesce only AMD architecture replicas with the same matrix canonical title, execution fingerprint, projected reference hardware, and GPU count; preserve every member definition ID, label, group, and agent pool.",
@@ -73,8 +73,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/kernels.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/kernels.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/kernels.yaml",
       "amd_commands": [
         "rocm-smi",
         "python3 examples/basic/offline_inference/chat.py --attention-backend TRITON_ATTN",
@@ -139,8 +139,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/compile.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/compile.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/compile.yaml",
       "amd_commands": [
         "export VLLM_TEST_CLEAN_GPU_MEMORY=1",
         "VLLM_TEST_CLEAN_GPU_MEMORY=1 pytest -v -s tests/compile/passes/distributed/test_async_tp.py",
@@ -179,8 +179,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/misc.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/misc.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/misc.yaml",
       "amd_commands": [
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
         "pip install pytest-timeout pytest-forked",
@@ -224,8 +224,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/misc.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/misc.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/misc.yaml",
       "amd_commands": [
         "pytest -v -s -m 'cpu_test' v1/core",
         "pytest -v -s v1/structured_output",
@@ -271,8 +271,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/expert_parallelism.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/expert_parallelism.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/expert_parallelism.yaml",
       "amd_commands": [
         "pytest -v -s distributed/test_elastic_ep.py"
       ],
@@ -313,8 +313,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/kernels.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/kernels.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/kernels.yaml",
       "amd_commands": [
         "pytest -v -s kernels/moe/test_deepep_moe.py"
       ],
@@ -351,8 +351,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/cuda.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/cuda.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/cuda.yaml",
       "amd_commands": [
         "pytest -v -s v1/cudagraph/test_cudagraph_dispatch.py",
         "pytest -v -s v1/cudagraph/test_cudagraph_mode.py"
@@ -392,8 +392,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/models_basic.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_basic.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_basic.yaml",
       "amd_commands": [
         "pytest -v -s models/test_utils.py models/test_vision.py"
       ],
@@ -429,8 +429,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/disaggregated.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/disaggregated.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/disaggregated.yaml",
       "amd_commands": [
         "uv pip install --system -r /vllm-workspace/requirements/kv_connectors_rocm.txt",
         "ATTENTION_BACKEND=TRITON_ATTN bash v1/kv_connector/nixl_integration/run_mamba_prefix_cache_test.sh"
@@ -468,8 +468,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/disaggregated.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/disaggregated.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/disaggregated.yaml",
       "amd_commands": [
         "uv pip install --system -r /vllm-workspace/requirements/kv_connectors_rocm.txt",
         "ATTENTION_BACKEND=TRITON_ATTN bash v1/kv_connector/nixl_integration/run_multi_connector_accuracy_test.sh"
@@ -507,8 +507,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/disaggregated.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/disaggregated.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/disaggregated.yaml",
       "amd_commands": [
         "uv pip install --system -r /vllm-workspace/requirements/kv_connectors_rocm.txt",
         "ATTENTION_BACKEND=TRITON_ATTN bash v1/kv_connector/nixl_integration/run_multi_connector_edge_case_test.sh"
@@ -546,8 +546,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/misc.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/misc.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/misc.yaml",
       "amd_commands": [
         "python3 standalone_tests/lazy_imports.py",
         "pytest -v -s test_inputs.py",
@@ -610,8 +610,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/pytorch.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/pytorch.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/pytorch.yaml",
       "amd_commands": [
         "find compile/fullgraph/ -name 'test_*.py' -not -name 'test_full_graph.py' -exec pytest -s -v {} \\\\;"
       ],
@@ -647,8 +647,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/benchmarks.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/benchmarks.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/benchmarks.yaml",
       "amd_commands": [
         "python3 benchmarks/attention_benchmarks/benchmark.py --backends ROCM_ATTN ROCM_AITER_FA ROCM_AITER_UNIFIED_ATTN --batch-specs \"8q1s1k\""
       ],
@@ -684,8 +684,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/cuda.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/cuda.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/cuda.yaml",
       "amd_commands": [
         "pytest -v -s cuda/test_cuda_context.py",
         "pytest -v -s cuda/test_platform_no_cuda_init.py"
@@ -724,8 +724,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/kernels.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/kernels.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/kernels.yaml",
       "amd_commands": [
         "pip install helion==1.1.0",
         "pytest -v -s kernels/helion/"
@@ -763,8 +763,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/quantization.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/quantization.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/quantization.yaml",
       "amd_commands": [
         "uv pip install --system torchao==0.17.0",
         "uv pip install --system conch-triton-kernels",
@@ -804,8 +804,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/distributed.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/distributed.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/distributed.yaml",
       "amd_commands": [
         "pytest -v -s tests/distributed/test_context_parallel.py",
         "VLLM_ALLOW_INSECURE_SERIALIZATION=1 python3 examples/rl/rlhf_async_new_apis.py",
@@ -852,8 +852,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/lm_eval.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "amd_commands": [
         "pytest -s -v test_lm_eval_correctness.py --config-list-file=configs/models-small-rocm.txt"
       ],
@@ -889,8 +889,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/compile.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/compile.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/compile.yaml",
       "amd_commands": [
         "rocm-smi",
         "pytest -v -s tests/compile/fusions_e2e/test_tp1_quant.py -k 'inductor_partition and not +rms_norm and not +quant_fp8'",
@@ -930,8 +930,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/model_runner_v2.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/model_runner_v2.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/model_runner_v2.yaml",
       "amd_commands": [
         "set -x",
         "export VLLM_USE_V2_MODEL_RUNNER=1",
@@ -974,8 +974,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/models_distributed.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_distributed.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_distributed.yaml",
       "amd_commands": [
         "TARGET_TEST_SUITE=MI300 pytest basic_correctness/ -v -s -m 'distributed(num_gpus=2)'",
         "HIP_VISIBLE_DEVICES=0,1 pytest -v -s model_executor/model_loader/test_sharded_state_loader.py -m '(not slow_test)'",
@@ -1023,8 +1023,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/lm_eval.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "amd_commands": [
         "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=configs/models-qwen35-mi355.txt"
       ],
@@ -1060,8 +1060,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/kernels.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/kernels.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/kernels.yaml",
       "amd_commands": [
         "pytest -v -s kernels/core --ignore=kernels/core/test_minimax_reduce_rms.py kernels/test_concat_mla_q.py kernels/test_top_k_per_row.py --shard-id=$$BUILDKITE_PARALLEL_JOB --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT"
       ],
@@ -1097,8 +1097,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/compile.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/compile.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/compile.yaml",
       "amd_commands": [
         "rocm-smi",
         "pytest -v -s tests/compile/fusions_e2e/test_tp1_quant.py -k \"llama-3\""
@@ -1136,8 +1136,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/models_language.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_language.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_language.yaml",
       "amd_commands": [
         "uv pip install --system --no-build-isolation 'git+https://github.com/AndreasKaratzas/mamba@rocm-7.0-v2.3.0'",
         "uv pip install --system --no-build-isolation 'git+https://github.com/Dao-AILab/causal-conv1d@v1.6.0'",
@@ -1181,8 +1181,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/lm_eval.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "amd_commands": [
         "export VLLM_USE_DEEP_GEMM=0",
         "pytest -s -v test_lm_eval_correctness.py --config-list-file=configs/models-large-rocm-fp8.txt --tp-size=4"
@@ -1220,8 +1220,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/rust_frontend_cargo.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/rust_frontend_cargo.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/rust_frontend_cargo.yaml",
       "amd_commands": [
         "bash .buildkite/scripts/run-rust-frontend-cargo-ci.sh test"
       ],
@@ -1257,8 +1257,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/plugins.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/plugins.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/plugins.yaml",
       "amd_commands": [
         "pip install -e ./plugins/vllm_add_dummy_platform",
         "pytest -v -s plugins_tests/test_platform_plugins.py",
@@ -1342,8 +1342,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/rust_frontend_cargo.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/rust_frontend_cargo.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/rust_frontend_cargo.yaml",
       "amd_commands": [
         "bash .buildkite/scripts/run-rust-frontend-cargo-ci.sh style-clippy"
       ],
@@ -1379,8 +1379,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/lm_eval.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "amd_commands": [
         "uv pip install --system 'gpt-oss[eval]==0.0.5'",
         "pytest -s -v evals/gpt_oss/test_gpqa_correctness.py --config-list-file=configs/models-gfx942.txt"
@@ -1418,8 +1418,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/distributed.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/distributed.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/distributed.yaml",
       "amd_commands": [
         "torchrun --nproc-per-node=4 distributed/test_torchrun_example.py",
         "PP_SIZE=2 torchrun --nproc-per-node=4 distributed/test_torchrun_example.py",
@@ -1472,8 +1472,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/lm_eval.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "amd_commands": [
         "uv pip install --system 'gpt-oss[eval]==0.0.5'",
         "pytest -s -v evals/gpt_oss/test_gpqa_correctness.py --config-list-file=configs/models-gfx950.txt"
@@ -1511,8 +1511,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/model_runner_v2.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/model_runner_v2.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/model_runner_v2.yaml",
       "amd_commands": [
         "set -x",
         "export VLLM_USE_V2_MODEL_RUNNER=1",
@@ -1557,8 +1557,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/distributed.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/distributed.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/distributed.yaml",
       "amd_commands": [
         "pytest -v -s distributed/test_custom_all_reduce.py",
         "torchrun --nproc_per_node=2 distributed/test_ca_buffer_sharing.py",
@@ -1600,8 +1600,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/model_runner_v2.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/model_runner_v2.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/model_runner_v2.yaml",
       "amd_commands": [
         "set -x",
         "export VLLM_USE_V2_MODEL_RUNNER=1",
@@ -1665,8 +1665,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/misc.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/misc.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/misc.yaml",
       "amd_commands": [
         "export VLLM_ALLOW_INSECURE_SERIALIZATION=1",
         "pytest -v -s v1/spec_decode/test_acceptance_length.py -m slow_test"
@@ -1704,8 +1704,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/misc.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/misc.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/misc.yaml",
       "amd_commands": [
         "pytest -v -s detokenizer",
         "pytest -v -s -m 'not cpu_test' multimodal",
@@ -1745,8 +1745,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/models_basic.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_basic.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_basic.yaml",
       "amd_commands": [
         "pytest -v -s models/test_initialization.py -k 'not test_can_initialize_small_subset' --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT --shard-id=$$BUILDKITE_PARALLEL_JOB"
       ],
@@ -1782,8 +1782,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/models_basic.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_basic.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_basic.yaml",
       "amd_commands": [
         "pytest -v -s models/test_initialization.py::test_can_initialize_small_subset"
       ],
@@ -1819,8 +1819,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/e2e_integration.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/e2e_integration.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/e2e_integration.yaml",
       "amd_commands": [
         "bash .buildkite/scripts/scheduled_integration_test/deepseek_v2_lite_prefetch_offload.sh 0.25 200 8030"
       ],
@@ -1856,8 +1856,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/e2e_integration.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/e2e_integration.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/e2e_integration.yaml",
       "amd_commands": [
         "bash .buildkite/scripts/scheduled_integration_test/deepseek_v2_lite_ep_eplb.sh 0.25 200 8010"
       ],
@@ -1893,8 +1893,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/distributed.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/distributed.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/distributed.yaml",
       "amd_commands": [
         "pytest -v -s distributed/test_comm_ops.py",
         "pytest -v -s distributed/test_shm_broadcast.py",
@@ -1936,8 +1936,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/distributed.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/distributed.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/distributed.yaml",
       "amd_commands": [
         "pytest -v -s compile/fullgraph/test_basic_correctness.py",
         "pytest -v -s distributed/test_pynccl.py",
@@ -1982,8 +1982,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/distributed.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/distributed.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/distributed.yaml",
       "amd_commands": [
         "pytest -v -s entrypoints/llm/test_collective_rpc.py",
         "pytest -v -s ./compile/fullgraph/test_basic_correctness.py",
@@ -2024,8 +2024,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/distributed.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/distributed.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/distributed.yaml",
       "amd_commands": [
         "export NCCL_CUMEM_HOST_ENABLE=0",
         "TP_SIZE=2 DP_SIZE=2 pytest -v -s v1/distributed/test_async_llm_dp.py",
@@ -2075,8 +2075,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/distributed.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/distributed.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/distributed.yaml",
       "amd_commands": [
         "torchrun --nproc-per-node=8 ../examples/features/torchrun/torchrun_dp_example_offline.py --tp-size=2 --pp-size=1 --dp-size=4 --enable-ep"
       ],
@@ -2113,8 +2113,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/distributed.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/distributed.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/distributed.yaml",
       "amd_commands": [
         "VLLM_TEST_SAME_HOST=1 torchrun --nproc-per-node=4 distributed/test_same_node.py | grep 'Same node test passed'",
         "VLLM_TEST_SAME_HOST=1 VLLM_TEST_WITH_DEFAULT_DEVICE_SET=1 torchrun --nproc-per-node=4 distributed/test_same_node.py | grep 'Same node test passed'",
@@ -2157,8 +2157,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/docker.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/docker.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/docker.yaml",
       "amd_commands": [
         "pytest -v -s tools/test_docker_build_metadata_args.py"
       ],
@@ -2198,8 +2198,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/entrypoints.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/entrypoints.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/entrypoints.yaml",
       "amd_commands": [
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
         "pytest -v -s entrypoints/multimodal"
@@ -2241,8 +2241,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/entrypoints.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/entrypoints.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/entrypoints.yaml",
       "amd_commands": [
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
         "pytest -v -s entrypoints/pooling"
@@ -2280,8 +2280,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/entrypoints.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/entrypoints.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/entrypoints.yaml",
       "amd_commands": [
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
         "pytest -v -s entrypoints/openai/responses"
@@ -2322,8 +2322,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/entrypoints.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/entrypoints.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/entrypoints.yaml",
       "amd_commands": [
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
         "pytest -v -s entrypoints/speech_to_text"
@@ -2361,8 +2361,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/entrypoints.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/entrypoints.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/entrypoints.yaml",
       "amd_commands": [
         "pytest -v -s entrypoints/unit_tests",
         "pytest -v -s entrypoints/weight_transfer"
@@ -2400,8 +2400,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/expert_parallelism.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/expert_parallelism.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/expert_parallelism.yaml",
       "amd_commands": [
         "pytest -v -s distributed/test_eplb_execute.py",
         "pytest -v -s distributed/test_eplb_spec_decode.py"
@@ -2439,8 +2439,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/misc.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/misc.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/misc.yaml",
       "amd_commands": [
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
         "pytest -v -s v1/kv_connector/extract_hidden_states_integration"
@@ -2478,8 +2478,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/plugins.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/plugins.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/plugins.yaml",
       "amd_commands": [
         "pip install \"vllm-gguf-plugin >= 0.0.2\"",
         "pytest -v -s plugins_tests/gguf"
@@ -2517,8 +2517,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/kernels.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/kernels.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/kernels.yaml",
       "amd_commands": [
         "pytest -v -s kernels/mamba"
       ],
@@ -2554,8 +2554,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/models_language.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_language.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_language.yaml",
       "amd_commands": [
         "pytest -v -s models/language/pooling_mteb_test"
       ],
@@ -2591,8 +2591,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/models_language.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_language.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_language.yaml",
       "amd_commands": [
         "pytest -v -s models/language/generation_ppl_test"
       ],
@@ -2628,8 +2628,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/lora.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lora.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lora.yaml",
       "amd_commands": [
         "pytest -v -s -x lora/test_chatglm3_tp.py",
         "pytest -v -s -x lora/test_llama_tp.py",
@@ -2677,8 +2677,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/model_runner_v2.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/model_runner_v2.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/model_runner_v2.yaml",
       "amd_commands": [
         "set -x",
         "export VLLM_USE_V2_MODEL_RUNNER=1",
@@ -2726,8 +2726,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/model_runner_v2.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/model_runner_v2.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/model_runner_v2.yaml",
       "amd_commands": [
         "set -x",
         "export VLLM_USE_V2_MODEL_RUNNER=1",
@@ -2773,8 +2773,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/lm_eval.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "amd_commands": [
         "pytest -s -v evals/mrcr/test_mrcr_correctness.py --config-list-file=evals/mrcr/configs/models-small.txt"
       ],
@@ -2810,8 +2810,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/models_multimodal.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_multimodal.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_multimodal.yaml",
       "amd_commands": [
         "pytest -v -s models/multimodal/generation/test_common.py -m 'split(group=0) and not core_model'"
       ],
@@ -2851,8 +2851,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/models_multimodal.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_multimodal.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_multimodal.yaml",
       "amd_commands": [
         "pytest -v -s models/multimodal/generation/test_common.py -m 'split(group=1) and not core_model'"
       ],
@@ -2888,8 +2888,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/models_multimodal.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_multimodal.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_multimodal.yaml",
       "amd_commands": [
         "pytest -v -s models/multimodal/processing/test_tensor_schema.py"
       ],
@@ -2925,8 +2925,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/models_multimodal.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_multimodal.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_multimodal.yaml",
       "amd_commands": [
         "pytest -v -s models/multimodal/processing --ignore models/multimodal/processing/test_tensor_schema.py --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT --shard-id=$$BUILDKITE_PARALLEL_JOB"
       ],
@@ -2962,8 +2962,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/distributed.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/distributed.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/distributed.yaml",
       "amd_commands": [
         "pytest -v -s distributed/test_pp_cudagraph.py",
         "pytest -v -s distributed/test_pipeline_parallel.py"
@@ -3001,8 +3001,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/pytorch.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/pytorch.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/pytorch.yaml",
       "amd_commands": [
         "pytest -s -v compile/passes --ignore compile/passes/distributed"
       ],
@@ -3038,8 +3038,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/pytorch.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/pytorch.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/pytorch.yaml",
       "amd_commands": [
         "find compile/ -maxdepth 1 -name 'test_*.py' -print0 | xargs -0 -n1 -I{} pytest -s -v '{}'"
       ],
@@ -3075,8 +3075,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/pytorch.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/pytorch.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/pytorch.yaml",
       "amd_commands": [
         "pytest -v -s compile/fullgraph/test_full_graph.py -k 'not test_fp8_kv_scale_compile'"
       ],
@@ -3112,8 +3112,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/quantization.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/quantization.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/quantization.yaml",
       "amd_commands": [
         "pytest -v -s models/quantization"
       ],
@@ -3149,8 +3149,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/e2e_integration.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/e2e_integration.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/e2e_integration.yaml",
       "amd_commands": [
         "bash .buildkite/scripts/scheduled_integration_test/qwen30b_a3b_fp8_dp4_async_eplb.sh 0.8 200 8050"
       ],
@@ -3186,8 +3186,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/e2e_integration.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/e2e_integration.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/e2e_integration.yaml",
       "amd_commands": [
         "bash .buildkite/scripts/scheduled_integration_test/qwen30b_a3b_fp8_block_ep_eplb.sh 0.8 200 8020"
       ],
@@ -3223,8 +3223,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/e2e_integration.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/e2e_integration.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/e2e_integration.yaml",
       "amd_commands": [
         "bash .buildkite/scripts/scheduled_integration_test/qwen30b_a3b_fp8_block_ep_eplb.sh 0.8 200 8020 2 1"
       ],
@@ -3260,8 +3260,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/ray_compat.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/ray_compat.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/ray_compat.yaml",
       "amd_commands": [
         "bash /vllm-workspace/.buildkite/scripts/check-ray-compatibility.sh"
       ],
@@ -3297,8 +3297,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/distributed.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/distributed.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/distributed.yaml",
       "amd_commands": [
         "export VLLM_USE_RAY_V2_EXECUTOR_BACKEND=1",
         "pytest -v -s distributed/test_ray_v2_executor.py",
@@ -3347,8 +3347,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/misc.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/misc.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/misc.yaml",
       "amd_commands": [
         "pip install 'modelscope<1.38'",
         "pytest -v -s test_regression.py"
@@ -3386,8 +3386,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/rust_frontend.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/rust_frontend.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/rust_frontend.yaml",
       "amd_commands": [
         "export VLLM_USE_RUST_FRONTEND=1",
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
@@ -3427,8 +3427,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/rust_frontend.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/rust_frontend.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/rust_frontend.yaml",
       "amd_commands": [
         "export VLLM_USE_RUST_FRONTEND=1",
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
@@ -3473,8 +3473,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/rust_frontend.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/rust_frontend.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/rust_frontend.yaml",
       "amd_commands": [
         "export VLLM_USE_RUST_FRONTEND=1",
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
@@ -3526,8 +3526,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/rust_frontend.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/rust_frontend.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/rust_frontend.yaml",
       "amd_commands": [
         "export VLLM_USE_RUST_FRONTEND=1",
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
@@ -3575,8 +3575,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/rust_frontend.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/rust_frontend.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/rust_frontend.yaml",
       "amd_commands": [
         "export VLLM_USE_RUST_FRONTEND=1",
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
@@ -3616,8 +3616,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/spec_decode.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/spec_decode.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/spec_decode.yaml",
       "amd_commands": [
         "export VLLM_ALLOW_INSECURE_SERIALIZATION=1",
         "pytest -v -s v1/spec_decode/test_speculators_correctness.py -m slow_test"
@@ -3655,8 +3655,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/attention.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/attention.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/attention.yaml",
       "amd_commands": [
         "pytest -v -s v1/attention --shard-id=$$BUILDKITE_PARALLEL_JOB --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT"
       ],
@@ -3692,8 +3692,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/engine.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/engine.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/engine.yaml",
       "amd_commands": [
         "pytest -v -s v1/e2e/spec_decode/test_spec_decode.py -k \"eagle_correctness_heavy\""
       ],
@@ -3729,8 +3729,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/engine.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/engine.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/engine.yaml",
       "amd_commands": [
         "pytest -v -s v1/e2e/test_hybrid_chunked_prefill.py"
       ],
@@ -3766,8 +3766,8 @@
       ],
       "amd_source": ".buildkite/test-amd.yaml",
       "nvidia_source": ".buildkite/test_areas/kernels.yaml",
-      "amd_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
-      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/kernels.yaml",
+      "amd_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
+      "nvidia_source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/kernels.yaml",
       "amd_commands": [
         "pytest -v -s tests/ir",
         "pytest -v -s tests/kernels/ir"
@@ -3799,7 +3799,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
         "pytest -v -s basic_correctness/test_mem.py",
@@ -3827,7 +3827,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s models/test_terratorch.py models/transformers/test_backend.py models/test_registry.py"
       ]
@@ -3852,7 +3852,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s benchmarks/"
       ]
@@ -3877,7 +3877,7 @@
         "mi300_4"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "uv pip install --system -r /vllm-workspace/requirements/kv_connectors_rocm.txt",
         "CROSS_LAYERS_BLOCKS=True ATTENTION_BACKEND=TRITON_ATTN bash v1/kv_connector/nixl_integration/config_sweep_accuracy_test.sh"
@@ -3903,7 +3903,7 @@
         "mi300_2"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "export NCCL_CUMEM_HOST_ENABLE=0",
         "TP_SIZE=1 DP_SIZE=2 pytest -v -s v1/distributed/test_async_llm_dp.py",
@@ -3932,7 +3932,7 @@
         "mi300_4"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "uv pip install --system -r /vllm-workspace/requirements/kv_connectors_rocm.txt",
         "ATTENTION_BACKEND=TRITON_ATTN bash v1/kv_connector/nixl_integration/config_sweep_accuracy_test.sh"
@@ -3958,7 +3958,7 @@
         "mi355_2"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s tests/distributed/test_context_parallel.py",
         "pytest -v -s tests/distributed/test_rocm_aiter_custom_ar.py",
@@ -3988,7 +3988,7 @@
         "mi300_4"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "uv pip install --system -r /vllm-workspace/requirements/kv_connectors_rocm.txt",
         "DP_EP=1 ATTENTION_BACKEND=TRITON_ATTN bash v1/kv_connector/nixl_integration/config_sweep_accuracy_test.sh"
@@ -4014,7 +4014,7 @@
         "mi250_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s v1/e2e/general --ignore v1/e2e/general/test_async_scheduling.py"
       ]
@@ -4043,7 +4043,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s v1/e2e/general/test_async_scheduling.py"
       ]
@@ -4068,7 +4068,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s engine test_sequence.py test_config.py test_logger.py test_vllm_port.py test_jit_monitor.py"
       ]
@@ -4093,7 +4093,7 @@
         "mi250_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s v1/engine/test_preprocess_error_handling.py",
         "pytest -v -s v1/engine --ignore v1/engine/test_preprocess_error_handling.py"
@@ -4119,7 +4119,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s v1/engine/test_preprocess_error_handling.py",
         "pytest -v -s v1/engine --ignore v1/engine/test_preprocess_error_handling.py"
@@ -4149,7 +4149,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
         "pytest -v -s tool_use",
@@ -4178,7 +4178,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
         "pytest -v -s entrypoints/openai/ --ignore=entrypoints/openai/completion --ignore=entrypoints/openai/chat_completion --ignore=entrypoints/openai/responses --ignore=entrypoints/openai/correctness"
@@ -4204,7 +4204,7 @@
         "mi355_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
         "pytest -v -s entrypoints/openai --ignore=entrypoints/openai/completion --ignore=entrypoints/openai/chat_completion --ignore=entrypoints/openai/responses --ignore=entrypoints/openai/correctness"
@@ -4234,7 +4234,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
         "pytest -v -s entrypoints/openai/chat_completion",
@@ -4265,7 +4265,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
         "pytest -v -s entrypoints/serve --ignore=entrypoints/serve/dev/rpc",
@@ -4293,7 +4293,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
         "pytest -v -s entrypoints/llm --ignore=entrypoints/llm/test_generate.py --ignore=entrypoints/llm/test_collective_rpc.py --ignore=entrypoints/llm/offline_mode",
@@ -4321,7 +4321,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s distributed/test_eplb_algo.py",
         "pytest -v -s distributed/test_eplb_utils.py"
@@ -4351,7 +4351,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pip install tensorizer",
         "python3 basic/offline_inference/chat.py",
@@ -4392,7 +4392,7 @@
         "mi300_4"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "uv pip install --system -r /vllm-workspace/requirements/kv_connectors_rocm.txt",
         "HYBRID_SSM=1 ATTENTION_BACKEND=TRITON_ATTN bash v1/kv_connector/nixl_integration/config_sweep_accuracy_test.sh"
@@ -4422,7 +4422,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s kernels/attention --shard-id=$$BUILDKITE_PARALLEL_JOB --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT"
       ]
@@ -4447,7 +4447,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s models/kimi_k3/test_kda.py models/kimi_k3/test_kda_metadata.py"
       ]
@@ -4476,7 +4476,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s kernels/moe --ignore=kernels/moe/test_modular_oai_triton_moe.py --shard-id=$$BUILDKITE_PARALLEL_JOB --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT",
         "pytest -v -s kernels/moe/test_modular_oai_triton_moe.py --shard-id=$$BUILDKITE_PARALLEL_JOB --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT"
@@ -4506,7 +4506,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s kernels/quantization --shard-id=$$BUILDKITE_PARALLEL_JOB --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT"
       ]
@@ -4531,7 +4531,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "uv pip install --system --no-build-isolation 'git+https://github.com/AndreasKaratzas/mamba@fix-rocm-7.0-warp-size-constexpr'",
         "uv pip install --system --no-build-isolation 'git+https://github.com/Dao-AILab/causal-conv1d@v1.6.0'",
@@ -4562,7 +4562,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s models/language/pooling -m 'not core_model'"
       ]
@@ -4587,7 +4587,7 @@
         "mi250_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s models/language/generation_ppl_test"
       ]
@@ -4612,7 +4612,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pip freeze | grep -E 'torch'",
         "pytest -v -s models/language -m 'core_model and slow_test' --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT --shard-id=$$BUILDKITE_PARALLEL_JOB"
@@ -4638,7 +4638,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "uv pip install --system --no-build-isolation 'git+https://github.com/AndreasKaratzas/mamba@fix-rocm-7.0-warp-size-constexpr'",
         "uv pip install --system --no-build-isolation 'git+https://github.com/Dao-AILab/causal-conv1d@v1.6.0'",
@@ -4669,7 +4669,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pip freeze | grep -E 'torch'",
         "pytest -v -s models/language -m 'core_model and (not slow_test)'"
@@ -4695,7 +4695,7 @@
         "mi300_4"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
         "pytest -s -v test_lm_eval_correctness.py --config-list-file=configs/models-large.txt --tp-size=4"
@@ -4721,7 +4721,7 @@
         "mi300_8"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
         "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=configs/models-mi3xx.txt"
@@ -4747,7 +4747,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=configs/models-small.txt"
       ]
@@ -4776,7 +4776,7 @@
         "mi355_2"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=configs/models-mi3xx-fp8-and-mixed.txt"
       ]
@@ -4801,7 +4801,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s lora --shard-id=$$BUILDKITE_PARALLEL_JOB --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT --ignore=lora/test_chatglm3_tp.py --ignore=lora/test_llama_tp.py --ignore=lora/test_qwen3_with_multi_loras.py --ignore=lora/test_olmoe_tp.py --ignore=lora/test_deepseekv2_tp.py --ignore=lora/test_gptoss_tp.py --ignore=lora/test_qwen3moe_tp.py --ignore=lora/test_qwen35_densemodel_lora.py"
       ]
@@ -4826,7 +4826,7 @@
         "mi300_2"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pip install 'opentelemetry-sdk>=1.26.0' 'opentelemetry-api>=1.26.0' 'opentelemetry-exporter-otlp>=1.26.0' 'opentelemetry-semantic-conventions-ai>=0.4.1'",
         "pytest -v -s v1/tracing"
@@ -4852,7 +4852,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "apt-get update && apt-get install -y curl libsodium23",
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
@@ -4880,7 +4880,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -s -v test_lm_eval_correctness.py --config-list-file=configs/models-mm-small.txt --tp-size=1"
       ]
@@ -4909,7 +4909,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s models/multimodal/generation -m 'not core_model' --ignore models/multimodal/generation/test_common.py",
         "pytest -v -s models/multimodal/test_mapping.py"
@@ -4939,7 +4939,7 @@
         "mi355_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s models/multimodal/pooling -m 'not core_model'"
       ]
@@ -4968,7 +4968,7 @@
         "mi355_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s models/multimodal/generation/test_common.py -m core_model -k \"qwen2\"",
         "pytest -v -s models/multimodal/generation/test_ultravox.py -m core_model"
@@ -4994,7 +4994,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s models/multimodal/generation/test_common.py -m core_model -k \"qwen3 or gemma\"",
         "pytest -v -s models/multimodal/generation/test_qwen2_5_vl.py -m core_model"
@@ -5020,7 +5020,7 @@
         "mi250_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s models/multimodal/generation/test_common.py -m core_model -k \"not qwen2 and not qwen3 and not gemma\"",
         "pytest -v -s models/multimodal/generation/test_qwen2_vl.py -m core_model"
@@ -5046,7 +5046,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s models/multimodal/generation/test_common.py -m core_model -k \"not qwen2 and not qwen3 and not gemma\"",
         "pytest -v -s models/multimodal/generation/test_qwen2_vl.py -m core_model"
@@ -5072,7 +5072,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s models/multimodal -m core_model --ignore models/multimodal/generation/test_common.py --ignore models/multimodal/generation/test_ultravox.py --ignore models/multimodal/generation/test_qwen2_5_vl.py --ignore models/multimodal/generation/test_qwen2_vl.py --ignore models/multimodal/generation/test_whisper.py  --ignore models/multimodal/generation/test_memory_leak.py --ignore models/multimodal/processing",
         "pytest -v -s models/multimodal/generation/test_memory_leak.py -m core_model",
@@ -5099,7 +5099,7 @@
         "mi355_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s models/multimodal -m core_model --ignore models/multimodal/generation/test_common.py --ignore models/multimodal/generation/test_ultravox.py --ignore models/multimodal/generation/test_qwen2_5_vl.py --ignore models/multimodal/generation/test_qwen2_vl.py --ignore models/multimodal/generation/test_whisper.py  --ignore models/multimodal/generation/test_memory_leak.py --ignore models/multimodal/processing",
         "pytest -v -s models/multimodal/generation/test_memory_leak.py -m core_model",
@@ -5126,7 +5126,7 @@
         "mi300_2"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "uv pip install --system -r /vllm-workspace/requirements/kv_connectors_rocm.txt",
         "KV_CACHE_MEMORY_BYTES=8G ATTENTION_BACKEND=TRITON_ATTN bash v1/kv_connector/nixl_integration/config_sweep_spec_decode_test.sh"
@@ -5152,7 +5152,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "bash ../tools/install_torchcodec_rocm.sh || exit 1",
         "pytest -s entrypoints/openai/correctness/"
@@ -5178,7 +5178,7 @@
         "mi250_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "bash standalone_tests/python_only_compile.sh"
       ]
@@ -5203,7 +5203,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "bash standalone_tests/pytorch_nightly_dependency.sh"
       ]
@@ -5228,7 +5228,7 @@
         "mi355_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "uv pip install --system torchao==0.17.0",
         "uv pip install --system conch-triton-kernels",
@@ -5255,7 +5255,7 @@
         "mi355_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s models/quantization"
       ]
@@ -5280,7 +5280,7 @@
         "mi300_4"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "bash .buildkite/scripts/scheduled_integration_test/qwen3_next_mtp_async_eplb.sh 0.8 1319 8040"
       ]
@@ -5305,7 +5305,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s rocm/aiter/"
       ]
@@ -5330,7 +5330,7 @@
         "mi300_8"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
         "pytest -s -v test_lm_eval_correctness.py --config-list-file=configs/models-large-rocm.txt --tp-size=8"
@@ -5356,7 +5356,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s samplers"
       ]
@@ -5385,7 +5385,7 @@
         "mi250_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s v1/e2e/spec_decode -k \"draft_model or no_sync or batch_inference\""
       ]
@@ -5410,7 +5410,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s v1/e2e/spec_decode -k \"eagle_correctness\""
       ]
@@ -5435,7 +5435,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s v1/e2e/spec_decode -k \"ngram or suffix\""
       ]
@@ -5464,7 +5464,7 @@
         "mi250_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s v1/e2e/spec_decode -k \"speculators or mtp_correctness\""
       ]
@@ -5489,7 +5489,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pip install --upgrade git+https://github.com/huggingface/transformers",
         "pytest -v -s tests/models/test_initialization.py --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT --shard-id=$$BUILDKITE_PARALLEL_JOB"
@@ -5515,7 +5515,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pip install --upgrade git+https://github.com/huggingface/transformers",
         "pytest -v -s tests/models/multimodal/processing/ --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT --shard-id=$$BUILDKITE_PARALLEL_JOB"
@@ -5541,7 +5541,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pip install --upgrade git+https://github.com/huggingface/transformers",
         "pytest -v -s tests/models/transformers/test_backend.py",
@@ -5571,7 +5571,7 @@
         "mi300_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s v1/attention --shard-id=$$BUILDKITE_PARALLEL_JOB --num-shards=$$BUILDKITE_PARALLEL_JOB_COUNT"
       ]
@@ -5600,7 +5600,7 @@
         "mi355_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "uv pip install --system -r /vllm-workspace/requirements/kv_connectors_rocm.txt",
         "pytest -v -s -m 'not cpu_test' v1/core",
@@ -5633,7 +5633,7 @@
         "mi300_2"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s v1/e2e/spec_decode/test_spec_decode.py -k \"tensor_parallelism\""
       ]
@@ -5662,7 +5662,7 @@
         "mi355_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s v1/sample",
         "pytest -v -s v1/logits_processors",
@@ -5695,7 +5695,7 @@
         "mi355_1"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "pytest -v -s -m 'not slow_test' v1/spec_decode"
       ]
@@ -5724,7 +5724,7 @@
         "mi355_2"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "bash weight_loading/run_model_weight_loading_test.sh -c weight_loading/models-amd.txt"
       ]
@@ -5753,7 +5753,7 @@
         "mi355_2"
       ],
       "source": ".buildkite/test-amd.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test-amd.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test-amd.yaml",
       "commands": [
         "bash weight_loading/run_model_weight_loading_test.sh -c weight_loading/models-large-amd.txt"
       ]
@@ -5766,7 +5766,7 @@
       "identity_key": "2 node test (4 gpus)",
       "definition_id": ".buildkite/test_areas/distributed.yaml#2-node-test-4-gpus",
       "source": ".buildkite/test_areas/distributed.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/distributed.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/distributed.yaml",
       "commands": [
         "./.buildkite/scripts/run-multi-node-test.sh /vllm-workspace/tests 2 2 $IMAGE_TAG \"VLLM_TEST_SAME_HOST=0 torchrun --nnodes 2 --nproc-per-node=2 --rdzv_backend=c10d --rdzv_endpoint=192.168.10.10 distributed/test_same_node.py | grep 'Same node test passed' && NUM_NODES=2 torchrun --nnodes 2 --nproc-per-node=2 --rdzv_backend=c10d --rdzv_endpoint=192.168.10.10 distributed/test_node_count.py | grep 'Node count test passed' && python3 ../examples/features/data_parallel/data_parallel_offline.py -dp=2 -tp=1 --dp-num-nodes=2 --dp-node-rank=0 --dp-master-addr=192.168.10.10 --dp-master-port=12345 --enforce-eager --trust-remote-code && VLLM_MULTI_NODE=1 pytest -v -s distributed/test_multi_node_assignment.py && VLLM_MULTI_NODE=1 pytest -v -s distributed/test_pipeline_parallel.py\" \"VLLM_TEST_SAME_HOST=0 torchrun --nnodes 2 --nproc-per-node=2 --rdzv_backend=c10d --rdzv_endpoint=192.168.10.10 distributed/test_same_node.py | grep 'Same node test passed' && NUM_NODES=2 torchrun --nnodes 2 --nproc-per-node=2 --rdzv_backend=c10d --rdzv_endpoint=192.168.10.10 distributed/test_node_count.py | grep 'Node count test passed' && python3 ../examples/features/data_parallel/data_parallel_offline.py -dp=2 -tp=1 --dp-num-nodes=2 --dp-node-rank=1 --dp-master-addr=192.168.10.10 --dp-master-port=12345 --enforce-eager --trust-remote-code\""
       ]
@@ -5777,7 +5777,7 @@
       "identity_key": "asynctp correctness tests (2 gpus)",
       "definition_id": ".buildkite/test_areas/compile.yaml#asynctp-correctness-tests-2xh100",
       "source": ".buildkite/test_areas/compile.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/compile.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/compile.yaml",
       "commands": [
         "export VLLM_TEST_CLEAN_GPU_MEMORY=1",
         "pytest -v -s tests/compile/correctness_e2e/test_async_tp.py"
@@ -5789,7 +5789,7 @@
       "identity_key": "asynctp correctness tests (2 gpus)",
       "definition_id": ".buildkite/test_areas/compile.yaml#asynctp-correctness-tests-b200",
       "source": ".buildkite/test_areas/compile.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/compile.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/compile.yaml",
       "commands": [
         "export VLLM_TEST_CLEAN_GPU_MEMORY=1",
         "pytest -v -s tests/compile/correctness_e2e/test_async_tp.py"
@@ -5801,7 +5801,7 @@
       "identity_key": "batch invariance",
       "definition_id": ".buildkite/test_areas/misc.yaml#batch-invariance-a100",
       "source": ".buildkite/test_areas/misc.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/misc.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/misc.yaml",
       "commands": [
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
         "pip install pytest-timeout pytest-forked",
@@ -5815,7 +5815,7 @@
       "identity_key": "batch invariance",
       "definition_id": ".buildkite/test_areas/misc.yaml#batch-invariance-b200",
       "source": ".buildkite/test_areas/misc.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/misc.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/misc.yaml",
       "commands": [
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
         "pip install pytest-timeout pytest-forked",
@@ -5836,7 +5836,7 @@
       "identity_key": "deepseek v4 kernel test",
       "definition_id": ".buildkite/test_areas/kernels.yaml#deepseek-v4-kernel-test-b200",
       "source": ".buildkite/test_areas/kernels.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/kernels.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/kernels.yaml",
       "commands": [
         "pytest -v -s kernels/test_fused_deepseek_v4_*.py",
         "pytest -v -s models/test_deepseek_v4_mega_moe.py"
@@ -5848,7 +5848,7 @@
       "identity_key": "deepseek v4 kernel test",
       "definition_id": ".buildkite/test_areas/kernels.yaml#deepseek-v4-kernel-test-h100",
       "source": ".buildkite/test_areas/kernels.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/kernels.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/kernels.yaml",
       "commands": [
         "pytest -v -s kernels/test_fused_deepseek_v4_*.py",
         "pytest -v -s kernels/test_top_k_per_row.py"
@@ -5860,7 +5860,7 @@
       "identity_key": "distributed flashinfer nixlconnector pd accuracy (4 gpus)",
       "definition_id": ".buildkite/test_areas/disaggregated.yaml#distributed-flashinfer-nixlconnector-pd-accuracy-4-gpus",
       "source": ".buildkite/test_areas/disaggregated.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/disaggregated.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/disaggregated.yaml",
       "commands": [
         "bash /vllm-workspace/.buildkite/scripts/install-kv-connectors.sh",
         "FLASHINFER=1 bash v1/kv_connector/nixl_integration/config_sweep_accuracy_test.sh"
@@ -5872,7 +5872,7 @@
       "identity_key": "distributed tests (2 gpus)",
       "definition_id": ".buildkite/test_areas/distributed.yaml#distributed-tests-2xb200",
       "source": ".buildkite/test_areas/distributed.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/distributed.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/distributed.yaml",
       "commands": [
         "pytest -v -s tests/distributed/test_context_parallel.py",
         "pytest -v -s tests/distributed/test_nccl_symm_mem.py",
@@ -5886,7 +5886,7 @@
       "identity_key": "dsv4-flash disaggregated dp ep (8 gpus)",
       "definition_id": ".buildkite/test_areas/disaggregated.yaml#dsv4-flash-disaggregated",
       "source": ".buildkite/test_areas/disaggregated.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/disaggregated.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/disaggregated.yaml",
       "commands": [
         "bash /vllm-workspace/.buildkite/scripts/install-kv-connectors.sh",
         "bash v1/kv_connector/nixl_integration/run_accuracy_test.sh"
@@ -5898,7 +5898,7 @@
       "identity_key": "extract hidden states integration (2 gpus)",
       "definition_id": ".buildkite/test_areas/misc.yaml#extract-hidden-states-integration-2-gpus",
       "source": ".buildkite/test_areas/misc.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/misc.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/misc.yaml",
       "commands": [
         "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
         "pytest -v -s -m 'distributed' v1/kv_connector/extract_hidden_states_integration"
@@ -5910,7 +5910,7 @@
       "identity_key": "fault tolerance e2e (2 gpus)",
       "definition_id": ".buildkite/test_areas/fault_tolerance.yaml#fault-tolerance-e2e-2xh100",
       "source": ".buildkite/test_areas/fault_tolerance.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/fault_tolerance.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/fault_tolerance.yaml",
       "commands": [
         "bash /vllm-workspace/.buildkite/scripts/install-kv-connectors.sh",
         "export NCCL_CUMEM_HOST_ENABLE=0",
@@ -5923,7 +5923,7 @@
       "identity_key": "fusion and compile unit tests (2 gpus)",
       "definition_id": ".buildkite/test_areas/compile.yaml#fusion-and-compile-unit-tests-2xb200",
       "source": ".buildkite/test_areas/compile.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/compile.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/compile.yaml",
       "commands": [
         "nvidia-smi",
         "pytest -v -s tests/compile/passes/test_fusion_attn.py -k FLASHINFER",
@@ -5939,7 +5939,7 @@
       "identity_key": "fusion e2e config sweep (1 gpus)",
       "definition_id": ".buildkite/test_areas/compile.yaml#fusion-e2e-config-sweep-b200",
       "source": ".buildkite/test_areas/compile.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/compile.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/compile.yaml",
       "commands": [
         "nvidia-smi",
         "pytest -v -s tests/compile/fusions_e2e/test_tp1_quant.py -k \"inductor_partition and (FLASHINFER and not +rms_norm and (not +quant_fp8 or +quant_fp8 and (qwen3 or deepseek)) or llama-3)\""
@@ -5951,7 +5951,7 @@
       "identity_key": "fusion e2e tp2 (2 gpus)",
       "definition_id": ".buildkite/test_areas/compile.yaml#fusion-e2e-tp2-b200",
       "source": ".buildkite/test_areas/compile.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/compile.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/compile.yaml",
       "commands": [
         "nvidia-smi",
         "pytest -v -s tests/compile/fusions_e2e/test_tp2_ar_rms.py -k \"(FLASHINFER and inductor_partition and not +rms_norm and (not +quant_fp8 or +quant_fp8 and (qwen3 or deepseek))) or Llama-3.1-8B-Instruct-FP4\"",
@@ -5964,7 +5964,7 @@
       "identity_key": "fusion e2e tp2 ar-rms config sweep (2 gpus)",
       "definition_id": ".buildkite/test_areas/compile.yaml#fusion-e2e-tp2-ar-rms-config-sweep-h100",
       "source": ".buildkite/test_areas/compile.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/compile.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/compile.yaml",
       "commands": [
         "nvidia-smi",
         "pytest -v -s tests/compile/fusions_e2e/test_tp2_ar_rms.py -k \"llama-3\""
@@ -5976,7 +5976,7 @@
       "identity_key": "fusion e2e tp2 asynctp config sweep (2 gpus)",
       "definition_id": ".buildkite/test_areas/compile.yaml#fusion-e2e-tp2-asynctp-config-sweep-h100",
       "source": ".buildkite/test_areas/compile.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/compile.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/compile.yaml",
       "commands": [
         "nvidia-smi",
         "pytest -v -s tests/compile/fusions_e2e/test_tp2_async_tp.py -k \"llama-3\""
@@ -5988,7 +5988,7 @@
       "identity_key": "fusion e2e tp2 quick (2 gpus)",
       "definition_id": ".buildkite/test_areas/compile.yaml#fusion-e2e-tp2-quick-h100",
       "source": ".buildkite/test_areas/compile.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/compile.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/compile.yaml",
       "commands": [
         "nvidia-smi",
         "pytest -v -s tests/compile/fusions_e2e/test_tp2_ar_rms.py -k \"inductor_partition and not +rms_norm and (not +quant_fp8 or +quant_fp8 and (qwen3 or deepseek))\"",
@@ -6001,7 +6001,7 @@
       "identity_key": "gpqa eval (gpt-oss) (dgx spark) (1 gpus)",
       "definition_id": ".buildkite/test_areas/lm_eval.yaml#gpqa-eval-gpt-oss-spark",
       "source": ".buildkite/test_areas/lm_eval.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "commands": [
         "uv pip install --system 'gpt-oss[eval]==0.0.5'",
         "pytest -s -v evals/gpt_oss/test_gpqa_correctness.py --config-list-file=configs/models-spark.txt"
@@ -6013,7 +6013,7 @@
       "identity_key": "inkling unit tests",
       "definition_id": ".buildkite/test_areas/models_basic.yaml#inkling-unit-tests-b200",
       "source": ".buildkite/test_areas/models_basic.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_basic.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_basic.yaml",
       "commands": [
         "pytest -v -s models/inkling"
       ]
@@ -6024,7 +6024,7 @@
       "identity_key": "kernels attention diffkv test (1 gpus)",
       "definition_id": ".buildkite/test_areas/kernels.yaml#kernels-attention-diffkv-test-h100",
       "source": ".buildkite/test_areas/kernels.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/kernels.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/kernels.yaml",
       "commands": [
         "pytest -v -s kernels/attention/test_triton_unified_attention_diffkv.py"
       ]
@@ -6035,7 +6035,7 @@
       "identity_key": "kernels deepgemm test (1 gpus)",
       "definition_id": ".buildkite/test_areas/kernels.yaml#kernels-deepgemm-test-h100",
       "source": ".buildkite/test_areas/kernels.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/kernels.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/kernels.yaml",
       "commands": [
         "python3 ../tools/check_wheel_deepgemm.py",
         "pytest -v -s kernels/quantization/test_block_fp8.py",
@@ -6051,7 +6051,7 @@
       "identity_key": "kernels fp4 moe test (1 gpus)",
       "definition_id": ".buildkite/test_areas/kernels.yaml#kernels-fp4-moe-test-b200",
       "source": ".buildkite/test_areas/kernels.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/kernels.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/kernels.yaml",
       "commands": [
         "pytest -v -s kernels/moe/test_cutedsl_moe.py",
         "pytest -v -s kernels/moe/test_flashinfer_moe.py",
@@ -6065,7 +6065,7 @@
       "identity_key": "kernels fp8 moe test (1 gpus)",
       "definition_id": ".buildkite/test_areas/kernels.yaml#kernels-fp8-moe-test-1xh100",
       "source": ".buildkite/test_areas/kernels.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/kernels.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/kernels.yaml",
       "commands": [
         "pytest -v -s kernels/moe/test_cutlass_moe.py",
         "pytest -v -s kernels/moe/test_flashinfer.py",
@@ -6083,7 +6083,7 @@
       "identity_key": "kernels fusedmoe layer test (2 gpus)",
       "definition_id": ".buildkite/test_areas/kernels.yaml#kernels-fusedmoe-layer-test-2-b200s",
       "source": ".buildkite/test_areas/kernels.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/kernels.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/kernels.yaml",
       "commands": [
         "pytest -v -s kernels/moe/test_moe_layer.py",
         "pytest -v -s kernels/moe/test_deepep_v2_moe.py"
@@ -6095,7 +6095,7 @@
       "identity_key": "kernels fusedmoe layer test (2 gpus)",
       "definition_id": ".buildkite/test_areas/kernels.yaml#kernels-fusedmoe-layer-test-2-h100s",
       "source": ".buildkite/test_areas/kernels.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/kernels.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/kernels.yaml",
       "commands": [
         "pytest -v -s kernels/moe/test_moe_layer.py"
       ]
@@ -6106,7 +6106,7 @@
       "identity_key": "kernels minimax reduce rms test (2 gpus)",
       "definition_id": ".buildkite/test_areas/kernels.yaml#kernels-minimax-reduce-rms-test-2-gpus",
       "source": ".buildkite/test_areas/kernels.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/kernels.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/kernels.yaml",
       "commands": [
         "pytest -v -s kernels/core/test_minimax_reduce_rms.py"
       ]
@@ -6117,7 +6117,7 @@
       "identity_key": "kernels root misc test",
       "definition_id": ".buildkite/test_areas/kernels.yaml#kernels-root-misc-test-b200",
       "source": ".buildkite/test_areas/kernels.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/kernels.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/kernels.yaml",
       "commands": [
         "pytest -v -s kernels/ --ignore=kernels/attention --ignore=kernels/core --ignore=kernels/helion --ignore=kernels/ir --ignore=kernels/mamba --ignore=kernels/moe --ignore=kernels/quantization --ignore=kernels/test_concat_mla_q.py --ignore=kernels/test_fused_qk_norm_rope_gate.py --ignore=kernels/test_fused_deepseek_v4_qnorm_rope_kv_insert.py --ignore=kernels/test_top_k_per_row.py --ignore=kernels/test_kda.py --ignore=kernels/test_bf16x3_router_gemm_cutedsl.py --ignore=kernels/test_ll_bf16_gemm.py --ignore=kernels/test_shuffle_rows.py"
       ]
@@ -6128,7 +6128,7 @@
       "identity_key": "kimi k3 unit tests",
       "definition_id": ".buildkite/test_areas/models_basic.yaml#kimi-k3-unit-tests-b200",
       "source": ".buildkite/test_areas/models_basic.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_basic.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_basic.yaml",
       "commands": [
         "pytest -v -s models/kimi_k3 kernels/attention/test_kimi_k3_mla_fused_epilogue.py kernels/test_bf16_skinny_gemm.py"
       ]
@@ -6139,7 +6139,7 @@
       "identity_key": "language models tests (granite l4 compatibility)",
       "definition_id": ".buildkite/test_areas/models_language.yaml#language-models-tests-granite-l4-compatibility",
       "source": ".buildkite/test_areas/models_language.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_language.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_language.yaml",
       "commands": [
         "uv pip install --system --no-build-isolation 'git+https://github.com/state-spaces/mamba@v2.3.0'",
         "uv pip install --system --no-build-isolation 'git+https://github.com/Dao-AILab/causal-conv1d@v1.6.0'",
@@ -6152,7 +6152,7 @@
       "identity_key": "lm eval humming act fp8/int8 (b200 - temporary) (1 gpus)",
       "definition_id": ".buildkite/test_areas/lm_eval.yaml#lm-eval-humming-act-b200",
       "source": ".buildkite/test_areas/lm_eval.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "commands": [
         "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=evals/gsm8k/configs/humming/config-act-fp8.txt",
         "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=evals/gsm8k/configs/humming/config-act-int8.txt"
@@ -6164,7 +6164,7 @@
       "identity_key": "lm eval humming act fp8/int8 (h100 - temporary) (1 gpus)",
       "definition_id": ".buildkite/test_areas/lm_eval.yaml#lm-eval-humming-act-h100",
       "source": ".buildkite/test_areas/lm_eval.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "commands": [
         "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=evals/gsm8k/configs/humming/config-act-fp8.txt",
         "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=evals/gsm8k/configs/humming/config-act-int8.txt"
@@ -6176,7 +6176,7 @@
       "identity_key": "lm eval humming act int8 (a100 - temporary) (1 gpus)",
       "definition_id": ".buildkite/test_areas/lm_eval.yaml#lm-eval-humming-act-a100",
       "source": ".buildkite/test_areas/lm_eval.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "commands": [
         "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=evals/gsm8k/configs/humming/config-act-int8.txt"
       ]
@@ -6187,7 +6187,7 @@
       "identity_key": "lm eval humming f16 (a100 - temporary) (1 gpus)",
       "definition_id": ".buildkite/test_areas/lm_eval.yaml#lm-eval-humming-f16-a100",
       "source": ".buildkite/test_areas/lm_eval.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "commands": [
         "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=evals/gsm8k/configs/humming/config.txt"
       ]
@@ -6198,7 +6198,7 @@
       "identity_key": "lm eval humming f16 (b200 - temporary) (1 gpus)",
       "definition_id": ".buildkite/test_areas/lm_eval.yaml#lm-eval-humming-f16-b200",
       "source": ".buildkite/test_areas/lm_eval.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "commands": [
         "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=evals/gsm8k/configs/humming/config.txt"
       ]
@@ -6209,7 +6209,7 @@
       "identity_key": "lm eval humming f16 (h100 - temporary) (1 gpus)",
       "definition_id": ".buildkite/test_areas/lm_eval.yaml#lm-eval-humming-f16-h100",
       "source": ".buildkite/test_areas/lm_eval.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "commands": [
         "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=evals/gsm8k/configs/humming/config.txt"
       ]
@@ -6220,7 +6220,7 @@
       "identity_key": "lm eval kv-offload (1 gpus)",
       "definition_id": ".buildkite/test_areas/lm_eval.yaml#kv-offload-small",
       "source": ".buildkite/test_areas/lm_eval.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "commands": [
         "pytest -s -v evals/gsm8k/test_gsm8k_offloading.py -k \"nemotron-h-8b or gemma-4-e4b-it\""
       ]
@@ -6231,7 +6231,7 @@
       "identity_key": "lm eval kv-offload (2 gpus)",
       "definition_id": ".buildkite/test_areas/lm_eval.yaml#kv-offload-medium",
       "source": ".buildkite/test_areas/lm_eval.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "commands": [
         "pytest -s -v evals/gsm8k/test_gsm8k_offloading.py -k \"qwen3.5-35b or deepseek-v2-lite\""
       ]
@@ -6242,7 +6242,7 @@
       "identity_key": "lm eval kv-offload (4 gpus)",
       "definition_id": ".buildkite/test_areas/lm_eval.yaml#kv-offload-large",
       "source": ".buildkite/test_areas/lm_eval.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "commands": [
         "pytest -s -v evals/gsm8k/test_gsm8k_offloading.py -k \"deepseek-v4-flash\""
       ]
@@ -6253,7 +6253,7 @@
       "identity_key": "lm eval large models ep (2 gpus)",
       "definition_id": ".buildkite/test_areas/lm_eval.yaml#lm-eval-large-models-ep-2xb200",
       "source": ".buildkite/test_areas/lm_eval.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "commands": [
         "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=configs/models-blackwell-ep.txt"
       ]
@@ -6264,7 +6264,7 @@
       "identity_key": "lm eval pcp (4 gpus)",
       "definition_id": ".buildkite/test_areas/lm_eval.yaml#lm-eval-pcp-4xb200",
       "source": ".buildkite/test_areas/lm_eval.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "commands": [
         "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=configs/models-pcp.txt"
       ]
@@ -6275,7 +6275,7 @@
       "identity_key": "lm eval small models distributed (2 gpus)",
       "definition_id": ".buildkite/test_areas/lm_eval.yaml#lm-eval-small-models-distributed-2xb200",
       "source": ".buildkite/test_areas/lm_eval.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "commands": [
         "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=configs/models-small-tp.txt"
       ]
@@ -6286,7 +6286,7 @@
       "identity_key": "lm eval turboquant kv cache",
       "definition_id": ".buildkite/test_areas/lm_eval.yaml#lm-eval-turboquant-kv-cache",
       "source": ".buildkite/test_areas/lm_eval.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "commands": [
         "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=evals/gsm8k/configs/models-turboquant.txt"
       ]
@@ -6297,7 +6297,7 @@
       "identity_key": "moe refactor integration test (b200 - temporary) (2 gpus)",
       "definition_id": ".buildkite/test_areas/lm_eval.yaml#moe-refactor-integration-test-b200-temporary",
       "source": ".buildkite/test_areas/lm_eval.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "commands": [
         "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=evals/gsm8k/configs/moe-refactor/config-b200.txt"
       ]
@@ -6308,7 +6308,7 @@
       "identity_key": "moe refactor integration test (b200 dp - temporary) (2 gpus)",
       "definition_id": ".buildkite/test_areas/lm_eval.yaml#moe-refactor-integration-test-b200-dp-temporary",
       "source": ".buildkite/test_areas/lm_eval.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "commands": [
         "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=evals/gsm8k/configs/moe-refactor-dp-ep/config-b200.txt"
       ]
@@ -6319,7 +6319,7 @@
       "identity_key": "moe refactor integration test (h100 - temporary) (2 gpus)",
       "definition_id": ".buildkite/test_areas/lm_eval.yaml#moe-refactor-integration-test-h100-temporary",
       "source": ".buildkite/test_areas/lm_eval.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml",
       "commands": [
         "pytest -s -v evals/gsm8k/test_gsm8k_correctness.py --config-list-file=evals/gsm8k/configs/moe-refactor/config-h100.txt"
       ]
@@ -6330,7 +6330,7 @@
       "identity_key": "nixlconnector pd edge case test (2 gpus)",
       "definition_id": ".buildkite/test_areas/disaggregated.yaml#nixlconnector-pd-edge-cases-2-gpus",
       "source": ".buildkite/test_areas/disaggregated.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/disaggregated.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/disaggregated.yaml",
       "commands": [
         "bash /vllm-workspace/.buildkite/scripts/install-kv-connectors.sh",
         "bash v1/kv_connector/nixl_integration/run_edge_case_test.sh"
@@ -6342,7 +6342,7 @@
       "identity_key": "push nixlconnector pp prefill pd accuracy (4 gpus)",
       "definition_id": ".buildkite/test_areas/disaggregated.yaml#push-nixlconnector-pp-prefill-pd-accuracy-4-gpus",
       "source": ".buildkite/test_areas/disaggregated.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/disaggregated.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/disaggregated.yaml",
       "commands": [
         "bash /vllm-workspace/.buildkite/scripts/install-kv-connectors.sh",
         "bash v1/kv_connector/nixl_push_integration/config_sweep_accuracy_test.sh"
@@ -6354,7 +6354,7 @@
       "identity_key": "pytorch compilation unit tests (1 gpus)",
       "definition_id": ".buildkite/test_areas/pytorch.yaml#pytorch-compilation-unit-tests-h100",
       "source": ".buildkite/test_areas/pytorch.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/pytorch.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/pytorch.yaml",
       "commands": [
         "find compile/h100/ -name 'test_*.py' -print0 | xargs -0 -n1 -I{} pytest -s -v '{}'"
       ]
@@ -6365,7 +6365,7 @@
       "identity_key": "pytorch fullgraph cudagraph (l4 compatibility)",
       "definition_id": ".buildkite/test_areas/pytorch.yaml#pytorch-fullgraph-cudagraph-l4-compatibility",
       "source": ".buildkite/test_areas/pytorch.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/pytorch.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/pytorch.yaml",
       "commands": [
         "pytest -s -v compile/fullgraph/test_full_cudagraph.py"
       ]
@@ -6376,7 +6376,7 @@
       "identity_key": "quantized fusions",
       "definition_id": ".buildkite/test_areas/quantization.yaml#quantized-fusions",
       "source": ".buildkite/test_areas/quantization.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/quantization.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/quantization.yaml",
       "commands": [
         "pytest -v -s fusion/"
       ]
@@ -6387,7 +6387,7 @@
       "identity_key": "quantized moe test",
       "definition_id": ".buildkite/test_areas/quantization.yaml#quantized-moe-test-b200",
       "source": ".buildkite/test_areas/quantization.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/quantization.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/quantization.yaml",
       "commands": [
         "pytest -s -v tests/quantization/test_blackwell_moe.py"
       ]
@@ -6398,7 +6398,7 @@
       "identity_key": "sequence parallel correctness tests (2 gpus)",
       "definition_id": ".buildkite/test_areas/compile.yaml#sequence-parallel-correctness-tests-2-gpus",
       "source": ".buildkite/test_areas/compile.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/compile.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/compile.yaml",
       "commands": [
         "export VLLM_TEST_CLEAN_GPU_MEMORY=1",
         "pytest -v -s tests/compile/correctness_e2e/test_sequence_parallel.py"
@@ -6410,7 +6410,7 @@
       "identity_key": "sequence parallel correctness tests (2 gpus)",
       "definition_id": ".buildkite/test_areas/compile.yaml#sequence-parallel-correctness-tests-2xh100",
       "source": ".buildkite/test_areas/compile.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/compile.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/compile.yaml",
       "commands": [
         "export VLLM_TEST_CLEAN_GPU_MEMORY=1",
         "pytest -v -s tests/compile/correctness_e2e/test_sequence_parallel.py"
@@ -6422,7 +6422,7 @@
       "identity_key": "spec decode acceptance rates nightly",
       "definition_id": ".buildkite/test_areas/spec_decode.yaml#spec-decode-acceptance-rates-nightly",
       "source": ".buildkite/test_areas/spec_decode.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/spec_decode.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/spec_decode.yaml",
       "commands": [
         "pytest -v -s v1/e2e/spec_decode/test_spec_decode.py -k \"acceptance_rates\""
       ]
@@ -6433,7 +6433,7 @@
       "identity_key": "spec decode deepseek mtp parallel load (2 gpus)",
       "definition_id": ".buildkite/test_areas/spec_decode.yaml#spec-decode-deepseek-mtp-parallel-load-b200",
       "source": ".buildkite/test_areas/spec_decode.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/spec_decode.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/spec_decode.yaml",
       "commands": [
         "pytest -v -s v1/e2e/spec_decode/test_mtp_parallel_load.py"
       ]
@@ -6444,7 +6444,7 @@
       "identity_key": "spec decode draft model nightly b200",
       "definition_id": ".buildkite/test_areas/spec_decode.yaml#spec-decode-draft-model-nightly-b200",
       "source": ".buildkite/test_areas/spec_decode.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/spec_decode.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/spec_decode.yaml",
       "commands": [
         "pytest -v -s v1/e2e/spec_decode -k \"draft_model or no_sync or batch_inference\""
       ]
@@ -6455,7 +6455,7 @@
       "identity_key": "spec decode eagle nightly b200",
       "definition_id": ".buildkite/test_areas/spec_decode.yaml#spec-decode-eagle-nightly-b200",
       "source": ".buildkite/test_areas/spec_decode.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/spec_decode.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/spec_decode.yaml",
       "commands": [
         "pytest -v -s v1/e2e/spec_decode -k \"eagle_correctness\""
       ]
@@ -6466,7 +6466,7 @@
       "identity_key": "spec decode mtp hybrid",
       "definition_id": ".buildkite/test_areas/spec_decode.yaml#8",
       "source": ".buildkite/test_areas/spec_decode.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/spec_decode.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/spec_decode.yaml",
       "commands": [
         "pytest -v -s v1/e2e/spec_decode -k \"qwen3_5-hybrid\""
       ]
@@ -6477,7 +6477,7 @@
       "identity_key": "spec decode speculators + mtp nightly b200",
       "definition_id": ".buildkite/test_areas/spec_decode.yaml#spec-decode-speculators-mtp-nightly-b200",
       "source": ".buildkite/test_areas/spec_decode.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/spec_decode.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/spec_decode.yaml",
       "commands": [
         "pytest -v -s v1/e2e/spec_decode -k \"speculators or mtp_correctness\""
       ]
@@ -6488,7 +6488,7 @@
       "identity_key": "torch stable abi audit",
       "definition_id": ".buildkite/test_areas/torch_abi.yaml#torch-stable-abi-audit",
       "source": ".buildkite/test_areas/torch_abi.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/torch_abi.yaml",
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/torch_abi.yaml",
       "commands": [
         "python3 /vllm-workspace/.buildkite/check-torch-abi.py"
       ]
@@ -6503,7 +6503,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/attention.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/attention.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/attention.yaml"
     },
     {
       "nvidia_label": "Basic Correctness",
@@ -6513,7 +6513,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/basic_correctness.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/basic_correctness.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/basic_correctness.yaml"
     },
     {
       "nvidia_label": "Benchmarks CLI Test",
@@ -6523,7 +6523,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/benchmarks.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/benchmarks.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/benchmarks.yaml"
     },
     {
       "nvidia_label": "Distributed NixlConnector PD accuracy (4 GPUs)",
@@ -6533,7 +6533,7 @@
       "command_similarity": 0.6883,
       "color": "orange",
       "source_file": ".buildkite/test_areas/disaggregated.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/disaggregated.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/disaggregated.yaml"
     },
     {
       "nvidia_label": "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
@@ -6543,7 +6543,7 @@
       "command_similarity": 0.7037,
       "color": "yellow",
       "source_file": ".buildkite/test_areas/disaggregated.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/disaggregated.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/disaggregated.yaml"
     },
     {
       "nvidia_label": "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
@@ -6553,7 +6553,7 @@
       "command_similarity": 0.6201,
       "color": "orange",
       "source_file": ".buildkite/test_areas/disaggregated.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/disaggregated.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/disaggregated.yaml"
     },
     {
       "nvidia_label": "Hybrid SSM NixlConnector PD accuracy tests (4 GPUs)",
@@ -6563,7 +6563,7 @@
       "command_similarity": 0.7126,
       "color": "yellow",
       "source_file": ".buildkite/test_areas/disaggregated.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/disaggregated.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/disaggregated.yaml"
     },
     {
       "nvidia_label": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
@@ -6573,7 +6573,7 @@
       "command_similarity": 0.0531,
       "color": "red",
       "source_file": ".buildkite/test_areas/disaggregated.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/disaggregated.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/disaggregated.yaml"
     },
     {
       "nvidia_label": "Distributed DP Tests (2 GPUs)",
@@ -6583,7 +6583,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/distributed.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/distributed.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/distributed.yaml"
     },
     {
       "nvidia_label": "Engine",
@@ -6593,7 +6593,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/engine.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/engine.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/engine.yaml"
     },
     {
       "nvidia_label": "Engine (1 GPU)",
@@ -6603,7 +6603,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/engine.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/engine.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/engine.yaml"
     },
     {
       "nvidia_label": "e2e Scheduling (1 GPU)",
@@ -6613,7 +6613,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/engine.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/engine.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/engine.yaml"
     },
     {
       "nvidia_label": "e2e Core (1 GPU)",
@@ -6623,7 +6623,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/engine.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/engine.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/engine.yaml"
     },
     {
       "nvidia_label": "V1 e2e (2 GPUs)",
@@ -6633,7 +6633,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/engine.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/engine.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/engine.yaml"
     },
     {
       "nvidia_label": "Entrypoints Integration (LLM)",
@@ -6643,7 +6643,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/entrypoints.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/entrypoints.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/entrypoints.yaml"
     },
     {
       "nvidia_label": "Entrypoints Integration (API Server)",
@@ -6653,7 +6653,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/entrypoints.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/entrypoints.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/entrypoints.yaml"
     },
     {
       "nvidia_label": "Entrypoints Integration (API Server OpenAI - Part 1)",
@@ -6663,7 +6663,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/entrypoints.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/entrypoints.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/entrypoints.yaml"
     },
     {
       "nvidia_label": "Entrypoints Integration (API Server OpenAI - Part 2)",
@@ -6673,7 +6673,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/entrypoints.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/entrypoints.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/entrypoints.yaml"
     },
     {
       "nvidia_label": "Entrypoints Integration (API Server Generate)",
@@ -6683,7 +6683,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/entrypoints.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/entrypoints.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/entrypoints.yaml"
     },
     {
       "nvidia_label": "OpenAI API Correctness",
@@ -6693,7 +6693,7 @@
       "command_similarity": 0.6165,
       "color": "orange",
       "source_file": ".buildkite/test_areas/entrypoints.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/entrypoints.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/entrypoints.yaml"
     },
     {
       "nvidia_label": "EPLB Algorithm",
@@ -6703,7 +6703,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/expert_parallelism.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/expert_parallelism.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/expert_parallelism.yaml"
     },
     {
       "nvidia_label": "Kernels Attention Test %N",
@@ -6713,7 +6713,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/kernels.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/kernels.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/kernels.yaml"
     },
     {
       "nvidia_label": "Kernels Quantization Test %N",
@@ -6723,7 +6723,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/kernels.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/kernels.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/kernels.yaml"
     },
     {
       "nvidia_label": "Kernels MoE Test %N",
@@ -6733,7 +6733,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/kernels.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/kernels.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/kernels.yaml"
     },
     {
       "nvidia_label": "LM Eval Small Models",
@@ -6743,7 +6743,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/lm_eval.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml"
     },
     {
       "nvidia_label": "LM Eval Large Models (8xH200)",
@@ -6753,7 +6753,7 @@
       "command_similarity": 0.9519,
       "color": "green",
       "source_file": ".buildkite/test_areas/lm_eval.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lm_eval.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lm_eval.yaml"
     },
     {
       "nvidia_label": "LoRA %N",
@@ -6763,7 +6763,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/lora.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/lora.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/lora.yaml"
     },
     {
       "nvidia_label": "V1 Spec Decode",
@@ -6773,7 +6773,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/misc.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/misc.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/misc.yaml"
     },
     {
       "nvidia_label": "V1 Sample + Logits",
@@ -6783,7 +6783,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/misc.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/misc.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/misc.yaml"
     },
     {
       "nvidia_label": "V1 Core + KV + Metrics",
@@ -6793,7 +6793,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/misc.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/misc.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/misc.yaml"
     },
     {
       "nvidia_label": "Examples",
@@ -6803,7 +6803,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/misc.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/misc.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/misc.yaml"
     },
     {
       "nvidia_label": "Metrics, Tracing (2 GPUs)",
@@ -6813,7 +6813,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/misc.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/misc.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/misc.yaml"
     },
     {
       "nvidia_label": "Python-only Installation",
@@ -6823,7 +6823,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/misc.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/misc.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/misc.yaml"
     },
     {
       "nvidia_label": "Model Executor",
@@ -6833,7 +6833,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/model_executor.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/model_executor.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/model_executor.yaml"
     },
     {
       "nvidia_label": "Basic Models Tests (Other)",
@@ -6843,7 +6843,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/models_basic.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_basic.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_basic.yaml"
     },
     {
       "nvidia_label": "Language Models Tests (Standard)",
@@ -6853,7 +6853,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/models_language.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_language.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_language.yaml"
     },
     {
       "nvidia_label": "Language Models Tests (Extra Standard) %N",
@@ -6863,7 +6863,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/models_language.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_language.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_language.yaml"
     },
     {
       "nvidia_label": "Language Models Tests (Hybrid) %N",
@@ -6873,7 +6873,7 @@
       "command_similarity": 0.3884,
       "color": "red",
       "source_file": ".buildkite/test_areas/models_language.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_language.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_language.yaml"
     },
     {
       "nvidia_label": "Language Models Test (Extended Pooling)",
@@ -6883,7 +6883,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/models_language.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_language.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_language.yaml"
     },
     {
       "nvidia_label": "Multi-Modal Models (Standard) 1: qwen2",
@@ -6893,7 +6893,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/models_multimodal.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_multimodal.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_multimodal.yaml"
     },
     {
       "nvidia_label": "Multi-Modal Models (Standard) 2: qwen3 + gemma",
@@ -6903,7 +6903,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/models_multimodal.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_multimodal.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_multimodal.yaml"
     },
     {
       "nvidia_label": "Multi-Modal Models (Standard) 3: llava + qwen2_vl",
@@ -6913,7 +6913,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/models_multimodal.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_multimodal.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_multimodal.yaml"
     },
     {
       "nvidia_label": "Multi-Modal Models (Standard) 4: other + whisper",
@@ -6923,7 +6923,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/models_multimodal.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_multimodal.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_multimodal.yaml"
     },
     {
       "nvidia_label": "Multi-Modal Accuracy Eval (Small Models)",
@@ -6933,7 +6933,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/models_multimodal.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_multimodal.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_multimodal.yaml"
     },
     {
       "nvidia_label": "Multi-Modal Models (Extended Generation 1)",
@@ -6943,7 +6943,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/models_multimodal.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_multimodal.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_multimodal.yaml"
     },
     {
       "nvidia_label": "Multi-Modal Models (Extended Pooling)",
@@ -6953,7 +6953,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/models_multimodal.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/models_multimodal.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/models_multimodal.yaml"
     },
     {
       "nvidia_label": "Pytorch Nightly Dependency Override Check",
@@ -6963,7 +6963,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/pytorch.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/pytorch.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/pytorch.yaml"
     },
     {
       "nvidia_label": "Samplers Test",
@@ -6973,7 +6973,7 @@
       "command_similarity": 0.3387,
       "color": "red",
       "source_file": ".buildkite/test_areas/samplers.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/samplers.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/samplers.yaml"
     },
     {
       "nvidia_label": "Spec Decode Eagle",
@@ -6983,7 +6983,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/spec_decode.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/spec_decode.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/spec_decode.yaml"
     },
     {
       "nvidia_label": "Spec Decode Speculators + MTP",
@@ -6993,7 +6993,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/spec_decode.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/spec_decode.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/spec_decode.yaml"
     },
     {
       "nvidia_label": "Spec Decode Ngram + Suffix",
@@ -7003,7 +7003,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/spec_decode.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/spec_decode.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/spec_decode.yaml"
     },
     {
       "nvidia_label": "Spec Decode Draft Model",
@@ -7013,7 +7013,7 @@
       "command_similarity": 1.0,
       "color": "green",
       "source_file": ".buildkite/test_areas/spec_decode.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/spec_decode.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/spec_decode.yaml"
     },
     {
       "nvidia_label": "Weight Loading Multiple GPU",
@@ -7023,7 +7023,7 @@
       "command_similarity": 0.9759,
       "color": "green",
       "source_file": ".buildkite/test_areas/weight_loading.yaml",
-      "source_url": "https://github.com/vllm-project/vllm/blob/435c4dad97f90d7f1f72523be9d03dab2663bcd0/.buildkite/test_areas/weight_loading.yaml"
+      "source_url": "https://github.com/vllm-project/vllm/blob/fa2a2589bd2a1fce0851df7fd42ffb54b6195f04/.buildkite/test_areas/weight_loading.yaml"
     }
   ]
 }
