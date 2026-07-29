@@ -46,6 +46,7 @@ def _no_upstream_yaml_fetch(monkeypatch):
         "READY_TICKETS_LIVE",
         "READY_TICKETS_ALLOW_UPSTREAM_WRITES",
         "READY_TICKETS_WRITE_SCOPE",
+        "READY_TICKETS_REQUIRE_PROJECT_REFRESH",
         "GITHUB_TOKEN",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -626,19 +627,6 @@ class TestBuildkiteEvidenceRendering:
 
 
 class TestUpstreamWritePolicy:
-    def test_graphql_transport_rejects_mutations_before_network(self, monkeypatch):
-        def _unexpected_post(*args, **kwargs):
-            raise AssertionError("a rejected GraphQL mutation reached the network")
-
-        monkeypatch.setattr(srt.requests, "post", _unexpected_post)
-
-        with pytest.raises(RuntimeError, match="GraphQL is read-only"):
-            srt._graphql_query(
-                "fake-token",
-                "mutation { addProjectV2ItemById(input: {}) { item { id } } }",
-                {},
-            )
-
     def test_module_exposes_no_individual_issue_mutators(self):
         prohibited = {
             "_close_issue",
@@ -652,7 +640,7 @@ class TestUpstreamWritePolicy:
         }
         assert not {name for name in prohibited if hasattr(srt, name)}
 
-    def test_http_writes_are_limited_to_graphql_reads_and_master_comment(self):
+    def test_http_writes_are_limited_to_master_comment(self):
         tree = ast.parse(inspect.getsource(srt))
         write_methods = {"delete", "patch", "post", "put"}
         writers: dict[str, set[str]] = {}
@@ -672,10 +660,129 @@ class TestUpstreamWritePolicy:
             if methods:
                 writers[function.name] = methods
 
-        assert writers == {
-            "_graphql_query": {"post"},
-            "_update_pinned_master_comment": {"patch"},
+        assert writers == {"_update_pinned_master_comment": {"patch"}}
+
+    def test_project_snapshot_transport_is_get_only(self):
+        tree = ast.parse(inspect.getsource(srt._fetch_project_items_rest))
+        methods = {
+            call.func.attr
+            for call in ast.walk(tree)
+            if isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+            and isinstance(call.func.value, ast.Name)
+            and call.func.value.id == "requests"
         }
+        assert methods == {"get"}
+
+
+class TestPublicProjectSnapshot:
+    def test_rest_reader_discovers_fields_paginates_and_retains_duplicate_titles(
+        self, monkeypatch
+    ):
+        class Response:
+            def __init__(self, payload, links=None):
+                self._payload = payload
+                self.links = links or {}
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return self._payload
+
+        def item(number, state, title, status):
+            return {
+                "id": number,
+                "node_id": f"PVTI_{number}",
+                "content_type": "Issue",
+                "content": {
+                    "number": number,
+                    "title": title,
+                    "state": state,
+                    "html_url": f"https://github.com/vllm-project/vllm/issues/{number}",
+                    "repository": {"full_name": "vllm-project/vllm"},
+                },
+                "fields": [{
+                    "id": 22,
+                    "name": "Status",
+                    "value": {"name": {"raw": status, "html": status}},
+                }],
+            }
+
+        calls = []
+        next_fields_url = "https://api.github.com/next-fields-page"
+        next_items_url = "https://api.github.com/next-items-page"
+
+        def get(url, **kwargs):
+            calls.append((url, kwargs))
+            if url.endswith("/fields"):
+                return Response(
+                    [{"id": 11, "name": "Title"}],
+                    {"next": {"url": next_fields_url}},
+                )
+            if url == next_fields_url:
+                return Response([{"id": 22, "name": "Status"}])
+            if url.endswith("/items"):
+                return Response(
+                    [
+                        item(40, "closed", "Duplicate", "Done"),
+                        item(50, "closed", "Closed duplicate", "Done"),
+                    ],
+                    {"next": {"url": next_items_url}},
+                )
+            assert url == next_items_url
+            return Response([
+                item(39, "open", "Duplicate", "Backlog"),
+                item(51, "closed", "Closed duplicate", "Done"),
+            ])
+
+        monkeypatch.setattr(srt.requests, "get", get)
+
+        by_title, by_number = srt._fetch_project_items_rest("")
+
+        assert set(by_number) == {"39", "40", "50", "51"}
+        assert by_title["Duplicate"]["issueNumber"] == 39
+        assert by_title["Closed duplicate"]["issueNumber"] == 51
+        assert by_number["39"]["issue_state"] == "OPEN"
+        assert by_number["39"]["status"] == "Backlog"
+        assert "Authorization" not in calls[0][1]["headers"]
+        assert calls[0][1]["params"] == {"per_page": 100}
+        assert calls[1][1]["params"] is None
+        assert calls[2][1]["params"] == {
+            "per_page": 100,
+            "fields": "11,22",
+        }
+        assert calls[3][1]["params"] is None
+
+    def test_optional_read_token_is_bearer_auth(self):
+        assert srt._project_rest_headers("read-token")["Authorization"] == (
+            "Bearer read-token"
+        )
+
+    def test_empty_project_response_is_rejected(self, monkeypatch):
+        class Response:
+            links = {}
+
+            def __init__(self, payload):
+                self._payload = payload
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return self._payload
+
+        responses = iter([
+            Response([
+                {"id": 11, "name": "Title"},
+                {"id": 22, "name": "Status"},
+            ]),
+            Response([]),
+        ])
+        monkeypatch.setattr(srt.requests, "get", lambda *args, **kwargs: next(responses))
+
+        with pytest.raises(RuntimeError, match="returned no issue items"):
+            srt._fetch_project_items_rest("")
 
 
 # ---------------------------------------------------------------------------
@@ -695,11 +802,10 @@ class TestRunDryRun:
              "status": "passed", "build_number": 200},
         ])
 
-        # Explode if GraphQL is called — dry-run must not touch GitHub.
+        # Plain local dry-run must not collect the project snapshot.
         def _boom(*a, **kw):
-            raise AssertionError("dry-run must not call GitHub GraphQL")
-        monkeypatch.setattr(srt, "_graphql_query", _boom)
-        monkeypatch.setattr(srt, "_fetch_project_meta", _boom)
+            raise AssertionError("dry-run must not collect project items")
+        monkeypatch.setattr(srt, "_fetch_project_items_rest", _boom)
         # And the REST preflight must not fire either when no token is set.
         def _boom_rest(*a, **kw):
             raise AssertionError("dry-run without a token must not hit REST")
@@ -735,8 +841,12 @@ class TestRunDryRun:
 
         def _boom(*a, **kw):
             raise AssertionError("must not reach GitHub without the write token")
-        monkeypatch.setattr(srt, "_graphql_query", _boom)
         monkeypatch.setattr(srt, "_fetch_existing_ci_failure_issues", _boom)
+        monkeypatch.setattr(
+            srt,
+            "_refresh_project_items_snapshot",
+            lambda token, generated_at: ({}, {}),
+        )
 
         monkeypatch.setenv("READY_TICKETS_LIVE", "1")
         monkeypatch.setenv("READY_TICKETS_ALLOW_UPSTREAM_WRITES", "1")
@@ -771,22 +881,29 @@ class TestRunDryRun:
         )
         monkeypatch.setattr(
             srt,
-            "_fetch_project_meta",
-            lambda token: ("PROJECT_ID", "STATUS_FIELD_ID", {}),
-        )
-        monkeypatch.setattr(
-            srt,
-            "_fetch_project_items_by_title",
-            lambda token, project_id: {
-                "[CI Failure]: Closed Group": {
-                    "itemId": "ITEM_1",
-                    "issueNumber": 40240,
-                    "issueState": "CLOSED",
-                    "status": "Done",
-                    "url": "https://github.com/vllm-project/vllm/issues/40240",
-                    "repo": "vllm-project/vllm",
-                }
-            },
+            "_fetch_project_items_rest",
+            lambda token: (
+                {
+                    "[CI Failure]: Closed Group": {
+                        "itemId": "ITEM_1",
+                        "issueNumber": 40240,
+                        "issueState": "CLOSED",
+                        "status": "Done",
+                        "url": "https://github.com/vllm-project/vllm/issues/40240",
+                        "repo": "vllm-project/vllm",
+                    }
+                },
+                {
+                    "40240": {
+                        "issue_number": 40240,
+                        "title": "[CI Failure]: Closed Group",
+                        "status": "Done",
+                        "issue_state": "CLOSED",
+                        "url": "https://github.com/vllm-project/vllm/issues/40240",
+                        "repo": "vllm-project/vllm",
+                    }
+                },
+            ),
         )
 
         def _no_upstream_write(*args, **kwargs):
@@ -816,31 +933,6 @@ class TestRunDryRun:
         }
         assert state.read_text() == original_state
 
-    def test_graphql_can_use_authenticated_gh_cli_without_exporting_a_token(
-        self, monkeypatch
-    ):
-        captured = {}
-
-        def _run(args, **kwargs):
-            captured["args"] = args
-            return type("Result", (), {
-                "returncode": 0,
-                "stdout": '{"data":{"node":{"id":"PVT_1"}}}',
-                "stderr": "",
-            })()
-
-        monkeypatch.setattr(srt.subprocess, "run", _run)
-        payload = srt._graphql_query(
-            "",
-            "query($projectId: ID!) { node(id: $projectId) { id } }",
-            {"projectId": "PVT_1", "cursor": None},
-        )
-
-        assert payload == {"node": {"id": "PVT_1"}}
-        assert captured["args"][:3] == ["gh", "api", "graphql"]
-        assert "projectId=PVT_1" in captured["args"]
-        assert not any("cursor=" in arg for arg in captured["args"])
-
     def test_forced_dry_run_preserves_prior_project_snapshot_on_read_failure(
         self, isolated_paths, monkeypatch
     ):
@@ -852,7 +944,7 @@ class TestRunDryRun:
         def _read_failure(*args, **kwargs):
             raise RuntimeError("Projects API unavailable")
 
-        monkeypatch.setattr(srt, "_fetch_project_meta", _read_failure)
+        monkeypatch.setattr(srt, "_fetch_project_items_rest", _read_failure)
         monkeypatch.setenv("READY_TICKETS_LIVE", "1")
         monkeypatch.setenv("READY_TICKETS_ALLOW_UPSTREAM_WRITES", "1")
         monkeypatch.setenv("READY_TICKETS_WRITE_SCOPE", "master_comment_only")
@@ -864,6 +956,31 @@ class TestRunDryRun:
         assert json.loads(out.read_text())["mode"] == "dry_run_forced"
         assert project_items_path.read_text() == original_snapshot
         assert not state.exists()
+
+    def test_scheduled_dry_run_fails_when_project_refresh_fails(
+        self, isolated_paths, monkeypatch, caplog
+    ):
+        _, out, _ = isolated_paths
+        project_items_path = srt.PROJECT_ITEMS_OUT
+        original_snapshot = '{"generated_at":"old","items_by_number":{"1":{}}}\n'
+        project_items_path.write_text(original_snapshot)
+        monkeypatch.setattr(
+            srt,
+            "_fetch_project_items_rest",
+            lambda token: (_ for _ in ()).throw(
+                RuntimeError("Projects API unavailable")
+            ),
+        )
+        monkeypatch.setenv("READY_TICKETS_LIVE", "1")
+        monkeypatch.setenv("READY_TICKETS_ALLOW_UPSTREAM_WRITES", "1")
+        monkeypatch.setenv("READY_TICKETS_WRITE_SCOPE", "master_comment_only")
+        monkeypatch.setenv("READY_TICKETS_REQUIRE_PROJECT_REFRESH", "1")
+
+        with caplog.at_level("ERROR"):
+            assert srt.run() == 1
+        assert json.loads(out.read_text())["mode"] == "dry_run_forced"
+        assert project_items_path.read_text() == original_snapshot
+        assert "Required project #39 snapshot refresh failed" in caplog.text
 
     def test_live_requested_without_explicit_allow_stays_paused(
         self, isolated_paths, monkeypatch, tmp_path
@@ -880,7 +997,6 @@ class TestRunDryRun:
 
         def _boom(*a, **kw):
             raise AssertionError("paused mode must not reach upstream GitHub")
-        monkeypatch.setattr(srt, "_graphql_query", _boom)
         monkeypatch.setattr(srt, "_fetch_existing_ci_failure_issues", _boom)
 
         monkeypatch.setenv("READY_TICKETS_LIVE", "1")
@@ -915,7 +1031,6 @@ class TestRunDryRun:
         def _boom(*args, **kwargs):
             raise AssertionError("invalid write scope must not reach upstream GitHub")
 
-        monkeypatch.setattr(srt, "_graphql_query", _boom)
         monkeypatch.setattr(srt, "_update_pinned_master_comment", _boom)
         monkeypatch.setenv("READY_TICKETS_LIVE", "1")
         monkeypatch.setenv("UPSTREAM_COMMENT_TOKEN", "dummy-write-token")
@@ -1042,11 +1157,6 @@ class TestDryRunPreflight:
              "status": "failed", "build_number": 200},
         ])
         monkeypatch.delenv("READY_TICKETS_LIVE", raising=False)
-        # GraphQL must never be touched; only the REST preflight runs.
-        def _boom(*a, **kw):
-            raise AssertionError("dry-run preflight must not call GraphQL")
-        monkeypatch.setattr(srt, "_graphql_query", _boom)
-        monkeypatch.setattr(srt, "_fetch_project_meta", _boom)
         return out
 
     def test_exact_title_match_links_existing_issue(
@@ -1292,22 +1402,29 @@ class TestDryRunPreflight:
         )
         monkeypatch.setattr(
             srt,
-            "_fetch_project_meta",
-            lambda token: ("PROJ_ID", "STATUS_FIELD_ID", {"In Progress": "OPT_IN_PROGRESS"}),
-        )
-        monkeypatch.setattr(
-            srt,
-            "_fetch_project_items_by_title",
-            lambda token, pid: {
-                "[CI Failure]: mi355_1: V1 Spec Decode": {
-                    "itemId": "ITEM_1",
-                    "issueNumber": 40560,
-                    "issueState": "open",
-                    "status": "In Progress",
-                    "url": "https://github.com/vllm-project/vllm/issues/40560",
-                    "repo": "vllm-project/vllm",
-                }
-            },
+            "_fetch_project_items_rest",
+            lambda token: (
+                {
+                    "[CI Failure]: mi355_1: V1 Spec Decode": {
+                        "itemId": "ITEM_1",
+                        "issueNumber": 40560,
+                        "issueState": "OPEN",
+                        "status": "In Progress",
+                        "url": "https://github.com/vllm-project/vllm/issues/40560",
+                        "repo": "vllm-project/vllm",
+                    }
+                },
+                {
+                    "40560": {
+                        "issue_number": 40560,
+                        "title": "[CI Failure]: mi355_1: V1 Spec Decode",
+                        "status": "In Progress",
+                        "issue_state": "OPEN",
+                        "url": "https://github.com/vllm-project/vllm/issues/40560",
+                        "repo": "vllm-project/vllm",
+                    }
+                },
+            ),
         )
         monkeypatch.setattr(
             srt,
@@ -1377,22 +1494,29 @@ class TestDryRunPreflight:
         )
         monkeypatch.setattr(
             srt,
-            "_fetch_project_meta",
-            lambda token: ("PROJ_ID", "STATUS_FIELD_ID", {"In review": "OPT_IN_REVIEW"}),
-        )
-        monkeypatch.setattr(
-            srt,
-            "_fetch_project_items_by_title",
-            lambda token, pid: {
-                "[CI Failure]: mi355_1: V1 Spec Decode": {
-                    "itemId": "ITEM_1",
-                    "issueNumber": 40240,
-                    "issueState": "open",
-                    "status": "In review",
-                    "url": "https://github.com/vllm-project/vllm/issues/40240",
-                    "repo": "vllm-project/vllm",
-                }
-            },
+            "_fetch_project_items_rest",
+            lambda token: (
+                {
+                    "[CI Failure]: mi355_1: V1 Spec Decode": {
+                        "itemId": "ITEM_1",
+                        "issueNumber": 40240,
+                        "issueState": "OPEN",
+                        "status": "In review",
+                        "url": "https://github.com/vllm-project/vllm/issues/40240",
+                        "repo": "vllm-project/vllm",
+                    }
+                },
+                {
+                    "40240": {
+                        "issue_number": 40240,
+                        "title": "[CI Failure]: mi355_1: V1 Spec Decode",
+                        "status": "In review",
+                        "issue_state": "OPEN",
+                        "url": "https://github.com/vllm-project/vllm/issues/40240",
+                        "repo": "vllm-project/vllm",
+                    }
+                },
+            ),
         )
         monkeypatch.setattr(
             srt, "_expected_master_comment_id", lambda: srt.MASTER_COMMENT_ID

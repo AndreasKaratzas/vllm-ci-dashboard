@@ -22,10 +22,8 @@ then writes the resulting comment metadata back into the same JSON so the
 dashboard stays in sync.
 
 Env:
-  PROJECTS_READ_TOKEN  read-only token used for Projects V2 evidence.
-  READY_TICKETS_USE_GH_CLI  ``"1"`` permits an authenticated local ``gh``
-                  session as a read-only Projects transport when no token is
-                  exported. This is intended for manual snapshot refreshes.
+  PROJECTS_READ_TOKEN  optional read-only token used for Projects V2 evidence;
+                  public projects are read anonymously when it is absent.
   UPSTREAM_COMMENT_TOKEN  environment-protected token used only to update the
                   pinned umbrella comment. It is never passed to collectors.
   READY_TICKETS_LIVE  ``"1"`` → request the scoped live write; anything
@@ -35,6 +33,9 @@ Env:
                   issues even if ``READY_TICKETS_LIVE=1`` and a token exists.
   READY_TICKETS_WRITE_SCOPE  must equal ``"master_comment_only"``. Any other
                   value fails closed before an upstream write is attempted.
+  READY_TICKETS_REQUIRE_PROJECT_REFRESH  ``"1"`` makes a failed Projects
+                  snapshot refresh fail the run after preserving the prior
+                  snapshot. Scheduled workflows should enable this.
   GITHUB_RUN_ID   link-back URL for generated diagnostics, set by Actions.
 """
 
@@ -44,8 +45,6 @@ import json
 import logging
 import os
 import re
-import shutil
-import subprocess
 import sys
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -64,10 +63,10 @@ RESULTS_DIR = ROOT / "data" / "vllm" / "ci" / "test_results"
 OUT = ROOT / "data" / "vllm" / "ci" / "ready_tickets.json"
 STATE = ROOT / "data" / "vllm" / "ci" / "ready_tickets_state.json"
 # Snapshot of every item on project #39 (issue_number → {status, title, url}).
-# Refreshed whenever a Projects read token is available in either live mode or
-# the workflow's forced read-only mode. The dashboard uses it to render the
-# current column (Backlog / Ready / In Progress / In Review / Done) next to
-# each tracked CI-failure issue.
+# Refreshed from the public Projects REST API whenever the workflow requests
+# live mode, including its forced read-only fallback. The dashboard uses it to
+# render the current column (Backlog / Ready / In Progress / In Review / Done)
+# next to each tracked CI-failure issue.
 PROJECT_ITEMS_OUT = ROOT / "data" / "vllm" / "ci" / "project_items.json"
 
 # The Projects V2 board the team uses for triage.
@@ -90,7 +89,7 @@ MASTER_COMMENT_WRITE_SCOPE = "master_comment_only"
 BACKFILL_DAYS = 60
 
 GH_API = "https://api.github.com"
-GH_GRAPHQL = "https://api.github.com/graphql"
+PROJECTS_REST_API_VERSION = "2026-03-10"
 TEST_AMD_YAML_URL = (
     "https://raw.githubusercontent.com/vllm-project/vllm/main/.buildkite/test-amd.yaml"
 )
@@ -458,166 +457,156 @@ def _summarize_group(group: str, history: dict[str, dict]) -> dict:
 # ---------------------------------------------------------------------------
 
 def _rest_headers(token: str) -> dict:
-    return {
-        "Authorization": f"Bearer {token}",
+    headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
-
-
-def _gh_cli_read_available() -> bool:
-    """Whether the local GitHub CLI can provide a read-only API transport."""
-    if not shutil.which("gh"):
-        return False
-    result = subprocess.run(
-        ["gh", "auth", "status"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0
-
-
-def _graphql_query(token: str, query: str, variables: dict) -> dict:
-    """Execute a read-only GitHub GraphQL query.
-
-    Keep this guard next to the transport call so a future caller cannot turn
-    the project snapshot reader into a mutation path by passing a new string.
-    """
-    if re.search(r"\bmutation\b", query, flags=re.IGNORECASE):
-        raise RuntimeError(
-            "Ready Tickets GraphQL is read-only; mutations are prohibited"
-        )
     if token:
-        resp = requests.post(
-            GH_GRAPHQL,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/vnd.github+json",
-            },
-            json={"query": query, "variables": variables},
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _project_rest_headers(token: str) -> dict[str, str]:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": PROJECTS_REST_API_VERSION,
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _project_field_name(field: dict) -> str:
+    value = field.get("value") or {}
+    if not isinstance(value, dict):
+        return ""
+    name = value.get("name") or ""
+    if isinstance(name, dict):
+        return str(name.get("raw") or "")
+    return str(name)
+
+
+def _project_title_priority(item: dict) -> tuple[bool, int]:
+    """Prefer an open duplicate title, then the highest issue number."""
+    try:
+        number = int(item.get("issueNumber") or 0)
+    except (TypeError, ValueError):
+        number = 0
+    return str(item.get("issueState") or "").upper() == "OPEN", number
+
+
+def _fetch_project_items_rest(
+    token: str,
+) -> tuple[dict[str, dict], dict[str, dict]]:
+    """Read every item from the public Projects V2 REST API."""
+    base_url = f"{GH_API}/orgs/{PROJECT_ORG}/projectsV2/{PROJECT_NUMBER}"
+    headers = _project_rest_headers(token)
+    fields: list[dict] = []
+    fields_url: str | None = f"{base_url}/fields"
+    fields_params: dict[str, int] | None = {"per_page": 100}
+    seen_field_urls: set[str] = set()
+    while fields_url:
+        if fields_url in seen_field_urls:
+            raise RuntimeError("Projects field pagination returned a repeated URL")
+        seen_field_urls.add(fields_url)
+        fields_response = requests.get(
+            fields_url,
+            headers=headers,
+            params=fields_params,
             timeout=30,
         )
-        resp.raise_for_status()
-        data = resp.json()
-    else:
-        args = ["gh", "api", "graphql", "-f", f"query={query}"]
-        for name, value in variables.items():
-            if value is None:
-                continue
-            flag = "-F" if isinstance(value, (bool, int, float)) else "-f"
-            args.extend((flag, f"{name}={value}"))
-        result = subprocess.run(
-            args,
-            check=False,
-            capture_output=True,
-            text=True,
+        fields_response.raise_for_status()
+        field_page = fields_response.json()
+        if not isinstance(field_page, list):
+            raise RuntimeError("Projects fields response is not a list")
+        fields.extend(field for field in field_page if isinstance(field, dict))
+        fields_url = (
+            str(((fields_response.links.get("next") or {}).get("url")) or "")
+            or None
         )
-        if result.returncode:
-            detail = (result.stderr or result.stdout).strip()
-            raise RuntimeError(f"GitHub CLI GraphQL query failed: {detail}")
-        data = json.loads(result.stdout)
-    if "errors" in data:
-        raise RuntimeError(f"GraphQL error: {data['errors']}")
-    return data["data"]
-
-
-PROJECT_META_Q = """
-query($org: String!, $number: Int!) {
-  organization(login: $org) {
-    projectV2(number: $number) {
-      id
-      field(name: "Status") {
-        ... on ProjectV2SingleSelectField {
-          id
-          options { id name }
-        }
-      }
+        fields_params = None
+    field_ids = {
+        str(field.get("name") or ""): field.get("id")
+        for field in fields
     }
-  }
-}
-"""
+    required_fields = ("Title", "Status")
+    missing = [name for name in required_fields if not field_ids.get(name)]
+    if missing:
+        raise RuntimeError(
+            f"Projects response is missing required fields: {', '.join(missing)}"
+        )
 
-
-PROJECT_ITEMS_Q = """
-query($projectId: ID!, $cursor: String) {
-  node(id: $projectId) {
-    ... on ProjectV2 {
-      items(first: 100, after: $cursor) {
-        pageInfo { hasNextPage endCursor }
-        nodes {
-          id
-          fieldValueByName(name: "Status") {
-            ... on ProjectV2ItemFieldSingleSelectValue { name optionId }
-          }
-          content {
-            __typename
-            ... on Issue {
-              number
-              title
-              state
-              url
-              repository { nameWithOwner }
-            }
-          }
-        }
-      }
+    next_url: str | None = f"{base_url}/items"
+    params: dict[str, str | int] | None = {
+        "per_page": 100,
+        "fields": ",".join(str(field_ids[name]) for name in required_fields),
     }
-  }
-}
-"""
+    items: list[dict] = []
+    seen_urls: set[str] = set()
+    while next_url:
+        if next_url in seen_urls:
+            raise RuntimeError("Projects item pagination returned a repeated URL")
+        seen_urls.add(next_url)
+        response = requests.get(
+            next_url,
+            headers=headers,
+            params=params,
+            timeout=30,
+        )
+        response.raise_for_status()
+        page = response.json()
+        if not isinstance(page, list):
+            raise RuntimeError("Projects items response is not a list")
+        items.extend(item for item in page if isinstance(item, dict))
+        next_url = str(((response.links.get("next") or {}).get("url")) or "") or None
+        params = None
 
-
-def _fetch_project_meta(token: str) -> tuple[str, str, dict[str, str]]:
-    data = _graphql_query(token, PROJECT_META_Q, {"org": PROJECT_ORG, "number": PROJECT_NUMBER})
-    proj = data["organization"]["projectV2"]
-    status_field = proj["field"]
-    options = {o["name"]: o["id"] for o in status_field["options"]}
-    return proj["id"], status_field["id"], options
-
-
-def _fetch_project_items_by_title(token: str, project_id: str) -> dict[str, dict]:
-    """Map {issue_title: {itemId, issueNumber, status, issueState, url, repo}}."""
-    out: dict[str, dict] = {}
-    cursor = None
-    while True:
-        data = _graphql_query(token, PROJECT_ITEMS_Q, {"projectId": project_id, "cursor": cursor})
-        page = data["node"]["items"]
-        for it in page["nodes"]:
-            content = it.get("content") or {}
-            if content.get("__typename") != "Issue":
-                continue
-            status = (it.get("fieldValueByName") or {}).get("name") or ""
-            out[content["title"]] = {
-                "itemId": it["id"],
-                "issueNumber": content["number"],
-                "issueState": content["state"],
-                "status": status,
-                "url": content["url"],
-                "repo": content["repository"]["nameWithOwner"],
-            }
-        if not page["pageInfo"]["hasNextPage"]:
-            break
-        cursor = page["pageInfo"]["endCursor"]
-    return out
-
-
-def _project_items_by_number(project_items_by_title: dict[str, dict]) -> dict[str, dict]:
-    """Convert the Projects title index into the dashboard's issue index."""
-    out: dict[str, dict] = {}
-    for title, item in project_items_by_title.items():
-        number = item.get("issueNumber")
+    by_title: dict[str, dict] = {}
+    by_number: dict[str, dict] = {}
+    for item in items:
+        if item.get("content_type") != "Issue":
+            continue
+        content = item.get("content") or {}
+        if not isinstance(content, dict):
+            continue
+        number = content.get("number")
         if number is None:
             continue
-        out[str(number)] = {
+        title = str(content.get("title") or "")
+        status = ""
+        for field in item.get("fields") or []:
+            if isinstance(field, dict) and field.get("name") == "Status":
+                status = _project_field_name(field)
+                break
+        repository = content.get("repository") or {}
+        if not isinstance(repository, dict):
+            repository = {}
+        normalized = {
+            "itemId": item.get("node_id") or item.get("id"),
+            "issueNumber": number,
+            "issueState": str(content.get("state") or "").upper(),
+            "status": status,
+            "url": content.get("html_url") or "",
+            "repo": repository.get("full_name") or "",
+        }
+        by_number[str(number)] = {
             "issue_number": number,
             "title": title,
-            "status": item.get("status") or "",
-            "issue_state": item.get("issueState") or "",
-            "url": item.get("url") or "",
-            "repo": item.get("repo") or "",
+            "status": normalized["status"],
+            "issue_state": normalized["issueState"],
+            "url": normalized["url"],
+            "repo": normalized["repo"],
         }
-    return out
+        previous = by_title.get(title)
+        if previous is None or _project_title_priority(
+            normalized
+        ) > _project_title_priority(previous):
+            by_title[title] = normalized
+    if not by_number:
+        raise RuntimeError(
+            f"Public project #{PROJECT_NUMBER} returned no issue items"
+        )
+    return by_title, by_number
 
 
 def _write_project_items_snapshot(
@@ -638,10 +627,8 @@ def _refresh_project_items_snapshot(
     token: str,
     generated_at: str,
 ) -> tuple[dict[str, dict], dict[str, dict]]:
-    """Fetch and persist Projects V2 evidence without mutating GitHub."""
-    project_id, _, _ = _fetch_project_meta(token)
-    by_title = _fetch_project_items_by_title(token, project_id)
-    by_number = _project_items_by_number(by_title)
+    """Fetch and persist public Projects V2 evidence without mutating GitHub."""
+    by_title, by_number = _fetch_project_items_rest(token)
     _write_project_items_snapshot(by_number, generated_at)
     return by_title, by_number
 
@@ -1126,12 +1113,10 @@ def _collect_issue_metadata(token: str, repo_full_name: str, issue_number: int) 
 # Dry-run preflight — read-only lookup of already-filed issues
 # ---------------------------------------------------------------------------
 #
-# The live path learns about existing tickets via Projects V2 GraphQL (needs
-# ``PROJECTS_READ_TOKEN``). Dry-run runs hourly without that token, so it used to
-# emit ``pending`` for every failing group even when an upstream engineer had
-# already filed an issue. To keep the dashboard honest, we do a single
-# REST search call here — it needs only the default ``GITHUB_TOKEN`` (public
-# read) and returns every open ``label:ci-failure`` issue on the target repo.
+# The scheduled live path learns about existing tickets from the public
+# Projects REST snapshot. A plain local dry-run intentionally skips that board
+# refresh, so this optional REST search can still annotate matching open
+# ``label:ci-failure`` issues when a read token is available.
 # We then match by exact title, falling back to ``_normalize_title`` so a
 # hand-filed ``[CI Failure]: Transformers Nightly Models Test`` adopts the
 # syncer's ``mi325_1:``-prefixed twin.
@@ -1221,10 +1206,8 @@ def run() -> int:
     scope_allowed = requested_write_scope == MASTER_COMMENT_WRITE_SCOPE
     allow_live = write_acknowledged and scope_allowed
     read_token = os.getenv("PROJECTS_READ_TOKEN") or os.getenv("GITHUB_TOKEN")
-    gh_cli_read = (
-        not read_token
-        and os.getenv("READY_TICKETS_USE_GH_CLI", "").strip() == "1"
-        and _gh_cli_read_available()
+    require_project_refresh = (
+        os.getenv("READY_TICKETS_REQUIRE_PROJECT_REFRESH", "").strip() == "1"
     )
     write_token = os.getenv("UPSTREAM_COMMENT_TOKEN")
     live = live_requested and allow_live and bool(write_token)
@@ -1357,10 +1340,11 @@ def run() -> int:
             log.info("Dry-run preflight: %d of %d plan entries match existing %s issues",
                      matched, len(plan), ISSUE_REPO)
         # The scheduled workflow intentionally requests live mode but may lack
-        # the protected write token. Its Projects token is still useful
-        # read-only evidence, so refresh the board snapshot before returning.
-        # This path never writes ``STATE`` or invokes the comment updater.
-        if forced_read_only and (read_token or gh_cli_read):
+        # the protected write token. Project #39 is public, so refresh its
+        # snapshot anonymously when no optional read token is configured. This
+        # path never writes ``STATE`` or invokes the comment updater.
+        project_refresh_failed = False
+        if forced_read_only:
             try:
                 _, project_items_by_number = _refresh_project_items_snapshot(
                     read_token or "",
@@ -1375,18 +1359,22 @@ def run() -> int:
                 # Preserve the prior snapshot and its timestamp on failure;
                 # replacing it with an empty fresh file would hide staleness.
                 log.warning("Could not refresh project #%d snapshot: %s", PROJECT_NUMBER, e)
+                project_refresh_failed = True
         OUT.parent.mkdir(parents=True, exist_ok=True)
         OUT.write_text(json.dumps(output, indent=2, sort_keys=True))
         log.info("Wrote dry-run plan (%d tickets) to %s", len(plan), OUT)
-        return 0
+        if project_refresh_failed and require_project_refresh:
+            log.error(
+                "Required project #%d snapshot refresh failed; exiting nonzero",
+                PROJECT_NUMBER,
+            )
+        return int(project_refresh_failed and require_project_refresh)
 
     # Live mode from here on.
     existing_manual_issues: dict[str, dict] = {}
     project_items_by_title: dict[str, dict] = {}
     project_items_by_number: dict[str, dict] = {}
     try:
-        if not read_token and not gh_cli_read:
-            raise RuntimeError("PROJECTS_READ_TOKEN is not configured")
         project_items_by_title, project_items_by_number = _refresh_project_items_snapshot(
             read_token or "",
             output["generated_at"],
@@ -1403,6 +1391,12 @@ def run() -> int:
                     }
     except Exception as e:
         log.warning("Could not refresh project #39 snapshot: %s", e)
+        if require_project_refresh:
+            log.error(
+                "Required project #%d snapshot refresh failed; exiting nonzero",
+                PROJECT_NUMBER,
+            )
+            return 1
         # Preserve the historical live-mode contract when no prior snapshot is
         # available: the dashboard still receives a well-shaped empty file.
         if not PROJECT_ITEMS_OUT.exists():

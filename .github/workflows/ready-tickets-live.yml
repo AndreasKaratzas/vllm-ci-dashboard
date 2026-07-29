@@ -50,6 +50,7 @@ jobs:
           READY_TICKETS_LIVE: '1'
           READY_TICKETS_ALLOW_UPSTREAM_WRITES: '1'
           READY_TICKETS_WRITE_SCOPE: 'master_comment_only'
+          READY_TICKETS_REQUIRE_PROJECT_REFRESH: '1'
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: python scripts/vllm/sync_ready_tickets.py
 
@@ -60,12 +61,11 @@ jobs:
           git add data/vllm/ci/ready_tickets.json data/vllm/ci/ready_tickets_state.json data/vllm/ci/project_items.json
           if ! git diff --cached --quiet; then
             git commit -m "ready-tickets: sync master issue $(date -u +%Y-%m-%dT%H:%M)"
-            if git pull --rebase origin main; then
-              git push || echo "::warning::Push to main failed"
-            else
+            if ! git pull --rebase origin main; then
               git rebase --abort || true
-              echo "::warning::Rebase against origin/main failed; snapshot commit remains local to the workflow"
+              exit 1
             fi
+            git push origin HEAD:main
           fi
 
       - name: Summary

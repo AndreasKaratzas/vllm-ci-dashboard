@@ -287,6 +287,15 @@ class TestGitHubTokenIsolation:
         sync_step = next(step for step in job["steps"] if step.get("name") == "Refresh AMD nightly master issue")
         assert sync_step["env"]["UPSTREAM_COMMENT_TOKEN"] == "${{ secrets.UPSTREAM_COMMENT_TOKEN }}"
         assert sync_step["env"]["PROJECTS_READ_TOKEN"] == "${{ secrets.PROJECTS_READ_TOKEN }}"
+        assert sync_step["env"]["READY_TICKETS_REQUIRE_PROJECT_REFRESH"] == "1"
+        publish_step = next(
+            step for step in job["steps"] if step.get("name") == "Commit + push data snapshot"
+        )
+        assert "git push origin HEAD:main" in publish_step["run"]
+        assert "git rebase --abort || true" in publish_step["run"]
+        assert "exit 1" in publish_step["run"]
+        assert "::warning::Push to main failed" not in publish_step["run"]
+        assert "::warning::Rebase against origin/main failed" not in publish_step["run"]
 
     def test_collectors_only_receive_the_read_token(self):
         for name in ("daily-update.yml", "hourly-master.yml"):
@@ -294,11 +303,15 @@ class TestGitHubTokenIsolation:
             assert "PROJECTS_READ_TOKEN" in text
             assert "UPSTREAM_COMMENT_TOKEN" not in text
 
-    def test_graphql_collectors_reject_mutations(self):
+    def test_project_collectors_are_read_only(self):
         collect = _read(ROOT / "scripts" / "collect.py")
         ready = _read(SCRIPTS / "sync_ready_tickets.py")
         assert "does not permit GraphQL mutations" in collect
-        assert "GraphQL is read-only" in ready
+        assert "/projectsV2/" in ready
+        assert "requests.get(" in ready
+        assert "requests.post(" not in ready
+        assert "requests.put(" not in ready
+        assert "requests.delete(" not in ready
 
     def test_sync_ready_tickets_falls_back_to_dry_run_without_token(self):
         src = _read(SCRIPTS / "sync_ready_tickets.py")
