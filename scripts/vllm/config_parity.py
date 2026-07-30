@@ -17,7 +17,9 @@ This is a *static* analysis of the CI config files, complementing the
 import io
 import logging
 import os
+import posixpath
 import re
+import shlex
 import tarfile
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -237,6 +239,13 @@ def _source_provenance() -> dict:
             (
                 "Report total_amd_steps as collision-safe parity nodes and "
                 "amd_matrix_semantic_rows separately as the matrix row count."
+            ),
+            (
+                "Count AMD identity families separately from parity nodes. "
+                "Within one normalized identity, merge only cross-architecture "
+                "replicas whose canonical YAML title or executed test target "
+                "agrees; never collapse two definitions that coexist on the "
+                "same AMD architecture."
             ),
             (
                 "Exclude inline mirrors by exact upstream definition ID (or an "
@@ -767,6 +776,273 @@ def _matrix_semantic_amd_count(steps: list[ConfigStep]) -> int:
             key = ("semantic", step.semantic_title)
         keys.add(key)
     return len(keys)
+
+
+AMD_ARCHITECTURE_RE = re.compile(r"mi\d{3,4}b?", re.IGNORECASE)
+WORKLOAD_RUNNERS = frozenset({
+    "bash",
+    "py.test",
+    "pytest",
+    "python",
+    "python3",
+    "sh",
+    "torchrun",
+})
+PYTEST_VALUE_OPTIONS = frozenset({
+    "-k",
+    "-m",
+    "-n",
+    "--basetemp",
+    "--capture",
+    "--color",
+    "--confcutdir",
+    "--deselect",
+    "--durations",
+    "--ignore",
+    "--ignore-glob",
+    "--junitxml",
+    "--maxfail",
+    "--numprocesses",
+    "--rootdir",
+    "--tb",
+})
+
+
+def _amd_step_architectures(step: ConfigStep) -> frozenset[str]:
+    """Return AMD architectures represented by one logical parity node."""
+    architectures = set()
+    pools = step.member_agent_pools or (step.agent_pool,)
+    for pool in pools:
+        normalized_pool = str(pool or "").strip().casefold()
+        match = AMD_ARCHITECTURE_RE.search(normalized_pool)
+        if match:
+            architectures.add(match.group(0).casefold())
+        elif normalized_pool:
+            architectures.add(f"pool:{normalized_pool}")
+    if not architectures:
+        # Treat all unknown placements as one architecture: without YAML
+        # placement evidence it is unsafe to call two rows replicas.
+        architectures.add("unknown")
+    return frozenset(architectures)
+
+
+def _normalize_workload_target(target: str, working_dir: str) -> str:
+    """Resolve one executed test/script target to a workspace-relative path."""
+    value = str(target or "").strip().strip("\"'").rstrip(",")
+    if not value:
+        return ""
+    node_suffix = ""
+    if "::" in value:
+        value, node_suffix = value.split("::", 1)
+        node_suffix = f"::{node_suffix}"
+    if not value or value.startswith("-"):
+        return ""
+    if not (
+        "/" in value
+        or value.endswith((".py", ".sh"))
+    ):
+        return ""
+
+    base = str(working_dir or "").strip() or "/vllm-workspace/tests"
+    if value.startswith("/"):
+        resolved = posixpath.normpath(value)
+    else:
+        resolved = posixpath.normpath(posixpath.join(base, value))
+    workspace_prefix = "/vllm-workspace/"
+    if resolved.startswith(workspace_prefix):
+        resolved = resolved[len(workspace_prefix):]
+    elif resolved == "/vllm-workspace":
+        resolved = "."
+    return resolved.rstrip("/") + node_suffix
+
+
+def _step_workload_targets(step: ConfigStep) -> frozenset[str]:
+    """Extract actual pytest/python/shell targets from flattened YAML commands.
+
+    Setup commands, environment assignments, selectors, and config-list
+    arguments are intentionally excluded. They commonly differ between GPU
+    architectures without defining a different test family.
+    """
+    targets = set()
+    for command in step.commands:
+        try:
+            tokens = shlex.split(str(command))
+        except ValueError:
+            tokens = str(command).split()
+        for index, token in enumerate(tokens):
+            runner = token.rsplit("/", 1)[-1].casefold()
+            if runner not in WORKLOAD_RUNNERS:
+                continue
+
+            offset = index + 1
+            if (
+                runner in {"python", "python3"}
+                and tokens[offset:offset + 2]
+                and tokens[offset:offset + 1] == ["-m"]
+            ):
+                if (
+                    len(tokens) <= offset + 1
+                    or tokens[offset + 1].casefold() not in {"pytest", "py.test"}
+                ):
+                    continue
+                runner = "pytest"
+                offset += 2
+
+            skip_value = False
+            for candidate in tokens[offset:]:
+                if candidate in {"&&", "||", ";", "|"}:
+                    break
+                if skip_value:
+                    skip_value = False
+                    continue
+                if candidate.startswith("-"):
+                    option = candidate.split("=", 1)[0]
+                    skip_value = "=" not in candidate and option in PYTEST_VALUE_OPTIONS
+                    continue
+                normalized = _normalize_workload_target(
+                    candidate,
+                    step.working_dir,
+                )
+                if normalized:
+                    targets.add(normalized)
+                    # A runner's first positional path is its executed target;
+                    # later paths are usually option values such as --ignore.
+                    break
+    return frozenset(targets)
+
+
+def _identity_family_edge_weight(
+    left: ConfigStep,
+    right: ConfigStep,
+) -> tuple[int, ...] | None:
+    """Score one safe cross-architecture identity-family replica edge."""
+    if left.identity_key != right.identity_key:
+        return None
+    if _amd_step_architectures(left) & _amd_step_architectures(right):
+        return None
+
+    left_title = str(left.semantic_title or "").strip().casefold()
+    right_title = str(right.semantic_title or "").strip().casefold()
+    same_title = bool(left_title and left_title == right_title)
+    left_targets = _step_workload_targets(left)
+    right_targets = _step_workload_targets(right)
+    shared_targets = left_targets & right_targets
+    if not same_title and not shared_targets:
+        return None
+
+    target_union = left_targets | right_targets
+    target_overlap = (
+        round(len(shared_targets) / len(target_union) * 1_000_000)
+        if target_union
+        else 0
+    )
+    return (
+        int(same_title),
+        int(bool(left_targets) and left_targets == right_targets),
+        len(shared_targets),
+        target_overlap,
+        int(_exact_commands(left, right)),
+        round(commands_similarity(left.commands, right.commands) * 1_000_000),
+        round(_raw_label_similarity(left, right) * 1_000_000),
+    )
+
+
+def _amd_identity_family_keys(
+    steps: list[ConfigStep],
+) -> tuple[dict[str, tuple[ConfigStep, ...]], dict[str, str]]:
+    """Group logical AMD nodes into architecture-aware identity families.
+
+    The constrained maximum-spanning forest prevents transitive merges from
+    placing two definitions for the same AMD architecture in one family.
+    """
+    parent = list(range(len(steps)))
+    component_architectures = [
+        set(_amd_step_architectures(step))
+        for step in steps
+    ]
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    edges = []
+    for left_index, left in enumerate(steps):
+        for right_index in range(left_index + 1, len(steps)):
+            right = steps[right_index]
+            weight = _identity_family_edge_weight(left, right)
+            if weight is None:
+                continue
+            pair_keys = sorted((
+                _step_sort_key(left_index, left),
+                _step_sort_key(right_index, right),
+            ))
+            edges.append((
+                weight,
+                pair_keys[0],
+                pair_keys[1],
+                left_index,
+                right_index,
+            ))
+
+    edges.sort(key=lambda edge: (
+        tuple(-value for value in edge[0]),
+        edge[1],
+        edge[2],
+    ))
+    for _weight, _left_key, _right_key, left_index, right_index in edges:
+        left_root = find(left_index)
+        right_root = find(right_index)
+        if left_root == right_root:
+            continue
+        if component_architectures[left_root] & component_architectures[right_root]:
+            continue
+        if left_root > right_root:
+            left_root, right_root = right_root, left_root
+        parent[right_root] = left_root
+        component_architectures[left_root].update(
+            component_architectures[right_root]
+        )
+
+    components_by_identity: dict[str, list[tuple[ConfigStep, ...]]] = {}
+    component_members: dict[int, list[tuple[int, ConfigStep]]] = {}
+    for index, step in enumerate(steps):
+        component_members.setdefault(find(index), []).append((index, step))
+    for members in component_members.values():
+        members.sort(key=lambda item: _step_sort_key(item[0], item[1]))
+        component = tuple(step for _index, step in members)
+        components_by_identity.setdefault(
+            component[0].identity_key,
+            [],
+        ).append(component)
+
+    families: dict[str, tuple[ConfigStep, ...]] = {}
+    family_by_definition_id: dict[str, str] = {}
+    for identity in sorted(components_by_identity):
+        components = sorted(
+            components_by_identity[identity],
+            key=lambda component: _step_sort_key(
+                steps.index(component[0]),
+                component[0],
+            ),
+        )
+        for offset, component in enumerate(components, start=1):
+            family_key = (
+                identity
+                if len(components) == 1
+                else f"{identity}::{offset}"
+            )
+            families[family_key] = component
+            for step in component:
+                definition_ids = (
+                    step.member_definition_ids
+                    or (step.definition_id,)
+                )
+                for definition_id in definition_ids:
+                    if definition_id:
+                        family_by_definition_id[definition_id] = family_key
+    return families, family_by_definition_id
 
 
 def _exact_commands(left: ConfigStep, right: ConfigStep) -> bool:
@@ -1559,6 +1835,23 @@ def build_config_parity() -> dict:
         return {"error": "Failed to list test_areas/ from upstream"}
 
     logical_amd_steps = _semantic_amd_steps(amd_steps)
+    identity_families, family_by_definition_id = _amd_identity_family_keys(
+        logical_amd_steps
+    )
+
+    def family_key_for_step(step: ConfigStep) -> str:
+        for definition_id in (
+            step.member_definition_ids
+            or (step.definition_id,)
+        ):
+            family_key = family_by_definition_id.get(definition_id)
+            if family_key:
+                return family_key
+        raise ValueError(
+            "logical AMD step is missing an identity-family assignment: "
+            f"{step.definition_id or step.label}"
+        )
+
     matches, unmatched_amd, nvidia_only = _match_config_steps(
         amd_steps,
         nvidia_steps,
@@ -1582,6 +1875,28 @@ def build_config_parity() -> dict:
         len(matches)
         + len(inline_mirror_variants)
         + len(additional_variants)
+    )
+    covered_family_keys = {
+        family_key_for_step(step)
+        for step in (
+            *(match.amd_step for match in matches),
+            *(variant.amd_step for variant in inline_mirror_variants),
+            *(variant.amd_step for variant in additional_variants),
+        )
+    }
+    amd_only_node_family_keys = {
+        family_key_for_step(step)
+        for step in amd_only
+    }
+    all_family_keys = set(identity_families)
+    amd_only_family_keys = all_family_keys - covered_family_keys
+    partially_covered_family_keys = (
+        covered_family_keys & amd_only_node_family_keys
+    )
+    family_coverage_rate = (
+        len(covered_family_keys) / len(all_family_keys) * 100
+        if all_family_keys
+        else 0
     )
     coverage_rate = (
         covered / total_amd * 100
@@ -1646,6 +1961,13 @@ def build_config_parity() -> dict:
             "unique_nvidia_identities": len({
                 step.identity_key for step in nvidia_steps
             }),
+            "amd_identity_families": len(all_family_keys),
+            "covered_identity_families": len(covered_family_keys),
+            "amd_only_identity_families": len(amd_only_family_keys),
+            "partially_covered_identity_families": len(
+                partially_covered_family_keys
+            ),
+            "identity_family_replica_rows": total_amd - len(all_family_keys),
             "amd_identity_collision_rows": total_amd - len({
                 step.identity_key for step in logical_amd_steps
             }),
@@ -1667,6 +1989,10 @@ def build_config_parity() -> dict:
             # Source coverage has separate, explicitly named fields below.
             "match_rate_pct": round(direct_match_rate, 1),
             "coverage_rate_pct": round(coverage_rate, 1),
+            "identity_family_coverage_rate_pct": round(
+                family_coverage_rate,
+                1,
+            ),
             "direct_match_rate_pct": round(direct_match_rate, 1),
             "avg_command_similarity_pct": round(
                 direct_avg_similarity,
@@ -1687,6 +2013,7 @@ def build_config_parity() -> dict:
                 "nvidia_label": m.nvidia_step.label,
                 "normalized": m.amd_step.normalized_label,
                 "identity_key": m.amd_step.identity_key,
+                "amd_identity_family_key": family_key_for_step(m.amd_step),
                 "command_similarity": round(m.command_similarity, 4),
                 "title_similarity": round(m.title_similarity, 4),
                 "match_method": m.match_method,
@@ -1725,6 +2052,9 @@ def build_config_parity() -> dict:
                 "nvidia_label": variant.nvidia_step.label,
                 "normalized": variant.amd_step.normalized_label,
                 "identity_key": variant.amd_step.identity_key,
+                "amd_identity_family_key": family_key_for_step(
+                    variant.amd_step
+                ),
                 "command_similarity": round(
                     variant.command_similarity,
                     4,
@@ -1804,6 +2134,9 @@ def build_config_parity() -> dict:
                 "nvidia_label": variant.nvidia_step.label,
                 "normalized": variant.amd_step.normalized_label,
                 "identity_key": variant.amd_step.identity_key,
+                "amd_identity_family_key": family_key_for_step(
+                    variant.amd_step
+                ),
                 "command_similarity": round(
                     variant.command_similarity,
                     4,
@@ -1860,6 +2193,7 @@ def build_config_parity() -> dict:
                 "label": s.label,
                 "normalized": s.normalized_label,
                 "identity_key": s.identity_key,
+                "amd_identity_family_key": family_key_for_step(s),
                 "group": s.group,
                 "definition_id": s.definition_id,
                 "physical_member_count": s.physical_member_count,

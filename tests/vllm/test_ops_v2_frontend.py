@@ -10,6 +10,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 INDEX = (ROOT / "docs" / "index.html").read_text()
 OPS_JS = (ROOT / "docs" / "assets" / "js" / "ops-v2.js").read_text()
+LEGACY_HEALTH_JS = (
+    ROOT / "docs" / "assets" / "js" / "ci-health.js"
+).read_text()
 OPS_CSS = (ROOT / "docs" / "assets" / "css" / "ops-v2.css").read_text()
 DASHBOARD_CSS = (ROOT / "docs" / "assets" / "css" / "dashboard.css").read_text()
 DASHBOARD_JS = (ROOT / "docs" / "assets" / "js" / "dashboard.js").read_text()
@@ -450,8 +453,8 @@ def test_definition_parity_is_source_scoped_and_not_presented_as_runtime_health(
         assert removed_label not in OPS_JS
     for visible_label in (
         "Definition parity",
-        "AMD DEFINITIONS",
-        "AMD DEFINITION COVERAGE",
+        "AMD IDENTITY FAMILIES",
+        "AMD FAMILY COVERAGE",
         "INLINE MIRRORS",
         "UNLINKED DEFINITIONS",
         "Definition coverage, not passing test groups.",
@@ -466,10 +469,38 @@ def test_definition_parity_is_source_scoped_and_not_presented_as_runtime_health(
         assert visible_label in OPS_JS
     assert "ops.definition_parity || {}" in OPS_JS
     assert "row.match_method === 'command_twin'" in OPS_JS
+    assert "definitionSummary.amd_identity_families" in OPS_JS
+    assert "definitionSummary.covered_identity_families" in OPS_JS
+    assert "definitionSummary.amd_only_identity_families" in OPS_JS
+    assert "summary.amd_identity_families" in OPS_JS
+    assert "summary.covered_identity_families" in OPS_JS
+    assert "summary.amd_only_identity_families" in OPS_JS
+    assert "summary.identity_family_coverage_rate_pct" in OPS_JS
     assert "summary.covered" in OPS_JS
     assert "summary.direct_matches" in OPS_JS
     assert "summary.inline_mirror_variants" in OPS_JS
     assert "summary.additional_variants" in OPS_JS
+    assert "parity nodes source-covered" in OPS_JS
+    assert "YAML-derived identity families" in OPS_JS
+    assert (
+        "label: 'AMD DEFINITIONS', value: "
+        "integer(definitionSummary.total_amd_steps)"
+    ) not in OPS_JS
+    assert (
+        "label: 'AMD DEFINITIONS', value: integer(summary.total_amd_steps)"
+    ) not in OPS_JS
+    assert (
+        "label: 'AMD DEFINITION COVERAGE', value: "
+        "integer(summary.covered) + ' / ' + integer(summary.total_amd_steps)"
+    ) not in OPS_JS
+    for legacy_family_field in (
+        "s.amd_identity_families",
+        "s.covered_identity_families",
+        "s.amd_only_identity_families",
+        "s.identity_family_coverage_rate_pct",
+    ):
+        assert legacy_family_field in LEGACY_HEALTH_JS
+    assert "parity nodes source-covered" in LEGACY_HEALTH_JS
     assert "parity.inline_mirror_variants" in OPS_JS
     assert "parity.additional_variants" in OPS_JS
     assert "row.amd_route_similarity" in OPS_JS
@@ -500,6 +531,34 @@ def test_published_definition_parity_reconciles_coverage_and_mirror_evidence():
         + summary["additional_variants"]
     )
     assert summary["covered"] + summary["amd_only"] == summary["total_amd_steps"]
+    covered_rows = [
+        *parity["matches"],
+        *parity["inline_mirror_variants"],
+        *parity["additional_variants"],
+    ]
+    covered_family_keys = {
+        row["amd_identity_family_key"]
+        for row in covered_rows
+    }
+    amd_only_member_family_keys = {
+        row["amd_identity_family_key"]
+        for row in parity["amd_only"]
+    }
+    all_family_keys = covered_family_keys | amd_only_member_family_keys
+    assert len(all_family_keys) == summary["amd_identity_families"]
+    assert len(covered_family_keys) == summary["covered_identity_families"]
+    assert (
+        len(amd_only_member_family_keys - covered_family_keys)
+        == summary["amd_only_identity_families"]
+    )
+    assert (
+        len(covered_family_keys & amd_only_member_family_keys)
+        == summary["partially_covered_identity_families"]
+    )
+    assert (
+        summary["total_amd_steps"] - len(all_family_keys)
+        == summary["identity_family_replica_rows"]
+    )
     assert summary["match_rate_pct"] == summary["direct_match_rate_pct"]
     assert (
         summary["avg_command_similarity_pct"]

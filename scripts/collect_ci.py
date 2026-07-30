@@ -886,7 +886,12 @@ def main():
             config_parity_path = output_dir / "config_parity.json"
             config_parity_path.write_text(json.dumps(config_parity, indent=2))
             log.info(
-                "Wrote config_parity.json (coverage: %.1f%%, avg similarity: %.1f%%)",
+                "Wrote config_parity.json (family coverage: %.1f%%, "
+                "parity-node coverage: %.1f%%, avg similarity: %.1f%%)",
+                config_parity.get("summary", {}).get(
+                    "identity_family_coverage_rate_pct",
+                    0,
+                ),
                 config_parity.get("summary", {}).get("coverage_rate_pct", 0),
                 config_parity.get("summary", {}).get(
                     "covered_avg_command_similarity_pct",
