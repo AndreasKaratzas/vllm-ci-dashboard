@@ -110,12 +110,32 @@ jobs:
       # ── Phase 2: CI data collection (Buildkite, ~3min) ──
       - name: Sync CI data from gh-pages
         run: |
-          for f in ci_health.json parity_report.json config_parity.json flaky_tests.json failure_trends.json quarantine.json analytics.json gating_nightlies.json gating_targets.json gating_target_candidates.json shard_bases.json group_changes.json amd_test_matrix.json gating_proposals.json hotness.json workload_mapping.json operations_v2.json; do
+          for f in ci_health.json parity_report.json config_parity.json flaky_tests.json failure_trends.json quarantine.json analytics.json gating_nightlies.json gating_targets.json gating_target_candidates.json shard_bases.json group_changes.json amd_test_matrix.json gating_proposals.json hotness.json operations_v2.json; do
             LIVE=$(git show origin/gh-pages:data/vllm/ci/$f 2>/dev/null || true)
             if [ -n "$LIVE" ]; then
               echo "$LIVE" > data/vllm/ci/$f
             fi
           done
+
+          # Never replace a newer/schema-upgraded main aggregate with an older
+          # gh-pages copy. In particular, this keeps the v2 migration from
+          # restarting a full 90-day backfill while the first deployment is
+          # still publishing that schema to gh-pages.
+          REMOTE_MAPPING=$(mktemp)
+          if git show origin/gh-pages:data/vllm/ci/workload_mapping.json > "$REMOTE_MAPPING" 2>/dev/null; then
+            REMOTE_SCHEMA=$(jq -r '.schema_version // 0' "$REMOTE_MAPPING" 2>/dev/null || echo 0)
+            LOCAL_SCHEMA=$(jq -r '.schema_version // 0' data/vllm/ci/workload_mapping.json 2>/dev/null || echo 0)
+            REMOTE_GENERATED=$(jq -r '.generated_at // ""' "$REMOTE_MAPPING" 2>/dev/null || true)
+            LOCAL_GENERATED=$(jq -r '.generated_at // ""' data/vllm/ci/workload_mapping.json 2>/dev/null || true)
+            if [ "$REMOTE_SCHEMA" -gt "$LOCAL_SCHEMA" ] || \
+               { [ "$REMOTE_SCHEMA" -eq "$LOCAL_SCHEMA" ] && [[ "$REMOTE_GENERATED" > "$LOCAL_GENERATED" || "$REMOTE_GENERATED" == "$LOCAL_GENERATED" ]]; }; then
+              cp "$REMOTE_MAPPING" data/vllm/ci/workload_mapping.json
+              echo "Synced workload_mapping.json schema $REMOTE_SCHEMA from gh-pages."
+            else
+              echo "Kept newer local workload_mapping.json schema $LOCAL_SCHEMA."
+            fi
+          fi
+          rm -f "$REMOTE_MAPPING"
 
       # This deterministic snapshot must be rebuilt after the gh-pages sync.
       # Otherwise the live copy above can overwrite its fresh generated_at

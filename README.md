@@ -30,7 +30,8 @@ operational data are published by the scheduled/dispatch
 | **CI Health** | Latest exact AMD job variants by architecture, reviewed runtime targets with explicit mapping/no-definition reasons, definition parity, diagnostics, and evidence links |
 | **CI Analytics** | Nightly build comparison, recent builds, group trends, AMD hardware matrix, queue comparison |
 | **Queue Monitor** | Buildkite queue workload, wait-time charts, active job overlays, admin triage, and AMD capacity projections |
-| **Hotness / Omni** | Workload trajectories; exact Omni active-job evidence, 1h–3d queue windows, queued-age bands, daily deltas, and explicit partial-attribution labels |
+| **CI Workload Trajectory** | Upstream workload history plus an interactive AMD gate-plan simulator for target groups, total jobs, queue-specific mirror shapes, historical peak load, projected start wait, and hardware gaps |
+| **Omni CI** | Observed unique `vllm-project/vllm-omni` mappings onto standard AMD queues, configurable 6-hour through 3-month workload history, numeric `vllm-project/vllm` context, queue impact, source-coverage caveats, and live occupancy drill-downs |
 | **Ready Tickets** | Signed-in AMD failure evidence plus ranked CI ownership, escalation chains, assignments, and managed regression issues |
 | **Admin** | Signed-in dashboard access administration |
 
@@ -62,6 +63,7 @@ The main data path is `.github/workflows/hourly-master.yml`, which runs every 30
 | `scripts/vllm/collect_gating_target_candidates.py` | Review-only audit of upstream nightly GPU jobs against the canonical AMD gating target list, including authorized `%N` shard expansion |
 | `scripts/vllm/collect_queue_snapshot.py` | Queue timeseries, workload-attributed counts, and the exact active-job ledger |
 | `scripts/vllm/collect_capacity_monitor.py` | AMD queue capacity limits plus mirror test-group dependency projections |
+| `scripts/vllm/collect_workload_mapping.py` | Hourly and daily unique-job mappings for exact `vllm-project/vllm-omni` and `vllm-project/vllm` pipelines on the standard AMD queue allowlist; raw UUIDs are never persisted |
 | `scripts/vllm/build_operations_snapshot.py` | Build the versioned operations manifest and lazy CI Health, Queue, and Omni read-model shards |
 | `scripts/vllm/ci_area_regression_watcher.py` | Reconcile one dashboard-repository issue per regressing test area using the ranked owner chain, regional working hours, and exact AMD evidence |
 | `scripts/vllm/sync_ci_operations_project.py` | Add open managed dashboard issues to the single AMD CI Operations Project by workstream |
@@ -84,6 +86,7 @@ python scripts/vllm/collect_gating_targets.py --output data/vllm/ci/
 python scripts/vllm/collect_gating_target_candidates.py --output data/vllm/ci/
 python scripts/vllm/collect_queue_snapshot.py
 python scripts/vllm/collect_capacity_monitor.py --output data/vllm/ci/
+BUILDKITE_TOKEN=... python scripts/vllm/collect_workload_mapping.py
 python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
 python scripts/vllm/ci_area_regression_watcher.py
 python scripts/vllm/sync_ci_operations_project.py

@@ -56,7 +56,17 @@
     trajectoryWorkload: 'all',
     trajectoryHardware: 'all',
     trajectorySearch: '',
+    capacityMode: 'groups',
+    capacityBaseline: 'peak',
+    capacityGroups: '160',
+    capacityJobs: '196',
+    capacityQueue: 'amd_mi300_1',
+    capacityQueueGroups: '1',
+    capacityParallel: '1',
+    capacityDuration: '30',
+    capacitySuites: '1',
     omniRange: '24h',
+    omniMappingRange: '7d',
     omniAge: 'all',
     perfView: 'performance',
     perfModel: 'all',
@@ -73,8 +83,14 @@
       'ops_agent_signal', 'ops_detail',
     ]),
     'ci-queue': new Set(['ops_queue_view', 'ops_queue_range', 'ops_queue_scope', 'ops_queue_history_queue', 'ops_detail']),
-    'ci-hotness': new Set(['ops_trajectory_view', 'ops_trajectory_window', 'ops_detail']),
-    'ci-omni': new Set(['ops_omni_range', 'ops_omni_age', 'ops_detail']),
+    'ci-hotness': new Set([
+      'ops_trajectory_view', 'ops_trajectory_window',
+      'ops_capacity_mode', 'ops_capacity_baseline', 'ops_capacity_groups',
+      'ops_capacity_jobs', 'ops_capacity_queue', 'ops_capacity_queue_groups',
+      'ops_capacity_parallel', 'ops_capacity_duration', 'ops_capacity_suites',
+      'ops_detail',
+    ]),
+    'ci-omni': new Set(['ops_omni_mapping_range', 'ops_omni_range', 'ops_omni_age', 'ops_detail']),
     'ci-perf-eval': new Set(['ops_perf_view', 'ops_perf_model', 'ops_perf_device', 'ops_detail']),
   };
   const ROUTE_DEFAULTS = {
@@ -101,6 +117,16 @@
     queue_history_queue: 'fleet',
     trajectory_window: '24h',
     trajectory_view: 'workload',
+    capacity_mode: 'groups',
+    capacity_baseline: 'peak',
+    capacity_groups: '160',
+    capacity_jobs: '196',
+    capacity_queue: 'amd_mi300_1',
+    capacity_queue_groups: '1',
+    capacity_parallel: '1',
+    capacity_duration: '30',
+    capacity_suites: '1',
+    omni_mapping_range: '7d',
     omni_range: '24h',
     omni_age: 'all',
     perf_view: 'performance',
@@ -344,8 +370,18 @@
       'ci-hotness': [
         ['trajectoryView', 'trajectory_view', ['workload', 'capacity']],
         ['trajectoryWindow', 'trajectory_window', ['24h', '72h', '7d', '30d']],
+        ['capacityMode', 'capacity_mode', ['groups', 'jobs', 'queue']],
+        ['capacityBaseline', 'capacity_baseline', ['current', 'typical', 'peak']],
+        ['capacityGroups', 'capacity_groups', null],
+        ['capacityJobs', 'capacity_jobs', null],
+        ['capacityQueue', 'capacity_queue', null],
+        ['capacityQueueGroups', 'capacity_queue_groups', null],
+        ['capacityParallel', 'capacity_parallel', null],
+        ['capacityDuration', 'capacity_duration', null],
+        ['capacitySuites', 'capacity_suites', null],
       ],
       'ci-omni': [
+        ['omniMappingRange', 'omni_mapping_range', ['6h', '1d', '3d', '7d', '1m', '3m']],
         ['omniRange', 'omni_range', ['1h', '3h', '6h', '12h', '24h', '72h']],
         ['omniAge', 'omni_age', ['all', 'lt1h', '1to3h', '3to6h', '6to12h', '12to24h', '1to3d', 'gte3d']],
       ],
@@ -6952,172 +6988,1071 @@
     openMixedOutcomeEvidence(candidate);
   }
 
+  function capacityInteger(raw, fallback, minimum, maximum) {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.max(minimum, Math.min(maximum, Math.round(parsed)));
+  }
+
+  function capacityLargestRemainder(weights, total) {
+    const target = Math.max(0, Math.round(Number(total) || 0));
+    const safe = (weights || []).map(function (weight) {
+      return Math.max(0, Number(weight) || 0);
+    });
+    const weightTotal = safe.reduce(function (sum, weight) { return sum + weight; }, 0);
+    if (!safe.length) return [];
+    if (!target) return safe.map(function () { return 0; });
+    if (!weightTotal) {
+      return safe.map(function (_, index) { return index ? 0 : target; });
+    }
+    const quotas = safe.map(function (weight) { return weight / weightTotal * target; });
+    const allocated = quotas.map(function (quota) { return Math.floor(quota); });
+    let remaining = target - allocated.reduce(function (sum, count) { return sum + count; }, 0);
+    const order = quotas.map(function (quota, index) {
+      return {index: index, remainder: quota - Math.floor(quota)};
+    }).sort(function (left, right) {
+      return right.remainder - left.remainder || left.index - right.index;
+    });
+    for (let index = 0; index < remaining; index += 1) {
+      allocated[order[index % order.length].index] += 1;
+    }
+    return allocated;
+  }
+
+  function capacityInterpolatedValue(current, target, selected, currentTotal, targetTotal) {
+    current = Math.max(0, Number(current) || 0);
+    target = Math.max(0, Number(target) || 0);
+    selected = Math.max(0, Number(selected) || 0);
+    currentTotal = Math.max(0, Number(currentTotal) || 0);
+    targetTotal = Math.max(0, Number(targetTotal) || 0);
+    if (selected <= currentTotal) return currentTotal ? current * selected / currentTotal : 0;
+    if (selected <= targetTotal && targetTotal > currentTotal) {
+      return current + (target - current) * (selected - currentTotal) / (targetTotal - currentTotal);
+    }
+    return targetTotal ? target * selected / targetTotal : 0;
+  }
+
+  function capacityPairedAllocation(groupWeights, jobWeights, rawGroups, rawJobs) {
+    const queueCount = Math.max((groupWeights || []).length, (jobWeights || []).length);
+    const groups = Math.max(0, Math.round(Number(rawGroups) || 0));
+    const jobs = Math.max(0, Math.round(Number(rawJobs) || 0));
+    const safeGroups = Array.from({length: queueCount}, function (_, index) {
+      return Math.max(0, Number((groupWeights || [])[index]) || 0);
+    });
+    const safeJobs = Array.from({length: queueCount}, function (_, index) {
+      return Math.max(0, Number((jobWeights || [])[index]) || 0);
+    });
+    if (!queueCount) return {groups: [], jobs: [], valid: groups === 0 && jobs === 0};
+    const exactGroups = safeGroups.every(function (count) {
+      return Number.isInteger(count);
+    }) && safeGroups.reduce(function (sum, count) {
+      return sum + count;
+    }, 0) === groups;
+    const exactJobs = safeJobs.every(function (count) {
+      return Number.isInteger(count);
+    }) && safeJobs.reduce(function (sum, count) {
+      return sum + count;
+    }, 0) === jobs;
+    const exactPaired = safeGroups.every(function (count, index) {
+      return (count > 0) === (safeJobs[index] > 0);
+    });
+    if (exactGroups && exactJobs && exactPaired) {
+      return {
+        groups: safeGroups.slice(),
+        jobs: safeJobs.slice(),
+        valid: true,
+        exact: true,
+      };
+    }
+    if (!groups && !jobs) {
+      return {
+        groups: safeGroups.map(function () { return 0; }),
+        jobs: safeJobs.map(function () { return 0; }),
+        valid: true,
+        exact: false,
+      };
+    }
+    const pairedWeights = safeGroups.map(function (weight, index) {
+      if (!safeJobs[index]) return 0;
+      return weight || safeJobs[index];
+    });
+    let allocatedGroups = capacityLargestRemainder(pairedWeights, groups);
+    let active = allocatedGroups.map(function (count, index) {
+      return count > 0 ? index : null;
+    }).filter(function (index) {
+      return index !== null;
+    });
+    if (jobs > 0 && active.length > jobs) {
+      const keep = new Set(pairedWeights.map(function (weight, index) {
+        return {index: index, weight: weight};
+      }).filter(function (row) {
+        return row.weight > 0;
+      }).sort(function (left, right) {
+        return right.weight - left.weight || left.index - right.index;
+      }).slice(0, jobs).map(function (row) {
+        return row.index;
+      }));
+      allocatedGroups = capacityLargestRemainder(pairedWeights.map(function (weight, index) {
+        return keep.has(index) ? weight : 0;
+      }), groups);
+      active = allocatedGroups.map(function (count, index) {
+        return count > 0 ? index : null;
+      }).filter(function (index) {
+        return index !== null;
+      });
+    }
+    const allocatedJobs = safeJobs.map(function () { return 0; });
+    if (jobs && active.length && jobs >= active.length) {
+      active.forEach(function (index) { allocatedJobs[index] = 1; });
+      const extras = capacityLargestRemainder(active.map(function (index) {
+        return safeJobs[index];
+      }), jobs - active.length);
+      active.forEach(function (index, activeIndex) {
+        allocatedJobs[index] += extras[activeIndex];
+      });
+    }
+    const groupTotal = allocatedGroups.reduce(function (sum, count) { return sum + count; }, 0);
+    const jobTotal = allocatedJobs.reduce(function (sum, count) { return sum + count; }, 0);
+    const paired = allocatedGroups.every(function (count, index) {
+      return (count > 0) === (allocatedJobs[index] > 0);
+    });
+    return {
+      groups: allocatedGroups,
+      jobs: allocatedJobs,
+      valid: groupTotal === groups && jobTotal === jobs && paired,
+      exact: false,
+    };
+  }
+
+  function capacityTopologyForGroups(profile, rawGroups, forcedJobs) {
+    const queues = (profile && profile.queues) || [];
+    const topology = (profile && profile.topology) || {};
+    const currentTotal = topology.current || {};
+    const targetTotal = topology.target || {};
+    const groups = capacityInteger(rawGroups, Number(targetTotal.groups || 160), 0, 5000);
+    const groupWeights = queues.map(function (queue) {
+      const demand = queue.demand || {};
+      return capacityInterpolatedValue(
+        (demand.current || {}).groups,
+        (demand.target || {}).groups,
+        groups,
+        currentTotal.groups,
+        targetTotal.groups
+      );
+    });
+    const jobWeights = queues.map(function (queue) {
+      const demand = queue.demand || {};
+      return capacityInterpolatedValue(
+        (demand.current || {}).jobs,
+        (demand.target || {}).jobs,
+        groups,
+        currentTotal.groups,
+        targetTotal.groups
+      );
+    });
+    const expectedJobs = capacityInterpolatedValue(
+      currentTotal.jobs,
+      targetTotal.jobs,
+      groups,
+      currentTotal.groups,
+      targetTotal.groups
+    );
+    const totalJobs = forcedJobs === undefined || forcedJobs === null
+      ? Math.max(0, Math.round(expectedJobs))
+      : capacityInteger(forcedJobs, Math.round(expectedJobs), 0, 50000);
+    const allocation = capacityPairedAllocation(groupWeights, jobWeights, groups, totalJobs);
+    return {
+      mode: forcedJobs === undefined || forcedJobs === null ? 'groups' : 'jobs',
+      groups: groups,
+      jobs: totalJobs,
+      allocationValid: allocation.valid,
+      allocationExact: allocation.exact,
+      rows: queues.map(function (queue, index) {
+        return {
+          queue: queue,
+          id: queue.id,
+          label: queue.label || queue.id,
+          family: queue.family || 'unknown',
+          gpusPerJob: Math.max(1, Number(queue.gpus_per_job) || 1),
+          groups: allocation.groups[index],
+          jobs: allocation.jobs[index],
+          serviceMinutes: Number((queue.workload || {}).service_minutes),
+          serviceSource: (queue.workload || {}).service_minutes_source || 'unavailable',
+        };
+      }),
+    };
+  }
+
+  function capacityGroupsForJobs(profile, rawJobs) {
+    const topology = (profile && profile.topology) || {};
+    const current = topology.current || {};
+    const target = topology.target || {};
+    const jobs = capacityInteger(rawJobs, Number(target.jobs || 196), 0, 50000);
+    if (jobs <= Number(current.jobs || 0)) {
+      return Number(current.jobs || 0)
+        ? Math.round(Number(current.groups || 0) * jobs / Number(current.jobs))
+        : 0;
+    }
+    if (jobs <= Number(target.jobs || 0) && Number(target.jobs || 0) > Number(current.jobs || 0)) {
+      return Math.round(
+        Number(current.groups || 0)
+        + (Number(target.groups || 0) - Number(current.groups || 0))
+        * (jobs - Number(current.jobs || 0))
+        / (Number(target.jobs || 0) - Number(current.jobs || 0))
+      );
+    }
+    return Number(target.jobs || 0)
+      ? Math.round(Number(target.groups || 0) * jobs / Number(target.jobs))
+      : 0;
+  }
+
+  function capacityTopologyForQueue(profile, queueId, rawGroups, rawParallel, rawDuration) {
+    const queues = (profile && profile.queues) || [];
+    const addedGroups = capacityInteger(rawGroups, 1, 0, 5000);
+    const parallel = capacityInteger(rawParallel, 1, 1, 256);
+    const durationMinutes = capacityInteger(rawDuration, 30, 1, 1440);
+    const current = ((profile || {}).topology || {}).current || {};
+    let found = false;
+    const rows = queues.map(function (queue) {
+      const selected = queue.id === queueId;
+      found = found || selected;
+      return {
+        queue: queue,
+        id: queue.id,
+        label: queue.label || queue.id,
+        family: queue.family || 'unknown',
+        gpusPerJob: Math.max(1, Number(queue.gpus_per_job) || 1),
+        groups: selected ? addedGroups : 0,
+        jobs: selected ? addedGroups * parallel : 0,
+        serviceMinutes: selected ? durationMinutes : Number((queue.workload || {}).service_minutes),
+        serviceSource: selected ? 'user_input_for_specific_test_shape' : ((queue.workload || {}).service_minutes_source || 'unavailable'),
+      };
+    });
+    return {
+      mode: 'queue',
+      groups: found ? addedGroups : 0,
+      jobs: rows.reduce(function (sum, row) { return sum + row.jobs; }, 0),
+      totalGateGroups: Number(current.groups || 0) + (found ? addedGroups : 0),
+      totalGateJobs: Number(current.jobs || 0) + (found ? addedGroups * parallel : 0),
+      addedGroups: addedGroups,
+      parallel: parallel,
+      durationMinutes: durationMinutes,
+      selectedQueue: found ? queueId : '',
+      rows: rows,
+    };
+  }
+
+  function capacityBurstWait(demandJobs, capacityJobs, baseline, serviceMinutes) {
+    const jobs = Math.max(0, Math.round(Number(demandJobs) || 0));
+    if (!jobs) return {status: 'finite', p50: 0, p95: 0, max: 0, samples: [], effectiveSlots: 0, backlogJobs: 0};
+    if (!baseline || baseline.available !== true || !Number.isFinite(Number(baseline.running)) || !Number.isFinite(Number(baseline.waiting))) {
+      return {status: 'unavailable', reason: 'Observed running/waiting baseline is unavailable.', samples: []};
+    }
+    const capacity = Math.max(0, Math.floor(Number(capacityJobs) || 0));
+    if (!capacity) return {status: 'unavailable', reason: 'Configured concurrent-job capacity is unavailable.', samples: []};
+    const service = Number(serviceMinutes);
+    if (!Number.isFinite(service) || service <= 0) {
+      return {status: 'unavailable', reason: 'A positive service-time estimate is unavailable.', samples: []};
+    }
+    const runningJobs = Math.ceil(Math.max(0, Number(baseline.running)));
+    const busyServers = Math.min(runningJobs, capacity);
+    const backlogJobs = Math.max(0, runningJobs - capacity)
+      + Math.ceil(Math.max(0, Number(baseline.waiting)));
+    const serverAvailableAt = Array.from({length: capacity}, function (_, index) {
+      return index < busyServers ? service : 0;
+    });
+    function assignJob() {
+      let serverIndex = 0;
+      for (let index = 1; index < serverAvailableAt.length; index += 1) {
+        if (serverAvailableAt[index] < serverAvailableAt[serverIndex]) serverIndex = index;
+      }
+      const startsAt = serverAvailableAt[serverIndex];
+      serverAvailableAt[serverIndex] += service;
+      return startsAt;
+    }
+    for (let index = 0; index < backlogJobs; index += 1) assignJob();
+    const samples = Array.from({length: jobs}, function () { return assignJob(); });
+    function observedQuantile(percentile) {
+      if (!samples.length) return 0;
+      return samples[Math.max(0, Math.ceil(percentile * samples.length) - 1)];
+    }
+    return {
+      status: 'finite',
+      p50: observedQuantile(0.5),
+      p95: observedQuantile(0.95),
+      max: samples[samples.length - 1],
+      samples: samples,
+      effectiveSlots: capacity,
+      busyServers: busyServers,
+      backlogJobs: backlogJobs,
+    };
+  }
+
+  function capacityScenario(profile, inputs) {
+    profile = profile || {};
+    inputs = inputs || {};
+    const mode = ['groups', 'jobs', 'queue'].includes(inputs.mode) ? inputs.mode : 'groups';
+    let topology;
+    if (mode === 'jobs') {
+      const jobs = capacityInteger(inputs.jobs, Number((((profile.topology || {}).target || {}).jobs) || 196), 0, 50000);
+      topology = capacityTopologyForGroups(profile, capacityGroupsForJobs(profile, jobs), jobs);
+    } else if (mode === 'queue') {
+      topology = capacityTopologyForQueue(
+        profile,
+        inputs.queue,
+        inputs.queueGroups,
+        inputs.parallel,
+        inputs.duration
+      );
+    } else {
+      topology = capacityTopologyForGroups(profile, inputs.groups, null);
+    }
+    const baselineName = ['current', 'typical', 'peak'].includes(inputs.baseline) ? inputs.baseline : 'peak';
+    const suites = capacityInteger(inputs.suites, 1, 1, 20);
+    const rows = topology.rows.map(function (topologyRow) {
+      const queue = topologyRow.queue || {};
+      const baseline = ((queue.history || {})[baselineName]) || {};
+      const capacityJobs = Math.max(0, Number(queue.capacity_jobs) || 0);
+      const demandJobs = Math.max(0, topologyRow.jobs * suites);
+      const wait = capacityBurstWait(demandJobs, capacityJobs, baseline, topologyRow.serviceMinutes);
+      const baselineRunning = baseline.available === true && Number.isFinite(Number(baseline.running))
+        ? Number(baseline.running)
+        : null;
+      const baselineWaiting = baseline.available === true && Number.isFinite(Number(baseline.waiting))
+        ? Number(baseline.waiting)
+        : null;
+      const combinedJobs = baselineRunning === null || baselineWaiting === null
+        ? null
+        : Math.ceil(baselineRunning) + Math.ceil(baselineWaiting) + demandJobs;
+      const combinedGapJobs = combinedJobs === null ? null : Math.max(0, combinedJobs - capacityJobs);
+      return {
+        id: topologyRow.id,
+        label: topologyRow.label,
+        family: topologyRow.family,
+        gpusPerJob: topologyRow.gpusPerJob,
+        groups: topologyRow.groups,
+        jobsPerSuite: topologyRow.jobs,
+        demandJobs: demandJobs,
+        demandGpuSlots: demandJobs * topologyRow.gpusPerJob,
+        capacityJobs: capacityJobs,
+        capacityGpuSlots: capacityJobs * topologyRow.gpusPerJob,
+        baseline: baseline,
+        baselineRunning: baselineRunning,
+        baselineWaiting: baselineWaiting,
+        combinedJobs: combinedJobs,
+        pressurePct: combinedJobs !== null && capacityJobs ? combinedJobs / capacityJobs * 100 : null,
+        shapeGapJobs: Math.max(0, demandJobs - capacityJobs),
+        shapeGapGpus: Math.max(0, demandJobs - capacityJobs) * topologyRow.gpusPerJob,
+        combinedGapJobs: combinedGapJobs,
+        combinedGapGpus: combinedGapJobs === null ? null : combinedGapJobs * topologyRow.gpusPerJob,
+        serviceMinutes: topologyRow.serviceMinutes,
+        serviceSource: topologyRow.serviceSource,
+        wait: wait,
+        sourceQueue: queue,
+      };
+    });
+    const activeRows = rows.filter(function (row) { return row.demandJobs > 0; });
+    const families = {};
+    rows.forEach(function (row) {
+      const family = families[row.family] || {
+        family: row.family,
+        demandGpus: 0,
+        combinedDemandGpus: 0,
+        combinedAvailable: true,
+        capacityGpus: 0,
+      };
+      family.demandGpus += row.demandGpuSlots;
+      if (row.combinedJobs === null) family.combinedAvailable = false;
+      else family.combinedDemandGpus += row.combinedJobs * row.gpusPerJob;
+      family.capacityGpus += row.capacityGpuSlots;
+      families[row.family] = family;
+    });
+    const familyRows = Object.values(families).map(function (family) {
+      return Object.assign({}, family, {
+        gapGpus: Math.max(0, family.demandGpus - family.capacityGpus),
+        zeroWaitGapGpus: family.combinedAvailable
+          ? Math.max(0, family.combinedDemandGpus - family.capacityGpus)
+          : null,
+      });
+    });
+    const unavailableRows = activeRows.filter(function (row) { return row.wait.status === 'unavailable'; });
+    const waitStatus = unavailableRows.length ? 'unavailable' : 'finite';
+    const samples = waitStatus === 'finite'
+      ? activeRows.reduce(function (all, row) { return all.concat(row.wait.samples || []); }, []).sort(function (left, right) { return left - right; })
+      : [];
+    function sampleQuantile(percentile) {
+      if (!samples.length) return 0;
+      return samples[Math.max(0, Math.ceil(percentile * samples.length) - 1)];
+    }
+    const rankedRows = activeRows.slice().sort(function (left, right) {
+      const statusRank = {unavailable: 2, finite: 1};
+      return (statusRank[right.wait.status] || 0) - (statusRank[left.wait.status] || 0)
+        || Number(right.pressurePct || 0) - Number(left.pressurePct || 0)
+        || Number(right.wait.p95 || 0) - Number(left.wait.p95 || 0)
+        || compareText(left.label, right.label);
+    });
+    const baselineComplete = rows.every(function (row) { return row.baseline.available === true; });
+    const totalCapacityGpus = rows.reduce(function (sum, row) { return sum + row.capacityGpuSlots; }, 0);
+    const baselineQueuedGpus = baselineComplete
+      ? rows.reduce(function (sum, row) {
+        return sum + (
+          Math.ceil(Number(row.baselineRunning || 0))
+          + Math.ceil(Number(row.baselineWaiting || 0))
+        ) * row.gpusPerJob;
+      }, 0)
+      : null;
+    const demandGpuSlots = activeRows.reduce(function (sum, row) { return sum + row.demandGpuSlots; }, 0);
+    const zeroWaitFamilyAvailable = familyRows.every(function (row) { return row.zeroWaitGapGpus !== null; });
+    return {
+      mode: mode,
+      baseline: baselineName,
+      suites: suites,
+      groups: topology.groups,
+      totalGateGroups: topology.totalGateGroups === undefined ? topology.groups : topology.totalGateGroups,
+      totalGateJobs: topology.totalGateJobs === undefined ? topology.jobs : topology.totalGateJobs,
+      jobsPerSuite: topology.jobs,
+      jobs: activeRows.reduce(function (sum, row) { return sum + row.demandJobs; }, 0),
+      gpuSlots: demandGpuSlots,
+      rows: rows,
+      activeRows: activeRows,
+      familyRows: familyRows,
+      familyGapGpus: familyRows.reduce(function (sum, row) { return sum + row.gapGpus; }, 0),
+      shapeGapGpus: activeRows.reduce(function (sum, row) { return sum + row.shapeGapGpus; }, 0),
+      zeroWaitShapeGapGpus: activeRows.some(function (row) { return row.combinedGapGpus === null; })
+        ? null
+        : activeRows.reduce(function (sum, row) { return sum + row.combinedGapGpus; }, 0),
+      zeroWaitFamilyGapGpus: zeroWaitFamilyAvailable
+        ? familyRows.reduce(function (sum, row) { return sum + row.zeroWaitGapGpus; }, 0)
+        : null,
+      waitStatus: waitStatus,
+      p50Wait: waitStatus === 'finite' ? sampleQuantile(0.5) : null,
+      p95Wait: waitStatus === 'finite' ? sampleQuantile(0.95) : null,
+      maxWait: waitStatus === 'finite' ? (samples[samples.length - 1] || 0) : null,
+      unavailableQueues: unavailableRows.map(function (row) { return row.id; }),
+      bottleneck: rankedRows[0] || null,
+      totalCapacityGpus: totalCapacityGpus,
+      baselineGpus: baselineQueuedGpus,
+      baselineQueuedGpus: baselineQueuedGpus,
+      aggregatePressurePct: baselineQueuedGpus !== null && totalCapacityGpus
+        ? (baselineQueuedGpus + demandGpuSlots) / totalCapacityGpus * 100
+        : null,
+      unplacedRetiring: profile.unplaced_retiring_workload || null,
+      topology: topology,
+    };
+  }
+
+  function capacityGrowthCurve(profile, inputs, selectedValue) {
+    inputs = inputs || {};
+    const topology = (profile || {}).topology || {};
+    const current = topology.current || {};
+    const target = topology.target || {};
+    const mode = ['groups', 'jobs', 'queue'].includes(inputs.mode) ? inputs.mode : 'groups';
+    let start;
+    let end;
+    let selected;
+    let axisLabel;
+    let pointInputs;
+    if (mode === 'jobs') {
+      start = Math.max(0, Number(current.jobs || 0));
+      selected = capacityInteger(
+        selectedValue === undefined ? inputs.jobs : selectedValue,
+        Number(target.jobs || 196),
+        0,
+        50000
+      );
+      end = Math.max(Number(target.jobs || 196), selected, Math.ceil(Number(target.jobs || 196) * 1.5), start + 8);
+      axisLabel = 'Total command jobs';
+      pointInputs = function (point) { return {mode: 'jobs', jobs: point}; };
+    } else if (mode === 'queue') {
+      start = 0;
+      selected = capacityInteger(
+        selectedValue === undefined ? inputs.queueGroups : selectedValue,
+        1,
+        0,
+        5000
+      );
+      end = Math.max(8, selected, Math.ceil(selected * 2), start + 8);
+      axisLabel = 'New mirror groups on selected queue';
+      pointInputs = function (point) { return {mode: 'queue', queueGroups: point}; };
+    } else {
+      start = Math.max(0, Number(current.groups || 0));
+      selected = capacityInteger(
+        selectedValue === undefined ? inputs.groups : selectedValue,
+        Number(target.groups || 160),
+        0,
+        5000
+      );
+      end = Math.max(Number(target.groups || 160), selected, Math.ceil(Number(target.groups || 160) * 1.5), start + 8);
+      axisLabel = 'Gated test groups';
+      pointInputs = function (point) { return {mode: 'groups', groups: point}; };
+    }
+    const points = [];
+    for (let index = 0; index <= 8; index += 1) {
+      const point = Math.round(start + (end - start) * index / 8);
+      if (!points.includes(point)) points.push(point);
+    }
+    if (!points.includes(selected)) points.push(selected);
+    points.sort(function (left, right) { return left - right; });
+    return points.map(function (point) {
+      const scenario = capacityScenario(profile, Object.assign({}, inputs, pointInputs(point)));
+      return {
+        mode: mode,
+        x: point,
+        axisLabel: axisLabel,
+        selected: point === selected,
+        groups: scenario.totalGateGroups,
+        jobs: scenario.totalGateJobs,
+        burstJobs: scenario.jobs,
+        status: scenario.waitStatus,
+        p95Wait: scenario.p95Wait,
+        maxWait: scenario.maxWait,
+        bottleneck: scenario.bottleneck ? scenario.bottleneck.id : '',
+        pressurePct: scenario.bottleneck ? scenario.bottleneck.pressurePct : null,
+      };
+    });
+  }
+
+  function capacityWaitLabel(status, minutes) {
+    if (status === 'unavailable') return 'Not estimable';
+    return duration(minutes);
+  }
+
+  function capacityServiceSourceLabel(source) {
+    const labels = {
+      target_command_job_median_average: 'target-runtime command-job median average',
+      completed_agent_minutes_per_finished_job_proxy_fallback: 'completed mapping proxy fallback (potentially downward biased)',
+      target_suite_global_median_average_fallback: 'global target-suite median average fallback',
+      user_input_for_specific_test_shape: 'manual scenario input',
+    };
+    return labels[source] || source || 'unavailable';
+  }
+
+  function capacityVerdict(result) {
+    const unplacedText = result.unplacedRetiring && result.unplacedRetiring.excluded_from_wait_and_headroom
+      ? 'Retiring MI325 workload is unplaced and excluded from every wait and headroom figure below until a compatible destination is chosen. '
+      : '';
+    let waitText;
+    if (result.waitStatus === 'unavailable') {
+      waitText = 'Wait cannot be estimated because observed capacity or service-time inputs are missing for '
+        + result.unavailableQueues.join(', ') + '.';
+    } else {
+      waitText = 'Projected FCFS burst start wait is ' + duration(result.p50Wait) + ' p50, '
+        + duration(result.p95Wait) + ' p95, and ' + duration(result.maxWait)
+        + ' maximum under the conservative full-service residual assumption.';
+    }
+    let standaloneText;
+    if (result.familyGapGpus > 0) {
+      standaloneText = 'To start every standalone-suite job at once, the configured fixed-family pools are short '
+        + integer(result.familyGapGpus)
+        + ' GPU slots; add capacity, serialize the workload, or validate cross-family migration.';
+    } else if (result.shapeGapGpus > 0) {
+      standaloneText = 'To start every standalone-suite job at once, reallocate '
+        + integer(result.shapeGapGpus)
+        + ' GPUs into the constrained queue shapes. The FCFS estimate above shows the wait if those jobs run in waves instead.';
+    } else {
+      standaloneText = 'Every standalone-suite job can start at once within the configured queue shapes and hardware-family pools.';
+    }
+    let zeroWaitText;
+    if (result.zeroWaitShapeGapGpus === null || result.zeroWaitFamilyGapGpus === null) {
+      zeroWaitText = 'Zero-wait headroom cannot be calculated without a complete background baseline.';
+    } else if (result.zeroWaitFamilyGapGpus > 0) {
+      zeroWaitText = 'At the selected background, zero start wait would require '
+        + integer(result.zeroWaitFamilyGapGpus) + ' additional fixed-family GPUs and '
+        + integer(result.zeroWaitShapeGapGpus) + ' queue-shaped GPU headroom, or the modeled wait must be tolerated.';
+    } else if (result.zeroWaitShapeGapGpus > 0) {
+      zeroWaitText = 'At the selected background, zero start wait would require '
+        + integer(result.zeroWaitShapeGapGpus)
+        + ' queue-shaped GPU headroom; this transient requirement is separate from the suite-alone simultaneous-start gap.';
+    } else {
+      zeroWaitText = 'The selected background retains enough configured headroom for zero start wait.';
+    }
+    return unplacedText + waitText + ' ' + standaloneText + ' ' + zeroWaitText;
+  }
+
+  function openCapacityQueueDetail(row, result) {
+    const wait = row.wait || {};
+    const history = (row.sourceQueue || {}).history || {};
+    const note = n('div', 'ops-evidence-note is-info', 'Planning estimate, not an SLA. FCFS gives every observed running job one conservative full service interval of residual work, places observed waiting jobs ahead, and then list-schedules the scenario onto the configured runners. Cross-queue migration is never inferred.');
+    openDetailDrawer({
+      id: 'capacity-queue-' + row.id,
+      title: row.label,
+      subtitle: row.family + ' queue bottleneck evidence',
+      description: wait.reason || 'Projected queue response for the selected route-shareable scenario.',
+      fields: [
+        {label: 'Baseline', value: result.baseline},
+        {label: 'Observed running / waiting', value: row.baselineRunning === null ? null : value(row.baselineRunning) + ' / ' + value(row.baselineWaiting)},
+        {label: 'Scenario jobs', value: integer(row.demandJobs)},
+        {label: 'Configured slots', value: integer(row.capacityJobs)},
+        {label: 'Combined pressure', value: row.pressurePct === null ? null : row.pressurePct.toFixed(1) + '%'},
+        {label: 'Service estimate', value: Number.isFinite(Number(row.serviceMinutes)) ? duration(row.serviceMinutes) + ' · ' + capacityServiceSourceLabel(row.serviceSource) : 'Unavailable'},
+        {label: 'p50 / p95 / max start wait', value: capacityWaitLabel(wait.status, wait.p50) + ' / ' + capacityWaitLabel(wait.status, wait.p95) + ' / ' + capacityWaitLabel(wait.status, wait.max)},
+        {label: 'Suite-alone simultaneous-start gap', value: integer(row.shapeGapJobs) + ' jobs · ' + integer(row.shapeGapGpus) + ' GPUs'},
+        {label: 'Background + suite zero-wait gap', value: row.combinedGapJobs === null ? 'Unavailable' : integer(row.combinedGapJobs) + ' jobs · ' + integer(row.combinedGapGpus) + ' GPUs'},
+        {label: 'History samples', value: integer(history.sample_count || 0)},
+        {label: 'Snapshots above today’s quota', value: integer(history.snapshots_above_configured_capacity || 0)},
+      ],
+      sources: [
+        {label: 'Open capacity projection aggregate', url: SOURCE_ASSETS.operations},
+        {label: 'Inspect raw queue history', url: SOURCE_ASSETS.queueHistory},
+      ],
+      content: note,
+    });
+  }
+
+  function capacityRouteNumberField(label, stateKey, queryKey, rawValue, minimum, maximum, suffix) {
+    const field = n('label', 'ops-capacity-field');
+    const input = n('input', 'ops-input ops-capacity-number');
+    input.type = 'number';
+    input.min = String(minimum);
+    input.max = String(maximum);
+    input.step = '1';
+    input.value = String(rawValue);
+    input.setAttribute('aria-label', label);
+    input.addEventListener('change', function () {
+      const next = String(capacityInteger(input.value, Number(rawValue), minimum, maximum));
+      setRouteState('ci-hotness', stateKey, next, queryKey);
+    });
+    add(field, [n('span', 'ops-field-label', label), n('div', 'ops-capacity-input-wrap')]);
+    field.lastChild.append(input);
+    if (suffix) field.lastChild.append(n('span', 'ops-capacity-input-suffix', suffix));
+    return field;
+  }
+
   function renderCapacityProjection(host, capacity) {
     capacity = capacity || {};
-    if (!capacity.available) {
-      host.append(n('div', 'ops-evidence-note is-warning', 'Capacity projection is unavailable until both the AMD semantic matrix and the central queue quota catalog are collected.'));
+    const profile = capacity.simulation_profile || {};
+    if (!capacity.available || !profile.available || !(profile.queues || []).length) {
+      host.append(n('div', 'ops-evidence-note is-warning', 'Interactive capacity planning is unavailable until the AMD semantic matrix, queue quota catalog, mapping aggregate, and queue history are rebuilt into the operations snapshot.'));
       return;
     }
-    const future = capacity.future_capacity || {};
-    const retiring = capacity.retiring_capacity || {};
-    const recommendation = capacity.recommendation || {};
-    const runtime = capacity.runtime_estimate || {};
-    const historical = capacity.historical_load || {};
-    const scenarios = capacity.scenarios || [];
-    const oneSuite = scenarios.find(function (row) { return Number(row.full_suites) === 1; }) || {};
-    const twoSuites = scenarios.find(function (row) { return Number(row.full_suites) === 2; }) || {};
-    const mi355Demand = (capacity.families || []).find(function (row) { return row.family === 'MI355'; }) || {};
-    const queueRows = (capacity.queues || []).filter(function (row) {
-      return Number(row.jobs || 0) > 0;
-    });
-    const linear = capacity.linear_sensitivity || {};
+    const topology = profile.topology || {};
+    const currentTopology = topology.current || {};
+    const targetTopology = topology.target || {};
+    const queueIds = profile.queues.map(function (queue) { return queue.id; });
+    const selectedQueue = queueIds.includes(state.capacityQueue) ? state.capacityQueue : queueIds[0];
+    const inputs = {
+      mode: state.capacityMode,
+      baseline: state.capacityBaseline,
+      groups: capacityInteger(state.capacityGroups, Number(targetTopology.groups || 160), 0, 5000),
+      jobs: capacityInteger(state.capacityJobs, Number(targetTopology.jobs || 196), 0, 50000),
+      queue: selectedQueue,
+      queueGroups: capacityInteger(state.capacityQueueGroups, 1, 0, 5000),
+      parallel: capacityInteger(state.capacityParallel, 1, 1, 256),
+      duration: capacityInteger(state.capacityDuration, 30, 1, 1440),
+      suites: capacityInteger(state.capacitySuites, 1, 1, 20),
+    };
+    const result = capacityScenario(profile, inputs);
+    const curve = capacityGrowthCurve(profile, inputs);
+    const bottleneck = result.bottleneck;
 
-    host.append(statusStrip([
-      {
-        id: 'capacity-target-groups',
-        label: 'PLANNING TARGET',
-        value: integer(capacity.target_groups) + ' groups',
-        meta: integer(capacity.declared_existing_groups) + ' + ' + integer(capacity.declared_new_groups) + ' = ' + integer(capacity.declared_total_groups) + '; ' + integer(capacity.planning_headroom_groups) + ' planning headroom',
-      },
-      {
-        id: 'capacity-target-demand',
-        label: 'ONE-SUITE BURST',
-        value: integer(capacity.gpu_slots) + ' GPUs',
-        meta: integer(capacity.jobs) + ' jobs - ' + value(capacity.eight_gpu_node_equivalents) + ' eight-GPU equivalents',
-      },
-      {
-        id: 'capacity-future-pool',
-        label: 'POST-MI325 POOL',
-        value: integer(future.gpus) + ' GPUs',
-        meta: integer(future.concurrent_jobs) + ' queue slots - ' + value(future.eight_gpu_node_equivalents) + ' eight-GPU equivalents',
-      },
-      {
-        id: 'capacity-hardware-decision',
-        label: 'ONE-SUITE DECISION',
-        value: recommendation.net_new_hardware_required_for_one_suite ? 'Add hardware' : 'No net-new GPUs',
-        meta: recommendation.queue_shape_change_required
-          ? '+' + integer(recommendation.additional_runner_jobs) + ' ' + value(recommendation.bottleneck_queue) + ' runner (' + integer(recommendation.additional_runner_gpus) + ' GPUs)'
-          : 'Current queue shapes fit',
-        tone: recommendation.net_new_hardware_required_for_one_suite ? 'is-warning' : 'is-success',
-      },
-      {
-        id: 'capacity-runtime-work',
-        label: 'MEDIAN WORK / SUITE',
-        value: runtime.available ? value(runtime.median_gpu_hours) + ' GPU-h' : '-',
-        meta: runtime.available
-          ? value(runtime.median_agent_hours) + ' agent-h from ' + integer(runtime.canonical_builds) + ' canonical nightlies'
-          : 'Waiting for exact 14-day wall-time coverage',
-      },
-      {
-        id: 'capacity-historical-load',
-        label: 'OBSERVED AVG LOAD',
-        value: historical.available ? value(historical.observed_average_gpus) + ' GPUs' : '-',
-        meta: historical.available
-          ? value(historical.post_migration_average_utilization_pct) + '% of the post-MI325 pool if equivalent work migrates'
-          : 'Exact completed GPU-hours unavailable',
-      },
-    ]));
-
-    const decision = n('div', 'ops-evidence-note ' + (recommendation.net_new_hardware_required_for_one_suite ? 'is-warning' : 'is-info'));
-    add(decision, [
-      n('strong', '', 'Projection answer. '),
-      n('span', '', value(recommendation.summary) + ' MI325 contributes ' + integer(retiring.gpus) + ' retiring GPUs, but the exact target topology assigns zero target jobs to MI325. The current target does assume MI355 remains eligible for ' + integer(mi355Demand.groups) + ' groups / ' + integer(mi355Demand.gpu_slots) + ' GPUs; if gating must remain MI250/MI300-only, those groups need an explicit queue reassignment before the queue-shape answer is final. Historical completed work averaged ' + value(historical.observed_average_gpus) + ' GPUs over the mapping window, or ' + value(historical.post_migration_average_utilization_pct) + '% of the 750-GPU future pool if equivalent MI325 work can migrate. This average is context only—not a burst/SLA guarantee.'),
+    const plannerControls = n('div', 'ops-capacity-controls');
+    plannerControls.append(segmented([
+      {id: 'groups', label: 'Target groups · auto mix'},
+      {id: 'jobs', label: 'Total jobs · auto mix'},
+      {id: 'queue', label: 'Specific queue / test'},
+    ], inputs.mode, function (id) {
+      setRouteState('ci-hotness', 'capacityMode', id, 'capacity_mode');
+    }, 'Capacity simulation input mode'));
+    const fields = n('div', 'ops-capacity-fields');
+    if (inputs.mode === 'groups') {
+      fields.append(capacityRouteNumberField('Target test groups', 'capacityGroups', 'capacity_groups', inputs.groups, 0, 5000, 'groups'));
+    } else if (inputs.mode === 'jobs') {
+      fields.append(capacityRouteNumberField('Total command jobs', 'capacityJobs', 'capacity_jobs', inputs.jobs, 0, 50000, 'jobs'));
+    } else {
+      const queueField = n('label', 'ops-capacity-field');
+      const queueSelect = n('select', 'ops-select ops-capacity-queue-select');
+      queueSelect.setAttribute('aria-label', 'AMD queue for the new mirror');
+      profile.queues.forEach(function (queue) {
+        const option = n('option', '', (queue.label || queue.id) + ' · ' + queue.family + ' · ' + integer(queue.gpus_per_job) + ' GPU/job');
+        option.value = queue.id;
+        option.selected = queue.id === selectedQueue;
+        queueSelect.append(option);
+      });
+      queueSelect.addEventListener('change', function () {
+        setRouteState('ci-hotness', 'capacityQueue', queueSelect.value, 'capacity_queue');
+      });
+      add(queueField, [n('span', 'ops-field-label', 'AMD queue'), queueSelect]);
+      fields.append(queueField);
+      fields.append(capacityRouteNumberField('New mirror groups', 'capacityQueueGroups', 'capacity_queue_groups', inputs.queueGroups, 0, 5000, 'groups'));
+      fields.append(capacityRouteNumberField('Parallel jobs / group', 'capacityParallel', 'capacity_parallel', inputs.parallel, 1, 256, 'jobs'));
+      fields.append(capacityRouteNumberField('Expected duration', 'capacityDuration', 'capacity_duration', inputs.duration, 1, 1440, 'min'));
+    }
+    fields.append(capacityRouteNumberField('Simultaneous suites', 'capacitySuites', 'capacity_suites', inputs.suites, 1, 20, 'suites'));
+    const baselineField = n('div', 'ops-capacity-field ops-capacity-baseline');
+    add(baselineField, [
+      n('span', 'ops-field-label', 'Background load'),
+      segmented([
+        {id: 'current', label: 'Current'},
+        {id: 'typical', label: 'Typical p50'},
+        {id: 'peak', label: 'Peak p95'},
+      ], inputs.baseline, function (id) {
+        setRouteState('ci-hotness', 'capacityBaseline', id, 'capacity_baseline');
+      }, 'Observed background-load baseline'),
     ]);
-    host.append(decision);
-    if (capacity.declared_current_mirror_groups !== capacity.observed_current_mirror_groups) {
-      const drift = n('div', 'ops-evidence-note is-warning');
+    fields.append(baselineField);
+    add(plannerControls, [
+      fields,
+      n('p', 'ops-capacity-control-note', inputs.mode === 'queue'
+        ? 'Simulates only the newly added YAML-like mirror shape; the displayed total gate becomes today’s topology plus those groups. Queue choice is explicit and compatibility is never inferred.'
+        : 'Auto mix interpolates the observed ' + integer(currentTopology.groups)
+          + '-group queue topology to the exact ' + integer(targetTopology.groups)
+          + '-group target. Largest-remainder allocation preserves the displayed total jobs.'),
+    ]);
+    host.append(panel('Capacity scenario planner', 'Inputs are encoded in the URL for review and sharing', plannerControls, 'ops-capacity-planner'));
+    if (Number(capacity.declared_current_mirror_groups) !== Number(capacity.observed_current_mirror_groups)) {
+      const drift = n('div', 'ops-capacity-drift');
       add(drift, [
-        n('strong', '', 'Current-count drift. '),
-        n('span', '', 'The planning input says ' + integer(capacity.declared_current_mirror_groups) + ' currently gated groups, while the checked-out mirror configuration currently resolves to ' + integer(capacity.observed_current_mirror_groups) + '. The 160-group answer is based on the exact semantic target matrix, so this one-group drift does not change the target hardware result; the baseline should still be reconciled.'),
+        n('strong', '', 'Baseline count needs reconciliation. '),
+        n('span', '', 'Planning input says ' + integer(capacity.declared_current_mirror_groups)
+          + ' current groups; checked-out test_areas resolves to ' + integer(capacity.observed_current_mirror_groups)
+          + '. Simulation uses the observed topology.'),
       ]);
       host.append(drift);
     }
 
-    const grid = n('div', 'ops-grid ops-grid-2');
-    const queueChart = chartPanel('Target queue shape', 'Exact one-cell-per-semantic-row topology; demand is concurrent command jobs', 'capacity-target-queues');
-    grid.append(queueChart.root);
+    const unplaced = profile.unplaced_retiring_workload || {};
+    const unplacedTotals = unplaced.totals || {};
+    const unplacedMain = (unplaced.by_workload || {}).main || {};
+    const unplacedOmni = (unplaced.by_workload || {}).omni || {};
+    const unplacedWindow = unplaced.window || {};
+    const unplacedJobRangeExhaustive = unplacedWindow.job_created_range_exhaustive === true
+      ? true
+      : unplacedWindow.job_created_range_exhaustive === false
+        ? false
+        : null;
+    const unplacedLookback = Number(unplacedWindow.parent_build_lookback_days);
+    const unplacedMappingBoundary = unplacedJobRangeExhaustive === false
+      ? 'MI325 mapping counts are UUID-deduplicated observations inside the '
+        + (Number.isFinite(unplacedLookback) && unplacedLookback > 0 ? integer(unplacedLookback) + '-day' : 'configured')
+        + ' parent-build lookback, not a provably exhaustive population of every job created in the displayed interval. '
+        + (unplacedWindow.source_limitation || unplacedWindow.limitation || 'Jobs attached later to older parent builds can be absent.')
+      : unplacedJobRangeExhaustive === null
+        ? 'MI325 mapping population exhaustiveness is not published; treat these as observed source-window counts.'
+        : 'The source marks the displayed MI325 job-created range exhaustive.';
+    const retiringCapacity = capacity.retiring_capacity || {};
+    const hasUnplacedMi325 = unplaced.available === true || Number(retiringCapacity.gpus || 0) > 0;
+    function unplacedNumber(raw, decimals) {
+      return raw !== null && raw !== undefined && raw !== '' && Number.isFinite(Number(raw))
+        ? Number(raw).toLocaleString(undefined, {maximumFractionDigits: decimals})
+        : '-';
+    }
+    function unplacedOccupancyLabel(preset) {
+      const row = ((unplaced.occupancy || {})[preset]) || {};
+      if (!row.available) return 'Unavailable';
+      return unplacedNumber(row.running_gpu_slots, 1) + ' running / '
+        + unplacedNumber(row.waiting_gpu_slots, 1) + ' waiting GPU slots'
+        + (row.complete === false ? ' · partial queue coverage' : '');
+    }
+    function openUnplacedMi325Detail() {
+      const rows = unplaced.queues || [];
+      const guidance = n('div', 'ops-stack');
+      guidance.append(n('div', 'ops-evidence-note ' + (unplacedJobRangeExhaustive === true ? 'is-info' : 'is-warning'), unplacedMappingBoundary));
+      guidance.append(n('div', 'ops-evidence-note is-warning',
+        'Manual placement only: first confirm a compatible active queue with the test owner. Then choose Specific queue / test in this planner and enter that queue, mirror-group count, jobs per group, and expected duration. The dashboard does not infer an MI250, MI300, or MI355 destination.'));
+      if (rows.length) {
+        guidance.append(dataTable([
+          {label: 'Retiring queue', sticky: true, render: function (row) { return n('span', 'ops-mono', row.id); }},
+          {label: (unplacedWindow.days ? integer(unplacedWindow.days) + 'd' : 'Window') + ' observed mappings', numeric: true, render: function (row) { return integer((row.totals || {}).mapped_jobs); }},
+          {label: 'GPU-hours', numeric: true, render: function (row) { return unplacedNumber((row.totals || {}).gpu_hours, 1); }},
+          {label: 'Current run / wait', numeric: true, render: function (row) {
+            const baseline = (row.history || {}).current || {};
+            return baseline.available ? value(baseline.running) + ' / ' + value(baseline.waiting) : '-';
+          }},
+          {label: 'p50 run / wait', numeric: true, render: function (row) {
+            const baseline = (row.history || {}).typical || {};
+            return baseline.available ? value(baseline.running) + ' / ' + value(baseline.waiting) : '-';
+          }},
+          {label: 'p95 run / wait', numeric: true, render: function (row) {
+            const baseline = (row.history || {}).peak || {};
+            return baseline.available ? value(baseline.running) + ' / ' + value(baseline.waiting) : '-';
+          }},
+        ], rows, 'Retiring MI325 evidence', {name: 'capacity-unplaced-mi325', minWidth: '820px'}));
+      }
+      openDetailDrawer({
+        id: 'capacity-unplaced-mi325',
+        title: 'Unplaced retiring MI325 workload',
+        subtitle: (unplacedWindow.days ? integer(unplacedWindow.days) + '-day' : 'Published') + ' evidence · compatibility unknown',
+        description: (unplaced.reason || 'MI325 capacity is retiring, but no compatible destination has been selected. It is excluded from this simulation.') + ' ' + unplacedMappingBoundary,
+        fields: [
+          {label: 'Observed mapped jobs', value: unplacedNumber(unplacedTotals.mapped_jobs, 0)},
+          {label: 'Completed GPU-hours', value: unplacedNumber(unplacedTotals.gpu_hours, 1)},
+          {label: 'Average completed load', value: unplacedTotals.average_gpus !== null && unplacedTotals.average_gpus !== undefined && Number.isFinite(Number(unplacedTotals.average_gpus)) ? unplacedNumber(unplacedTotals.average_gpus, 1) + ' GPUs' : 'Unavailable'},
+          {label: 'vllm-project/vllm', value: unplacedNumber(unplacedMain.mapped_jobs, 0) + ' observed mappings · ' + unplacedNumber(unplacedMain.gpu_hours, 1) + ' GPU-hours'},
+          {label: 'vllm-project/vllm-omni', value: unplacedNumber(unplacedOmni.mapped_jobs, 0) + ' observed mappings · ' + unplacedNumber(unplacedOmni.gpu_hours, 1) + ' GPU-hours'},
+          {label: 'Job-created range exhaustive', value: unplacedJobRangeExhaustive === true ? 'Yes' : unplacedJobRangeExhaustive === false ? 'No' : 'Not published'},
+          {label: 'Parent-build lookback', value: Number.isFinite(unplacedLookback) && unplacedLookback > 0 ? integer(unplacedLookback) + ' days' : 'Not published'},
+          {label: 'Current occupancy', value: unplacedOccupancyLabel('current')},
+          {label: 'Typical p50 occupancy', value: unplacedOccupancyLabel('typical')},
+          {label: 'Peak p95 occupancy', value: unplacedOccupancyLabel('peak')},
+          {label: 'Included in wait/headroom', value: 'No'},
+          {label: 'Placement rule', value: 'User-confirmed compatible destination only'},
+        ],
+        sources: [
+          {label: 'Open unique-job mapping evidence', url: SOURCE_ASSETS.workloadMapping},
+          {label: 'Open queue occupancy history', url: SOURCE_ASSETS.queueHistory},
+          {label: 'Open capacity projection inputs', url: SOURCE_ASSETS.operations},
+        ],
+        content: guidance,
+      });
+    }
+    if (hasUnplacedMi325) {
+      const warning = n('div', 'ops-capacity-unplaced');
+      const warningCopy = n('div', 'ops-capacity-unplaced-copy');
+      add(warningCopy, [
+        n('strong', '', 'MI325 workload is unplaced—and excluded from this answer.'),
+        n('span', '', ' Wait and headroom model only the active MI250, MI300, and MI355 queues. Choose a compatible destination before adding this retiring workload; compatibility is not inferred. Mapping counts are observed source-window evidence, with job-created exhaustiveness shown in the drilldown.'),
+      ]);
+      const facts = n('div', 'ops-capacity-unplaced-facts');
+      [
+        {label: (unplacedWindow.days ? integer(unplacedWindow.days) + 'd' : 'Window') + ' observed mappings', value: unplacedNumber(unplacedTotals.mapped_jobs, 0)},
+        {label: 'Completed GPU-hours', value: unplacedNumber(unplacedTotals.gpu_hours, 1)},
+        {label: 'Average load', value: unplacedTotals.average_gpus !== null && unplacedTotals.average_gpus !== undefined && Number.isFinite(Number(unplacedTotals.average_gpus)) ? unplacedNumber(unplacedTotals.average_gpus, 1) + ' GPUs' : '-'},
+        {label: 'Peak occupancy', value: unplacedOccupancyLabel('peak')},
+      ].forEach(function (fact) {
+        const item = n('span', 'ops-capacity-unplaced-fact');
+        add(item, [n('small', '', fact.label), n('strong', '', fact.value)]);
+        facts.append(item);
+      });
+      add(warning, [
+        warningCopy,
+        facts,
+        linkButton('Inspect and model manually', openUnplacedMi325Detail, 'Inspect retiring MI325 workload and manual placement guidance'),
+      ]);
+      host.append(warning);
+    }
+
+    function openScenarioSummary() {
+      openDetailDrawer({
+        id: 'capacity-scenario-summary',
+        title: 'Selected capacity scenario',
+        subtitle: 'Route-shareable planning inputs',
+        fields: [
+          {label: 'Mode', value: inputs.mode},
+          {label: inputs.mode === 'queue' ? 'New groups' : 'Groups per suite', value: integer(result.groups)},
+          {label: inputs.mode === 'queue' ? 'New jobs per suite' : 'Jobs per suite', value: integer(result.jobsPerSuite)},
+          {label: 'Resulting total gate', value: integer(result.totalGateGroups) + ' groups · ' + integer(result.totalGateJobs) + ' jobs'},
+          {label: 'Simultaneous suites', value: integer(result.suites)},
+          {label: 'Burst jobs / GPU slots', value: integer(result.jobs) + ' / ' + integer(result.gpuSlots)},
+          {label: 'Background baseline', value: result.baseline},
+          {label: 'Queued background GPUs', value: result.baselineQueuedGpus === null ? 'Unavailable' : integer(result.baselineQueuedGpus)},
+          {label: 'Aggregate queued GPU pressure', value: result.aggregatePressurePct === null ? 'Unavailable' : result.aggregatePressurePct.toFixed(1) + '%'},
+        ],
+        sources: [{label: 'Open published planning inputs', url: SOURCE_ASSETS.operations}],
+      });
+    }
+    function openWaitSummary() {
+      const waitRows = result.activeRows.slice().sort(function (left, right) {
+        return Number(right.wait.p95 || 0) - Number(left.wait.p95 || 0);
+      });
+      openDetailDrawer({
+        id: 'capacity-wait-summary',
+        title: 'Projected FCFS burst wait',
+        subtitle: 'Per-queue planning estimate; not an SLA',
+        description: capacityVerdict(result),
+        content: dataTable([
+          {label: 'Queue', sticky: true, render: function (row) { return row.label; }},
+          {label: 'p50', numeric: true, render: function (row) { return capacityWaitLabel(row.wait.status, row.wait.p50); }},
+          {label: 'p95', numeric: true, render: function (row) { return capacityWaitLabel(row.wait.status, row.wait.p95); }},
+          {label: 'Max', numeric: true, render: function (row) { return capacityWaitLabel(row.wait.status, row.wait.max); }},
+        ], waitRows, 'Queue-level FCFS results', {name: 'capacity-wait-detail', minWidth: '600px'}),
+        sources: [{label: 'Inspect queue history', url: SOURCE_ASSETS.queueHistory}],
+      });
+    }
+    function openHardwareSummary() {
+      openDetailDrawer({
+        id: 'capacity-hardware-summary',
+        title: 'Hardware and queue-shape action',
+        subtitle: 'Simultaneous-start queue shape and fixed-family constraints',
+        description: capacityVerdict(result),
+        fields: [
+          {label: 'Suite-alone simultaneous-start queue-shape gap', value: integer(result.shapeGapGpus) + ' GPUs'},
+          {label: 'Suite-alone simultaneous-start fixed-family gap', value: integer(result.familyGapGpus) + ' GPUs'},
+          {label: 'Background + suite zero-wait queue-shape gap', value: result.zeroWaitShapeGapGpus === null ? 'Unavailable' : integer(result.zeroWaitShapeGapGpus) + ' GPUs'},
+          {label: 'Background + suite zero-wait fixed-family gap', value: result.zeroWaitFamilyGapGpus === null ? 'Unavailable' : integer(result.zeroWaitFamilyGapGpus) + ' GPUs'},
+          {label: 'Post-MI325 configured pool', value: integer(result.totalCapacityGpus) + ' GPUs'},
+        ],
+        content: dataTable([
+          {label: 'Family', render: function (row) { return row.family; }},
+          {label: 'Demand', numeric: true, render: function (row) { return integer(row.demandGpus) + ' GPUs'; }},
+          {label: 'Capacity', numeric: true, render: function (row) { return integer(row.capacityGpus) + ' GPUs'; }},
+          {label: 'Suite-alone start-at-once gap', numeric: true, render: function (row) { return badge(integer(row.gapGpus) + ' GPUs', row.gapGpus ? 'is-warning' : 'is-success'); }},
+          {label: 'Background + suite zero-wait gap', numeric: true, render: function (row) { return row.zeroWaitGapGpus === null ? '-' : badge(integer(row.zeroWaitGapGpus) + ' GPUs', row.zeroWaitGapGpus ? 'is-warning' : 'is-success'); }},
+        ], result.familyRows, 'Fixed-family capacity', {name: 'capacity-family-detail', minWidth: '560px'}),
+        sources: [{label: 'Open configured capacity evidence', url: SOURCE_ASSETS.operations}],
+      });
+    }
+    host.append(statusStrip([
+      {
+        id: 'capacity-selected-scenario',
+        label: 'SELECTED SCENARIO',
+        value: integer(result.totalGateGroups) + ' total groups',
+        meta: (inputs.mode === 'queue' ? '+' + integer(result.groups) + ' groups · ' : '')
+          + integer(result.jobs) + ' burst jobs · ' + integer(result.gpuSlots) + ' GPU slots · '
+          + integer(result.suites) + ' suite' + (result.suites === 1 ? '' : 's')
+          + (hasUnplacedMi325 ? ' · MI325 excluded/unplaced' : ''),
+        onOpen: openScenarioSummary,
+      },
+      {
+        id: 'capacity-bottleneck',
+        label: 'BOTTLENECK QUEUE',
+        value: bottleneck ? bottleneck.label : 'None',
+        meta: bottleneck
+          ? (bottleneck.pressurePct === null ? 'pressure unavailable' : bottleneck.pressurePct.toFixed(0) + '% combined pressure') + ' · ' + integer(bottleneck.demandJobs) + '/' + integer(bottleneck.capacityJobs) + ' burst/quota'
+          : 'No scenario jobs',
+        tone: bottleneck && (bottleneck.wait.status !== 'finite' || Number(bottleneck.pressurePct || 0) >= 100) ? 'is-warning' : 'is-info',
+        onOpen: function () { if (bottleneck) openCapacityQueueDetail(bottleneck, result); else openScenarioSummary(); },
+      },
+      {
+        id: 'capacity-projected-wait',
+        label: 'PROJECTED P95 START WAIT',
+        value: capacityWaitLabel(result.waitStatus, result.p95Wait),
+        meta: 'p50 ' + capacityWaitLabel(result.waitStatus, result.p50Wait) + ' · max ' + capacityWaitLabel(result.waitStatus, result.maxWait),
+        tone: result.waitStatus === 'finite' && Number(result.p95Wait || 0) < 30 ? 'is-success' : 'is-warning',
+        onOpen: openWaitSummary,
+      },
+      {
+        id: 'capacity-hardware-action',
+        label: 'START-AT-ONCE GAP',
+        value: result.familyGapGpus
+          ? integer(result.familyGapGpus) + ' family GPU slots'
+          : result.shapeGapGpus
+            ? 'Reallocate ' + integer(result.shapeGapGpus) + ' GPUs'
+            : 'Suite fits at once',
+        meta: 'suite alone: ' + integer(result.shapeGapGpus) + ' queue-shape / ' + integer(result.familyGapGpus)
+          + ' family GPU gap · with background: '
+          + (result.zeroWaitShapeGapGpus === null ? '-' : integer(result.zeroWaitShapeGapGpus)) + ' shape / '
+          + (result.zeroWaitFamilyGapGpus === null ? '-' : integer(result.zeroWaitFamilyGapGpus)) + ' family zero-wait gap',
+        tone: result.familyGapGpus || Number(result.zeroWaitFamilyGapGpus || 0) ? 'is-warning' : result.shapeGapGpus || Number(result.zeroWaitShapeGapGpus || 0) ? 'is-info' : 'is-success',
+        onOpen: openHardwareSummary,
+      },
+    ]));
+
+    const verdict = n('div', 'ops-capacity-verdict ' + (
+      result.familyGapGpus
+      || result.shapeGapGpus
+      || Number(result.zeroWaitFamilyGapGpus || 0)
+      || Number(result.zeroWaitShapeGapGpus || 0)
+      || result.waitStatus !== 'finite'
+        ? 'is-warning'
+        : 'is-success'
+    ));
+    add(verdict, [n('strong', '', 'What happens. '), n('span', '', capacityVerdict(result))]);
+    host.append(verdict);
+
+    const visualGrid = n('div', 'ops-grid ops-grid-2 ops-capacity-visuals');
+    const demandRows = result.rows.filter(function (row) {
+      return row.demandJobs > 0 || Number(row.baselineRunning || 0) > 0 || Number(row.baselineWaiting || 0) > 0;
+    });
+    const demandChart = chartPanel('Demand vs configured queue capacity', 'Selected burst plus ' + result.baseline + ' observed running and waiting jobs', 'capacity-sim-demand');
+    visualGrid.append(demandChart.root);
     requestAnimationFrame(function () {
-      drawChart('capacity-target-queues', queueChart.canvas, {
+      drawChart('capacity-sim-demand', demandChart.canvas, {
         type: 'bar',
         data: {
-          labels: queueRows.map(function (row) { return row.label; }),
+          labels: demandRows.map(function (row) { return row.label; }),
           datasets: [
-            {label: 'Target jobs', data: queueRows.map(function (row) { return row.jobs; }), backgroundColor: '#22b8ad'},
-            {label: 'Queue capacity', data: queueRows.map(function (row) { return row.max_concurrent_jobs; }), backgroundColor: '#66717d'},
+            {label: 'Running + waiting + burst', data: demandRows.map(function (row) { return row.combinedJobs; }), backgroundColor: '#22b8ad'},
+            {label: 'Configured queue slots', data: demandRows.map(function (row) { return row.capacityJobs; }), backgroundColor: '#66717d'},
           ],
         },
         options: {scales: {y: {beginAtZero: true, title: {display: true, text: 'Concurrent jobs'}}}},
-        evidenceTitle: 'Exact target queue topology',
+        evidenceTitle: 'Scenario demand versus queue capacity',
         evidenceAsset: SOURCE_ASSETS.operations,
-        evidence: queueRows.map(function (row) {
+        evidence: demandRows.map(function (row) {
           return {
             id: row.id,
             label: row.label,
-            valueSummary: integer(row.jobs) + ' target jobs / ' + integer(row.max_concurrent_jobs) + ' available',
+            valueSummary: value(row.combinedJobs) + ' combined jobs / ' + integer(row.capacityJobs) + ' configured slots',
             details: {
-              family: row.family,
-              semantic_groups: row.groups,
-              gpu_slots: row.gpu_slots,
-              gap_jobs: row.gap_jobs,
-              gap_gpus: row.gap_gpus,
+              baseline_running: row.baselineRunning,
+              baseline_waiting: row.baselineWaiting,
+              burst_jobs: row.demandJobs,
+              standalone_queue_shape_gap_gpus: row.shapeGapGpus,
+              zero_wait_queue_shape_gap_gpus: row.combinedGapGpus,
             },
+            onOpen: function () { openCapacityQueueDetail(row, result); },
           };
         }),
       });
     });
-    grid.append(panel('Concurrency sensitivity', 'Queue-shaped gaps for one and two complete suites', dataTable([
-      {label: 'Full suites', render: function (row) { return integer(row.full_suites); }},
-      {label: 'Groups', numeric: true, render: function (row) { return integer(row.groups); }},
-      {label: 'Jobs', numeric: true, render: function (row) { return integer(row.jobs); }},
-      {label: 'GPU slots', numeric: true, render: function (row) { return integer(row.gpu_slots); }},
-      {label: 'Aggregate use', numeric: true, render: function (row) { return value(row.aggregate_utilization_pct) + '%'; }},
-      {label: 'Family gap', numeric: true, render: function (row) { return badge(integer(row.family_gap_gpus) + ' GPUs', row.family_gap_gpus ? 'is-warning' : 'is-success'); }},
-      {label: 'Queue-shape gap', numeric: true, render: function (row) { return badge(integer(row.shape_gap_gpus) + ' GPUs', row.shape_gap_gpus ? 'is-warning' : 'is-success'); }},
-    ], scenarios), 'ops-capacity-scenarios'));
-    host.append(grid);
-    if (Number(twoSuites.family_gap_gpus || 0) > 0) {
-      const overlap = n('div', 'ops-evidence-note is-warning');
-      const families = (twoSuites.family_gaps || []).map(function (row) {
-        return row.family + ' +' + integer(row.gap_gpus) + ' GPUs';
-      }).join(', ');
-      add(overlap, [
-        n('strong', '', 'Overlapping full suites change the answer. '),
-        n('span', '', 'Two simultaneous suites consume ' + integer(twoSuites.gpu_slots) + ' GPU slots. Aggregate capacity still fits, but fixed hardware-family placement is short ' + integer(twoSuites.family_gap_gpus) + ' GPUs (' + families + '), and fixed queue shapes are short ' + integer(twoSuites.shape_gap_gpus) + ' GPUs. This is the procurement/SLA boundary unless groups can migrate across hardware families.'),
-      ]);
-      host.append(overlap);
-    }
+    const growthTitle = inputs.mode === 'queue'
+      ? 'Wait as this mirror expands'
+      : inputs.mode === 'jobs'
+        ? 'Wait as command jobs grow'
+        : 'Wait as gating grows';
+    const growthContext = inputs.mode === 'queue'
+      ? ((profile.queues.find(function (queue) { return queue.id === selectedQueue; }) || {}).label || selectedQueue) + ' only · manual queue placement'
+      : 'Representative current-to-target auto mix';
+    const growthChart = chartPanel(growthTitle, growthContext + ' · ' + result.baseline + ' background · ' + integer(result.suites) + ' simultaneous suite' + (result.suites === 1 ? '' : 's'), 'capacity-sim-growth');
+    visualGrid.append(growthChart.root);
+    requestAnimationFrame(function () {
+      drawChart('capacity-sim-growth', growthChart.canvas, {
+        type: 'line',
+        data: {
+          labels: curve.map(function (row) { return row.x; }),
+          datasets: [
+            {label: 'Projected p95 start wait', data: curve.map(function (row) { return row.status === 'finite' ? row.p95Wait : null; }), borderColor: '#22b8ad', backgroundColor: '#22b8ad', tension: 0.18, spanGaps: false},
+            {label: 'Projected max start wait', data: curve.map(function (row) { return row.status === 'finite' ? row.maxWait : null; }), borderColor: '#e3a63a', backgroundColor: '#e3a63a', tension: 0.18, spanGaps: false},
+          ],
+        },
+        options: {scales: {x: {title: {display: true, text: curve.length ? curve[0].axisLabel : 'Scenario size'}}, y: {beginAtZero: true, title: {display: true, text: 'Start wait (minutes)'}}}},
+        evidenceTitle: 'Projected wait along workload growth',
+        evidenceAsset: SOURCE_ASSETS.operations,
+        evidence: curve.map(function (row) {
+          return {
+            id: 'capacity-growth-' + row.mode + '-' + row.x,
+            label: integer(row.x) + ' ' + (
+              row.mode === 'jobs' ? 'command jobs' : row.mode === 'queue' ? 'new mirror groups' : 'gated groups'
+            ) + (row.selected ? ' · selected' : ''),
+            valueSummary: row.status === 'finite' ? duration(row.p95Wait) + ' p95 start wait' : capacityWaitLabel(row.status, null),
+            details: {status: row.status, selected: row.selected, resulting_total_groups: row.groups, resulting_total_jobs: row.jobs, burst_jobs: row.burstJobs, maximum_wait: row.maxWait, bottleneck: row.bottleneck, queue_pressure_pct: row.pressurePct},
+          };
+        }),
+      });
+    });
+    host.append(visualGrid);
 
-    const queueColumns = [
-      {label: 'Queue', sticky: true, render: function (row) { return n('span', 'ops-mono', row.label); }},
-      {label: 'Family', render: function (row) { return badge(row.family, 'is-info'); }},
-      {label: 'Groups', numeric: true, render: function (row) { return integer(row.groups); }},
-      {label: 'Target jobs', numeric: true, render: function (row) { return integer(row.jobs); }},
-      {label: 'Target GPUs', numeric: true, render: function (row) { return integer(row.gpu_slots); }},
-      {label: 'Job quota', numeric: true, render: function (row) { return integer(row.max_concurrent_jobs); }},
-      {label: 'Quota use', numeric: true, render: function (row) { return percent(row.jobs, row.max_concurrent_jobs); }},
-      {label: 'Gap', numeric: true, render: function (row) { return badge(row.gap_jobs ? '+' + integer(row.gap_jobs) + ' jobs' : 'none', row.gap_jobs ? 'is-warning' : 'is-success'); }},
-      {label: 'Median GPU-h', numeric: true, render: function (row) { const runtimeRow = (runtime.queues || {})[row.id] || {}; return runtimeRow.median_gpu_hours === undefined ? '-' : Number(runtimeRow.median_gpu_hours).toFixed(2); }},
-    ];
+    const bottleneckRows = result.activeRows.slice().sort(function (left, right) {
+      const rank = {unavailable: 2, finite: 1};
+      return (rank[right.wait.status] || 0) - (rank[left.wait.status] || 0)
+        || Number(right.pressurePct || 0) - Number(left.pressurePct || 0);
+    });
     host.append(compactTablePanel(
-      'Hardware required for one 160-group suite',
-      integer(queueRows.length) + ' used queue shapes; perf-eval and retiring MI325 capacity are excluded',
-      queueColumns,
-      queueRows,
+      'Queue bottlenecks',
+      integer(bottleneckRows.length) + ' used queue shapes · click any queue for evidence and assumptions',
+      [
+        {label: 'Queue', sticky: true, width: '190px', render: function (row) { return linkButton(row.label, function () { openCapacityQueueDetail(row, result); }); }},
+        {label: 'Family', width: '90px', render: function (row) { return badge(row.family, 'is-info'); }},
+        {label: 'Base run / wait', numeric: true, width: '130px', render: function (row) { return row.baselineRunning === null ? '-' : value(row.baselineRunning) + ' / ' + value(row.baselineWaiting); }},
+        {label: 'Burst jobs', numeric: true, width: '100px', render: function (row) { return integer(row.demandJobs); }},
+        {label: 'Quota', numeric: true, width: '90px', render: function (row) { return integer(row.capacityJobs); }},
+        {label: 'Combined pressure', numeric: true, width: '140px', render: function (row) { return row.pressurePct === null ? '-' : row.pressurePct.toFixed(1) + '%'; }},
+        {label: 'Projected p95', numeric: true, width: '130px', render: function (row) { return capacityWaitLabel(row.wait.status, row.wait.p95); }},
+        {label: 'Suite-only / background zero-wait gap', numeric: true, width: '220px', render: function (row) {
+          const zeroWait = row.combinedGapGpus === null ? '-' : integer(row.combinedGapGpus);
+          return badge(integer(row.shapeGapGpus) + ' / ' + zeroWait + ' GPUs', row.shapeGapGpus || Number(row.combinedGapGpus || 0) ? 'is-warning' : 'is-success');
+        }},
+      ],
+      bottleneckRows,
       {
-        id: 'capacity-queue-browser',
-        limit: 20,
-        browserTitle: 'Exact 160-group queue topology',
-        browserSubtitle: 'Parallelism is expanded into jobs, then multiplied by each queue GPU width',
+        id: 'capacity-simulation-queues',
+        limit: 12,
+        browserTitle: 'Capacity simulation by queue',
+        browserSubtitle: 'FCFS planning estimate with exact queue widths and empirical background presets',
         searchPlaceholder: 'Filter queue or hardware family',
-        searchText: function (row) { return [row.id, row.label, row.family].join(' '); },
-        geometry: {name: 'capacity-queues', minWidth: '1050px'},
+        searchText: function (row) { return [row.id, row.label, row.family, row.wait.status].join(' '); },
+        geometry: {name: 'capacity-simulation-queues', minWidth: '1040px'},
+        className: 'ops-capacity-bottlenecks',
       }
     ));
 
-    const method = n('div', 'ops-evidence-note is-info');
+    const method = n('div', 'ops-evidence-note is-info ops-capacity-method');
     add(method, [
-      n('strong', '', 'Why exact topology is ' + integer(capacity.gpu_slots) + ' GPUs, not ' + integer(linear.projected_total_gpus) + '. '),
-      n('span', '', 'The exact projection selects one configured hardware cell for each of the 160 semantic matrix rows, expands Buildkite parallelism, and applies queue width. The linear ' + integer(linear.base_groups) + '-to-' + integer(linear.target_groups) + ' sensitivity preserves today’s smaller mirror mix and undercounts the target’s multi-GPU jobs, so it is shown only as a sensitivity check. Historical work is the sum of per-command-job median Buildkite wall time from ' + value(runtime.window_start_date) + ' through ' + value(runtime.window_end_date) + '; queue wait and superseded retry attempts are excluded. ' + value(capacity.caveat)),
+      n('strong', '', 'Planning model, not an SLA. '),
+      n('span', '', 'Each configured runner is list-scheduled independently. Observed running jobs receive one conservative full service interval of residual work, observed waiting jobs stay ahead, and scenario jobs go to the earliest available runner. '
+        + value(((profile.assumptions || {}).history))
+        + ' Suite-alone simultaneous-start gaps and background-plus-suite zero-wait gaps are separate views; queue-shape and fixed-family gaps are not additive. No compatibility or cross-family migration is inferred.'),
+      linkButton('Inspect model inputs', openScenarioSummary, 'Inspect the exact scenario inputs and provenance'),
     ]);
     host.append(method);
   }
@@ -7299,6 +8234,18 @@
 
   }
 
+  const OMNI_REPOSITORIES = {
+    omni: 'vllm-project/vllm-omni',
+    main: 'vllm-project/vllm',
+  };
+  const OMNI_MAPPING_WINDOWS = [
+    {id: '6h', label: '6 hours', shortLabel: '6h', hours: 6, hourlyBin: 1},
+    {id: '1d', label: '1 day', shortLabel: '1d', hours: 24, hourlyBin: 1},
+    {id: '3d', label: '3 days', shortLabel: '3d', hours: 72, hourlyBin: 3},
+    {id: '7d', label: '7 days', shortLabel: '7d', hours: 168, hourlyBin: 6},
+    {id: '1m', label: '1 month', shortLabel: '1m', hours: 24 * 30, hourlyBin: 24},
+    {id: '3m', label: '3 months', shortLabel: '3m', hours: 24 * 90, hourlyBin: 24},
+  ];
   const OMNI_RANGE_WINDOWS = [
     {id: '1h', label: '1 hour', hours: 1},
     {id: '3h', label: '3 hours', hours: 3},
@@ -7317,6 +8264,334 @@
     {id: '1to3d', label: '1-3d', min: 1440, max: 4320},
     {id: 'gte3d', label: '3d+', min: 4320, max: null},
   ];
+
+  const OMNI_MAPPING_NUMBER_FIELDS = [
+    'mapped_jobs', 'started_jobs', 'finished_jobs', 'mapped_gpu_slots', 'gpu_hours',
+  ];
+
+  function emptyOmniMappingStats() {
+    return {
+      mapped_jobs: 0,
+      started_jobs: 0,
+      finished_jobs: 0,
+      mapped_gpu_slots: 0,
+      gpu_hours: 0,
+      by_queue: {},
+      by_pipeline: {},
+    };
+  }
+
+  function addOmniMappingBreakdown(target, source) {
+    Object.entries(source || {}).forEach(function (entry) {
+      const name = entry[0];
+      const stats = entry[1] || {};
+      if (!target[name]) {
+        target[name] = {
+          mapped_jobs: 0,
+          started_jobs: 0,
+          finished_jobs: 0,
+          mapped_gpu_slots: 0,
+          gpu_hours: 0,
+        };
+      }
+      OMNI_MAPPING_NUMBER_FIELDS.forEach(function (field) {
+        target[name][field] += Number(stats[field] || 0);
+      });
+    });
+  }
+
+  function addOmniMappingStats(target, source) {
+    const stats = source || {};
+    OMNI_MAPPING_NUMBER_FIELDS.forEach(function (field) {
+      target[field] += Number(stats[field] || 0);
+    });
+    addOmniMappingBreakdown(target.by_queue, stats.by_queue);
+    addOmniMappingBreakdown(target.by_pipeline, stats.by_pipeline);
+    return target;
+  }
+
+  function omniMappingTotals(rows) {
+    const totals = {
+      omni: emptyOmniMappingStats(),
+      main: emptyOmniMappingStats(),
+    };
+    (rows || []).forEach(function (row) {
+      const workloads = row.workloads || {};
+      addOmniMappingStats(totals.omni, workloads.omni);
+      addOmniMappingStats(totals.main, workloads.main);
+    });
+    return totals;
+  }
+
+  function omniMappingRowStart(row, resolution) {
+    const raw = resolution === 'hourly'
+      ? (row.hour || row.start || row.bucket_start || row.ts)
+      : (row.date ? row.date + 'T00:00:00Z' : row.start || row.ts);
+    const parsed = new Date(raw || '').getTime();
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function omniMappingRowEnd(row, resolution) {
+    const explicit = new Date(row.end_exclusive || row.end || '').getTime();
+    if (Number.isFinite(explicit)) return explicit;
+    const start = omniMappingRowStart(row, resolution);
+    if (start === null) return null;
+    return start + (resolution === 'hourly' ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000);
+  }
+
+  function omniMappingPopulationBoundary(mapping, resolution) {
+    mapping = mapping || {};
+    const windowScope = mapping.window || {};
+    const attribution = (mapping.scope || {}).attribution || {};
+    const query = mapping.query || {};
+    const resolutionCoverage = ((mapping.coverage || {})[resolution]) || {};
+    const exhaustiveValues = [
+      windowScope.job_created_range_exhaustive,
+      resolutionCoverage.job_created_range_exhaustive,
+      attribution.job_created_range_exhaustive,
+      query.job_created_range_exhaustive,
+    ];
+    const exhaustiveValue = exhaustiveValues.find(function (value) {
+      return value === true || value === false;
+    });
+    const lookback = Number(
+      attribution.parent_build_lookback_days === undefined
+        ? query.parent_build_lookback_days
+        : attribution.parent_build_lookback_days
+    );
+    return {
+      jobCreatedRangeExhaustive: exhaustiveValue === undefined ? null : exhaustiveValue,
+      parentBuildLookbackDays: Number.isFinite(lookback) && lookback > 0 ? lookback : null,
+      sourceWindowExact: attribution.exact_within_declared_source_window === true,
+      limitation: attribution.limitation || (
+        exhaustiveValue === false
+          ? 'Jobs added after the configured lookback to older parent builds can be absent from these aggregates.'
+          : ''
+      ),
+    };
+  }
+
+  function omniMappingWindow(mapping, rangeId) {
+    const selected = OMNI_MAPPING_WINDOWS.find(function (item) { return item.id === rangeId; })
+      || OMNI_MAPPING_WINDOWS[3];
+    const hourly = Array.isArray((mapping || {}).hourly) ? mapping.hourly : [];
+    const daily = Array.isArray((mapping || {}).daily) ? mapping.daily : [];
+    let resolution = selected.hours <= 168 && hourly.length ? 'hourly' : 'daily';
+    if (selected.hours < 72 && !hourly.length) {
+      return Object.assign({
+        selected: selected,
+        available: false,
+        resolution: 'unavailable',
+        rows: [],
+        buckets: [],
+        complete: false,
+        apiCollectionComplete: false,
+        lowerBound: false,
+        hasOpenBucket: false,
+        reason: 'Hourly mapping history is not available yet. Daily totals cannot answer a trailing ' + selected.label + ' question.',
+      }, omniMappingPopulationBoundary(mapping, 'hourly'));
+    }
+    if (!daily.length && !hourly.length) {
+      return Object.assign({
+        selected: selected,
+        available: false,
+        resolution: 'unavailable',
+        rows: [],
+        buckets: [],
+        complete: false,
+        apiCollectionComplete: false,
+        lowerBound: true,
+        hasOpenBucket: false,
+        reason: 'No unique-job mapping history has been collected yet.',
+      }, omniMappingPopulationBoundary(mapping, resolution));
+    }
+    if (resolution === 'daily' && !daily.length) resolution = 'hourly';
+    const declaredCoverage = ((((mapping || {}).coverage || {})[resolution]) || {});
+    const source = (resolution === 'hourly' ? hourly : daily).map(function (row) {
+      return {
+        row: row,
+        start: omniMappingRowStart(row, resolution),
+        end: omniMappingRowEnd(row, resolution),
+      };
+    }).filter(function (item) {
+      return item.start !== null && item.end !== null;
+    }).sort(function (left, right) {
+      return left.start - right.start;
+    });
+    if (!source.length) {
+      return Object.assign({
+        selected: selected,
+        available: false,
+        resolution: resolution,
+        rows: [],
+        buckets: [],
+        complete: false,
+        apiCollectionComplete: false,
+        lowerBound: true,
+        hasOpenBucket: false,
+        reason: 'The retained mapping buckets do not contain valid UTC timestamps.',
+      }, omniMappingPopulationBoundary(mapping, resolution));
+    }
+    const generated = new Date((mapping || {}).generated_at || '').getTime();
+    const latestEnd = source[source.length - 1].end;
+    const anchor = Number.isFinite(generated) ? Math.min(generated, latestEnd) : latestEnd;
+    let selectedRows;
+    let expectedBuckets;
+    let bucketMs;
+    if (resolution === 'hourly') {
+      expectedBuckets = selected.hours;
+      bucketMs = 60 * 60 * 1000;
+      const eligible = source.filter(function (item) {
+        return item.start <= anchor;
+      });
+      const latestStart = eligible.length ? eligible[eligible.length - 1].start : null;
+      const earliestStart = latestStart === null ? null : latestStart - (expectedBuckets - 1) * bucketMs;
+      selectedRows = eligible.filter(function (item) {
+        return earliestStart !== null && item.start >= earliestStart;
+      });
+    } else {
+      expectedBuckets = Math.ceil(selected.hours / 24);
+      bucketMs = 24 * 60 * 60 * 1000;
+      const anchorDay = new Date(anchor).toISOString().slice(0, 10);
+      const eligible = source.filter(function (item) {
+        return item.row.date <= anchorDay;
+      });
+      const latestStart = eligible.length ? eligible[eligible.length - 1].start : null;
+      const earliestStart = latestStart === null ? null : latestStart - (expectedBuckets - 1) * bucketMs;
+      selectedRows = eligible.filter(function (item) {
+        return earliestStart !== null && item.start >= earliestStart;
+      });
+    }
+    const rows = selectedRows.map(function (item) { return item.row; });
+    const lowerBound = rows.some(function (row) {
+      return row.lower_bound === true || row.collection_complete === false;
+    });
+    const hasOpenBucket = rows.some(function (row) {
+      return row.state === 'open' || row.open === true;
+    });
+    const selectedContiguous = selectedRows.every(function (item, index) {
+      return !index || item.start - selectedRows[index - 1].start === bucketMs;
+    });
+    const coverageComplete = rows.length === expectedBuckets && selectedContiguous;
+    const retainedComplete = Boolean(rows.length && coverageComplete && !lowerBound);
+    const complete = retainedComplete && !hasOpenBucket;
+    const coverageStatus = lowerBound
+      ? 'lower_bound'
+      : !coverageComplete
+        ? 'partial'
+        : hasOpenBucket
+          ? 'open'
+          : 'complete';
+    const lastRow = rows[rows.length - 1] || {};
+    const observedThrough = lastRow.observed_through || (mapping || {}).generated_at || null;
+    const reasonParts = [];
+    if (resolution === 'daily' && selected.hours <= 168 && !hourly.length) {
+      reasonParts.push('Hourly history is not retained yet, so this uses UTC-day buckets.');
+    }
+    if (!coverageComplete) {
+      reasonParts.push(rows.length !== expectedBuckets
+        ? 'Only ' + integer(rows.length) + ' of ' + integer(expectedBuckets) + ' selected ' + (resolution === 'hourly' ? 'UTC-hour' : 'UTC-day') + ' buckets are retained.'
+        : 'The selected ' + (resolution === 'hourly' ? 'UTC-hour' : 'UTC-day') + ' buckets contain a gap.');
+    }
+    if (lowerBound) reasonParts.push('At least one source bucket is a collection lower bound.');
+    if (hasOpenBucket) {
+      reasonParts.push(
+        'The current UTC ' + (resolution === 'hourly' ? 'hour' : 'day')
+        + ' is open through ' + (observedThrough ? shortDate(observedThrough) : 'the latest collection') + '.'
+      );
+    }
+    return Object.assign({
+      selected: selected,
+      available: Boolean(rows.length),
+      resolution: resolution,
+      rows: rows,
+      expectedBuckets: expectedBuckets,
+      declaredCoverage: declaredCoverage,
+      windowStart: selectedRows.length ? selectedRows[0].start : null,
+      anchor: anchor,
+      complete: complete,
+      apiCollectionComplete: retainedComplete,
+      retainedComplete: retainedComplete,
+      coverageStatus: coverageStatus,
+      lowerBound: lowerBound,
+      hasOpenBucket: hasOpenBucket,
+      selectedContiguous: selectedContiguous,
+      observedThrough: observedThrough,
+      reason: reasonParts.join(' '),
+    }, omniMappingPopulationBoundary(mapping, resolution));
+  }
+
+  function omniMappingBuckets(windowInfo) {
+    if (!windowInfo || !windowInfo.available) return [];
+    const resolution = windowInfo.resolution;
+    const binHours = resolution === 'hourly' ? windowInfo.selected.hourlyBin : 24;
+    const binMs = binHours * 60 * 60 * 1000;
+    const declaredWindowStart = Number(windowInfo.windowStart);
+    const hourlyAnchor = Number.isFinite(declaredWindowStart) ? declaredWindowStart : 0;
+    const buckets = new Map();
+    windowInfo.rows.forEach(function (row) {
+      const start = omniMappingRowStart(row, resolution);
+      if (start === null) return;
+      const bucketStart = resolution === 'hourly'
+        ? hourlyAnchor + Math.floor((start - hourlyAnchor) / binMs) * binMs
+        : Date.parse(String(row.date) + 'T00:00:00Z');
+      const key = new Date(bucketStart).toISOString();
+      if (!buckets.has(key)) {
+        buckets.set(key, {
+          id: key,
+          start: bucketStart,
+          end: bucketStart + binMs,
+          rows: [],
+          complete: true,
+          lowerBound: false,
+          hasOpenBucket: false,
+          workloads: {
+            omni: emptyOmniMappingStats(),
+            main: emptyOmniMappingStats(),
+          },
+        });
+      }
+      const bucket = buckets.get(key);
+      bucket.rows.push(row);
+      bucket.complete = bucket.complete && row.complete !== false && row.collection_complete !== false;
+      bucket.lowerBound = bucket.lowerBound || row.lower_bound === true || row.collection_complete === false;
+      bucket.hasOpenBucket = bucket.hasOpenBucket || row.state === 'open' || row.open === true;
+      addOmniMappingStats(bucket.workloads.omni, ((row.workloads || {}).omni || {}));
+      addOmniMappingStats(bucket.workloads.main, ((row.workloads || {}).main || {}));
+    });
+    const expectedSourceRows = resolution === 'hourly' ? binHours : 1;
+    const sourceStepMs = resolution === 'hourly' ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+    return Array.from(buckets.values()).map(function (bucket) {
+      const starts = bucket.rows.map(function (row) {
+        return omniMappingRowStart(row, resolution);
+      }).filter(function (start) {
+        return start !== null;
+      }).sort(function (left, right) {
+        return left - right;
+      });
+      const contiguous = starts.every(function (start, index) {
+        return (!index || start - starts[index - 1] === sourceStepMs)
+          && start === bucket.start + index * sourceStepMs;
+      });
+      bucket.expectedSourceRows = expectedSourceRows;
+      bucket.sourceRows = starts.length;
+      bucket.contiguous = contiguous;
+      bucket.complete = bucket.complete
+        && !bucket.lowerBound
+        && !bucket.hasOpenBucket
+        && starts.length === expectedSourceRows
+        && contiguous;
+      return bucket;
+    }).sort(function (left, right) {
+      return left.start - right.start;
+    });
+  }
+
+  function omniMappingBucketLabel(bucket, resolution) {
+    const date = new Date(bucket.start);
+    if (resolution === 'daily') return date.toISOString().slice(0, 10);
+    return date.toISOString().slice(5, 13).replace('T', ' ') + ':00';
+  }
 
   function omniHistoryPoints(omni) {
     const rows = ((((omni || {}).history || {}).points) || []);
@@ -7424,23 +8699,42 @@
     const currentLedger = current.ledger || {};
     const jobs = omni.current_jobs || {};
     const mapping = omni.mapping_history || {};
-    const mappingWindow = mapping.window || {};
-    const mappingTotals = mapping.totals || {};
+    const mappingView = omniMappingWindow(mapping, state.omniMappingRange);
+    const mappingBuckets = omniMappingBuckets(mappingView);
+    const mappingTotals = mappingView.available
+      ? omniMappingTotals(mappingView.rows)
+      : {omni: emptyOmniMappingStats(), main: emptyOmniMappingStats()};
     const omniTotal = mappingTotals.omni || {};
     const mainTotal = mappingTotals.main || {};
+    const mappingAvailable = mappingView.available;
+    const selectedMappingLabel = mappingView.selected.label;
+    const jobRangeNonExhaustive = mappingView.jobCreatedRangeExhaustive === false;
+    const jobRangeUnknown = mappingView.jobCreatedRangeExhaustive === null;
+    const lookbackLabel = mappingView.parentBuildLookbackDays
+      ? integer(mappingView.parentBuildLookbackDays) + '-day parent-build lookback'
+      : 'configured parent-build lookback';
+    const populationBoundaryText = jobRangeNonExhaustive
+      ? (mappingView.sourceWindowExact
+        ? 'UUID-deduplicated counts are exact only inside the ' + lookbackLabel + '; they are not provably exhaustive for every job created in the selected interval. '
+        : 'Counts cover only the ' + lookbackLabel + ' and are not provably exhaustive for every job created in the selected interval. ')
+        + (mappingView.limitation || 'Jobs attached later to older parent builds can be absent.')
+      : jobRangeUnknown
+        ? 'Job-created-range exhaustiveness is not published for this aggregate; treat the displayed mappings as observed counts.'
+        : 'The source marks the job-created range exhaustive for this aggregate.';
+    const mappingCountMeta = jobRangeNonExhaustive
+      ? 'source-window count · job-created range non-exhaustive'
+      : jobRangeUnknown
+        ? 'observed count · population coverage unknown'
+        : selectedMappingLabel;
     const omniRetiringMapped = Object.entries(omniTotal.by_queue || {}).reduce(function (sum, entry) {
       return sum + (entry[0].startsWith('amd_mi325_') ? Number(entry[1].mapped_jobs || 0) : 0);
     }, 0);
     const mainRetiringMapped = Object.entries(mainTotal.by_queue || {}).reduce(function (sum, entry) {
       return sum + (entry[0].startsWith('amd_mi325_') ? Number(entry[1].mapped_jobs || 0) : 0);
     }, 0);
-    const mappingDaily = (mapping.daily || []).filter(function (row) {
-      return !mappingWindow.start_date || String(row.date || '') >= mappingWindow.start_date;
-    });
-    const configuredScope = omni.scope || {};
     add(host, pageHeader(
-      'vLLM Omni CI',
-      'Unique vLLM-Omni jobs mapped to the configured standard AMD queues, compared with the main vLLM project.',
+      'Omni CI',
+      'Incoming ' + OMNI_REPOSITORIES.omni + ' workload and its impact on the AMD queues shared with ' + OMNI_REPOSITORIES.main + '.',
       mapping.generated_at || (omni.provenance || {}).queue_snapshot_ts,
       externalLink('Open AMD mapping aggregate', SOURCE_ASSETS.workloadMapping, 'ops-button')
     ));
@@ -7464,128 +8758,418 @@
       }
       openHistoryEvidence(title, rows.map(function (job) { return {id: job.job_id, label: job.name || 'Unnamed Omni job', timestamp: job.created_at || job.scheduled_at || job.started_at, valueSummary: value(job.state) + ' on ' + value(job.queue), url: job.url, details: {queue: job.queue, state: job.state, pipeline: job.pipeline, build: job.build, exclusion_reason: job.exclusion_reason || null}}; }), evidenceNote || 'Every active job links to its exact Buildkite source', SOURCE_ASSETS.operations);
     }
+    function mappingBreakdownRows(stats, key) {
+      return Object.entries((stats || {})[key] || {}).map(function (entry) {
+        return {name: entry[0], stats: entry[1] || {}};
+      }).sort(function (left, right) {
+        return Number(right.stats.mapped_jobs || 0) - Number(left.stats.mapped_jobs || 0)
+          || compareText(left.name, right.name);
+      });
+    }
+    function openWorkloadMappingDetail(workload, title) {
+      const stats = mappingTotals[workload] || emptyOmniMappingStats();
+      const content = n('div', 'ops-stack');
+      content.append(statusStrip([
+        {label: 'OBSERVED MAPPINGS', value: mappingAvailable ? integer(stats.mapped_jobs) : '-', meta: mappingCountMeta},
+        {label: 'STARTED JOBS', value: mappingAvailable ? integer(stats.started_jobs) : '-', meta: mappingAvailable ? percent(stats.started_jobs, stats.mapped_jobs) + ' of mappings' : mappingView.reason},
+        {label: 'GPU-SLOT REQUESTS', value: mappingAvailable ? integer(stats.mapped_gpu_slots) : '-', meta: 'Sum of configured GPU widths across observed mappings; not simultaneous use or GPU-hours'},
+        {label: 'GPU-HOURS', value: mappingAvailable ? Number(stats.gpu_hours || 0).toLocaleString(undefined, {maximumFractionDigits: 1}) : '-', meta: 'Finished jobs with usable durations'},
+      ]));
+      const queueBreakdown = mappingBreakdownRows(stats, 'by_queue');
+      if (queueBreakdown.length) {
+        content.append(panel('Queue breakdown', integer(queueBreakdown.length) + ' queues in the selected window', dataTable([
+          {label: 'Queue', sticky: true, render: function (row) { return n('span', 'ops-mono', row.name); }},
+          {label: 'Mapped', numeric: true, render: function (row) { return integer(row.stats.mapped_jobs); }},
+          {label: 'Started', numeric: true, render: function (row) { return integer(row.stats.started_jobs); }},
+          {label: 'GPU-slot requests', numeric: true, render: function (row) { return integer(row.stats.mapped_gpu_slots); }},
+          {label: 'GPU-hours', numeric: true, render: function (row) { return Number(row.stats.gpu_hours || 0).toLocaleString(undefined, {maximumFractionDigits: 1}); }},
+        ], queueBreakdown)));
+      }
+      const pipelineBreakdown = mappingBreakdownRows(stats, 'by_pipeline');
+      if (pipelineBreakdown.length) {
+        content.append(panel('Pipeline breakdown', integer(pipelineBreakdown.length) + ' exact Buildkite pipelines', dataTable([
+          {label: 'Pipeline', sticky: true, render: function (row) { return n('span', 'ops-mono', row.name); }},
+          {label: 'Mapped', numeric: true, render: function (row) { return integer(row.stats.mapped_jobs); }},
+          {label: 'Started', numeric: true, render: function (row) { return integer(row.stats.started_jobs); }},
+          {label: 'GPU-slot requests', numeric: true, render: function (row) { return integer(row.stats.mapped_gpu_slots); }},
+        ], pipelineBreakdown)));
+      }
+      openDetailDrawer({
+        id: 'omni-workload-' + workload,
+        title: title,
+        subtitle: selectedMappingLabel + ' on monitored AMD queues',
+        description: (mappingView.reason ? mappingView.reason + ' ' : '') + populationBoundaryText,
+        sources: [{label: 'Open published AMD mapping aggregate', url: SOURCE_ASSETS.workloadMapping}],
+        content: content,
+      });
+    }
+    function openMappingMethodology() {
+      const scope = mapping.scope || {};
+      const pipelines = scope.workload_pipelines || {};
+      const apiCollectionLabel = mappingView.apiCollectionComplete
+        ? 'Complete inside the configured source window'
+        : mappingView.lowerBound
+          ? 'Incomplete inside the configured source window'
+          : 'Partial or open selected bucket coverage';
+      openDetailDrawer({
+        id: 'omni-mapping-methodology',
+        title: 'Mapping scope and coverage',
+        subtitle: selectedMappingLabel + ' · ' + (mappingView.resolution === 'hourly' ? 'hourly' : 'UTC-day') + ' source buckets',
+        description: (mappingView.reason ? mappingView.reason + ' ' : '') + populationBoundaryText,
+        fields: [
+          {label: OMNI_REPOSITORIES.omni + ' pipelines', value: ((pipelines.omni || []).join(', ')) || 'vllm-omni-amd-ci'},
+          {label: OMNI_REPOSITORIES.main + ' pipelines', value: ((pipelines.main || []).join(', ')) || 'ci, amd-ci, amd-distributed-inference-ci'},
+          {label: 'Mapped job', value: 'Unique Buildkite command-job UUID observed inside the declared parent-build source window with an explicit monitored AMD queue mapping; retries remain distinct jobs.'},
+          {label: 'Excluded', value: 'Perf-eval and every non-configured queue.'},
+          {label: 'Resolution', value: mappingView.resolution === 'hourly' ? 'Hourly source aggregates' : mappingView.resolution === 'daily' ? 'UTC calendar-day aggregates' : 'Unavailable'},
+          {label: 'Retained buckets', value: integer(mappingView.rows.length)},
+          {label: 'API / UUID collection', value: apiCollectionLabel},
+          {label: 'Job-created range exhaustive', value: mappingView.jobCreatedRangeExhaustive === true ? 'Yes' : mappingView.jobCreatedRangeExhaustive === false ? 'No' : 'Not published'},
+          {label: 'Parent-build lookback', value: mappingView.parentBuildLookbackDays ? integer(mappingView.parentBuildLookbackDays) + ' days before the selected job-created range' : 'Not published'},
+          {label: 'Count integrity', value: mappingView.sourceWindowExact ? 'UUID-exact only within the declared parent-build source window' : 'Published aggregate within the declared source window'},
+          {label: 'Population limitation', value: mappingView.limitation || populationBoundaryText},
+        ],
+        sources: [{label: 'Open published AMD mapping aggregate', url: SOURCE_ASSETS.workloadMapping}],
+      });
+    }
+    function openTrafficShareDetail() {
+      openDetailDrawer({
+        id: 'omni-traffic-share',
+        title: 'Share of vLLM traffic',
+        subtitle: selectedMappingLabel + ' on the same monitored AMD queue allowlist',
+        description: 'Repository counts use the same selected source buckets, parent-build source window, and queue scope; no chart-axis normalization is involved. ' + populationBoundaryText,
+        fields: [
+          {label: OMNI_REPOSITORIES.omni + ' mapped', value: mappingAvailable ? integer(omniTotal.mapped_jobs) : '-'},
+          {label: OMNI_REPOSITORIES.main + ' mapped', value: mappingAvailable ? integer(mainTotal.mapped_jobs) : '-'},
+          {label: 'Combined mapped jobs', value: mappingAvailable ? integer(Number(omniTotal.mapped_jobs || 0) + Number(mainTotal.mapped_jobs || 0)) : '-'},
+          {label: 'Omni share', value: mappingAvailable ? percent(omniTotal.mapped_jobs, Number(omniTotal.mapped_jobs || 0) + Number(mainTotal.mapped_jobs || 0)) : '-'},
+          {label: 'API bucket status', value: mappingView.coverageStatus},
+          {label: 'Job-created range', value: mappingView.jobCreatedRangeExhaustive === true ? 'exhaustive' : mappingView.jobCreatedRangeExhaustive === false ? 'not exhaustive' : 'not published'},
+        ],
+        sources: [{label: 'Open published AMD mapping aggregate', url: SOURCE_ASSETS.workloadMapping}],
+      });
+    }
+    function openMi325ExposureDetail() {
+      const rows = Object.entries(omniTotal.by_queue || {}).filter(function (entry) {
+        return entry[0].startsWith('amd_mi325_');
+      }).map(function (entry) {
+        return {
+          name: entry[0],
+          omni: entry[1] || {},
+          main: ((mainTotal.by_queue || {})[entry[0]]) || {},
+        };
+      }).sort(function (left, right) {
+        return Number(right.omni.mapped_jobs || 0) - Number(left.omni.mapped_jobs || 0);
+      });
+      const content = rows.length ? dataTable([
+        {label: 'Retiring queue', sticky: true, render: function (row) { return linkButton(row.name, function () { openQueueMappingDetail(row); }, 'Inspect MI325 impact for ' + row.name); }},
+        {label: 'Omni mapped', numeric: true, render: function (row) { return integer(row.omni.mapped_jobs); }},
+        {label: OMNI_REPOSITORIES.main + ' mapped', numeric: true, render: function (row) { return integer(row.main.mapped_jobs); }},
+        {label: 'Omni GPU-slot requests', numeric: true, render: function (row) { return integer(row.omni.mapped_gpu_slots); }},
+      ], rows) : n('div', 'ops-empty', 'No selected-window Omni mappings targeted MI325.');
+      openDetailDrawer({
+        id: 'omni-mi325-exposure',
+        title: 'MI325 retirement exposure',
+        subtitle: selectedMappingLabel + ' · retiring queues only',
+        description: integer(omniRetiringMapped) + ' of ' + integer(omniTotal.mapped_jobs) + ' observed source-window Omni mappings targeted MI325. ' + populationBoundaryText,
+        fields: [
+          {label: 'Omni exposure', value: mappingAvailable ? percent(omniRetiringMapped, omniTotal.mapped_jobs) : '-'},
+          {label: 'Observed Omni MI325 mappings', value: mappingAvailable ? integer(omniRetiringMapped) : '-'},
+          {label: 'Observed ' + OMNI_REPOSITORIES.main + ' MI325 mappings', value: mappingAvailable ? integer(mainRetiringMapped) : '-'},
+          {label: 'Job-created range', value: mappingView.jobCreatedRangeExhaustive === true ? 'exhaustive' : mappingView.jobCreatedRangeExhaustive === false ? 'not exhaustive' : 'not published'},
+        ],
+        sources: [{label: 'Open published AMD mapping aggregate', url: SOURCE_ASSETS.workloadMapping}],
+        content: content,
+      });
+    }
+    const mappingToolbar = n('div', 'ops-toolbar ops-analytics-window-toolbar ops-omni-mapping-toolbar');
+    add(mappingToolbar, [
+      n('span', 'ops-toolbar-label', 'Incoming workload'),
+      segmented(OMNI_MAPPING_WINDOWS, state.omniMappingRange, function (range) {
+        setRouteState('ci-omni', 'omniMappingRange', range, 'omni_mapping_range');
+      }, 'Filter unique Omni mappings by time window'),
+      button('Scope & coverage', openMappingMethodology),
+    ]);
+    host.append(mappingToolbar);
     host.append(statusStrip([
-      {id: 'omni-mapped-jobs', label: 'OMNI MAPPED - 14D', value: integer(omniTotal.mapped_jobs), meta: integer(omniTotal.started_jobs) + ' started - ' + integer(omniTotal.mapped_gpu_slots) + ' requested GPU slots', tone: 'is-info'},
-      {id: 'main-mapped-jobs', label: 'MAIN VLLM MAPPED - 14D', value: integer(mainTotal.mapped_jobs), meta: integer(mainTotal.started_jobs) + ' started across ' + integer(((configuredScope.queues || []).length)) + ' monitored queues'},
-      {id: 'omni-mapped-share', label: 'OMNI SHARE OF MAPPINGS', value: percent(omniTotal.mapped_jobs, Number(omniTotal.mapped_jobs || 0) + Number(mainTotal.mapped_jobs || 0)), meta: integer(omniTotal.mapped_jobs) + ' Omni of ' + integer(Number(omniTotal.mapped_jobs || 0) + Number(mainTotal.mapped_jobs || 0)) + ' mapped jobs'},
-      {id: 'omni-retiring-share', label: 'OMNI ON RETIRING MI325', value: percent(omniRetiringMapped, omniTotal.mapped_jobs), meta: integer(omniRetiringMapped) + ' Omni - ' + integer(mainRetiringMapped) + ' main mappings need a migration plan', tone: omniRetiringMapped ? 'is-warning' : 'is-success'},
-      {id: 'omni-active-jobs', label: 'OMNI ACTIVE NOW', value: integer(activeJobs.length), meta: integer(ledgerWaiting) + ' waiting - ' + integer(ledgerRunning) + ' running; ' + integer(excludedJobs.length) + ' stale excluded', tone: pending.length ? 'is-warning' : 'is-neutral', onOpen: function () { openJobsEvidence('Active vLLM Omni CI jobs on monitored AMD queues', activeJobs); }},
+      {id: 'omni-mapped-jobs', label: jobRangeNonExhaustive || jobRangeUnknown ? 'OBSERVED OMNI MAPPINGS' : 'INCOMING OMNI JOBS', value: mappingAvailable ? integer(omniTotal.mapped_jobs) : '-', meta: mappingAvailable ? integer(omniTotal.started_jobs) + ' started · ' + mappingCountMeta : mappingView.reason, tone: jobRangeNonExhaustive || jobRangeUnknown ? 'is-warning' : 'is-info', onOpen: function () { openWorkloadMappingDetail('omni', OMNI_REPOSITORIES.omni); }},
+      {id: 'omni-gpu-demand', label: 'GPU-SLOT REQUESTS', value: mappingAvailable ? integer(omniTotal.mapped_gpu_slots) : '-', meta: mappingAvailable ? 'summed job widths · not concurrency · ' + Number(omniTotal.gpu_hours || 0).toLocaleString(undefined, {maximumFractionDigits: 1}) + ' completed GPU-hours' : 'Hourly collection is required for this window', onOpen: function () { openWorkloadMappingDetail('omni', OMNI_REPOSITORIES.omni + ' GPU demand'); }},
+      {id: 'omni-mapped-share', label: 'SHARE OF OBSERVED VLLM TRAFFIC', value: mappingAvailable ? percent(omniTotal.mapped_jobs, Number(omniTotal.mapped_jobs || 0) + Number(mainTotal.mapped_jobs || 0)) : '-', meta: mappingAvailable ? integer(omniTotal.mapped_jobs) + ' of ' + integer(Number(omniTotal.mapped_jobs || 0) + Number(mainTotal.mapped_jobs || 0)) + ' source-window mappings' : 'No comparable mapping window', onOpen: openTrafficShareDetail},
+      {id: 'omni-retiring-share', label: 'MI325 RETIREMENT EXPOSURE', value: mappingAvailable ? percent(omniRetiringMapped, omniTotal.mapped_jobs) : '-', meta: mappingAvailable ? integer(omniRetiringMapped) + ' Omni · ' + integer(mainRetiringMapped) + ' ' + OMNI_REPOSITORIES.main : 'No selected-window queue evidence', tone: omniRetiringMapped ? 'is-warning' : 'is-success', onOpen: openMi325ExposureDetail},
     ]));
-    const scopeNote = n('div', 'ops-evidence-note is-info');
+    const apiCoverageHeading = mappingView.coverageStatus === 'complete'
+      ? 'API/UUID collection complete for the selected closed buckets. '
+      : mappingView.coverageStatus === 'open'
+        ? 'API/UUID collection complete inside the source window; current bucket open. '
+        : mappingView.coverageStatus === 'lower_bound'
+          ? 'API/UUID collection is incomplete inside the source window. '
+          : 'Selected API/UUID bucket coverage is incomplete. ';
+    const coverageHeading = apiCoverageHeading + (
+      jobRangeNonExhaustive
+        ? 'All job-created mappings are not provably exhaustive. '
+        : jobRangeUnknown
+          ? 'Job-created population coverage is not published. '
+          : ''
+    );
+    const scopeNote = n('div', 'ops-evidence-note ' + (
+      mappingView.retainedComplete && !jobRangeNonExhaustive && !jobRangeUnknown ? 'is-info' : 'is-warning'
+    ) + ' ops-omni-coverage-note');
     add(scopeNote, [
-      n('strong', '', mappingWindow.complete ? 'Complete exact-job baseline. ' : 'Lower-bound baseline. '),
-      n('span', '', 'UTC ' + value(mappingWindow.start_date) + ' through ' + value(mappingWindow.end_date) + '. Jobs are deduplicated by Buildkite command-job UUID and attributed by exact pipeline identity plus the configured queue allowlist. Retries remain distinct jobs. Perf-eval and every non-configured queue are excluded. “Mapped” includes dynamic jobs that never started; started counts are shown separately. Pipelines: ' + ((mapping.scope || {}).workload_pipelines ? 'Omni ' + ((mapping.scope.workload_pipelines.omni || []).join(', ')) + '; main ' + ((mapping.scope.workload_pipelines.main || []).join(', ')) : value((configuredScope.pipelines || []).join(', '))) + '. '),
+      n('strong', '', coverageHeading),
+      n('span', '', (mappingView.reason ? mappingView.reason + ' ' : integer(mappingView.rows.length) + ' retained ' + mappingView.resolution + ' buckets; mapped and started are separate counts. ') + populationBoundaryText),
+      linkButton('Inspect methodology', openMappingMethodology, 'Inspect mapping scope, resolution, and source coverage'),
       excludedJobs.length ? linkButton('Inspect excluded stale jobs', function () { openJobsEvidence('Excluded stale Omni jobs', excludedJobs, 'Jobs beyond the collector age threshold; retained for exact Buildkite review but excluded from active analytics'); }, 'Inspect stale Omni jobs excluded from active analytics') : null,
     ]);
     host.append(scopeNote);
-    if (omniRetiringMapped) {
-      const retirement = n('div', 'ops-evidence-note is-warning');
-      add(retirement, [
-        n('strong', '', 'MI325 retirement is an Omni migration blocker. '),
-        n('span', '', 'All ' + integer(omniRetiringMapped) + ' observed Omni mappings in this 14-day window targeted MI325 queues. The post-MI325 aggregate pool has spare capacity, but this history does not prove test compatibility on MI250, MI300, or MI355; assign and validate replacement queue shapes before MI325 is removed.'),
-      ]);
-      host.append(retirement);
-    }
-
-    function mappingEvidence(row) {
-      const workloads = row.workloads || {};
-      const omniDay = workloads.omni || {};
-      const mainDay = workloads.main || {};
-      return {
-        id: row.date,
-        label: row.date,
-        timestamp: row.date + 'T00:00:00Z',
-        valueSummary: integer(omniDay.mapped_jobs) + ' Omni / ' + integer(mainDay.mapped_jobs) + ' main mapped jobs',
-        details: {
-          omni_mapped_jobs: omniDay.mapped_jobs,
-          omni_started_jobs: omniDay.started_jobs,
-          main_mapped_jobs: mainDay.mapped_jobs,
-          main_started_jobs: mainDay.started_jobs,
-          complete: row.complete,
-          lower_bound: row.lower_bound,
-        },
-        sources: [{label: 'Open published AMD mapping aggregate', url: SOURCE_ASSETS.workloadMapping}],
-      };
-    }
-    if (mappingDaily.length) {
-      const mappingChart = chartPanel(
-        'Jobs mapped to AMD queues by UTC day',
-        integer(mappingDaily.length) + ' daily exact-job aggregates; separate axes keep Omni visible beside main vLLM',
-        'omni-amd-mapped-jobs'
-      );
-      host.append(mappingChart.root);
-      requestAnimationFrame(function () {
-        drawChart('omni-amd-mapped-jobs', mappingChart.canvas, {
-          type: 'bar',
-          data: {
-            labels: mappingDaily.map(function (row) { return row.date; }),
-            datasets: [
-              {
-                label: 'vLLM Omni CI mapped jobs',
-                data: mappingDaily.map(function (row) { return Number((((row.workloads || {}).omni || {}).mapped_jobs) || 0); }),
-                backgroundColor: '#22b8ad',
-                yAxisID: 'y',
-              },
-              {
-                label: 'Main vLLM mapped jobs',
-                data: mappingDaily.map(function (row) { return Number((((row.workloads || {}).main || {}).mapped_jobs) || 0); }),
-                backgroundColor: '#5ca8ff',
-                yAxisID: 'y1',
-              },
-            ],
-          },
-          options: {
-            scales: {
-              y: {beginAtZero: true, position: 'left', title: {display: true, text: 'Omni jobs'}},
-              y1: {beginAtZero: true, position: 'right', grid: {drawOnChartArea: false}, title: {display: true, text: 'Main vLLM jobs'}},
-            },
-          },
-          evidenceTitle: 'Daily unique jobs mapped to monitored AMD queues',
-          evidenceAsset: SOURCE_ASSETS.workloadMapping,
-          evidence: mappingDaily.map(mappingEvidence),
-        });
-      });
-      host.append(panel('Daily AMD mappings (UTC)', 'Mapped and started are deliberately separate; mapped dynamic jobs may be skipped or blocked before start', dataTable([
-        {label: 'UTC day', sticky: true, render: function (row) { return row.date; }},
-        {label: 'Omni mapped', numeric: true, render: function (row) { return integer((((row.workloads || {}).omni || {}).mapped_jobs)); }},
-        {label: 'Omni started', numeric: true, render: function (row) { return integer((((row.workloads || {}).omni || {}).started_jobs)); }},
-        {label: 'Main mapped', numeric: true, render: function (row) { return integer((((row.workloads || {}).main || {}).mapped_jobs)); }},
-        {label: 'Main started', numeric: true, render: function (row) { return integer((((row.workloads || {}).main || {}).started_jobs)); }},
-        {label: 'Omni GPU slots', numeric: true, render: function (row) { return integer((((row.workloads || {}).omni || {}).mapped_gpu_slots)); }},
-        {label: 'Coverage', render: function (row) { return badge(row.complete ? 'complete' : 'lower bound', row.complete ? 'is-success' : 'is-warning'); }},
-      ], mappingDaily.slice().reverse()), 'ops-domain-full ops-omni-mappings'));
-    } else {
-      host.append(n('div', 'ops-evidence-note is-warning', 'Unique-job mapping history has not been collected yet. The scheduled collector will start the histogram with today’s UTC bucket.'));
-    }
 
     const omniByQueue = omniTotal.by_queue || {};
     const mainByQueue = mainTotal.by_queue || {};
-    const mappingQueueRows = (configuredScope.queues || []).map(function (queueName) {
+    const mappingQueueRows = Array.from(new Set(Object.keys(omniByQueue).concat(Object.keys(mainByQueue)))).map(function (queueName) {
       return {
         name: queueName,
         omni: omniByQueue[queueName] || {},
         main: mainByQueue[queueName] || {},
       };
+    }).filter(function (row) {
+      return Number(row.omni.mapped_jobs || 0) > 0;
+    }).sort(function (left, right) {
+      return Number(right.omni.mapped_jobs || 0) - Number(left.omni.mapped_jobs || 0)
+        || compareText(left.name, right.name);
     });
-    host.append(panel('14-day mappings by monitored AMD queue', 'Only the configured MI250, MI300, MI325, and MI355 standard queues; perf-eval is excluded', dataTable([
-      {label: 'Queue', sticky: true, render: function (row) { return n('span', 'ops-mono', row.name); }},
-      {label: 'Omni mapped', numeric: true, render: function (row) { return integer(row.omni.mapped_jobs || 0); }},
-      {label: 'Omni started', numeric: true, render: function (row) { return integer(row.omni.started_jobs || 0); }},
-      {label: 'Main mapped', numeric: true, render: function (row) { return integer(row.main.mapped_jobs || 0); }},
-      {label: 'Main started', numeric: true, render: function (row) { return integer(row.main.started_jobs || 0); }},
-      {label: 'Omni GPU-hours', numeric: true, render: function (row) { return Number(row.omni.gpu_hours || 0).toLocaleString(undefined, {maximumFractionDigits: 1}); }},
-      {label: 'Main GPU-hours', numeric: true, render: function (row) { return Number(row.main.gpu_hours || 0).toLocaleString(undefined, {maximumFractionDigits: 1}); }},
-    ], mappingQueueRows), 'ops-domain-full ops-omni-queues'));
+    function openQueueMappingDetail(row, contextLabel) {
+      const queueSnapshot = ((((ops.queue || {}).snapshot || {}).queues || {})[row.name]) || {};
+      openDetailDrawer({
+        id: 'omni-impact-' + row.name,
+        title: row.name,
+        subtitle: (contextLabel || selectedMappingLabel) + ' impact on a monitored AMD queue',
+        fields: [
+          {label: OMNI_REPOSITORIES.omni + ' observed mappings', value: integer(row.omni.mapped_jobs || 0)},
+          {label: OMNI_REPOSITORIES.omni + ' started', value: integer(row.omni.started_jobs || 0)},
+          {label: OMNI_REPOSITORIES.omni + ' GPU-slot requests', value: integer(row.omni.mapped_gpu_slots || 0)},
+          {label: OMNI_REPOSITORIES.omni + ' GPU-hours', value: Number(row.omni.gpu_hours || 0).toLocaleString(undefined, {maximumFractionDigits: 1})},
+          {label: OMNI_REPOSITORIES.main + ' observed mappings', value: integer(row.main.mapped_jobs || 0)},
+          {label: 'Omni share on this queue', value: percent(row.omni.mapped_jobs, Number(row.omni.mapped_jobs || 0) + Number(row.main.mapped_jobs || 0))},
+          {label: 'Lifecycle', value: row.name.startsWith('amd_mi325_') ? 'retiring' : 'active'},
+          {label: 'Scope', value: contextLabel || selectedMappingLabel},
+        ],
+        sources: [
+          {label: 'Open published AMD mapping aggregate', url: SOURCE_ASSETS.workloadMapping},
+          queueSnapshot.queue_url ? {label: 'Open Buildkite queue', url: queueSnapshot.queue_url} : null,
+        ],
+      });
+    }
+    function openMappingBucket(bucket) {
+      const bucketOmni = (bucket.workloads || {}).omni || {};
+      const bucketMain = (bucket.workloads || {}).main || {};
+      const queueRows = Object.entries(bucketOmni.by_queue || {}).map(function (entry) {
+        return {
+          name: entry[0],
+          omni: entry[1] || {},
+          main: ((bucketMain.by_queue || {})[entry[0]]) || {},
+        };
+      }).sort(function (left, right) {
+        return Number(right.omni.mapped_jobs || 0) - Number(left.omni.mapped_jobs || 0);
+      });
+      const content = n('div', 'ops-stack');
+      if (queueRows.length) {
+        content.append(dataTable([
+          {label: 'Queue', sticky: true, render: function (row) { return linkButton(row.name, function () { openQueueMappingDetail(row, omniMappingBucketLabel(bucket, mappingView.resolution) + ' UTC chart bucket'); }, 'Inspect chart-bucket impact for ' + row.name); }},
+          {label: OMNI_REPOSITORIES.omni, numeric: true, render: function (row) { return integer(row.omni.mapped_jobs); }},
+          {label: OMNI_REPOSITORIES.main, numeric: true, render: function (row) { return integer(row.main.mapped_jobs); }},
+          {label: 'GPU-slot requests', numeric: true, render: function (row) { return integer(row.omni.mapped_gpu_slots); }},
+        ], queueRows));
+      }
+      openDetailDrawer({
+        id: 'omni-bucket-' + bucket.id,
+        title: omniMappingBucketLabel(bucket, mappingView.resolution) + ' UTC',
+        subtitle: 'Incoming Omni workload mapped during this chart bucket',
+        fields: [
+          {label: OMNI_REPOSITORIES.omni + ' mapped', value: integer(bucketOmni.mapped_jobs)},
+          {label: OMNI_REPOSITORIES.omni + ' started', value: integer(bucketOmni.started_jobs)},
+          {label: OMNI_REPOSITORIES.omni + ' GPU-slot requests', value: integer(bucketOmni.mapped_gpu_slots)},
+          {label: OMNI_REPOSITORIES.main + ' mapped', value: integer(bucketMain.mapped_jobs)},
+          {label: 'API / UUID coverage', value: bucket.lowerBound
+            ? 'collection lower bound'
+            : bucket.hasOpenBucket
+              ? 'open current UTC ' + (mappingView.resolution === 'daily' ? 'day' : 'hour')
+              : bucket.complete
+                ? 'complete'
+                : 'partial (' + integer(bucket.sourceRows) + '/' + integer(bucket.expectedSourceRows) + ' source buckets)'},
+        ],
+        sources: [{label: 'Open published AMD mapping aggregate', url: SOURCE_ASSETS.workloadMapping}],
+        content: content,
+      });
+    }
+    function mappingEvidence(bucket) {
+      const bucketOmni = (bucket.workloads || {}).omni || {};
+      return {
+        id: bucket.id,
+        label: omniMappingBucketLabel(bucket, mappingView.resolution) + ' UTC',
+        timestamp: new Date(bucket.start).toISOString(),
+        valueSummary: integer(bucketOmni.mapped_jobs) + ' mapped · ' + integer(bucketOmni.started_jobs) + ' started',
+        details: {
+          repository: OMNI_REPOSITORIES.omni,
+          mapped_jobs: bucketOmni.mapped_jobs,
+          started_jobs: bucketOmni.started_jobs,
+          mapped_gpu_slots: bucketOmni.mapped_gpu_slots,
+          api_uuid_coverage: bucket.lowerBound ? 'lower bound' : bucket.hasOpenBucket ? 'open' : bucket.complete ? 'complete' : 'partial',
+          job_created_range_exhaustive: mappingView.jobCreatedRangeExhaustive,
+        },
+        sources: [{label: 'Open published AMD mapping aggregate', url: SOURCE_ASSETS.workloadMapping}],
+        onOpen: function () { openMappingBucket(bucket); },
+      };
+    }
+    const bucketColumns = [
+      {label: 'UTC bucket', sticky: true, render: function (bucket) { return linkButton(omniMappingBucketLabel(bucket, mappingView.resolution), function () { openMappingBucket(bucket); }, 'Inspect mapping bucket ' + omniMappingBucketLabel(bucket, mappingView.resolution)); }},
+      {label: 'Omni mapped', numeric: true, render: function (bucket) { return integer(((bucket.workloads || {}).omni || {}).mapped_jobs); }},
+      {label: 'Omni started', numeric: true, render: function (bucket) { return integer(((bucket.workloads || {}).omni || {}).started_jobs); }},
+      {label: 'GPU-slot requests', numeric: true, render: function (bucket) { return integer(((bucket.workloads || {}).omni || {}).mapped_gpu_slots); }},
+      {label: 'API coverage', render: function (bucket) { return badge(bucket.lowerBound ? 'lower bound' : bucket.hasOpenBucket ? 'open' : bucket.complete ? 'complete' : 'partial', bucket.lowerBound ? 'is-warning' : bucket.complete ? 'is-success' : 'is-info'); }},
+    ];
+    function browseMappingBuckets() {
+      openTableBrowser({
+        id: 'omni-mapping-buckets',
+        title: OMNI_REPOSITORIES.omni + ' mapping buckets',
+        subtitle: selectedMappingLabel + ' · API/UUID coverage per bucket · ' + (jobRangeNonExhaustive ? 'job-created range not exhaustive' : 'population scope published separately'),
+        rows: mappingBuckets.slice().reverse(),
+        columns: bucketColumns,
+        searchPlaceholder: 'Filter UTC bucket or coverage',
+        searchText: function (bucket) { return [omniMappingBucketLabel(bucket, mappingView.resolution), bucket.complete, bucket.lowerBound, bucket.hasOpenBucket].join(' '); },
+        geometry: {name: 'omni-mapping-buckets', minWidth: '760px'},
+      });
+    }
+    const overviewGrid = n('div', 'ops-grid ops-omni-overview-grid');
+    if (mappingBuckets.length) {
+      const mappingChart = chartPanel(
+        'Observed incoming mappings from ' + OMNI_REPOSITORIES.omni,
+        integer(mappingBuckets.length) + ' chart buckets · ' + selectedMappingLabel + ' · source-window counts · one shared scale',
+        'omni-amd-mapped-jobs'
+      );
+      mappingChart.root.classList.add('ops-omni-volume');
+      overviewGrid.append(mappingChart.root);
+      requestAnimationFrame(function () {
+        drawChart('omni-amd-mapped-jobs', mappingChart.canvas, {
+          type: 'bar',
+          data: {
+            labels: mappingBuckets.map(function (bucket) { return omniMappingBucketLabel(bucket, mappingView.resolution); }),
+            datasets: [{
+              label: OMNI_REPOSITORIES.omni + ' observed mapped jobs',
+              data: mappingBuckets.map(function (bucket) { return Number((((bucket.workloads || {}).omni || {}).mapped_jobs) || 0); }),
+              backgroundColor: '#22b8ad',
+            }],
+          },
+          options: {
+            plugins: {legend: {display: false}},
+            scales: {y: {beginAtZero: true, title: {display: true, text: 'Observed mapped jobs'}}},
+          },
+          evidenceTitle: OMNI_REPOSITORIES.omni + ' mapping buckets',
+          evidenceAsset: SOURCE_ASSETS.workloadMapping,
+          evidence: mappingBuckets.map(mappingEvidence),
+        });
+      });
+    } else {
+      overviewGrid.append(panel('Incoming Omni workload unavailable', selectedMappingLabel, n('div', 'ops-empty', mappingView.reason), 'ops-omni-volume'));
+    }
+    if (mappingQueueRows.length) {
+      const queueImpact = chartPanel(
+        'Where Omni lands',
+        integer(mappingQueueRows.length) + ' AMD queues · click a bar or row for impact details',
+        'omni-queue-impact'
+      );
+      queueImpact.root.classList.add('ops-omni-impact');
+      queueImpact.root.querySelector('.ops-panel-body').append(dataTable([
+        {label: 'Queue', sticky: true, width: '150px', render: function (row) { return linkButton(row.name, function () { openQueueMappingDetail(row); }, 'Inspect selected-window impact for ' + row.name); }},
+        {label: 'Mapped', numeric: true, width: '74px', render: function (row) { return linkButton(integer(row.omni.mapped_jobs), function () { openQueueMappingDetail(row); }, 'Inspect Omni mappings on ' + row.name); }},
+        {label: 'Share', numeric: true, width: '68px', render: function (row) { return percent(row.omni.mapped_jobs, omniTotal.mapped_jobs); }},
+      ], mappingQueueRows.slice(0, 6), null, {name: 'omni-impact-preview', minWidth: '292px'}));
+      overviewGrid.append(queueImpact.root);
+      requestAnimationFrame(function () {
+        drawChart('omni-queue-impact', queueImpact.canvas, {
+          type: 'bar',
+          data: {
+            labels: mappingQueueRows.map(function (row) { return row.name; }),
+            datasets: [{
+              label: 'Observed mapped jobs',
+              data: mappingQueueRows.map(function (row) { return Number(row.omni.mapped_jobs || 0); }),
+              backgroundColor: mappingQueueRows.map(function (row) { return row.name.startsWith('amd_mi325_') ? '#e3a63a' : '#22b8ad'; }),
+            }],
+          },
+          options: {
+            indexAxis: 'y',
+            plugins: {legend: {display: false}},
+            scales: {x: {beginAtZero: true, title: {display: true, text: 'Observed mapped jobs'}}},
+          },
+          evidenceTitle: 'Omni queue impact in ' + selectedMappingLabel,
+          evidenceAsset: SOURCE_ASSETS.workloadMapping,
+          evidence: mappingQueueRows.map(function (row) {
+            return {
+              id: row.name,
+              label: row.name,
+              valueSummary: integer(row.omni.mapped_jobs) + ' observed source-window mappings',
+              details: {repository: OMNI_REPOSITORIES.omni, mapped_jobs: row.omni.mapped_jobs, share: percent(row.omni.mapped_jobs, omniTotal.mapped_jobs)},
+              onOpen: function () { openQueueMappingDetail(row); },
+            };
+          }),
+        });
+      });
+    } else {
+      overviewGrid.append(panel('Where Omni lands', 'No selected-window queue mappings', n('div', 'ops-empty', mappingView.reason || 'No Omni mappings were observed in this window.'), 'ops-omni-impact'));
+    }
+    host.append(overviewGrid);
+
+    const comparisonRows = [
+      {id: 'omni', repository: OMNI_REPOSITORIES.omni, stats: omniTotal},
+      {id: 'main', repository: OMNI_REPOSITORIES.main, stats: mainTotal},
+    ];
+    const comparisonActions = n('div', 'ops-inline-actions');
+    add(comparisonActions, [
+      button('Inspect time buckets', browseMappingBuckets),
+      mappingQueueRows.length ? button('Browse all queues', function () {
+        openTableBrowser({
+          id: 'omni-queue-impact-browser',
+          title: 'Omni impact by AMD queue',
+          subtitle: selectedMappingLabel + ' · UUID-deduplicated source-window mapping aggregates · ' + (jobRangeNonExhaustive ? 'job-created range not exhaustive' : 'population scope published separately'),
+          rows: mappingQueueRows,
+          columns: [
+            {label: 'Queue', sticky: true, render: function (row) { return linkButton(row.name, function () { openQueueMappingDetail(row); }, 'Inspect ' + row.name); }},
+            {label: 'Omni mapped', numeric: true, render: function (row) { return integer(row.omni.mapped_jobs); }},
+            {label: 'Omni started', numeric: true, render: function (row) { return integer(row.omni.started_jobs); }},
+            {label: OMNI_REPOSITORIES.main + ' mapped', numeric: true, render: function (row) { return integer(row.main.mapped_jobs); }},
+            {label: 'Omni GPU-hours', numeric: true, render: function (row) { return Number(row.omni.gpu_hours || 0).toLocaleString(undefined, {maximumFractionDigits: 1}); }},
+          ],
+          searchPlaceholder: 'Filter queue',
+          searchText: function (row) { return row.name; },
+          geometry: {name: 'omni-queue-impact', minWidth: '900px'},
+        });
+      }) : null,
+    ]);
+    host.append(compactTablePanel(
+      'Repository comparison',
+      selectedMappingLabel + ' · comparison stays numeric instead of sharing a misleading chart scale',
+      [
+        {label: 'Repository', sticky: true, width: '230px', render: function (row) { return linkButton(row.repository, function () { openWorkloadMappingDetail(row.id, row.repository); }, 'Inspect ' + row.repository + ' mapping details'); }},
+        {label: 'Mapped', numeric: true, width: '82px', render: function (row) { return mappingAvailable ? integer(row.stats.mapped_jobs) : '-'; }},
+        {label: 'Started', numeric: true, width: '82px', render: function (row) { return mappingAvailable ? integer(row.stats.started_jobs) : '-'; }},
+        {label: 'Start rate', numeric: true, width: '82px', render: function (row) { return mappingAvailable ? percent(row.stats.started_jobs, row.stats.mapped_jobs) : '-'; }},
+        {label: 'GPU-slot requests', numeric: true, width: '112px', render: function (row) { return mappingAvailable ? integer(row.stats.mapped_gpu_slots) : '-'; }},
+        {label: 'GPU-hours', numeric: true, width: '92px', render: function (row) { return mappingAvailable ? Number(row.stats.gpu_hours || 0).toLocaleString(undefined, {maximumFractionDigits: 1}) : '-'; }},
+      ],
+      comparisonRows,
+      {limit: 2, headerActions: comparisonActions, className: 'ops-omni-comparison', geometry: {name: 'omni-repository-comparison', minWidth: '656px'}}
+    ));
 
     const allHistoryPoints = omniHistoryPoints(omni);
     const waitingHistoryPoints = allHistoryPoints.filter(function (point) { return point.waitingSupported; });
-    const points = omniWindowPoints(waitingHistoryPoints, state.omniRange);
+    const occupancyHistoryPoints = allHistoryPoints.filter(function (point) {
+      return point.waitingSupported || point.runningSupported;
+    });
+    const points = omniWindowPoints(occupancyHistoryPoints, state.omniRange);
     const selectedRange = OMNI_RANGE_WINDOWS.find(function (item) { return item.id === state.omniRange; }) || OMNI_RANGE_WINDOWS[4];
-    const firstPoint = points.length > 1 ? points[0] : null;
-    const latestPoint = points.length ? points[points.length - 1] : null;
-    const waitingDelta = firstPoint && latestPoint ? latestPoint.allWaiting - firstPoint.allWaiting : null;
-    const waitingPeak = points.length ? Math.max.apply(null, points.map(function (point) { return point.allWaiting; })) : null;
-    const windowCoverage = points.length && points.every(function (point) { return point.waitingCoverage === 'complete'; }) ? 'complete' : 'partial';
+    const waitingPoints = points.filter(function (point) { return point.waitingSupported; });
+    const runningPoints = points.filter(function (point) { return point.runningSupported; });
+    const latestPoint = waitingPoints.length ? waitingPoints[waitingPoints.length - 1] : null;
+    const waitingPeak = waitingPoints.length ? Math.max.apply(null, waitingPoints.map(function (point) { return point.allWaiting; })) : null;
+    const windowCoverage = waitingPoints.length && waitingPoints.every(function (point) { return point.waitingCoverage === 'complete'; }) ? 'complete' : waitingPoints.length ? 'partial' : 'unavailable';
     function historyEvidence(rows) {
       return rows.map(function (point) {
         return {
@@ -7606,49 +9190,19 @@
         };
       });
     }
-    const rangeToolbar = n('div', 'ops-toolbar ops-analytics-window-toolbar ops-omni-window-toolbar');
-    add(rangeToolbar, [
-      n('span', 'ops-toolbar-label', 'Live occupancy history'),
-      segmented(OMNI_RANGE_WINDOWS, state.omniRange, function (range) {
-        setRouteState('ci-omni', 'omniRange', range, 'omni_range');
-      }, 'Filter monitored AMD Omni occupancy by time window'),
-      n('span', 'ops-window-context', 'Trailing ' + selectedRange.label + ' snapshot occupancy; this is operational context, not unique-job volume.'),
-    ]);
-    host.append(rangeToolbar);
-    host.append(statusStrip([
-      {
-        id: 'omni-window-latest',
-        label: 'OBSERVED QUEUED NOW',
-        value: latestPoint ? integer(latestPoint.allWaiting) : '-',
-        meta: latestPoint ? (latestPoint.amdWaitingSupported ? integer(latestPoint.amdWaiting) : 'unavailable') + ' AMD - ' + shortDate(latestPoint.ts) : 'No workload-attributed snapshot',
-        tone: latestPoint && latestPoint.allWaiting ? 'is-warning' : 'is-neutral',
-        onOpen: function () { openHistoryEvidence('Latest observed Omni queue', historyEvidence(latestPoint ? [latestPoint] : []), 'Explicit workload-attributed counts only', SOURCE_ASSETS.queueHistory); },
-      },
-      {
-        id: 'omni-window-change',
-        label: 'NET CHANGE IN ' + selectedRange.label.toUpperCase(),
-        value: waitingDelta === null ? '-' : signedInteger(waitingDelta),
-        meta: firstPoint ? 'from ' + shortDate(firstPoint.ts) + '; ' + windowCoverage + ' attribution across window' : 'Needs at least two observations in this window',
-        tone: waitingDelta > 0 ? 'is-warning' : waitingDelta < 0 ? 'is-success' : 'is-neutral',
-        onOpen: function () { openHistoryEvidence('Omni queue change in ' + selectedRange.label, historyEvidence(points), 'First-to-latest observed waiting count in the selected window', SOURCE_ASSETS.queueHistory); },
-      },
-      {
-        id: 'omni-window-peak',
-        label: 'WINDOW PEAK QUEUED',
-        value: waitingPeak === null ? '-' : integer(waitingPeak),
-        meta: integer(points.length) + ' attributed snapshots',
-        tone: waitingPeak ? 'is-warning' : 'is-neutral',
-        onOpen: function () { openHistoryEvidence('Omni queue observations in ' + selectedRange.label, historyEvidence(points), 'Every retained observation in the selected window', SOURCE_ASSETS.queueHistory); },
-      },
-      {
-        id: 'omni-window-coverage',
-        label: 'ATTRIBUTION COVERAGE',
-        value: points.length ? windowCoverage : '-',
-        meta: windowCoverage === 'complete' ? 'Every queued task in each snapshot was workload-classified' : 'Observed Omni counts may be lower bounds',
-        tone: windowCoverage === 'complete' ? 'is-success' : 'is-warning',
-        onOpen: function () { openHistoryEvidence('Omni workload attribution coverage', historyEvidence(points), 'Partial attribution is never converted into inferred Omni counts', SOURCE_ASSETS.queueHistory); },
-      },
-    ]));
+    function openOccupancyEvidence(title, rows, note) {
+      if (rows.length) {
+        openHistoryEvidence(title, historyEvidence(rows), note, SOURCE_ASSETS.queueHistory);
+        return;
+      }
+      openMetricDetail({
+        id: 'omni-occupancy-unavailable',
+        label: title,
+        value: 'unavailable',
+        meta: 'No workload-attributed occupancy snapshots fall inside ' + selectedRange.label + '. Aggregate queue totals are not reclassified as Omni.',
+        sources: [{label: 'Inspect published queue history', url: SOURCE_ASSETS.queueHistory}],
+      });
+    }
     const queueRows = Array.from(affected).sort().map(function (name) {
       const relatedPending = pending.filter(function (job) { return (job.queue || 'unknown') === name; }).length;
       const relatedRunning = running.filter(function (job) { return (job.queue || 'unknown') === name; }).length;
@@ -7659,67 +9213,11 @@
         jobs: relatedPending + relatedRunning,
       };
     });
-    const grid = n('div', 'ops-grid ops-grid-main-aside ops-omni-grid');
-    if (points.length) {
-      const cp = chartPanel('Observed AMD occupancy: ' + selectedRange.label, points.length + ' workload-attributed snapshots; observed counts only', 'omni-history');
-      cp.root.classList.add('ops-omni-detail');
-      grid.append(cp.root);
-      requestAnimationFrame(function () {
-        drawChart('omni-history', cp.canvas, {type: 'line', data: {labels: points.map(function (point) { return shortDate(point.ts); }), datasets: [
-          {label: 'AMD waiting observed', data: points.map(function (point) { return point.amdWaiting; }), borderColor: '#e3a63a', backgroundColor: '#e3a63a', pointRadius: 0, borderWidth: 2},
-          {label: 'AMD running observed', data: points.map(function (point) { return point.amdRunning; }), borderColor: '#22b8ad', backgroundColor: '#22b8ad', pointRadius: 0, borderWidth: 2},
-        ]}, evidenceTitle: 'Observed Omni occupancy on monitored AMD queues', evidenceAsset: SOURCE_ASSETS.queueHistory, evidence: historyEvidence(points)});
-      });
-    } else {
-      const unavailable = n('div', 'ops-stack');
-      unavailable.append(n('div', 'ops-evidence-note is-warning', 'No workload-attributed Omni snapshots fall inside this window. Aggregate queue totals are never reclassified as Omni.'));
-      unavailable.append(sourceActions([{label: 'Inspect published queue history', url: SOURCE_ASSETS.queueHistory}]));
-      const historyPanel = panel('AMD occupancy history unavailable for ' + selectedRange.label, '0 snapshots with explicit workload attribution', unavailable, 'ops-omni-detail');
-      grid.append(historyPanel);
-    }
-    grid.append(panel('Current monitored AMD queue distribution', queueRows.length + ' affected queues', dataTable([
-      {label: 'Queue', render: function (row) { const raw = ((((ops.queue || {}).snapshot || {}).queues || {})[row.name]) || {}; return raw.queue_url ? externalLink(row.name, raw.queue_url, 'ops-mono') : linkButton(row.name, function () { openQueueDetail(row.name, raw, activeJobs); }, 'Inspect active Omni jobs on ' + row.name); }},
-      {label: 'Waiting', numeric: true, render: function (row) { return linkButton(integer(row.waiting), function () { openQueueDetail(row.name, ((((ops.queue || {}).snapshot || {}).queues || {})[row.name]) || {}, activeJobs); }, 'Inspect waiting Omni jobs on ' + row.name); }},
-      {label: 'Running', numeric: true, render: function (row) { return linkButton(integer(row.running), function () { openQueueDetail(row.name, ((((ops.queue || {}).snapshot || {}).queues || {})[row.name]) || {}, activeJobs); }, 'Inspect running Omni jobs on ' + row.name); }},
-      {label: 'Exact jobs', numeric: true, render: function (row) { return linkButton(integer(row.jobs), function () { openQueueDetail(row.name, ((((ops.queue || {}).snapshot || {}).queues || {})[row.name]) || {}, activeJobs); }, 'Inspect exact active Omni jobs on ' + row.name); }},
-    ], queueRows), 'ops-omni-summary'));
-    host.append(grid);
-
     const dailyRows = omniDailyRows(waitingHistoryPoints);
-    host.append(panel('Legacy closing occupancy context (UTC)', 'Last queued-job snapshot per UTC day; do not interpret this as daily job volume—the exact mapping histogram above is the volume measure', dataTable([
-      {label: 'UTC day', sticky: true, render: function (row) { return linkButton(row.day, function () { openHistoryEvidence('Omni queue observations on ' + row.day, historyEvidence(allHistoryPoints.filter(function (point) { return new Date(point.time).toISOString().slice(0, 10) === row.day; })), 'Every workload-attributed snapshot retained for this UTC day', SOURCE_ASSETS.queueHistory); }); }},
-      {label: 'Last observed queued', numeric: true, render: function (row) { return linkButton(integer(row.waiting), function () { openHistoryEvidence('Closing Omni queue observation on ' + row.day, historyEvidence([row.last]), 'Last retained observation for the UTC day', SOURCE_ASSETS.queueHistory); }); }},
-      {label: 'Day-over-day change', numeric: true, render: function (row) { return badge(row.delta === null ? 'unavailable' : signedInteger(row.delta), row.delta > 0 ? 'is-warning' : row.delta < 0 ? 'is-success' : 'is-neutral'); }},
-      {label: 'Daily peak', numeric: true, render: function (row) { return integer(row.peak); }},
-      {label: 'AMD queued', numeric: true, render: function (row) { return integer(row.amdWaiting); }},
-      {label: 'Last snapshot', render: function (row) { return shortDate(row.last.ts); }},
-      {label: 'Samples', numeric: true, render: function (row) { return integer(row.samples); }},
-      {label: 'Attribution', render: function (row) { return badge(row.complete ? 'complete' : 'partial lower bound', row.complete ? 'is-success' : 'is-warning'); }},
-    ], dailyRows), 'ops-domain-full ops-omni-daily'));
-
-    const ageOptions = OMNI_AGE_BANDS.map(function (band) {
-      const count = band.id === 'all'
-        ? activeJobs.length
-        : pendingLedger.filter(function (job) { return omniAgeBand(job) === band.id; }).length;
-      return {id: band.id, label: band.label + ' (' + integer(count) + ')'};
-    });
-    const selectedAge = OMNI_AGE_BANDS.find(function (band) { return band.id === state.omniAge; }) || OMNI_AGE_BANDS[0];
-    const visibleJobs = (state.omniAge === 'all'
-      ? activeJobs
-      : pendingLedger.filter(function (job) { return omniAgeBand(job) === state.omniAge; })
-    ).slice().sort(function (left, right) {
+    const visibleJobs = activeJobs.slice().sort(function (left, right) {
       return Number(right.wait_min || 0) - Number(left.wait_min || 0)
         || compareText(left.name, right.name);
     });
-    const ageToolbar = n('div', 'ops-toolbar ops-analytics-window-toolbar ops-omni-age-toolbar');
-    add(ageToolbar, [
-      n('span', 'ops-toolbar-label', 'Queued task age'),
-      segmented(ageOptions, state.omniAge, function (ageBand) {
-        setRouteState('ci-omni', 'omniAge', ageBand, 'omni_age');
-      }, 'Filter exact Omni tasks by queued age'),
-      n('span', 'ops-window-context', state.omniAge === 'all' ? 'Active waiting and running tasks' : 'Queued tasks only; retained stale records remain visibly marked'),
-    ]);
-    host.append(ageToolbar);
     const jobColumns = [
       {label: 'Job', sticky: true, render: function (r) { return externalLink(r.name || 'Unnamed job', r.url); }},
       {label: 'Queue', render: function (r) { return linkButton(value(r.queue), function () { openQueueDetail(r.queue, ((((ops.queue || {}).snapshot || {}).queues || {})[r.queue]) || {}, activeJobs); }, 'Inspect queue and exact jobs for ' + value(r.queue)); }},
@@ -7729,20 +9227,92 @@
       {label: 'Build', render: function (r) { return externalLink((r.pipeline || '?') + ' #' + value(r.build), r.build_url || buildUrl(r.pipeline, r.build), 'ops-mono'); }},
       {label: 'Source', render: function (r) { return linkedBadge(r.source || r.workload || 'omni', r.url, null, 'is-info'); }},
     ];
-    host.append(compactTablePanel(
-      state.omniAge === 'all' ? 'Current vLLM Omni CI jobs on monitored AMD queues' : 'Queued Omni tasks aged ' + selectedAge.label,
-      integer(visibleJobs.length) + ' exact source-backed tasks; no aggregate queue total is expanded into synthetic jobs',
-      jobColumns,
-      visibleJobs,
-      {
+    function browseActiveJobs() {
+      openTableBrowser({
         id: 'omni-job-browser',
-        limit: 20,
-        browserTitle: state.omniAge === 'all' ? 'Current vLLM Omni CI jobs on monitored AMD queues' : 'Queued Omni tasks aged ' + selectedAge.label,
-        browserSubtitle: 'Every row links to the exact Buildkite job; stale retained records are marked and excluded from active analytics',
+        title: 'Current Omni CI jobs on monitored AMD queues',
+        subtitle: 'Every row links to the exact Buildkite job; aggregate queue totals are never expanded into synthetic jobs',
+        rows: visibleJobs,
+        columns: jobColumns,
         searchPlaceholder: 'Filter job, queue, pipeline, branch, or state',
         searchText: function (row) { return [row.name, row.queue, row.pipeline, row.branch, row.state].join(' '); },
         geometry: {name: 'omni-jobs', minWidth: '1180px'},
-      }
+      });
+    }
+    function browseCurrentQueues() {
+      openTableBrowser({
+        id: 'omni-current-queues',
+        title: 'Current Omni CI queue distribution',
+        subtitle: 'Exact active jobs on the monitored AMD allowlist',
+        rows: queueRows,
+        columns: [
+          {label: 'Queue', sticky: true, render: function (row) { return linkButton(row.name, function () { openQueueDetail(row.name, ((((ops.queue || {}).snapshot || {}).queues || {})[row.name]) || {}, activeJobs); }, 'Inspect ' + row.name); }},
+          {label: 'Waiting', numeric: true, render: function (row) { return integer(row.waiting); }},
+          {label: 'Running', numeric: true, render: function (row) { return integer(row.running); }},
+          {label: 'Exact jobs', numeric: true, render: function (row) { return integer(row.jobs); }},
+        ],
+        searchPlaceholder: 'Filter queue',
+        searchText: function (row) { return row.name; },
+        geometry: {name: 'omni-current-queues', minWidth: '680px'},
+      });
+    }
+    function browseLegacyOccupancy() {
+      openTableBrowser({
+        id: 'omni-legacy-occupancy',
+        title: 'Closing occupancy context by UTC day',
+        subtitle: 'Snapshot occupancy, not unique-job volume',
+        rows: dailyRows,
+        columns: [
+          {label: 'UTC day', sticky: true, render: function (row) { return linkButton(row.day, function () { openHistoryEvidence('Omni queue observations on ' + row.day, historyEvidence(allHistoryPoints.filter(function (point) { return new Date(point.time).toISOString().slice(0, 10) === row.day; })), 'Every workload-attributed snapshot retained for this UTC day', SOURCE_ASSETS.queueHistory); }); }},
+          {label: 'Closing queued', numeric: true, render: function (row) { return integer(row.waiting); }},
+          {label: 'Day change', numeric: true, render: function (row) { return row.delta === null ? '-' : signedInteger(row.delta); }},
+          {label: 'Daily peak', numeric: true, render: function (row) { return integer(row.peak); }},
+          {label: 'Samples', numeric: true, render: function (row) { return integer(row.samples); }},
+          {label: 'Attribution', render: function (row) { return badge(row.complete ? 'complete' : 'partial lower bound', row.complete ? 'is-success' : 'is-warning'); }},
+        ],
+        searchPlaceholder: 'Filter UTC day or attribution',
+        searchText: function (row) { return [row.day, row.complete].join(' '); },
+        geometry: {name: 'omni-legacy-occupancy', minWidth: '850px'},
+      });
+    }
+    function liveFact(label, renderedValue, meta, onOpen, tone) {
+      const fact = n('button', 'ops-omni-live-fact ' + (tone || ''));
+      fact.type = 'button';
+      fact.setAttribute('aria-label', label + ': ' + renderedValue + '. ' + meta);
+      fact.addEventListener('click', onOpen);
+      add(fact, [
+        n('span', 'ops-stat-label', label),
+        n('strong', 'ops-omni-live-value', renderedValue),
+        n('span', 'ops-stat-meta', meta),
+      ]);
+      return fact;
+    }
+    const liveBody = n('div', 'ops-stack ops-omni-live-body');
+    const liveFacts = n('div', 'ops-omni-live-facts');
+    add(liveFacts, [
+      liveFact('EXACT ACTIVE JOBS', integer(activeJobs.length), integer(ledgerWaiting) + ' waiting · ' + integer(ledgerRunning) + ' running', browseActiveJobs, pending.length ? 'is-warning' : ''),
+      liveFact('OBSERVED QUEUED', latestPoint ? integer(latestPoint.allWaiting) : '-', latestPoint ? shortDate(latestPoint.ts) : 'No waiting-attributed snapshot in ' + selectedRange.label, function () { openOccupancyEvidence('Latest observed Omni queue', latestPoint ? [latestPoint] : [], 'Explicit waiting-attributed counts only'); }, latestPoint && latestPoint.allWaiting ? 'is-warning' : ''),
+      liveFact('QUEUED PEAK', waitingPeak === null ? '-' : integer(waitingPeak), integer(waitingPoints.length) + ' waiting-attributed snapshots · ' + selectedRange.label, function () { openOccupancyEvidence('Omni queued observations', waitingPoints, 'Snapshot occupancy is operational context, not unique-job volume'); }, waitingPeak ? 'is-warning' : ''),
+      liveFact('ATTRIBUTED SNAPSHOTS', points.length ? integer(points.length) : '-', integer(waitingPoints.length) + ' waiting · ' + integer(runningPoints.length) + ' running', function () { openOccupancyEvidence('Omni workload attribution coverage', points, 'Waiting and running availability are retained independently; partial attribution remains a lower bound'); }, points.length && windowCoverage === 'complete' ? 'is-success' : 'is-warning'),
+    ]);
+    liveBody.append(liveFacts);
+    const liveActions = n('div', 'ops-inline-actions ops-omni-live-actions');
+    add(liveActions, [
+      segmented(OMNI_RANGE_WINDOWS, state.omniRange, function (range) {
+        setRouteState('ci-omni', 'omniRange', range, 'omni_range');
+      }, 'Filter live Omni occupancy context by time window'),
+      button('Active jobs (' + integer(activeJobs.length) + ')', browseActiveJobs),
+      button('Current queues (' + integer(queueRows.length) + ')', browseCurrentQueues),
+      button('Occupancy history', function () { openOccupancyEvidence('Omni occupancy observations in ' + selectedRange.label, points, 'Observed workload-attributed snapshots only'); }),
+      button('Daily closing context', browseLegacyOccupancy),
+      externalLink('Inspect published queue history', SOURCE_ASSETS.queueHistory, 'ops-button'),
+    ]);
+    liveBody.append(liveActions);
+    host.append(panel(
+      'Live AMD queue state',
+      'Exact jobs now plus ' + selectedRange.label + ' observed occupancy; distinct from unique mapping volume above',
+      liveBody,
+      'ops-omni-live'
     ));
   }
 
@@ -7793,6 +9363,18 @@
       targetResolutionPresentation: targetResolutionPresentation,
       targetAssessmentText: targetAssessmentText,
       targetNoSignalBreakdown: targetNoSignalBreakdown,
+      capacityLargestRemainder: capacityLargestRemainder,
+      capacityPairedAllocation: capacityPairedAllocation,
+      capacityTopologyForGroups: capacityTopologyForGroups,
+      capacityGroupsForJobs: capacityGroupsForJobs,
+      capacityTopologyForQueue: capacityTopologyForQueue,
+      capacityBurstWait: capacityBurstWait,
+      capacityScenario: capacityScenario,
+      capacityGrowthCurve: capacityGrowthCurve,
+      capacityVerdict: capacityVerdict,
+      omniMappingWindow: omniMappingWindow,
+      omniMappingBuckets: omniMappingBuckets,
+      omniMappingTotals: omniMappingTotals,
       omniHistoryPoints: omniHistoryPoints,
       omniWindowPoints: omniWindowPoints,
       omniAgeBand: omniAgeBand,

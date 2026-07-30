@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,12 @@ def _load_json_or_skip(name: str):
 def _assert_has_keys(obj: dict, required: set, path: str):
     missing = required - set(obj.keys())
     assert not missing, f"{path} missing required keys: {sorted(missing)}"
+
+
+def _parse_utc(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    assert parsed.tzinfo is not None, f"{value!r} must include a timezone"
+    return parsed.astimezone(timezone.utc)
 
 
 class TestCiHealth:
@@ -359,6 +366,91 @@ class TestQueueJobs:
 
 
 class TestWorkloadMapping:
+    INTEGER_FIELDS = (
+        "mapped_jobs", "started_jobs", "finished_jobs", "mapped_gpu_slots",
+    )
+    REPOSITORY_LABELS = {
+        "omni": "vllm-project/vllm-omni",
+        "main": "vllm-project/vllm",
+    }
+
+    def _assert_aggregate(self, aggregate, path, queues, pipelines):
+        _assert_has_keys(
+            aggregate,
+            {*self.INTEGER_FIELDS, "gpu_hours", "by_queue", "by_pipeline"},
+            path,
+        )
+        for field in self.INTEGER_FIELDS:
+            assert isinstance(aggregate[field], int) and aggregate[field] >= 0
+        assert aggregate["started_jobs"] <= aggregate["mapped_jobs"]
+        assert aggregate["finished_jobs"] <= aggregate["mapped_jobs"]
+        assert aggregate["mapped_gpu_slots"] >= aggregate["mapped_jobs"]
+        assert isinstance(aggregate["gpu_hours"], (int, float))
+        assert aggregate["gpu_hours"] >= 0
+
+        for dimension, allowlist in (
+            ("by_queue", queues),
+            ("by_pipeline", pipelines),
+        ):
+            breakdown = aggregate[dimension]
+            assert isinstance(breakdown, dict)
+            assert set(breakdown) <= allowlist
+            for name, stats in breakdown.items():
+                _assert_has_keys(
+                    stats,
+                    {*self.INTEGER_FIELDS, "gpu_hours"},
+                    f"{path}.{dimension}[{name}]",
+                )
+            for field in self.INTEGER_FIELDS:
+                assert aggregate[field] == sum(
+                    int(stats[field]) for stats in breakdown.values()
+                ), f"{path}.{dimension} does not sum to {field}"
+
+    def _assert_rows(self, d, collection, key):
+        rows = d[collection]
+        assert isinstance(rows, list) and rows
+        keys = [row[key] for row in rows]
+        assert keys == sorted(set(keys))
+        queues = set(d["scope"]["queues"])
+        pipeline_map = d["scope"]["workload_pipelines"]
+
+        for row in rows:
+            path = f"workload_mapping.json.{collection}[{row.get(key)}]"
+            _assert_has_keys(
+                row,
+                {
+                    key, "end_exclusive", "observed_through", "state",
+                    "open", "partial", "complete", "collection_complete",
+                    "lower_bound", "workloads",
+                },
+                path,
+            )
+            assert row["state"] in {"open", "closed", "partial"}
+            assert row["lower_bound"] is (not row["collection_complete"])
+            assert row["complete"] is (
+                not row["open"] and row["collection_complete"]
+            )
+            assert row["partial"] is (
+                row["open"] or not row["collection_complete"]
+            )
+            expected_state = (
+                "open" if row["open"]
+                else ("closed" if row["collection_complete"] else "partial")
+            )
+            assert row["state"] == expected_state
+            assert _parse_utc(row["observed_through"]) <= _parse_utc(
+                row["end_exclusive"]
+            )
+            assert set(row["workloads"]) == {"omni", "main"}
+            for workload in ("omni", "main"):
+                self._assert_aggregate(
+                    row["workloads"][workload],
+                    f"{path}.workloads.{workload}",
+                    queues,
+                    set(pipeline_map[workload]),
+                )
+        return rows
+
     def test_top_level_and_scope_schema(self):
         d = _load_json_or_skip("workload_mapping.json")
         _assert_has_keys(
@@ -368,20 +460,27 @@ class TestWorkloadMapping:
                 "generated_at",
                 "collection_start",
                 "timezone",
+                "repositories",
+                "retention",
+                "coverage",
                 "window",
                 "scope",
                 "semantics",
                 "query",
                 "totals",
+                "hourly",
                 "daily",
             },
             "workload_mapping.json",
         )
-        assert d["schema_version"] == 1
+        assert d["schema_version"] == 2
         assert d["timezone"] == "UTC"
+        assert d["retention"]["hourly_days"] >= 7
+        assert d["retention"]["daily_days"] >= 90
+        assert set(d["repositories"]) == {"omni", "main"}
         _assert_has_keys(
             d["scope"],
-            {"queues", "excluded_queue_classes", "workload_pipelines"},
+            {"queues", "excluded_queue_classes", "workload_pipelines", "repositories"},
             "workload_mapping.json.scope",
         )
         queues = d["scope"]["queues"]
@@ -395,42 +494,96 @@ class TestWorkloadMapping:
             isinstance(pipelines.get(workload), list) and pipelines[workload]
             for workload in ("omni", "main")
         )
+        for workload, label in self.REPOSITORY_LABELS.items():
+            repository = d["repositories"][workload]
+            _assert_has_keys(
+                repository, {"label", "pipelines"},
+                f"workload_mapping.json.repositories.{workload}",
+            )
+            assert repository["label"] == label
+            assert repository["pipelines"] == pipelines[workload]
+            assert d["scope"]["repositories"][workload] == repository
 
-    def test_window_and_daily_rows_are_complete_and_ordered(self):
+    def test_hourly_and_daily_ranges_match_declared_coverage(self):
+        d = _load_json_or_skip("workload_mapping.json")
+        generated = _parse_utc(d["generated_at"])
+        hourly = self._assert_rows(d, "hourly", "hour")
+        daily = self._assert_rows(d, "daily", "date")
+
+        assert len(hourly) >= d["retention"]["hourly_days"] * 24 + 1
+        assert len(daily) >= d["retention"]["daily_days"]
+        current_hour = generated.replace(minute=0, second=0, microsecond=0)
+        assert _parse_utc(hourly[-1]["hour"]) == current_hour
+        assert daily[-1]["date"] == generated.date().isoformat()
+        assert hourly[-1]["state"] == daily[-1]["state"] == "open"
+        assert hourly[-1]["observed_through"] == d["generated_at"]
+        assert daily[-1]["observed_through"] == d["generated_at"]
+
+        for collection, rows, key in (
+            ("hourly", hourly, "hour"),
+            ("daily", daily, "date"),
+        ):
+            coverage = d["coverage"][collection]
+            _assert_has_keys(
+                coverage,
+                {
+                    "resolution", "retention_days", "start", "end_exclusive",
+                    "observed_through", "bucket_count", "expected_bucket_count",
+                    "missing_bucket_count", "contiguous",
+                    "collection_complete", "has_open_bucket",
+                },
+                f"workload_mapping.json.coverage.{collection}",
+            )
+            first_start = (
+                rows[0][key] if key == "hour"
+                else f"{rows[0][key]}T00:00:00Z"
+            )
+            assert coverage["start"] == first_start
+            assert coverage["end_exclusive"] == rows[-1]["end_exclusive"]
+            assert coverage["observed_through"] == rows[-1]["observed_through"]
+            assert coverage["bucket_count"] == len(rows)
+            missing = coverage["expected_bucket_count"] - len(rows)
+            assert coverage["missing_bucket_count"] == missing
+            assert coverage["contiguous"] is (missing == 0)
+            assert coverage["collection_complete"] is (
+                coverage["contiguous"]
+                and all(row["collection_complete"] for row in rows)
+            )
+            assert coverage["has_open_bucket"] is any(row["open"] for row in rows)
+
+        assert (
+            _parse_utc(hourly[-1]["end_exclusive"])
+            - _parse_utc(hourly[0]["hour"])
+            >= timedelta(days=d["retention"]["hourly_days"])
+        )
+
+    def test_window_truth_is_independent_of_open_daily_bucket(self):
         d = _load_json_or_skip("workload_mapping.json")
         window = d["window"]
         _assert_has_keys(
             window,
-            {"days", "start_date", "end_date", "complete", "lower_bound"},
+            {
+                "days", "start_date", "end_date", "start",
+                "observed_through", "state", "complete",
+                "collection_complete", "lower_bound",
+            },
             "workload_mapping.json.window",
         )
         assert window["days"] == 14
-        assert window["lower_bound"] is (not window["complete"])
-
-        daily = d["daily"]
-        assert isinstance(daily, list) and daily
-        dates = [row["date"] for row in daily]
-        assert dates == sorted(set(dates))
-        window_rows = [
-            row
-            for row in daily
+        assert window["state"] == "open"
+        assert window["observed_through"] == d["generated_at"]
+        assert window["lower_bound"] is (not window["collection_complete"])
+        assert window["complete"] is window["collection_complete"]
+        rows = [
+            row for row in d["daily"]
             if window["start_date"] <= row["date"] <= window["end_date"]
         ]
-        if window["complete"]:
-            assert len(window_rows) == window["days"]
-            assert all(
-                row.get("complete") is True and row.get("lower_bound") is False
-                for row in window_rows
-            )
-
-        for row in daily:
-            _assert_has_keys(
-                row,
-                {"date", "complete", "lower_bound", "workloads"},
-                f"workload_mapping.json.daily[{row.get('date')}]",
-            )
-            assert row["lower_bound"] is (not row["complete"])
-            assert set(row["workloads"]) == {"omni", "main"}
+        assert len(rows) == window["days"]
+        assert window["collection_complete"] is all(
+            row["collection_complete"] for row in rows
+        )
+        assert rows[-1]["open"] is True
+        assert rows[-1]["complete"] is False
 
     def test_totals_match_the_declared_window(self):
         d = _load_json_or_skip("workload_mapping.json")
@@ -441,28 +594,64 @@ class TestWorkloadMapping:
             if window["start_date"] <= row["date"] <= window["end_date"]
         ]
         queue_allowlist = set(d["scope"]["queues"])
-        integer_fields = (
-            "mapped_jobs",
-            "started_jobs",
-            "finished_jobs",
-            "mapped_gpu_slots",
-        )
+        pipelines = d["scope"]["workload_pipelines"]
 
         for workload in ("omni", "main"):
             total = d["totals"][workload]
-            _assert_has_keys(
-                total,
-                {*integer_fields, "gpu_hours", "by_queue"},
-                f"workload_mapping.json.totals.{workload}",
+            self._assert_aggregate(
+                total, f"workload_mapping.json.totals.{workload}",
+                queue_allowlist, set(pipelines[workload]),
             )
-            for field in integer_fields:
-                assert isinstance(total[field], int) and total[field] >= 0
+            for field in self.INTEGER_FIELDS:
                 assert total[field] == sum(
                     int(row["workloads"][workload][field]) for row in rows
                 )
-            assert total["mapped_gpu_slots"] >= total["mapped_jobs"]
-            assert float(total["gpu_hours"]) >= 0
-            assert set(total["by_queue"]) <= queue_allowlist
+            assert total["gpu_hours"] == pytest.approx(
+                sum(float(row["workloads"][workload]["gpu_hours"]) for row in rows),
+                abs=0.02,
+            )
+
+    def test_query_is_bounded_and_contains_no_raw_records(self):
+        d = _load_json_or_skip("workload_mapping.json")
+        query = d["query"]
+        _assert_has_keys(
+            query,
+            {
+                "start", "end_exclusive", "build_created_start",
+                "bounded_slice", "pipeline_sources", "diagnostics",
+            },
+            "workload_mapping.json.query",
+        )
+        assert query["bounded_slice"] == "UTC day"
+        assert query["end_exclusive"] == d["generated_at"]
+        assert query["pipeline_sources"]
+
+        for source in query["pipeline_sources"]:
+            _assert_has_keys(
+                source,
+                {
+                    "pipeline", "workload", "repository", "start",
+                    "end_exclusive", "bounded_slice", "slice_count",
+                    "complete", "truncated", "error_types", "slices",
+                },
+                "workload_mapping.json.query.pipeline_sources[]",
+            )
+            workload = source["workload"]
+            assert source["repository"] == self.REPOSITORY_LABELS[workload]
+            assert source["pipeline"] in d["scope"]["workload_pipelines"][workload]
+            assert source["slice_count"] == len(source["slices"])
+            assert source["complete"] is all(
+                row["complete"] for row in source["slices"]
+            )
+            for row in source["slices"]:
+                assert (
+                    _parse_utc(row["end_exclusive"]) - _parse_utc(row["start"])
+                    <= timedelta(days=1)
+                )
+
+        serialized = json.dumps(d)
+        assert '"jobs":' not in serialized
+        assert '"job_id":' not in serialized
 
 
 class TestOpenQueueIssues:

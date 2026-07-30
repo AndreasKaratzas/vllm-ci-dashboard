@@ -150,18 +150,61 @@ class TestCIDataFreshness:
         assert ts, "workload_mapping.json has no generated_at"
         _check_freshness("workload_mapping.json", ts)
 
-        generated_day = _parse_ts(ts).date().isoformat()
+        generated_at = _parse_ts(ts).astimezone(timezone.utc)
+        generated_hour = generated_at.replace(minute=0, second=0, microsecond=0)
+        generated_day = generated_at.date().isoformat()
+        assert d.get("schema_version") == 2
+
         window = d.get("window") or {}
         assert window.get("days") == 14
         assert window.get("end_date") == generated_day, (
             "workload_mapping.json window must end on its generated UTC day"
         )
+        assert window.get("observed_through") == ts
         window_rows = [
             row
             for row in d.get("daily") or []
             if window.get("start_date", "") <= row.get("date", "") <= generated_day
         ]
         assert len(window_rows) == 14
+
+        retention = d.get("retention") or {}
+        hourly_days = int(retention.get("hourly_days") or 0)
+        daily_days = int(retention.get("daily_days") or 0)
+        assert hourly_days >= 7
+        assert daily_days >= 90
+
+        hourly = d.get("hourly") or []
+        daily = d.get("daily") or []
+        assert len(hourly) >= hourly_days * 24 + 1
+        assert len(daily) >= daily_days
+        assert _parse_ts(hourly[0]["hour"]) <= (
+            generated_hour - timedelta(days=hourly_days)
+        )
+        assert _parse_ts(hourly[-1]["hour"]) == generated_hour
+        assert hourly[-1]["state"] == "open"
+        assert hourly[-1]["observed_through"] == ts
+        assert daily[0]["date"] <= (
+            generated_at.date() - timedelta(days=daily_days - 1)
+        ).isoformat()
+        assert daily[-1]["date"] == generated_day
+        assert daily[-1]["state"] == "open"
+        assert daily[-1]["observed_through"] == ts
+
+        coverage = d.get("coverage") or {}
+        for resolution, rows in (("hourly", hourly), ("daily", daily)):
+            block = coverage.get(resolution) or {}
+            assert block.get("bucket_count") == len(rows)
+            assert block.get("observed_through") == ts
+            assert block.get("has_open_bucket") is True
+            missing = int(block.get("missing_bucket_count", -1))
+            expected = int(block.get("expected_bucket_count", -1))
+            assert missing == expected - len(rows)
+            assert block.get("contiguous") is (missing == 0)
+
+        query = d.get("query") or {}
+        assert query.get("end_exclusive") == ts
+        assert query.get("bounded_slice") == "UTC day"
 
     def test_parity_report_has_job_links(self):
         """Verify parity report has job links (the bug we fixed)."""

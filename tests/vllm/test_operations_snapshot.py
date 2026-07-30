@@ -980,6 +980,7 @@ def test_v2_snapshot_transition_math_links_and_queue_provenance(tmp_path):
         "capacity": "capacity_monitor.json",
         "target_topology": "amd_test_matrix.json",
         "historical_load": "workload_mapping.json",
+        "queue_history": "queue_timeseries.jsonl",
     }
     assert payload["trajectory"]["source_pipeline"] == "ci"
     assert payload["trajectory"]["pipeline_order"] == ["ci"]
@@ -997,6 +998,7 @@ def test_exact_capacity_projection_expands_parallelism_and_queue_width():
             "projected_total_gpus": 4,
         },
         "summary": {
+            "capacity_scoped_group_count": 1,
             "capacity": {
                 "future_eligible": {
                     "queue_count": 2,
@@ -1016,6 +1018,8 @@ def test_exact_capacity_projection_expands_parallelism_and_queue_width():
                 "future_max_concurrent_jobs": 20,
                 "future_gpu_capacity": 20,
                 "capacity_eligible": True,
+                "gated_groups": 1,
+                "gated_jobs": 2,
             },
             {
                 "id": "amd_mi300_8",
@@ -1025,6 +1029,20 @@ def test_exact_capacity_projection_expands_parallelism_and_queue_width():
                 "future_max_concurrent_jobs": 1,
                 "future_gpu_capacity": 8,
                 "capacity_eligible": True,
+                "gated_groups": 0,
+                "gated_jobs": 0,
+            },
+            {
+                "id": "amd_mi325_1",
+                "label": "mi325_1",
+                "family": "MI325",
+                "gpus_per_job": 1,
+                "max_concurrent_jobs": 188,
+                "gpu_capacity": 188,
+                "capacity_eligible": False,
+                "lifecycle": "retiring",
+                "gated_groups": 0,
+                "gated_jobs": 0,
             },
         ],
     }
@@ -1083,11 +1101,415 @@ def test_exact_capacity_projection_expands_parallelism_and_queue_width():
     assert projection["scenarios"][0]["shape_gap_gpus"] == 8
     assert projection["scenarios"][0]["queue_gaps"][0]["id"] == "amd_mi300_8"
     assert projection["scenarios"][1]["family_gap_gpus"] == 8
-    assert projection["recommendation"]["net_new_hardware_required_for_one_suite"] is False
+    recommendation = projection["recommendation"]
+    assert recommendation["net_new_hardware_required_for_one_suite"] is None
+    assert (
+        recommendation["overall_hardware_requirement"]
+        == "indeterminate_until_mi325_destination_modeled"
+    )
+    assert recommendation["mi325_migration_unplaced"] is True
+    assert recommendation["conditional_on_mi325_destination"] is True
+    assert (
+        recommendation["standalone_target_only"]["net_new_hardware_required"]
+        is False
+    )
+    assert recommendation["standalone_target_only"]["shape_gap_gpus"] == 8
+    assert "standalone target suite does not require net-new silicon" in (
+        recommendation["standalone_target_only"]["summary"]
+    )
+    assert "Overall hardware need is indeterminate" in recommendation["summary"]
     assert projection["recommendation"]["repartition_possible_within_family"] is True
     assert projection["runtime_estimate"]["selected_jobs"] == 4
     assert projection["runtime_estimate"]["median_agent_hours"] == 1.67
     assert projection["runtime_estimate"]["median_gpu_hours"] == 9.83
+    assert projection["current_topology"] == {
+        "groups": 1,
+        "jobs": 2,
+        "gpu_slots": 2,
+        "agent_minutes": 30.0,
+    }
+    projected_queues = {row["id"]: row for row in projection["queues"]}
+    assert projected_queues["amd_mi300_1"]["current_gated_groups"] == 1
+    assert projected_queues["amd_mi300_1"]["current_gated_jobs"] == 2
+    assert projected_queues["amd_mi300_1"]["current_gated_gpu_slots"] == 2
+    assert projected_queues["amd_mi300_8"]["current_gated_gpu_slots"] == 0
+
+
+def test_capacity_simulation_profile_publishes_source_backed_wait_inputs():
+    capacity = {
+        "summary": {"capacity_scoped_group_count": 1},
+        "queues": [
+            {
+                "id": "amd_mi300_1",
+                "gated_groups": 1,
+                "gated_jobs": 2,
+            },
+            {
+                "id": "amd_mi300_8",
+                "gated_groups": 0,
+                "gated_jobs": 0,
+            },
+        ],
+    }
+    target_queues = [
+        {
+            "id": "amd_mi300_1",
+            "label": "mi300_1",
+            "family": "MI300",
+            "gpus_per_job": 1,
+            "max_concurrent_jobs": 20,
+            "groups": 1,
+            "jobs": 2,
+        },
+        {
+            "id": "amd_mi300_8",
+            "label": "mi300_8",
+            "family": "MI300",
+            "gpus_per_job": 8,
+            "max_concurrent_jobs": 1,
+            "groups": 1,
+            "jobs": 2,
+        },
+    ]
+    runtime = {
+        "sampled_jobs": 4,
+        "median_agent_hours": 2,
+        "queues": {
+            "amd_mi300_1": {
+                "sampled_jobs": 2,
+                "median_agent_hours": 1,
+            },
+            "amd_mi300_8": {
+                "sampled_jobs": 2,
+                "median_agent_hours": 1,
+            },
+        },
+    }
+    mapping = {
+        "generated_at": "2026-04-22T12:00:00Z",
+        "window": {
+            "days": 1,
+            "start_date": "2026-04-22",
+            "end_date": "2026-04-22",
+            "complete": True,
+            "lower_bound": False,
+        },
+        "totals": {
+            "main": {
+                "by_queue": {
+                    "amd_mi300_1": {
+                        "mapped_jobs": 12,
+                        "started_jobs": 6,
+                        "finished_jobs": 6,
+                        "mapped_gpu_slots": 12,
+                        "gpu_hours": 6,
+                    },
+                },
+            },
+            "omni": {"by_queue": {}},
+        },
+    }
+    history = [
+        {
+            "ts": "2026-04-22T10:00:00Z",
+            "queues": {"amd_mi300_1": {"running": 1, "waiting": 0}},
+        },
+        {
+            "ts": "2026-04-22T11:00:00Z",
+            "queues": {"amd_mi300_1": {"running": 3, "waiting": 2}},
+        },
+        {
+            "ts": "2026-04-22T12:00:00Z",
+            "queues": {"amd_mi300_1": {"running": 25, "waiting": 10}},
+        },
+    ]
+
+    profile = ops._capacity_simulation_profile(
+        capacity,
+        target_queues,
+        runtime,
+        mapping,
+        history,
+    )
+
+    assert profile["defaults"]["baseline"] == "peak"
+    assert profile["workload_window"]["elapsed_hours"] == 12
+    assert profile["topology"]["current"] == {
+        "groups": 1,
+        "jobs": 2,
+        "gpu_slots": 2,
+        "agent_minutes": 60.0,
+    }
+    assert profile["topology"]["target"] == {
+        "groups": 2,
+        "jobs": 4,
+        "gpu_slots": 18,
+        "agent_minutes": 120.0,
+    }
+    assert profile["topology"]["delta"]["gpu_slots"] == 16
+    rows = {row["id"]: row for row in profile["queues"]}
+    one_gpu = rows["amd_mi300_1"]
+    assert one_gpu["history"]["sample_count"] == 3
+    assert one_gpu["history"]["current"]["running"] == 25
+    assert one_gpu["history"]["current"]["waiting"] == 10
+    assert one_gpu["history"]["current"]["available_slots"] == 0
+    assert one_gpu["history"]["current"]["above_configured_capacity"] is True
+    assert one_gpu["history"]["snapshots_above_configured_capacity"] == 1
+    assert one_gpu["history"]["typical"]["running"] == 3
+    assert one_gpu["history"]["typical"]["waiting"] == 2
+    assert one_gpu["history"]["peak"]["running"] == 22.8
+    assert one_gpu["history"]["peak"]["waiting"] == 9.2
+    assert one_gpu["workload"]["mapped_arrival_rate_jobs_per_hour"] == 1
+    assert one_gpu["workload"]["started_arrival_rate_jobs_per_hour"] == 0.5
+    assert one_gpu["workload"]["observed_service_minutes"] == 60
+    assert one_gpu["workload"]["target_runtime_service_minutes"] == 30
+    assert one_gpu["workload"]["service_minutes"] == 30
+    assert (
+        one_gpu["workload"]["service_minutes_source"]
+        == "target_command_job_median_average"
+    )
+    assert one_gpu["workload"]["service_minutes_is_proxy"] is False
+    eight_gpu = rows["amd_mi300_8"]
+    assert eight_gpu["history"]["current"]["available"] is False
+    assert eight_gpu["workload"]["observed_service_minutes"] is None
+    assert eight_gpu["workload"]["service_minutes"] == 30
+    assert (
+        eight_gpu["workload"]["service_minutes_source"]
+        == "target_command_job_median_average"
+    )
+    assert profile["model"]["kind"] == "planning_estimate_inputs_not_sla"
+    assert "FCFS list scheduling per queue as a planning estimate" in (
+        profile["model"]["burst_wait"]
+    )
+    assert "Only the full-service residual" in profile["model"]["burst_wait"]
+    assert "conservative FCFS" not in profile["model"]["burst_wait"]
+    assert "rho>=1" in profile["model"]["steady_wait"]
+    assert "not an SLA" in profile["model"]["steady_wait_assumptions"]
+    assert "primary service-time input" in profile["assumptions"]["service"]
+    assert "used only as a fallback" in profile["assumptions"]["service"]
+    assert profile["provenance"]["queue_history"] == "queue_timeseries.jsonl"
+
+
+def test_capacity_simulation_profile_keeps_missing_inputs_explicit():
+    profile = ops._capacity_simulation_profile(
+        {"queues": [], "summary": {}},
+        [{
+            "id": "amd_mi355_8",
+            "label": "mi355_8",
+            "family": "MI355",
+            "gpus_per_job": 8,
+            "max_concurrent_jobs": 1,
+            "groups": 0,
+            "jobs": 0,
+        }],
+        {},
+        {},
+        [],
+    )
+
+    row = profile["queues"][0]
+    assert profile["history"]["snapshot_count"] == 0
+    assert profile["workload_window"]["elapsed_hours"] == 0
+    assert row["history"]["current"] == {
+        "kind": "latest_snapshot",
+        "available": False,
+        "running": None,
+        "waiting": None,
+        "available_slots": None,
+        "utilization_pct": None,
+        "saturated": None,
+    }
+    assert row["history"]["typical"]["available"] is False
+    assert row["history"]["peak"]["available"] is False
+    assert row["workload"]["mapped_arrival_rate_jobs_per_hour"] is None
+    assert row["workload"]["started_arrival_rate_jobs_per_hour"] is None
+    assert row["workload"]["observed_service_minutes"] is None
+    assert row["workload"]["target_runtime_service_minutes"] is None
+    assert row["workload"]["target_global_service_minutes"] is None
+    assert row["workload"]["runtime_fallback_service_minutes"] is None
+    assert row["workload"]["service_minutes"] is None
+    assert row["workload"]["service_minutes_source"] == "unavailable"
+    assert row["workload"]["service_minutes_is_proxy"] is None
+
+
+def test_capacity_service_uses_completed_mapping_proxy_only_as_fallback():
+    profile = ops._capacity_simulation_profile(
+        {
+            "summary": {"capacity_scoped_group_count": 0},
+            "queues": [{"id": "amd_mi355_1"}],
+        },
+        [{
+            "id": "amd_mi355_1",
+            "label": "mi355_1",
+            "family": "MI355",
+            "gpus_per_job": 1,
+            "max_concurrent_jobs": 48,
+            "groups": 1,
+            "jobs": 1,
+        }],
+        {},
+        {
+            "generated_at": "2026-04-22T12:00:00Z",
+            "window": {"days": 1, "start_date": "2026-04-22"},
+            "totals": {
+                "main": {
+                    "by_queue": {
+                        "amd_mi355_1": {
+                            "finished_jobs": 2,
+                            "gpu_hours": 4,
+                        },
+                    },
+                },
+            },
+        },
+        [],
+    )
+
+    workload = profile["queues"][0]["workload"]
+    assert workload["observed_service_minutes"] == 120
+    assert workload["service_minutes"] == 120
+    assert (
+        workload["service_minutes_source"]
+        == "completed_agent_minutes_per_finished_job_proxy_fallback"
+    )
+    assert workload["service_minutes_is_proxy"] is True
+
+
+def test_capacity_profile_publishes_mi325_as_unplaced_without_inference():
+    capacity = {
+        "summary": {"capacity_scoped_group_count": 1},
+        "queues": [
+            {
+                "id": "amd_mi300_1",
+                "family": "MI300",
+                "gpus_per_job": 1,
+                "max_concurrent_jobs": 20,
+                "capacity_eligible": True,
+                "lifecycle": "active",
+                "gated_groups": 1,
+                "gated_jobs": 1,
+            },
+            {
+                "id": "amd_mi325_2",
+                "label": "mi325_2",
+                "family": "MI325",
+                "gpus_per_job": 2,
+                "max_concurrent_jobs": 8,
+                "gpu_capacity": 16,
+                "capacity_eligible": False,
+                "lifecycle": "retiring",
+            },
+        ],
+    }
+    mapping = {
+        "generated_at": "2026-04-23T00:00:00Z",
+        "window": {
+            "days": 14,
+            "start_date": "2026-04-09",
+            "end_date": "2026-04-22",
+            "complete": True,
+            "lower_bound": False,
+            "job_created_range_exhaustive": False,
+        },
+        "scope": {
+            "attribution": {
+                "parent_build_lookback_days": 3,
+                "exact_within_declared_source_window": True,
+                "limitation": (
+                    "Jobs added to parent builds older than the lookback can be absent."
+                ),
+            },
+        },
+        "totals": {
+            "main": {
+                "by_queue": {
+                    "amd_mi325_2": {
+                        "mapped_jobs": 3,
+                        "started_jobs": 2,
+                        "finished_jobs": 2,
+                        "mapped_gpu_slots": 6,
+                        "gpu_hours": 10,
+                    },
+                },
+            },
+            "omni": {
+                "by_queue": {
+                    "amd_mi325_2": {
+                        "mapped_jobs": 1,
+                        "started_jobs": 1,
+                        "finished_jobs": 1,
+                        "mapped_gpu_slots": 2,
+                        "gpu_hours": 2,
+                    },
+                },
+            },
+        },
+    }
+    history = [
+        {
+            "ts": "2026-04-22T10:00:00Z",
+            "queues": {"amd_mi325_2": {"running": 1, "waiting": 1}},
+        },
+        {
+            "ts": "2026-04-22T11:00:00Z",
+            "queues": {"amd_mi325_2": {"running": 2, "waiting": 2}},
+        },
+        {
+            "ts": "2026-04-22T12:00:00Z",
+            "queues": {"amd_mi325_2": {"running": 4, "waiting": 3}},
+        },
+    ]
+    profile = ops._capacity_simulation_profile(
+        capacity,
+        [{
+            "id": "amd_mi300_1",
+            "label": "mi300_1",
+            "family": "MI300",
+            "gpus_per_job": 1,
+            "max_concurrent_jobs": 20,
+            "groups": 1,
+            "jobs": 1,
+        }],
+        {},
+        mapping,
+        history,
+    )
+
+    unplaced = profile["unplaced_retiring_workload"]
+    assert unplaced["status"] == "unplaced"
+    assert unplaced["compatibility"] == "unknown"
+    assert unplaced["requires_manual_destination"] is True
+    assert unplaced["excluded_from_wait_and_headroom"] is True
+    assert unplaced["window"] == {
+        "days": 14,
+        "start_date": "2026-04-09",
+        "end_date": "2026-04-22",
+        "elapsed_hours": 336.0,
+        "complete": True,
+        "lower_bound": False,
+        "job_created_range_exhaustive": False,
+        "exact_within_declared_source_window": True,
+        "parent_build_lookback_days": 3,
+        "source_limitation": (
+            "Jobs added to parent builds older than the lookback can be absent."
+        ),
+    }
+    assert unplaced["totals"] == {
+        "mapped_jobs": 4,
+        "started_jobs": 3,
+        "finished_jobs": 3,
+        "mapped_gpu_slots": 8,
+        "gpu_hours": 12.0,
+        "average_gpus": 0.04,
+    }
+    assert unplaced["by_workload"]["main"]["mapped_jobs"] == 3
+    assert unplaced["by_workload"]["omni"]["mapped_jobs"] == 1
+    assert unplaced["occupancy"]["current"]["running_gpu_slots"] == 8.0
+    assert unplaced["occupancy"]["current"]["waiting_gpu_slots"] == 6.0
+    assert unplaced["occupancy"]["typical"]["running_gpu_slots"] == 4.0
+    assert unplaced["occupancy"]["peak"]["running_gpu_slots"] == 7.6
+    assert unplaced["occupancy"]["peak"]["waiting_gpu_slots"] == 5.8
+    assert "No cross-family or queue-width compatibility is inferred" in unplaced["reason"]
 
 
 def test_omni_history_keeps_observed_counts_and_coverage_without_inference():

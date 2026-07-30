@@ -3367,6 +3367,102 @@ body.ops-overlay-open {
   margin-top: 12px;
 }
 
+.ops-page .ops-omni-mapping-toolbar {
+  align-items: center;
+  margin: 0 0 10px;
+}
+
+.ops-page .ops-omni-mapping-toolbar .ops-segmented {
+  flex: 1 1 auto;
+}
+
+.ops-page .ops-omni-coverage-note {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.ops-page .ops-omni-overview-grid {
+  grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+  align-items: stretch;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.ops-page .ops-omni-volume,
+.ops-page .ops-omni-impact {
+  min-width: 0;
+}
+
+.ops-page .ops-omni-impact .ops-chart-viewport {
+  --ops-chart-height: 150px;
+}
+
+.ops-page .ops-omni-impact .ops-table-wrap {
+  margin-top: 8px;
+}
+
+.ops-page .ops-omni-comparison,
+.ops-page .ops-omni-live {
+  margin-top: 12px;
+}
+
+.ops-page .ops-omni-live-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius-sm);
+}
+
+.ops-page .ops-omni-live-fact {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  padding: 9px 10px;
+  border: 0;
+  border-right: 1px solid var(--ops-divider);
+  color: var(--ops-text);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ops-page .ops-omni-live-fact:last-child {
+  border-right: 0;
+}
+
+.ops-page .ops-omni-live-fact:hover,
+.ops-page .ops-omni-live-fact:focus-visible {
+  background: var(--ops-surface-hover);
+}
+
+.ops-page .ops-omni-live-fact.is-warning {
+  box-shadow: inset 0 2px 0 var(--ops-warning);
+}
+
+.ops-page .ops-omni-live-fact.is-success {
+  box-shadow: inset 0 2px 0 var(--ops-success);
+}
+
+.ops-page .ops-omni-live-value {
+  overflow: hidden;
+  font-size: 20px;
+  line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-page .ops-omni-live-actions {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.ops-page .ops-omni-live-actions .ops-segmented {
+  margin-right: auto;
+}
+
 .ops-page .ops-omni-age-toolbar {
   margin: 12px 0 8px;
 }
@@ -4068,6 +4164,24 @@ body.ops-overlay-open {
   }
 }
 
+@media (max-width: 1279px) {
+  .ops-page .ops-omni-overview-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ops-page .ops-omni-live-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ops-page .ops-omni-live-fact:nth-child(2) {
+    border-right: 0;
+  }
+
+  .ops-page .ops-omni-live-fact:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--ops-divider);
+  }
+}
+
 @media (min-width: 1100px) and (max-width: 1279px) {
   .ops-page .ops-home-grid,
   .ops-page .ops-health-grid,
@@ -4102,6 +4216,11 @@ body.ops-overlay-open {
     width: 100%;
     margin-left: 0;
     text-align: left;
+  }
+
+  .ops-page .ops-omni-live-actions .ops-segmented {
+    width: 100%;
+    margin-right: 0;
   }
 
   .ops-page .ops-unique-health-header {
@@ -5174,5 +5293,259 @@ body.ops-overlay-open {
   .ops-page a:focus-visible,
   .ops-v2 #sidebar button:focus-visible {
     outline: 2px solid Highlight;
+  }
+}
+
+/* Capacity projection: compact, route-shareable planning workbench. */
+.ops-page .ops-capacity-planner {
+  margin-bottom: 12px;
+}
+
+.ops-page .ops-capacity-planner .ops-panel-body {
+  padding: 10px 12px;
+}
+
+.ops-page .ops-capacity-controls {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ops-page .ops-capacity-controls > .ops-segmented {
+  width: fit-content;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.ops-page .ops-capacity-fields {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(135px, 1fr));
+  gap: 8px;
+  align-items: end;
+}
+
+.ops-page .ops-capacity-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ops-page .ops-capacity-field > .ops-select,
+.ops-page .ops-capacity-field > .ops-segmented {
+  width: 100%;
+  min-width: 0;
+}
+
+.ops-page .ops-capacity-input-wrap {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 30px;
+  overflow: hidden;
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius-sm);
+  background: var(--ops-surface-inset);
+}
+
+.ops-page .ops-capacity-input-wrap:focus-within {
+  border-color: var(--ops-focus);
+  box-shadow: 0 0 0 1px var(--ops-focus);
+}
+
+.ops-page .ops-input.ops-capacity-number {
+  width: 100%;
+  min-width: 64px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.ops-page .ops-input.ops-capacity-number:focus-visible {
+  outline: 0;
+}
+
+.ops-page .ops-capacity-input-suffix {
+  flex: 0 0 auto;
+  padding: 0 8px 0 2px;
+  color: var(--ops-text-subtle);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.ops-page .ops-capacity-baseline {
+  grid-column: span 2;
+}
+
+.ops-page .ops-capacity-control-note {
+  margin: 0;
+  color: var(--ops-text-muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.ops-page .ops-capacity-drift {
+  margin: -4px 0 12px;
+  padding: 8px 11px;
+  border: 1px solid var(--ops-warning);
+  border-radius: var(--ops-radius);
+  color: var(--ops-text-muted);
+  background: var(--ops-warning-soft);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.ops-page .ops-capacity-drift strong {
+  color: var(--ops-text);
+}
+
+.ops-page .ops-capacity-unplaced {
+  display: grid;
+  grid-template-columns: minmax(240px, 1.25fr) minmax(360px, 2fr) auto;
+  gap: 10px 14px;
+  align-items: center;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--ops-warning);
+  border-left: 4px solid var(--ops-warning);
+  border-radius: var(--ops-radius);
+  background: var(--ops-warning-soft);
+}
+
+.ops-page .ops-capacity-unplaced-copy {
+  color: var(--ops-text-muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.ops-page .ops-capacity-unplaced-copy strong {
+  display: block;
+  color: var(--ops-text);
+  font-size: 12px;
+}
+
+.ops-page .ops-capacity-unplaced-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(86px, 1fr));
+  gap: 6px;
+}
+
+.ops-page .ops-capacity-unplaced-fact {
+  min-width: 0;
+  padding-left: 8px;
+  border-left: 1px solid var(--ops-border);
+}
+
+.ops-page .ops-capacity-unplaced-fact small,
+.ops-page .ops-capacity-unplaced-fact strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-page .ops-capacity-unplaced-fact small {
+  color: var(--ops-text-subtle);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ops-page .ops-capacity-unplaced-fact strong {
+  margin-top: 2px;
+  color: var(--ops-text);
+  font-size: 12px;
+}
+
+.ops-page .ops-capacity-verdict {
+  display: flex;
+  gap: 4px;
+  margin: -4px 0 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--ops-border);
+  border-left: 3px solid var(--ops-info);
+  border-radius: var(--ops-radius);
+  color: var(--ops-text-muted);
+  background: var(--ops-info-soft);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.ops-page .ops-capacity-verdict strong {
+  flex: 0 0 auto;
+  color: var(--ops-text);
+}
+
+.ops-page .ops-capacity-verdict.is-warning {
+  border-left-color: var(--ops-warning);
+  background: var(--ops-warning-soft);
+}
+
+.ops-page .ops-capacity-verdict.is-success {
+  border-left-color: var(--ops-success);
+  background: var(--ops-success-soft);
+}
+
+.ops-page .ops-capacity-visuals {
+  margin-bottom: 12px;
+}
+
+.ops-page .ops-capacity-visuals .ops-chart-stage {
+  min-height: 260px;
+}
+
+.ops-page .ops-capacity-bottlenecks {
+  margin-bottom: 12px;
+}
+
+.ops-page .ops-capacity-method {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+}
+
+@media (max-width: 1180px) {
+  .ops-page .ops-capacity-fields {
+    grid-template-columns: repeat(3, minmax(140px, 1fr));
+  }
+
+  .ops-page .ops-capacity-unplaced {
+    grid-template-columns: minmax(220px, 1fr) minmax(320px, 2fr);
+  }
+
+  .ops-page .ops-capacity-unplaced > .ops-link-button {
+    justify-self: start;
+  }
+}
+
+@media (max-width: 760px) {
+  .ops-page .ops-capacity-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ops-page .ops-capacity-baseline {
+    grid-column: 1 / -1;
+  }
+
+  .ops-page .ops-capacity-verdict {
+    display: block;
+  }
+
+  .ops-page .ops-capacity-unplaced {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .ops-page .ops-capacity-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .ops-page .ops-capacity-baseline {
+    grid-column: auto;
+  }
+
+  .ops-page .ops-capacity-unplaced-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

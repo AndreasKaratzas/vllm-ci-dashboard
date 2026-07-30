@@ -43,6 +43,25 @@ def test_dashboard_audit_covers_core_user_facing_data_files():
     } <= covered
 
 
+def test_dashboard_audit_requires_workload_mapping_v2_ranges():
+    spec = next(
+        item for item in DATA_SPECS
+        if item.relpath == "data/vllm/ci/workload_mapping.json"
+    )
+    assert {
+        "schema_version",
+        "generated_at",
+        "coverage",
+        "repositories",
+        "window",
+        "scope",
+        "totals",
+        "hourly",
+        "daily",
+    } <= set(spec.required_keys)
+    assert "scripts/vllm/collect_workload_mapping.py" in spec.producers
+
+
 def test_dashboard_audit_validates_v2_evidence_and_targets():
     report = run_audit(ROOT)
     metrics = report.metrics["operations_v2"]

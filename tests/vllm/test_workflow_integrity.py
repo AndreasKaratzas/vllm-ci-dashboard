@@ -207,6 +207,10 @@ class TestHourlyMasterWorkflow:
 
         sync_run = steps[sync_index].get("run", "")
         assert "workload_mapping.json" in sync_run
+        assert "REMOTE_SCHEMA" in sync_run
+        assert "LOCAL_SCHEMA" in sync_run
+        assert '"$REMOTE_SCHEMA" -gt "$LOCAL_SCHEMA"' in sync_run
+        assert '"$REMOTE_GENERATED" > "$LOCAL_GENERATED"' in sync_run
         collect = steps[collect_index]
         assert collect["run"] == (
             "python scripts/vllm/collect_workload_mapping.py "

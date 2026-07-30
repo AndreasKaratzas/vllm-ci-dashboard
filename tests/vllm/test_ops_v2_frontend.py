@@ -789,6 +789,169 @@ const daily = helpers.omniDailyRows([
 ]);
 assert.equal(daily[0].day, '2026-04-21');
 assert.equal(daily[0].delta, 3);
+
+const hourlyMapping = {
+  schema_version: 2,
+  generated_at: '2026-07-29T06:29:00Z',
+  window: {
+    collection_complete: true,
+    job_created_range_exhaustive: false,
+    lower_bound: false,
+  },
+  scope: {
+    attribution: {
+      parent_build_lookback_days: 3,
+      job_created_range_exhaustive: false,
+      exact_within_declared_source_window: true,
+      limitation: 'Delayed jobs on older parent builds can be absent.',
+    },
+  },
+  query: {
+    parent_build_lookback_days: 3,
+    job_created_range_exhaustive: false,
+  },
+  hourly: Array.from({length: 7}, function (_, hour) {
+    const start = '2026-07-29T' + String(hour).padStart(2, '0') + ':00:00Z';
+    const end = '2026-07-29T' + String(hour + 1).padStart(2, '0') + ':00:00Z';
+    return {
+      hour: start,
+      end_exclusive: end,
+      observed_through: hour === 6 ? '2026-07-29T06:29:00Z' : end,
+      state: hour === 6 ? 'open' : 'closed',
+      open: hour === 6,
+      complete: hour !== 6,
+      collection_complete: true,
+      lower_bound: false,
+      workloads: {
+        omni: {mapped_jobs: 1, started_jobs: 1, mapped_gpu_slots: 2, gpu_hours: 0.5, by_queue: {amd_mi325_2: {mapped_jobs: 1, started_jobs: 1, mapped_gpu_slots: 2, gpu_hours: 0.5}}, by_pipeline: {'vllm-omni-amd-ci': {mapped_jobs: 1, started_jobs: 1, mapped_gpu_slots: 2, gpu_hours: 0.5}}},
+        main: {mapped_jobs: 10, started_jobs: 8, mapped_gpu_slots: 10, gpu_hours: 2, by_queue: {}, by_pipeline: {}},
+      },
+    };
+  }),
+  daily: [],
+};
+const sixHourWindow = helpers.omniMappingWindow(hourlyMapping, '6h');
+assert.equal(sixHourWindow.available, true);
+assert.equal(sixHourWindow.resolution, 'hourly');
+assert.equal(sixHourWindow.rows.length, 6);
+assert.equal(sixHourWindow.rows[0].hour, '2026-07-29T01:00:00Z');
+assert.equal(sixHourWindow.retainedComplete, true);
+assert.equal(sixHourWindow.apiCollectionComplete, true);
+assert.equal(sixHourWindow.complete, false);
+assert.equal(sixHourWindow.coverageStatus, 'open');
+assert.equal(sixHourWindow.lowerBound, false);
+assert.equal(sixHourWindow.jobCreatedRangeExhaustive, false);
+assert.equal(sixHourWindow.parentBuildLookbackDays, 3);
+assert.equal(sixHourWindow.sourceWindowExact, true);
+assert.equal(sixHourWindow.limitation, 'Delayed jobs on older parent builds can be absent.');
+assert.ok(sixHourWindow.reason.includes('current UTC hour'));
+const sixHourBuckets = helpers.omniMappingBuckets(sixHourWindow);
+assert.equal(sixHourBuckets.length, 6);
+assert.equal(helpers.omniMappingTotals(sixHourWindow.rows).omni.mapped_jobs, 6);
+assert.equal(sixHourBuckets[0].workloads.omni.by_queue.amd_mi325_2.mapped_jobs, 1);
+
+const currentHour = Date.parse('2026-07-29T22:00:00Z');
+const retained169 = [];
+for (let offset = 168; offset >= 0; offset -= 1) {
+  const start = currentHour - offset * 3600000;
+  retained169.push({
+    hour: new Date(start).toISOString(),
+    end_exclusive: new Date(start + 3600000).toISOString(),
+    observed_through: offset === 0 ? '2026-07-29T22:29:00Z' : new Date(start + 3600000).toISOString(),
+    state: offset === 0 ? 'open' : 'closed',
+    open: offset === 0,
+    complete: offset !== 0,
+    collection_complete: true,
+    lower_bound: false,
+    workloads: {omni: {mapped_jobs: 1}, main: {mapped_jobs: 10}},
+  });
+}
+const retainedMapping = {
+  generated_at: '2026-07-29T22:29:00Z',
+  hourly: retained169,
+  daily: [],
+  coverage: {hourly: {bucket_count: 169, expected_bucket_count: 169, missing_bucket_count: 0, contiguous: true, collection_complete: true, has_open_bucket: true}},
+};
+[['6h', 6], ['1d', 24], ['3d', 72], ['7d', 168]].forEach(function (pair) {
+  const selectedWindow = helpers.omniMappingWindow(retainedMapping, pair[0]);
+  assert.equal(selectedWindow.rows.length, pair[1], pair[0] + ' must select the exact UTC bucket count');
+  assert.equal(helpers.omniMappingTotals(selectedWindow.rows).omni.mapped_jobs, pair[1]);
+});
+[['3d', 24, 3], ['7d', 28, 6]].forEach(function (pair) {
+  const selectedWindow = helpers.omniMappingWindow(retainedMapping, pair[0]);
+  const chartBuckets = helpers.omniMappingBuckets(selectedWindow);
+  assert.equal(chartBuckets.length, pair[1], pair[0] + ' must use equal-duration chart buckets');
+  assert.ok(chartBuckets.every(function (bucket) {
+    return bucket.sourceRows === pair[2];
+  }), pair[0] + ' chart buckets must have equal source-hour counts');
+  assert.ok(chartBuckets.slice(0, -1).every(function (bucket) {
+    return bucket.complete === true;
+  }), pair[0] + ' closed chart buckets must be complete');
+  assert.equal(chartBuckets[chartBuckets.length - 1].hasOpenBucket, true);
+  assert.equal(chartBuckets[chartBuckets.length - 1].complete, false);
+});
+const retainedWithRecentGap = JSON.parse(JSON.stringify(retainedMapping));
+retainedWithRecentGap.hourly.splice(retainedWithRecentGap.hourly.length - 3, 1);
+const sixHoursWithGap = helpers.omniMappingWindow(retainedWithRecentGap, '6h');
+assert.equal(sixHoursWithGap.rows.length, 5);
+assert.equal(sixHoursWithGap.coverageStatus, 'partial');
+assert.equal(helpers.omniMappingTotals(sixHoursWithGap.rows).omni.mapped_jobs, 5);
+assert.ok(sixHoursWithGap.reason.includes('Only 5 of 6'));
+
+const dailyOnlyMapping = {
+  generated_at: '2026-07-29T18:00:00Z',
+  hourly: [],
+  daily: ['27', '28', '29'].map(function (day) {
+    return {date: '2026-07-' + day, state: day === '29' ? 'open' : 'closed', open: day === '29', complete: day !== '29', collection_complete: true, lower_bound: false, observed_through: day === '29' ? '2026-07-29T18:00:00Z' : '2026-07-' + day + 'T23:59:59Z', workloads: {omni: {mapped_jobs: 2}, main: {mapped_jobs: 20}}};
+  }),
+};
+assert.equal(helpers.omniMappingWindow(dailyOnlyMapping, '6h').available, false);
+const threeDayFallback = helpers.omniMappingWindow(dailyOnlyMapping, '3d');
+assert.equal(threeDayFallback.available, true);
+assert.equal(threeDayFallback.resolution, 'daily');
+assert.ok(threeDayFallback.reason.includes('UTC-day buckets'));
+assert.ok(threeDayFallback.reason.includes('current UTC day'));
+const dailyBuckets = helpers.omniMappingBuckets(threeDayFallback);
+assert.equal(dailyBuckets[dailyBuckets.length - 1].hasOpenBucket, true);
+assert.equal(dailyBuckets[dailyBuckets.length - 1].complete, false);
+
+const aggregateRows = [1, 2, 3, 4].map(function (hour) {
+  return {
+    hour: '2026-07-29T' + String(hour).padStart(2, '0') + ':00:00Z',
+    state: 'closed',
+    complete: true,
+    collection_complete: true,
+    lower_bound: false,
+    workloads: {omni: {mapped_jobs: 1}, main: {mapped_jobs: 10}},
+  };
+});
+const partialAggregate = helpers.omniMappingBuckets({
+  available: true,
+  resolution: 'hourly',
+  selected: {hourlyBin: 3},
+  windowStart: Date.parse('2026-07-29T01:00:00Z'),
+  rows: aggregateRows,
+});
+assert.equal(partialAggregate.length, 2);
+assert.equal(partialAggregate[0].complete, true);
+assert.equal(partialAggregate[1].complete, false);
+assert.equal(partialAggregate[0].sourceRows, 3);
+assert.equal(partialAggregate[1].sourceRows, 1);
+assert.equal(partialAggregate[0].expectedSourceRows, 3);
+const completeAggregate = helpers.omniMappingBuckets({
+  available: true,
+  resolution: 'hourly',
+  selected: {hourlyBin: 3},
+  rows: [{
+    hour: '2026-07-29T00:00:00Z', state: 'closed', complete: true, collection_complete: true,
+  }, {
+    hour: '2026-07-29T01:00:00Z', state: 'closed', complete: true, collection_complete: true,
+  }, {
+    hour: '2026-07-29T02:00:00Z', state: 'closed', complete: true, collection_complete: true,
+  }],
+});
+assert.equal(completeAggregate.length, 1);
+assert.equal(completeAggregate[0].complete, true);
 """
     result = subprocess.run(
         ["node", "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
@@ -948,9 +1111,10 @@ def test_amd_cpu_is_included_in_general_amd_scope_but_omni_uses_exact_allowlist(
     assert "!isAmdQueue(entry[0])" in OPS_JS
     assert "state.queueScope === 'all' || isAmdQueue(job.queue)" in OPS_JS
     assert "state.queueScope === 'all' || isAmdQueue(name)" in OPS_JS
-    assert "const configuredScope = omni.scope || {}" in OPS_JS
-    assert "configuredScope.queues || []" in OPS_JS
-    assert "OMNI MAPPED - 14D" in OPS_JS
+    assert "const mapping = omni.mapping_history || {}" in OPS_JS
+    assert "Object.keys(omniByQueue).concat(Object.keys(mainByQueue))" in OPS_JS
+    assert "INCOMING OMNI JOBS" in OPS_JS
+    assert "OBSERVED OMNI MAPPINGS" in OPS_JS
     assert OPS_JS.count("startsWith('amd_')") == 1
 
 
@@ -1043,11 +1207,372 @@ def test_trajectory_has_exact_capacity_projection_subview():
     assert "trajectoryView: 'workload'" in OPS_JS
     assert "{id: 'capacity', label: 'Capacity projection'}" in OPS_JS
     assert "function renderCapacityProjection" in OPS_JS
-    assert "ONE-SUITE BURST" in OPS_JS
-    assert "POST-MI325 POOL" in OPS_JS
-    assert "No net-new GPUs" in OPS_JS
-    assert "Why exact topology is " in OPS_JS
-    assert "Exact one-cell-per-semantic-row topology" in OPS_JS
+    assert "function capacityScenario" in OPS_JS
+    assert "function capacityBurstWait" in OPS_JS
+    assert "function capacityServiceSourceLabel" in OPS_JS
+    assert "target-runtime command-job median average" in OPS_JS
+    assert "completed mapping proxy fallback (potentially downward biased)" in OPS_JS
+    assert "function capacityLargestRemainder" in OPS_JS
+    assert "Target groups · auto mix" in OPS_JS
+    assert "Total jobs · auto mix" in OPS_JS
+    assert "Specific queue / test" in OPS_JS
+    assert "'-group queue topology to the exact ' + integer(targetTopology.groups)" in OPS_JS
+    assert "observed 53-group queue topology" not in OPS_JS
+    assert "exact 160-group target" not in OPS_JS
+    assert "PROJECTED P95 START WAIT" in OPS_JS
+    assert "Suite-alone simultaneous-start queue-shape gap" in OPS_JS
+    assert "Background + suite zero-wait fixed-family gap" in OPS_JS
+    assert "START-AT-ONCE GAP" in OPS_JS
+    assert "MI325 workload is unplaced—and excluded from this answer." in OPS_JS
+    assert "Inspect and model manually" in OPS_JS
+    assert "unplaced_retiring_workload" in OPS_JS
+    assert "MI325 mapping counts are UUID-deduplicated observations inside the " in OPS_JS
+    assert "MI325 mapping population exhaustiveness is not published" in OPS_JS
+    assert "unplacedWindow.source_limitation || unplacedWindow.limitation" in OPS_JS
+    assert "Observed mapped jobs" in OPS_JS
+    assert "Planning model, not an SLA." in OPS_JS
+    assert "No compatibility or cross-family migration is inferred." in OPS_JS
+    assert "ops_capacity_groups" in OPS_JS
+    assert "ops_capacity_queue" in OPS_JS
+    assert "ops_capacity_suites" in OPS_JS
+    assert ".ops-page .ops-capacity-planner" in OPS_CSS
+    assert ".ops-page .ops-capacity-verdict" in OPS_CSS
+    assert ".ops-page .ops-capacity-fields" in OPS_CSS
+    assert ".ops-page .ops-capacity-unplaced" in OPS_CSS
+
+
+def test_capacity_planning_helpers_execute_in_javascript():
+    if not shutil.which("node"):
+        import pytest
+
+        pytest.skip("node is not available")
+    script = r"""
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const sandbox = {
+  window: {__OPS_V2_TEST__: true},
+  document: {addEventListener: function () {}},
+  console: console,
+  URL: URL,
+};
+vm.createContext(sandbox);
+vm.runInContext(source, sandbox, {filename: process.argv[1]});
+const helpers = sandbox.window.OpsV2Test;
+assert.ok(helpers);
+
+assert.equal(
+  JSON.stringify(helpers.capacityLargestRemainder([1, 1, 1], 5)),
+  JSON.stringify([2, 2, 1])
+);
+assert.equal(
+  helpers.capacityLargestRemainder([0, 0], 7).reduce(function (sum, value) { return sum + value; }, 0),
+  7
+);
+
+const baseline = function (running, waiting) {
+  return {
+    current: {available: true, running: running, waiting: waiting},
+    typical: {available: true, running: running, waiting: waiting},
+    peak: {available: true, running: running, waiting: waiting},
+    sample_count: 30,
+  };
+};
+const profile = {
+  available: true,
+  topology: {
+    current: {groups: 2, jobs: 3, gpu_slots: 10},
+    target: {groups: 4, jobs: 6, gpu_slots: 20},
+  },
+  queues: [{
+    id: 'amd_mi300_1',
+    label: 'mi300_1',
+    family: 'MI300',
+    gpus_per_job: 1,
+    capacity_jobs: 12,
+    history: baseline(1, 0),
+    workload: {service_minutes: 10, service_minutes_source: 'observed'},
+    demand: {
+      current: {groups: 1, jobs: 2, gpu_slots: 2},
+      target: {groups: 2, jobs: 4, gpu_slots: 4},
+    },
+  }, {
+    id: 'amd_mi300_8',
+    label: 'mi300_8',
+    family: 'MI300',
+    gpus_per_job: 8,
+    capacity_jobs: 1,
+    history: baseline(0, 0),
+    workload: {service_minutes: 20, service_minutes_source: 'runtime_fallback'},
+    demand: {
+      current: {groups: 1, jobs: 1, gpu_slots: 8},
+      target: {groups: 2, jobs: 2, gpu_slots: 16},
+    },
+  }],
+};
+
+const midpoint = helpers.capacityTopologyForGroups(profile, 3, null);
+assert.equal(midpoint.groups, 3);
+assert.equal(midpoint.jobs, 5);
+assert.equal(midpoint.rows.reduce(function (sum, row) { return sum + row.groups; }, 0), 3);
+assert.equal(midpoint.rows.reduce(function (sum, row) { return sum + row.jobs; }, 0), 5);
+assert.equal(
+  JSON.stringify(midpoint.rows.map(function (row) { return row.jobs; })),
+  JSON.stringify([3, 2])
+);
+const forcedJobs = helpers.capacityTopologyForGroups(profile, 4, 7);
+assert.equal(forcedJobs.rows.reduce(function (sum, row) { return sum + row.jobs; }, 0), 7);
+assert.equal(helpers.capacityGroupsForJobs(profile, 6), 4);
+
+const productionGroups = [10, 8, 5, 5, 8, 6, 6, 5, 0];
+const productionJobs = [12, 10, 6, 6, 10, 8, 7, 6, 0];
+const targetGroups = [28, 24, 18, 12, 24, 20, 18, 16, 0];
+const targetJobs = [34, 29, 21, 15, 29, 24, 23, 21, 0];
+const productionProfile = {
+  available: true,
+  topology: {
+    current: {groups: 53, jobs: 65, gpu_slots: 100},
+    target: {groups: 160, jobs: 196, gpu_slots: 312},
+  },
+  queues: productionGroups.map(function (groups, index) {
+    return {
+      id: 'amd_queue_' + index,
+      label: 'queue_' + index,
+      family: index < 4 ? 'MI250' : 'MI300',
+      gpus_per_job: index % 4 === 3 ? 8 : 1,
+      capacity_jobs: 500,
+      history: baseline(0, 0),
+      workload: {service_minutes: 10, service_minutes_source: 'observed'},
+      demand: {
+        current: {groups: groups, jobs: productionJobs[index]},
+        target: {groups: targetGroups[index], jobs: targetJobs[index]},
+      },
+    };
+  }),
+};
+function assertPairedTopology(topology, expectedGroups, expectedJobs) {
+  assert.equal(topology.allocationValid, true);
+  assert.equal(topology.rows.reduce(function (sum, row) { return sum + row.groups; }, 0), expectedGroups);
+  assert.equal(topology.rows.reduce(function (sum, row) { return sum + row.jobs; }, 0), expectedJobs);
+  topology.rows.forEach(function (row) {
+    assert.equal(row.groups > 0, row.jobs > 0, row.id + ' must pair group and job allocation');
+  });
+}
+[0, 1, 17, 53, 54, 80, 159, 160, 161, 240].forEach(function (groups) {
+  const topology = helpers.capacityTopologyForGroups(productionProfile, groups, null);
+  assertPairedTopology(topology, groups, topology.jobs);
+});
+[0, 1, 65, 66, 195, 196, 197, 294].forEach(function (jobs) {
+  const groups = helpers.capacityGroupsForJobs(productionProfile, jobs);
+  const topology = helpers.capacityTopologyForGroups(productionProfile, groups, jobs);
+  assertPairedTopology(topology, groups, jobs);
+});
+
+const publishedTargetRows = [
+  ['amd_mi250_1', 6, 6, 20, 25, 78, 1],
+  ['amd_mi250_2', 0, 0, 0, 0, 24, 2],
+  ['amd_mi250_4', 0, 0, 1, 1, 16, 4],
+  ['amd_mi250_8', 0, 0, 0, 0, 4, 8],
+  ['amd_mi300_1', 37, 49, 81, 112, 232, 1],
+  ['amd_mi300_2', 5, 5, 21, 21, 30, 2],
+  ['amd_mi300_4', 4, 4, 22, 22, 29, 4],
+  ['amd_mi300_8', 1, 1, 3, 3, 2, 8],
+  ['amd_mi355_1', 0, 0, 7, 7, 48, 1],
+  ['amd_mi355_2', 0, 0, 5, 5, 8, 2],
+  ['amd_mi355_4', 0, 0, 0, 0, 8, 4],
+  ['amd_mi355_8', 0, 0, 0, 0, 1, 8],
+];
+const publishedTargetProfile = {
+  available: true,
+  topology: {
+    current: {groups: 53, jobs: 65, gpu_slots: 89},
+    target: {groups: 160, jobs: 196, gpu_slots: 312},
+  },
+  queues: publishedTargetRows.map(function (row) {
+    return {
+      id: row[0],
+      label: row[0].replace('amd_', ''),
+      family: row[0].includes('mi250') ? 'MI250' : row[0].includes('mi300') ? 'MI300' : 'MI355',
+      gpus_per_job: row[6],
+      capacity_jobs: row[5],
+      history: baseline(0, 0),
+      workload: {service_minutes: 10, service_minutes_source: 'observed'},
+      demand: {
+        current: {groups: row[1], jobs: row[2]},
+        target: {groups: row[3], jobs: row[4]},
+      },
+    };
+  }),
+};
+const publishedTarget = helpers.capacityTopologyForGroups(publishedTargetProfile, 160, null);
+assert.equal(publishedTarget.allocationValid, true);
+assert.equal(publishedTarget.allocationExact, true);
+assert.equal(publishedTarget.groups, 160);
+assert.equal(publishedTarget.jobs, 196);
+publishedTarget.rows.forEach(function (row, index) {
+  assert.equal(row.groups, publishedTargetRows[index][3], row.id + ' target groups must remain exact');
+  assert.equal(row.jobs, publishedTargetRows[index][4], row.id + ' target jobs must remain exact');
+});
+const publishedTargetScenario = helpers.capacityScenario(publishedTargetProfile, {
+  mode: 'groups',
+  groups: 160,
+  baseline: 'peak',
+  suites: 1,
+});
+assert.equal(publishedTargetScenario.shapeGapGpus, 8);
+assert.equal(
+  publishedTargetScenario.rows.find(function (row) { return row.id === 'amd_mi300_8'; }).shapeGapGpus,
+  8
+);
+
+const queueShape = helpers.capacityTopologyForQueue(profile, 'amd_mi300_8', 2, 3, 45);
+assert.equal(queueShape.groups, 2);
+assert.equal(queueShape.jobs, 6);
+assert.equal(queueShape.totalGateGroups, 4);
+assert.equal(queueShape.totalGateJobs, 9);
+assert.equal(queueShape.rows[0].jobs, 0);
+assert.equal(queueShape.rows[1].jobs, 6);
+assert.equal(queueShape.rows[1].serviceMinutes, 45);
+assert.equal(queueShape.rows[1].serviceSource, 'user_input_for_specific_test_shape');
+
+const finiteWait = helpers.capacityBurstWait(
+  4,
+  3,
+  {available: true, running: 1, waiting: 1},
+  10
+);
+assert.equal(finiteWait.status, 'finite');
+assert.equal(finiteWait.p50, 10);
+assert.equal(finiteWait.p95, 10);
+assert.equal(finiteWait.max, 10);
+assert.equal(
+  helpers.capacityBurstWait(2, 1, {available: true, running: 1, waiting: 0}, 20).status,
+  'finite'
+);
+const excessRunningWait = helpers.capacityBurstWait(
+  2,
+  2,
+  {available: true, running: 5, waiting: 1},
+  10
+);
+assert.equal(excessRunningWait.status, 'finite');
+assert.equal(excessRunningWait.backlogJobs, 4);
+assert.equal(excessRunningWait.p95, 30);
+assert.equal(excessRunningWait.max, 30);
+assert.equal(
+  helpers.capacityBurstWait(2, 1, {available: false}, 20).status,
+  'unavailable'
+);
+assert.equal(
+  helpers.capacityBurstWait(2, 1, {available: true, running: 0, waiting: 0}, null).status,
+  'unavailable'
+);
+
+const scenario = helpers.capacityScenario(profile, {
+  mode: 'groups',
+  groups: 4,
+  baseline: 'peak',
+  suites: 1,
+});
+assert.equal(scenario.groups, 4);
+assert.equal(scenario.jobs, 6);
+assert.equal(scenario.gpuSlots, 20);
+assert.equal(scenario.waitStatus, 'finite');
+assert.equal(scenario.p50Wait, 0);
+assert.equal(scenario.p95Wait, 20);
+assert.equal(scenario.maxWait, 20);
+assert.equal(scenario.shapeGapGpus, 8);
+assert.equal(scenario.familyGapGpus, 0);
+assert.equal(scenario.zeroWaitShapeGapGpus, 8);
+assert.equal(scenario.zeroWaitFamilyGapGpus, 1);
+assert.equal(scenario.baselineQueuedGpus, 1);
+assert.ok(helpers.capacityVerdict(scenario).includes('reallocate 8 GPUs'));
+const unplacedProfile = JSON.parse(JSON.stringify(profile));
+unplacedProfile.unplaced_retiring_workload = {
+  available: true,
+  excluded_from_wait_and_headroom: true,
+  status: 'unplaced',
+  compatibility: 'unknown',
+};
+const unplacedScenario = helpers.capacityScenario(unplacedProfile, {
+  mode: 'groups',
+  groups: 4,
+  baseline: 'peak',
+  suites: 1,
+});
+assert.ok(helpers.capacityVerdict(unplacedScenario).includes('MI325 workload is unplaced'));
+assert.ok(helpers.capacityVerdict(unplacedScenario).includes('excluded from every wait and headroom figure'));
+
+const overlap = helpers.capacityScenario(profile, {
+  mode: 'groups',
+  groups: 4,
+  baseline: 'peak',
+  suites: 2,
+});
+assert.equal(overlap.familyGapGpus, 20);
+assert.equal(overlap.zeroWaitFamilyGapGpus, 21);
+assert.ok(helpers.capacityVerdict(overlap).includes('short 20 GPU slots'));
+
+const waitingProfile = JSON.parse(JSON.stringify(profile));
+waitingProfile.queues[0].history.peak.waiting = 2;
+const waitingScenario = helpers.capacityScenario(waitingProfile, {
+  mode: 'groups',
+  groups: 4,
+  baseline: 'peak',
+  suites: 1,
+});
+assert.equal(waitingScenario.rows[0].combinedJobs, 7);
+assert.equal(waitingScenario.baselineQueuedGpus, 3);
+assert.equal(waitingScenario.zeroWaitFamilyGapGpus, 3);
+assert.ok(Math.abs(waitingScenario.aggregatePressurePct - 115) < 0.001);
+
+const saturatedProfile = JSON.parse(JSON.stringify(profile));
+saturatedProfile.queues[1].history.peak.running = 1;
+const saturated = helpers.capacityScenario(saturatedProfile, {
+  mode: 'groups',
+  groups: 4,
+  baseline: 'peak',
+  suites: 1,
+});
+assert.equal(saturated.waitStatus, 'finite');
+assert.equal(saturated.p95Wait, 40);
+assert.equal(saturated.maxWait, 40);
+assert.ok(helpers.capacityVerdict(saturated).includes('conservative full-service residual'));
+
+const curve = helpers.capacityGrowthCurve(profile, {baseline: 'peak', suites: 1}, 4);
+assert.equal(curve.length, 9);
+assert.ok(curve.every(function (point) { return point.status === 'finite'; }));
+assert.ok(curve.some(function (point) { return point.selected && point.x === 4; }));
+const defaultGroupCurve = helpers.capacityGrowthCurve(productionProfile, {
+  mode: 'groups', groups: 160, baseline: 'peak', suites: 1,
+});
+assert.ok(defaultGroupCurve.some(function (point) { return point.selected && point.x === 160; }));
+assert.ok(defaultGroupCurve.every(function (point) { return point.mode === 'groups'; }));
+const jobsCurve = helpers.capacityGrowthCurve(productionProfile, {
+  mode: 'jobs', jobs: 196, baseline: 'peak', suites: 1,
+});
+assert.ok(jobsCurve.some(function (point) { return point.selected && point.x === 196; }));
+assert.ok(jobsCurve.every(function (point) { return point.mode === 'jobs'; }));
+const queueCurve = helpers.capacityGrowthCurve(productionProfile, {
+  mode: 'queue',
+  queue: 'amd_queue_3',
+  queueGroups: 3,
+  parallel: 2,
+  duration: 30,
+  baseline: 'peak',
+  suites: 1,
+});
+assert.ok(queueCurve.some(function (point) { return point.selected && point.x === 3; }));
+assert.ok(queueCurve.every(function (point) { return point.mode === 'queue'; }));
+"""
+    result = subprocess.run(
+        ["node", "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_pipeline_evidence_links_fail_closed_in_the_renderer():
@@ -1073,28 +1598,80 @@ def test_empty_tables_and_mobile_evidence_have_single_scroll_surfaces():
 
 
 def test_omni_is_exact_pipeline_and_amd_queue_scoped_with_mapping_histogram():
-    assert "Unique vLLM-Omni jobs mapped to the configured standard AMD queues" in OPS_JS
-    assert "MAIN VLLM MAPPED - 14D" in OPS_JS
-    assert "Jobs mapped to AMD queues by UTC day" in OPS_JS
+    utils_js = (ROOT / "docs" / "assets" / "js" / "utils.js").read_text()
+    assert "{ id: 'ci-omni', label: 'Omni CI'" in utils_js
+    omni_render = OPS_JS[
+        OPS_JS.index("async function renderOmni")
+        :OPS_JS.index("async function render(tabId")
+    ]
+    assert "'Omni CI'" in omni_render
+    assert "vLLM Omni CI" not in omni_render
+    assert "vllm-project/vllm-omni" in OPS_JS
+    assert "vllm-project/vllm" in OPS_JS
+    assert "Observed incoming mappings from " in omni_render
+    assert "Where Omni lands" in omni_render
+    assert "Repository comparison" in omni_render
+    assert "GPU-SLOT REQUESTS" in omni_render
+    assert "Sum of configured GPU widths across observed mappings; not simultaneous use or GPU-hours" in omni_render
+    assert "Requested concurrent slots" not in omni_render
+    assert "REQUESTED GPU SLOTS" not in omni_render
+    assert "comparison stays numeric instead of sharing a misleading chart scale" in omni_render
+    assert "label: OMNI_REPOSITORIES.omni + ' observed mapped jobs'" in omni_render
+    assert "yAxisID: 'y1'" not in omni_render
+    assert "Main vLLM mapped jobs" not in omni_render
     assert "data/vllm/ci/workload_mapping.json" in OPS_JS
+    assert "const OMNI_MAPPING_WINDOWS" in OPS_JS
+    for range_id in ("6h", "1d", "3d", "7d", "1m", "3m"):
+        assert f"{{id: '{range_id}'" in OPS_JS
+    assert "'ops_omni_mapping_range'" in OPS_JS
+    assert "function omniMappingWindow" in OPS_JS
+    assert "function omniMappingPopulationBoundary" in OPS_JS
+    assert "function omniMappingBuckets" in OPS_JS
+    assert "latestStart - (expectedBuckets - 1) * bucketMs" in OPS_JS
+    assert "item.start >= earliestStart" in OPS_JS
+    assert "selectedContiguous" in OPS_JS
+    assert "retainedComplete" in OPS_JS
+    assert "apiCollectionComplete" in OPS_JS
+    assert "jobCreatedRangeExhaustive" in OPS_JS
+    assert "parentBuildLookbackDays" in OPS_JS
+    assert "API/UUID collection complete inside the source window" in omni_render
+    assert "All job-created mappings are not provably exhaustive." in omni_render
+    assert "UUID-exact only within the declared parent-build source window" in omni_render
+    assert "Jobs attached later to older parent builds can be absent" in OPS_JS
+    assert "Selected buckets complete." not in omni_render
+    assert "Exact unique command-job mappings in the selected window." not in omni_render
+    assert "exact selected-window mapping aggregates" not in omni_render
+    assert "Hourly mapping history is not available yet" in OPS_JS
+    assert "Daily totals cannot answer a trailing " in OPS_JS
+    assert "Inspect time buckets" in omni_render
+    assert "Browse all queues" in omni_render
+    assert "openQueueMappingDetail" in omni_render
+    assert "openMappingBucket" in omni_render
+    assert "openTrafficShareDetail" in omni_render
+    assert "openMi325ExposureDetail" in omni_render
+    assert "retiring queues only" in omni_render
+    assert "MI325 retirement is an Omni migration blocker" not in omni_render
+    assert "open current UTC " in omni_render
+    assert "bucket.expectedSourceRows = expectedSourceRows" in OPS_JS
+    assert "Live AMD queue state" in omni_render
+    assert "point.waitingSupported || point.runningSupported" in omni_render
+    assert "openOccupancyEvidence" in omni_render
+    assert "Aggregate queue totals are not reclassified as Omni" in omni_render
+    assert "Daily closing context" in omni_render
+    assert "Legacy closing occupancy context (UTC)" not in omni_render
+    assert "@media (max-width: 1279px)" in OPS_CSS
+    assert "minWidth: '292px'" in omni_render
     assert "function omniHistoryPoints" in OPS_JS
     assert "waiting_observed" in OPS_JS
-    assert "exact pipeline identity plus the configured queue allowlist" in OPS_JS
-    assert "Mapped and started are deliberately separate" in OPS_JS
-    assert "Aggregate queue totals are never reclassified as Omni" in OPS_JS
-    assert "AMD running observed" in OPS_JS
+    assert "aggregate queue totals are never expanded into synthetic jobs" in OPS_JS
     assert "const excludedPending = pendingLedger.filter" in OPS_JS
     assert "Inspect excluded stale jobs" in OPS_JS
     assert "const OMNI_RANGE_WINDOWS" in OPS_JS
     assert "{id: '1h', label: '1 hour', hours: 1}" in OPS_JS
     assert "{id: '72h', label: '3 days', hours: 72}" in OPS_JS
-    assert "Legacy closing occupancy context (UTC)" in OPS_JS
-    assert "do not interpret this as daily job volume" in OPS_JS
     assert "function omniDailyRows" in OPS_JS
     assert "const OMNI_AGE_BANDS" in OPS_JS
-    assert "Queued task age" in OPS_JS
-    assert "'ops_omni_range'" in OPS_JS
-    assert "'ops_omni_age'" in OPS_JS
+    assert "'ops_omni_range'" in OPS_JS  # compact live-occupancy control
     jobs = OPS_DATA["omni"]["current_jobs"]
     current = OPS_DATA["omni"]["current"]
     active_pending = [job for job in jobs["pending"] if not job.get("analysis_excluded")]

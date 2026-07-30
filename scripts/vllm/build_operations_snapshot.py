@@ -3585,7 +3585,7 @@ def _omni(
         "history": _omni_history(queue_history, allowed_queues),
         "mapping_history": workload_mapping,
         "scope": {
-            "label": "vLLM Omni CI",
+            "label": "Omni CI",
             "queues": sorted(allowed_queues),
             "pipelines": sorted(omni_pipelines),
             "excluded_queue_classes": mapping_scope.get("excluded_queue_classes") or ["perf_eval"],
@@ -3898,11 +3898,627 @@ def _historical_capacity_load(
     }
 
 
+def _mapping_elapsed_hours(workload_mapping: dict) -> float:
+    """Return the observed mapping-window duration without inventing precision."""
+    window = workload_mapping.get("window") or {}
+    try:
+        window_start = datetime.fromisoformat(
+            str(window.get("start_date"))
+        ).replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        window_start = None
+    generated_at = _parse_dt(workload_mapping.get("generated_at"))
+    if generated_at and window_start and generated_at > window_start:
+        return (generated_at - window_start).total_seconds() / 3600
+    try:
+        days = max(0, int(window.get("days") or 0))
+    except (TypeError, ValueError):
+        days = 0
+    return float(days * 24)
+
+
+def _capacity_history_baseline(
+    queue_id: str,
+    max_concurrent_jobs: int,
+    queue_history: list[dict],
+) -> dict:
+    """Build raw current/p50/p95 queue baselines from observed snapshots.
+
+    Snapshots are deliberately weighted equally.  Collection intervals are not
+    sufficiently regular to claim a time-weighted utilization distribution.
+    Raw running counts are retained even when they exceed today's configured
+    quota so quota drift remains visible to the consumer.
+    """
+    observations = []
+    for snapshot in queue_history:
+        raw = (snapshot.get("queues") or {}).get(queue_id)
+        if not isinstance(raw, dict):
+            continue
+        running = _number(raw.get("running"))
+        waiting = _number(raw.get("waiting"))
+        if running is None or waiting is None:
+            continue
+        observations.append({
+            "ts": snapshot.get("ts"),
+            "running": max(0.0, running),
+            "waiting": max(0.0, waiting),
+            "reported_p50_wait_mins": _number(raw.get("p50_wait")),
+            "reported_p95_wait_mins": _number(raw.get("p95_wait")),
+        })
+
+    def baseline(kind: str, percentile: int | None = None) -> dict:
+        if not observations:
+            return {
+                "kind": kind,
+                "available": False,
+                "running": None,
+                "waiting": None,
+                "available_slots": None,
+                "utilization_pct": None,
+                "saturated": None,
+            }
+        if percentile is None:
+            observation = observations[-1]
+            running = observation["running"]
+            waiting = observation["waiting"]
+            row = {
+                "kind": kind,
+                "available": True,
+                "observed_at": observation["ts"],
+                "running": int(running),
+                "waiting": int(waiting),
+                "reported_p50_wait_mins": observation["reported_p50_wait_mins"],
+                "reported_p95_wait_mins": observation["reported_p95_wait_mins"],
+            }
+        else:
+            running_values = sorted(row["running"] for row in observations)
+            waiting_values = sorted(row["waiting"] for row in observations)
+            running = float(_percentile(running_values, percentile) or 0)
+            waiting = float(_percentile(waiting_values, percentile) or 0)
+            reported_p50 = sorted(
+                row["reported_p50_wait_mins"]
+                for row in observations
+                if row["reported_p50_wait_mins"] is not None
+            )
+            reported_p95 = sorted(
+                row["reported_p95_wait_mins"]
+                for row in observations
+                if row["reported_p95_wait_mins"] is not None
+            )
+            row = {
+                "kind": kind,
+                "available": True,
+                "percentile": percentile,
+                "running": round(running, 1),
+                "waiting": round(waiting, 1),
+                "reported_p50_wait_mins": _percentile(reported_p50, percentile),
+                "reported_p95_wait_mins": _percentile(reported_p95, percentile),
+            }
+        row.update({
+            "available_slots": round(max(0.0, max_concurrent_jobs - running), 1),
+            "utilization_pct": round(running / max_concurrent_jobs * 100, 1)
+            if max_concurrent_jobs
+            else None,
+            "saturated": bool(max_concurrent_jobs and running >= max_concurrent_jobs),
+            "above_configured_capacity": bool(running > max_concurrent_jobs),
+        })
+        return row
+
+    first_observed_at = observations[0]["ts"] if observations else None
+    last_observed_at = observations[-1]["ts"] if observations else None
+    return {
+        "sample_count": len(observations),
+        "first_observed_at": first_observed_at,
+        "last_observed_at": last_observed_at,
+        "snapshots_above_configured_capacity": sum(
+            observation["running"] > max_concurrent_jobs
+            for observation in observations
+        ),
+        "current": baseline("latest_snapshot"),
+        "typical": baseline("empirical_p50", 50),
+        "peak": baseline("empirical_p95", 95),
+    }
+
+
+def _unplaced_retiring_mi325_workload(
+    capacity: dict,
+    workload_mapping: dict,
+    queue_history: list[dict],
+    elapsed_hours: float,
+) -> dict:
+    """Publish retiring MI325 demand without guessing a compatible destination."""
+    catalog = _queue_capacity_catalog(capacity)
+    retiring = [
+        queue
+        for queue in catalog.values()
+        if (
+            str(queue.get("family") or "").upper() == "MI325"
+            or str(queue.get("id") or "").startswith("amd_mi325_")
+        )
+        and queue.get("lifecycle") == "retiring"
+    ]
+    number_fields = (
+        "mapped_jobs",
+        "started_jobs",
+        "finished_jobs",
+        "mapped_gpu_slots",
+    )
+    mapping_totals = workload_mapping.get("totals") or {}
+
+    def source_stats(workload: str, queue_id: str) -> dict:
+        source = (
+            ((mapping_totals.get(workload) or {}).get("by_queue") or {}).get(queue_id)
+            or {}
+        )
+        return {
+            **{field: int(source.get(field) or 0) for field in number_fields},
+            "gpu_hours": round(float(source.get("gpu_hours") or 0), 2),
+        }
+
+    def add_stats(rows: list[dict]) -> dict:
+        return {
+            **{
+                field: sum(int(row.get(field) or 0) for row in rows)
+                for field in number_fields
+            },
+            "gpu_hours": round(
+                sum(float(row.get("gpu_hours") or 0) for row in rows),
+                2,
+            ),
+        }
+
+    queue_rows = []
+    for queue in sorted(retiring, key=lambda row: str(row.get("id") or "")):
+        queue_id = str(queue["id"])
+        workloads = {
+            workload: source_stats(workload, queue_id)
+            for workload in ("main", "omni")
+        }
+        queue_rows.append({
+            "id": queue_id,
+            "label": queue.get("label") or queue_id.removeprefix("amd_"),
+            "family": "MI325",
+            "gpus_per_job": int(queue.get("gpus_per_job") or 1),
+            "current_capacity_jobs": int(queue.get("max_concurrent_jobs") or 0),
+            "current_capacity_gpus": int(queue.get("gpu_capacity") or 0),
+            "workloads": workloads,
+            "totals": add_stats(list(workloads.values())),
+            "history": _capacity_history_baseline(
+                queue_id,
+                int(queue.get("max_concurrent_jobs") or 0),
+                queue_history,
+            ),
+        })
+
+    by_workload = {
+        workload: add_stats([
+            row["workloads"][workload]
+            for row in queue_rows
+        ])
+        for workload in ("main", "omni")
+    }
+    totals = add_stats(list(by_workload.values()))
+    totals["average_gpus"] = (
+        round(float(totals["gpu_hours"]) / elapsed_hours, 2)
+        if elapsed_hours > 0
+        else None
+    )
+
+    def occupancy(preset: str) -> dict:
+        observed = [
+            (row, row["history"].get(preset) or {})
+            for row in queue_rows
+            if (row["history"].get(preset) or {}).get("available") is True
+        ]
+        if not observed:
+            return {
+                "available": False,
+                "complete": False,
+                "queue_count": 0,
+                "running_jobs": None,
+                "waiting_jobs": None,
+                "running_gpu_slots": None,
+                "waiting_gpu_slots": None,
+            }
+        running_jobs = sum(float(baseline.get("running") or 0) for _, baseline in observed)
+        waiting_jobs = sum(float(baseline.get("waiting") or 0) for _, baseline in observed)
+        running_gpu_slots = sum(
+            float(baseline.get("running") or 0) * int(row["gpus_per_job"])
+            for row, baseline in observed
+        )
+        waiting_gpu_slots = sum(
+            float(baseline.get("waiting") or 0) * int(row["gpus_per_job"])
+            for row, baseline in observed
+        )
+        return {
+            "available": True,
+            "complete": len(observed) == len(queue_rows),
+            "queue_count": len(observed),
+            "running_jobs": round(running_jobs, 1),
+            "waiting_jobs": round(waiting_jobs, 1),
+            "running_gpu_slots": round(running_gpu_slots, 1),
+            "waiting_gpu_slots": round(waiting_gpu_slots, 1),
+        }
+
+    window = workload_mapping.get("window") or {}
+    attribution = (workload_mapping.get("scope") or {}).get("attribution") or {}
+    parent_build_lookback_days = attribution.get("parent_build_lookback_days")
+    if parent_build_lookback_days is None:
+        parent_build_lookback_days = (
+            workload_mapping.get("query") or {}
+        ).get("parent_build_lookback_days")
+    return {
+        "available": bool(queue_rows),
+        "status": "unplaced",
+        "family": "MI325",
+        "compatibility": "unknown",
+        "requires_manual_destination": True,
+        "excluded_from_wait_and_headroom": True,
+        "window": {
+            "days": window.get("days"),
+            "start_date": window.get("start_date"),
+            "end_date": window.get("end_date"),
+            "elapsed_hours": round(elapsed_hours, 2),
+            "complete": window.get("complete") is True,
+            "lower_bound": window.get("lower_bound") is True,
+            "job_created_range_exhaustive": (
+                window.get("job_created_range_exhaustive") is True
+            ),
+            "exact_within_declared_source_window": (
+                attribution.get("exact_within_declared_source_window") is True
+            ),
+            "parent_build_lookback_days": parent_build_lookback_days,
+            "source_limitation": attribution.get("limitation"),
+        },
+        "totals": totals,
+        "by_workload": by_workload,
+        "occupancy": {
+            "current": occupancy("current"),
+            "typical": occupancy("typical"),
+            "peak": occupancy("peak"),
+            "semantics": (
+                "Current sums the latest observed row for each retiring MI325 "
+                "queue. Typical and peak sum each queue's marginal empirical "
+                "p50/p95 running and waiting counts; the component percentiles "
+                "need not have occurred in the same snapshot."
+            ),
+        },
+        "queues": queue_rows,
+        "reason": (
+            "Retiring MI325 mappings and observed occupancy are excluded from "
+            "the active-queue wait and headroom model until a user confirms a "
+            "compatible destination. No cross-family or queue-width "
+            "compatibility is inferred."
+        ),
+    }
+
+
+def _capacity_simulation_profile(
+    capacity: dict,
+    queue_rows: list[dict],
+    runtime_estimate: dict,
+    workload_mapping: dict,
+    queue_history: list[dict],
+) -> dict:
+    """Publish source-backed inputs for an interactive queue planning model.
+
+    This intentionally does not publish a server-side wait forecast.  The
+    browser can evaluate burst and steady-arrival scenarios from these inputs,
+    while retaining enough provenance to label the result as a planning
+    estimate rather than an observed SLA.
+    """
+    elapsed_hours = _mapping_elapsed_hours(workload_mapping)
+    unplaced_retiring_workload = _unplaced_retiring_mi325_workload(
+        capacity,
+        workload_mapping,
+        queue_history,
+        elapsed_hours,
+    )
+    mapping_totals = workload_mapping.get("totals") or {}
+    current_by_queue = {
+        str(row.get("id")): row
+        for row in capacity.get("queues") or []
+        if isinstance(row, dict) and row.get("id")
+    }
+    global_runtime_service_minutes = None
+    runtime_sampled_jobs = int(runtime_estimate.get("sampled_jobs") or 0)
+    if runtime_sampled_jobs and _number(runtime_estimate.get("median_agent_hours")) is not None:
+        global_runtime_service_minutes = round(
+            float(runtime_estimate["median_agent_hours"]) * 60 / runtime_sampled_jobs,
+            2,
+        )
+
+    profile_rows = []
+    for target in queue_rows:
+        queue_id = str(target["id"])
+        gpus_per_job = max(1, int(target.get("gpus_per_job") or 1))
+        max_concurrent_jobs = max(0, int(target.get("max_concurrent_jobs") or 0))
+        current = current_by_queue.get(queue_id) or {}
+        workload_counts = {
+            "mapped_jobs": 0,
+            "started_jobs": 0,
+            "finished_jobs": 0,
+            "mapped_gpu_slots": 0,
+            "gpu_hours": 0.0,
+        }
+        for workload_name in ("main", "omni"):
+            source = (
+                ((mapping_totals.get(workload_name) or {}).get("by_queue") or {}).get(queue_id)
+                or {}
+            )
+            for field in ("mapped_jobs", "started_jobs", "finished_jobs", "mapped_gpu_slots"):
+                workload_counts[field] += int(source.get(field) or 0)
+            workload_counts["gpu_hours"] += float(source.get("gpu_hours") or 0)
+
+        observed_agent_hours = workload_counts["gpu_hours"] / gpus_per_job
+        observed_service_minutes = (
+            observed_agent_hours * 60 / workload_counts["finished_jobs"]
+            if workload_counts["finished_jobs"] and observed_agent_hours > 0
+            else None
+        )
+        runtime_row = (runtime_estimate.get("queues") or {}).get(queue_id) or {}
+        runtime_jobs = int(runtime_row.get("sampled_jobs") or 0)
+        runtime_service_minutes = (
+            float(runtime_row.get("median_agent_hours") or 0) * 60 / runtime_jobs
+            if runtime_jobs and _number(runtime_row.get("median_agent_hours")) is not None
+            else None
+        )
+        if runtime_service_minutes is not None:
+            service_minutes = runtime_service_minutes
+            service_source = "target_command_job_median_average"
+            service_is_proxy = False
+        elif observed_service_minutes is not None:
+            service_minutes = observed_service_minutes
+            service_source = "completed_agent_minutes_per_finished_job_proxy_fallback"
+            service_is_proxy = True
+        elif global_runtime_service_minutes is not None:
+            service_minutes = global_runtime_service_minutes
+            service_source = "target_suite_global_median_average_fallback"
+            service_is_proxy = False
+        else:
+            service_minutes = None
+            service_source = "unavailable"
+            service_is_proxy = None
+
+        current_groups = int(current.get("gated_groups") or 0)
+        current_jobs = int(current.get("gated_jobs") or 0)
+        target_groups = int(target.get("groups") or 0)
+        target_jobs = int(target.get("jobs") or 0)
+        target_agent_minutes = (
+            round(float(runtime_row.get("median_agent_hours") or 0) * 60, 2)
+            if runtime_jobs
+            else (
+                round(target_jobs * service_minutes, 2)
+                if service_minutes is not None
+                else None
+            )
+        )
+        current_agent_minutes = (
+            round(current_jobs * service_minutes, 2)
+            if service_minutes is not None
+            else None
+        )
+        profile_rows.append({
+            "id": queue_id,
+            "label": target.get("label") or queue_id.removeprefix("amd_"),
+            "family": target.get("family") or "unknown",
+            "gpus_per_job": gpus_per_job,
+            "capacity_jobs": max_concurrent_jobs,
+            "capacity_gpus": max_concurrent_jobs * gpus_per_job,
+            "history": _capacity_history_baseline(
+                queue_id,
+                max_concurrent_jobs,
+                queue_history,
+            ),
+            "workload": {
+                **workload_counts,
+                "gpu_hours": round(workload_counts["gpu_hours"], 2),
+                "observed_agent_hours": round(observed_agent_hours, 2),
+                "mapped_arrival_rate_jobs_per_hour": round(
+                    workload_counts["mapped_jobs"] / elapsed_hours,
+                    4,
+                ) if elapsed_hours else None,
+                "started_arrival_rate_jobs_per_hour": round(
+                    workload_counts["started_jobs"] / elapsed_hours,
+                    4,
+                ) if elapsed_hours else None,
+                "finished_rate_jobs_per_hour": round(
+                    workload_counts["finished_jobs"] / elapsed_hours,
+                    4,
+                ) if elapsed_hours else None,
+                "observed_service_minutes": round(observed_service_minutes, 2)
+                if observed_service_minutes is not None
+                else None,
+                "target_runtime_service_minutes": round(runtime_service_minutes, 2)
+                if runtime_service_minutes is not None
+                else None,
+                "target_global_service_minutes": global_runtime_service_minutes,
+                "runtime_fallback_service_minutes": round(runtime_service_minutes, 2)
+                if runtime_service_minutes is not None
+                else global_runtime_service_minutes,
+                "service_minutes": round(service_minutes, 2)
+                if service_minutes is not None
+                else None,
+                "service_minutes_source": service_source,
+                "service_minutes_is_proxy": service_is_proxy,
+            },
+            "demand": {
+                "current": {
+                    "groups": current_groups,
+                    "jobs": current_jobs,
+                    "gpu_slots": current_jobs * gpus_per_job,
+                    "agent_minutes": current_agent_minutes,
+                },
+                "target": {
+                    "groups": target_groups,
+                    "jobs": target_jobs,
+                    "gpu_slots": target_jobs * gpus_per_job,
+                    "agent_minutes": target_agent_minutes,
+                },
+                "delta": {
+                    "groups": target_groups - current_groups,
+                    "jobs": target_jobs - current_jobs,
+                    "gpu_slots": (target_jobs - current_jobs) * gpus_per_job,
+                    "agent_minutes": round(target_agent_minutes - current_agent_minutes, 2)
+                    if target_agent_minutes is not None and current_agent_minutes is not None
+                    else None,
+                },
+            },
+        })
+
+    current_totals = {
+        "groups": int((capacity.get("summary") or {}).get("capacity_scoped_group_count") or 0),
+        "jobs": sum(row["demand"]["current"]["jobs"] for row in profile_rows),
+        "gpu_slots": sum(row["demand"]["current"]["gpu_slots"] for row in profile_rows),
+        "agent_minutes": round(sum(
+            float(row["demand"]["current"]["agent_minutes"] or 0)
+            for row in profile_rows
+        ), 2),
+    }
+    target_totals = {
+        "groups": sum(row["demand"]["target"]["groups"] for row in profile_rows),
+        "jobs": sum(row["demand"]["target"]["jobs"] for row in profile_rows),
+        "gpu_slots": sum(row["demand"]["target"]["gpu_slots"] for row in profile_rows),
+        "agent_minutes": round(sum(
+            float(row["demand"]["target"]["agent_minutes"] or 0)
+            for row in profile_rows
+        ), 2),
+    }
+    return {
+        "available": bool(profile_rows),
+        "model": {
+            "id": "amd_queue_planning_inputs_v1",
+            "kind": "planning_estimate_inputs_not_sla",
+            "burst_wait": (
+                "Use FCFS list scheduling per queue as a planning estimate. Idle configured "
+                "slots are available immediately; each history.<preset>.running job "
+                "keeps a slot for one full workload.service_minutes estimate; "
+                "history.<preset>.waiting jobs remain ahead of the simulated burst. "
+                "Only the full-service residual assigned to already-running jobs is "
+                "conservative. A finite wait is unavailable when quota, history, or "
+                "service time is missing."
+            ),
+            "steady_wait": (
+                "Optional Erlang-C planning approximation: offered load "
+                "A=baseline_running+arrival_rate_jobs_per_hour*service_minutes/60; "
+                "rho=A/c. If rho>=1 the scenario is unstable. Otherwise compute "
+                "Erlang-B recursively, P(wait)=B/(1-rho+rho*B), mean "
+                "Wq=P(wait)*service_minutes/(c-A), and the conditional exponential "
+                "tail for percentiles."
+            ),
+            "steady_wait_assumptions": (
+                "Stationary Poisson arrivals, independent identically distributed "
+                "service, homogeneous configured runners, FCFS dispatch, and no "
+                "cross-queue migration. These assumptions are not an SLA."
+            ),
+        },
+        "defaults": {
+            "baseline": "peak",
+            "traffic_mode": "burst",
+            "target_groups": target_totals["groups"],
+            "simultaneous_suites": 1,
+            "arrival_rate_jobs_field": "started_arrival_rate_jobs_per_hour",
+        },
+        "topology": {
+            "current": current_totals,
+            "target": target_totals,
+            "delta": {
+                key: round(target_totals[key] - current_totals[key], 2)
+                for key in ("groups", "jobs", "gpu_slots", "agent_minutes")
+            },
+            "interpolation": (
+                "For totals between current and target, interpolate each queue's "
+                "current-to-target demand. Below current use the current mix; above "
+                "target use the exact target mix. Rounded jobs remain a planning mix, "
+                "not an exact YAML topology."
+            ),
+        },
+        "history": {
+            "snapshot_count": len(queue_history),
+            "first_observed_at": queue_history[0].get("ts") if queue_history else None,
+            "last_observed_at": queue_history[-1].get("ts") if queue_history else None,
+            "quantiles": {"typical": 50, "peak": 95},
+            "weighting": "one_equal_weight_per_collected_snapshot",
+        },
+        "workload_window": {
+            "elapsed_hours": round(elapsed_hours, 2),
+            "days": (workload_mapping.get("window") or {}).get("days"),
+            "start_date": (workload_mapping.get("window") or {}).get("start_date"),
+            "end_date": (workload_mapping.get("window") or {}).get("end_date"),
+            "complete": (workload_mapping.get("window") or {}).get("complete") is True,
+            "lower_bound": (workload_mapping.get("window") or {}).get("lower_bound") is True,
+            "job_created_range_exhaustive": (
+                (workload_mapping.get("window") or {}).get(
+                    "job_created_range_exhaustive"
+                )
+                is True
+            ),
+            "parent_build_lookback_days": (
+                ((workload_mapping.get("scope") or {}).get("attribution") or {}).get(
+                    "parent_build_lookback_days"
+                )
+                or (workload_mapping.get("query") or {}).get(
+                    "parent_build_lookback_days"
+                )
+            ),
+        },
+        "unplaced_retiring_workload": unplaced_retiring_workload,
+        "assumptions": {
+            "capacity": (
+                "Configured future-eligible queue quotas are treated as concurrent "
+                "job slots. MI325 and perf-eval queues remain excluded."
+            ),
+            "history": (
+                "Current is the latest observed queue row; typical and peak are "
+                "unweighted empirical p50/p95 snapshot counts. Peak combines each "
+                "queue's marginal p95 running and waiting counts; those values need "
+                "not have occurred in the same snapshot. Raw observations may exceed "
+                "today's quota when capacity changed during the window."
+            ),
+            "arrivals": (
+                "Mapped and started rates divide unique daily Buildkite aggregate "
+                "counts by the published window duration. They are historical average "
+                "rates, not a fitted arrival distribution or peak forecast."
+            ),
+            "service": (
+                "Per-queue target command-job median averages from the target-runtime "
+                "estimate are the primary service-time input for auto-mix burst "
+                "planning. When that target estimate is unavailable, observed service "
+                "minutes divide completed agent-minutes by all finished jobs and are "
+                "used only as a fallback; that proxy is downward biased when finished "
+                "jobs lack a valid started-to-finished interval or exceed the 24-hour "
+                "retention guard. The global target-suite median average is the final "
+                "fallback."
+            ),
+            "burst_residual": (
+                "Every job already running at the selected snapshot baseline is "
+                "conservatively assigned one full service-time estimate before its "
+                "slot becomes available. Actual residual runtimes are not observed."
+            ),
+            "compatibility": (
+                "No queue or hardware-family migration is assumed. An auto-placement "
+                "UI must constrain alternatives to user-confirmed compatible widths "
+                "and families."
+            ),
+            "retiring_workload": unplaced_retiring_workload["reason"],
+        },
+        "provenance": {
+            "capacity": SOURCE_FILES["capacity_monitor"],
+            "target_topology": SOURCE_FILES["amd_test_matrix"],
+            "target_runtime": SOURCE_FILES["analytics"],
+            "queue_history": SOURCE_FILES["queue_timeseries"],
+            "workload_mapping": SOURCE_FILES["workload_mapping"],
+        },
+        "queues": profile_rows,
+    }
+
+
 def _exact_target_topology(
     capacity: dict,
     amd_test_matrix: dict,
     amd_analytics: dict | None = None,
     workload_mapping: dict | None = None,
+    queue_history: list[dict] | None = None,
 ) -> dict:
     """Project one full semantic AMD matrix onto its configured queue topology.
 
@@ -3964,17 +4580,27 @@ def _exact_target_topology(
             unassigned_groups += 1
 
     queue_rows = []
+    current_capacity_queues = {
+        str(row.get("id")): row
+        for row in capacity.get("queues") or []
+        if isinstance(row, dict) and row.get("id")
+    }
     for queue_id in sorted(demand):
         queue = demand[queue_id]
         jobs = int(queue["jobs"])
         max_jobs = int(queue["max_concurrent_jobs"])
         gap_jobs = max(0, jobs - max_jobs)
+        current_queue = current_capacity_queues.get(queue_id) or {}
+        current_gated_jobs = int(current_queue.get("gated_jobs") or 0)
         queue_rows.append({
             key: value
             for key, value in queue.items()
             if key != "group_ids"
         } | {
             "groups": len(queue["group_ids"]),
+            "current_gated_groups": int(current_queue.get("gated_groups") or 0),
+            "current_gated_jobs": current_gated_jobs,
+            "current_gated_gpu_slots": current_gated_jobs * int(queue["gpus_per_job"]),
             "capacity_ratio": round(jobs / max_jobs, 4) if max_jobs else (1.0 if not jobs else None),
             "gap_jobs": gap_jobs,
             "gap_gpus": gap_jobs * int(queue["gpus_per_job"]),
@@ -4068,6 +4694,47 @@ def _exact_target_topology(
             0,
         ) >= only_gap["gap_gpus"]
     )
+    runtime_estimate = _target_runtime_estimate(
+        amd_test_matrix,
+        amd_analytics or {},
+        catalog,
+    )
+    simulation_profile = _capacity_simulation_profile(
+        capacity,
+        queue_rows,
+        runtime_estimate,
+        workload_mapping or {},
+        queue_history or [],
+    )
+    standalone_net_new_required = not (
+        one_suite["fits_aggregate_capacity"] and repartition_possible
+    )
+    standalone_summary = (
+        f"Repartition {only_gap['gap_gpus']} spare {only_gap['family']} GPUs "
+        f"into {only_gap['gap_jobs']} additional {only_gap['label']} runner; "
+        "the standalone target suite does not require net-new silicon."
+        if repartition_possible and only_gap
+        else (
+            "The standalone target suite fits both aggregate capacity and every "
+            "queue shape."
+            if one_suite["fits_aggregate_capacity"] and one_suite["fits_queue_shapes"]
+            else "The standalone target suite requires additional or migrated queue capacity."
+        )
+    )
+    unplaced_retiring = simulation_profile.get("unplaced_retiring_workload") or {}
+    mi325_migration_unplaced = bool(
+        unplaced_retiring.get("available") is True
+        and unplaced_retiring.get("requires_manual_destination") is True
+    )
+    overall_requirement = (
+        "indeterminate_until_mi325_destination_modeled"
+        if mi325_migration_unplaced
+        else (
+            "net_new_hardware_required"
+            if standalone_net_new_required
+            else "no_net_new_hardware_required"
+        )
+    )
     return {
         "available": bool(selected_groups and queue_rows),
         "method": "exact_one_cell_per_semantic_matrix_row",
@@ -4096,40 +4763,47 @@ def _exact_target_topology(
         ).get("retiring") or {},
         "queues": queue_rows,
         "families": family_rows,
-        "runtime_estimate": _target_runtime_estimate(
-            amd_test_matrix,
-            amd_analytics or {},
-            catalog,
-        ),
+        "runtime_estimate": runtime_estimate,
         "historical_load": _historical_capacity_load(
             workload_mapping or {},
             catalog,
             int(future_capacity.get("gpus") or 0),
         ),
+        "simulation_profile": simulation_profile,
+        "current_topology": simulation_profile["topology"]["current"],
         "scenarios": scenarios,
         "target_depends_on_retiring_capacity": any(
             row["jobs"] and row["lifecycle"] == "retiring"
             for row in queue_rows
         ),
         "recommendation": {
-            "net_new_hardware_required_for_one_suite": not (
-                one_suite["fits_aggregate_capacity"] and repartition_possible
+            "net_new_hardware_required_for_one_suite": (
+                None if mi325_migration_unplaced else standalone_net_new_required
             ),
+            "overall_hardware_requirement": overall_requirement,
+            "mi325_migration_unplaced": mi325_migration_unplaced,
+            "conditional_on_mi325_destination": mi325_migration_unplaced,
+            "standalone_target_only": {
+                "net_new_hardware_required": standalone_net_new_required,
+                "fits_aggregate_capacity": one_suite["fits_aggregate_capacity"],
+                "fits_family_capacity": one_suite["fits_family_capacity"],
+                "fits_queue_shapes": one_suite["fits_queue_shapes"],
+                "family_gap_gpus": one_suite["family_gap_gpus"],
+                "shape_gap_gpus": one_suite["shape_gap_gpus"],
+                "summary": standalone_summary,
+            },
             "queue_shape_change_required": not one_suite["fits_queue_shapes"],
             "repartition_possible_within_family": repartition_possible,
             "bottleneck_queue": only_gap["id"] if only_gap else None,
             "additional_runner_jobs": only_gap["gap_jobs"] if only_gap else 0,
             "additional_runner_gpus": only_gap["gap_gpus"] if only_gap else 0,
             "summary": (
-                f"Repartition {only_gap['gap_gpus']} spare {only_gap['family']} GPUs "
-                f"into {only_gap['gap_jobs']} additional {only_gap['label']} runner; "
-                "no net-new silicon is required for one full suite."
-                if repartition_possible and only_gap
-                else (
-                    "One full suite fits both aggregate capacity and every queue shape."
-                    if one_suite["fits_aggregate_capacity"] and one_suite["fits_queue_shapes"]
-                    else "Additional or migrated queue capacity is required for one full suite."
-                )
+                standalone_summary
+                + " Overall hardware need is indeterminate until the retiring MI325 "
+                "workload is assigned to user-confirmed compatible destinations and "
+                "modeled with their queue widths."
+                if mi325_migration_unplaced
+                else standalone_summary
             ),
         },
         "linear_sensitivity": projection,
@@ -4148,6 +4822,7 @@ def _trajectory(
     amd_test_matrix: dict,
     amd_analytics: dict,
     workload_mapping: dict,
+    queue_history: list[dict],
 ) -> dict:
     cohort = reliability.get("cohort") or {}
     denominator = reliability.get("denominator") or {}
@@ -4175,6 +4850,7 @@ def _trajectory(
             amd_test_matrix,
             amd_analytics,
             workload_mapping,
+            queue_history,
         ),
         "provenance": {
             "source_paths": {
@@ -4183,6 +4859,7 @@ def _trajectory(
                 "capacity": SOURCE_FILES["capacity_monitor"],
                 "target_topology": SOURCE_FILES["amd_test_matrix"],
                 "historical_load": SOURCE_FILES["workload_mapping"],
+                "queue_history": SOURCE_FILES["queue_timeseries"],
             },
             "build_history": {
                 "path": SOURCE_FILES["analytics"],
@@ -4205,6 +4882,10 @@ def _trajectory(
             "historical_load": {
                 "path": SOURCE_FILES["workload_mapping"],
                 "evidence_kind": "published completed GPU-hour aggregate",
+            },
+            "queue_history": {
+                "path": SOURCE_FILES["queue_timeseries"],
+                "evidence_kind": "published queue running and waiting history",
             },
         },
     }
@@ -4366,6 +5047,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         loaded.get("amd_test_matrix") or {},
         analytics.get("amd-ci") or {},
         loaded.get("workload_mapping") or {},
+        queue_history,
     )
     attention = _attention(nightly, reliability, gating, queue, omni)
     status = "critical" if any(row["severity"] == "critical" for row in attention) else (
