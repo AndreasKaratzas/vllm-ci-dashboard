@@ -2245,10 +2245,15 @@
   function renderConfigParity(box,cp) {
     if(!cp?.matches) return;
     const s=cp.summary;
-    const divergent=cp.matches.filter(m=>m.command_similarity<1.0);
+    const covered=[
+      ...(cp.matches||[]),
+      ...(cp.inline_mirror_variants||[]),
+      ...(cp.additional_variants||[]),
+    ];
+    const divergent=covered.filter(m=>m.command_similarity<1.0);
     const det=h('details',{style:{marginBottom:'8px',background:C.bg,border:`1px solid ${C.bd}`,borderRadius:'8px'}});
-    det.append(h('summary',{html:`Config Parity <span style="color:${C.m}">${s.matched} matched, ${s.avg_command_similarity_pct}% avg similarity${divergent.length?`, <span style="color:${C.y}">${divergent.length} divergent</span>`:''}</span>`,style:{padding:'12px 16px',cursor:'pointer',fontSize:'14px',fontWeight:'600'}}));
-    if(!divergent.length){det.append(h('p',{text:'All matched steps identical.',style:{padding:'0 16px 12px',color:C.g,fontSize:'12px'}}));box.append(det);return}
+    det.append(h('summary',{html:`Config Parity <span style="color:${C.m}">${s.covered} / ${s.total_amd_steps} source-covered (${s.direct_matches} direct, ${s.inline_mirror_variants} inline, ${s.additional_variants} additional), ${s.amd_only} AMD-only${divergent.length?`, <span style="color:${C.y}">${divergent.length} command differences</span>`:''}</span>`,style:{padding:'12px 16px',cursor:'pointer',fontSize:'14px',fontWeight:'600'}}));
+    if(!divergent.length){det.append(h('p',{text:'All source-covered command lists are identical.',style:{padding:'0 16px 12px',color:C.g,fontSize:'12px'}}));box.append(det);return}
     const tbl=h('table',{style:{width:'100%',borderCollapse:'collapse',fontSize:'14px'}});
     tbl.append(h('thead',{},[h('tr',{},[h('th',{text:'Step',style:ts()}),h('th',{text:'Similarity',style:ts('center')})])]));
     const tb=h('tbody');

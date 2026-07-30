@@ -450,23 +450,91 @@ def test_definition_parity_is_source_scoped_and_not_presented_as_runtime_health(
         assert removed_label not in OPS_JS
     for visible_label in (
         "Definition parity",
-        "UPSTREAM DEFINITIONS",
         "AMD DEFINITIONS",
-        "AMD DEFINITIONS MATCHED",
-        "UNMATCHED DEFINITIONS",
+        "AMD DEFINITION COVERAGE",
+        "INLINE MIRRORS",
+        "UNLINKED DEFINITIONS",
         "Definition coverage, not passing test groups.",
         "Source-definition comparison",
-        "Command twin",
+        "Direct command twin",
+        "Mirror-linked standalone variants",
+        "Additional AMD variant",
+        "AMD-only standalone",
+        "Inline mirror inventory",
         "Open pinned vLLM commit",
     ):
         assert visible_label in OPS_JS
     assert "ops.definition_parity || {}" in OPS_JS
     assert "row.match_method === 'command_twin'" in OPS_JS
+    assert "summary.covered" in OPS_JS
+    assert "summary.direct_matches" in OPS_JS
+    assert "summary.inline_mirror_variants" in OPS_JS
+    assert "summary.additional_variants" in OPS_JS
+    assert "parity.inline_mirror_variants" in OPS_JS
+    assert "parity.additional_variants" in OPS_JS
+    assert "row.amd_route_similarity" in OPS_JS
+    assert "row.inline_mirror_command_similarity" in OPS_JS
     assert "row.amd_source_url" in OPS_JS
     assert "row.nvidia_source_url" in OPS_JS
     assert "Search 127 reviewed groups" not in OPS_JS
     assert "matrixData.rows || []" in OPS_JS
     assert "matrixData.rows || []).slice" not in OPS_JS
+
+
+def test_published_definition_parity_reconciles_coverage_and_mirror_evidence():
+    parity = OPS_DATA["definition_parity"]
+    summary = parity["summary"]
+
+    assert len(parity["matches"]) == summary["direct_matches"]
+    assert (
+        len(parity["inline_mirror_variants"])
+        == summary["inline_mirror_variants"]
+    )
+    assert len(parity["additional_variants"]) == summary["additional_variants"]
+    assert len(parity["amd_only"]) == summary["amd_only"]
+    assert len(parity["nvidia_only"]) == summary["nvidia_only"]
+    assert len(parity["mirrors"]) == summary["mirrors"]
+    assert summary["covered"] == (
+        summary["direct_matches"]
+        + summary["inline_mirror_variants"]
+        + summary["additional_variants"]
+    )
+    assert summary["covered"] + summary["amd_only"] == summary["total_amd_steps"]
+    assert summary["match_rate_pct"] == summary["direct_match_rate_pct"]
+    assert (
+        summary["avg_command_similarity_pct"]
+        == summary["direct_avg_command_similarity_pct"]
+    )
+    assert "covered_avg_command_similarity_pct" in summary
+
+    basic = next(
+        row
+        for row in parity["inline_mirror_variants"]
+        if row["amd_label"] == "Basic Correctness"
+    )
+    assert not any(
+        row["label"] == "Basic Correctness"
+        for row in parity["amd_only"]
+    )
+    assert basic["nvidia_label"] == "Basic Correctness"
+    assert basic["match_method"] == "inline_mirror_variant"
+    assert basic["amd_definition_id"]
+    assert basic["nvidia_definition_id"]
+    assert basic["amd_source_url"]
+    assert basic["nvidia_source_url"]
+    for field in (
+        "command_similarity",
+        "amd_route_similarity",
+        "inline_mirror_command_similarity",
+    ):
+        assert field in basic
+
+    for mirror in parity["mirrors"]:
+        assert mirror["nvidia_definition_id"]
+        assert mirror["source_url"]
+        assert isinstance(mirror["commands_overridden"], bool)
+        assert isinstance(mirror["amd_commands"], list)
+        assert isinstance(mirror["nvidia_commands"], list)
 
 
 def test_runtime_target_incident_attention_loads_and_filters_runtime_gating():
@@ -955,6 +1023,122 @@ assert.equal(completeAggregate[0].complete, true);
 """
     result = subprocess.run(
         ["node", "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_definition_parity_helpers_keep_relationship_categories_exclusive():
+    if not shutil.which("node"):
+        import pytest
+
+        pytest.skip("node is not available")
+    script = r"""
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const sandbox = {
+  window: {__OPS_V2_TEST__: true},
+  document: {addEventListener: function () {}},
+  console: console,
+  URL: URL,
+};
+vm.createContext(sandbox);
+vm.runInContext(source, sandbox, {filename: process.argv[1]});
+const helpers = sandbox.window.OpsV2Test;
+const parity = {
+  matches: [
+    {_id: 'direct', match_method: 'identity', command_similarity: 1},
+    {_id: 'twin', match_method: 'command_twin', command_similarity: 1},
+  ],
+  inline_mirror_variants: [{
+    _id: 'inline',
+    match_method: 'inline_mirror_variant',
+    mirror_relationship: 'same_hardware_command_variant',
+    command_similarity: 0.637,
+    amd_route_similarity: 1,
+    inline_mirror_command_similarity: 0.053,
+  }],
+  additional_variants: [{
+    _id: 'additional',
+    match_method: 'additional_variant',
+    command_similarity: 0.8,
+  }],
+  amd_only: [{_id: 'amd-gap'}],
+  nvidia_only: [{_id: 'upstream-gap'}],
+  mirrors: [{
+    _id: 'mirror',
+    nvidia_label: 'Mirrored upstream',
+    commands_overridden: true,
+    command_similarity: 0.7,
+    source_url: 'https://example.com/upstream',
+  }],
+};
+const comparisons = helpers.definitionParityComparisonRows(parity);
+const mirrors = helpers.definitionParityMirrorRows(parity);
+const rows = comparisons.concat(mirrors);
+function ids(plan) {
+  return helpers.definitionParityFilter(rows, plan).map(function (row) {
+    return row._id;
+  }).sort().join(',');
+}
+assert.equal(comparisons.length, 6);
+assert.equal(mirrors.length, 1);
+assert.equal(ids('all'), 'additional,amd-gap,direct,inline,twin,upstream-gap');
+assert.equal(ids('amd'), 'additional,amd-gap,direct,inline,twin');
+assert.equal(ids('covered'), 'additional,direct,inline,twin');
+assert.equal(ids('direct'), 'direct,twin');
+assert.equal(ids('inline_variant'), 'inline');
+assert.equal(ids('additional_variant'), 'additional');
+assert.equal(ids('twins'), 'twin');
+assert.equal(ids('changed'), 'additional,inline');
+assert.equal(ids('unlinked'), 'amd-gap,upstream-gap');
+assert.equal(ids('mirror_inventory'), 'mirror');
+assert.equal(
+  helpers.definitionParityPresentation(
+    comparisons.find(function (row) { return row._id === 'inline'; })
+  ).label,
+  'Inline mirror command variant'
+);
+assert.equal(
+  helpers.definitionParityPresentation(
+    comparisons.find(function (row) { return row._id === 'inline'; })
+  ).primarySimilarity,
+  0.053
+);
+assert.equal(
+  helpers.definitionParityPresentation(
+    comparisons.find(function (row) { return row._id === 'inline'; })
+  ).evidenceLabel,
+  'inline AMD ↔ upstream'
+);
+assert.equal(
+  helpers.definitionParityPresentation(
+    comparisons.find(function (row) { return row._id === 'additional'; })
+  ).label,
+  'Additional AMD variant'
+);
+assert.equal(
+  helpers.definitionParityPresentation(mirrors[0]).primarySimilarity,
+  0.7
+);
+assert.equal(
+  helpers.definitionParityPresentation(mirrors[0]).evidenceLabel,
+  'inline AMD ↔ upstream'
+);
+assert.equal(mirrors[0].inline_mirror_command_similarity, 0.7);
+assert.equal(helpers.definitionParityEvidence(mirrors[0]).changed, true);
+"""
+    result = subprocess.run(
+        [
+            "node",
+            "-e",
+            script,
+            str(ROOT / "docs" / "assets" / "js" / "ops-v2.js"),
+        ],
         text=True,
         capture_output=True,
         check=False,

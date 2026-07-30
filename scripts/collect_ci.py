@@ -886,9 +886,12 @@ def main():
             config_parity_path = output_dir / "config_parity.json"
             config_parity_path.write_text(json.dumps(config_parity, indent=2))
             log.info(
-                "Wrote config_parity.json (match rate: %.1f%%, avg similarity: %.1f%%)",
-                config_parity.get("summary", {}).get("match_rate_pct", 0),
-                config_parity.get("summary", {}).get("avg_command_similarity_pct", 0),
+                "Wrote config_parity.json (coverage: %.1f%%, avg similarity: %.1f%%)",
+                config_parity.get("summary", {}).get("coverage_rate_pct", 0),
+                config_parity.get("summary", {}).get(
+                    "covered_avg_command_similarity_pct",
+                    0,
+                ),
             )
         else:
             log.warning("Config parity failed: %s", config_parity["error"])

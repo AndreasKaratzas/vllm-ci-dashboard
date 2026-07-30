@@ -240,6 +240,15 @@ def commands_similarity(cmds_a: list[str], cmds_b: list[str]) -> float:
     def clean(cmd: str) -> str:
         cmd = re.sub(r'export\s+\w+=\S+', '', cmd).strip()
         cmd = re.sub(r'(CUDA_VISIBLE_DEVICES|HIP_VISIBLE_DEVICES)=\S+\s*', '', cmd)
+        # AMD and upstream use the same pytest target with a platform-specific
+        # target-suite selector.  Treat the selector as execution metadata,
+        # just like the visibility variables above, while retaining other
+        # leading assignments that can materially change test coverage.
+        cmd = re.sub(
+            r'^(?:VLLM_)?TARGET_TEST_SUITE=(?:"[^"]*"|\'[^\']*\'|\S+)\s*',
+            '',
+            cmd,
+        )
         cmd = re.sub(r'--shard-id=\$\$\w+', '--shard-id=N', cmd)
         cmd = re.sub(r'--num-shards=\$\$\w+', '--num-shards=N', cmd)
         return cmd.strip()

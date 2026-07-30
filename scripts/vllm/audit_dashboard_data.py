@@ -837,12 +837,32 @@ class DashboardAudit:
         if definition_parity:
             parity_summary = _mapping(definition_parity.get("summary"))
             parity_matches = _rows(definition_parity.get("matches"))
+            parity_inline_mirror_variants = _rows(
+                definition_parity.get("inline_mirror_variants")
+            )
+            parity_additional_variants = _rows(
+                definition_parity.get("additional_variants")
+            )
             parity_amd_only = _rows(definition_parity.get("amd_only"))
             parity_upstream_only = _rows(definition_parity.get("nvidia_only"))
+            parity_mirrors = _rows(definition_parity.get("mirrors"))
             expected_counts = {
                 "matched": len(parity_matches),
+                "direct_matches": len(parity_matches),
+                "inline_mirror_variants": len(
+                    parity_inline_mirror_variants
+                ),
+                "additional_variants": len(
+                    parity_additional_variants
+                ),
+                "covered": (
+                    len(parity_matches)
+                    + len(parity_inline_mirror_variants)
+                    + len(parity_additional_variants)
+                ),
                 "amd_only": len(parity_amd_only),
                 "nvidia_only": len(parity_upstream_only),
+                "mirrors": len(parity_mirrors),
                 "command_twins": sum(
                     _mapping(row).get("match_method") == "command_twin"
                     for row in parity_matches
@@ -855,6 +875,181 @@ class DashboardAudit:
                         f"definition_parity.summary.{key}={parity_summary.get(key)} but rows imply {expected}",
                         relpath,
                     )
+            covered_plus_gaps = (
+                expected_counts["covered"]
+                + expected_counts["amd_only"]
+            )
+            if (
+                _safe_int(parity_summary.get("total_amd_steps"))
+                != covered_plus_gaps
+            ):
+                self.error(
+                    "definition-parity-amd-total",
+                    (
+                        "definition_parity covered + AMD-only rows do not "
+                        "equal total_amd_steps"
+                    ),
+                    relpath,
+                )
+            mirror_relationships = (
+                "effective_command_duplicate",
+                "same_hardware_command_variant",
+                "hardware_variant",
+            )
+            expected_mirror_kinds = {
+                relationship: sum(
+                    _mapping(row).get("mirror_relationship")
+                    == relationship
+                    for row in parity_inline_mirror_variants
+                )
+                for relationship in mirror_relationships
+            }
+            published_mirror_kinds = _mapping(
+                parity_summary.get("inline_mirror_variant_kinds")
+            )
+            if any(
+                _safe_int(published_mirror_kinds.get(relationship))
+                != expected
+                for relationship, expected in expected_mirror_kinds.items()
+            ) or sum(expected_mirror_kinds.values()) != len(
+                parity_inline_mirror_variants
+            ):
+                self.error(
+                    "definition-parity-mirror-subtypes",
+                    (
+                        "inline mirror subtype counts do not partition the "
+                        "published mirror-linked variants"
+                    ),
+                    relpath,
+                )
+            upstream_definition_ids = [
+                *(
+                    str(_mapping(row).get("nvidia_definition_id") or "")
+                    for row in parity_matches
+                ),
+                *(
+                    str(_mapping(row).get("nvidia_definition_id") or "")
+                    for row in parity_mirrors
+                ),
+                *(
+                    str(_mapping(row).get("definition_id") or "")
+                    for row in parity_upstream_only
+                ),
+            ]
+            if (
+                not all(upstream_definition_ids)
+                or len(upstream_definition_ids)
+                != _safe_int(parity_summary.get("total_nvidia_steps"))
+                or len(set(upstream_definition_ids))
+                != len(upstream_definition_ids)
+            ):
+                self.error(
+                    "definition-parity-upstream-conservation",
+                    (
+                        "direct matches, inline mirrors, and upstream-only "
+                        "rows do not uniquely partition upstream definitions"
+                    ),
+                    relpath,
+                )
+            amd_relationship_rows = [
+                *parity_matches,
+                *parity_inline_mirror_variants,
+                *parity_additional_variants,
+            ]
+            logical_amd_ids = [
+                *(
+                    str(_mapping(row).get("amd_definition_id") or "")
+                    for row in amd_relationship_rows
+                ),
+                *(
+                    str(_mapping(row).get("definition_id") or "")
+                    for row in parity_amd_only
+                ),
+            ]
+            physical_amd_ids = [
+                *(
+                    str(definition_id or "")
+                    for row in amd_relationship_rows
+                    for definition_id in (
+                        _mapping(row).get("amd_member_definition_ids")
+                        or []
+                    )
+                ),
+                *(
+                    str(definition_id or "")
+                    for row in parity_amd_only
+                    for definition_id in (
+                        _mapping(row).get("member_definition_ids")
+                        or []
+                    )
+                ),
+            ]
+            if (
+                not all(logical_amd_ids)
+                or len(logical_amd_ids)
+                != _safe_int(parity_summary.get("total_amd_steps"))
+                or len(set(logical_amd_ids)) != len(logical_amd_ids)
+            ):
+                self.error(
+                    "definition-parity-amd-logical-conservation",
+                    (
+                        "covered and AMD-only rows do not uniquely partition "
+                        "logical AMD definition IDs"
+                    ),
+                    relpath,
+                )
+            if (
+                not all(physical_amd_ids)
+                or len(physical_amd_ids)
+                != _safe_int(parity_summary.get("raw_amd_steps"))
+                or len(set(physical_amd_ids)) != len(physical_amd_ids)
+            ):
+                self.error(
+                    "definition-parity-amd-physical-conservation",
+                    (
+                        "logical AMD rows do not uniquely conserve all "
+                        "physical member definition IDs"
+                    ),
+                    relpath,
+                )
+            invalid_inline_variants = [
+                _mapping(row).get("amd_label")
+                for row in parity_inline_mirror_variants
+                if (
+                    _mapping(row).get("match_method")
+                    != "inline_mirror_variant"
+                    or not _mapping(row).get("nvidia_label")
+                    or not _mapping(row).get("nvidia_definition_id")
+                )
+            ]
+            if invalid_inline_variants:
+                self.error(
+                    "definition-parity-inline-mirror",
+                    (
+                        f"{len(invalid_inline_variants)} inline mirror "
+                        "variants lack their upstream relationship"
+                    ),
+                    relpath,
+                )
+            invalid_additional_variants = [
+                _mapping(row).get("amd_label")
+                for row in parity_additional_variants
+                if (
+                    _mapping(row).get("match_method")
+                    != "additional_variant"
+                    or not _mapping(row).get("nvidia_label")
+                    or not _mapping(row).get("nvidia_definition_id")
+                )
+            ]
+            if invalid_additional_variants:
+                self.error(
+                    "definition-parity-additional-variant",
+                    (
+                        f"{len(invalid_additional_variants)} additional "
+                        "variants lack their upstream relationship"
+                    ),
+                    relpath,
+                )
             source = _mapping(definition_parity.get("source"))
             commit_sha = str(source.get("commit_sha") or "")
             if not re.fullmatch(r"[0-9a-f]{40}", commit_sha):

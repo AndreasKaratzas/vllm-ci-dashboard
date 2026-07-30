@@ -1824,6 +1824,132 @@
     });
   }
 
+  function definitionParityComparisonRows(parity) {
+    const rows = [];
+    (parity.matches || []).forEach(function (row) { rows.push(Object.assign({category: 'direct_match'}, row)); });
+    (parity.inline_mirror_variants || []).forEach(function (row) { rows.push(Object.assign({category: 'inline_mirror_variant'}, row)); });
+    (parity.additional_variants || []).forEach(function (row) { rows.push(Object.assign({category: 'additional_variant'}, row)); });
+    (parity.amd_only || []).forEach(function (row) { rows.push(Object.assign({category: 'amd_only'}, row)); });
+    (parity.nvidia_only || []).forEach(function (row) { rows.push(Object.assign({category: 'upstream_only'}, row)); });
+    return rows;
+  }
+
+  function definitionParityMirrorRows(parity) {
+    return (parity.mirrors || []).map(function (row) {
+      return Object.assign({
+        category: 'inline_mirror',
+        match_method: 'inline_mirror',
+        nvidia_source: row.source_file,
+        nvidia_source_url: row.source_url,
+      }, row, {
+        inline_mirror_command_similarity: row.command_similarity,
+      });
+    });
+  }
+
+  function definitionParityEvidence(row) {
+    const candidates = [];
+    function addCandidate(score, label) {
+      if (score === undefined || score === null || score === '') return;
+      const numericScore = Number(score);
+      if (!Number.isFinite(numericScore)) return;
+      candidates.push({score: numericScore, label: label});
+    }
+    if (row.category === 'inline_mirror') {
+      addCandidate(
+        row.inline_mirror_command_similarity !== undefined
+          ? row.inline_mirror_command_similarity
+          : row.command_similarity,
+        'inline AMD ↔ upstream'
+      );
+    } else if (row.category === 'inline_mirror_variant') {
+      addCandidate(row.amd_route_similarity, 'standalone ↔ inline AMD');
+      addCandidate(row.command_similarity, 'standalone ↔ upstream');
+      addCandidate(row.inline_mirror_command_similarity, 'inline AMD ↔ upstream');
+    } else if (['direct_match', 'additional_variant'].includes(row.category)) {
+      addCandidate(row.command_similarity, 'standalone ↔ upstream');
+    }
+    const primary = candidates.slice().sort(function (a, b) {
+      return a.score - b.score;
+    })[0] || null;
+    return {
+      primarySimilarity: primary ? primary.score : null,
+      evidenceLabel: primary ? primary.label : '',
+      changed: candidates.some(function (candidate) {
+        return candidate.score < 0.999999;
+      }),
+    };
+  }
+
+  function definitionParityFilter(rows, plan) {
+    return (rows || []).filter(function (row) {
+      if (plan === 'mirror_inventory') return row.category === 'inline_mirror';
+      if (row.category === 'inline_mirror') return false;
+      if (plan === 'all') return true;
+      if (plan === 'amd') return ['direct_match', 'inline_mirror_variant', 'additional_variant', 'amd_only'].includes(row.category);
+      if (plan === 'covered') return ['direct_match', 'inline_mirror_variant', 'additional_variant'].includes(row.category);
+      if (plan === 'direct') return row.category === 'direct_match';
+      if (plan === 'inline_variant') return row.category === 'inline_mirror_variant';
+      if (plan === 'additional_variant') return row.category === 'additional_variant';
+      if (plan === 'twins') return row.match_method === 'command_twin';
+      if (plan === 'changed') {
+        if (!['direct_match', 'inline_mirror_variant', 'additional_variant'].includes(row.category)) return false;
+        return definitionParityEvidence(row).changed;
+      }
+      if (plan === 'unlinked') return ['amd_only', 'upstream_only'].includes(row.category);
+      if (plan === 'amd_only') return row.category === 'amd_only';
+      if (plan === 'upstream_only') return row.category === 'upstream_only';
+      return true;
+    });
+  }
+
+  function definitionParityPresentation(row) {
+    const evidence = definitionParityEvidence(row);
+    if (row.category === 'inline_mirror') {
+      return {
+        label: 'Inline mirror · ' + (row.commands_overridden ? 'override' : 'inherits'),
+        tone: 'is-info',
+        primarySimilarity: evidence.primarySimilarity,
+        evidenceLabel: evidence.evidenceLabel,
+      };
+    }
+    if (row.category === 'inline_mirror_variant') {
+      const relationship = row.mirror_relationship === 'effective_command_duplicate'
+        ? 'Inline mirror duplicate'
+        : row.mirror_relationship === 'hardware_variant'
+          ? 'Inline mirror hardware variant'
+          : 'Inline mirror command variant';
+      return {
+        label: relationship,
+        tone: 'is-info',
+        primarySimilarity: evidence.primarySimilarity,
+        evidenceLabel: evidence.evidenceLabel,
+      };
+    }
+    if (row.category === 'additional_variant') {
+      return {
+        label: row.variant_relationship === 'additional_hardware_variant'
+          ? 'Additional AMD hardware variant'
+          : 'Additional AMD variant',
+        tone: 'is-info',
+        primarySimilarity: evidence.primarySimilarity,
+        evidenceLabel: evidence.evidenceLabel,
+      };
+    }
+    if (row.category === 'amd_only') {
+      return {label: 'AMD-only standalone', tone: 'is-warning', primarySimilarity: null, evidenceLabel: ''};
+    }
+    if (row.category === 'upstream_only') {
+      return {label: 'Upstream-only', tone: 'is-warning', primarySimilarity: null, evidenceLabel: ''};
+    }
+    return {
+      label: row.match_method === 'command_twin' ? 'Direct command twin' : 'Direct identity',
+      tone: row.match_method === 'command_twin' ? 'is-info' : 'is-success',
+      primarySimilarity: evidence.primarySimilarity,
+      evidenceLabel: evidence.evidenceLabel,
+    };
+  }
+
   function openDefinitionDetail(row, definitionParity) {
     const content = n('div', 'ops-stack');
     function commandPanel(title, commands) {
@@ -1831,29 +1957,53 @@
       pre.textContent = (commands || []).length ? commands.join('\n') : 'No command list is present in this definition.';
       return panel(title, integer((commands || []).length) + ' normalized command lines', pre);
     }
+    const presentation = definitionParityPresentation(row);
     if (row.amd_commands || row.category === 'amd_only') {
-      content.append(commandPanel('AMD command definition', row.amd_commands || (row.category === 'amd_only' ? row.commands : [])));
+      content.append(commandPanel(
+        row.category === 'inline_mirror' ? 'Inline AMD mirror commands' : 'Standalone AMD command definition',
+        row.amd_commands || (row.category === 'amd_only' ? row.commands : [])
+      ));
+    }
+    if (row.category === 'inline_mirror_variant') {
+      content.append(commandPanel('Inline AMD mirror commands', row.inline_mirror_amd_commands || []));
     }
     if (row.nvidia_commands || row.category === 'upstream_only') {
       content.append(commandPanel('Upstream command definition', row.nvidia_commands || (row.category === 'upstream_only' ? row.commands : [])));
     }
     const source = (definitionParity || {}).source || {};
+    const description = row.category === 'inline_mirror_variant'
+      ? 'This standalone test-amd.yaml definition is linked to an upstream definition that also declares mirror.amd. It is covered, not an AMD-only gap.'
+      : row.category === 'additional_variant'
+        ? row.variant_relationship === 'additional_hardware_variant'
+          ? 'This standalone test-amd.yaml definition belongs to the same canonical test family as an upstream definition already used by a direct match, but its explicit reference hardware differs. It is an additional AMD hardware variant, not an AMD-only gap.'
+          : 'This standalone test-amd.yaml definition shares an exact compatible identity with an upstream definition already used by another direct match. It is an additional AMD execution variant, not an AMD-only gap.'
+        : row.category === 'inline_mirror'
+          ? 'This upstream test_areas definition declares an inline AMD execution route. The mirror inventory is separate from the standalone test-amd.yaml denominator.'
+          : row.category === 'direct_match'
+            ? (row.match_method === 'command_twin'
+              ? 'The titles differ, but this unique direct pair has an exact normalized command match and passed the platform-neutral title threshold.'
+              : 'The standalone AMD and upstream YAML definitions share the same normalized identity. Command similarity is reported separately.')
+            : row.category === 'amd_only'
+              ? 'No compatible upstream identity, inline AMD mirror, or exact-command twin was found for this standalone AMD definition.'
+              : 'No standalone test-amd.yaml definition or inline AMD mirror was found for this upstream definition.';
     openDetailDrawer({
       id: 'definition-' + (row.identity_key || row.amd_label || row.nvidia_label || row.label),
       title: row.amd_label || row.label || row.nvidia_label || 'CI definition',
       subtitle: 'Commit-pinned vLLM CI source comparison',
-      description: row.category === 'matched'
-        ? (row.match_method === 'command_twin'
-          ? 'The titles differ, but this unique candidate has an exact normalized command match and passed the platform-neutral title threshold.'
-          : 'The AMD and upstream YAML definitions share the same normalized identity. Command similarity is reported separately.')
-        : row.category === 'amd_only'
-          ? 'No unique upstream identity or exact-command twin was found for this AMD definition.'
-          : 'No test-amd.yaml identity or exact-command twin was found for this upstream definition.',
+      description: description,
       fields: [
-        {label: 'AMD definition', value: row.amd_label || (row.category === 'amd_only' ? row.label : null)},
+        {label: 'AMD definition', value: row.category === 'inline_mirror' ? 'mirror.amd' : row.amd_label || (row.category === 'amd_only' ? row.label : null)},
         {label: 'Upstream definition', value: row.nvidia_label || (row.category === 'upstream_only' ? row.label : null)},
-        {label: 'Match rule', value: row.match_method === 'command_twin' ? 'Exact-command twin' : row.match_method === 'identity' ? 'Normalized identity' : 'Unmatched'},
-        {label: 'Command similarity', value: row.command_similarity !== undefined ? (Number(row.command_similarity) * 100).toFixed(1) + '%' : null},
+        {label: 'Relationship', value: presentation.label},
+        {label: 'Command evidence', value: presentation.primarySimilarity !== undefined && presentation.primarySimilarity !== null ? (Number(presentation.primarySimilarity) * 100).toFixed(1) + '% ' + presentation.evidenceLabel : null},
+        {label: 'Standalone ↔ upstream', value: row.category !== 'inline_mirror' && row.command_similarity !== undefined ? (Number(row.command_similarity) * 100).toFixed(1) + '%' : null},
+        {label: 'Standalone ↔ inline AMD', value: row.amd_route_similarity !== undefined ? (Number(row.amd_route_similarity) * 100).toFixed(1) + '%' : null},
+        {label: 'Inline AMD ↔ upstream', value: row.inline_mirror_command_similarity !== undefined ? (Number(row.inline_mirror_command_similarity) * 100).toFixed(1) + '%' : null},
+        {label: 'Inline mirror commands', value: row.inline_mirror_commands_overridden === true || row.commands_overridden === true ? 'Overridden for AMD' : row.category === 'inline_mirror_variant' || row.category === 'inline_mirror' ? 'Inherited from upstream' : null},
+        {label: 'Inline AMD device', value: row.inline_mirror_amd_device || row.amd_device},
+        {label: 'AMD agent pools', value: (row.amd_member_agent_pools || []).join(', ')},
+        {label: 'AMD definition ID', value: row.amd_definition_id},
+        {label: 'Upstream definition ID', value: row.nvidia_definition_id},
         {label: 'Title similarity', value: row.title_similarity !== undefined ? (Number(row.title_similarity) * 100).toFixed(1) + '%' : null},
         {label: 'Identity', value: row.identity_key},
         {label: 'vLLM commit', value: source.commit_sha ? source.commit_sha.slice(0, 12) : null},
@@ -3193,7 +3343,7 @@
     host.append(statusStrip([
       {id: 'health-build', label: 'LATEST AMD NIGHTLY', value: nightlyState.label, meta: build.number ? nightlyState.meta : 'No completed build', tone: nightlyState.tone, url: exactPipelineBuildUrl(build, 'amd-ci')},
       {id: 'health-hardware', label: 'UNIQUE AMD TEST GROUPS', value: uniqueHealth.pass_percentage === null || uniqueHealth.pass_percentage === undefined ? 'No resolved signal' : Number(uniqueHealth.pass_percentage).toFixed(1) + '% resolved pass', meta: integer(uniqueHealth.passing_groups) + ' passing - ' + integer(uniqueHealth.failing_groups) + ' failing - ' + integer(Number(uniqueHealth.waiting_groups || 0) + Number(uniqueHealth.unknown_groups || 0)) + ' no signal', tone: Number(uniqueHealth.failing_groups) ? 'is-warning' : Number(uniqueHealth.unknown_groups || 0) ? 'is-warning' : 'is-success', onOpen: function () { openMatrixHealthBrowser('all'); }},
-      {id: 'health-definitions', label: 'AMD DEFINITIONS', value: integer(definitionSummary.total_amd_steps), meta: integer(definitionSummary.matched) + ' matched to current upstream definitions', onOpen: function () { setRouteState('ci-health', 'healthView', 'gating', 'health_view'); }},
+      {id: 'health-definitions', label: 'AMD DEFINITIONS', value: integer(definitionSummary.total_amd_steps), meta: integer(definitionSummary.covered) + ' source-covered · ' + integer(definitionSummary.amd_only) + ' AMD-only', tone: Number(definitionSummary.amd_only) ? 'is-warning' : 'is-success', onOpen: function () { setRouteState('ci-health', 'healthView', 'gating', 'health_view'); }},
       {id: 'health-nightly-transition', label: 'NIGHTLY VARIANT MOVEMENT', value: nightlyState.movementLabel, meta: nightlyState.movementMeta, tone: nightlyState.movementTone, onOpen: function () { openBuildDetail(build); }},
     ]));
 
@@ -3330,20 +3480,22 @@
       const parity = ops.definition_parity || {};
       const summary = parity.summary || {};
       const source = parity.source || {};
-      const rows = [];
-      (parity.matches || []).forEach(function (row) { rows.push(Object.assign({category: 'matched'}, row)); });
-      (parity.amd_only || []).forEach(function (row) { rows.push(Object.assign({category: 'amd_only'}, row)); });
-      (parity.nvidia_only || []).forEach(function (row) { rows.push(Object.assign({category: 'upstream_only'}, row)); });
+      const comparisonRows = definitionParityComparisonRows(parity);
+      const mirrorRows = definitionParityMirrorRows(parity);
+      const mirrorOverrides = (parity.mirrors || []).filter(function (row) { return row.commands_overridden; }).length;
+      if (state.healthPlan === 'matched') state.healthPlan = 'covered';
+      if (state.healthPlan === 'unmatched') state.healthPlan = 'unlinked';
+      if (state.healthPlan === 'upstream') state.healthPlan = 'all';
       host.append(statusStrip([
-        {id: 'definition-upstream', label: 'UPSTREAM DEFINITIONS', value: integer(summary.total_nvidia_steps), meta: '.buildkite/test_areas at one vLLM commit', onOpen: function () { state.healthPlan = 'upstream'; render('ci-health', true); }},
-        {id: 'definition-amd', label: 'AMD DEFINITIONS', value: integer(summary.total_amd_steps), meta: '.buildkite/test-amd.yaml exact identities', onOpen: function () { state.healthPlan = 'amd'; render('ci-health', true); }},
-        {id: 'definition-matched', label: 'AMD DEFINITIONS MATCHED', value: integer(summary.matched) + ' / ' + integer(summary.total_amd_steps), meta: integer(summary.identity_matches) + ' identity - ' + integer(summary.command_twins) + ' exact-command twins', tone: Number(summary.amd_only) ? 'is-warning' : 'is-success', onOpen: function () { state.healthPlan = 'matched'; render('ci-health', true); }},
-        {id: 'definition-unmatched', label: 'UNMATCHED DEFINITIONS', value: integer(summary.amd_only) + ' AMD', meta: integer(summary.nvidia_only) + ' upstream-only; inspect before classifying', tone: Number(summary.amd_only) ? 'is-warning' : 'is-success', onOpen: function () { state.healthPlan = 'unmatched'; render('ci-health', true); }},
+        {id: 'definition-amd', label: 'AMD DEFINITIONS', value: integer(summary.total_amd_steps), meta: integer(summary.total_nvidia_steps) + ' upstream definitions at the same commit', onOpen: function () { state.healthPlan = 'amd'; render('ci-health', true); }},
+        {id: 'definition-covered', label: 'AMD DEFINITION COVERAGE', value: integer(summary.covered) + ' / ' + integer(summary.total_amd_steps), meta: integer(summary.direct_matches) + ' direct · ' + integer(summary.inline_mirror_variants) + ' mirror-linked variants · ' + integer(summary.additional_variants) + ' additional', tone: Number(summary.amd_only) ? 'is-warning' : 'is-success', onOpen: function () { state.healthPlan = 'covered'; render('ci-health', true); }},
+        {id: 'definition-mirrors', label: 'INLINE MIRRORS', value: integer(summary.mirrors), meta: integer(Number(summary.mirrors || 0) - mirrorOverrides) + ' inherit commands · ' + integer(mirrorOverrides) + ' override', tone: 'is-info', onOpen: function () { state.healthPlan = 'mirror_inventory'; render('ci-health', true); }},
+        {id: 'definition-unlinked', label: 'UNLINKED DEFINITIONS', value: integer(summary.amd_only) + ' AMD · ' + integer(summary.nvidia_only) + ' upstream', meta: 'Mirror-linked and additional variants excluded', tone: Number(summary.amd_only) || Number(summary.nvidia_only) ? 'is-warning' : 'is-success', onOpen: function () { state.healthPlan = 'unlinked'; render('ci-health', true); }},
       ]));
       const note = n('div', 'ops-evidence-note is-info');
       add(note, [
         n('strong', '', 'Definition coverage, not passing test groups. '),
-        n('span', '', 'Every count comes from one commit-pinned vLLM main snapshot. Runtime AMD health remains in Overview and Coverage.'),
+        n('span', '', 'The AMD denominator is standalone test-amd.yaml parity nodes. Inline mirrors are a separate AMD route declared in test_areas; related standalone variants are linked to their canonical test family instead of mislabeled AMD-only. Every count comes from one commit-pinned vLLM main snapshot.'),
         source.commit_url ? externalLink(' Open vLLM ' + String(source.commit_sha || '').slice(0, 12), source.commit_url) : null,
       ]);
       host.append(note);
@@ -3353,43 +3505,77 @@
       search.setAttribute('aria-label', 'Search CI source definitions');
       search.addEventListener('change', function () { state.healthSearch = search.value; render('ci-health', true); });
       const planFilter = n('select', 'ops-select');
-      planFilter.setAttribute('aria-label', 'Filter definition match status');
-      [['all', 'All comparisons'], ['amd', 'All AMD definitions'], ['upstream', 'All upstream definitions'], ['matched', 'Matched AMD'], ['twins', 'Command twins'], ['changed', 'Command differences'], ['unmatched', 'All unmatched'], ['amd_only', 'AMD-only'], ['upstream_only', 'Upstream-only']].forEach(function (pair) { const option = n('option', '', pair[1]); option.value = pair[0]; option.selected = state.healthPlan === pair[0]; planFilter.append(option); });
+      planFilter.setAttribute('aria-label', 'Filter definition parity relationship');
+      [
+        ['all', 'All standalone comparisons'],
+        ['amd', 'All AMD definitions'],
+        ['covered', 'Covered AMD definitions'],
+        ['direct', 'Direct matches'],
+        ['inline_variant', 'Mirror-linked standalone variants'],
+        ['additional_variant', 'Additional AMD variants'],
+        ['twins', 'Command twins'],
+        ['changed', 'Command differences'],
+        ['unlinked', 'All unlinked'],
+        ['amd_only', 'AMD-only standalone'],
+        ['upstream_only', 'Upstream-only'],
+        ['mirror_inventory', 'Inline mirror inventory'],
+      ].forEach(function (pair) { const option = n('option', '', pair[1]); option.value = pair[0]; option.selected = state.healthPlan === pair[0]; planFilter.append(option); });
       planFilter.addEventListener('change', function () { state.healthPlan = planFilter.value; render('ci-health', true); });
       add(toolbar, [search, planFilter]);
       host.append(toolbar);
       const q = state.healthSearch.trim().toLowerCase();
-      const definitions = rows.filter(function (row) {
-        if (q && ![row.amd_label, row.nvidia_label, row.label, row.identity_key, row.source, row.amd_source, row.nvidia_source].some(function (part) { return String(part || '').toLowerCase().includes(q); })) return false;
-        if (state.healthPlan === 'amd' && !['matched', 'amd_only'].includes(row.category)) return false;
-        if (state.healthPlan === 'upstream' && !['matched', 'upstream_only'].includes(row.category)) return false;
-        if (state.healthPlan === 'matched' && row.category !== 'matched') return false;
-        if (state.healthPlan === 'twins' && row.match_method !== 'command_twin') return false;
-        if (state.healthPlan === 'changed' && !(row.category === 'matched' && Number(row.command_similarity) < 0.999999)) return false;
-        if (state.healthPlan === 'unmatched' && !['amd_only', 'upstream_only'].includes(row.category)) return false;
-        if (state.healthPlan === 'amd_only' && row.category !== 'amd_only') return false;
-        if (state.healthPlan === 'upstream_only' && row.category !== 'upstream_only') return false;
-        return true;
+      const definitions = definitionParityFilter(
+        comparisonRows.concat(mirrorRows),
+        state.healthPlan
+      ).filter(function (row) {
+        if (!q) return true;
+        return [
+          row.amd_label,
+          row.nvidia_label,
+          row.label,
+          row.identity_key,
+          row.definition_id,
+          row.amd_definition_id,
+          row.nvidia_definition_id,
+          row.source,
+          row.source_file,
+          row.amd_source,
+          row.nvidia_source,
+          row.inline_mirror_amd_device,
+          row.amd_device,
+          (row.amd_member_agent_pools || []).join(' '),
+        ].some(function (part) { return String(part || '').toLowerCase().includes(q); });
       }).sort(function (a, b) {
         function priority(row) {
           if (row.category === 'amd_only') return 0;
-          if (row.match_method === 'command_twin') return 1;
-          if (row.category === 'matched' && Number(row.command_similarity) < 0.999999) return 2;
-          if (row.category === 'upstream_only') return 3;
-          return 4;
+          if (row.category === 'upstream_only') return 1;
+          if (row.category === 'inline_mirror' && row.commands_overridden) return 2;
+          if (definitionParityEvidence(row).changed) return 3;
+          if (row.match_method === 'command_twin') return 6;
+          if (row.category === 'inline_mirror') return 7;
+          if (row.category === 'inline_mirror_variant') return 8;
+          if (row.category === 'additional_variant') return 9;
+          return 10;
         }
-        return priority(a) - priority(b) || String(a.amd_label || a.label || a.nvidia_label).localeCompare(String(b.amd_label || b.label || b.nvidia_label));
+        const aEvidence = definitionParityEvidence(a);
+        const bEvidence = definitionParityEvidence(b);
+        return priority(a) - priority(b)
+          || Number(aEvidence.primarySimilarity === null ? 1 : aEvidence.primarySimilarity) - Number(bEvidence.primarySimilarity === null ? 1 : bEvidence.primarySimilarity)
+          || String(a.amd_label || a.label || a.nvidia_label).localeCompare(String(b.amd_label || b.label || b.nvidia_label));
       });
       const definitionColumns = [
-        {label: 'AMD definition', sticky: true, width: '300px', render: function (row) { return row.amd_label || row.category === 'amd_only' ? linkButton(row.amd_label || row.label, function () { openDefinitionDetail(row, parity); }) : n('span', 'ops-cell-muted', '-'); }},
-        {label: 'Upstream definition', width: '300px', render: function (row) { return row.nvidia_label || row.category === 'upstream_only' ? linkButton(row.nvidia_label || row.label, function () { openDefinitionDetail(row, parity); }) : n('span', 'ops-cell-muted', '-'); }},
-        {label: 'Match rule', width: '160px', render: function (row) { const label = row.match_method === 'command_twin' ? 'Command twin' : row.match_method === 'identity' ? 'Identity' : row.category === 'amd_only' ? 'AMD-only' : 'Upstream-only'; return linkedBadge(label, null, function () { openDefinitionDetail(row, parity); }, row.match_method === 'command_twin' ? 'is-info' : row.category === 'matched' ? 'is-success' : 'is-warning'); }},
-        {label: 'Command match', numeric: true, width: '140px', render: function (row) { return row.command_similarity !== undefined ? linkButton((Number(row.command_similarity) * 100).toFixed(1) + '%', function () { openDefinitionDetail(row, parity); }) : n('span', 'ops-cell-muted', '-'); }},
-        {label: 'Source', width: '190px', render: function (row) { const wrap = n('div', 'ops-inline-actions'); if (row.amd_source_url || (row.category === 'amd_only' && row.source_url)) wrap.append(externalLink('AMD YAML', row.amd_source_url || row.source_url)); if (row.nvidia_source_url || (row.category === 'upstream_only' && row.source_url)) wrap.append(externalLink('Upstream YAML', row.nvidia_source_url || row.source_url)); return wrap.childNodes.length ? wrap : n('span', 'ops-cell-muted', '-'); }},
+        {label: 'AMD definition', sticky: true, width: '285px', render: function (row) { const label = row.category === 'inline_mirror' ? 'mirror.amd' + (row.amd_device ? ' · ' + row.amd_device : '') : row.amd_label || (row.category === 'amd_only' ? row.label : ''); return label ? linkButton(label, function () { openDefinitionDetail(row, parity); }) : n('span', 'ops-cell-muted', '-'); }},
+        {label: 'Upstream definition', width: '285px', render: function (row) { const label = row.nvidia_label || (row.category === 'upstream_only' ? row.label : ''); return label ? linkButton(label, function () { openDefinitionDetail(row, parity); }) : n('span', 'ops-cell-muted', '-'); }},
+        {label: 'Relationship', width: '220px', render: function (row) { const presentation = definitionParityPresentation(row); return linkedBadge(presentation.label, null, function () { openDefinitionDetail(row, parity); }, presentation.tone); }},
+        {label: 'Command evidence', numeric: true, width: '225px', render: function (row) { const presentation = definitionParityPresentation(row); if (presentation.primarySimilarity === undefined || presentation.primarySimilarity === null) return n('span', 'ops-cell-muted', '-'); const evidenceText = (Number(presentation.primarySimilarity) * 100).toFixed(1) + '% · ' + presentation.evidenceLabel; return linkButton(evidenceText, function () { openDefinitionDetail(row, parity); }, 'Command evidence: ' + evidenceText, 'Open command evidence details for ' + evidenceText); }},
+        {label: 'Sources', width: '180px', render: function (row) { const wrap = n('div', 'ops-inline-actions'); if (row.amd_source_url || (row.category === 'amd_only' && row.source_url)) wrap.append(externalLink('AMD YAML', row.amd_source_url || row.source_url)); if (row.nvidia_source_url || (row.category === 'upstream_only' && row.source_url)) wrap.append(externalLink('Upstream YAML', row.nvidia_source_url || row.source_url)); return wrap.childNodes.length ? wrap : n('span', 'ops-cell-muted', '-'); }},
       ];
+      const definitionPanelMeta = state.healthPlan === 'mirror_inventory'
+        ? integer(definitions.length) + ' inline mirror declarations; overrides and command differences are shown first'
+        : integer(definitions.length) + ' standalone comparison rows match the active filter; literal gaps, changed variants, and command evidence are shown first';
       host.append(compactTablePanel(
         'Source-definition comparison',
-        integer(definitions.length) + ' comparison rows match the active filters; AMD gaps and command-derived twins are shown first',
+        definitionPanelMeta,
         definitionColumns,
         definitions,
         {
@@ -3397,10 +3583,10 @@
           limit: 14,
           browserTitle: 'vLLM CI definition parity',
           browserSubtitle: 'Exact source links and command evidence from commit ' + String(source.commit_sha || '').slice(0, 12),
-          searchPlaceholder: 'Filter AMD label, upstream label, source, or identity',
-          searchText: function (row) { return [row.amd_label, row.nvidia_label, row.label, row.identity_key, row.source, row.amd_source, row.nvidia_source].join(' '); },
+          searchPlaceholder: 'Filter label, definition ID, queue, source, or identity',
+          searchText: function (row) { return [row.amd_label, row.nvidia_label, row.label, row.identity_key, row.definition_id, row.amd_definition_id, row.nvidia_definition_id, row.source, row.source_file, row.amd_source, row.nvidia_source, row.inline_mirror_amd_device, row.amd_device, (row.amd_member_agent_pools || []).join(' ')].join(' '); },
           initialQuery: state.healthSearch,
-          geometry: {name: 'definition-parity', minWidth: '1090px'},
+          geometry: {name: 'definition-parity', minWidth: '1195px'},
         }
       ));
       return;
@@ -10029,6 +10215,11 @@
       targetResolutionPresentation: targetResolutionPresentation,
       targetAssessmentText: targetAssessmentText,
       targetNoSignalBreakdown: targetNoSignalBreakdown,
+      definitionParityComparisonRows: definitionParityComparisonRows,
+      definitionParityMirrorRows: definitionParityMirrorRows,
+      definitionParityEvidence: definitionParityEvidence,
+      definitionParityFilter: definitionParityFilter,
+      definitionParityPresentation: definitionParityPresentation,
       capacityLargestRemainder: capacityLargestRemainder,
       capacityPairedAllocation: capacityPairedAllocation,
       capacityPlacementStrategy: capacityPlacementStrategy,

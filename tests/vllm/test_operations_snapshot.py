@@ -2856,6 +2856,92 @@ def test_definition_parity_resolves_non_syntactic_amd_alias():
     assert row["runtime_resolution"]["command_similarity_pct"] == 67.0
 
 
+def test_definition_parity_merges_additional_variant_in_same_identity_family():
+    target = {"id": 87, "label": "Distributed Tests (2 GPUs)(H100)"}
+    matrix = {
+        "generated_at": GENERATED_AT,
+        "source": {"latest_build_number": 11301},
+        "rows": [
+            {
+                "id": "distributed-mi300",
+                "canonical_title": "Distributed Tests",
+                "cells": {"mi300": {
+                    "exists": True,
+                    "latest_state": "passed",
+                    "latest_url": (
+                        "https://buildkite.com/vllm/amd-ci/builds/11301/"
+                        "steps/canvas?sid=distributed-mi300"
+                    ),
+                    "variants": [{
+                        "label": (
+                            "Distributed Tests (2xH100-2xMI300)"
+                        ),
+                        "latest_state": "passed",
+                        "latest_url": (
+                            "https://buildkite.com/vllm/amd-ci/builds/11301/"
+                            "steps/canvas?sid=distributed-mi300"
+                        ),
+                    }],
+                }},
+            },
+            {
+                "id": "distributed-mi355",
+                "canonical_title": "Distributed Tests",
+                "cells": {"mi355": {
+                    "exists": True,
+                    "latest_state": "passed",
+                    "latest_url": (
+                        "https://buildkite.com/vllm/amd-ci/builds/11301/"
+                        "steps/canvas?sid=distributed-mi355"
+                    ),
+                    "variants": [{
+                        "label": (
+                            "Distributed Tests (2xH100-2xMI355)"
+                        ),
+                        "latest_state": "passed",
+                        "latest_url": (
+                            "https://buildkite.com/vllm/amd-ci/builds/11301/"
+                            "steps/canvas?sid=distributed-mi355"
+                        ),
+                    }],
+                }},
+            },
+        ],
+    }
+    identity = "distributed tests (2 gpus)"
+    parity = {
+        "matches": [{
+            "identity_key": identity,
+            "nvidia_label": "Distributed Tests (2xH100)",
+            "amd_label": "Distributed Tests (2xH100-2xMI300)",
+            "command_similarity": 1.0,
+        }],
+        "additional_variants": [{
+            "identity_key": identity,
+            "nvidia_label": "Distributed Tests (2xH100)",
+            "amd_label": "Distributed Tests (2xH100-2xMI355)",
+            "command_similarity": 0.8,
+        }],
+    }
+
+    row = ops._gating(
+        {"groups": [target]},
+        {"rows": []},
+        matrix,
+        {},
+        {},
+        parity,
+    )["active_target_groups"][0]
+
+    assert row["runtime_resolution"]["status"] == "matched"
+    assert row["runtime_resolution"]["candidate_count"] == 2
+    assert row["runtime_resolution"]["target_identity_key"] == identity
+    assert row["runtime_resolution"]["amd_definition_labels"] == [
+        "Distributed Tests (2xH100-2xMI300)",
+        "Distributed Tests (2xH100-2xMI355)",
+    ]
+
+
 def test_parity_metadata_cannot_steal_an_exact_command_twin():
     matrix = {
         "generated_at": GENERATED_AT,

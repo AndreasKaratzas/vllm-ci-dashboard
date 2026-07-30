@@ -88,6 +88,20 @@ class ConfigMatch:
     color: str  # green/yellow/orange/red
     match_method: str = "identity"
     title_similarity: float = 1.0
+    relationship: str = ""
+
+
+@dataclass
+class ConfigMirrorVariant:
+    """A standalone AMD definition linked to an upstream inline AMD mirror."""
+    amd_step: ConfigStep
+    nvidia_step: ConfigStep
+    mirror: dict
+    command_similarity: float
+    amd_route_similarity: float
+    color: str
+    title_similarity: float = 1.0
+    relationship: str = "same_hardware_command_variant"
 
 
 @dataclass
@@ -226,8 +240,20 @@ def _source_provenance() -> dict:
             ),
             (
                 "Exclude inline mirrors by exact upstream definition ID (or an "
-                "exact source-file/raw-label fallback), never by a lossy "
-                "normalized label."
+                "exact source-file/raw-label fallback) from direct one-to-one "
+                "assignment, never by a lossy normalized label."
+            ),
+            (
+                "After direct assignment, classify compatible standalone AMD "
+                "definitions that share an exact inline-mirror identity as "
+                "mirror-linked variants instead of AMD-only gaps; retain both "
+                "execution routes and their command evidence."
+            ),
+            (
+                "Classify AMD definitions left over after one-to-one cardinality "
+                "is exhausted as additional execution or hardware variants only "
+                "when that exact upstream identity already has a direct match; "
+                "unpaired hardware collisions remain gaps."
             ),
             (
                 "Reject explicit reference-hardware or GPU-count mismatches "
@@ -252,6 +278,11 @@ def _source_provenance() -> dict:
                 "match."
             ),
             f"Command twins also require a platform-neutral title similarity of at least {COMMAND_TWIN_TITLE_THRESHOLD:.0%}.",
+            (
+                "Ignore CUDA/HIP visibility and platform target-suite selector "
+                "values when measuring command similarity; preserve other "
+                "environment assignments that can change test coverage."
+            ),
             "Ambiguous command matches remain unmatched for manual review.",
         ],
     }
@@ -422,7 +453,11 @@ def _parse_nvidia_data(
 
             mirror = item.get('mirror')
             if mirror and isinstance(mirror, dict) and 'amd' in mirror:
-                amd_cfg = mirror['amd']
+                amd_cfg = (
+                    mirror['amd']
+                    if isinstance(mirror.get('amd'), dict)
+                    else {}
+                )
                 amd_cmds_raw = amd_cfg.get('commands')
                 commands_overridden = amd_cmds_raw is not None
 
@@ -441,6 +476,11 @@ def _parse_nvidia_data(
                     "command_similarity": commands_similarity(step.commands, amd_cmds),
                     "source_file": filename,
                     "nvidia_definition_id": step.definition_id,
+                    "amd_device": str(
+                        amd_cfg.get("device")
+                        or amd_cfg.get("agent_pool")
+                        or ""
+                    ),
                 })
 
     return nvidia_steps, mirrors
@@ -876,27 +916,29 @@ def _optimal_identity_pairs(
     )
 
 
-def _mirrored_nvidia_indices(
+def _resolved_inline_mirrors(
     nvidia_steps: list[ConfigStep],
     mirrors: list[dict],
-) -> set[int]:
+) -> list[tuple[dict, int, ConfigStep]]:
     """Resolve each inline mirror to one exact upstream YAML definition."""
-    mirrored: set[int] = set()
+    resolved: list[tuple[dict, int, ConfigStep]] = []
+    claimed: set[int] = set()
     for mirror in mirrors:
         definition_id = str(mirror.get("nvidia_definition_id") or "")
         if definition_id:
             exact_id = [
                 (index, step)
                 for index, step in enumerate(nvidia_steps)
-                if index not in mirrored
+                if index not in claimed
                 and step.definition_id == definition_id
             ]
             if exact_id:
-                index, _step = min(
+                index, step = min(
                     exact_id,
                     key=lambda item: _step_sort_key(item[0], item[1]),
                 )
-                mirrored.add(index)
+                claimed.add(index)
+                resolved.append((mirror, index, step))
                 continue
 
         identity = str(mirror.get("identity_key") or "")
@@ -905,19 +947,297 @@ def _mirrored_nvidia_indices(
         candidates = [
             (index, step)
             for index, step in enumerate(nvidia_steps)
-            if index not in mirrored
+            if index not in claimed
             and step.identity_key == identity
             and str(step.label) == raw_label
             and step.source_file == source_file
         ]
         if not candidates:
             continue
-        index, _step = min(
+        index, step = min(
             candidates,
             key=lambda item: _step_sort_key(item[0], item[1]),
         )
-        mirrored.add(index)
-    return mirrored
+        claimed.add(index)
+        resolved.append((mirror, index, step))
+    return resolved
+
+
+def _mirrored_nvidia_indices(
+    nvidia_steps: list[ConfigStep],
+    mirrors: list[dict],
+) -> set[int]:
+    """Return upstream rows already represented by inline AMD mirrors."""
+    return {
+        index
+        for _mirror, index, _step in _resolved_inline_mirrors(
+            nvidia_steps,
+            mirrors,
+        )
+    }
+
+
+def _queue_identity(value: str) -> str:
+    key = str(value or "").strip().casefold().replace("-", "_")
+    return key.removeprefix("amd_")
+
+
+def _classify_inline_mirror_variants(
+    amd_only: list[ConfigStep],
+    nvidia_steps: list[ConfigStep],
+    mirrors: list[dict],
+) -> tuple[list[ConfigMirrorVariant], list[ConfigStep]]:
+    """Separate mirror-linked standalone AMD variants from true AMD gaps.
+
+    Direct matching remains one-to-one.  Inline mirrors are intentionally
+    reserved from that assignment because they already define an AMD route in
+    ``test_areas``.  A standalone ``test-amd.yaml`` definition with the same
+    compatible identity is still covered by upstream source, though, and must
+    not be described as AMD-only.  Multiple standalone execution variants may
+    link to one inline mirror; every physical/logical AMD definition retains
+    its own provenance and command comparison.
+    """
+    mirrors_by_identity: dict[
+        str,
+        list[tuple[dict, int, ConfigStep]],
+    ] = {}
+    for mirror, index, step in _resolved_inline_mirrors(
+        nvidia_steps,
+        mirrors,
+    ):
+        mirrors_by_identity.setdefault(step.identity_key, []).append(
+            (mirror, index, step)
+        )
+
+    variants: list[ConfigMirrorVariant] = []
+    remaining: list[ConfigStep] = []
+    for amd_step in amd_only:
+        candidates = []
+        for mirror, nvidia_index, nvidia_step in mirrors_by_identity.get(
+            amd_step.identity_key,
+            [],
+        ):
+            weight = _identity_edge_weight(amd_step, nvidia_step)
+            compatible = weight is not None
+            if weight is None:
+                weight = (
+                    0,
+                    -1,
+                    int(
+                        _yaml_label_key(amd_step.label)
+                        == _yaml_label_key(nvidia_step.label)
+                    ),
+                    int(_exact_commands(amd_step, nvidia_step)),
+                    round(
+                        commands_similarity(
+                            amd_step.commands,
+                            nvidia_step.commands,
+                        )
+                        * 1_000_000
+                    ),
+                    round(
+                        _raw_label_similarity(
+                            amd_step,
+                            nvidia_step,
+                        )
+                        * 1_000_000
+                    ),
+                    round(
+                        _title_similarity(
+                            amd_step,
+                            nvidia_step,
+                        )
+                        * 1_000_000
+                    ),
+                )
+            candidates.append((
+                weight,
+                _step_sort_key(nvidia_index, nvidia_step),
+                mirror,
+                nvidia_step,
+                compatible,
+            ))
+        if not candidates:
+            remaining.append(amd_step)
+            continue
+
+        best_weight = max(candidate[0] for candidate in candidates)
+        best = [
+            candidate
+            for candidate in candidates
+            if candidate[0] == best_weight
+        ]
+        if len(best) != 1:
+            remaining.append(amd_step)
+            continue
+
+        _weight, _sort_key, mirror, nvidia_step, compatible = best[0]
+        command_similarity = commands_similarity(
+            amd_step.commands,
+            nvidia_step.commands,
+        )
+        inline_amd_commands = list(
+            mirror.get("amd_commands")
+            or nvidia_step.commands
+        )
+        amd_route_similarity = commands_similarity(
+            amd_step.commands,
+            inline_amd_commands,
+        )
+        mirror_device = _queue_identity(
+            str(mirror.get("amd_device") or "")
+        )
+        member_pools = {
+            _queue_identity(pool)
+            for pool in (
+                amd_step.member_agent_pools
+                or (amd_step.agent_pool,)
+            )
+            if str(pool or "").strip()
+        }
+        if (
+            not compatible
+            or mirror_device
+            and mirror_device not in member_pools
+        ):
+            relationship = "hardware_variant"
+        elif amd_route_similarity >= 0.999999:
+            relationship = "effective_command_duplicate"
+        else:
+            relationship = "same_hardware_command_variant"
+        variants.append(ConfigMirrorVariant(
+            amd_step=amd_step,
+            nvidia_step=nvidia_step,
+            mirror=mirror,
+            command_similarity=command_similarity,
+            amd_route_similarity=amd_route_similarity,
+            color=similarity_color(command_similarity),
+            title_similarity=_title_similarity(amd_step, nvidia_step),
+            relationship=relationship,
+        ))
+
+    variants.sort(key=lambda variant: (
+        variant.command_similarity,
+        _yaml_label_key(variant.amd_step.label),
+        _yaml_label_key(variant.nvidia_step.label),
+        variant.amd_step.source_file,
+        variant.nvidia_step.source_file,
+    ))
+    remaining.sort(key=lambda step: (
+        _yaml_label_key(step.label),
+        step.identity_key,
+        step.source_file,
+        step.group,
+        tuple(step.commands),
+    ))
+    return variants, remaining
+
+
+def _classify_additional_variants(
+    amd_only: list[ConfigStep],
+    direct_matches: list[ConfigMatch],
+) -> tuple[list[ConfigMatch], list[ConfigStep]]:
+    """Link excess AMD cardinality to an already matched upstream identity."""
+    upstream_by_identity: dict[str, list[tuple[int, ConfigStep]]] = {}
+    for index, match in enumerate(direct_matches):
+        step = match.nvidia_step
+        upstream_by_identity.setdefault(step.identity_key, []).append(
+            (index, step)
+        )
+
+    variants: list[ConfigMatch] = []
+    remaining: list[ConfigStep] = []
+    for amd_step in amd_only:
+        candidates = []
+        for nvidia_index, nvidia_step in upstream_by_identity.get(
+            amd_step.identity_key,
+            [],
+        ):
+            weight = _identity_edge_weight(amd_step, nvidia_step)
+            compatible = weight is not None
+            if weight is None:
+                weight = (
+                    0,
+                    -1,
+                    int(
+                        _yaml_label_key(amd_step.label)
+                        == _yaml_label_key(nvidia_step.label)
+                    ),
+                    int(_exact_commands(amd_step, nvidia_step)),
+                    round(
+                        commands_similarity(
+                            amd_step.commands,
+                            nvidia_step.commands,
+                        )
+                        * 1_000_000
+                    ),
+                    round(
+                        _raw_label_similarity(
+                            amd_step,
+                            nvidia_step,
+                        )
+                        * 1_000_000
+                    ),
+                    round(
+                        _title_similarity(
+                            amd_step,
+                            nvidia_step,
+                        )
+                        * 1_000_000
+                    ),
+                )
+            candidates.append((
+                (int(compatible), *weight),
+                _step_sort_key(nvidia_index, nvidia_step),
+                nvidia_step,
+                compatible,
+            ))
+        if not candidates:
+            remaining.append(amd_step)
+            continue
+
+        best_weight = max(candidate[0] for candidate in candidates)
+        _weight, _sort_key, nvidia_step, compatible = min(
+            (
+                candidate
+                for candidate in candidates
+                if candidate[0] == best_weight
+            ),
+            key=lambda candidate: candidate[1],
+        )
+        similarity = commands_similarity(
+            amd_step.commands,
+            nvidia_step.commands,
+        )
+        variants.append(ConfigMatch(
+            amd_step=amd_step,
+            nvidia_step=nvidia_step,
+            command_similarity=similarity,
+            color=similarity_color(similarity),
+            match_method="additional_variant",
+            title_similarity=_title_similarity(amd_step, nvidia_step),
+            relationship=(
+                "additional_execution_variant"
+                if compatible
+                else "additional_hardware_variant"
+            ),
+        ))
+
+    variants.sort(key=lambda variant: (
+        variant.command_similarity,
+        _yaml_label_key(variant.amd_step.label),
+        _yaml_label_key(variant.nvidia_step.label),
+        variant.amd_step.source_file,
+        variant.nvidia_step.source_file,
+    ))
+    remaining.sort(key=lambda step: (
+        _yaml_label_key(step.label),
+        step.identity_key,
+        step.source_file,
+        step.group,
+        tuple(step.commands),
+    ))
+    return variants, remaining
 
 
 def _match_config_steps(
@@ -1239,30 +1559,75 @@ def build_config_parity() -> dict:
         return {"error": "Failed to list test_areas/ from upstream"}
 
     logical_amd_steps = _semantic_amd_steps(amd_steps)
-    matches, amd_only, nvidia_only = _match_config_steps(
+    matches, unmatched_amd, nvidia_only = _match_config_steps(
         amd_steps,
         nvidia_steps,
         mirrors,
+    )
+    inline_mirror_variants, amd_only = _classify_inline_mirror_variants(
+        unmatched_amd,
+        nvidia_steps,
+        mirrors,
+    )
+    additional_variants, amd_only = _classify_additional_variants(
+        amd_only,
+        matches,
     )
     # Compute summary metrics
     raw_amd = len(amd_steps)
     total_amd = len(logical_amd_steps)
     matrix_amd = _matrix_semantic_amd_count(amd_steps)
     total_nvidia = len(nvidia_steps)
-    match_rate = (
-        len(matches) / (len(matches) + len(amd_only)) * 100
-        if (len(matches) + len(amd_only)) > 0
+    covered = (
+        len(matches)
+        + len(inline_mirror_variants)
+        + len(additional_variants)
+    )
+    coverage_rate = (
+        covered / total_amd * 100
+        if total_amd > 0
         else 0
     )
-    avg_similarity = (
+    direct_match_rate = (
+        len(matches) / total_amd * 100
+        if total_amd > 0
+        else 0
+    )
+    direct_avg_similarity = (
         sum(m.command_similarity for m in matches) / len(matches) * 100
         if matches else 0
+    )
+    covered_similarities = [
+        *(match.command_similarity for match in matches),
+        *(
+            variant.command_similarity
+            for variant in inline_mirror_variants
+        ),
+        *(
+            variant.command_similarity
+            for variant in additional_variants
+        ),
+    ]
+    avg_similarity = (
+        sum(covered_similarities) / len(covered_similarities) * 100
+        if covered_similarities else 0
     )
 
     source = _source_provenance()
     commit_sha = source.get("commit_sha", "")
     identity_matches = sum(match.match_method == "identity" for match in matches)
     command_twins = sum(match.match_method == "command_twin" for match in matches)
+    mirror_variant_kinds = {
+        kind: sum(
+            variant.relationship == kind
+            for variant in inline_mirror_variants
+        )
+        for kind in (
+            "effective_command_duplicate",
+            "same_hardware_command_variant",
+            "hardware_variant",
+        )
+    }
     return {
         "generated_at": source.get("fetched_at"),
         "source": source,
@@ -1288,13 +1653,33 @@ def build_config_parity() -> dict:
                 step.identity_key for step in nvidia_steps
             }),
             "matched": len(matches),
+            "direct_matches": len(matches),
             "identity_matches": identity_matches,
             "command_twins": command_twins,
+            "inline_mirror_variants": len(inline_mirror_variants),
+            "inline_mirror_variant_kinds": mirror_variant_kinds,
+            "additional_variants": len(additional_variants),
+            "covered": covered,
             "amd_only": len(amd_only),
             "nvidia_only": len(nvidia_only),
             "mirrors": len(mirrors),
-            "match_rate_pct": round(match_rate, 1),
-            "avg_command_similarity_pct": round(avg_similarity, 1),
+            # Preserve the legacy direct-match metrics for downstream readers.
+            # Source coverage has separate, explicitly named fields below.
+            "match_rate_pct": round(direct_match_rate, 1),
+            "coverage_rate_pct": round(coverage_rate, 1),
+            "direct_match_rate_pct": round(direct_match_rate, 1),
+            "avg_command_similarity_pct": round(
+                direct_avg_similarity,
+                1,
+            ),
+            "covered_avg_command_similarity_pct": round(
+                avg_similarity,
+                1,
+            ),
+            "direct_avg_command_similarity_pct": round(
+                direct_avg_similarity,
+                1,
+            ),
         },
         "matches": [
             {
@@ -1333,6 +1718,142 @@ def build_config_parity() -> dict:
                 "nvidia_commands": m.nvidia_step.commands,
             }
             for m in matches
+        ],
+        "inline_mirror_variants": [
+            {
+                "amd_label": variant.amd_step.label,
+                "nvidia_label": variant.nvidia_step.label,
+                "normalized": variant.amd_step.normalized_label,
+                "identity_key": variant.amd_step.identity_key,
+                "command_similarity": round(
+                    variant.command_similarity,
+                    4,
+                ),
+                "title_similarity": round(
+                    variant.title_similarity,
+                    4,
+                ),
+                "match_method": "inline_mirror_variant",
+                "mirror_relationship": variant.relationship,
+                "color": variant.color,
+                "amd_group": variant.amd_step.group,
+                "nvidia_group": variant.nvidia_step.group,
+                "amd_definition_id": variant.amd_step.definition_id,
+                "nvidia_definition_id": (
+                    variant.nvidia_step.definition_id
+                ),
+                "amd_physical_member_count": (
+                    variant.amd_step.physical_member_count
+                ),
+                "amd_member_definition_ids": list(
+                    variant.amd_step.member_definition_ids
+                    or (variant.amd_step.definition_id,)
+                ),
+                "amd_member_labels": list(
+                    variant.amd_step.member_labels
+                    or (variant.amd_step.label,)
+                ),
+                "amd_member_groups": list(
+                    variant.amd_step.member_groups
+                    or (variant.amd_step.group,)
+                ),
+                "amd_member_agent_pools": list(
+                    variant.amd_step.member_agent_pools
+                    or (variant.amd_step.agent_pool,)
+                ),
+                "amd_source": variant.amd_step.source_file,
+                "nvidia_source": variant.nvidia_step.source_file,
+                "amd_source_url": _source_url(
+                    variant.amd_step.source_file,
+                    commit_sha,
+                ),
+                "nvidia_source_url": _source_url(
+                    variant.nvidia_step.source_file,
+                    commit_sha,
+                ),
+                "amd_commands": variant.amd_step.commands,
+                "nvidia_commands": variant.nvidia_step.commands,
+                "inline_mirror_commands_overridden": bool(
+                    variant.mirror.get("commands_overridden")
+                ),
+                "inline_mirror_command_similarity": round(
+                    float(
+                        variant.mirror.get("command_similarity")
+                        or 0
+                    ),
+                    4,
+                ),
+                "amd_route_similarity": round(
+                    variant.amd_route_similarity,
+                    4,
+                ),
+                "inline_mirror_amd_commands": list(
+                    variant.mirror.get("amd_commands")
+                    or variant.nvidia_step.commands
+                ),
+                "inline_mirror_amd_device": str(
+                    variant.mirror.get("amd_device")
+                    or ""
+                ),
+            }
+            for variant in inline_mirror_variants
+        ],
+        "additional_variants": [
+            {
+                "amd_label": variant.amd_step.label,
+                "nvidia_label": variant.nvidia_step.label,
+                "normalized": variant.amd_step.normalized_label,
+                "identity_key": variant.amd_step.identity_key,
+                "command_similarity": round(
+                    variant.command_similarity,
+                    4,
+                ),
+                "title_similarity": round(
+                    variant.title_similarity,
+                    4,
+                ),
+                "match_method": "additional_variant",
+                "variant_relationship": variant.relationship,
+                "color": variant.color,
+                "amd_group": variant.amd_step.group,
+                "nvidia_group": variant.nvidia_step.group,
+                "amd_definition_id": variant.amd_step.definition_id,
+                "nvidia_definition_id": (
+                    variant.nvidia_step.definition_id
+                ),
+                "amd_physical_member_count": (
+                    variant.amd_step.physical_member_count
+                ),
+                "amd_member_definition_ids": list(
+                    variant.amd_step.member_definition_ids
+                    or (variant.amd_step.definition_id,)
+                ),
+                "amd_member_labels": list(
+                    variant.amd_step.member_labels
+                    or (variant.amd_step.label,)
+                ),
+                "amd_member_groups": list(
+                    variant.amd_step.member_groups
+                    or (variant.amd_step.group,)
+                ),
+                "amd_member_agent_pools": list(
+                    variant.amd_step.member_agent_pools
+                    or (variant.amd_step.agent_pool,)
+                ),
+                "amd_source": variant.amd_step.source_file,
+                "nvidia_source": variant.nvidia_step.source_file,
+                "amd_source_url": _source_url(
+                    variant.amd_step.source_file,
+                    commit_sha,
+                ),
+                "nvidia_source_url": _source_url(
+                    variant.nvidia_step.source_file,
+                    commit_sha,
+                ),
+                "amd_commands": variant.amd_step.commands,
+                "nvidia_commands": variant.nvidia_step.commands,
+            }
+            for variant in additional_variants
         ],
         "amd_only": [
             {
@@ -1378,6 +1899,9 @@ def build_config_parity() -> dict:
                 "color": similarity_color(m["command_similarity"]),
                 "source_file": m["source_file"],
                 "source_url": _source_url(m["source_file"], commit_sha),
+                "amd_device": str(m.get("amd_device") or ""),
+                "nvidia_commands": list(m.get("nvidia_commands") or []),
+                "amd_commands": list(m.get("amd_commands") or []),
             }
             for m in mirrors
         ],

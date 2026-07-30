@@ -799,7 +799,15 @@ class TestConfigParity:
         d = _load_json_or_skip("config_parity.json")
         _assert_has_keys(
             d,
-            {"summary", "matches", "amd_only", "nvidia_only", "mirrors"},
+            {
+                "summary",
+                "matches",
+                "inline_mirror_variants",
+                "additional_variants",
+                "amd_only",
+                "nvidia_only",
+                "mirrors",
+            },
             "config_parity.json",
         )
 

@@ -96,6 +96,34 @@ def test_source_snapshot_resolves_main_once_and_pins_archive_to_commit(monkeypat
     ]
 
 
+def test_platform_target_suite_selector_is_command_metadata():
+    upstream = [
+        "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
+        "pytest -v -s basic_correctness/test_mem.py",
+        "pytest -v -s basic_correctness/test_basic_correctness.py",
+        "pytest -v -s basic_correctness/test_cpu_offload.py",
+    ]
+    amd = [
+        "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
+        "pytest -v -s basic_correctness/test_mem.py",
+        (
+            "VLLM_TARGET_TEST_SUITE=MI300 pytest -v -s "
+            "basic_correctness/test_basic_correctness.py"
+        ),
+        "pytest -v -s basic_correctness/test_cpu_offload.py",
+    ]
+
+    assert config_parity.commands_similarity(amd, upstream) == 1.0
+    assert config_parity.commands_similarity(
+        ["TARGET_TEST_SUITE=A100 pytest tests/basic.py"],
+        ["TARGET_TEST_SUITE=MI300 pytest tests/basic.py"],
+    ) == 1.0
+    assert config_parity.commands_similarity(
+        ["DP_EP=1 pytest tests/distributed.py"],
+        ["DP_EP=0 pytest tests/distributed.py"],
+    ) < 1.0
+
+
 def test_live_hardware_aliases_share_intended_identity_families():
     small_models = "lm eval small models (hardware variants)"
     assert config_parity._config_identity_key(
@@ -849,6 +877,243 @@ def test_inline_mirror_excludes_only_its_exact_collision_row():
     assert matches[0].nvidia_step is available
 
 
+def test_inline_mirror_standalone_variant_is_covered_not_amd_only(
+    monkeypatch,
+):
+    identity = "basic correctness"
+    amd = _step(
+        "Basic Correctness",
+        identity,
+        [
+            "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
+            "pytest -v -s basic_correctness/test_mem.py",
+            (
+                "VLLM_TARGET_TEST_SUITE=MI300 pytest -v -s "
+                "basic_correctness/test_basic_correctness.py"
+            ),
+            "pytest -v -s basic_correctness/test_cpu_offload.py",
+        ],
+        ".buildkite/test-amd.yaml",
+        definition_id="amd#basic-correctness",
+        agent_pool="mi300_1",
+    )
+    upstream_commands = [
+        "export VLLM_WORKER_MULTIPROC_METHOD=spawn",
+        "pytest -v -s basic_correctness/test_mem.py",
+        "pytest -v -s basic_correctness/test_basic_correctness.py",
+        "pytest -v -s basic_correctness/test_cpu_offload.py",
+    ]
+    mirrored = _step(
+        "Basic Correctness",
+        identity,
+        upstream_commands,
+        ".buildkite/test_areas/basic_correctness.yaml",
+        definition_id="upstream#basic-correctness",
+    )
+    mirrors = [{
+        "nvidia_label": mirrored.label,
+        "normalized": mirrored.normalized_label,
+        "identity_key": identity,
+        "source_file": mirrored.source_file,
+        "nvidia_definition_id": mirrored.definition_id,
+        "nvidia_commands": upstream_commands,
+        "amd_commands": upstream_commands,
+        "commands_overridden": False,
+        "command_similarity": 1.0,
+        "amd_device": "mi300_1",
+    }]
+    monkeypatch.setattr(
+        config_parity,
+        "_load_config_steps",
+        lambda: ([amd], [mirrored], mirrors),
+    )
+    monkeypatch.setattr(
+        config_parity,
+        "_source_provenance",
+        lambda: {
+            "commit_sha": "a" * 40,
+            "fetched_at": "2026-07-30T00:00:00Z",
+            "matching_rules": [],
+        },
+    )
+
+    report = config_parity.build_config_parity()
+
+    assert report["summary"]["matched"] == 0
+    assert report["summary"]["direct_matches"] == 0
+    assert report["summary"]["inline_mirror_variants"] == 1
+    assert report["summary"]["covered"] == 1
+    assert report["summary"]["amd_only"] == 0
+    assert report["summary"]["coverage_rate_pct"] == 100.0
+    assert report["amd_only"] == []
+    variant = report["inline_mirror_variants"][0]
+    assert variant["match_method"] == "inline_mirror_variant"
+    assert variant["mirror_relationship"] == "effective_command_duplicate"
+    assert variant["amd_label"] == "Basic Correctness"
+    assert variant["nvidia_label"] == "Basic Correctness"
+    assert variant["command_similarity"] == 1.0
+    assert variant["inline_mirror_command_similarity"] == 1.0
+    assert variant["amd_route_similarity"] == 1.0
+    assert variant["inline_mirror_amd_device"] == "mi300_1"
+
+
+# cspell:ignore torchao evals
+def test_excess_same_identity_definition_is_an_additional_variant(
+    monkeypatch,
+):
+    identity = "quantization"
+    amd_primary = _step(
+        "Quantization",
+        identity,
+        ["pytest -v -s quantization"],
+        ".buildkite/test-amd.yaml",
+        definition_id="amd#quantization-mi300",
+        agent_pool="mi300_1",
+    )
+    amd_additional = _step(
+        "Quantization",
+        identity,
+        [
+            "uv pip install --system torchao",
+            "pytest -v -s quantization",
+        ],
+        ".buildkite/test-amd.yaml",
+        definition_id="amd#quantization-mi355",
+        agent_pool="mi355_1",
+    )
+    upstream = _step(
+        "Quantization",
+        identity,
+        ["pytest -v -s quantization"],
+        ".buildkite/test_areas/quantization.yaml",
+        definition_id="upstream#quantization",
+    )
+    monkeypatch.setattr(
+        config_parity,
+        "_load_config_steps",
+        lambda: ([amd_primary, amd_additional], [upstream], []),
+    )
+    monkeypatch.setattr(
+        config_parity,
+        "_source_provenance",
+        lambda: {
+            "commit_sha": "a" * 40,
+            "fetched_at": "2026-07-30T00:00:00Z",
+            "matching_rules": [],
+        },
+    )
+
+    report = config_parity.build_config_parity()
+
+    assert report["summary"]["matched"] == 1
+    assert report["summary"]["additional_variants"] == 1
+    assert report["summary"]["covered"] == 2
+    assert report["summary"]["amd_only"] == 0
+    assert report["summary"]["coverage_rate_pct"] == 100.0
+    assert report["amd_only"] == []
+    variant = report["additional_variants"][0]
+    assert variant["match_method"] == "additional_variant"
+    assert variant["amd_definition_id"] == "amd#quantization-mi355"
+    assert variant["nvidia_definition_id"] == "upstream#quantization"
+    assert variant["command_similarity"] < 1.0
+
+
+def test_excess_same_identity_hardware_variant_is_source_covered(
+    monkeypatch,
+):
+    identity = "lm eval large models (4 gpus)"
+    amd_b200 = _step(
+        "LM Eval Large Models (4xB200-4xMI355)",
+        identity,
+        ["pytest evals/large-b200"],
+        ".buildkite/test-amd.yaml",
+        definition_id="amd#large-b200-mi355",
+        agent_pool="mi355_4",
+    )
+    amd_a100 = _step(
+        "LM Eval Large Models (4xA100-4xMI300)",
+        identity,
+        ["pytest evals/large-a100"],
+        ".buildkite/test-amd.yaml",
+        definition_id="amd#large-a100-mi300",
+        agent_pool="mi300_4",
+    )
+    upstream_b200 = _step(
+        "LM Eval Large Models (4xB200)",
+        identity,
+        ["pytest evals/large-b200"],
+        ".buildkite/test_areas/evals.yaml",
+        definition_id="upstream#large-b200",
+    )
+    monkeypatch.setattr(
+        config_parity,
+        "_load_config_steps",
+        lambda: ([amd_a100, amd_b200], [upstream_b200], []),
+    )
+    monkeypatch.setattr(
+        config_parity,
+        "_source_provenance",
+        lambda: {
+            "commit_sha": "a" * 40,
+            "fetched_at": "2026-07-30T00:00:00Z",
+            "matching_rules": [],
+        },
+    )
+
+    report = config_parity.build_config_parity()
+
+    assert report["summary"]["covered"] == 2
+    assert report["summary"]["additional_variants"] == 1
+    assert report["summary"]["amd_only"] == 0
+    variant = report["additional_variants"][0]
+    assert variant["amd_definition_id"] == "amd#large-a100-mi300"
+    assert variant["variant_relationship"] == "additional_hardware_variant"
+
+
+def test_unmatched_hardware_collision_is_not_an_additional_variant(
+    monkeypatch,
+):
+    identity = "lm eval large models (4 gpus)"
+    amd_step = _step(
+        "LM Eval Large Models (4xA100-4xMI300)",
+        identity,
+        ["pytest evals/large-a100"],
+        ".buildkite/test-amd.yaml",
+        definition_id="amd#large-a100-mi300",
+        agent_pool="mi300_4",
+    )
+    upstream_step = _step(
+        "LM Eval Large Models (4xB200)",
+        identity,
+        ["pytest evals/large-b200"],
+        ".buildkite/test_areas/evals.yaml",
+        definition_id="upstream#large-b200",
+    )
+    monkeypatch.setattr(
+        config_parity,
+        "_load_config_steps",
+        lambda: ([amd_step], [upstream_step], []),
+    )
+    monkeypatch.setattr(
+        config_parity,
+        "_source_provenance",
+        lambda: {
+            "commit_sha": "a" * 40,
+            "fetched_at": "2026-07-30T00:00:00Z",
+            "matching_rules": [],
+        },
+    )
+
+    report = config_parity.build_config_parity()
+
+    assert report["summary"]["matched"] == 0
+    assert report["summary"]["additional_variants"] == 0
+    assert report["summary"]["covered"] == 0
+    assert report["summary"]["amd_only"] == 1
+    assert report["summary"]["nvidia_only"] == 1
+    assert report["additional_variants"] == []
+
+
 def test_inline_mirror_blocks_cross_identity_nightly_command_twin():
     amd = _step(
         "Spec Decode Draft Model",
@@ -911,8 +1176,11 @@ def test_source_provenance_describes_collision_safe_matching(monkeypatch):
     assert "total_amd_steps as collision-safe parity nodes" in joined
     assert "amd_matrix_semantic_rows separately" in joined
     assert "exact upstream definition ID" in joined
+    assert "mirror-linked variants instead of AMD-only gaps" in joined
+    assert "additional execution or hardware variants" in joined
     assert "including an inline mirror, blocks this fallback" in joined
     assert "reference-hardware or GPU-count mismatches" in joined
     assert "maximum-cardinality one-to-one assignment" in joined
     assert "exact YAML label" in joined
+    assert "platform target-suite selector" in joined
     assert "Ambiguous command matches remain unmatched" in joined

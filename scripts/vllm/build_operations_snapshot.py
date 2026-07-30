@@ -2692,13 +2692,23 @@ def _parity_rows_for_labels(
     ambiguous = []
     for label in labels:
         matches = folded_index.get(hardware_fold_key(label), [])
-        identities = {
-            (
-                str(row.get("identity_key") or ""),
-                str(row.get("amd_label") or row.get("label") or ""),
+        identities = set()
+        for row in matches:
+            identity_key = str(row.get("identity_key") or "").strip()
+            if identity_key:
+                # One canonical upstream family may intentionally have several
+                # AMD execution labels (for example MI300 plus MI355).  Those
+                # variants are additional evidence, not separate identities.
+                identities.add(("identity", identity_key.casefold()))
+                continue
+            fallback_label = (
+                row.get("amd_label")
+                or row.get("label")
+                or row.get(label_field)
             )
-            for row in matches
-        }
+            identities.add(
+                ("amd_label", _definition_label_key(fallback_label))
+            )
         if len(identities) == 1:
             folded.extend(matches)
         elif len(identities) > 1:
@@ -2772,9 +2782,14 @@ def _resolve_runtime_matrix(
         return latest, resolution
 
     source_labels = _candidate_source_labels(group, candidates)
+    parity_relationships = [
+        *(definition_parity.get("matches") or []),
+        *(definition_parity.get("inline_mirror_variants") or []),
+        *(definition_parity.get("additional_variants") or []),
+    ]
     parity_matches, ambiguous_matches = _parity_rows_for_labels(
         source_labels,
-        definition_parity.get("matches") or [],
+        parity_relationships,
         label_field="nvidia_label",
     )
     shadowed_parity_matches = [
@@ -2971,7 +2986,7 @@ def _resolve_runtime_matrix(
             **context,
         }
     if not (
-        definition_parity.get("matches")
+        parity_relationships
         or definition_parity.get("nvidia_only")
     ):
         return empty_latest, {
