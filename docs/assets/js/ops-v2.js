@@ -58,6 +58,8 @@
     trajectorySearch: '',
     capacityMode: 'groups',
     capacityBaseline: 'peak',
+    capacityTrafficMode: 'burst',
+    capacityPlacement: '',
     capacityGroups: '160',
     capacityJobs: '196',
     capacityQueue: 'amd_mi300_1',
@@ -65,6 +67,7 @@
     capacityParallel: '1',
     capacityDuration: '30',
     capacitySuites: '1',
+    capacitySuitesPerHour: '1',
     omniRange: '24h',
     omniMappingRange: '7d',
     omniAge: 'all',
@@ -88,6 +91,8 @@
       'ops_capacity_mode', 'ops_capacity_baseline', 'ops_capacity_groups',
       'ops_capacity_jobs', 'ops_capacity_queue', 'ops_capacity_queue_groups',
       'ops_capacity_parallel', 'ops_capacity_duration', 'ops_capacity_suites',
+      'ops_capacity_traffic', 'ops_capacity_suites_per_hour',
+      'ops_capacity_placement',
       'ops_detail',
     ]),
     'ci-omni': new Set(['ops_omni_mapping_range', 'ops_omni_range', 'ops_omni_age', 'ops_detail']),
@@ -119,6 +124,8 @@
     trajectory_view: 'workload',
     capacity_mode: 'groups',
     capacity_baseline: 'peak',
+    capacity_traffic: 'burst',
+    capacity_placement: '',
     capacity_groups: '160',
     capacity_jobs: '196',
     capacity_queue: 'amd_mi300_1',
@@ -126,6 +133,7 @@
     capacity_parallel: '1',
     capacity_duration: '30',
     capacity_suites: '1',
+    capacity_suites_per_hour: '1',
     omni_mapping_range: '7d',
     omni_range: '24h',
     omni_age: 'all',
@@ -371,7 +379,9 @@
         ['trajectoryView', 'trajectory_view', ['workload', 'capacity']],
         ['trajectoryWindow', 'trajectory_window', ['24h', '72h', '7d', '30d']],
         ['capacityMode', 'capacity_mode', ['groups', 'jobs', 'queue']],
-        ['capacityBaseline', 'capacity_baseline', ['current', 'typical', 'peak']],
+        ['capacityBaseline', 'capacity_baseline', ['current', 'typical', 'peak', 'stress']],
+        ['capacityTrafficMode', 'capacity_traffic', ['burst', 'sustained']],
+        ['capacityPlacement', 'capacity_placement', ['mi355_preferred', 'current_definition_precedence']],
         ['capacityGroups', 'capacity_groups', null],
         ['capacityJobs', 'capacity_jobs', null],
         ['capacityQueue', 'capacity_queue', null],
@@ -379,6 +389,7 @@
         ['capacityParallel', 'capacity_parallel', null],
         ['capacityDuration', 'capacity_duration', null],
         ['capacitySuites', 'capacity_suites', null],
+        ['capacitySuitesPerHour', 'capacity_suites_per_hour', null],
       ],
       'ci-omni': [
         ['omniMappingRange', 'omni_mapping_range', ['6h', '1d', '3d', '7d', '1m', '3m']],
@@ -6988,6 +6999,8 @@
     openMixedOutcomeEvidence(candidate);
   }
 
+  const CAPACITY_MAX_INTERACTIVE_BURST_JOBS = 50000;
+
   function capacityInteger(raw, fallback, minimum, maximum) {
     const parsed = Number(raw);
     if (!Number.isFinite(parsed)) return fallback;
@@ -7124,6 +7137,111 @@
     };
   }
 
+  function capacityPlacementStrategy(profile, requestedId) {
+    const placement = (profile && profile.placement_profiles) || {};
+    const strategies = Array.isArray(placement.strategies) ? placement.strategies : [];
+    if (!strategies.length) return null;
+    const defaultId = placement.default_strategy_id || strategies[0].id;
+    return strategies.find(function (strategy) {
+      return strategy.id === requestedId;
+    }) || strategies.find(function (strategy) {
+      return strategy.id === defaultId;
+    }) || strategies[0];
+  }
+
+  function capacityProfileForPlacement(profile, requestedId) {
+    profile = profile || {};
+    const strategy = capacityPlacementStrategy(profile, requestedId);
+    if (!strategy) return profile;
+    const strategyRows = strategy.queues || strategy.queue_targets || [];
+    const byQueue = new Map(strategyRows.map(function (row) {
+      return [row.id, row];
+    }));
+    const queues = (profile.queues || []).map(function (queue) {
+      const selected = byQueue.get(queue.id) || {};
+      const current = (queue.demand || {}).current || {};
+      const priorTarget = (queue.demand || {}).target || {};
+      const targetGroups = Math.max(0, Number(selected.groups) || 0);
+      const targetJobs = Math.max(0, Number(selected.jobs) || 0);
+      const gpusPerJob = Math.max(1, Number(queue.gpus_per_job) || 1);
+      const publishedStrategyService = Number(selected.service_minutes);
+      const observedFallbackService = Number((queue.workload || {}).observed_service_minutes);
+      const serviceMinutes = Number.isFinite(publishedStrategyService) && publishedStrategyService > 0
+        ? publishedStrategyService
+        : Number.isFinite(observedFallbackService) && observedFallbackService > 0
+          ? observedFallbackService
+          : null;
+      const serviceSource = Number.isFinite(publishedStrategyService) && publishedStrategyService > 0
+        ? (selected.service_minutes_source || 'placement_strategy_target_command_job_median_average')
+        : Number.isFinite(observedFallbackService) && observedFallbackService > 0
+          ? 'completed_agent_minutes_per_finished_job_proxy_fallback'
+          : 'unavailable';
+      const targetAgentMinutes = Number.isFinite(serviceMinutes) && serviceMinutes > 0
+        ? targetJobs * serviceMinutes
+        : (Number(priorTarget.jobs) === targetJobs ? priorTarget.agent_minutes : null);
+      const currentAgentMinutes = Number(current.agent_minutes);
+      return Object.assign({}, queue, {
+        workload: Object.assign({}, queue.workload || {}, {
+          service_minutes: serviceMinutes,
+          service_minutes_source: serviceSource,
+          service_minutes_is_proxy: serviceSource === 'completed_agent_minutes_per_finished_job_proxy_fallback',
+          placement_strategy_id: strategy.id,
+        }),
+        demand: Object.assign({}, queue.demand || {}, {
+          target: {
+            groups: targetGroups,
+            jobs: targetJobs,
+            gpu_slots: Number.isFinite(Number(selected.gpu_slots))
+              ? Number(selected.gpu_slots)
+              : targetJobs * gpusPerJob,
+            agent_minutes: targetAgentMinutes,
+          },
+          delta: {
+            groups: targetGroups - Number(current.groups || 0),
+            jobs: targetJobs - Number(current.jobs || 0),
+            gpu_slots: (
+              targetJobs - Number(current.jobs || 0)
+            ) * gpusPerJob,
+            agent_minutes: targetAgentMinutes !== null && Number.isFinite(currentAgentMinutes)
+              ? targetAgentMinutes - currentAgentMinutes
+              : null,
+          },
+        }),
+      });
+    });
+    const publishedTotals = strategy.topology || strategy.target || strategy.totals || {};
+    const target = {
+      groups: Number.isFinite(Number(publishedTotals.groups))
+        ? Number(publishedTotals.groups)
+        : queues.reduce(function (sum, queue) { return sum + Number(((queue.demand || {}).target || {}).groups || 0); }, 0),
+      jobs: Number.isFinite(Number(publishedTotals.jobs))
+        ? Number(publishedTotals.jobs)
+        : queues.reduce(function (sum, queue) { return sum + Number(((queue.demand || {}).target || {}).jobs || 0); }, 0),
+      gpu_slots: Number.isFinite(Number(publishedTotals.gpu_slots))
+        ? Number(publishedTotals.gpu_slots)
+        : queues.reduce(function (sum, queue) { return sum + Number(((queue.demand || {}).target || {}).gpu_slots || 0); }, 0),
+      agent_minutes: queues.reduce(function (sum, queue) {
+        const raw = ((queue.demand || {}).target || {}).agent_minutes;
+        return Number.isFinite(Number(raw)) ? sum + Number(raw) : sum;
+      }, 0),
+    };
+    const topology = profile.topology || {};
+    const current = topology.current || {};
+    return Object.assign({}, profile, {
+      queues: queues,
+      topology: Object.assign({}, topology, {
+        target: target,
+        delta: {
+          groups: target.groups - Number(current.groups || 0),
+          jobs: target.jobs - Number(current.jobs || 0),
+          gpu_slots: target.gpu_slots - Number(current.gpu_slots || 0),
+          agent_minutes: target.agent_minutes - Number(current.agent_minutes || 0),
+        },
+      }),
+      selected_placement_strategy: strategy,
+    });
+  }
+
   function capacityTopologyForGroups(profile, rawGroups, forcedJobs) {
     const queues = (profile && profile.queues) || [];
     const topology = (profile && profile.topology) || {};
@@ -7168,6 +7286,7 @@
       allocationValid: allocation.valid,
       allocationExact: allocation.exact,
       rows: queues.map(function (queue, index) {
+        const currentJobs = Math.max(0, Number((((queue || {}).demand || {}).current || {}).jobs) || 0);
         return {
           queue: queue,
           id: queue.id,
@@ -7176,6 +7295,7 @@
           gpusPerJob: Math.max(1, Number(queue.gpus_per_job) || 1),
           groups: allocation.groups[index],
           jobs: allocation.jobs[index],
+          incrementalJobsPerSuite: Math.max(0, allocation.jobs[index] - currentJobs),
           serviceMinutes: Number((queue.workload || {}).service_minutes),
           serviceSource: (queue.workload || {}).service_minutes_source || 'unavailable',
         };
@@ -7224,6 +7344,7 @@
         gpusPerJob: Math.max(1, Number(queue.gpus_per_job) || 1),
         groups: selected ? addedGroups : 0,
         jobs: selected ? addedGroups * parallel : 0,
+        incrementalJobsPerSuite: selected ? addedGroups * parallel : 0,
         serviceMinutes: selected ? durationMinutes : Number((queue.workload || {}).service_minutes),
         serviceSource: selected ? 'user_input_for_specific_test_shape' : ((queue.workload || {}).service_minutes_source || 'unavailable'),
       };
@@ -7244,7 +7365,29 @@
 
   function capacityBurstWait(demandJobs, capacityJobs, baseline, serviceMinutes) {
     const jobs = Math.max(0, Math.round(Number(demandJobs) || 0));
-    if (!jobs) return {status: 'finite', p50: 0, p95: 0, max: 0, samples: [], effectiveSlots: 0, backlogJobs: 0};
+    if (!jobs) {
+      return {
+        status: 'finite',
+        p50: 0,
+        p95: 0,
+        max: 0,
+        allStartedBy: 0,
+        allCompletedBy: 0,
+        samples: [],
+        completionSamples: [],
+        effectiveSlots: 0,
+        backlogJobs: 0,
+      };
+    }
+    if (jobs > CAPACITY_MAX_INTERACTIVE_BURST_JOBS) {
+      return {
+        status: 'unavailable',
+        reason: 'The one-time burst exceeds the 50,000-job interactive safety limit; reduce the scenario size.',
+        samples: [],
+        completionSamples: [],
+        limitJobs: CAPACITY_MAX_INTERACTIVE_BURST_JOBS,
+      };
+    }
     if (!baseline || baseline.available !== true || !Number.isFinite(Number(baseline.running)) || !Number.isFinite(Number(baseline.waiting))) {
       return {status: 'unavailable', reason: 'Observed running/waiting baseline is unavailable.', samples: []};
     }
@@ -7272,6 +7415,9 @@
     }
     for (let index = 0; index < backlogJobs; index += 1) assignJob();
     const samples = Array.from({length: jobs}, function () { return assignJob(); });
+    const completionSamples = samples.map(function (startsAt) {
+      return startsAt + service;
+    });
     function observedQuantile(percentile) {
       if (!samples.length) return 0;
       return samples[Math.max(0, Math.ceil(percentile * samples.length) - 1)];
@@ -7281,17 +7427,91 @@
       p50: observedQuantile(0.5),
       p95: observedQuantile(0.95),
       max: samples[samples.length - 1],
+      allStartedBy: samples[samples.length - 1],
+      allCompletedBy: completionSamples[completionSamples.length - 1],
       samples: samples,
+      completionSamples: completionSamples,
       effectiveSlots: capacity,
       busyServers: busyServers,
       backlogJobs: backlogJobs,
     };
   }
 
+  function capacityErlangC(arrivalRateJobsPerHour, capacityJobs, serviceMinutes) {
+    if (arrivalRateJobsPerHour === null || arrivalRateJobsPerHour === undefined || arrivalRateJobsPerHour === '') {
+      return {status: 'unavailable', reason: 'The weekday started-cohort arrival-rate proxy is unavailable.'};
+    }
+    const arrivalRate = Number(arrivalRateJobsPerHour);
+    const capacity = Math.floor(Number(capacityJobs));
+    const service = Number(serviceMinutes);
+    if (!Number.isFinite(arrivalRate) || arrivalRate < 0) {
+      return {status: 'unavailable', reason: 'The weekday started-cohort arrival-rate proxy is unavailable.'};
+    }
+    if (!Number.isFinite(capacity) || capacity <= 0) {
+      return {status: 'unavailable', reason: 'Configured concurrent-job capacity is unavailable.'};
+    }
+    if (!Number.isFinite(service) || service <= 0) {
+      return {status: 'unavailable', reason: 'A positive service-time estimate is unavailable.'};
+    }
+    const offeredLoad = arrivalRate * service / 60;
+    const rho = offeredLoad / capacity;
+    if (rho >= 1) {
+      return {
+        status: 'unstable',
+        arrivalRateJobsPerHour: arrivalRate,
+        offeredLoadJobs: offeredLoad,
+        rho: rho,
+        requiredCapacityJobs: Math.floor(offeredLoad) + 1,
+        capacityGapJobs: Math.max(0, Math.floor(offeredLoad) + 1 - capacity),
+        reason: 'Long-run offered load meets or exceeds configured runner capacity (ρ ≥ 1).',
+      };
+    }
+    if (!arrivalRate) {
+      return {
+        status: 'finite',
+        arrivalRateJobsPerHour: 0,
+        offeredLoadJobs: 0,
+        rho: 0,
+        probabilityWait: 0,
+        mean: 0,
+        p50: 0,
+        p95: 0,
+        requiredCapacityJobs: 1,
+        capacityGapJobs: 0,
+      };
+    }
+    let erlangB = 1;
+    for (let servers = 1; servers <= capacity; servers += 1) {
+      erlangB = offeredLoad * erlangB / (servers + offeredLoad * erlangB);
+    }
+    const probabilityWait = erlangB / (1 - rho + rho * erlangB);
+    const spareServers = capacity - offeredLoad;
+    const mean = probabilityWait * service / spareServers;
+    function waitQuantile(percentile) {
+      if (percentile <= 1 - probabilityWait) return 0;
+      return -service / spareServers * Math.log((1 - percentile) / probabilityWait);
+    }
+    return {
+      status: 'finite',
+      arrivalRateJobsPerHour: arrivalRate,
+      offeredLoadJobs: offeredLoad,
+      rho: rho,
+      probabilityWait: probabilityWait,
+      mean: mean,
+      p50: waitQuantile(0.5),
+      p95: waitQuantile(0.95),
+      requiredCapacityJobs: Math.floor(offeredLoad) + 1,
+      capacityGapJobs: 0,
+    };
+  }
+
   function capacityScenario(profile, inputs) {
-    profile = profile || {};
     inputs = inputs || {};
     const mode = ['groups', 'jobs', 'queue'].includes(inputs.mode) ? inputs.mode : 'groups';
+    profile = mode === 'queue'
+      ? (profile || {})
+      : capacityProfileForPlacement(profile || {}, inputs.placement);
+    const trafficMode = inputs.trafficMode === 'sustained' ? 'sustained' : 'burst';
     let topology;
     if (mode === 'jobs') {
       const jobs = capacityInteger(inputs.jobs, Number((((profile.topology || {}).target || {}).jobs) || 196), 0, 50000);
@@ -7307,14 +7527,44 @@
     } else {
       topology = capacityTopologyForGroups(profile, inputs.groups, null);
     }
-    const baselineName = ['current', 'typical', 'peak'].includes(inputs.baseline) ? inputs.baseline : 'peak';
+    const baselineName = ['current', 'typical', 'peak', 'stress'].includes(inputs.baseline) ? inputs.baseline : 'peak';
     const suites = capacityInteger(inputs.suites, 1, 1, 20);
+    const rawSuitesPerHour = Number(inputs.suitesPerHour);
+    const suitesPerHour = Number.isFinite(rawSuitesPerHour)
+      ? Math.max(0, Math.min(1000, rawSuitesPerHour))
+      : 1;
+    const burstLimitExceeded = trafficMode === 'burst'
+      && Math.max(0, Number(topology.jobs) || 0) * suites > CAPACITY_MAX_INTERACTIVE_BURST_JOBS;
     const rows = topology.rows.map(function (topologyRow) {
       const queue = topologyRow.queue || {};
       const baseline = ((queue.history || {})[baselineName]) || {};
       const capacityJobs = Math.max(0, Number(queue.capacity_jobs) || 0);
-      const demandJobs = Math.max(0, topologyRow.jobs * suites);
-      const wait = capacityBurstWait(demandJobs, capacityJobs, baseline, topologyRow.serviceMinutes);
+      const demandJobs = Math.max(
+        0,
+        topologyRow.jobs * (trafficMode === 'burst' ? suites : 1)
+      );
+      const incrementalJobsPerSuite = Math.max(0, Number(topologyRow.incrementalJobsPerSuite) || 0);
+      const rawHistoricalRate = (queue.workload || {}).weekday_started_cohort_rate_jobs_per_hour;
+      const historicalArrivalRate = rawHistoricalRate !== null
+        && rawHistoricalRate !== undefined
+        && Number.isFinite(Number(rawHistoricalRate))
+        ? Math.max(0, Number(rawHistoricalRate))
+        : null;
+      const incrementalArrivalRate = suitesPerHour * incrementalJobsPerSuite;
+      const totalArrivalRate = historicalArrivalRate === null
+        ? null
+        : historicalArrivalRate + incrementalArrivalRate;
+      const wait = burstLimitExceeded
+        ? {
+          status: 'unavailable',
+          reason: 'The one-time burst exceeds the 50,000-job interactive safety limit; reduce the scenario size.',
+          samples: [],
+          completionSamples: [],
+          limitJobs: CAPACITY_MAX_INTERACTIVE_BURST_JOBS,
+        }
+        : trafficMode === 'sustained'
+          ? capacityErlangC(totalArrivalRate, capacityJobs, topologyRow.serviceMinutes)
+          : capacityBurstWait(demandJobs, capacityJobs, baseline, topologyRow.serviceMinutes);
       const baselineRunning = baseline.available === true && Number.isFinite(Number(baseline.running))
         ? Number(baseline.running)
         : null;
@@ -7324,7 +7574,13 @@
       const combinedJobs = baselineRunning === null || baselineWaiting === null
         ? null
         : Math.ceil(baselineRunning) + Math.ceil(baselineWaiting) + demandJobs;
-      const combinedGapJobs = combinedJobs === null ? null : Math.max(0, combinedJobs - capacityJobs);
+      const steadyOfferedLoad = wait.status === 'unavailable'
+        ? null
+        : Number(wait.offeredLoadJobs || 0);
+      const pressureJobs = trafficMode === 'sustained' ? steadyOfferedLoad : combinedJobs;
+      const combinedGapJobs = trafficMode === 'sustained'
+        ? (wait.status === 'unavailable' ? null : Number(wait.capacityGapJobs || 0))
+        : (combinedJobs === null ? null : Math.max(0, combinedJobs - capacityJobs));
       return {
         id: topologyRow.id,
         label: topologyRow.label,
@@ -7332,6 +7588,7 @@
         gpusPerJob: topologyRow.gpusPerJob,
         groups: topologyRow.groups,
         jobsPerSuite: topologyRow.jobs,
+        incrementalJobsPerSuite: incrementalJobsPerSuite,
         demandJobs: demandJobs,
         demandGpuSlots: demandJobs * topologyRow.gpusPerJob,
         capacityJobs: capacityJobs,
@@ -7339,8 +7596,12 @@
         baseline: baseline,
         baselineRunning: baselineRunning,
         baselineWaiting: baselineWaiting,
+        historicalArrivalRate: historicalArrivalRate,
+        incrementalArrivalRate: incrementalArrivalRate,
+        arrivalRate: totalArrivalRate,
+        offeredLoadJobs: steadyOfferedLoad,
         combinedJobs: combinedJobs,
-        pressurePct: combinedJobs !== null && capacityJobs ? combinedJobs / capacityJobs * 100 : null,
+        pressurePct: pressureJobs !== null && capacityJobs ? pressureJobs / capacityJobs * 100 : null,
         shapeGapJobs: Math.max(0, demandJobs - capacityJobs),
         shapeGapGpus: Math.max(0, demandJobs - capacityJobs) * topologyRow.gpusPerJob,
         combinedGapJobs: combinedGapJobs,
@@ -7351,7 +7612,12 @@
         sourceQueue: queue,
       };
     });
-    const activeRows = rows.filter(function (row) { return row.demandJobs > 0; });
+    const activeRows = rows.filter(function (row) {
+      if (trafficMode === 'burst') return row.demandJobs > 0;
+      return row.arrivalRate === null
+        ? row.jobsPerSuite > 0 || Number((((row.sourceQueue || {}).demand || {}).current || {}).jobs || 0) > 0
+        : row.arrivalRate > 0 || row.incrementalJobsPerSuite > 0;
+    });
     const families = {};
     rows.forEach(function (row) {
       const family = families[row.family] || {
@@ -7362,8 +7628,9 @@
         capacityGpus: 0,
       };
       family.demandGpus += row.demandGpuSlots;
-      if (row.combinedJobs === null) family.combinedAvailable = false;
-      else family.combinedDemandGpus += row.combinedJobs * row.gpusPerJob;
+      const familyPressureJobs = trafficMode === 'sustained' ? row.offeredLoadJobs : row.combinedJobs;
+      if (familyPressureJobs === null) family.combinedAvailable = false;
+      else family.combinedDemandGpus += familyPressureJobs * row.gpusPerJob;
       family.capacityGpus += row.capacityGpuSlots;
       families[row.family] = family;
     });
@@ -7376,16 +7643,20 @@
       });
     });
     const unavailableRows = activeRows.filter(function (row) { return row.wait.status === 'unavailable'; });
-    const waitStatus = unavailableRows.length ? 'unavailable' : 'finite';
-    const samples = waitStatus === 'finite'
+    const unstableRows = activeRows.filter(function (row) { return row.wait.status === 'unstable'; });
+    const waitStatus = unstableRows.length ? 'unstable' : unavailableRows.length ? 'unavailable' : 'finite';
+    const samples = trafficMode === 'burst' && waitStatus === 'finite'
       ? activeRows.reduce(function (all, row) { return all.concat(row.wait.samples || []); }, []).sort(function (left, right) { return left - right; })
+      : [];
+    const completionSamples = trafficMode === 'burst' && waitStatus === 'finite'
+      ? activeRows.reduce(function (all, row) { return all.concat(row.wait.completionSamples || []); }, []).sort(function (left, right) { return left - right; })
       : [];
     function sampleQuantile(percentile) {
       if (!samples.length) return 0;
       return samples[Math.max(0, Math.ceil(percentile * samples.length) - 1)];
     }
     const rankedRows = activeRows.slice().sort(function (left, right) {
-      const statusRank = {unavailable: 2, finite: 1};
+      const statusRank = {unstable: 3, unavailable: 2, finite: 1};
       return (statusRank[right.wait.status] || 0) - (statusRank[left.wait.status] || 0)
         || Number(right.pressurePct || 0) - Number(left.pressurePct || 0)
         || Number(right.wait.p95 || 0) - Number(left.wait.p95 || 0)
@@ -7403,10 +7674,28 @@
       : null;
     const demandGpuSlots = activeRows.reduce(function (sum, row) { return sum + row.demandGpuSlots; }, 0);
     const zeroWaitFamilyAvailable = familyRows.every(function (row) { return row.zeroWaitGapGpus !== null; });
+    const finiteSteadyRows = activeRows.filter(function (row) { return row.wait.status === 'finite'; });
+    const steadyP50 = finiteSteadyRows.length
+      ? Math.max.apply(null, finiteSteadyRows.map(function (row) { return Number(row.wait.p50 || 0); }))
+      : 0;
+    const steadyP95 = finiteSteadyRows.length
+      ? Math.max.apply(null, finiteSteadyRows.map(function (row) { return Number(row.wait.p95 || 0); }))
+      : 0;
+    const allStartedBy = trafficMode === 'burst' && waitStatus === 'finite'
+      ? (samples[samples.length - 1] || 0)
+      : null;
+    const allCompletedBy = trafficMode === 'burst' && waitStatus === 'finite'
+      ? (completionSamples[completionSamples.length - 1] || 0)
+      : null;
     return {
       mode: mode,
+      trafficMode: trafficMode,
+      burstLimitExceeded: burstLimitExceeded,
+      burstLimitJobs: CAPACITY_MAX_INTERACTIVE_BURST_JOBS,
       baseline: baselineName,
       suites: suites,
+      suitesPerHour: suitesPerHour,
+      placementStrategy: mode === 'queue' ? null : (profile.selected_placement_strategy || null),
       groups: topology.groups,
       totalGateGroups: topology.totalGateGroups === undefined ? topology.groups : topology.totalGateGroups,
       totalGateJobs: topology.totalGateJobs === undefined ? topology.jobs : topology.totalGateJobs,
@@ -7425,17 +7714,53 @@
         ? familyRows.reduce(function (sum, row) { return sum + row.zeroWaitGapGpus; }, 0)
         : null,
       waitStatus: waitStatus,
-      p50Wait: waitStatus === 'finite' ? sampleQuantile(0.5) : null,
-      p95Wait: waitStatus === 'finite' ? sampleQuantile(0.95) : null,
-      maxWait: waitStatus === 'finite' ? (samples[samples.length - 1] || 0) : null,
+      p50Wait: waitStatus === 'finite'
+        ? (trafficMode === 'sustained' ? steadyP50 : sampleQuantile(0.5))
+        : null,
+      p95Wait: waitStatus === 'finite'
+        ? (trafficMode === 'sustained' ? steadyP95 : sampleQuantile(0.95))
+        : null,
+      maxWait: waitStatus === 'finite' && trafficMode === 'burst' ? (samples[samples.length - 1] || 0) : null,
+      allStartedBy: allStartedBy,
+      allCompletedBy: allCompletedBy,
       unavailableQueues: unavailableRows.map(function (row) { return row.id; }),
+      unstableQueues: unstableRows.map(function (row) { return row.id; }),
       bottleneck: rankedRows[0] || null,
       totalCapacityGpus: totalCapacityGpus,
       baselineGpus: baselineQueuedGpus,
       baselineQueuedGpus: baselineQueuedGpus,
-      aggregatePressurePct: baselineQueuedGpus !== null && totalCapacityGpus
-        ? (baselineQueuedGpus + demandGpuSlots) / totalCapacityGpus * 100
-        : null,
+      aggregatePressurePct: trafficMode === 'sustained'
+        ? (
+          totalCapacityGpus && !activeRows.some(function (row) { return row.offeredLoadJobs === null; })
+            ? activeRows.reduce(function (sum, row) {
+              return sum + Number(row.offeredLoadJobs || 0) * row.gpusPerJob;
+            }, 0) / totalCapacityGpus * 100
+            : null
+        )
+        : (
+          baselineQueuedGpus !== null && totalCapacityGpus
+            ? (baselineQueuedGpus + demandGpuSlots) / totalCapacityGpus * 100
+            : null
+        ),
+      historicalArrivalRate: activeRows.reduce(function (sum, row) {
+        return sum + Number(row.historicalArrivalRate || 0);
+      }, 0),
+      incrementalArrivalRate: activeRows.reduce(function (sum, row) {
+        return sum + Number(row.incrementalArrivalRate || 0);
+      }, 0),
+      offeredLoadGpuSlots: activeRows.some(function (row) { return row.offeredLoadJobs === null; })
+        ? null
+        : activeRows.reduce(function (sum, row) {
+          return sum + Number(row.offeredLoadJobs || 0) * row.gpusPerJob;
+        }, 0),
+      maximumRho: activeRows.some(function (row) { return row.wait.status === 'unavailable'; })
+        ? null
+        : activeRows.reduce(function (maximum, row) {
+          return Math.max(maximum, Number(row.wait.rho || 0));
+        }, 0),
+      stabilityGapGpus: activeRows.reduce(function (sum, row) {
+        return sum + Number(row.wait.capacityGapJobs || 0) * row.gpusPerJob;
+      }, 0),
       unplacedRetiring: profile.unplaced_retiring_workload || null,
       topology: topology,
     };
@@ -7503,9 +7828,13 @@
         groups: scenario.totalGateGroups,
         jobs: scenario.totalGateJobs,
         burstJobs: scenario.jobs,
+        trafficMode: scenario.trafficMode,
+        suitesPerHour: scenario.suitesPerHour,
         status: scenario.waitStatus,
         p95Wait: scenario.p95Wait,
         maxWait: scenario.maxWait,
+        maximumRho: scenario.maximumRho,
+        stabilityGapGpus: scenario.stabilityGapGpus,
         bottleneck: scenario.bottleneck ? scenario.bottleneck.id : '',
         pressurePct: scenario.bottleneck ? scenario.bottleneck.pressurePct : null,
       };
@@ -7513,6 +7842,7 @@
   }
 
   function capacityWaitLabel(status, minutes) {
+    if (status === 'unstable') return 'Unstable (ρ ≥ 1)';
     if (status === 'unavailable') return 'Not estimable';
     return duration(minutes);
   }
@@ -7520,6 +7850,7 @@
   function capacityServiceSourceLabel(source) {
     const labels = {
       target_command_job_median_average: 'target-runtime command-job median average',
+      placement_strategy_target_command_job_median_average: 'selected-placement target-runtime command-job median average',
       completed_agent_minutes_per_finished_job_proxy_fallback: 'completed mapping proxy fallback (potentially downward biased)',
       target_suite_global_median_average_fallback: 'global target-suite median average fallback',
       user_input_for_specific_test_shape: 'manual scenario input',
@@ -7532,13 +7863,26 @@
       ? 'Retiring MI325 workload is unplaced and excluded from every wait and headroom figure below until a compatible destination is chosen. '
       : '';
     let waitText;
-    if (result.waitStatus === 'unavailable') {
-      waitText = 'Wait cannot be estimated because observed capacity or service-time inputs are missing for '
+    if (result.burstLimitExceeded) {
+      waitText = 'This one-time burst exceeds the ' + integer(result.burstLimitJobs)
+        + '-job browser safety limit, so wait is intentionally not simulated. Reduce jobs or simultaneous suites.';
+    } else if (result.trafficMode === 'sustained' && result.waitStatus === 'unstable') {
+      waitText = 'Sustained arrivals are unstable on ' + result.unstableQueues.join(', ')
+        + ': long-run offered load meets or exceeds configured runners, so the queue grows without a finite steady-state wait. '
+        + 'Add at least ' + integer(result.stabilityGapGpus) + ' queue-shaped GPUs, reduce suites/hour, or change an explicitly supported placement.';
+    } else if (result.waitStatus === 'unavailable') {
+      waitText = 'Wait cannot be estimated because configured capacity, weekday cohort-rate, or service-time inputs are missing for '
         + result.unavailableQueues.join(', ') + '.';
+    } else if (result.trafficMode === 'sustained') {
+      waitText = 'The sustained Erlang-C approximation is stable at every used queue: worst-queue p95 wait is '
+        + duration(result.p95Wait) + ' and maximum utilization is '
+        + (Number(result.maximumRho || 0) * 100).toFixed(1) + '%.';
     } else {
-      waitText = 'Projected FCFS burst start wait is ' + duration(result.p50Wait) + ' p50, '
+      waitText = 'For this one-time burst with no future arrivals, projected FCFS start wait is ' + duration(result.p50Wait) + ' p50, '
         + duration(result.p95Wait) + ' p95, and ' + duration(result.maxWait)
-        + ' maximum under the conservative full-service residual assumption.';
+        + ' maximum; all scenario jobs start by ' + duration(result.allStartedBy)
+        + ' and finish by ' + duration(result.allCompletedBy)
+        + ' under the conservative full-service residual assumption.';
     }
     let standaloneText;
     if (result.familyGapGpus > 0) {
@@ -7566,26 +7910,33 @@
     } else {
       zeroWaitText = 'The selected background retains enough configured headroom for zero start wait.';
     }
-    return unplacedText + waitText + ' ' + standaloneText + ' ' + zeroWaitText;
+    return unplacedText + waitText + ' ' + standaloneText
+      + (result.trafficMode === 'burst' ? ' ' + zeroWaitText : '');
   }
 
   function openCapacityQueueDetail(row, result) {
     const wait = row.wait || {};
     const history = (row.sourceQueue || {}).history || {};
-    const note = n('div', 'ops-evidence-note is-info', 'Planning estimate, not an SLA. FCFS gives every observed running job one conservative full service interval of residual work, places observed waiting jobs ahead, and then list-schedules the scenario onto the configured runners. Cross-queue migration is never inferred.');
+    const note = n('div', 'ops-evidence-note is-info', result.trafficMode === 'sustained'
+      ? 'Planning estimate, not an SLA. Erlang-C uses the weekday created-at cohort that later started as an arrival-rate proxy, plus only the selected expansion delta. It does not add snapshot occupancy. Cross-queue migration is never inferred.'
+      : 'Planning estimate, not an SLA. This one-time burst assumes no future arrivals. FCFS gives every observed running job one conservative full service interval of residual work, places observed waiting jobs ahead, and then list-schedules the scenario onto the configured runners. Cross-queue migration is never inferred.');
     openDetailDrawer({
       id: 'capacity-queue-' + row.id,
       title: row.label,
       subtitle: row.family + ' queue bottleneck evidence',
       description: wait.reason || 'Projected queue response for the selected route-shareable scenario.',
       fields: [
-        {label: 'Baseline', value: result.baseline},
+        {label: 'Traffic model', value: result.trafficMode === 'sustained' ? 'Sustained arrivals' : 'One-time burst'},
+        {label: 'Baseline', value: result.trafficMode === 'sustained' ? 'Five-weekday started-cohort rate proxy' : result.baseline},
         {label: 'Observed running / waiting', value: row.baselineRunning === null ? null : value(row.baselineRunning) + ' / ' + value(row.baselineWaiting)},
         {label: 'Scenario jobs', value: integer(row.demandJobs)},
+        {label: 'Historical / added / total jobs per hour', value: result.trafficMode === 'sustained' ? (row.historicalArrivalRate === null ? 'Unavailable' : row.historicalArrivalRate.toFixed(2) + ' / ' + row.incrementalArrivalRate.toFixed(2) + ' / ' + row.arrivalRate.toFixed(2)) : 'Not applicable'},
+        {label: 'Offered load / utilization', value: result.trafficMode === 'sustained' && row.offeredLoadJobs !== null ? row.offeredLoadJobs.toFixed(2) + ' jobs / ' + (Number(wait.rho || 0) * 100).toFixed(1) + '%' : 'Not applicable'},
         {label: 'Configured slots', value: integer(row.capacityJobs)},
         {label: 'Combined pressure', value: row.pressurePct === null ? null : row.pressurePct.toFixed(1) + '%'},
         {label: 'Service estimate', value: Number.isFinite(Number(row.serviceMinutes)) ? duration(row.serviceMinutes) + ' · ' + capacityServiceSourceLabel(row.serviceSource) : 'Unavailable'},
-        {label: 'p50 / p95 / max start wait', value: capacityWaitLabel(wait.status, wait.p50) + ' / ' + capacityWaitLabel(wait.status, wait.p95) + ' / ' + capacityWaitLabel(wait.status, wait.max)},
+        {label: 'p50 / p95 start wait', value: capacityWaitLabel(wait.status, wait.p50) + ' / ' + capacityWaitLabel(wait.status, wait.p95)},
+        {label: 'All one-time jobs started / completed by', value: result.trafficMode === 'burst' ? capacityWaitLabel(wait.status, wait.allStartedBy) + ' / ' + capacityWaitLabel(wait.status, wait.allCompletedBy) : 'Not applicable'},
         {label: 'Suite-alone simultaneous-start gap', value: integer(row.shapeGapJobs) + ' jobs · ' + integer(row.shapeGapGpus) + ' GPUs'},
         {label: 'Background + suite zero-wait gap', value: row.combinedGapJobs === null ? 'Unavailable' : integer(row.combinedGapJobs) + ' jobs · ' + integer(row.combinedGapGpus) + ' GPUs'},
         {label: 'History samples', value: integer(history.sample_count || 0)},
@@ -7618,13 +7969,45 @@
     return field;
   }
 
+  function capacityRouteRateField(label, stateKey, queryKey, rawValue, minimum, maximum, suffix) {
+    const field = n('label', 'ops-capacity-field');
+    const input = n('input', 'ops-input ops-capacity-number');
+    input.type = 'number';
+    input.min = String(minimum);
+    input.max = String(maximum);
+    input.step = '0.1';
+    input.value = String(rawValue);
+    input.setAttribute('aria-label', label);
+    input.addEventListener('change', function () {
+      const parsed = Number(input.value);
+      const fallback = Number(rawValue);
+      const next = Number.isFinite(parsed)
+        ? Math.max(minimum, Math.min(maximum, parsed))
+        : fallback;
+      setRouteState('ci-hotness', stateKey, String(Math.round(next * 10) / 10), queryKey);
+    });
+    add(field, [n('span', 'ops-field-label', label), n('div', 'ops-capacity-input-wrap')]);
+    field.lastChild.append(input);
+    if (suffix) field.lastChild.append(n('span', 'ops-capacity-input-suffix', suffix));
+    return field;
+  }
+
   function renderCapacityProjection(host, capacity) {
     capacity = capacity || {};
-    const profile = capacity.simulation_profile || {};
-    if (!capacity.available || !profile.available || !(profile.queues || []).length) {
+    const rawProfile = capacity.simulation_profile || {};
+    if (!capacity.available || !rawProfile.available || !(rawProfile.queues || []).length) {
       host.append(n('div', 'ops-evidence-note is-warning', 'Interactive capacity planning is unavailable until the AMD semantic matrix, queue quota catalog, mapping aggregate, and queue history are rebuilt into the operations snapshot.'));
       return;
     }
+    const publishedPlacement = rawProfile.placement_profiles || capacity.placement_profiles || {};
+    const defaultPlacementId = publishedPlacement.default_strategy_id || 'mi355_preferred';
+    const requestedPlacementId = state.capacityPlacement || defaultPlacementId;
+    const profile = capacityProfileForPlacement(
+      Object.assign({}, rawProfile, {placement_profiles: publishedPlacement}),
+      requestedPlacementId
+    );
+    const selectedPlacement = profile.selected_placement_strategy || null;
+    const selectedPlacementId = selectedPlacement ? selectedPlacement.id : requestedPlacementId;
     const topology = profile.topology || {};
     const currentTopology = topology.current || {};
     const targetTopology = topology.target || {};
@@ -7633,6 +8016,8 @@
     const inputs = {
       mode: state.capacityMode,
       baseline: state.capacityBaseline,
+      trafficMode: state.capacityTrafficMode,
+      placement: selectedPlacementId,
       groups: capacityInteger(state.capacityGroups, Number(targetTopology.groups || 160), 0, 5000),
       jobs: capacityInteger(state.capacityJobs, Number(targetTopology.jobs || 196), 0, 50000),
       queue: selectedQueue,
@@ -7640,10 +8025,14 @@
       parallel: capacityInteger(state.capacityParallel, 1, 1, 256),
       duration: capacityInteger(state.capacityDuration, 30, 1, 1440),
       suites: capacityInteger(state.capacitySuites, 1, 1, 20),
+      suitesPerHour: Math.max(0, Math.min(1000, Number(state.capacitySuitesPerHour) || 0)),
     };
     const result = capacityScenario(profile, inputs);
     const curve = capacityGrowthCurve(profile, inputs);
     const bottleneck = result.bottleneck;
+    const placementMi355 = (((result.placementStrategy || {}).families) || []).find(function (row) {
+      return row.family === 'MI355';
+    }) || {};
 
     const plannerControls = n('div', 'ops-capacity-controls');
     plannerControls.append(segmented([
@@ -7653,6 +8042,12 @@
     ], inputs.mode, function (id) {
       setRouteState('ci-hotness', 'capacityMode', id, 'capacity_mode');
     }, 'Capacity simulation input mode'));
+    plannerControls.append(segmented([
+      {id: 'burst', label: 'One-time burst'},
+      {id: 'sustained', label: 'Sustained arrivals'},
+    ], inputs.trafficMode, function (id) {
+      setRouteState('ci-hotness', 'capacityTrafficMode', id, 'capacity_traffic');
+    }, 'Choose a one-time gate burst or a continuing arrival-rate model'));
     const fields = n('div', 'ops-capacity-fields');
     if (inputs.mode === 'groups') {
       fields.append(capacityRouteNumberField('Target test groups', 'capacityGroups', 'capacity_groups', inputs.groups, 0, 5000, 'groups'));
@@ -7677,28 +8072,102 @@
       fields.append(capacityRouteNumberField('Parallel jobs / group', 'capacityParallel', 'capacity_parallel', inputs.parallel, 1, 256, 'jobs'));
       fields.append(capacityRouteNumberField('Expected duration', 'capacityDuration', 'capacity_duration', inputs.duration, 1, 1440, 'min'));
     }
-    fields.append(capacityRouteNumberField('Simultaneous suites', 'capacitySuites', 'capacity_suites', inputs.suites, 1, 20, 'suites'));
-    const baselineField = n('div', 'ops-capacity-field ops-capacity-baseline');
-    add(baselineField, [
-      n('span', 'ops-field-label', 'Background load'),
-      segmented([
-        {id: 'current', label: 'Current'},
-        {id: 'typical', label: 'Typical p50'},
-        {id: 'peak', label: 'Peak p95'},
-      ], inputs.baseline, function (id) {
-        setRouteState('ci-hotness', 'capacityBaseline', id, 'capacity_baseline');
-      }, 'Observed background-load baseline'),
-    ]);
-    fields.append(baselineField);
+    if (inputs.mode !== 'queue' && (publishedPlacement.strategies || []).length) {
+      const placementField = n('label', 'ops-capacity-field');
+      const placementSelect = n('select', 'ops-select ops-capacity-queue-select');
+      placementSelect.setAttribute('aria-label', 'Target AMD placement strategy');
+      (publishedPlacement.strategies || []).forEach(function (strategy) {
+        const option = n('option', '', strategy.label || strategy.id);
+        option.value = strategy.id;
+        option.selected = strategy.id === selectedPlacementId;
+        placementSelect.append(option);
+      });
+      placementSelect.addEventListener('change', function () {
+        setRouteState('ci-hotness', 'capacityPlacement', placementSelect.value, 'capacity_placement');
+      });
+      add(placementField, [n('span', 'ops-field-label', 'Target placement'), placementSelect]);
+      fields.append(placementField);
+    }
+    if (inputs.trafficMode === 'sustained') {
+      fields.append(capacityRouteRateField('Added gate suites / hour', 'capacitySuitesPerHour', 'capacity_suites_per_hour', inputs.suitesPerHour, 0, 1000, 'suites/h'));
+    } else {
+      fields.append(capacityRouteNumberField('Simultaneous suites', 'capacitySuites', 'capacity_suites', inputs.suites, 1, 20, 'suites'));
+      const baselineField = n('div', 'ops-capacity-field ops-capacity-baseline');
+      add(baselineField, [
+        n('span', 'ops-field-label', 'Observed background'),
+        segmented([
+          {id: 'current', label: 'Current'},
+          {id: 'typical', label: '5-day joint p50'},
+          {id: 'peak', label: '5-day joint p95'},
+          {id: 'stress', label: 'Observed stress'},
+        ], inputs.baseline, function (id) {
+          setRouteState('ci-hotness', 'capacityBaseline', id, 'capacity_baseline');
+        }, 'Coherent whole-cluster background snapshot'),
+      ]);
+      fields.append(baselineField);
+    }
     add(plannerControls, [
       fields,
-      n('p', 'ops-capacity-control-note', inputs.mode === 'queue'
-        ? 'Simulates only the newly added YAML-like mirror shape; the displayed total gate becomes today’s topology plus those groups. Queue choice is explicit and compatibility is never inferred.'
+      n('p', 'ops-capacity-control-note', (inputs.mode === 'queue'
+        ? 'Simulates only the newly added YAML-like mirror shape; the displayed total gate becomes today’s topology plus those groups. Queue choice is explicit and compatibility is never inferred. '
         : 'Auto mix interpolates the observed ' + integer(currentTopology.groups)
           + '-group queue topology to the exact ' + integer(targetTopology.groups)
-          + '-group target. Largest-remainder allocation preserves the displayed total jobs.'),
+          + '-group target. Largest-remainder allocation preserves the displayed total jobs. ')
+        + (inputs.trafficMode === 'sustained'
+          ? 'Sustained load adds only the expansion delta to the measured weekday started-cohort rate; it does not add snapshot occupancy again.'
+          : 'A one-time burst assumes no future arrivals after the selected gate is submitted.')),
     ]);
     host.append(panel('Capacity scenario planner', 'Inputs are encoded in the URL for review and sharing', plannerControls, 'ops-capacity-planner'));
+    if (selectedPlacement && selectedPlacement.limitation) {
+      const placementNote = n('div', 'ops-evidence-note is-info');
+      add(placementNote, [
+        n('strong', '', (selectedPlacement.label || selectedPlacement.id) + '. '),
+        n('span', '', selectedPlacement.limitation),
+      ]);
+      host.append(placementNote);
+    }
+    const historySummary = profile.history || {};
+    const analysisWindow = historySummary.analysis_window || profile.analysis_window || {};
+    const jointBaselines = historySummary.joint_baselines || profile.joint_baselines || {};
+    function jointLoadLabel(preset) {
+      const row = jointBaselines[preset] || {};
+      if (row.available !== true) return 'Unavailable';
+      return integer(row.running_gpu_slots) + ' running / ' + integer(row.waiting_gpu_slots) + ' waiting GPUs';
+    }
+    function jointTimestamp(preset) {
+      const row = jointBaselines[preset] || {};
+      return row.observed_at ? shortDate(row.observed_at) : 'No complete snapshot';
+    }
+    if (analysisWindow.start_at || Object.keys(jointBaselines).length) {
+      host.append(statusStrip([
+        {
+          id: 'capacity-window',
+          label: 'PEAK WINDOW',
+          value: '5 weekdays / 7 days',
+          meta: integer(analysisWindow.complete_snapshot_count || 0) + ' complete snapshots · weekends excluded · UTC',
+        },
+        {
+          id: 'capacity-joint-typical',
+          label: 'JOINT P50',
+          value: jointLoadLabel('typical'),
+          meta: jointTimestamp('typical') + ' · one real whole-cluster snapshot',
+        },
+        {
+          id: 'capacity-joint-peak',
+          label: 'JOINT P95',
+          value: jointLoadLabel('peak'),
+          meta: jointTimestamp('peak') + ' · ranked by running + waiting GPU pressure',
+          tone: 'is-info',
+        },
+        {
+          id: 'capacity-joint-stress',
+          label: 'OBSERVED STRESS MAX',
+          value: jointLoadLabel('stress'),
+          meta: jointTimestamp('stress') + ' · raw values retained even above configured quota',
+          tone: 'is-warning',
+        },
+      ]));
+    }
     if (Number(capacity.declared_current_mirror_groups) !== Number(capacity.observed_current_mirror_groups)) {
       const drift = n('div', 'ops-capacity-drift');
       add(drift, [
@@ -7708,6 +8177,68 @@
           + '. Simulation uses the observed topology.'),
       ]);
       host.append(drift);
+    }
+    const quotaIntegrity = profile.quota_integrity || profile.integrity || {};
+    if (quotaIntegrity.quota_drift_detected === true || quotaIntegrity.status === 'warning') {
+      const queueIntegrity = quotaIntegrity.queue || {};
+      const familyIntegrity = quotaIntegrity.family || {};
+      const connectedIntegrity = quotaIntegrity.connected_agents || {};
+      const queueViolations = queueIntegrity.violations || quotaIntegrity.queue_violations || [];
+      const familyViolations = familyIntegrity.violations || quotaIntegrity.family_violations || [];
+      function openQuotaIntegrity() {
+        const evidence = n('div', 'ops-stack');
+        if (queueViolations.length) {
+          evidence.append(dataTable([
+            {label: 'Queue', sticky: true, render: function (row) { return row.id; }},
+            {label: 'Configured jobs', numeric: true, render: function (row) { return integer(row.configured_capacity_jobs); }},
+            {label: 'Maximum running', numeric: true, render: function (row) { return integer(row.maximum_running_occupancy_jobs); }},
+            {label: 'Waiting then', numeric: true, render: function (row) { return integer(row.waiting_demand_jobs_at_maximum); }},
+            {label: 'Maximum excess GPUs', numeric: true, render: function (row) { return integer(row.maximum_excess_running_gpu_slots); }},
+            {label: 'Observed at', render: function (row) { return shortDate(row.maximum_observed_at); }},
+          ], queueViolations, 'Observed occupancy above configured quota', {name: 'capacity-quota-integrity', minWidth: '850px'}));
+        }
+        if ((connectedIntegrity.queues || []).length) {
+          evidence.append(dataTable([
+            {label: 'Queue', sticky: true, render: function (row) { return row.id; }},
+            {label: 'Configured jobs', numeric: true, render: function (row) { return integer(row.configured_capacity_jobs); }},
+            {label: 'Latest connected', numeric: true, render: function (row) { return row.available ? integer(row.latest_connected_agents) : 'Unavailable'; }},
+            {label: 'Delta', numeric: true, render: function (row) { return row.available ? (Number(row.signed_delta_jobs) > 0 ? '+' : '') + integer(row.signed_delta_jobs) : '-'; }},
+            {label: 'Direction', render: function (row) { return row.direction; }},
+            {label: 'Source / timestamp', render: function (row) { return row.available ? value(row.source) + ' · ' + value(row.metrics_timestamp) : '-'; }},
+          ], connectedIntegrity.queues, 'Queue-native connected agents versus planning quota', {name: 'capacity-connected-integrity', minWidth: '900px'}));
+        }
+        openDetailDrawer({
+          id: 'capacity-quota-integrity',
+          title: 'Configured planning-quota integrity',
+          subtitle: 'Five-weekday occupancy plus queue-native connected-agent evidence',
+          description: (quotaIntegrity.semantics || 'Observed running occupancy is compared with configured planning quota. Waiting demand is reported separately.')
+            + ' ' + value(connectedIntegrity.semantics),
+          fields: [
+            {label: 'Affected queues', value: integer(queueIntegrity.affected_queue_count || queueViolations.length)},
+            {label: 'Affected hardware families', value: integer(familyIntegrity.affected_family_count || familyViolations.length)},
+            {label: 'Connected-agent mismatches', value: integer(connectedIntegrity.mismatch_queue_count || 0)},
+            {label: 'Connected-agent data unavailable', value: integer(connectedIntegrity.unavailable_queue_count || 0)},
+            {label: 'Observed snapshots', value: integer(quotaIntegrity.observed_snapshot_count || 0)},
+            {label: 'Window', value: value(quotaIntegrity.window_start_at || analysisWindow.start_at) + ' → ' + value(quotaIntegrity.window_end_at || analysisWindow.end_at)},
+            {label: 'Planning behavior', value: 'Configured quota retained; transient observations do not silently enlarge capacity'},
+          ],
+          content: evidence,
+          sources: [
+            {label: 'Inspect raw queue history', url: SOURCE_ASSETS.queueHistory},
+            {label: 'Inspect configured capacity inputs', url: SOURCE_ASSETS.operations},
+          ],
+        });
+      }
+      const warning = n('div', 'ops-evidence-note is-warning');
+      add(warning, [
+        n('strong', '', 'Configured quota does not reconcile with observed capacity signals. '),
+        n('span', '', integer(queueIntegrity.affected_queue_count || queueViolations.length)
+          + ' queues exceeded today’s configured job quota in the five-weekday window; '
+          + integer(connectedIntegrity.mismatch_queue_count || 0)
+          + ' latest queue-native connected-agent counts differ from planning quota. Waiting jobs are demand, not occupancy. The planner keeps the configured quota and does not treat transient connected capacity as guaranteed future hardware. '),
+        linkButton('Inspect quota evidence', openQuotaIntegrity),
+      ]);
+      host.append(warning);
     }
 
     const unplaced = profile.unplaced_retiring_workload || {};
@@ -7766,6 +8297,10 @@
             const baseline = (row.history || {}).peak || {};
             return baseline.available ? value(baseline.running) + ' / ' + value(baseline.waiting) : '-';
           }},
+          {label: 'Stress run / wait', numeric: true, render: function (row) {
+            const baseline = (row.history || {}).stress || {};
+            return baseline.available ? value(baseline.running) + ' / ' + value(baseline.waiting) : '-';
+          }},
         ], rows, 'Retiring MI325 evidence', {name: 'capacity-unplaced-mi325', minWidth: '820px'}));
       }
       openDetailDrawer({
@@ -7784,6 +8319,7 @@
           {label: 'Current occupancy', value: unplacedOccupancyLabel('current')},
           {label: 'Typical p50 occupancy', value: unplacedOccupancyLabel('typical')},
           {label: 'Peak p95 occupancy', value: unplacedOccupancyLabel('peak')},
+          {label: 'Observed stress occupancy', value: unplacedOccupancyLabel('stress')},
           {label: 'Included in wait/headroom', value: 'No'},
           {label: 'Placement rule', value: 'User-confirmed compatible destination only'},
         ],
@@ -7807,7 +8343,7 @@
         {label: (unplacedWindow.days ? integer(unplacedWindow.days) + 'd' : 'Window') + ' observed mappings', value: unplacedNumber(unplacedTotals.mapped_jobs, 0)},
         {label: 'Completed GPU-hours', value: unplacedNumber(unplacedTotals.gpu_hours, 1)},
         {label: 'Average load', value: unplacedTotals.average_gpus !== null && unplacedTotals.average_gpus !== undefined && Number.isFinite(Number(unplacedTotals.average_gpus)) ? unplacedNumber(unplacedTotals.average_gpus, 1) + ' GPUs' : '-'},
-        {label: 'Peak occupancy', value: unplacedOccupancyLabel('peak')},
+        {label: '5-day stress occupancy', value: unplacedOccupancyLabel('stress')},
       ].forEach(function (fact) {
         const item = n('span', 'ops-capacity-unplaced-fact');
         add(item, [n('small', '', fact.label), n('strong', '', fact.value)]);
@@ -7831,11 +8367,14 @@
           {label: inputs.mode === 'queue' ? 'New groups' : 'Groups per suite', value: integer(result.groups)},
           {label: inputs.mode === 'queue' ? 'New jobs per suite' : 'Jobs per suite', value: integer(result.jobsPerSuite)},
           {label: 'Resulting total gate', value: integer(result.totalGateGroups) + ' groups · ' + integer(result.totalGateJobs) + ' jobs'},
-          {label: 'Simultaneous suites', value: integer(result.suites)},
-          {label: 'Burst jobs / GPU slots', value: integer(result.jobs) + ' / ' + integer(result.gpuSlots)},
-          {label: 'Background baseline', value: result.baseline},
-          {label: 'Queued background GPUs', value: result.baselineQueuedGpus === null ? 'Unavailable' : integer(result.baselineQueuedGpus)},
-          {label: 'Aggregate queued GPU pressure', value: result.aggregatePressurePct === null ? 'Unavailable' : result.aggregatePressurePct.toFixed(1) + '%'},
+          {label: 'Traffic model', value: result.trafficMode === 'sustained' ? 'Sustained arrivals' : 'One-time burst; no future arrivals'},
+          {label: result.trafficMode === 'sustained' ? 'Added suites / hour' : 'Simultaneous suites', value: result.trafficMode === 'sustained' ? result.suitesPerHour : integer(result.suites)},
+          {label: 'Placement', value: (result.placementStrategy || {}).label || (result.placementStrategy || {}).id || (inputs.mode === 'queue' ? 'Explicit queue' : 'Published default')},
+          {label: 'Burst jobs / GPU slots', value: result.trafficMode === 'burst' ? integer(result.jobs) + ' / ' + integer(result.gpuSlots) : 'Not used by the steady-state model'},
+          {label: 'Background baseline', value: result.trafficMode === 'burst' ? result.baseline : 'Five-weekday started-cohort rate proxy'},
+          {label: 'Historical / incremental arrival rate', value: result.trafficMode === 'sustained' ? result.historicalArrivalRate.toFixed(2) + ' / ' + result.incrementalArrivalRate.toFixed(2) + ' jobs/h' : 'Not applicable'},
+          {label: 'Aggregate pressure', value: result.aggregatePressurePct === null ? 'Unavailable' : result.aggregatePressurePct.toFixed(1) + '%'},
+          {label: 'All burst jobs started / completed by', value: result.trafficMode === 'burst' ? duration(result.allStartedBy) + ' / ' + duration(result.allCompletedBy) : 'Not applicable'},
         ],
         sources: [{label: 'Open published planning inputs', url: SOURCE_ASSETS.operations}],
       });
@@ -7846,38 +8385,59 @@
       });
       openDetailDrawer({
         id: 'capacity-wait-summary',
-        title: 'Projected FCFS burst wait',
-        subtitle: 'Per-queue planning estimate; not an SLA',
+        title: result.trafficMode === 'sustained' ? 'Projected sustained queue response' : 'Projected one-time FCFS burst wait',
+        subtitle: result.trafficMode === 'sustained' ? 'Erlang-C steady-state approximation; not an SLA' : 'No future arrivals after the burst; not an SLA',
         description: capacityVerdict(result),
         content: dataTable([
           {label: 'Queue', sticky: true, render: function (row) { return row.label; }},
+          {label: 'Arrival jobs/h', numeric: true, render: function (row) { return result.trafficMode === 'sustained' && row.arrivalRate !== null ? row.arrivalRate.toFixed(2) : '-'; }},
+          {label: 'Utilization', numeric: true, render: function (row) { return result.trafficMode === 'sustained' && row.wait.status !== 'unavailable' ? (Number(row.wait.rho || 0) * 100).toFixed(1) + '%' : '-'; }},
           {label: 'p50', numeric: true, render: function (row) { return capacityWaitLabel(row.wait.status, row.wait.p50); }},
           {label: 'p95', numeric: true, render: function (row) { return capacityWaitLabel(row.wait.status, row.wait.p95); }},
-          {label: 'Max', numeric: true, render: function (row) { return capacityWaitLabel(row.wait.status, row.wait.max); }},
-        ], waitRows, 'Queue-level FCFS results', {name: 'capacity-wait-detail', minWidth: '600px'}),
+          {label: 'All started by', numeric: true, render: function (row) { return result.trafficMode === 'burst' ? capacityWaitLabel(row.wait.status, row.wait.allStartedBy) : '-'; }},
+          {label: 'All completed by', numeric: true, render: function (row) { return result.trafficMode === 'burst' ? capacityWaitLabel(row.wait.status, row.wait.allCompletedBy) : '-'; }},
+        ], waitRows, 'Queue-level planning results', {name: 'capacity-wait-detail', minWidth: '820px'}),
         sources: [{label: 'Inspect queue history', url: SOURCE_ASSETS.queueHistory}],
       });
     }
     function openHardwareSummary() {
-      openDetailDrawer({
-        id: 'capacity-hardware-summary',
-        title: 'Hardware and queue-shape action',
-        subtitle: 'Simultaneous-start queue shape and fixed-family constraints',
-        description: capacityVerdict(result),
-        fields: [
+      const sustained = result.trafficMode === 'sustained';
+      const fields = sustained
+        ? [
+          {label: 'Steady-state status', value: capacityWaitLabel(result.waitStatus, result.p95Wait)},
+          {label: 'Queue-shaped capacity needed for ρ < 1', value: result.waitStatus === 'unavailable' ? 'Unavailable' : integer(result.stabilityGapGpus) + ' GPUs'},
+          {label: 'Modeled offered load', value: result.offeredLoadGpuSlots === null ? 'Unavailable' : result.offeredLoadGpuSlots.toFixed(1) + ' GPU slots'},
+          {label: 'Post-MI325 configured pool', value: integer(result.totalCapacityGpus) + ' GPUs'},
+          {label: 'One-suite immediate-start queue-shape gap (separate)', value: integer(result.shapeGapGpus) + ' GPUs'},
+        ]
+        : [
           {label: 'Suite-alone simultaneous-start queue-shape gap', value: integer(result.shapeGapGpus) + ' GPUs'},
           {label: 'Suite-alone simultaneous-start fixed-family gap', value: integer(result.familyGapGpus) + ' GPUs'},
           {label: 'Background + suite zero-wait queue-shape gap', value: result.zeroWaitShapeGapGpus === null ? 'Unavailable' : integer(result.zeroWaitShapeGapGpus) + ' GPUs'},
           {label: 'Background + suite zero-wait fixed-family gap', value: result.zeroWaitFamilyGapGpus === null ? 'Unavailable' : integer(result.zeroWaitFamilyGapGpus) + ' GPUs'},
           {label: 'Post-MI325 configured pool', value: integer(result.totalCapacityGpus) + ' GPUs'},
-        ],
-        content: dataTable([
+        ];
+      const columns = sustained
+        ? [
+          {label: 'Family', render: function (row) { return row.family; }},
+          {label: 'Steady offered load', numeric: true, render: function (row) { return row.combinedAvailable ? row.combinedDemandGpus.toFixed(1) + ' GPUs' : '-'; }},
+          {label: 'Configured capacity', numeric: true, render: function (row) { return integer(row.capacityGpus) + ' GPUs'; }},
+          {label: 'Family offered-load gap', numeric: true, render: function (row) { return row.zeroWaitGapGpus === null ? '-' : badge(Math.ceil(row.zeroWaitGapGpus) + ' GPUs', row.zeroWaitGapGpus ? 'is-warning' : 'is-success'); }},
+        ]
+        : [
           {label: 'Family', render: function (row) { return row.family; }},
           {label: 'Demand', numeric: true, render: function (row) { return integer(row.demandGpus) + ' GPUs'; }},
           {label: 'Capacity', numeric: true, render: function (row) { return integer(row.capacityGpus) + ' GPUs'; }},
           {label: 'Suite-alone start-at-once gap', numeric: true, render: function (row) { return badge(integer(row.gapGpus) + ' GPUs', row.gapGpus ? 'is-warning' : 'is-success'); }},
           {label: 'Background + suite zero-wait gap', numeric: true, render: function (row) { return row.zeroWaitGapGpus === null ? '-' : badge(integer(row.zeroWaitGapGpus) + ' GPUs', row.zeroWaitGapGpus ? 'is-warning' : 'is-success'); }},
-        ], result.familyRows, 'Fixed-family capacity', {name: 'capacity-family-detail', minWidth: '560px'}),
+        ];
+      openDetailDrawer({
+        id: 'capacity-hardware-summary',
+        title: 'Hardware and queue-shape action',
+        subtitle: sustained ? 'Steady offered load and queue-level stability constraints' : 'Simultaneous-start queue shape and fixed-family constraints',
+        description: capacityVerdict(result),
+        fields: fields,
+        content: dataTable(columns, result.familyRows, sustained ? 'Steady offered load by fixed family' : 'Fixed-family capacity', {name: 'capacity-family-detail', minWidth: '620px'}),
         sources: [{label: 'Open configured capacity evidence', url: SOURCE_ASSETS.operations}],
       });
     }
@@ -7887,8 +8447,13 @@
         label: 'SELECTED SCENARIO',
         value: integer(result.totalGateGroups) + ' total groups',
         meta: (inputs.mode === 'queue' ? '+' + integer(result.groups) + ' groups · ' : '')
-          + integer(result.jobs) + ' burst jobs · ' + integer(result.gpuSlots) + ' GPU slots · '
-          + integer(result.suites) + ' suite' + (result.suites === 1 ? '' : 's')
+          + (result.trafficMode === 'sustained'
+            ? result.suitesPerHour + ' added suites/h · ' + result.incrementalArrivalRate.toFixed(1) + ' incremental jobs/h'
+            : integer(result.jobs) + ' one-time jobs · ' + integer(result.gpuSlots) + ' GPU slots · '
+              + integer(result.suites) + ' suite' + (result.suites === 1 ? '' : 's'))
+          + ((result.placementStrategy || {}).id
+            ? ' · ' + integer(placementMi355.groups || 0) + ' groups / ' + integer(placementMi355.gpu_slots || 0) + ' GPU slots on MI355'
+            : '')
           + (hasUnplacedMi325 ? ' · MI325 excluded/unplaced' : ''),
         onOpen: openScenarioSummary,
       },
@@ -7897,32 +8462,53 @@
         label: 'BOTTLENECK QUEUE',
         value: bottleneck ? bottleneck.label : 'None',
         meta: bottleneck
-          ? (bottleneck.pressurePct === null ? 'pressure unavailable' : bottleneck.pressurePct.toFixed(0) + '% combined pressure') + ' · ' + integer(bottleneck.demandJobs) + '/' + integer(bottleneck.capacityJobs) + ' burst/quota'
-          : 'No scenario jobs',
+          ? (bottleneck.pressurePct === null ? 'pressure unavailable' : bottleneck.pressurePct.toFixed(0) + '% '
+            + (result.trafficMode === 'sustained' ? 'steady utilization' : 'combined pressure')) + ' · '
+            + (result.trafficMode === 'sustained'
+              ? (bottleneck.arrivalRate === null ? '-' : bottleneck.arrivalRate.toFixed(1)) + ' jobs/h'
+              : integer(bottleneck.demandJobs) + '/' + integer(bottleneck.capacityJobs) + ' burst/quota')
+          : 'No scenario load',
         tone: bottleneck && (bottleneck.wait.status !== 'finite' || Number(bottleneck.pressurePct || 0) >= 100) ? 'is-warning' : 'is-info',
         onOpen: function () { if (bottleneck) openCapacityQueueDetail(bottleneck, result); else openScenarioSummary(); },
       },
       {
         id: 'capacity-projected-wait',
-        label: 'PROJECTED P95 START WAIT',
+        label: result.trafficMode === 'sustained' ? 'STEADY-STATE P95 WAIT' : 'ONE-TIME P95 START WAIT',
         value: capacityWaitLabel(result.waitStatus, result.p95Wait),
-        meta: 'p50 ' + capacityWaitLabel(result.waitStatus, result.p50Wait) + ' · max ' + capacityWaitLabel(result.waitStatus, result.maxWait),
+        meta: result.trafficMode === 'sustained'
+          ? 'p50 ' + capacityWaitLabel(result.waitStatus, result.p50Wait) + ' · max utilization '
+            + (result.maximumRho === null ? '-' : (result.maximumRho * 100).toFixed(1) + '%')
+          : 'p50 ' + capacityWaitLabel(result.waitStatus, result.p50Wait) + ' · all started '
+            + capacityWaitLabel(result.waitStatus, result.allStartedBy) + ' · completed ' + capacityWaitLabel(result.waitStatus, result.allCompletedBy),
         tone: result.waitStatus === 'finite' && Number(result.p95Wait || 0) < 30 ? 'is-success' : 'is-warning',
         onOpen: openWaitSummary,
       },
       {
         id: 'capacity-hardware-action',
-        label: 'START-AT-ONCE GAP',
-        value: result.familyGapGpus
-          ? integer(result.familyGapGpus) + ' family GPU slots'
-          : result.shapeGapGpus
-            ? 'Reallocate ' + integer(result.shapeGapGpus) + ' GPUs'
-            : 'Suite fits at once',
-        meta: 'suite alone: ' + integer(result.shapeGapGpus) + ' queue-shape / ' + integer(result.familyGapGpus)
-          + ' family GPU gap · with background: '
-          + (result.zeroWaitShapeGapGpus === null ? '-' : integer(result.zeroWaitShapeGapGpus)) + ' shape / '
-          + (result.zeroWaitFamilyGapGpus === null ? '-' : integer(result.zeroWaitFamilyGapGpus)) + ' family zero-wait gap',
-        tone: result.familyGapGpus || Number(result.zeroWaitFamilyGapGpus || 0) ? 'is-warning' : result.shapeGapGpus || Number(result.zeroWaitShapeGapGpus || 0) ? 'is-info' : 'is-success',
+        label: result.trafficMode === 'sustained' ? 'STABLE RUNNER GAP' : 'START-AT-ONCE GAP',
+        value: result.trafficMode === 'sustained'
+          ? (
+            result.waitStatus === 'unavailable'
+              ? 'Not estimable'
+              : result.stabilityGapGpus
+                ? '+' + integer(result.stabilityGapGpus) + ' queue-shaped GPUs'
+                : 'Stable at configured quota'
+          )
+          : result.familyGapGpus
+            ? integer(result.familyGapGpus) + ' family GPU slots'
+            : result.shapeGapGpus
+              ? 'Reallocate ' + integer(result.shapeGapGpus) + ' GPUs'
+              : 'Suite fits at once',
+        meta: result.trafficMode === 'sustained'
+          ? result.historicalArrivalRate.toFixed(1) + ' historical + ' + result.incrementalArrivalRate.toFixed(1)
+            + ' incremental jobs/h · no snapshot occupancy double count'
+          : 'suite alone: ' + integer(result.shapeGapGpus) + ' queue-shape / ' + integer(result.familyGapGpus)
+            + ' family GPU gap · with background: '
+            + (result.zeroWaitShapeGapGpus === null ? '-' : integer(result.zeroWaitShapeGapGpus)) + ' shape / '
+            + (result.zeroWaitFamilyGapGpus === null ? '-' : integer(result.zeroWaitFamilyGapGpus)) + ' family zero-wait gap',
+        tone: result.trafficMode === 'sustained'
+          ? (result.stabilityGapGpus || result.waitStatus !== 'finite' ? 'is-warning' : 'is-success')
+          : result.familyGapGpus || Number(result.zeroWaitFamilyGapGpus || 0) ? 'is-warning' : result.shapeGapGpus || Number(result.zeroWaitShapeGapGpus || 0) ? 'is-info' : 'is-success',
         onOpen: openHardwareSummary,
       },
     ]));
@@ -7941,19 +8527,37 @@
 
     const visualGrid = n('div', 'ops-grid ops-grid-2 ops-capacity-visuals');
     const demandRows = result.rows.filter(function (row) {
-      return row.demandJobs > 0 || Number(row.baselineRunning || 0) > 0 || Number(row.baselineWaiting || 0) > 0;
+      return result.trafficMode === 'sustained'
+        ? row.arrivalRate === null || row.arrivalRate > 0
+        : row.demandJobs > 0 || Number(row.baselineRunning || 0) > 0 || Number(row.baselineWaiting || 0) > 0;
     });
-    const demandChart = chartPanel('Demand vs configured queue capacity', 'Selected burst plus ' + result.baseline + ' observed running and waiting jobs', 'capacity-sim-demand');
+    const demandChart = chartPanel(
+      result.trafficMode === 'sustained' ? 'Steady offered load vs configured queue capacity' : 'Demand vs configured queue capacity',
+      result.trafficMode === 'sustained'
+        ? 'Five-weekday started-cohort proxy plus only the selected expansion delta'
+        : 'One-time burst plus the ' + result.baseline + ' coherent observed snapshot',
+      'capacity-sim-demand'
+    );
     visualGrid.append(demandChart.root);
     requestAnimationFrame(function () {
       drawChart('capacity-sim-demand', demandChart.canvas, {
         type: 'bar',
         data: {
           labels: demandRows.map(function (row) { return row.label; }),
-          datasets: [
-            {label: 'Running + waiting + burst', data: demandRows.map(function (row) { return row.combinedJobs; }), backgroundColor: '#22b8ad'},
-            {label: 'Configured queue slots', data: demandRows.map(function (row) { return row.capacityJobs; }), backgroundColor: '#66717d'},
-          ],
+          datasets: result.trafficMode === 'sustained'
+            ? [
+              {label: 'Historical offered load', data: demandRows.map(function (row) {
+                return row.historicalArrivalRate === null || !Number.isFinite(Number(row.serviceMinutes))
+                  ? null
+                  : row.historicalArrivalRate * row.serviceMinutes / 60;
+              }), backgroundColor: '#5d8ea8'},
+              {label: 'Historical + expansion offered load', data: demandRows.map(function (row) { return row.offeredLoadJobs; }), backgroundColor: '#22b8ad'},
+              {label: 'Configured queue slots', data: demandRows.map(function (row) { return row.capacityJobs; }), backgroundColor: '#66717d'},
+            ]
+            : [
+              {label: 'Running + waiting + one-time burst', data: demandRows.map(function (row) { return row.combinedJobs; }), backgroundColor: '#22b8ad'},
+              {label: 'Configured queue slots', data: demandRows.map(function (row) { return row.capacityJobs; }), backgroundColor: '#66717d'},
+            ],
         },
         options: {scales: {y: {beginAtZero: true, title: {display: true, text: 'Concurrent jobs'}}}},
         evidenceTitle: 'Scenario demand versus queue capacity',
@@ -7962,11 +8566,16 @@
           return {
             id: row.id,
             label: row.label,
-            valueSummary: value(row.combinedJobs) + ' combined jobs / ' + integer(row.capacityJobs) + ' configured slots',
+            valueSummary: result.trafficMode === 'sustained'
+              ? value(row.offeredLoadJobs) + ' offered-load jobs / ' + integer(row.capacityJobs) + ' configured slots'
+              : value(row.combinedJobs) + ' combined jobs / ' + integer(row.capacityJobs) + ' configured slots',
             details: {
               baseline_running: row.baselineRunning,
               baseline_waiting: row.baselineWaiting,
               burst_jobs: row.demandJobs,
+              historical_arrival_jobs_per_hour: row.historicalArrivalRate,
+              incremental_arrival_jobs_per_hour: row.incrementalArrivalRate,
+              offered_load_jobs: row.offeredLoadJobs,
               standalone_queue_shape_gap_gpus: row.shapeGapGpus,
               zero_wait_queue_shape_gap_gpus: row.combinedGapGpus,
             },
@@ -7982,20 +8591,39 @@
         : 'Wait as gating grows';
     const growthContext = inputs.mode === 'queue'
       ? ((profile.queues.find(function (queue) { return queue.id === selectedQueue; }) || {}).label || selectedQueue) + ' only · manual queue placement'
-      : 'Representative current-to-target auto mix';
-    const growthChart = chartPanel(growthTitle, growthContext + ' · ' + result.baseline + ' background · ' + integer(result.suites) + ' simultaneous suite' + (result.suites === 1 ? '' : 's'), 'capacity-sim-growth');
+      : ((result.placementStrategy || {}).label || 'Published target placement');
+    const growthChart = chartPanel(
+      growthTitle,
+      growthContext + (result.trafficMode === 'sustained'
+        ? ' · ' + result.suitesPerHour + ' added suites/h over weekday cohort load'
+        : ' · ' + result.baseline + ' background · ' + integer(result.suites) + ' simultaneous suite' + (result.suites === 1 ? '' : 's')),
+      'capacity-sim-growth'
+    );
     visualGrid.append(growthChart.root);
     requestAnimationFrame(function () {
       drawChart('capacity-sim-growth', growthChart.canvas, {
         type: 'line',
         data: {
           labels: curve.map(function (row) { return row.x; }),
-          datasets: [
-            {label: 'Projected p95 start wait', data: curve.map(function (row) { return row.status === 'finite' ? row.p95Wait : null; }), borderColor: '#22b8ad', backgroundColor: '#22b8ad', tension: 0.18, spanGaps: false},
-            {label: 'Projected max start wait', data: curve.map(function (row) { return row.status === 'finite' ? row.maxWait : null; }), borderColor: '#e3a63a', backgroundColor: '#e3a63a', tension: 0.18, spanGaps: false},
-          ],
+          datasets: result.trafficMode === 'sustained'
+            ? [
+              {label: 'Worst-queue p95 wait', data: curve.map(function (row) { return row.status === 'finite' ? row.p95Wait : null; }), borderColor: '#22b8ad', backgroundColor: '#22b8ad', tension: 0.18, spanGaps: false, yAxisID: 'y'},
+              {label: 'Maximum queue utilization', data: curve.map(function (row) { return row.maximumRho === null ? null : row.maximumRho * 100; }), borderColor: '#e3a63a', backgroundColor: '#e3a63a', tension: 0.18, spanGaps: false, yAxisID: 'y1'},
+            ]
+            : [
+              {label: 'Projected p95 start wait', data: curve.map(function (row) { return row.status === 'finite' ? row.p95Wait : null; }), borderColor: '#22b8ad', backgroundColor: '#22b8ad', tension: 0.18, spanGaps: false},
+              {label: 'Projected all-started time', data: curve.map(function (row) { return row.status === 'finite' ? row.maxWait : null; }), borderColor: '#e3a63a', backgroundColor: '#e3a63a', tension: 0.18, spanGaps: false},
+            ],
         },
-        options: {scales: {x: {title: {display: true, text: curve.length ? curve[0].axisLabel : 'Scenario size'}}, y: {beginAtZero: true, title: {display: true, text: 'Start wait (minutes)'}}}},
+        options: {scales: Object.assign(
+          {
+            x: {title: {display: true, text: curve.length ? curve[0].axisLabel : 'Scenario size'}},
+            y: {beginAtZero: true, title: {display: true, text: 'Start wait (minutes)'}},
+          },
+          result.trafficMode === 'sustained'
+            ? {y1: {beginAtZero: true, position: 'right', grid: {drawOnChartArea: false}, title: {display: true, text: 'Queue utilization (%)'}}}
+            : {}
+        )},
         evidenceTitle: 'Projected wait along workload growth',
         evidenceAsset: SOURCE_ASSETS.operations,
         evidence: curve.map(function (row) {
@@ -8005,7 +8633,7 @@
               row.mode === 'jobs' ? 'command jobs' : row.mode === 'queue' ? 'new mirror groups' : 'gated groups'
             ) + (row.selected ? ' · selected' : ''),
             valueSummary: row.status === 'finite' ? duration(row.p95Wait) + ' p95 start wait' : capacityWaitLabel(row.status, null),
-            details: {status: row.status, selected: row.selected, resulting_total_groups: row.groups, resulting_total_jobs: row.jobs, burst_jobs: row.burstJobs, maximum_wait: row.maxWait, bottleneck: row.bottleneck, queue_pressure_pct: row.pressurePct},
+            details: {status: row.status, selected: row.selected, resulting_total_groups: row.groups, resulting_total_jobs: row.jobs, burst_jobs: row.burstJobs, maximum_wait: row.maxWait, maximum_rho: row.maximumRho, stability_gap_gpus: row.stabilityGapGpus, bottleneck: row.bottleneck, queue_pressure_pct: row.pressurePct},
           };
         }),
       });
@@ -8013,32 +8641,56 @@
     host.append(visualGrid);
 
     const bottleneckRows = result.activeRows.slice().sort(function (left, right) {
-      const rank = {unavailable: 2, finite: 1};
+      const rank = {unstable: 3, unavailable: 2, finite: 1};
       return (rank[right.wait.status] || 0) - (rank[left.wait.status] || 0)
         || Number(right.pressurePct || 0) - Number(left.pressurePct || 0);
     });
-    host.append(compactTablePanel(
-      'Queue bottlenecks',
-      integer(bottleneckRows.length) + ' used queue shapes · click any queue for evidence and assumptions',
-      [
-        {label: 'Queue', sticky: true, width: '190px', render: function (row) { return linkButton(row.label, function () { openCapacityQueueDetail(row, result); }); }},
-        {label: 'Family', width: '90px', render: function (row) { return badge(row.family, 'is-info'); }},
+    const bottleneckColumns = [
+      {label: 'Queue', sticky: true, width: '190px', render: function (row) { return linkButton(row.label, function () { openCapacityQueueDetail(row, result); }); }},
+      {label: 'Family', width: '90px', render: function (row) { return badge(row.family, 'is-info'); }},
+    ];
+    if (result.trafficMode === 'sustained') {
+      bottleneckColumns.push(
+        {label: 'Historical + added jobs/h', numeric: true, width: '180px', render: function (row) {
+          return row.historicalArrivalRate === null ? '-' : row.historicalArrivalRate.toFixed(2) + ' + ' + row.incrementalArrivalRate.toFixed(2);
+        }},
+        {label: 'Offered load / quota', numeric: true, width: '160px', render: function (row) {
+          return row.offeredLoadJobs === null ? '-' : row.offeredLoadJobs.toFixed(1) + ' / ' + integer(row.capacityJobs);
+        }},
+        {label: 'Utilization', numeric: true, width: '110px', render: function (row) {
+          return row.wait.status === 'unavailable' ? '-' : (Number(row.wait.rho || 0) * 100).toFixed(1) + '%';
+        }},
+        {label: 'Projected p95', numeric: true, width: '150px', render: function (row) { return capacityWaitLabel(row.wait.status, row.wait.p95); }},
+        {label: 'Stable runner gap', numeric: true, width: '150px', render: function (row) {
+          const gap = Number(row.wait.capacityGapJobs || 0) * row.gpusPerJob;
+          return badge(integer(gap) + ' GPUs', gap ? 'is-warning' : 'is-success');
+        }}
+      );
+    } else {
+      bottleneckColumns.push(
         {label: 'Base run / wait', numeric: true, width: '130px', render: function (row) { return row.baselineRunning === null ? '-' : value(row.baselineRunning) + ' / ' + value(row.baselineWaiting); }},
-        {label: 'Burst jobs', numeric: true, width: '100px', render: function (row) { return integer(row.demandJobs); }},
+        {label: 'One-time jobs', numeric: true, width: '110px', render: function (row) { return integer(row.demandJobs); }},
         {label: 'Quota', numeric: true, width: '90px', render: function (row) { return integer(row.capacityJobs); }},
         {label: 'Combined pressure', numeric: true, width: '140px', render: function (row) { return row.pressurePct === null ? '-' : row.pressurePct.toFixed(1) + '%'; }},
         {label: 'Projected p95', numeric: true, width: '130px', render: function (row) { return capacityWaitLabel(row.wait.status, row.wait.p95); }},
         {label: 'Suite-only / background zero-wait gap', numeric: true, width: '220px', render: function (row) {
           const zeroWait = row.combinedGapGpus === null ? '-' : integer(row.combinedGapGpus);
           return badge(integer(row.shapeGapGpus) + ' / ' + zeroWait + ' GPUs', row.shapeGapGpus || Number(row.combinedGapGpus || 0) ? 'is-warning' : 'is-success');
-        }},
-      ],
+        }}
+      );
+    }
+    host.append(compactTablePanel(
+      'Queue bottlenecks',
+      integer(bottleneckRows.length) + ' used queue shapes · click any queue for evidence and assumptions',
+      bottleneckColumns,
       bottleneckRows,
       {
         id: 'capacity-simulation-queues',
         limit: 12,
         browserTitle: 'Capacity simulation by queue',
-        browserSubtitle: 'FCFS planning estimate with exact queue widths and empirical background presets',
+        browserSubtitle: result.trafficMode === 'sustained'
+          ? 'Erlang-C planning estimate with weekday cohort arrivals and exact queue widths'
+          : 'One-time FCFS planning estimate with exact queue widths and coherent observed background presets',
         searchPlaceholder: 'Filter queue or hardware family',
         searchText: function (row) { return [row.id, row.label, row.family, row.wait.status].join(' '); },
         geometry: {name: 'capacity-simulation-queues', minWidth: '1040px'},
@@ -8049,9 +8701,13 @@
     const method = n('div', 'ops-evidence-note is-info ops-capacity-method');
     add(method, [
       n('strong', '', 'Planning model, not an SLA. '),
-      n('span', '', 'Each configured runner is list-scheduled independently. Observed running jobs receive one conservative full service interval of residual work, observed waiting jobs stay ahead, and scenario jobs go to the earliest available runner. '
-        + value(((profile.assumptions || {}).history))
-        + ' Suite-alone simultaneous-start gaps and background-plus-suite zero-wait gaps are separate views; queue-shape and fixed-family gaps are not additive. No compatibility or cross-family migration is inferred.'),
+      n('span', '', result.trafficMode === 'sustained'
+        ? 'Steady-state uses Erlang-C per queue with λ = the five-weekday started-cohort proxy + added suites/hour × expansion-delta jobs per suite, and A = λ × service time. Snapshot occupancy is not added to that arrival load. The cohort metric is grouped by job.created_at and later-started status, not exact started_at events. '
+          + value(((profile.model || {}).steady_wait_assumptions))
+          + ' No compatibility or cross-family migration is inferred.'
+        : 'This is one deterministic burst with no future arrivals. Each configured runner is list-scheduled independently; observed running jobs receive one conservative full service interval of residual work, observed waiting jobs stay ahead, and scenario jobs go to the earliest available runner. '
+          + value(((profile.assumptions || {}).history))
+          + ' Suite-alone simultaneous-start gaps and background-plus-suite zero-wait gaps are separate views; queue-shape and fixed-family gaps are not additive. No compatibility or cross-family migration is inferred.'),
       linkButton('Inspect model inputs', openScenarioSummary, 'Inspect the exact scenario inputs and provenance'),
     ]);
     host.append(method);
@@ -9365,10 +10021,13 @@
       targetNoSignalBreakdown: targetNoSignalBreakdown,
       capacityLargestRemainder: capacityLargestRemainder,
       capacityPairedAllocation: capacityPairedAllocation,
+      capacityPlacementStrategy: capacityPlacementStrategy,
+      capacityProfileForPlacement: capacityProfileForPlacement,
       capacityTopologyForGroups: capacityTopologyForGroups,
       capacityGroupsForJobs: capacityGroupsForJobs,
       capacityTopologyForQueue: capacityTopologyForQueue,
       capacityBurstWait: capacityBurstWait,
+      capacityErlangC: capacityErlangC,
       capacityScenario: capacityScenario,
       capacityGrowthCurve: capacityGrowthCurve,
       capacityVerdict: capacityVerdict,

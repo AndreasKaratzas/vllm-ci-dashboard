@@ -1219,7 +1219,16 @@ def test_trajectory_has_exact_capacity_projection_subview():
     assert "'-group queue topology to the exact ' + integer(targetTopology.groups)" in OPS_JS
     assert "observed 53-group queue topology" not in OPS_JS
     assert "exact 160-group target" not in OPS_JS
-    assert "PROJECTED P95 START WAIT" in OPS_JS
+    assert "ONE-TIME P95 START WAIT" in OPS_JS
+    assert "STEADY-STATE P95 WAIT" in OPS_JS
+    assert "5-day joint p95" in OPS_JS
+    assert "Observed stress" in OPS_JS
+    assert "function capacityErlangC" in OPS_JS
+    assert "Sustained load adds only the expansion delta" in OPS_JS
+    assert "capacityProfileForPlacement" in OPS_JS
+    assert "mi355_preferred" in OPS_JS
+    assert "Configured quota does not reconcile with observed capacity signals." in OPS_JS
+    assert "Queue-native connected agents versus planning quota" in OPS_JS
     assert "Suite-alone simultaneous-start queue-shape gap" in OPS_JS
     assert "Background + suite zero-wait fixed-family gap" in OPS_JS
     assert "START-AT-ONCE GAP" in OPS_JS
@@ -1446,6 +1455,8 @@ assert.equal(finiteWait.status, 'finite');
 assert.equal(finiteWait.p50, 10);
 assert.equal(finiteWait.p95, 10);
 assert.equal(finiteWait.max, 10);
+assert.equal(finiteWait.allStartedBy, 10);
+assert.equal(finiteWait.allCompletedBy, 20);
 assert.equal(
   helpers.capacityBurstWait(2, 1, {available: true, running: 1, waiting: 0}, 20).status,
   'finite'
@@ -1466,6 +1477,10 @@ assert.equal(
 );
 assert.equal(
   helpers.capacityBurstWait(2, 1, {available: true, running: 0, waiting: 0}, null).status,
+  'unavailable'
+);
+assert.equal(
+  helpers.capacityBurstWait(50001, 1, {available: true, running: 0, waiting: 0}, 10).status,
   'unavailable'
 );
 
@@ -1565,6 +1580,90 @@ const queueCurve = helpers.capacityGrowthCurve(productionProfile, {
 });
 assert.ok(queueCurve.some(function (point) { return point.selected && point.x === 3; }));
 assert.ok(queueCurve.every(function (point) { return point.mode === 'queue'; }));
+
+const stableQueue = helpers.capacityErlangC(6, 2, 10);
+assert.equal(stableQueue.status, 'finite');
+assert.ok(Math.abs(stableQueue.rho - 0.5) < 0.0001);
+assert.ok(stableQueue.p95 > 0);
+assert.equal(helpers.capacityErlangC(12, 2, 10).status, 'unstable');
+assert.equal(helpers.capacityErlangC(null, 2, 10).status, 'unavailable');
+
+const sustainedProfile = JSON.parse(JSON.stringify(profile));
+sustainedProfile.queues[0].workload.weekday_started_cohort_rate_jobs_per_hour = 2;
+sustainedProfile.queues[1].workload.weekday_started_cohort_rate_jobs_per_hour = 0;
+sustainedProfile.queues[0].history.peak.running = 999;
+const sustained = helpers.capacityScenario(sustainedProfile, {
+  mode: 'groups',
+  groups: 4,
+  trafficMode: 'sustained',
+  suitesPerHour: 1,
+  suites: 20,
+});
+assert.equal(sustained.waitStatus, 'finite');
+assert.equal(sustained.jobs, 6);
+assert.ok(Math.abs(sustained.rows[0].arrivalRate - 4) < 0.0001);
+assert.ok(Math.abs(sustained.rows[0].wait.rho - (4 * 10 / 60 / 12)) < 0.0001);
+assert.equal(sustained.rows[0].baselineRunning, 999);
+assert.ok(helpers.capacityVerdict(sustained).includes('stable at every used queue'));
+
+const unstableProfile = JSON.parse(JSON.stringify(sustainedProfile));
+unstableProfile.queues[1].workload.weekday_started_cohort_rate_jobs_per_hour = 3;
+const unstable = helpers.capacityScenario(unstableProfile, {
+  mode: 'groups',
+  groups: 4,
+  trafficMode: 'sustained',
+  suitesPerHour: 1,
+});
+assert.equal(unstable.waitStatus, 'unstable');
+assert.equal(unstable.rows[1].wait.status, 'unstable');
+assert.ok(unstable.stabilityGapGpus > 0);
+
+const placementProfile = JSON.parse(JSON.stringify(profile));
+placementProfile.placement_profiles = {
+  default_strategy_id: 'mi355_preferred',
+  strategies: [{
+    id: 'mi355_preferred',
+    label: 'Prefer MI355 where defined',
+    topology: {groups: 4, jobs: 6, gpu_slots: 20},
+    queues: [
+      {id: 'amd_mi300_1', groups: 1, jobs: 2, gpu_slots: 2, service_minutes: 12, service_minutes_source: 'placement_strategy_target_command_job_median_average'},
+      {id: 'amd_mi300_8', groups: 3, jobs: 4, gpu_slots: 32, service_minutes: 22, service_minutes_source: 'placement_strategy_target_command_job_median_average'},
+    ],
+  }, {
+    id: 'current_definition_precedence',
+    label: 'Current definition precedence',
+    topology: {groups: 4, jobs: 6, gpu_slots: 20},
+    queues: [
+      {id: 'amd_mi300_1', groups: 2, jobs: 4, gpu_slots: 4},
+      {id: 'amd_mi300_8', groups: 2, jobs: 2, gpu_slots: 16},
+    ],
+  }],
+};
+const placed = helpers.capacityProfileForPlacement(placementProfile, 'mi355_preferred');
+assert.equal(placed.selected_placement_strategy.id, 'mi355_preferred');
+assert.equal(placed.queues[0].demand.target.groups, 1);
+assert.equal(placed.queues[1].demand.target.groups, 3);
+assert.equal(placed.queues[0].workload.service_minutes, 12);
+const explicitQueue = helpers.capacityScenario(placed, {
+  mode: 'queue',
+  queue: 'amd_mi300_1',
+  queueGroups: 1,
+  parallel: 1,
+  duration: 10,
+  trafficMode: 'burst',
+});
+assert.equal(explicitQueue.placementStrategy, null);
+const oversizedBurst = helpers.capacityScenario(profile, {
+  mode: 'queue',
+  queue: 'amd_mi300_1',
+  queueGroups: 5000,
+  parallel: 256,
+  duration: 10,
+  trafficMode: 'burst',
+  suites: 20,
+});
+assert.equal(oversizedBurst.burstLimitExceeded, true);
+assert.equal(oversizedBurst.waitStatus, 'unavailable');
 """
     result = subprocess.run(
         ["node", "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],

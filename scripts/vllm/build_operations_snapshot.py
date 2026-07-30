@@ -114,6 +114,9 @@ AMD_TEST_SOFT_STATES = {"soft", "soft_fail", "soft_failed"}
 AMD_TEST_HARD_STATES = {"failed", "timed_out", "broken", "canceled"}
 AMD_HARDWARE_RE = re.compile(r"^mi\d{3,4}b?$", re.IGNORECASE)
 AMD_QUEUE_RE = re.compile(r"^amd_mi\d{3,4}b?(?:_|$)", re.IGNORECASE)
+AMD_TARGET_ARCHITECTURES = ("mi250", "mi300", "mi355")
+AMD_TARGET_DEFAULT_PREFERENCE = ("mi250", "mi355", "mi300")
+AMD_TARGET_CURRENT_DEFINITION_PREFERENCE = ("mi250", "mi300", "mi355")
 CUDA_HARDWARE = {"a100", "b200", "h100", "h200"}
 CUDA_QUEUE_RE = re.compile(
     r"^(?:gpu_\d+_queue|a100_queue|b200(?:-|_)|h200(?:_|$)|mithril-h100-pool|gh200_queue|dgx-spark)$",
@@ -3674,26 +3677,226 @@ def _queue_capacity_catalog(capacity: dict) -> dict[str, dict]:
     return catalog
 
 
+def _normalize_architecture_preference(
+    architecture_preference: list[str] | tuple[str, ...] | None,
+) -> tuple[str, ...]:
+    """Return a complete, de-duplicated ordering of supported matrix cells."""
+    requested = architecture_preference or AMD_TARGET_DEFAULT_PREFERENCE
+    normalized = []
+    for architecture in (*requested, *AMD_TARGET_DEFAULT_PREFERENCE):
+        value = str(architecture or "").lower()
+        if value in AMD_TARGET_ARCHITECTURES and value not in normalized:
+            normalized.append(value)
+    return tuple(normalized)
+
+
+def _matrix_cell_queue_ids(cell: dict) -> list[str]:
+    queue_ids = []
+    for variant in cell.get("variants") or []:
+        if not isinstance(variant, dict):
+            continue
+        label = str(variant.get("agent_pool") or "").strip()
+        if not label:
+            continue
+        queue_ids.append(label if label.startswith("amd_") else f"amd_{label}")
+    return queue_ids
+
+
+def _matrix_cell_is_feasible(cell: dict, queue_catalog: dict[str, dict]) -> bool:
+    """Require an explicit cell whose every declared variant has an active queue."""
+    queue_ids = _matrix_cell_queue_ids(cell)
+    return bool(
+        queue_ids
+        and all(
+            queue_id in queue_catalog
+            and queue_catalog[queue_id].get("capacity_eligible") is True
+            for queue_id in queue_ids
+        )
+    )
+
+
+def _target_placement_demand(
+    amd_test_matrix: dict,
+    queue_catalog: dict[str, dict],
+    architecture_preference: list[str] | tuple[str, ...] | None,
+) -> dict:
+    """Place each semantic group on the first feasible explicitly defined cell."""
+    preference = _normalize_architecture_preference(architecture_preference)
+    demand: dict[str, dict] = {
+        queue_id: {
+            **queue,
+            "group_ids": set(),
+            "jobs": 0,
+            "gpu_slots": 0,
+        }
+        for queue_id, queue in queue_catalog.items()
+        if queue.get("capacity_eligible") is True
+    }
+    definition_counts = Counter()
+    feasible_definition_counts = Counter()
+    selected_architectures = Counter()
+    selected_groups = 0
+    unassigned_groups = 0
+    skipped_unsupported_cells = 0
+
+    for index, row in enumerate(amd_test_matrix.get("rows") or []):
+        if not isinstance(row, dict):
+            continue
+        cells = row.get("cells") or {}
+        for architecture in AMD_TARGET_ARCHITECTURES:
+            cell = cells.get(architecture)
+            if not isinstance(cell, dict) or cell.get("exists") is not True:
+                continue
+            definition_counts[architecture] += 1
+            if _matrix_cell_is_feasible(cell, queue_catalog):
+                feasible_definition_counts[architecture] += 1
+
+        selected_architecture = None
+        selected_cell = None
+        for architecture in preference:
+            cell = cells.get(architecture)
+            if not isinstance(cell, dict) or cell.get("exists") is not True:
+                continue
+            if not _matrix_cell_is_feasible(cell, queue_catalog):
+                skipped_unsupported_cells += 1
+                continue
+            selected_architecture = architecture
+            selected_cell = cell
+            break
+        if selected_cell is None or selected_architecture is None:
+            unassigned_groups += 1
+            continue
+
+        group_id = str(row.get("id") or f"matrix-row-{index}")
+        for variant in selected_cell.get("variants") or []:
+            if not isinstance(variant, dict):
+                continue
+            label = str(variant.get("agent_pool") or "").strip()
+            queue_id = label if label.startswith("amd_") else f"amd_{label}"
+            queue = demand[queue_id]
+            try:
+                jobs = max(1, int(variant.get("parallelism") or 1))
+            except (TypeError, ValueError):
+                jobs = 1
+            queue["group_ids"].add(group_id)
+            queue["jobs"] += jobs
+            queue["gpu_slots"] += jobs * queue["gpus_per_job"]
+        selected_groups += 1
+        selected_architectures[selected_architecture] += 1
+
+    matrix_group_count = sum(
+        isinstance(row, dict) for row in amd_test_matrix.get("rows") or []
+    )
+    return {
+        "architecture_preference": list(preference),
+        "demand": demand,
+        "selected_groups": selected_groups,
+        "unassigned_groups": unassigned_groups,
+        "coverage": {
+            "matrix_group_count": matrix_group_count,
+            "assigned_group_count": selected_groups,
+            "unassigned_group_count": unassigned_groups,
+            "complete": bool(
+                matrix_group_count and selected_groups == matrix_group_count
+            ),
+            "architecture_definitions": {
+                architecture: int(definition_counts[architecture])
+                for architecture in AMD_TARGET_ARCHITECTURES
+            },
+            "feasible_architecture_definitions": {
+                architecture: int(feasible_definition_counts[architecture])
+                for architecture in AMD_TARGET_ARCHITECTURES
+            },
+            "selected_groups_by_architecture": {
+                architecture: int(selected_architectures[architecture])
+                for architecture in AMD_TARGET_ARCHITECTURES
+            },
+            "skipped_unsupported_cell_count": skipped_unsupported_cells,
+        },
+    }
+
+
+def _placement_strategy_profile(
+    strategy_id: str,
+    label: str,
+    placement: dict,
+) -> dict:
+    """Publish exact queue/family totals for a matrix-cell selection strategy."""
+    queue_rows = []
+    for queue_id, row in sorted((placement.get("demand") or {}).items()):
+        groups = len(row.get("group_ids") or [])
+        jobs = int(row.get("jobs") or 0)
+        gpu_slots = int(row.get("gpu_slots") or 0)
+        queue_rows.append({
+            "id": queue_id,
+            "label": row.get("label") or queue_id.removeprefix("amd_"),
+            "family": row.get("family") or "unknown",
+            "gpus_per_job": int(row.get("gpus_per_job") or 1),
+            "groups": groups,
+            "jobs": jobs,
+            "gpu_slots": gpu_slots,
+        })
+
+    family_rows = []
+    for architecture in AMD_TARGET_ARCHITECTURES:
+        family_name = architecture.upper()
+        rows = [row for row in queue_rows if row["family"] == family_name]
+        family_rows.append({
+            "family": family_name,
+            "groups": sum(row["groups"] for row in rows),
+            "jobs": sum(row["jobs"] for row in rows),
+            "gpu_slots": sum(row["gpu_slots"] for row in rows),
+        })
+    totals = {
+        "groups": int(placement.get("selected_groups") or 0),
+        "jobs": sum(row["jobs"] for row in queue_rows),
+        "gpu_slots": sum(row["gpu_slots"] for row in queue_rows),
+    }
+    coverage = dict(placement.get("coverage") or {})
+    mi355_definitions = int(
+        (coverage.get("architecture_definitions") or {}).get("mi355") or 0
+    )
+    return {
+        "id": strategy_id,
+        "label": label,
+        "architecture_preference": list(
+            placement.get("architecture_preference") or []
+        ),
+        "selection_method": "first_feasible_explicit_matrix_cell",
+        "totals": totals,
+        "queues": queue_rows,
+        "families": family_rows,
+        "coverage": coverage,
+        "limitation": (
+            f"Only {mi355_definitions}/{coverage.get('matrix_group_count') or 0} "
+            "semantic groups publish an MI355 definition. Every placement uses "
+            "an explicit matrix cell and its declared variants, parallelism, and "
+            "queue widths; unsupported cells are skipped and no compatibility "
+            "or cross-family migration is inferred."
+        ),
+    }
+
+
 def _target_runtime_estimate(
     amd_test_matrix: dict,
     amd_analytics: dict,
     queue_catalog: dict[str, dict],
     *,
     window_days: int = 14,
+    architecture_preference: list[str] | tuple[str, ...] | None = None,
 ) -> dict:
     """Estimate occupied work as the sum of per-command-job wall-time medians."""
     selected_step_ids: set[str] = set()
+    preference = _normalize_architecture_preference(architecture_preference)
     for row in amd_test_matrix.get("rows") or []:
         cells = row.get("cells") or {}
-        cell = next(
-            (
-                cells.get(architecture)
-                for architecture in ("mi250", "mi300", "mi355")
-                if isinstance(cells.get(architecture), dict)
-                and cells[architecture].get("exists") is True
-            ),
-            None,
-        )
+        cell = next((
+            cells[architecture]
+            for architecture in preference
+            if isinstance(cells.get(architecture), dict)
+            and cells[architecture].get("exists") is True
+            and _matrix_cell_is_feasible(cells[architecture], queue_catalog)
+        ), None)
         for variant in (cell or {}).get("variants") or []:
             query = parse_qs(urlparse(str(variant.get("latest_url") or "")).query)
             step_id = str((query.get("sid") or [""])[0]).strip()
@@ -3917,83 +4120,743 @@ def _mapping_elapsed_hours(workload_mapping: dict) -> float:
     return float(days * 24)
 
 
+def _utc_iso(value: datetime | None) -> str | None:
+    """Serialize an aware timestamp with the repository's canonical UTC suffix."""
+    if value is None:
+        return None
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _capacity_joint_history(
+    queue_rows: list[dict],
+    queue_history: list[dict],
+) -> tuple[dict, dict[str, dict], list[dict]]:
+    """Select coherent queue snapshots over the latest seven-day UTC window.
+
+    The p50 and p95 presets rank whole snapshots by active-queue running plus
+    waiting GPU-slot pressure.  This deliberately avoids combining marginal
+    percentiles from queue observations that never occurred together.
+    """
+    specs = {
+        str(row.get("id")): {
+            "id": str(row.get("id")),
+            "family": str(row.get("family") or "unknown"),
+            "gpus_per_job": max(1, int(row.get("gpus_per_job") or 1)),
+            "capacity_jobs": max(
+                0,
+                int(
+                    row.get("capacity_jobs")
+                    if row.get("capacity_jobs") is not None
+                    else row.get("max_concurrent_jobs")
+                    or 0
+                ),
+            ),
+        }
+        for row in queue_rows
+        if isinstance(row, dict) and row.get("id")
+    }
+    timestamped = []
+    for snapshot in queue_history:
+        observed_at = _parse_dt(snapshot.get("ts"))
+        if observed_at is None:
+            continue
+        timestamped.append((observed_at.astimezone(timezone.utc), snapshot))
+    timestamped.sort(key=lambda item: item[0])
+    latest_at = timestamped[-1][0] if timestamped else None
+    window_start = latest_at - timedelta(days=7) if latest_at else None
+
+    def observation(
+        observed_at: datetime,
+        snapshot: dict,
+    ) -> tuple[dict | None, list[str]]:
+        by_queue = {}
+        missing = []
+        for queue_id, spec in specs.items():
+            raw = (snapshot.get("queues") or {}).get(queue_id)
+            running = _number((raw or {}).get("running")) if isinstance(raw, dict) else None
+            waiting = _number((raw or {}).get("waiting")) if isinstance(raw, dict) else None
+            if (
+                running is None
+                or waiting is None
+                or running < 0
+                or waiting < 0
+            ):
+                missing.append(queue_id)
+                continue
+            width = int(spec["gpus_per_job"])
+            by_queue[queue_id] = {
+                "running": float(running),
+                "waiting": float(waiting),
+                "running_gpu_slots": float(running) * width,
+                "waiting_gpu_slots": float(waiting) * width,
+                "connected_agents": (
+                    float(raw["connected_agents"])
+                    if _number(raw.get("connected_agents")) is not None
+                    and float(raw["connected_agents"]) >= 0
+                    else None
+                ),
+                "connected_agents_source": raw.get("connected_agents_source"),
+                "metrics_ts": raw.get("metrics_ts"),
+                "reported_p50_wait_mins": _number(raw.get("p50_wait")),
+                "reported_p95_wait_mins": _number(raw.get("p95_wait")),
+            }
+        if missing or not specs:
+            return None, missing
+        running_jobs = sum(row["running"] for row in by_queue.values())
+        waiting_jobs = sum(row["waiting"] for row in by_queue.values())
+        running_gpu_slots = sum(
+            row["running_gpu_slots"] for row in by_queue.values()
+        )
+        waiting_gpu_slots = sum(
+            row["waiting_gpu_slots"] for row in by_queue.values()
+        )
+        return {
+            "observed_at": _utc_iso(observed_at),
+            "source_timestamp": snapshot.get("ts"),
+            "by_queue": by_queue,
+            "running_jobs": running_jobs,
+            "waiting_jobs": waiting_jobs,
+            "running_gpu_slots": running_gpu_slots,
+            "waiting_gpu_slots": waiting_gpu_slots,
+            "total_pressure_gpu_slots": running_gpu_slots + waiting_gpu_slots,
+        }, []
+
+    current_observations = []
+    window_observations = []
+    incomplete = []
+    weekend_snapshot_count = 0
+    weekday_dates_observed: set[str] = set()
+    for observed_at, snapshot in timestamped:
+        current, missing = observation(observed_at, snapshot)
+        if current is not None:
+            current_observations.append(current)
+        if window_start is None or not (window_start < observed_at <= latest_at):
+            continue
+        if observed_at.weekday() >= 5:
+            weekend_snapshot_count += 1
+            continue
+        weekday_dates_observed.add(observed_at.date().isoformat())
+        if current is None:
+            incomplete.append({
+                "observed_at": _utc_iso(observed_at),
+                "missing_queue_count": len(missing),
+                "missing_queues": sorted(missing),
+            })
+            continue
+        window_observations.append(current)
+
+    ranked = sorted(
+        window_observations,
+        key=lambda row: (
+            float(row["total_pressure_gpu_slots"]),
+            str(row["observed_at"]),
+        ),
+    )
+
+    def nearest_rank(percentile: int) -> dict | None:
+        if not ranked:
+            return None
+        rank = max(1, (percentile * len(ranked) + 99) // 100)
+        return ranked[min(len(ranked), rank) - 1]
+
+    selected = {
+        "current": current_observations[-1] if current_observations else None,
+        "typical": nearest_rank(50),
+        "peak": nearest_rank(95),
+        # Ranking by timestamp after pressure makes this the latest snapshot
+        # when multiple observations share the maximum pressure.
+        "stress": ranked[-1] if ranked else None,
+    }
+    weekday_dates_expected: set[str] = set()
+    if window_start is not None and latest_at is not None:
+        cursor = window_start.date()
+        while cursor <= latest_at.date():
+            if cursor.weekday() < 5:
+                weekday_dates_expected.add(cursor.isoformat())
+            cursor += timedelta(days=1)
+    missing_weekday_dates = sorted(
+        weekday_dates_expected - weekday_dates_observed
+    )
+
+    def selection_summary(
+        preset: str,
+        row: dict | None,
+        percentile: int | None = None,
+    ) -> dict:
+        if row is None:
+            return {
+                "kind": (
+                    "latest_joint_snapshot"
+                    if preset == "current"
+                    else f"joint_pressure_{preset}_snapshot"
+                ),
+                "available": False,
+                "observed_at": None,
+                "source_path": SOURCE_FILES["queue_timeseries"],
+                "source_timestamp": latest_at and _utc_iso(latest_at),
+            }
+        result = {
+            "kind": (
+                "latest_joint_snapshot"
+                if preset == "current"
+                else f"joint_pressure_{preset}_snapshot"
+            ),
+            "available": True,
+            "observed_at": row["observed_at"],
+            "source_path": SOURCE_FILES["queue_timeseries"],
+            "source_timestamp": row["source_timestamp"],
+            "queue_count": len(row["by_queue"]),
+            "running_jobs": round(float(row["running_jobs"]), 1),
+            "waiting_jobs": round(float(row["waiting_jobs"]), 1),
+            "running_gpu_slots": round(float(row["running_gpu_slots"]), 1),
+            "waiting_gpu_slots": round(float(row["waiting_gpu_slots"]), 1),
+            "total_pressure_gpu_slots": round(
+                float(row["total_pressure_gpu_slots"]),
+                1,
+            ),
+            "selection_metric": "eligible_queue_running_plus_waiting_gpu_slots",
+        }
+        if percentile is not None:
+            result["percentile"] = percentile
+            result["nearest_rank"] = (
+                max(1, (percentile * len(ranked) + 99) // 100)
+                if ranked
+                else None
+            )
+        return result
+
+    published = {
+        "analysis_window": {
+            "kind": "rolling_7x24h_weekday_snapshots",
+            "calendar_days": 7,
+            "duration_hours": 168,
+            "expected_weekday_equivalent_days": 5,
+            "expected_weekday_hours": 120,
+            "timezone": "UTC",
+            "weekends_excluded": True,
+            "start_at": _utc_iso(window_start),
+            "end_at": _utc_iso(latest_at),
+            "latest_snapshot_at": _utc_iso(latest_at),
+            "source_path": SOURCE_FILES["queue_timeseries"],
+            "source_timestamp": _utc_iso(latest_at),
+            "eligible_queue_count": len(specs),
+            "candidate_weekday_snapshot_count": (
+                len(window_observations) + len(incomplete)
+            ),
+            "complete_snapshot_count": len(window_observations),
+            "incomplete_snapshot_count": len(incomplete),
+            "incomplete_snapshots": incomplete,
+            "weekend_snapshot_count_excluded": weekend_snapshot_count,
+            "weekday_dates_intersecting_window": sorted(
+                weekday_dates_expected
+            ),
+            "weekday_dates_observed": sorted(weekday_dates_observed),
+            "missing_weekday_dates": missing_weekday_dates,
+            "weekday_date_coverage_complete": bool(
+                latest_at is not None and not missing_weekday_dates
+            ),
+            "selection_metric": "eligible_queue_running_plus_waiting_gpu_slots",
+            "selection_rule": (
+                "Sort complete real snapshots by total GPU-slot pressure then "
+                "timestamp; select empirical nearest-rank p50/p95 and the latest "
+                "timestamp among equal observed maxima."
+            ),
+        },
+        "joint_baselines": {
+            "current": selection_summary("current", selected["current"]),
+            "typical": selection_summary("typical", selected["typical"], 50),
+            "peak": selection_summary("peak", selected["peak"], 95),
+            "stress": selection_summary("stress", selected["stress"]),
+        },
+    }
+    return (
+        published,
+        {key: value for key, value in selected.items() if value is not None},
+        window_observations,
+    )
+
+
+def _capacity_quota_integrity(
+    queue_rows: list[dict],
+    observations: list[dict],
+    analysis_window: dict,
+    *,
+    current_snapshot: dict | None = None,
+) -> dict:
+    """Expose configured-quota drift without confusing waiting with occupancy."""
+    specs = {
+        str(row.get("id")): {
+            "id": str(row.get("id")),
+            "family": str(row.get("family") or "unknown"),
+            "gpus_per_job": max(1, int(row.get("gpus_per_job") or 1)),
+            "capacity_jobs": max(
+                0,
+                int(
+                    row.get("capacity_jobs")
+                    if row.get("capacity_jobs") is not None
+                    else row.get("max_concurrent_jobs")
+                    or 0
+                ),
+            ),
+        }
+        for row in queue_rows
+        if isinstance(row, dict) and row.get("id")
+    }
+    queue_violations = []
+    queue_violation_observations = 0
+    for queue_id, spec in sorted(specs.items()):
+        events = []
+        for snapshot in observations:
+            row = (snapshot.get("by_queue") or {}).get(queue_id)
+            if not row or row["running"] <= spec["capacity_jobs"]:
+                continue
+            queue_violation_observations += 1
+            events.append({
+                "observed_at": snapshot["observed_at"],
+                "running_jobs": row["running"],
+                "waiting_jobs": row["waiting"],
+                "running_gpu_slots": row["running_gpu_slots"],
+                "waiting_gpu_slots": row["waiting_gpu_slots"],
+                "excess_running_jobs": row["running"] - spec["capacity_jobs"],
+                "excess_running_gpu_slots": (
+                    row["running"] - spec["capacity_jobs"]
+                ) * spec["gpus_per_job"],
+            })
+        if not events:
+            continue
+        maximum = max(
+            events,
+            key=lambda row: (
+                row["excess_running_gpu_slots"],
+                row["observed_at"],
+            ),
+        )
+        queue_violations.append({
+            "id": queue_id,
+            "family": spec["family"],
+            "gpus_per_job": spec["gpus_per_job"],
+            "configured_capacity_jobs": spec["capacity_jobs"],
+            "configured_capacity_gpus": (
+                spec["capacity_jobs"] * spec["gpus_per_job"]
+            ),
+            "violation_snapshot_count": len(events),
+            "first_observed_at": min(row["observed_at"] for row in events),
+            "last_observed_at": max(row["observed_at"] for row in events),
+            "maximum_observed_at": maximum["observed_at"],
+            "maximum_running_occupancy_jobs": round(maximum["running_jobs"], 1),
+            "waiting_demand_jobs_at_maximum": round(maximum["waiting_jobs"], 1),
+            "maximum_running_occupancy_gpu_slots": round(
+                maximum["running_gpu_slots"],
+                1,
+            ),
+            "waiting_demand_gpu_slots_at_maximum": round(
+                maximum["waiting_gpu_slots"],
+                1,
+            ),
+            "maximum_excess_running_jobs": round(
+                maximum["excess_running_jobs"],
+                1,
+            ),
+            "maximum_excess_running_gpu_slots": round(
+                maximum["excess_running_gpu_slots"],
+                1,
+            ),
+        })
+
+    family_specs: dict[str, dict] = defaultdict(
+        lambda: {"capacity_jobs": 0, "capacity_gpus": 0, "queue_ids": []}
+    )
+    for queue_id, spec in specs.items():
+        family = family_specs[spec["family"]]
+        family["capacity_jobs"] += spec["capacity_jobs"]
+        family["capacity_gpus"] += (
+            spec["capacity_jobs"] * spec["gpus_per_job"]
+        )
+        family["queue_ids"].append(queue_id)
+
+    family_violations = []
+    family_violation_observations = 0
+    for family_name, spec in sorted(family_specs.items()):
+        events = []
+        for snapshot in observations:
+            queue_values = snapshot.get("by_queue") or {}
+            running_jobs = sum(
+                queue_values[queue_id]["running"]
+                for queue_id in spec["queue_ids"]
+            )
+            waiting_jobs = sum(
+                queue_values[queue_id]["waiting"]
+                for queue_id in spec["queue_ids"]
+            )
+            running_gpu_slots = sum(
+                queue_values[queue_id]["running_gpu_slots"]
+                for queue_id in spec["queue_ids"]
+            )
+            waiting_gpu_slots = sum(
+                queue_values[queue_id]["waiting_gpu_slots"]
+                for queue_id in spec["queue_ids"]
+            )
+            if running_gpu_slots <= spec["capacity_gpus"]:
+                continue
+            family_violation_observations += 1
+            events.append({
+                "observed_at": snapshot["observed_at"],
+                "running_jobs": running_jobs,
+                "waiting_jobs": waiting_jobs,
+                "running_gpu_slots": running_gpu_slots,
+                "waiting_gpu_slots": waiting_gpu_slots,
+                "excess_running_gpu_slots": (
+                    running_gpu_slots - spec["capacity_gpus"]
+                ),
+            })
+        if not events:
+            continue
+        maximum = max(
+            events,
+            key=lambda row: (
+                row["excess_running_gpu_slots"],
+                row["observed_at"],
+            ),
+        )
+        family_violations.append({
+            "family": family_name,
+            "queue_count": len(spec["queue_ids"]),
+            "configured_capacity_jobs": spec["capacity_jobs"],
+            "configured_capacity_gpus": spec["capacity_gpus"],
+            "violation_snapshot_count": len(events),
+            "first_observed_at": min(row["observed_at"] for row in events),
+            "last_observed_at": max(row["observed_at"] for row in events),
+            "maximum_observed_at": maximum["observed_at"],
+            "maximum_running_occupancy_jobs": round(maximum["running_jobs"], 1),
+            "waiting_demand_jobs_at_maximum": round(maximum["waiting_jobs"], 1),
+            "maximum_running_occupancy_gpu_slots": round(
+                maximum["running_gpu_slots"],
+                1,
+            ),
+            "waiting_demand_gpu_slots_at_maximum": round(
+                maximum["waiting_gpu_slots"],
+                1,
+            ),
+            "maximum_excess_running_gpu_slots": round(
+                maximum["excess_running_gpu_slots"],
+                1,
+            ),
+        })
+
+    connected_agent_rows = []
+    connected_sources = list(observations)
+    if current_snapshot and not any(
+        row.get("observed_at") == current_snapshot.get("observed_at")
+        for row in connected_sources
+    ):
+        connected_sources.append(current_snapshot)
+    connected_sources.sort(key=lambda row: str(row.get("observed_at") or ""))
+    for queue_id, spec in sorted(specs.items()):
+        queue_native = []
+        for snapshot in connected_sources:
+            raw = (snapshot.get("by_queue") or {}).get(queue_id) or {}
+            connected = _number(raw.get("connected_agents"))
+            source = str(raw.get("connected_agents_source") or "")
+            if (
+                connected is None
+                or connected < 0
+                or source != "queue_native_metrics"
+            ):
+                continue
+            queue_native.append({
+                "observed_at": snapshot.get("observed_at"),
+                "connected_agents": float(connected),
+                "source": source,
+                "metrics_timestamp": raw.get("metrics_ts"),
+            })
+        latest = queue_native[-1] if queue_native else None
+        window_values = [
+            row
+            for row in queue_native
+            if any(
+                observation.get("observed_at") == row.get("observed_at")
+                for observation in observations
+            )
+        ]
+        maximum = max(
+            window_values,
+            key=lambda row: (
+                row["connected_agents"],
+                str(row.get("observed_at") or ""),
+            ),
+        ) if window_values else None
+        configured_jobs = int(spec["capacity_jobs"])
+        latest_agents = (
+            float(latest["connected_agents"]) if latest is not None else None
+        )
+        signed_delta = (
+            latest_agents - configured_jobs
+            if latest_agents is not None
+            else None
+        )
+        if signed_delta is None:
+            direction = "unavailable"
+        elif signed_delta > 0:
+            direction = "above_planning_quota"
+        elif signed_delta < 0:
+            direction = "below_planning_quota"
+        else:
+            direction = "matches_planning_quota"
+        connected_agent_rows.append({
+            "id": queue_id,
+            "family": spec["family"],
+            "configured_capacity_jobs": configured_jobs,
+            "configured_capacity_source": SOURCE_FILES["capacity_monitor"],
+            "planning_capacity_preserved": True,
+            "available": latest is not None,
+            "latest_connected_agents": (
+                int(latest_agents)
+                if latest_agents is not None and latest_agents.is_integer()
+                else latest_agents
+            ),
+            "signed_delta_jobs": (
+                int(signed_delta)
+                if signed_delta is not None and signed_delta.is_integer()
+                else signed_delta
+            ),
+            "direction": direction,
+            "observed_at": latest.get("observed_at") if latest else None,
+            "source": latest.get("source") if latest else None,
+            "metrics_timestamp": latest.get("metrics_timestamp") if latest else None,
+            "max_connected_agents_in_window": (
+                int(maximum["connected_agents"])
+                if maximum is not None
+                and float(maximum["connected_agents"]).is_integer()
+                else (
+                    maximum["connected_agents"]
+                    if maximum is not None
+                    else None
+                )
+            ),
+            "max_connected_agents_observed_at": (
+                maximum.get("observed_at") if maximum else None
+            ),
+        })
+    connected_available = [
+        row for row in connected_agent_rows if row["available"] is True
+    ]
+    connected_mismatches = [
+        row
+        for row in connected_available
+        if row["signed_delta_jobs"] != 0
+    ]
+
+    available = bool(specs and (observations or connected_available))
+    drift = bool(queue_violations or family_violations)
+    connected_mismatch = bool(connected_mismatches)
+    return {
+        "available": available,
+        "status": (
+            "warning"
+            if drift or connected_mismatch
+            else ("ok" if available else "unavailable")
+        ),
+        "quota_drift_detected": drift,
+        "connected_agent_mismatch_detected": connected_mismatch,
+        "source_path": SOURCE_FILES["queue_timeseries"],
+        "source_timestamp": analysis_window.get("source_timestamp"),
+        "window_start_at": analysis_window.get("start_at"),
+        "window_end_at": analysis_window.get("end_at"),
+        "observed_snapshot_count": len(observations),
+        "queue": {
+            "affected_queue_count": len(queue_violations),
+            "violation_observation_count": queue_violation_observations,
+            "violations": queue_violations,
+        },
+        "family": {
+            "affected_family_count": len(family_violations),
+            "violation_observation_count": family_violation_observations,
+            "violations": family_violations,
+        },
+        "connected_agents": {
+            "queue_count": len(connected_agent_rows),
+            "available_queue_count": len(connected_available),
+            "unavailable_queue_count": (
+                len(connected_agent_rows) - len(connected_available)
+            ),
+            "mismatch_queue_count": len(connected_mismatches),
+            "above_planning_quota_queue_count": sum(
+                row["direction"] == "above_planning_quota"
+                for row in connected_available
+            ),
+            "below_planning_quota_queue_count": sum(
+                row["direction"] == "below_planning_quota"
+                for row in connected_available
+            ),
+            "planning_capacity_preserved": True,
+            "queues": connected_agent_rows,
+            "semantics": (
+                "Queue-native connected agents are an observed integrity signal, "
+                "not a replacement for configured planning capacity. Signed delta "
+                "is latest connected agents minus configured concurrent job slots; "
+                "max uses the same weekday analysis window."
+            ),
+        },
+        "semantics": (
+            "Configured capacity is compared only with observed running "
+            "occupancy. Waiting jobs are published separately as demand and do "
+            "not by themselves imply quota drift. Drift can reflect quota "
+            "changes or source/configuration mismatch."
+        ),
+    }
+
+
+def _weekday_started_cohort_rates(
+    workload_mapping: dict,
+    analysis_window: dict,
+    queue_ids: set[str],
+) -> tuple[dict, dict[str, int]]:
+    """Aggregate created-hour cohorts over the queue history's weekday window."""
+    window_start = _parse_dt(analysis_window.get("start_at"))
+    window_end = _parse_dt(analysis_window.get("end_at"))
+    generated_at = _parse_dt(workload_mapping.get("generated_at"))
+    started_by_queue = {queue_id: 0 for queue_id in queue_ids}
+    elapsed_hours = 0.0
+    included_buckets = 0
+    partial_buckets = 0
+    weekend_buckets = 0
+    leading_boundary_buckets = 0
+    lower_bound_buckets = 0
+    observed_through = None
+
+    for bucket in workload_mapping.get("hourly") or []:
+        if not isinstance(bucket, dict):
+            continue
+        bucket_start = _parse_dt(bucket.get("hour"))
+        if bucket_start is None or window_start is None or window_end is None:
+            continue
+        bucket_start = bucket_start.astimezone(timezone.utc)
+        if bucket_start < window_start:
+            bucket_end = _parse_dt(bucket.get("end_exclusive"))
+            if bucket_end and bucket_end > window_start:
+                # Counts cannot be split inside their created-at hour without
+                # inventing an intra-hour arrival distribution.
+                leading_boundary_buckets += 1
+            continue
+        if bucket_start >= window_end:
+            continue
+        if bucket_start.weekday() >= 5:
+            weekend_buckets += 1
+            continue
+        nominal_end = _parse_dt(bucket.get("end_exclusive"))
+        if nominal_end is None:
+            nominal_end = bucket_start + timedelta(hours=1)
+        bucket_observed_through = _parse_dt(bucket.get("observed_through"))
+        usable_end = min(
+            window_end,
+            nominal_end,
+            bucket_observed_through or nominal_end,
+        )
+        if usable_end <= bucket_start:
+            continue
+        duration_hours = (usable_end - bucket_start).total_seconds() / 3600
+        elapsed_hours += duration_hours
+        included_buckets += 1
+        if duration_hours < 1 or bucket.get("partial") is True or bucket.get("open") is True:
+            partial_buckets += 1
+        if bucket.get("lower_bound") is True or bucket.get("collection_complete") is False:
+            lower_bound_buckets += 1
+        observed_through = max(observed_through, usable_end) if observed_through else usable_end
+        for workload_name in ("main", "omni"):
+            by_queue = (
+                ((bucket.get("workloads") or {}).get(workload_name) or {}).get(
+                    "by_queue"
+                )
+                or {}
+            )
+            for queue_id in queue_ids:
+                started_by_queue[queue_id] += int(
+                    (by_queue.get(queue_id) or {}).get("started_jobs") or 0
+                )
+
+    expected_weekday_hours = float(
+        analysis_window.get("expected_weekday_hours") or 0
+    )
+    metadata = {
+        "available": bool(included_buckets and elapsed_hours > 0),
+        "metric": "weekday_started_cohort_rate_jobs_per_hour",
+        "requested_start_at": analysis_window.get("start_at"),
+        "requested_end_at": analysis_window.get("end_at"),
+        "observed_through": _utc_iso(observed_through),
+        "elapsed_weekday_hours": round(elapsed_hours, 4),
+        "expected_weekday_hours": expected_weekday_hours,
+        "coverage_pct": round(elapsed_hours / expected_weekday_hours * 100, 1)
+        if expected_weekday_hours
+        else None,
+        "included_hour_bucket_count": included_buckets,
+        "partial_hour_bucket_count": partial_buckets,
+        "weekend_hour_bucket_count_excluded": weekend_buckets,
+        "leading_boundary_bucket_count_excluded": leading_boundary_buckets,
+        "lower_bound_bucket_count": lower_bound_buckets,
+        "source_path": SOURCE_FILES["workload_mapping"],
+        "source_timestamp": _utc_iso(generated_at),
+        "timestamp_field": "job.created_at_hour",
+        "semantics": (
+            "Hourly started_jobs counts the job.created_at cohort that eventually "
+            "started; it is not a count of started_at events in that hour. The "
+            "rate divides those cohorts by covered weekday bucket hours. A leading "
+            "partial created-at bucket is excluded because it cannot be split "
+            "without assuming an intra-hour distribution; open trailing buckets "
+            "use their published observed_through duration."
+        ),
+    }
+    return metadata, started_by_queue
+
+
 def _capacity_history_baseline(
     queue_id: str,
     max_concurrent_jobs: int,
     queue_history: list[dict],
+    *,
+    gpus_per_job: int = 1,
+    joint_snapshots: dict[str, dict] | None = None,
+    joint_observations: list[dict] | None = None,
 ) -> dict:
-    """Build raw current/p50/p95 queue baselines from observed snapshots.
+    """Build coherent queue baselines while retaining marginal diagnostics.
 
     Snapshots are deliberately weighted equally.  Collection intervals are not
     sufficiently regular to claim a time-weighted utilization distribution.
     Raw running counts are retained even when they exceed today's configured
     quota so quota drift remains visible to the consumer.
     """
-    observations = []
-    for snapshot in queue_history:
-        raw = (snapshot.get("queues") or {}).get(queue_id)
-        if not isinstance(raw, dict):
-            continue
-        running = _number(raw.get("running"))
-        waiting = _number(raw.get("waiting"))
-        if running is None or waiting is None:
-            continue
-        observations.append({
-            "ts": snapshot.get("ts"),
-            "running": max(0.0, running),
-            "waiting": max(0.0, waiting),
-            "reported_p50_wait_mins": _number(raw.get("p50_wait")),
-            "reported_p95_wait_mins": _number(raw.get("p95_wait")),
-        })
+    width = max(1, int(gpus_per_job or 1))
+    joint_snapshots = joint_snapshots or {}
+    observations = [
+        {
+            "ts": row.get("observed_at"),
+            **((row.get("by_queue") or {}).get(queue_id) or {}),
+        }
+        for row in (joint_observations or [])
+        if (row.get("by_queue") or {}).get(queue_id)
+    ]
+    if joint_observations is None:
+        for snapshot in queue_history:
+            raw = (snapshot.get("queues") or {}).get(queue_id)
+            if not isinstance(raw, dict):
+                continue
+            running = _number(raw.get("running"))
+            waiting = _number(raw.get("waiting"))
+            if running is None or waiting is None or running < 0 or waiting < 0:
+                continue
+            observations.append({
+                "ts": snapshot.get("ts"),
+                "running": float(running),
+                "waiting": float(waiting),
+                "running_gpu_slots": float(running) * width,
+                "waiting_gpu_slots": float(waiting) * width,
+                "connected_agents": _number(raw.get("connected_agents")),
+                "connected_agents_source": raw.get("connected_agents_source"),
+                "metrics_ts": raw.get("metrics_ts"),
+                "reported_p50_wait_mins": _number(raw.get("p50_wait")),
+                "reported_p95_wait_mins": _number(raw.get("p95_wait")),
+            })
 
-    def baseline(kind: str, percentile: int | None = None) -> dict:
-        if not observations:
-            return {
-                "kind": kind,
-                "available": False,
-                "running": None,
-                "waiting": None,
-                "available_slots": None,
-                "utilization_pct": None,
-                "saturated": None,
-            }
-        if percentile is None:
-            observation = observations[-1]
-            running = observation["running"]
-            waiting = observation["waiting"]
-            row = {
-                "kind": kind,
-                "available": True,
-                "observed_at": observation["ts"],
-                "running": int(running),
-                "waiting": int(waiting),
-                "reported_p50_wait_mins": observation["reported_p50_wait_mins"],
-                "reported_p95_wait_mins": observation["reported_p95_wait_mins"],
-            }
-        else:
-            running_values = sorted(row["running"] for row in observations)
-            waiting_values = sorted(row["waiting"] for row in observations)
-            running = float(_percentile(running_values, percentile) or 0)
-            waiting = float(_percentile(waiting_values, percentile) or 0)
-            reported_p50 = sorted(
-                row["reported_p50_wait_mins"]
-                for row in observations
-                if row["reported_p50_wait_mins"] is not None
-            )
-            reported_p95 = sorted(
-                row["reported_p95_wait_mins"]
-                for row in observations
-                if row["reported_p95_wait_mins"] is not None
-            )
-            row = {
-                "kind": kind,
-                "available": True,
-                "percentile": percentile,
-                "running": round(running, 1),
-                "waiting": round(waiting, 1),
-                "reported_p50_wait_mins": _percentile(reported_p50, percentile),
-                "reported_p95_wait_mins": _percentile(reported_p95, percentile),
-            }
+    def finalize(row: dict, running: float, waiting: float) -> dict:
         row.update({
             "available_slots": round(max(0.0, max_concurrent_jobs - running), 1),
             "utilization_pct": round(running / max_concurrent_jobs * 100, 1)
@@ -4001,9 +4864,100 @@ def _capacity_history_baseline(
             else None,
             "saturated": bool(max_concurrent_jobs and running >= max_concurrent_jobs),
             "above_configured_capacity": bool(running > max_concurrent_jobs),
+            "running_gpu_slots": round(running * width, 1),
+            "waiting_gpu_slots": round(waiting * width, 1),
+            "total_pressure_gpu_slots": round((running + waiting) * width, 1),
         })
         return row
 
+    def unavailable(kind: str) -> dict:
+        return {
+            "kind": kind,
+            "available": False,
+            "running": None,
+            "waiting": None,
+            "available_slots": None,
+            "utilization_pct": None,
+            "saturated": None,
+        }
+
+    def marginal_baseline(kind: str, percentile: int) -> dict:
+        if not observations:
+            return unavailable(kind)
+        running_values = sorted(row["running"] for row in observations)
+        waiting_values = sorted(row["waiting"] for row in observations)
+        running = float(_percentile(running_values, percentile) or 0)
+        waiting = float(_percentile(waiting_values, percentile) or 0)
+        reported_p50 = sorted(
+            row["reported_p50_wait_mins"]
+            for row in observations
+            if row.get("reported_p50_wait_mins") is not None
+        )
+        reported_p95 = sorted(
+            row["reported_p95_wait_mins"]
+            for row in observations
+            if row.get("reported_p95_wait_mins") is not None
+        )
+        return finalize({
+            "kind": kind,
+            "available": True,
+            "percentile": percentile,
+            "running": round(running, 1),
+            "waiting": round(waiting, 1),
+            "reported_p50_wait_mins": _percentile(reported_p50, percentile),
+            "reported_p95_wait_mins": _percentile(reported_p95, percentile),
+        }, running, waiting)
+
+    def coherent_baseline(preset: str) -> dict:
+        selected = joint_snapshots.get(preset)
+        raw = ((selected or {}).get("by_queue") or {}).get(queue_id)
+        kind = (
+            "latest_joint_snapshot"
+            if preset == "current"
+            else f"joint_pressure_{preset}_snapshot"
+        )
+        if not raw:
+            if preset == "current" and observations:
+                raw = observations[-1]
+                observed_at = raw.get("ts")
+            else:
+                return unavailable(kind)
+        else:
+            observed_at = selected.get("observed_at")
+        running = float(raw["running"])
+        waiting = float(raw["waiting"])
+        row = {
+            "kind": kind,
+            "available": True,
+            "observed_at": observed_at,
+            "source_path": SOURCE_FILES["queue_timeseries"],
+            "source_timestamp": (selected or {}).get("source_timestamp") or observed_at,
+            "running": int(running) if running.is_integer() else round(running, 1),
+            "waiting": int(waiting) if waiting.is_integer() else round(waiting, 1),
+            "reported_p50_wait_mins": raw.get("reported_p50_wait_mins"),
+            "reported_p95_wait_mins": raw.get("reported_p95_wait_mins"),
+            "connected_agents": (
+                int(raw["connected_agents"])
+                if _number(raw.get("connected_agents")) is not None
+                and float(raw["connected_agents"]).is_integer()
+                else _number(raw.get("connected_agents"))
+            ),
+            "connected_agents_source": raw.get("connected_agents_source"),
+            "metrics_timestamp": raw.get("metrics_ts"),
+            "selection_metric": "eligible_queue_running_plus_waiting_gpu_slots",
+        }
+        if preset == "typical":
+            row["percentile"] = 50
+        elif preset == "peak":
+            row["percentile"] = 95
+        return finalize(row, running, waiting)
+
+    if not observations and not joint_snapshots:
+        current = unavailable("latest_joint_snapshot")
+    else:
+        current = coherent_baseline("current")
+    marginal_typical = marginal_baseline("marginal_empirical_p50", 50)
+    marginal_peak = marginal_baseline("marginal_empirical_p95", 95)
     first_observed_at = observations[0]["ts"] if observations else None
     last_observed_at = observations[-1]["ts"] if observations else None
     return {
@@ -4014,9 +4968,18 @@ def _capacity_history_baseline(
             observation["running"] > max_concurrent_jobs
             for observation in observations
         ),
-        "current": baseline("latest_snapshot"),
-        "typical": baseline("empirical_p50", 50),
-        "peak": baseline("empirical_p95", 95),
+        "current": current,
+        "typical": coherent_baseline("typical"),
+        "peak": coherent_baseline("peak"),
+        "stress": coherent_baseline("stress"),
+        "marginal": {
+            "typical": marginal_typical,
+            "peak": marginal_peak,
+            "semantics": (
+                "Diagnostics only: running and waiting are independent per-queue "
+                "percentiles over the weekday window and need not have co-occurred."
+            ),
+        },
     }
 
 
@@ -4037,6 +5000,25 @@ def _unplaced_retiring_mi325_workload(
         )
         and queue.get("lifecycle") == "retiring"
     ]
+    retiring_specs = [
+        {
+            "id": queue["id"],
+            "family": "MI325",
+            "gpus_per_job": int(queue.get("gpus_per_job") or 1),
+            "max_concurrent_jobs": int(queue.get("max_concurrent_jobs") or 0),
+        }
+        for queue in retiring
+    ]
+    joint_history, joint_snapshots, joint_observations = _capacity_joint_history(
+        retiring_specs,
+        queue_history,
+    )
+    retiring_integrity = _capacity_quota_integrity(
+        retiring_specs,
+        joint_observations,
+        joint_history["analysis_window"],
+        current_snapshot=joint_snapshots.get("current"),
+    )
     number_fields = (
         "mapped_jobs",
         "started_jobs",
@@ -4087,6 +5069,9 @@ def _unplaced_retiring_mi325_workload(
                 queue_id,
                 int(queue.get("max_concurrent_jobs") or 0),
                 queue_history,
+                gpus_per_job=int(queue.get("gpus_per_job") or 1),
+                joint_snapshots=joint_snapshots,
+                joint_observations=joint_observations,
             ),
         })
 
@@ -4105,6 +5090,10 @@ def _unplaced_retiring_mi325_workload(
     )
 
     def occupancy(preset: str) -> dict:
+        selection = (
+            (joint_history.get("joint_baselines") or {}).get(preset)
+            or {}
+        )
         observed = [
             (row, row["history"].get(preset) or {})
             for row in queue_rows
@@ -4119,6 +5108,9 @@ def _unplaced_retiring_mi325_workload(
                 "waiting_jobs": None,
                 "running_gpu_slots": None,
                 "waiting_gpu_slots": None,
+                "observed_at": selection.get("observed_at"),
+                "source_path": selection.get("source_path"),
+                "source_timestamp": selection.get("source_timestamp"),
             }
         running_jobs = sum(float(baseline.get("running") or 0) for _, baseline in observed)
         waiting_jobs = sum(float(baseline.get("waiting") or 0) for _, baseline in observed)
@@ -4138,6 +5130,13 @@ def _unplaced_retiring_mi325_workload(
             "waiting_jobs": round(waiting_jobs, 1),
             "running_gpu_slots": round(running_gpu_slots, 1),
             "waiting_gpu_slots": round(waiting_gpu_slots, 1),
+            "total_pressure_gpu_slots": round(
+                running_gpu_slots + waiting_gpu_slots,
+                1,
+            ),
+            "observed_at": selection.get("observed_at"),
+            "source_path": selection.get("source_path"),
+            "source_timestamp": selection.get("source_timestamp"),
         }
 
     window = workload_mapping.get("window") or {}
@@ -4176,13 +5175,17 @@ def _unplaced_retiring_mi325_workload(
             "current": occupancy("current"),
             "typical": occupancy("typical"),
             "peak": occupancy("peak"),
+            "stress": occupancy("stress"),
+            **joint_history,
             "semantics": (
-                "Current sums the latest observed row for each retiring MI325 "
-                "queue. Typical and peak sum each queue's marginal empirical "
-                "p50/p95 running and waiting counts; the component percentiles "
-                "need not have occurred in the same snapshot."
+                "Current, typical, peak, and stress each sum one coherent observed "
+                "MI325 snapshot. Typical and peak are nearest-rank p50/p95 and "
+                "stress is the observed maximum of MI325 running-plus-waiting "
+                "GPU-slot pressure over the same strict seven-by-twenty-four-hour "
+                "UTC weekday window."
             ),
         },
+        "integrity": retiring_integrity,
         "queues": queue_rows,
         "reason": (
             "Retiring MI325 mappings and observed occupancy are excluded from "
@@ -4220,6 +5223,31 @@ def _capacity_simulation_profile(
         for row in capacity.get("queues") or []
         if isinstance(row, dict) and row.get("id")
     }
+    joint_history, joint_snapshots, joint_observations = _capacity_joint_history(
+        queue_rows,
+        queue_history,
+    )
+    analysis_window = joint_history["analysis_window"]
+    integrity = _capacity_quota_integrity(
+        queue_rows,
+        joint_observations,
+        analysis_window,
+        current_snapshot=joint_snapshots.get("current"),
+    )
+    weekday_rate_window, weekday_started_by_queue = (
+        _weekday_started_cohort_rates(
+            workload_mapping,
+            analysis_window,
+            {
+                str(row.get("id"))
+                for row in queue_rows
+                if isinstance(row, dict) and row.get("id")
+            },
+        )
+    )
+    weekday_rate_hours = float(
+        weekday_rate_window.get("elapsed_weekday_hours") or 0
+    )
     global_runtime_service_minutes = None
     runtime_sampled_jobs = int(runtime_estimate.get("sampled_jobs") or 0)
     if runtime_sampled_jobs and _number(runtime_estimate.get("median_agent_hours")) is not None:
@@ -4309,11 +5337,25 @@ def _capacity_simulation_profile(
                 queue_id,
                 max_concurrent_jobs,
                 queue_history,
+                gpus_per_job=gpus_per_job,
+                joint_snapshots=joint_snapshots,
+                joint_observations=joint_observations,
             ),
             "workload": {
                 **workload_counts,
                 "gpu_hours": round(workload_counts["gpu_hours"], 2),
                 "observed_agent_hours": round(observed_agent_hours, 2),
+                "weekday_started_cohort_jobs": int(
+                    weekday_started_by_queue.get(queue_id) or 0
+                ),
+                "weekday_started_cohort_rate_jobs_per_hour": round(
+                    float(weekday_started_by_queue.get(queue_id) or 0)
+                    / weekday_rate_hours,
+                    4,
+                )
+                if weekday_rate_window.get("available") is True
+                and weekday_rate_hours
+                else None,
                 "mapped_arrival_rate_jobs_per_hour": round(
                     workload_counts["mapped_jobs"] / elapsed_hours,
                     4,
@@ -4387,7 +5429,7 @@ def _capacity_simulation_profile(
     return {
         "available": bool(profile_rows),
         "model": {
-            "id": "amd_queue_planning_inputs_v1",
+            "id": "amd_queue_planning_inputs_v2",
             "kind": "planning_estimate_inputs_not_sla",
             "burst_wait": (
                 "Use FCFS list scheduling per queue as a planning estimate. Idle configured "
@@ -4400,16 +5442,21 @@ def _capacity_simulation_profile(
             ),
             "steady_wait": (
                 "Optional Erlang-C planning approximation: offered load "
-                "A=baseline_running+arrival_rate_jobs_per_hour*service_minutes/60; "
-                "rho=A/c. If rho>=1 the scenario is unstable. Otherwise compute "
+                "uses lambda=weekday_started_cohort_rate_jobs_per_hour+"
+                "incremental_suites_per_hour*delta_jobs_per_suite, then "
+                "A=lambda*service_minutes/60 and rho=A/c. Baseline running is not "
+                "added to offered load. If rho>=1 the scenario is unstable. Otherwise compute "
                 "Erlang-B recursively, P(wait)=B/(1-rho+rho*B), mean "
                 "Wq=P(wait)*service_minutes/(c-A), and the conditional exponential "
                 "tail for percentiles."
             ),
             "steady_wait_assumptions": (
-                "Stationary Poisson arrivals, independent identically distributed "
+                "Stationary Poisson arrivals, independent exponentially distributed "
                 "service, homogeneous configured runners, FCFS dispatch, and no "
-                "cross-queue migration. These assumptions are not an SLA."
+                "cross-queue migration. The published median-derived service time is "
+                "used as a mean-service proxy, and the weekday created-cohort rate is "
+                "only a proxy for actual started_at arrivals. These assumptions are "
+                "not an SLA."
             ),
         },
         "defaults": {
@@ -4417,7 +5464,9 @@ def _capacity_simulation_profile(
             "traffic_mode": "burst",
             "target_groups": target_totals["groups"],
             "simultaneous_suites": 1,
-            "arrival_rate_jobs_field": "started_arrival_rate_jobs_per_hour",
+            "arrival_rate_jobs_field": (
+                "weekday_started_cohort_rate_jobs_per_hour"
+            ),
         },
         "topology": {
             "current": current_totals,
@@ -4437,8 +5486,9 @@ def _capacity_simulation_profile(
             "snapshot_count": len(queue_history),
             "first_observed_at": queue_history[0].get("ts") if queue_history else None,
             "last_observed_at": queue_history[-1].get("ts") if queue_history else None,
-            "quantiles": {"typical": 50, "peak": 95},
+            "quantiles": {"typical": 50, "peak": 95, "stress": "observed_max"},
             "weighting": "one_equal_weight_per_collected_snapshot",
+            **joint_history,
         },
         "workload_window": {
             "elapsed_hours": round(elapsed_hours, 2),
@@ -4461,7 +5511,9 @@ def _capacity_simulation_profile(
                     "parent_build_lookback_days"
                 )
             ),
+            "weekday_started_cohort_rate": weekday_rate_window,
         },
+        "integrity": integrity,
         "unplaced_retiring_workload": unplaced_retiring_workload,
         "assumptions": {
             "capacity": (
@@ -4469,16 +5521,21 @@ def _capacity_simulation_profile(
                 "job slots. MI325 and perf-eval queues remain excluded."
             ),
             "history": (
-                "Current is the latest observed queue row; typical and peak are "
-                "unweighted empirical p50/p95 snapshot counts. Peak combines each "
-                "queue's marginal p95 running and waiting counts; those values need "
-                "not have occurred in the same snapshot. Raw observations may exceed "
-                "today's quota when capacity changed during the window."
+                "Current is the latest complete joint observation. Typical, peak, "
+                "and stress are real coherent weekday snapshots selected by the "
+                "eligible queues' combined running-plus-waiting GPU-slot pressure "
+                "over the strict latest seven-by-twenty-four-hour UTC window. "
+                "Independent per-queue percentiles remain diagnostic only under "
+                "history.marginal. Raw observations are never capped to today's "
+                "quota."
             ),
             "arrivals": (
                 "Mapped and started rates divide unique daily Buildkite aggregate "
                 "counts by the published window duration. They are historical average "
-                "rates, not a fitted arrival distribution or peak forecast."
+                "rates, not a fitted arrival distribution or peak forecast. The "
+                "weekday started-cohort rate is preferred for sustained planning, "
+                "but its hourly timestamp is job.created_at: it counts a created "
+                "cohort that eventually started, not literal started_at events."
             ),
             "service": (
                 "Per-queue target command-job median averages from the target-runtime "
@@ -4519,65 +5576,110 @@ def _exact_target_topology(
     amd_analytics: dict | None = None,
     workload_mapping: dict | None = None,
     queue_history: list[dict] | None = None,
+    *,
+    architecture_preference: list[str] | tuple[str, ...] | None = None,
 ) -> dict:
     """Project one full semantic AMD matrix onto its configured queue topology.
 
-    Each semantic row is counted once.  When a row exists on multiple
-    architectures, the same precedence used by the mirror plan is applied:
-    MI250, then MI300, then MI355.  Parallelism is expanded into command jobs,
-    and queue width converts those jobs into simultaneous GPU slots.
+    Each semantic row is counted once. Architecture ordering is configurable,
+    and selection is restricted to explicit matrix cells whose declared queues
+    are active. Parallelism is expanded into command jobs, and queue width
+    converts those jobs into simultaneous GPU slots.
     """
     catalog = _queue_capacity_catalog(capacity)
-    demand: dict[str, dict] = {
-        queue_id: {
-            **queue,
-            "group_ids": set(),
-            "jobs": 0,
-            "gpu_slots": 0,
-        }
-        for queue_id, queue in catalog.items()
-        if queue["capacity_eligible"]
-    }
-    selected_groups = 0
-    unassigned_groups = 0
-    for index, row in enumerate(amd_test_matrix.get("rows") or []):
-        if not isinstance(row, dict):
-            continue
-        cells = row.get("cells") or {}
-        cell = next(
-            (
-                cells.get(architecture)
-                for architecture in ("mi250", "mi300", "mi355")
-                if isinstance(cells.get(architecture), dict)
-                and cells[architecture].get("exists") is True
-            ),
-            None,
+    preference = _normalize_architecture_preference(architecture_preference)
+    placement = _target_placement_demand(
+        amd_test_matrix,
+        catalog,
+        preference,
+    )
+    demand = placement["demand"]
+    selected_groups = int(placement["selected_groups"])
+    unassigned_groups = int(placement["unassigned_groups"])
+
+    strategy_definitions = [
+        (
+            "mi355_preferred",
+            "Prefer explicit MI355 definitions after MI250",
+            AMD_TARGET_DEFAULT_PREFERENCE,
+        ),
+        (
+            "current_definition_precedence",
+            "Current definition precedence",
+            AMD_TARGET_CURRENT_DEFINITION_PREFERENCE,
+        ),
+    ]
+    default_strategy_id = next(
+        (
+            strategy_id
+            for strategy_id, _, strategy_preference in strategy_definitions
+            if tuple(preference) == tuple(strategy_preference)
+        ),
+        "configured_preference",
+    )
+
+    def strategy_profile(
+        strategy_id: str,
+        label: str,
+        strategy_placement: dict,
+        strategy_preference: list[str] | tuple[str, ...],
+    ) -> dict:
+        profile = _placement_strategy_profile(
+            strategy_id,
+            label,
+            strategy_placement,
         )
-        if not cell:
-            unassigned_groups += 1
-            continue
-        group_id = str(row.get("id") or f"matrix-row-{index}")
-        group_assigned = False
-        for variant in cell.get("variants") or []:
-            if not isinstance(variant, dict):
-                continue
-            label = str(variant.get("agent_pool") or "").strip()
-            queue_id = label if label.startswith("amd_") else f"amd_{label}"
-            queue = demand.get(queue_id)
-            if queue is None:
-                continue
-            try:
-                jobs = max(1, int(variant.get("parallelism") or 1))
-            except (TypeError, ValueError):
-                jobs = 1
-            queue["group_ids"].add(group_id)
-            queue["jobs"] += jobs
-            queue["gpu_slots"] += jobs * queue["gpus_per_job"]
-            group_assigned = True
-        if group_assigned:
-            selected_groups += 1
-        else:
-            unassigned_groups += 1
+        strategy_runtime = _target_runtime_estimate(
+            amd_test_matrix,
+            amd_analytics or {},
+            catalog,
+            architecture_preference=strategy_preference,
+        )
+        runtime_queues = strategy_runtime.get("queues") or {}
+        for queue in profile["queues"]:
+            runtime_queue = runtime_queues.get(queue["id"]) or {}
+            sampled_jobs = int(runtime_queue.get("sampled_jobs") or 0)
+            median_agent_hours = _number(
+                runtime_queue.get("median_agent_hours")
+            )
+            queue["service_minutes"] = (
+                round(float(median_agent_hours) * 60 / sampled_jobs, 2)
+                if sampled_jobs and median_agent_hours is not None
+                else None
+            )
+            queue["service_minutes_source"] = (
+                "placement_strategy_target_command_job_median_average"
+                if queue["service_minutes"] is not None
+                else "unavailable"
+            )
+            queue["service_sampled_command_jobs"] = sampled_jobs
+        profile["runtime_estimate"] = strategy_runtime
+        return profile
+
+    strategy_profiles = []
+    if default_strategy_id == "configured_preference":
+        strategy_profiles.append(strategy_profile(
+            "configured_preference",
+            "Configured architecture preference",
+            placement,
+            preference,
+        ))
+    for strategy_id, label, strategy_preference in strategy_definitions:
+        strategy_placement = (
+            placement
+            if tuple(preference) == tuple(strategy_preference)
+            else _target_placement_demand(
+                amd_test_matrix,
+                catalog,
+                strategy_preference,
+            )
+        )
+        strategy_profiles.append(strategy_profile(
+            strategy_id,
+            label,
+            strategy_placement,
+            strategy_preference,
+        ))
 
     queue_rows = []
     current_capacity_queues = {
@@ -4698,6 +5800,7 @@ def _exact_target_topology(
         amd_test_matrix,
         amd_analytics or {},
         catalog,
+        architecture_preference=preference,
     )
     simulation_profile = _capacity_simulation_profile(
         capacity,
@@ -4739,7 +5842,13 @@ def _exact_target_topology(
         "available": bool(selected_groups and queue_rows),
         "method": "exact_one_cell_per_semantic_matrix_row",
         "source_path": SOURCE_FILES["amd_test_matrix"],
-        "architecture_precedence": ["mi250", "mi300", "mi355"],
+        "architecture_precedence": list(preference),
+        "placement_profiles": {
+            "default_strategy_id": default_strategy_id,
+            "configurable": True,
+            "selection_method": "first_feasible_explicit_matrix_cell",
+            "strategies": strategy_profiles,
+        },
         "target_groups": int(projection.get("target_groups") or selected_groups),
         "declared_current_mirror_groups": int(
             projection.get("declared_current_mirror_groups") or 0

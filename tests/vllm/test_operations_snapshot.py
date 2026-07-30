@@ -1122,6 +1122,17 @@ def test_exact_capacity_projection_expands_parallelism_and_queue_width():
     assert projection["runtime_estimate"]["selected_jobs"] == 4
     assert projection["runtime_estimate"]["median_agent_hours"] == 1.67
     assert projection["runtime_estimate"]["median_gpu_hours"] == 9.83
+    strategy = {
+        row["id"]: row
+        for row in projection["placement_profiles"]["strategies"]
+    }["mi355_preferred"]
+    strategy_queues = {row["id"]: row for row in strategy["queues"]}
+    assert strategy_queues["amd_mi300_1"]["service_minutes"] == 15
+    assert strategy_queues["amd_mi300_8"]["service_minutes"] == 35.1
+    assert (
+        strategy_queues["amd_mi300_1"]["service_minutes_source"]
+        == "placement_strategy_target_command_job_median_average"
+    )
     assert projection["current_topology"] == {
         "groups": 1,
         "jobs": 2,
@@ -1133,6 +1144,211 @@ def test_exact_capacity_projection_expands_parallelism_and_queue_width():
     assert projected_queues["amd_mi300_1"]["current_gated_jobs"] == 2
     assert projected_queues["amd_mi300_1"]["current_gated_gpu_slots"] == 2
     assert projected_queues["amd_mi300_8"]["current_gated_gpu_slots"] == 0
+
+
+def test_capacity_projection_publishes_exact_mi355_preferred_placement():
+    queues = []
+    for architecture, widths in {
+        "mi250": (1, 4),
+        "mi300": (1, 4, 8),
+        "mi355": (1, 4),
+    }.items():
+        for width in widths:
+            queues.append({
+                "id": f"amd_{architecture}_{width}",
+                "label": f"{architecture}_{width}",
+                "family": architecture.upper(),
+                "gpus_per_job": width,
+                "max_concurrent_jobs": 1000,
+                "gpu_capacity": 1000 * width,
+                "capacity_eligible": True,
+            })
+    capacity = {
+        "summary": {
+            "capacity_scoped_group_count": 0,
+            "capacity": {
+                "future_eligible": {
+                    "concurrent_jobs": 7000,
+                    "gpus": 21000,
+                },
+            },
+        },
+        "queues": queues,
+    }
+
+    def cell(pool: str, parallelism: int = 1) -> dict:
+        return {
+            "exists": True,
+            "variants": [{
+                "agent_pool": pool,
+                "parallelism": parallelism,
+            }],
+        }
+
+    matrix_rows = []
+    for index in range(21):
+        pool = "mi250_4" if index == 20 else "mi250_1"
+        parallelism = 2 if index < 5 else 1
+        matrix_rows.append({
+            "id": f"mi250-{index}",
+            "cells": {"mi250": cell(pool, parallelism)},
+        })
+    for index in range(38):
+        if index < 4:
+            preferred = cell("mi355_4")
+        elif index < 11:
+            preferred = cell("mi355_1", 2)
+        else:
+            preferred = cell("mi355_1")
+        matrix_rows.append({
+            "id": f"mi355-{index}",
+            "cells": {
+                "mi355": preferred,
+                "mi300": cell("mi300_1"),
+            },
+        })
+    for index in range(101):
+        if index < 14:
+            selected = cell("mi300_8")
+        elif index == 14:
+            selected = cell("mi300_4")
+        else:
+            selected = cell("mi300_1", 2 if index < 39 else 1)
+        matrix_rows.append({
+            "id": f"mi300-{index}",
+            "cells": {"mi300": selected},
+        })
+    matrix = {"rows": matrix_rows}
+
+    projection = ops._exact_target_topology(capacity, matrix)
+
+    assert projection["architecture_precedence"] == ["mi250", "mi355", "mi300"]
+    profiles = projection["placement_profiles"]
+    assert profiles["default_strategy_id"] == "mi355_preferred"
+    assert profiles["configurable"] is True
+    strategies = {row["id"]: row for row in profiles["strategies"]}
+    preferred = strategies["mi355_preferred"]
+    assert preferred["totals"] == {
+        "groups": 160,
+        "jobs": 196,
+        "gpu_slots": 312,
+    }
+    assert [
+        (row["family"], row["groups"], row["jobs"], row["gpu_slots"])
+        for row in preferred["families"]
+    ] == [
+        ("MI250", 21, 26, 29),
+        ("MI300", 101, 125, 226),
+        ("MI355", 38, 45, 57),
+    ]
+    assert preferred["coverage"]["architecture_definitions"]["mi355"] == 38
+    assert preferred["coverage"]["complete"] is True
+    assert "Only 38/160 semantic groups" in preferred["limitation"]
+    current = strategies["current_definition_precedence"]
+    assert current["coverage"]["selected_groups_by_architecture"] == {
+        "mi250": 21,
+        "mi300": 139,
+        "mi355": 0,
+    }
+    assert [
+        (row["family"], row["groups"], row["jobs"], row["gpu_slots"])
+        for row in projection["families"]
+    ] == [
+        ("MI250", 21, 26, 29),
+        ("MI300", 101, 125, 226),
+        ("MI355", 38, 45, 57),
+    ]
+
+    legacy_projection = ops._exact_target_topology(
+        capacity,
+        matrix,
+        architecture_preference=["mi250", "mi300", "mi355"],
+    )
+    assert (
+        legacy_projection["placement_profiles"]["default_strategy_id"]
+        == "current_definition_precedence"
+    )
+    assert legacy_projection["families"][1]["groups"] == 139
+
+
+def test_target_runtime_estimate_uses_configured_architecture_preference():
+    catalog = {
+        "amd_mi300_1": {
+            "id": "amd_mi300_1",
+            "gpus_per_job": 1,
+            "capacity_eligible": True,
+        },
+        "amd_mi355_1": {
+            "id": "amd_mi355_1",
+            "gpus_per_job": 1,
+            "capacity_eligible": True,
+        },
+    }
+    matrix = {
+        "source": {
+            "latest_build_number": 7,
+            "latest_build_date": "2026-04-22",
+        },
+        "rows": [{
+            "id": "dual-defined",
+            "cells": {
+                "mi300": {
+                    "exists": True,
+                    "variants": [{
+                        "agent_pool": "mi300_1",
+                        "latest_url": (
+                            "https://buildkite.com/vllm/amd-ci/builds/7/"
+                            "steps/canvas?sid=step-mi300"
+                        ),
+                    }],
+                },
+                "mi355": {
+                    "exists": True,
+                    "variants": [{
+                        "agent_pool": "mi355_1",
+                        "latest_url": (
+                            "https://buildkite.com/vllm/amd-ci/builds/7/"
+                            "steps/canvas?sid=step-mi355"
+                        ),
+                    }],
+                },
+            },
+        }],
+    }
+    analytics_payload = {
+        "builds": [{
+            "number": 7,
+            "date": "2026-04-22",
+            "jobs": [{
+                "name": "mi300 job",
+                "q": "amd_mi300_1",
+                "step_id": "step-mi300",
+                "wall_completion_mins": 30,
+            }, {
+                "name": "mi355 job",
+                "q": "amd_mi355_1",
+                "step_id": "step-mi355",
+                "wall_completion_mins": 10,
+            }],
+        }],
+    }
+
+    preferred = ops._target_runtime_estimate(
+        matrix,
+        analytics_payload,
+        catalog,
+    )
+    legacy = ops._target_runtime_estimate(
+        matrix,
+        analytics_payload,
+        catalog,
+        architecture_preference=["mi250", "mi300", "mi355"],
+    )
+
+    assert list(preferred["queues"]) == ["amd_mi355_1"]
+    assert preferred["median_agent_hours"] == 0.17
+    assert list(legacy["queues"]) == ["amd_mi300_1"]
+    assert legacy["median_agent_hours"] == 0.5
 
 
 def test_capacity_simulation_profile_publishes_source_backed_wait_inputs():
@@ -1208,19 +1424,54 @@ def test_capacity_simulation_profile_publishes_source_backed_wait_inputs():
             },
             "omni": {"by_queue": {}},
         },
+        "hourly": [
+            {
+                "hour": "2026-04-22T10:00:00Z",
+                "end_exclusive": "2026-04-22T11:00:00Z",
+                "observed_through": "2026-04-22T11:00:00Z",
+                "workloads": {
+                    "main": {
+                        "by_queue": {
+                            "amd_mi300_1": {"started_jobs": 4},
+                        },
+                    },
+                },
+            },
+            {
+                "hour": "2026-04-22T11:00:00Z",
+                "end_exclusive": "2026-04-22T12:00:00Z",
+                "observed_through": "2026-04-22T12:00:00Z",
+                "workloads": {
+                    "omni": {
+                        "by_queue": {
+                            "amd_mi300_1": {"started_jobs": 2},
+                        },
+                    },
+                },
+            },
+        ],
     }
     history = [
         {
             "ts": "2026-04-22T10:00:00Z",
-            "queues": {"amd_mi300_1": {"running": 1, "waiting": 0}},
+            "queues": {
+                "amd_mi300_1": {"running": 1, "waiting": 0},
+                "amd_mi300_8": {"running": 0, "waiting": 0},
+            },
         },
         {
             "ts": "2026-04-22T11:00:00Z",
-            "queues": {"amd_mi300_1": {"running": 3, "waiting": 2}},
+            "queues": {
+                "amd_mi300_1": {"running": 3, "waiting": 2},
+                "amd_mi300_8": {"running": 0, "waiting": 0},
+            },
         },
         {
             "ts": "2026-04-22T12:00:00Z",
-            "queues": {"amd_mi300_1": {"running": 25, "waiting": 10}},
+            "queues": {
+                "amd_mi300_1": {"running": 25, "waiting": 10},
+                "amd_mi300_8": {"running": 0, "waiting": 0},
+            },
         },
     ]
 
@@ -1257,10 +1508,28 @@ def test_capacity_simulation_profile_publishes_source_backed_wait_inputs():
     assert one_gpu["history"]["snapshots_above_configured_capacity"] == 1
     assert one_gpu["history"]["typical"]["running"] == 3
     assert one_gpu["history"]["typical"]["waiting"] == 2
-    assert one_gpu["history"]["peak"]["running"] == 22.8
-    assert one_gpu["history"]["peak"]["waiting"] == 9.2
+    assert one_gpu["history"]["peak"]["running"] == 25
+    assert one_gpu["history"]["peak"]["waiting"] == 10
+    assert one_gpu["history"]["stress"]["observed_at"] == "2026-04-22T12:00:00Z"
+    assert one_gpu["history"]["marginal"]["peak"]["running"] == 22.8
+    assert one_gpu["history"]["marginal"]["peak"]["waiting"] == 9.2
+    assert (
+        profile["history"]["joint_baselines"]["peak"]["observed_at"]
+        == one_gpu["history"]["peak"]["observed_at"]
+    )
+    assert profile["integrity"]["quota_drift_detected"] is True
+    assert profile["integrity"]["queue"]["affected_queue_count"] == 1
     assert one_gpu["workload"]["mapped_arrival_rate_jobs_per_hour"] == 1
     assert one_gpu["workload"]["started_arrival_rate_jobs_per_hour"] == 0.5
+    assert one_gpu["workload"]["weekday_started_cohort_jobs"] == 6
+    assert (
+        one_gpu["workload"]["weekday_started_cohort_rate_jobs_per_hour"]
+        == 3
+    )
+    assert (
+        profile["defaults"]["arrival_rate_jobs_field"]
+        == "weekday_started_cohort_rate_jobs_per_hour"
+    )
     assert one_gpu["workload"]["observed_service_minutes"] == 60
     assert one_gpu["workload"]["target_runtime_service_minutes"] == 30
     assert one_gpu["workload"]["service_minutes"] == 30
@@ -1270,7 +1539,9 @@ def test_capacity_simulation_profile_publishes_source_backed_wait_inputs():
     )
     assert one_gpu["workload"]["service_minutes_is_proxy"] is False
     eight_gpu = rows["amd_mi300_8"]
-    assert eight_gpu["history"]["current"]["available"] is False
+    assert eight_gpu["history"]["current"]["available"] is True
+    assert eight_gpu["history"]["current"]["running"] == 0
+    assert eight_gpu["history"]["current"]["waiting"] == 0
     assert eight_gpu["workload"]["observed_service_minutes"] is None
     assert eight_gpu["workload"]["service_minutes"] == 30
     assert (
@@ -1288,6 +1559,220 @@ def test_capacity_simulation_profile_publishes_source_backed_wait_inputs():
     assert "primary service-time input" in profile["assumptions"]["service"]
     assert "used only as a fallback" in profile["assumptions"]["service"]
     assert profile["provenance"]["queue_history"] == "queue_timeseries.jsonl"
+
+
+def test_capacity_joint_history_uses_real_weekday_snapshots_and_observed_stress():
+    queue_rows = [
+        {
+            "id": "amd_mi300_1",
+            "family": "MI300",
+            "gpus_per_job": 1,
+            "capacity_jobs": 5,
+        },
+        {
+            "id": "amd_mi300_4",
+            "family": "MI300",
+            "gpus_per_job": 4,
+            "capacity_jobs": 1,
+        },
+    ]
+    history = [{
+        "ts": "2026-04-04T12:00:00Z",
+        "queues": {
+            "amd_mi300_1": {"running": 1000, "waiting": 0},
+            "amd_mi300_4": {"running": 0, "waiting": 0},
+        },
+    }, {
+        "ts": "2026-04-08T12:00:00Z",
+        "queues": {
+            "amd_mi300_1": {"running": 1, "waiting": 0},
+        },
+    }]
+    for pressure in range(1, 21):
+        history.append({
+            "ts": f"2026-04-09T{pressure - 1:02d}:00:00Z",
+            "queues": {
+                "amd_mi300_1": {
+                    "running": min(pressure, 5),
+                    "waiting": max(0, pressure - 5),
+                    "connected_agents": pressure,
+                    "connected_agents_source": "queue_native_metrics",
+                    "metrics_ts": f"2026-04-09T{pressure - 1:02d}:00:00Z",
+                },
+                "amd_mi300_4": {"running": 0, "waiting": 0},
+            },
+        })
+    history.extend([{
+        "ts": "2026-04-10T20:00:00Z",
+        "queues": {
+            "amd_mi300_1": {
+                "running": 4,
+                "waiting": 46,
+                "connected_agents": 7,
+                "connected_agents_source": "queue_native_metrics",
+                "metrics_ts": "2026-04-10T20:00:00Z",
+            },
+            "amd_mi300_4": {"running": 0, "waiting": 0},
+        },
+    }, {
+        "ts": "2026-04-10T23:00:00Z",
+        "queues": {
+            "amd_mi300_1": {
+                "running": 6,
+                "waiting": 94,
+                "connected_agents": 3,
+                "connected_agents_source": "queue_native_metrics",
+                "metrics_ts": "2026-04-10T22:59:00Z",
+            },
+            "amd_mi300_4": {"running": 1, "waiting": 0},
+        },
+    }])
+
+    published, selected, observations = ops._capacity_joint_history(
+        queue_rows,
+        history,
+    )
+
+    window = published["analysis_window"]
+    assert window["start_at"] == "2026-04-03T23:00:00Z"
+    assert window["end_at"] == "2026-04-10T23:00:00Z"
+    assert window["expected_weekday_hours"] == 120
+    assert window["weekend_snapshot_count_excluded"] == 1
+    assert window["incomplete_snapshot_count"] == 1
+    assert window["complete_snapshot_count"] == 22
+    assert window["missing_weekday_dates"] == [
+        "2026-04-03",
+        "2026-04-06",
+        "2026-04-07",
+    ]
+    assert window["weekday_date_coverage_complete"] is False
+    baselines = published["joint_baselines"]
+    assert baselines["typical"]["total_pressure_gpu_slots"] == 11
+    assert baselines["typical"]["observed_at"] == "2026-04-09T10:00:00Z"
+    assert baselines["peak"]["total_pressure_gpu_slots"] == 50
+    assert baselines["peak"]["observed_at"] == "2026-04-10T20:00:00Z"
+    assert baselines["stress"]["total_pressure_gpu_slots"] == 104
+    assert baselines["stress"]["observed_at"] == "2026-04-10T23:00:00Z"
+    assert (
+        selected["stress"]["by_queue"]["amd_mi300_1"]["connected_agents_source"]
+        == "queue_native_metrics"
+    )
+
+    queue_history = ops._capacity_history_baseline(
+        "amd_mi300_1",
+        5,
+        history,
+        joint_snapshots=selected,
+        joint_observations=observations,
+    )
+    assert queue_history["typical"]["observed_at"] == baselines["typical"]["observed_at"]
+    assert queue_history["peak"]["running"] == 4
+    assert queue_history["peak"]["waiting"] == 46
+    assert queue_history["stress"]["running"] == 6
+    assert queue_history["stress"]["waiting"] == 94
+    assert queue_history["stress"]["connected_agents"] == 3
+    assert (
+        queue_history["stress"]["connected_agents_source"]
+        == "queue_native_metrics"
+    )
+    assert queue_history["stress"]["metrics_timestamp"] == "2026-04-10T22:59:00Z"
+
+    integrity = ops._capacity_quota_integrity(
+        queue_rows,
+        observations,
+        window,
+    )
+    assert integrity["quota_drift_detected"] is True
+    assert integrity["queue"]["affected_queue_count"] == 1
+    assert integrity["family"]["affected_family_count"] == 1
+    queue_violation = integrity["queue"]["violations"][0]
+    assert queue_violation["maximum_running_occupancy_gpu_slots"] == 6
+    assert queue_violation["waiting_demand_gpu_slots_at_maximum"] == 94
+    family_violation = integrity["family"]["violations"][0]
+    assert family_violation["maximum_running_occupancy_gpu_slots"] == 10
+    assert family_violation["waiting_demand_gpu_slots_at_maximum"] == 94
+    connected = integrity["connected_agents"]
+    assert connected["queue_count"] == 2
+    assert connected["available_queue_count"] == 1
+    assert connected["unavailable_queue_count"] == 1
+    assert connected["mismatch_queue_count"] == 1
+    connected_rows = {row["id"]: row for row in connected["queues"]}
+    one_gpu_agents = connected_rows["amd_mi300_1"]
+    assert one_gpu_agents["configured_capacity_jobs"] == 5
+    assert one_gpu_agents["latest_connected_agents"] == 3
+    assert one_gpu_agents["signed_delta_jobs"] == -2
+    assert one_gpu_agents["direction"] == "below_planning_quota"
+    assert one_gpu_agents["source"] == "queue_native_metrics"
+    assert one_gpu_agents["metrics_timestamp"] == "2026-04-10T22:59:00Z"
+    assert one_gpu_agents["max_connected_agents_in_window"] == 20
+    assert one_gpu_agents["planning_capacity_preserved"] is True
+    assert connected_rows["amd_mi300_4"]["available"] is False
+
+
+def test_weekday_started_cohort_rate_handles_weekend_and_partial_hour():
+    workload_mapping = {
+        "generated_at": "2026-04-22T12:31:00Z",
+        "hourly": [{
+            "hour": "2026-04-15T12:00:00Z",
+            "end_exclusive": "2026-04-15T13:00:00Z",
+            "observed_through": "2026-04-15T13:00:00Z",
+            "workloads": {
+                "main": {
+                    "by_queue": {"amd_mi300_1": {"started_jobs": 99}},
+                },
+            },
+        }, {
+            "hour": "2026-04-16T10:00:00Z",
+            "end_exclusive": "2026-04-16T11:00:00Z",
+            "observed_through": "2026-04-16T11:00:00Z",
+            "workloads": {
+                "main": {
+                    "by_queue": {"amd_mi300_1": {"started_jobs": 3}},
+                },
+                "omni": {
+                    "by_queue": {"amd_mi300_1": {"started_jobs": 1}},
+                },
+            },
+        }, {
+            "hour": "2026-04-18T10:00:00Z",
+            "end_exclusive": "2026-04-18T11:00:00Z",
+            "observed_through": "2026-04-18T11:00:00Z",
+            "workloads": {
+                "main": {
+                    "by_queue": {"amd_mi300_1": {"started_jobs": 100}},
+                },
+            },
+        }, {
+            "hour": "2026-04-22T12:00:00Z",
+            "end_exclusive": "2026-04-22T13:00:00Z",
+            "observed_through": "2026-04-22T12:30:00Z",
+            "open": True,
+            "partial": True,
+            "workloads": {
+                "main": {
+                    "by_queue": {"amd_mi300_1": {"started_jobs": 1}},
+                },
+            },
+        }],
+    }
+    metadata, counts = ops._weekday_started_cohort_rates(
+        workload_mapping,
+        {
+            "start_at": "2026-04-15T12:30:00Z",
+            "end_at": "2026-04-22T12:30:00Z",
+            "expected_weekday_hours": 120,
+        },
+        {"amd_mi300_1"},
+    )
+
+    assert counts["amd_mi300_1"] == 5
+    assert metadata["elapsed_weekday_hours"] == 1.5
+    assert metadata["leading_boundary_bucket_count_excluded"] == 1
+    assert metadata["weekend_hour_bucket_count_excluded"] == 1
+    assert metadata["partial_hour_bucket_count"] == 1
+    assert metadata["timestamp_field"] == "job.created_at_hour"
+    assert "not a count of started_at events" in metadata["semantics"]
+    assert round(counts["amd_mi300_1"] / metadata["elapsed_weekday_hours"], 4) == 3.3333
 
 
 def test_capacity_simulation_profile_keeps_missing_inputs_explicit():
@@ -1311,7 +1796,7 @@ def test_capacity_simulation_profile_keeps_missing_inputs_explicit():
     assert profile["history"]["snapshot_count"] == 0
     assert profile["workload_window"]["elapsed_hours"] == 0
     assert row["history"]["current"] == {
-        "kind": "latest_snapshot",
+        "kind": "latest_joint_snapshot",
         "available": False,
         "running": None,
         "waiting": None,
@@ -1507,8 +1992,13 @@ def test_capacity_profile_publishes_mi325_as_unplaced_without_inference():
     assert unplaced["occupancy"]["current"]["running_gpu_slots"] == 8.0
     assert unplaced["occupancy"]["current"]["waiting_gpu_slots"] == 6.0
     assert unplaced["occupancy"]["typical"]["running_gpu_slots"] == 4.0
-    assert unplaced["occupancy"]["peak"]["running_gpu_slots"] == 7.6
-    assert unplaced["occupancy"]["peak"]["waiting_gpu_slots"] == 5.8
+    assert unplaced["occupancy"]["peak"]["running_gpu_slots"] == 8.0
+    assert unplaced["occupancy"]["stress"]["running_gpu_slots"] == 8.0
+    assert (
+        unplaced["occupancy"]["peak"]["observed_at"]
+        == unplaced["occupancy"]["joint_baselines"]["peak"]["observed_at"]
+    )
+    assert unplaced["occupancy"]["peak"]["waiting_gpu_slots"] == 6.0
     assert "No cross-family or queue-width compatibility is inferred" in unplaced["reason"]
 
 
