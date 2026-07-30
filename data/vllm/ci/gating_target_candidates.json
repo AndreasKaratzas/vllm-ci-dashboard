@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-30T14:55:53Z",
+  "generated_at": "2026-07-30T16:39:19Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -24,18 +24,18 @@
     "upstream_build": 81236,
     "amd_ci_build": 11474,
     "canonical_target_count": 125,
-    "row_count": 216,
-    "canonical_match_count": 116,
+    "row_count": 225,
+    "canonical_match_count": 118,
     "likely_duplicate_count": 18,
-    "new_candidate_count": 38,
-    "excluded_count": 41,
-    "missing_from_upstream_count": 3,
+    "new_candidate_count": 41,
+    "excluded_count": 47,
+    "missing_from_upstream_count": 1,
     "by_decision": {
-      "canonical": 116,
-      "excluded": 41,
+      "canonical": 118,
+      "excluded": 47,
       "likely_duplicate": 18,
-      "missing_from_upstream": 3,
-      "new_candidate": 38
+      "missing_from_upstream": 1,
+      "new_candidate": 41
     }
   },
   "rows": [
@@ -629,6 +629,31 @@
       "proposal_matches": []
     },
     {
+      "label": "Entrypoints Integration (Multimodal)",
+      "canonical_key": "entrypoints integration (multimodal)",
+      "state": "failed",
+      "queue": "h200_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-8396-46a7-8ecc-14d47dd7f0ec&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 90,
+      "canonical_label": "Entrypoints Integration (Multimodal)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": [
+        {
+          "pr": 44969,
+          "url": "https://github.com/vllm-project/vllm/pull/44969",
+          "title": "[ROCm][CI] Gating more ROCm tests",
+          "author": "AndreasKaratzas",
+          "label": "Entrypoints Integration (Multimodal)",
+          "device": "mi300_1",
+          "yaml_file": ".buildkite/test_areas/entrypoints.yaml"
+        }
+      ]
+    },
+    {
       "label": "Entrypoints Integration (Pooling)",
       "canonical_key": "entrypoints integration (pooling)",
       "state": "passed",
@@ -958,7 +983,7 @@
       "canonical_key": "kernels helion test",
       "state": "passed",
       "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0934-4246-8bd8-3846c2267a9a&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0933-4bc3-88a0-3706ed061836&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 92,
@@ -1714,6 +1739,21 @@
       ]
     },
     {
+      "label": "Python-only Installation",
+      "canonical_key": "python-only installation",
+      "state": "failed",
+      "queue": "h200_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-87d2-4351-bb5e-a9944fdb2631&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 94,
+      "canonical_label": "Python-only Installation",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
       "label": "PyTorch Compilation Passes Unit Tests",
       "canonical_key": "pytorch compilation passes unit test",
       "state": "passed",
@@ -2023,7 +2063,7 @@
       "canonical_key": "v1 attention",
       "state": "passed",
       "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0893-46e5-bccd-0978e603bbc4&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0896-4877-b807-a92e27c6f6b9&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 103,
@@ -2622,6 +2662,40 @@
       "proposal_matches": []
     },
     {
+      "label": "LM Eval PCP (4xB200)",
+      "canonical_key": "lm eval pcp (4 gpus)",
+      "state": "failed",
+      "queue": "b200-k8s",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-86d6-4d9c-83bb-8366cae16e61&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "LM Eval Qwen3.5 Models (2xB200)",
+      "canonical_key": "lm eval qwen3.5 models (2 gpus)",
+      "state": "failed",
+      "queue": "b200-k8s",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-8743-420d-93b0-c1edd2d100b4&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
       "label": "LM Eval Small Models (1xB200)",
       "canonical_key": "lm eval small models (1 gpus)",
       "state": "passed",
@@ -2746,6 +2820,23 @@
       "state": "passed",
       "queue": "gpu_4_queue",
       "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-08b9-4b77-855c-8983a03fa462&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Spec Decode Acceptance Rates Nightly",
+      "canonical_key": "spec decode acceptance rates nightly",
+      "state": "failed",
+      "queue": "h200_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-8923-43e5-bc12-0669efe69ccc&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -3051,7 +3142,7 @@
       "canonical_key": "v1 attention",
       "state": "passed",
       "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0892-4b8b-8c66-5ad1fa597392&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-088f-453d-90b3-48a766c6f0be&tab=output",
       "exclusion_reasons": [],
       "decision": "likely_duplicate",
       "duplicate_of": "V1 attention (H100-MI300)",
@@ -3254,6 +3345,72 @@
       "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-8a5f-4ce4-b89d-88b6fa13ab05&tab=output",
       "exclusion_reasons": [
         "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "LM Eval Humming Act fp8/int8 (B200 - TEMPORARY)",
+      "canonical_key": "lm eval humming act fp8/int8 (b200 - temporary)",
+      "state": "failed",
+      "queue": "b200-k8s",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-8562-40f9-9543-931b18eb8655&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "LM Eval Humming Act fp8/int8 (H100 - TEMPORARY)",
+      "canonical_key": "lm eval humming act fp8/int8 (h100 - temporary)",
+      "state": "failed",
+      "queue": "mithril-h100-pool",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-85b1-4235-abe5-759daa69ff48&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "LM Eval Humming Act int8 (A100 - TEMPORARY)",
+      "canonical_key": "lm eval humming act int8 (a100 - temporary)",
+      "state": "failed",
+      "queue": "a100_queue",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-8600-4637-bcff-5a5fba6c9d2e&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "LM Eval Humming f16 (A100 - TEMPORARY)",
+      "canonical_key": "lm eval humming f16 (a100 - temporary)",
+      "state": "failed",
+      "queue": "a100_queue",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-8ac5-47d5-a051-e7973404a421&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "LM Eval Humming f16 (B200 - TEMPORARY)",
+      "canonical_key": "lm eval humming f16 (b200 - temporary)",
+      "state": "failed",
+      "queue": "b200-k8s",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-8661-4e61-9e90-46a94534f88e&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "LM Eval Humming f16 (H100 - TEMPORARY)",
+      "canonical_key": "lm eval humming f16 (h100 - temporary)",
+      "state": "failed",
+      "queue": "mithril-h100-pool",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-89e4-40cb-88cf-c58c3c0a536f&tab=output",
+      "exclusion_reasons": [
+        "temporary"
       ],
       "decision": "excluded"
     },
@@ -3522,24 +3679,6 @@
       "canonical_key": "kernels kda test",
       "source_signal": "red",
       "readiness_signal": "yellow",
-      "target_signal": "green"
-    },
-    {
-      "decision": "missing_from_upstream",
-      "target_id": 90,
-      "label": "Entrypoints Integration (Multimodal)",
-      "canonical_key": "entrypoints integration (multimodal)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green"
-    },
-    {
-      "decision": "missing_from_upstream",
-      "target_id": 94,
-      "label": "Python-only Installation",
-      "canonical_key": "python-only installation",
-      "source_signal": "green",
-      "readiness_signal": "green",
       "target_signal": "green"
     }
   ]

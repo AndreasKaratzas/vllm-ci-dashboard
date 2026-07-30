@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-07-30T14:40:29Z",
+  "generated_at": "2026-07-30T16:24:29Z",
   "amd_date": "2026-07-30",
   "upstream_date": "2026-07-30",
   "parity_pct": 0.0,
-  "total_tests": 758,
+  "total_tests": 780,
   "summary": {
-    "upstream_only": 400,
+    "upstream_only": 422,
     "amd_only": 358
   },
   "by_module": {
@@ -206,6 +206,10 @@
       "upstream_only": 1
     },
     "AMD: OpenAI API Correctness (mi300_1)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "AMD: Python-only Installation (mi250_1)": {
       "parity_pct": 100.0,
       "upstream_only": 1
     },
@@ -525,6 +529,10 @@
       "parity_pct": 100.0,
       "upstream_only": 1
     },
+    "Entrypoints Integration (Multimodal)": {
+      "parity_pct": 100.0,
+      "upstream_only": 4
+    },
     "Entrypoints Integration (Pooling)": {
       "parity_pct": 100.0,
       "upstream_only": 1
@@ -707,19 +715,43 @@
     },
     "Kernels Quantization Test 1": {
       "parity_pct": 100.0,
-      "upstream_only": 2
+      "upstream_only": 1
     },
     "Kernels Quantization Test 2": {
       "parity_pct": 100.0,
-      "upstream_only": 2
+      "upstream_only": 1
     },
     "Kernels Root Misc Test (B200)": {
       "parity_pct": 100.0,
-      "upstream_only": 2
+      "upstream_only": 1
     },
     "Kimi K3 Unit Tests (B200)": {
       "parity_pct": 100.0,
       "upstream_only": 2
+    },
+    "LM Eval Humming Act fp8/int8 (B200 - TEMPORARY)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "LM Eval Humming Act fp8/int8 (H100 - TEMPORARY)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "LM Eval Humming Act int8 (A100 - TEMPORARY)": {
+      "parity_pct": 100.0,
+      "upstream_only": 2
+    },
+    "LM Eval Humming f16 (A100 - TEMPORARY)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "LM Eval Humming f16 (B200 - TEMPORARY)": {
+      "parity_pct": 100.0,
+      "upstream_only": 2
+    },
+    "LM Eval Humming f16 (H100 - TEMPORARY)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
     },
     "LM Eval KV-Offload (1xH200)": {
       "parity_pct": 100.0,
@@ -744,6 +776,14 @@
     "LM Eval Large Models EP (2xB200)": {
       "parity_pct": 100.0,
       "upstream_only": 1
+    },
+    "LM Eval PCP (4xB200)": {
+      "parity_pct": 100.0,
+      "upstream_only": 2
+    },
+    "LM Eval Qwen3.5 Models (2xB200)": {
+      "parity_pct": 100.0,
+      "upstream_only": 2
     },
     "LM Eval Small Models": {
       "parity_pct": 100.0,
@@ -981,6 +1021,10 @@
       "parity_pct": 100.0,
       "upstream_only": 2
     },
+    "Python-only Installation": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
     "Pytorch Nightly Dependency Override Check": {
       "parity_pct": 100.0,
       "upstream_only": 1
@@ -1051,7 +1095,7 @@
     },
     "Rust Frontend Tool Use": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 2
     },
     "Samplers Test": {
       "parity_pct": 100.0,
@@ -1065,21 +1109,25 @@
       "parity_pct": 100.0,
       "upstream_only": 1
     },
-    "Spec Decode DeepSeek MTP Parallel Load (B200)": {
+    "Spec Decode Acceptance Rates Nightly": {
       "parity_pct": 100.0,
       "upstream_only": 1
+    },
+    "Spec Decode DeepSeek MTP Parallel Load (B200)": {
+      "parity_pct": 100.0,
+      "upstream_only": 2
     },
     "Spec Decode Draft Model": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 3
     },
     "Spec Decode Draft Model Nightly B200": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 3
     },
     "Spec Decode Eagle": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 2
     },
     "Spec Decode Eagle Nightly B200": {
       "parity_pct": 100.0,
@@ -2099,7 +2147,7 @@
     },
     "vLLM IR Tests": {
       "parity_pct": 100.0,
-      "upstream_only": 2
+      "upstream_only": 1
     }
   },
   "job_groups": [
@@ -4454,7 +4502,7 @@
       "family_key": "entrypoints integration (multimodal)",
       "family_name": "entrypoints integration (multimodal)",
       "amd_job_name": "mi300_1: Entrypoints Integration (Multimodal)",
-      "upstream_job_name": null,
+      "upstream_job_name": "Entrypoints Integration (Multimodal)",
       "amd": {
         "total": 246,
         "passed": 244,
@@ -4465,13 +4513,24 @@
         "error": 0,
         "duration": 3007.99
       },
-      "upstream": null,
+      "upstream": {
+        "total": 123,
+        "passed": 120,
+        "failed": 1,
+        "skipped": 1,
+        "xfailed": 1,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 1826.87
+      },
       "hardware": [
         "h100",
         "mi300",
         "mi355"
       ],
-      "hw_failures": null,
+      "hw_failures": {
+        "h100": 1
+      },
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
@@ -4486,9 +4545,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/11474/steps/canvas?sid=019fb241-8081-498f-b001-1eb09e3f7643&tab=output",
           "job_name": "mi355_1: Entrypoints Integration (Multimodal)",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-8396-46a7-8ecc-14d47dd7f0ec&tab=output",
+          "job_name": "Entrypoints Integration (Multimodal)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 123,
+        "passed": 124,
+        "failed": -1,
+        "skipped": 1
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -5135,7 +5206,7 @@
       "family_key": "gpqa eval (gpt-oss) (2 gpus)",
       "family_name": "gpqa eval (gpt-oss) (2 gpus)",
       "amd_job_name": "mi355_2: GPQA Eval (GPT-OSS) (2xB200-2xMI355)",
-      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xH100)",
+      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xB200)",
       "amd": {
         "total": 4,
         "passed": 4,
@@ -5147,14 +5218,14 @@
         "duration": 874.52
       },
       "upstream": {
-        "total": 6,
-        "passed": 6,
+        "total": 2,
+        "passed": 2,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1418.51
+        "duration": 0.0
       },
       "hardware": [
         "b200",
@@ -5172,21 +5243,21 @@
           "side": "amd"
         },
         {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-093a-47c0-a006-3b50e446d3f6&tab=output",
-          "job_name": "GPQA Eval (GPT-OSS) (2xH100)",
-          "side": "upstream"
-        },
-        {
           "hw": "b200",
           "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0939-4409-a582-a1cba77a3c40&tab=output",
           "job_name": "GPQA Eval (GPT-OSS) (2xB200)",
           "side": "upstream"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-093a-47c0-a006-3b50e446d3f6&tab=output",
+          "job_name": "GPQA Eval (GPT-OSS) (2xH100)",
+          "side": "upstream"
         }
       ],
       "delta": {
-        "total": -2,
-        "passed": -2,
+        "total": 2,
+        "passed": 2,
         "failed": 0,
         "skipped": 0
       },
@@ -5198,7 +5269,7 @@
       "family_key": "gpqa eval (gpt-oss) (2 gpus)",
       "family_name": "gpqa eval (gpt-oss) (2 gpus)",
       "amd_job_name": "mi300_2: GPQA Eval (GPT-OSS) (2xH100-2xMI300)",
-      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xH100)",
+      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xB200)",
       "amd": {
         "total": 1,
         "passed": 1,
@@ -5210,14 +5281,14 @@
         "duration": 506.79
       },
       "upstream": {
-        "total": 6,
-        "passed": 6,
+        "total": 2,
+        "passed": 2,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1418.51
+        "duration": 0.0
       },
       "hardware": [
         "b200",
@@ -5235,21 +5306,21 @@
           "side": "amd"
         },
         {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-093a-47c0-a006-3b50e446d3f6&tab=output",
-          "job_name": "GPQA Eval (GPT-OSS) (2xH100)",
-          "side": "upstream"
-        },
-        {
           "hw": "b200",
           "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0939-4409-a582-a1cba77a3c40&tab=output",
           "job_name": "GPQA Eval (GPT-OSS) (2xB200)",
           "side": "upstream"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-093a-47c0-a006-3b50e446d3f6&tab=output",
+          "job_name": "GPQA Eval (GPT-OSS) (2xH100)",
+          "side": "upstream"
         }
       ],
       "delta": {
-        "total": -5,
-        "passed": -5,
+        "total": -1,
+        "passed": -1,
         "failed": 0,
         "skipped": 0
       },
@@ -5511,7 +5582,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3411.73
+        "duration": 3411.7299999999996
       },
       "hardware": [
         "h100",
@@ -5699,7 +5770,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0934-4246-8bd8-3846c2267a9a&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0933-4bc3-88a0-3706ed061836&tab=output",
           "job_name": "Kernels Helion Test",
           "side": "upstream"
         }
@@ -5820,14 +5891,14 @@
         "duration": 12104.239999999998
       },
       "upstream": {
-        "total": 20,
-        "passed": 20,
+        "total": 16,
+        "passed": 16,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 79.79
+        "duration": 61.49
       },
       "hardware": [
         "h100",
@@ -5860,8 +5931,8 @@
         }
       ],
       "delta": {
-        "total": 15033,
-        "passed": 8610,
+        "total": 15037,
+        "passed": 8614,
         "failed": 60,
         "skipped": 6363
       },
@@ -5885,14 +5956,14 @@
         "duration": 12032.29
       },
       "upstream": {
-        "total": 14371,
-        "passed": 2904,
+        "total": 2,
+        "passed": 2,
         "failed": 0,
-        "skipped": 11467,
+        "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4284.57
+        "duration": 0.0
       },
       "hardware": [
         "h100",
@@ -5925,10 +5996,10 @@
         }
       ],
       "delta": {
-        "total": 12331,
-        "passed": 12048,
+        "total": 26700,
+        "passed": 14950,
         "failed": 110,
-        "skipped": 173
+        "skipped": 11640
       },
       "status": "both",
       "backfilled": false
@@ -6582,7 +6653,7 @@
       "family_key": "lm eval qwen3-5 models (2 gpus)",
       "family_name": "lm eval qwen3-5 models (2 gpus)",
       "amd_job_name": "mi355_2: LM Eval Qwen3-5 Models (B200-MI355)",
-      "upstream_job_name": null,
+      "upstream_job_name": "LM Eval Qwen3.5 Models (2xB200)",
       "amd": {
         "total": 3,
         "passed": 3,
@@ -6593,11 +6664,23 @@
         "error": 0,
         "duration": 790.29
       },
-      "upstream": null,
+      "upstream": {
+        "total": 4,
+        "passed": 3,
+        "failed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 1659.9
+      },
       "hardware": [
+        "b200",
         "mi355"
       ],
-      "hw_failures": null,
+      "hw_failures": {
+        "b200": 1
+      },
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
@@ -6606,9 +6689,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/11474/steps/canvas?sid=019fb241-8083-4946-9bbc-63c02aeb7ced&tab=output",
           "job_name": "mi355_2: LM Eval Qwen3-5 Models (B200-MI355)",
           "side": "amd"
+        },
+        {
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-8743-420d-93b0-c1edd2d100b4&tab=output",
+          "job_name": "LM Eval Qwen3.5 Models (2xB200)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": -1,
+        "passed": 0,
+        "failed": -1,
+        "skipped": 0
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -8408,7 +8503,7 @@
       "family_key": "python-only installation",
       "family_name": "python-only installation",
       "amd_job_name": "mi250_1: Python-only Installation",
-      "upstream_job_name": null,
+      "upstream_job_name": "Python-only Installation",
       "amd": {
         "total": 1,
         "passed": 0,
@@ -8419,13 +8514,23 @@
         "error": 0,
         "duration": 0.0
       },
-      "upstream": null,
+      "upstream": {
+        "total": 1,
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 0.0
+      },
       "hardware": [
         "h100",
         "mi250"
       ],
       "hw_failures": {
-        "mi250": 1
+        "mi250": 1,
+        "h100": 1
       },
       "hw_canceled": null,
       "failure_tests": [],
@@ -8435,9 +8540,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/11474/steps/canvas?sid=019fb241-7fef-45b9-991f-a97830543630&tab=output",
           "job_name": "mi250_1: Python-only Installation",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-87d2-4351-bb5e-a9944fdb2631&tab=output",
+          "job_name": "Python-only Installation",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -9478,14 +9595,14 @@
         "duration": 90.78
       },
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 2,
+        "passed": 2,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 78.13
       },
       "hardware": [
         "h100",
@@ -9509,8 +9626,8 @@
         }
       ],
       "delta": {
-        "total": 1,
-        "passed": 1,
+        "total": 0,
+        "passed": 0,
         "failed": 0,
         "skipped": 0
       },
@@ -9541,7 +9658,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 86.79
       },
       "hardware": [
         "h100",
@@ -9590,14 +9707,14 @@
         "duration": 50.81
       },
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 5,
+        "passed": 5,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 53.79
       },
       "hardware": [
         "h100",
@@ -9621,8 +9738,8 @@
         }
       ],
       "delta": {
-        "total": 4,
-        "passed": 4,
+        "total": 0,
+        "passed": 0,
         "failed": 0,
         "skipped": 0
       },
@@ -9646,14 +9763,14 @@
         "duration": 228.19
       },
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 281,
+        "passed": 229,
         "failed": 0,
-        "skipped": 0,
+        "skipped": 52,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 196.35
       },
       "hardware": [
         "h100",
@@ -9677,10 +9794,10 @@
         }
       ],
       "delta": {
-        "total": 280,
-        "passed": 228,
+        "total": 0,
+        "passed": 0,
         "failed": 0,
-        "skipped": 52
+        "skipped": 0
       },
       "status": "both",
       "backfilled": false
@@ -9702,14 +9819,14 @@
         "duration": 810.53
       },
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 25,
+        "passed": 25,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 583.91
       },
       "hardware": [
         "h100",
@@ -9733,8 +9850,8 @@
         }
       ],
       "delta": {
-        "total": 24,
-        "passed": 24,
+        "total": 0,
+        "passed": 0,
         "failed": 0,
         "skipped": 0
       },
@@ -9758,14 +9875,14 @@
         "duration": 2201.05
       },
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 20,
+        "passed": 8,
         "failed": 0,
-        "skipped": 0,
-        "xfailed": 0,
+        "skipped": 2,
+        "xfailed": 10,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 1823.15
       },
       "hardware": [
         "h100",
@@ -9796,10 +9913,10 @@
         }
       ],
       "delta": {
-        "total": 39,
-        "passed": 13,
+        "total": 20,
+        "passed": 6,
         "failed": 0,
-        "skipped": 6
+        "skipped": 4
       },
       "status": "both",
       "backfilled": false
@@ -9821,14 +9938,14 @@
         "duration": 1645.58
       },
       "upstream": {
-        "total": 1,
+        "total": 18,
         "passed": 1,
         "failed": 0,
-        "skipped": 0,
+        "skipped": 17,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 460.51
       },
       "hardware": [
         "h100",
@@ -9852,10 +9969,10 @@
         }
       ],
       "delta": {
-        "total": 17,
+        "total": 0,
         "passed": 7,
         "failed": 0,
-        "skipped": 10
+        "skipped": -7
       },
       "status": "both",
       "backfilled": false
@@ -10183,7 +10300,7 @@
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0892-4b8b-8c66-5ad1fa597392&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-088f-453d-90b3-48a766c6f0be&tab=output",
           "job_name": "V1 attention (B200)",
           "side": "upstream"
         }
@@ -10239,7 +10356,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0893-46e5-bccd-0978e603bbc4&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0896-4877-b807-a92e27c6f6b9&tab=output",
           "job_name": "V1 attention (H100-MI300)",
           "side": "upstream"
         }
@@ -10683,14 +10800,14 @@
         "duration": 1191.48
       },
       "upstream": {
-        "total": 1807,
-        "passed": 1443,
+        "total": 1,
+        "passed": 1,
         "failed": 0,
-        "skipped": 364,
+        "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1070.21
+        "duration": 0.0
       },
       "hardware": [
         "h100",
@@ -10714,10 +10831,10 @@
         }
       ],
       "delta": {
-        "total": 540,
-        "passed": 604,
+        "total": 2346,
+        "passed": 2046,
         "failed": 0,
-        "skipped": -64
+        "skipped": 300
       },
       "status": "both",
       "backfilled": false
@@ -11453,7 +11570,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 541.39
+        "duration": 0.0
       },
       "hardware": [
         "h100"
@@ -11786,14 +11903,14 @@
       "upstream_job_name": "Kernels Root Misc Test (B200)",
       "amd": null,
       "upstream": {
-        "total": 2575,
-        "passed": 2423,
+        "total": 1,
+        "passed": 1,
         "failed": 0,
-        "skipped": 152,
+        "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1217.13
+        "duration": 0.0
       },
       "hardware": [
         "b200"
@@ -11874,6 +11991,222 @@
           "hw": "h100",
           "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0964-42ec-b281-9d23a08384bd&tab=output",
           "job_name": "Language Models Tests (Granite L4 Compatibility)",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
+      "name": "lm eval humming act fp8/int8 (b200 - temporary)",
+      "family_key": "lm eval humming act fp8/int8 (b200 - temporary)",
+      "family_name": "lm eval humming act fp8/int8 (b200 - temporary)",
+      "amd_job_name": null,
+      "upstream_job_name": "LM Eval Humming Act fp8/int8 (B200 - TEMPORARY)",
+      "amd": null,
+      "upstream": {
+        "total": 1,
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 0.0
+      },
+      "hardware": [
+        "b200"
+      ],
+      "hw_failures": {
+        "b200": 1
+      },
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-8562-40f9-9543-931b18eb8655&tab=output",
+          "job_name": "LM Eval Humming Act fp8/int8 (B200 - TEMPORARY)",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
+      "name": "lm eval humming act fp8/int8 (h100 - temporary)",
+      "family_key": "lm eval humming act fp8/int8 (h100 - temporary)",
+      "family_name": "lm eval humming act fp8/int8 (h100 - temporary)",
+      "amd_job_name": null,
+      "upstream_job_name": "LM Eval Humming Act fp8/int8 (H100 - TEMPORARY)",
+      "amd": null,
+      "upstream": {
+        "total": 1,
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 0.0
+      },
+      "hardware": [
+        "h100"
+      ],
+      "hw_failures": {
+        "h100": 1
+      },
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-85b1-4235-abe5-759daa69ff48&tab=output",
+          "job_name": "LM Eval Humming Act fp8/int8 (H100 - TEMPORARY)",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
+      "name": "lm eval humming act int8 (a100 - temporary)",
+      "family_key": "lm eval humming act int8 (a100 - temporary)",
+      "family_name": "lm eval humming act int8 (a100 - temporary)",
+      "amd_job_name": null,
+      "upstream_job_name": "LM Eval Humming Act int8 (A100 - TEMPORARY)",
+      "amd": null,
+      "upstream": {
+        "total": 5,
+        "passed": 1,
+        "failed": 4,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 2437.48
+      },
+      "hardware": [
+        "a100"
+      ],
+      "hw_failures": {
+        "a100": 4
+      },
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "a100",
+          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-8600-4637-bcff-5a5fba6c9d2e&tab=output",
+          "job_name": "LM Eval Humming Act int8 (A100 - TEMPORARY)",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
+      "name": "lm eval humming f16 (a100 - temporary)",
+      "family_key": "lm eval humming f16 (a100 - temporary)",
+      "family_name": "lm eval humming f16 (a100 - temporary)",
+      "amd_job_name": null,
+      "upstream_job_name": "LM Eval Humming f16 (A100 - TEMPORARY)",
+      "amd": null,
+      "upstream": {
+        "total": 1,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 1,
+        "duration": 0.0
+      },
+      "hardware": [
+        "a100"
+      ],
+      "hw_failures": {
+        "a100": 1
+      },
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "a100",
+          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-8ac5-47d5-a051-e7973404a421&tab=output",
+          "job_name": "LM Eval Humming f16 (A100 - TEMPORARY)",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
+      "name": "lm eval humming f16 (b200 - temporary)",
+      "family_key": "lm eval humming f16 (b200 - temporary)",
+      "family_name": "lm eval humming f16 (b200 - temporary)",
+      "amd_job_name": null,
+      "upstream_job_name": "LM Eval Humming f16 (B200 - TEMPORARY)",
+      "amd": null,
+      "upstream": {
+        "total": 13,
+        "passed": 2,
+        "failed": 11,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 2770.14
+      },
+      "hardware": [
+        "b200"
+      ],
+      "hw_failures": {
+        "b200": 11
+      },
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-8661-4e61-9e90-46a94534f88e&tab=output",
+          "job_name": "LM Eval Humming f16 (B200 - TEMPORARY)",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
+      "name": "lm eval humming f16 (h100 - temporary)",
+      "family_key": "lm eval humming f16 (h100 - temporary)",
+      "family_name": "lm eval humming f16 (h100 - temporary)",
+      "amd_job_name": null,
+      "upstream_job_name": "LM Eval Humming f16 (H100 - TEMPORARY)",
+      "amd": null,
+      "upstream": {
+        "total": 1,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 1,
+        "duration": 0.0
+      },
+      "hardware": [
+        "h100"
+      ],
+      "hw_failures": {
+        "h100": 1
+      },
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-89e4-40cb-88cf-c58c3c0a536f&tab=output",
+          "job_name": "LM Eval Humming f16 (H100 - TEMPORARY)",
           "side": "upstream"
         }
       ],
@@ -12010,6 +12343,42 @@
           "hw": "b200",
           "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0940-412c-8f5b-9c1f1abf3b51&tab=output",
           "job_name": "LM Eval Large Models EP (2xB200)",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
+      "name": "lm eval pcp (4 gpus)",
+      "family_key": "lm eval pcp (4 gpus)",
+      "family_name": "lm eval pcp (4 gpus)",
+      "amd_job_name": null,
+      "upstream_job_name": "LM Eval PCP (4xB200)",
+      "amd": null,
+      "upstream": {
+        "total": 2,
+        "passed": 1,
+        "failed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 1626.3
+      },
+      "hardware": [
+        "b200"
+      ],
+      "hw_failures": {
+        "b200": 1
+      },
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-86d6-4d9c-83bb-8366cae16e61&tab=output",
+          "job_name": "LM Eval PCP (4xB200)",
           "side": "upstream"
         }
       ],
@@ -12425,6 +12794,42 @@
       "backfilled": false
     },
     {
+      "name": "spec decode acceptance rates nightly",
+      "family_key": "spec decode acceptance rates nightly",
+      "family_name": "spec decode acceptance rates nightly",
+      "amd_job_name": null,
+      "upstream_job_name": "Spec Decode Acceptance Rates Nightly",
+      "amd": null,
+      "upstream": {
+        "total": 1,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 1,
+        "duration": 0.0
+      },
+      "hardware": [
+        "h100"
+      ],
+      "hw_failures": {
+        "h100": 1
+      },
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-8923-43e5-bc12-0669efe69ccc&tab=output",
+          "job_name": "Spec Decode Acceptance Rates Nightly",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
       "name": "spec decode deepseek mtp parallel load (b200)",
       "family_key": "spec decode deepseek mtp parallel load",
       "family_name": "spec decode deepseek mtp parallel load",
@@ -12432,14 +12837,14 @@
       "upstream_job_name": "Spec Decode DeepSeek MTP Parallel Load (B200)",
       "amd": null,
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 6,
+        "passed": 5,
         "failed": 0,
-        "skipped": 0,
+        "skipped": 1,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 824.79
       },
       "hardware": [
         "b200"
@@ -12466,14 +12871,14 @@
       "upstream_job_name": "Spec Decode Draft Model Nightly B200",
       "amd": null,
       "upstream": {
-        "total": 1,
-        "passed": 1,
+        "total": 20,
+        "passed": 8,
         "failed": 0,
-        "skipped": 0,
-        "xfailed": 0,
+        "skipped": 2,
+        "xfailed": 10,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 1211.68
       },
       "hardware": [
         "h100"
@@ -12729,158 +13134,6 @@
       ],
       "status": "upstream_only",
       "backfilled": false
-    },
-    {
-      "name": "lm eval humming act fp8/int8 (b200 - temporary)",
-      "family_key": "lm eval humming act fp8/int8 (b200 - temporary)",
-      "family_name": "lm eval humming act fp8/int8 (b200 - temporary)",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "b200"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "lm eval humming act fp8/int8 (h100 - temporary)",
-      "family_key": "lm eval humming act fp8/int8 (h100 - temporary)",
-      "family_name": "lm eval humming act fp8/int8 (h100 - temporary)",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "lm eval humming act int8 (a100 - temporary)",
-      "family_key": "lm eval humming act int8 (a100 - temporary)",
-      "family_name": "lm eval humming act int8 (a100 - temporary)",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "a100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "lm eval humming f16 (a100 - temporary)",
-      "family_key": "lm eval humming f16 (a100 - temporary)",
-      "family_name": "lm eval humming f16 (a100 - temporary)",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "a100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "lm eval humming f16 (b200 - temporary)",
-      "family_key": "lm eval humming f16 (b200 - temporary)",
-      "family_name": "lm eval humming f16 (b200 - temporary)",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "b200"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "lm eval humming f16 (h100 - temporary)",
-      "family_key": "lm eval humming f16 (h100 - temporary)",
-      "family_name": "lm eval humming f16 (h100 - temporary)",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "lm eval pcp (4 gpus)",
-      "family_key": "lm eval pcp (4 gpus)",
-      "family_name": "lm eval pcp (4 gpus)",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "b200"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "spec decode acceptance rates nightly",
-      "family_key": "spec decode acceptance rates nightly",
-      "family_name": "spec decode acceptance rates nightly",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
     }
   ],
   "details": [
@@ -13338,6 +13591,12 @@
       "test_id": "AMD: OpenAI API Correctness (mi300_1)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "AMD: Python-only Installation (mi250_1)::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
       "category": "upstream_only"
     },
     {
@@ -13935,6 +14194,30 @@
       "category": "upstream_only"
     },
     {
+      "test_id": "Entrypoints Integration (Multimodal)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Entrypoints Integration (Multimodal)::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Entrypoints Integration (Multimodal)::__unidentified_failures__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Entrypoints Integration (Multimodal)::__xfailed__",
+      "amd_status": "missing",
+      "upstream_status": "xfailed",
+      "category": "upstream_only"
+    },
+    {
       "test_id": "Entrypoints Integration (Pooling)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -14109,19 +14392,19 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "GPQA Eval (GPT-OSS) (2xB200)::__passed__",
+      "test_id": "GPQA Eval (GPT-OSS) (2xB200)::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "GPQA Eval (GPT-OSS) (2xH100)::__passed__",
+      "test_id": "GPQA Eval (GPT-OSS) (2xH100)::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "GPQA Eval (GPT-OSS) (DGX Spark)::__passed__",
+      "test_id": "GPQA Eval (GPT-OSS) (DGX Spark)::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
@@ -14331,45 +14614,27 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "Kernels MoE Test 5::__passed__",
+      "test_id": "Kernels MoE Test 5::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Kernels Quantization Test 1::__passed__",
+      "test_id": "Kernels Quantization Test 1::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Kernels Quantization Test 1::__skipped__",
-      "amd_status": "missing",
-      "upstream_status": "skipped",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "Kernels Quantization Test 2::__passed__",
+      "test_id": "Kernels Quantization Test 2::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Kernels Quantization Test 2::__skipped__",
-      "amd_status": "missing",
-      "upstream_status": "skipped",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "Kernels Root Misc Test (B200)::__passed__",
+      "test_id": "Kernels Root Misc Test (B200)::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "Kernels Root Misc Test (B200)::__skipped__",
-      "amd_status": "missing",
-      "upstream_status": "skipped",
       "category": "upstream_only"
     },
     {
@@ -14382,6 +14647,54 @@
       "test_id": "Kimi K3 Unit Tests (B200)::__skipped__",
       "amd_status": "missing",
       "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "LM Eval Humming Act fp8/int8 (B200 - TEMPORARY)::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "LM Eval Humming Act fp8/int8 (H100 - TEMPORARY)::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "LM Eval Humming Act int8 (A100 - TEMPORARY)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "LM Eval Humming Act int8 (A100 - TEMPORARY)::__unidentified_failures__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "LM Eval Humming f16 (A100 - TEMPORARY)::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "error",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "LM Eval Humming f16 (B200 - TEMPORARY)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "LM Eval Humming f16 (B200 - TEMPORARY)::__unidentified_failures__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "LM Eval Humming f16 (H100 - TEMPORARY)::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "error",
       "category": "upstream_only"
     },
     {
@@ -14418,6 +14731,30 @@
       "test_id": "LM Eval Large Models EP (2xB200)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "LM Eval PCP (4xB200)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "LM Eval PCP (4xB200)::__unidentified_failures__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "LM Eval Qwen3.5 Models (2xB200)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "LM Eval Qwen3.5 Models (2xB200)::__unidentified_failures__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
       "category": "upstream_only"
     },
     {
@@ -14919,6 +15256,12 @@
       "category": "upstream_only"
     },
     {
+      "test_id": "Python-only Installation::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
       "test_id": "Pytorch Nightly Dependency Override Check::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -15021,31 +15364,37 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "Rust Frontend Distributed::__job_level__",
+      "test_id": "Rust Frontend Distributed::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Rust Frontend OpenAI Coverage::__job_level__",
+      "test_id": "Rust Frontend OpenAI Coverage::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Rust Frontend Serve/Admin Coverage::__job_level__",
+      "test_id": "Rust Frontend Serve/Admin Coverage::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Rust Frontend Tool Use::__job_level__",
+      "test_id": "Rust Frontend Tool Use::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Samplers Test::__job_level__",
+      "test_id": "Rust Frontend Tool Use::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Samplers Test::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
@@ -15063,21 +15412,57 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "Spec Decode DeepSeek MTP Parallel Load (B200)::__job_level__",
+      "test_id": "Spec Decode Acceptance Rates Nightly::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "error",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Spec Decode DeepSeek MTP Parallel Load (B200)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Spec Decode Draft Model Nightly B200::__job_level__",
+      "test_id": "Spec Decode DeepSeek MTP Parallel Load (B200)::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Spec Decode Draft Model Nightly B200::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Spec Decode Draft Model::__job_level__",
+      "test_id": "Spec Decode Draft Model Nightly B200::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Spec Decode Draft Model Nightly B200::__xfailed__",
+      "amd_status": "missing",
+      "upstream_status": "xfailed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Spec Decode Draft Model::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Spec Decode Draft Model::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Spec Decode Draft Model::__xfailed__",
+      "amd_status": "missing",
+      "upstream_status": "xfailed",
       "category": "upstream_only"
     },
     {
@@ -15093,9 +15478,15 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "Spec Decode Eagle::__job_level__",
+      "test_id": "Spec Decode Eagle::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Spec Decode Eagle::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
       "category": "upstream_only"
     },
     {
@@ -17421,15 +17812,9 @@
       "category": "amd_only"
     },
     {
-      "test_id": "vLLM IR Tests::__passed__",
+      "test_id": "vLLM IR Tests::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "vLLM IR Tests::__skipped__",
-      "amd_status": "missing",
-      "upstream_status": "skipped",
       "category": "upstream_only"
     }
   ],
