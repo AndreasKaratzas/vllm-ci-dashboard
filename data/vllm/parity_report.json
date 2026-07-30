@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-07-30T12:14:36Z",
+  "generated_at": "2026-07-30T14:40:29Z",
   "amd_date": "2026-07-30",
   "upstream_date": "2026-07-30",
   "parity_pct": 0.0,
-  "total_tests": 765,
+  "total_tests": 758,
   "summary": {
-    "upstream_only": 407,
+    "upstream_only": 400,
     "amd_only": 358
   },
   "by_module": {
@@ -294,6 +294,10 @@
       "upstream_only": 1
     },
     "Attention Benchmarks Smoke Test (B200)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "Basic Correctness": {
       "parity_pct": 100.0,
       "upstream_only": 1
     },
@@ -977,10 +981,6 @@
       "parity_pct": 100.0,
       "upstream_only": 2
     },
-    "Python-only Installation": {
-      "parity_pct": 100.0,
-      "upstream_only": 1
-    },
     "Pytorch Nightly Dependency Override Check": {
       "parity_pct": 100.0,
       "upstream_only": 1
@@ -1051,7 +1051,7 @@
     },
     "Rust Frontend Tool Use": {
       "parity_pct": 100.0,
-      "upstream_only": 2
+      "upstream_only": 1
     },
     "Samplers Test": {
       "parity_pct": 100.0,
@@ -1067,19 +1067,19 @@
     },
     "Spec Decode DeepSeek MTP Parallel Load (B200)": {
       "parity_pct": 100.0,
-      "upstream_only": 2
+      "upstream_only": 1
     },
     "Spec Decode Draft Model": {
       "parity_pct": 100.0,
-      "upstream_only": 3
+      "upstream_only": 1
     },
     "Spec Decode Draft Model Nightly B200": {
       "parity_pct": 100.0,
-      "upstream_only": 3
+      "upstream_only": 1
     },
     "Spec Decode Eagle": {
       "parity_pct": 100.0,
-      "upstream_only": 2
+      "upstream_only": 1
     },
     "Spec Decode Eagle Nightly B200": {
       "parity_pct": 100.0,
@@ -2332,7 +2332,7 @@
       "family_key": "basic correctness",
       "family_name": "basic correctness",
       "amd_job_name": "mi300_1: Basic Correctness",
-      "upstream_job_name": null,
+      "upstream_job_name": "Basic Correctness",
       "amd": {
         "total": 4,
         "passed": 4,
@@ -2343,7 +2343,16 @@
         "error": 0,
         "duration": 395.52
       },
-      "upstream": null,
+      "upstream": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 356.18
+      },
       "hardware": [
         "h100",
         "mi300"
@@ -2357,9 +2366,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/11474/steps/canvas?sid=019fb241-7ff3-4457-be1b-22e1b5a4ba50&tab=output",
           "job_name": "mi300_1: Basic Correctness",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb2da-a27f-45e0-95ca-0901b050acb4&tab=output",
+          "job_name": "Basic Correctness",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -5490,7 +5511,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3411.7300000000005
+        "duration": 3411.73
       },
       "hardware": [
         "h100",
@@ -5508,7 +5529,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0931-48f3-a1f1-399496eb44ec&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0931-4e79-8749-33fa53520c3d&tab=output",
           "job_name": "Kernels Core Operation Test",
           "side": "upstream"
         }
@@ -5678,7 +5699,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0933-4bc3-88a0-3706ed061836&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0934-4246-8bd8-3846c2267a9a&tab=output",
           "job_name": "Kernels Helion Test",
           "side": "upstream"
         }
@@ -5787,7 +5808,7 @@
       "family_key": "kernels moe test",
       "family_name": "kernels moe test",
       "amd_job_name": "mi300_1: Kernels MoE Test 1",
-      "upstream_job_name": "Kernels MoE Test 1",
+      "upstream_job_name": "Kernels MoE Test 2",
       "amd": {
         "total": 15053,
         "passed": 8630,
@@ -5806,7 +5827,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 79.78999999999999
+        "duration": 79.79
       },
       "hardware": [
         "h100",
@@ -5833,8 +5854,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0934-4e3f-871a-7f307c99f733&tab=output",
-          "job_name": "Kernels MoE Test 1",
+          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0935-4f4c-90fa-40b9cbf0c2c4&tab=output",
+          "job_name": "Kernels MoE Test 2",
           "side": "upstream"
         }
       ],
@@ -6794,7 +6815,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4820.77
+        "duration": 4820.7699999999995
       },
       "hardware": [
         "h100",
@@ -7939,7 +7960,7 @@
       "family_key": "multi-modal processor (cpu)",
       "family_name": "multi-modal processor (cpu)",
       "amd_job_name": "mi250_1: Multi-Modal Processor (CPU) 3",
-      "upstream_job_name": "Multi-Modal Processor (CPU) 3",
+      "upstream_job_name": "Multi-Modal Processor (CPU) 1",
       "amd": {
         "total": 1150,
         "passed": 1009,
@@ -7976,8 +7997,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-096e-4fde-9f8d-109739ff2812&tab=output",
-          "job_name": "Multi-Modal Processor (CPU) 3",
+          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-096b-4d62-ba85-d725f56a87de&tab=output",
+          "job_name": "Multi-Modal Processor (CPU) 1",
           "side": "upstream"
         }
       ],
@@ -8387,7 +8408,7 @@
       "family_key": "python-only installation",
       "family_name": "python-only installation",
       "amd_job_name": "mi250_1: Python-only Installation",
-      "upstream_job_name": "Python-only Installation",
+      "upstream_job_name": null,
       "amd": {
         "total": 1,
         "passed": 0,
@@ -8398,23 +8419,13 @@
         "error": 0,
         "duration": 0.0
       },
-      "upstream": {
-        "total": 1,
-        "passed": 0,
-        "failed": 1,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0,
-        "error": 0,
-        "duration": 0.0
-      },
+      "upstream": null,
       "hardware": [
         "h100",
         "mi250"
       ],
       "hw_failures": {
-        "mi250": 1,
-        "h100": 1
+        "mi250": 1
       },
       "hw_canceled": null,
       "failure_tests": [],
@@ -8424,21 +8435,9 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/11474/steps/canvas?sid=019fb241-7fef-45b9-991f-a97830543630&tab=output",
           "job_name": "mi250_1: Python-only Installation",
           "side": "amd"
-        },
-        {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb2da-a666-49c2-b098-af22a00ce49e&tab=output",
-          "job_name": "Python-only Installation",
-          "side": "upstream"
         }
       ],
-      "delta": {
-        "total": 0,
-        "passed": 0,
-        "failed": 0,
-        "skipped": 0
-      },
-      "status": "both",
+      "status": "amd_only",
       "backfilled": false
     },
     {
@@ -9479,14 +9478,14 @@
         "duration": 90.78
       },
       "upstream": {
-        "total": 2,
-        "passed": 2,
+        "total": 1,
+        "passed": 1,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 78.13
+        "duration": 0.0
       },
       "hardware": [
         "h100",
@@ -9510,8 +9509,8 @@
         }
       ],
       "delta": {
-        "total": 0,
-        "passed": 0,
+        "total": 1,
+        "passed": 1,
         "failed": 0,
         "skipped": 0
       },
@@ -9542,7 +9541,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 86.79
+        "duration": 0.0
       },
       "hardware": [
         "h100",
@@ -9591,14 +9590,14 @@
         "duration": 50.81
       },
       "upstream": {
-        "total": 5,
-        "passed": 5,
+        "total": 1,
+        "passed": 1,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 53.79
+        "duration": 0.0
       },
       "hardware": [
         "h100",
@@ -9622,8 +9621,8 @@
         }
       ],
       "delta": {
-        "total": 0,
-        "passed": 0,
+        "total": 4,
+        "passed": 4,
         "failed": 0,
         "skipped": 0
       },
@@ -9647,14 +9646,14 @@
         "duration": 228.19
       },
       "upstream": {
-        "total": 281,
-        "passed": 229,
+        "total": 1,
+        "passed": 1,
         "failed": 0,
-        "skipped": 52,
+        "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 196.35
+        "duration": 0.0
       },
       "hardware": [
         "h100",
@@ -9678,10 +9677,10 @@
         }
       ],
       "delta": {
-        "total": 0,
-        "passed": 0,
+        "total": 280,
+        "passed": 228,
         "failed": 0,
-        "skipped": 0
+        "skipped": 52
       },
       "status": "both",
       "backfilled": false
@@ -9703,14 +9702,14 @@
         "duration": 810.53
       },
       "upstream": {
-        "total": 25,
-        "passed": 25,
+        "total": 1,
+        "passed": 1,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 583.91
+        "duration": 0.0
       },
       "hardware": [
         "h100",
@@ -9734,8 +9733,8 @@
         }
       ],
       "delta": {
-        "total": 0,
-        "passed": 0,
+        "total": 24,
+        "passed": 24,
         "failed": 0,
         "skipped": 0
       },
@@ -9759,14 +9758,14 @@
         "duration": 2201.05
       },
       "upstream": {
-        "total": 20,
-        "passed": 8,
+        "total": 1,
+        "passed": 1,
         "failed": 0,
-        "skipped": 2,
-        "xfailed": 10,
+        "skipped": 0,
+        "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1823.15
+        "duration": 0.0
       },
       "hardware": [
         "h100",
@@ -9797,10 +9796,10 @@
         }
       ],
       "delta": {
-        "total": 20,
-        "passed": 6,
+        "total": 39,
+        "passed": 13,
         "failed": 0,
-        "skipped": 4
+        "skipped": 6
       },
       "status": "both",
       "backfilled": false
@@ -9822,14 +9821,14 @@
         "duration": 1645.58
       },
       "upstream": {
-        "total": 18,
+        "total": 1,
         "passed": 1,
         "failed": 0,
-        "skipped": 17,
+        "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 460.51
+        "duration": 0.0
       },
       "hardware": [
         "h100",
@@ -9853,10 +9852,10 @@
         }
       ],
       "delta": {
-        "total": 0,
+        "total": 17,
         "passed": 7,
         "failed": 0,
-        "skipped": -7
+        "skipped": 10
       },
       "status": "both",
       "backfilled": false
@@ -10240,7 +10239,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0896-4877-b807-a92e27c6f6b9&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0893-46e5-bccd-0978e603bbc4&tab=output",
           "job_name": "V1 attention (H100-MI300)",
           "side": "upstream"
         }
@@ -12433,14 +12432,14 @@
       "upstream_job_name": "Spec Decode DeepSeek MTP Parallel Load (B200)",
       "amd": null,
       "upstream": {
-        "total": 6,
-        "passed": 5,
+        "total": 1,
+        "passed": 1,
         "failed": 0,
-        "skipped": 1,
+        "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 824.79
+        "duration": 0.0
       },
       "hardware": [
         "b200"
@@ -12467,14 +12466,14 @@
       "upstream_job_name": "Spec Decode Draft Model Nightly B200",
       "amd": null,
       "upstream": {
-        "total": 20,
-        "passed": 8,
+        "total": 1,
+        "passed": 1,
         "failed": 0,
-        "skipped": 2,
-        "xfailed": 10,
+        "skipped": 0,
+        "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1211.68
+        "duration": 0.0
       },
       "hardware": [
         "h100"
@@ -13517,6 +13516,12 @@
     },
     {
       "test_id": "Attention Benchmarks Smoke Test (B200)::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Basic Correctness::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
@@ -14914,12 +14919,6 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "Python-only Installation::__job_level__",
-      "amd_status": "missing",
-      "upstream_status": "failed",
-      "category": "upstream_only"
-    },
-    {
       "test_id": "Pytorch Nightly Dependency Override Check::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -15022,37 +15021,31 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "Rust Frontend Distributed::__passed__",
+      "test_id": "Rust Frontend Distributed::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Rust Frontend OpenAI Coverage::__passed__",
+      "test_id": "Rust Frontend OpenAI Coverage::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Rust Frontend Serve/Admin Coverage::__passed__",
+      "test_id": "Rust Frontend Serve/Admin Coverage::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Rust Frontend Tool Use::__passed__",
+      "test_id": "Rust Frontend Tool Use::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Rust Frontend Tool Use::__skipped__",
-      "amd_status": "missing",
-      "upstream_status": "skipped",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "Samplers Test::__passed__",
+      "test_id": "Samplers Test::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
@@ -15070,51 +15063,21 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "Spec Decode DeepSeek MTP Parallel Load (B200)::__passed__",
+      "test_id": "Spec Decode DeepSeek MTP Parallel Load (B200)::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Spec Decode DeepSeek MTP Parallel Load (B200)::__skipped__",
-      "amd_status": "missing",
-      "upstream_status": "skipped",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "Spec Decode Draft Model Nightly B200::__passed__",
+      "test_id": "Spec Decode Draft Model Nightly B200::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "Spec Decode Draft Model Nightly B200::__skipped__",
-      "amd_status": "missing",
-      "upstream_status": "skipped",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "Spec Decode Draft Model Nightly B200::__xfailed__",
-      "amd_status": "missing",
-      "upstream_status": "xfailed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "Spec Decode Draft Model::__passed__",
+      "test_id": "Spec Decode Draft Model::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "Spec Decode Draft Model::__skipped__",
-      "amd_status": "missing",
-      "upstream_status": "skipped",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "Spec Decode Draft Model::__xfailed__",
-      "amd_status": "missing",
-      "upstream_status": "xfailed",
       "category": "upstream_only"
     },
     {
@@ -15130,15 +15093,9 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "Spec Decode Eagle::__passed__",
+      "test_id": "Spec Decode Eagle::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "Spec Decode Eagle::__skipped__",
-      "amd_status": "missing",
-      "upstream_status": "skipped",
       "category": "upstream_only"
     },
     {

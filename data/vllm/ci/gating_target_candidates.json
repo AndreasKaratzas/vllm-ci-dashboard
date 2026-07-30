@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-30T12:27:39Z",
+  "generated_at": "2026-07-30T14:55:53Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -106,6 +106,21 @@
       "canonical_label": "Attention Benchmarks Smoke Test (B200)",
       "source_signal": "red",
       "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Basic Correctness",
+      "canonical_key": "basic correctness",
+      "state": "passed",
+      "queue": "h200_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb2da-a27f-45e0-95ca-0901b050acb4&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 18,
+      "canonical_label": "Basic Correctness",
+      "source_signal": "red",
+      "readiness_signal": "red",
       "target_signal": "green",
       "proposal_matches": []
     },
@@ -913,7 +928,7 @@
       "canonical_key": "kernels core operation test",
       "state": "passed",
       "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0931-48f3-a1f1-399496eb44ec&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0931-4e79-8749-33fa53520c3d&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 7,
@@ -943,7 +958,7 @@
       "canonical_key": "kernels helion test",
       "state": "passed",
       "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0933-4bc3-88a0-3706ed061836&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0934-4246-8bd8-3846c2267a9a&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 92,
@@ -1699,21 +1714,6 @@
       ]
     },
     {
-      "label": "Python-only Installation",
-      "canonical_key": "python-only installation",
-      "state": "failed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb2da-a666-49c2-b098-af22a00ce49e&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 94,
-      "canonical_label": "Python-only Installation",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
       "label": "PyTorch Compilation Passes Unit Tests",
       "canonical_key": "pytorch compilation passes unit test",
       "state": "passed",
@@ -2023,7 +2023,7 @@
       "canonical_key": "v1 attention",
       "state": "passed",
       "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0896-4877-b807-a92e27c6f6b9&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0893-46e5-bccd-0978e603bbc4&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 103,
@@ -2357,7 +2357,7 @@
       "canonical_key": "gh200 test",
       "state": "soft_fail",
       "queue": "gh200_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb2da-a3cf-463e-8829-06e3aa81a22a&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-8501-40c0-8787-5e8a61284166&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -3074,7 +3074,7 @@
       "canonical_key": "ascend npu test",
       "state": "soft_fail",
       "queue": "ascend",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb2da-a388-4c54-8881-9484c3ff05cc&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-8493-4541-9fc3-acc179ee8d92&tab=output",
       "exclusion_reasons": [
         "cpu_or_non_gpu"
       ],
@@ -3251,7 +3251,7 @@
       "canonical_key": "intel hpu test",
       "state": "soft_fail",
       "queue": "intel-hpu",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb2db-2161-441a-84a7-28e9079fa084&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb36c-8a5f-4ce4-b89d-88b6fa13ab05&tab=output",
       "exclusion_reasons": [
         "cpu_or_non_gpu"
       ],
@@ -3517,15 +3517,6 @@
     },
     {
       "decision": "missing_from_upstream",
-      "target_id": 18,
-      "label": "Basic Correctness",
-      "canonical_key": "basic correctness",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "green"
-    },
-    {
-      "decision": "missing_from_upstream",
       "target_id": 38,
       "label": "Kernels KDA Test",
       "canonical_key": "kernels kda test",
@@ -3538,6 +3529,15 @@
       "target_id": 90,
       "label": "Entrypoints Integration (Multimodal)",
       "canonical_key": "entrypoints integration (multimodal)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 94,
+      "label": "Python-only Installation",
+      "canonical_key": "python-only installation",
       "source_signal": "green",
       "readiness_signal": "green",
       "target_signal": "green"
