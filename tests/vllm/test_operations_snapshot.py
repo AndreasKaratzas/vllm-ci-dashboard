@@ -1146,7 +1146,7 @@ def test_exact_capacity_projection_expands_parallelism_and_queue_width():
     assert projected_queues["amd_mi300_8"]["current_gated_gpu_slots"] == 0
 
 
-def test_capacity_projection_repartitions_multiple_same_family_queue_gaps():
+def test_capacity_projection_reallocates_multiple_same_family_queue_gaps():
     capacity = {
         "projection": {"target_groups": 2},
         "summary": {
