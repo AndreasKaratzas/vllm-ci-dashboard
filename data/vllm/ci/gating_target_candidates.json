@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-30T07:44:10Z",
+  "generated_at": "2026-07-30T12:27:39Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -22,20 +22,20 @@
   },
   "summary": {
     "upstream_build": 81236,
-    "amd_ci_build": 11417,
+    "amd_ci_build": 11474,
     "canonical_target_count": 125,
-    "row_count": 222,
-    "canonical_match_count": 118,
+    "row_count": 216,
+    "canonical_match_count": 116,
     "likely_duplicate_count": 18,
-    "new_candidate_count": 40,
-    "excluded_count": 45,
-    "missing_from_upstream_count": 1,
+    "new_candidate_count": 38,
+    "excluded_count": 41,
+    "missing_from_upstream_count": 3,
     "by_decision": {
-      "canonical": 118,
-      "excluded": 45,
+      "canonical": 116,
+      "excluded": 41,
       "likely_duplicate": 18,
-      "missing_from_upstream": 1,
-      "new_candidate": 40
+      "missing_from_upstream": 3,
+      "new_candidate": 38
     }
   },
   "rows": [
@@ -106,21 +106,6 @@
       "canonical_label": "Attention Benchmarks Smoke Test (B200)",
       "source_signal": "red",
       "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Basic Correctness",
-      "canonical_key": "basic correctness",
-      "state": "failed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0899-4e46-b37c-fcd2a11dbf50&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 18,
-      "canonical_label": "Basic Correctness",
-      "source_signal": "red",
-      "readiness_signal": "red",
       "target_signal": "green",
       "proposal_matches": []
     },
@@ -629,31 +614,6 @@
       "proposal_matches": []
     },
     {
-      "label": "Entrypoints Integration (Multimodal)",
-      "canonical_key": "entrypoints integration (multimodal)",
-      "state": "failed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-08e7-4571-b6cd-25326fd46e7a&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 90,
-      "canonical_label": "Entrypoints Integration (Multimodal)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "Entrypoints Integration (Multimodal)",
-          "device": "mi300_1",
-          "yaml_file": ".buildkite/test_areas/entrypoints.yaml"
-        }
-      ]
-    },
-    {
       "label": "Entrypoints Integration (Pooling)",
       "canonical_key": "entrypoints integration (pooling)",
       "state": "passed",
@@ -781,9 +741,9 @@
     {
       "label": "Extract Hidden States Integration",
       "canonical_key": "extract hidden states integration",
-      "state": "failed",
+      "state": "passed",
       "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-094c-4019-b4e1-986e2dea20f4&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb2da-a5ee-40c1-a362-800bbaa261af&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 17,
@@ -953,7 +913,7 @@
       "canonical_key": "kernels core operation test",
       "state": "passed",
       "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0931-4d0d-ba7e-43cc00b63f40&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0931-48f3-a1f1-399496eb44ec&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 7,
@@ -1187,9 +1147,9 @@
     {
       "label": "Language Models Test (PPL)",
       "canonical_key": "language models test (ppl)",
-      "state": "failed",
+      "state": "passed",
       "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0964-47ff-b1fd-820cec112beb&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb2da-a628-4d11-917e-8311dbf109ed&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 74,
@@ -1743,7 +1703,7 @@
       "canonical_key": "python-only installation",
       "state": "failed",
       "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb1b1-ce18-4893-80c9-f78cd9ceb711&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb2da-a666-49c2-b098-af22a00ce49e&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 94,
@@ -2284,7 +2244,7 @@
             "label": "Engine",
             "state": "passed",
             "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/11417/steps/canvas?jid=019fad1a-5257-491f-8333-30a559d27dd8&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/11474/steps/canvas?jid=019fb241-8110-447c-b09d-139aa9078b10&tab=output"
           }
         ]
       },
@@ -2397,7 +2357,7 @@
       "canonical_key": "gh200 test",
       "state": "soft_fail",
       "queue": "gh200_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-08f6-4d65-868c-716664317e9c&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb2da-a3cf-463e-8829-06e3aa81a22a&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -2444,7 +2404,7 @@
             "label": "Kernels (B200-MI355)",
             "state": "passed",
             "queue": "amd_mi355_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/11417/steps/canvas?jid=019fad1a-528c-4cd8-a848-8a2b180b122f&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/11474/steps/canvas?jid=019fb241-8159-4b82-b277-d1f44864b704&tab=output"
           }
         ]
       },
@@ -2638,7 +2598,7 @@
             "label": "LM Eval Large Models (8xH200-8xMI300)",
             "state": "passed",
             "queue": "amd_mi300_8",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/11417/steps/canvas?jid=019fad1a-525f-40ad-a604-33b69d7e101e&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/11474/steps/canvas?jid=019fb241-8119-4100-abf5-78e78caef62f&tab=output"
           }
         ]
       },
@@ -2650,40 +2610,6 @@
       "state": "passed",
       "queue": "b200-k8s",
       "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0940-412c-8f5b-9c1f1abf3b51&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "LM Eval PCP (4xB200)",
-      "canonical_key": "lm eval pcp (4 gpus)",
-      "state": "failed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0940-41b3-bc94-5b69a2bd3951&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "LM Eval Qwen3.5 Models (2xB200)",
-      "canonical_key": "lm eval qwen3.5 models (2 gpus)",
-      "state": "failed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0941-43be-97d6-43ea14255459&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -2900,7 +2826,7 @@
             "label": "vLLM IR Tests",
             "state": "passed",
             "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/11417/steps/canvas?jid=019fad1a-5260-4cef-b51a-a5eda2cc3a81&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/11474/steps/canvas?jid=019fb241-811a-4bce-bd6a-b155e78e5211&tab=output"
           }
         ]
       },
@@ -3125,7 +3051,7 @@
       "canonical_key": "v1 attention",
       "state": "passed",
       "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-088f-453d-90b3-48a766c6f0be&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0892-4b8b-8c66-5ad1fa597392&tab=output",
       "exclusion_reasons": [],
       "decision": "likely_duplicate",
       "duplicate_of": "V1 attention (H100-MI300)",
@@ -3148,7 +3074,7 @@
       "canonical_key": "ascend npu test",
       "state": "soft_fail",
       "queue": "ascend",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-08f3-4a19-aa29-67a326db516f&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb2da-a388-4c54-8881-9484c3ff05cc&tab=output",
       "exclusion_reasons": [
         "cpu_or_non_gpu"
       ],
@@ -3325,64 +3251,9 @@
       "canonical_key": "intel hpu test",
       "state": "soft_fail",
       "queue": "intel-hpu",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-08f9-44db-ba71-8faa68241b68&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb2db-2161-441a-84a7-28e9079fa084&tab=output",
       "exclusion_reasons": [
         "cpu_or_non_gpu"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "LM Eval Humming Act fp8/int8 (B200 - TEMPORARY)",
-      "canonical_key": "lm eval humming act fp8/int8 (b200 - temporary)",
-      "state": "failed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-093d-4530-a598-70a8a44a3d12&tab=output",
-      "exclusion_reasons": [
-        "temporary"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "LM Eval Humming Act fp8/int8 (H100 - TEMPORARY)",
-      "canonical_key": "lm eval humming act fp8/int8 (h100 - temporary)",
-      "state": "failed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-093d-42b6-9708-1745a2c73e5b&tab=output",
-      "exclusion_reasons": [
-        "temporary"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "LM Eval Humming Act int8 (A100 - TEMPORARY)",
-      "canonical_key": "lm eval humming act int8 (a100 - temporary)",
-      "state": "failed",
-      "queue": "a100_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-093e-4be6-879b-06a05592060a&tab=output",
-      "exclusion_reasons": [
-        "temporary"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "LM Eval Humming f16 (A100 - TEMPORARY)",
-      "canonical_key": "lm eval humming f16 (a100 - temporary)",
-      "state": "failed",
-      "queue": "a100_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-093e-4653-aa2c-8cce5e9c9b89&tab=output",
-      "exclusion_reasons": [
-        "temporary"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "LM Eval Humming f16 (B200 - TEMPORARY)",
-      "canonical_key": "lm eval humming f16 (b200 - temporary)",
-      "state": "failed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-093e-41ae-b1f4-798071b83807&tab=output",
-      "exclusion_reasons": [
-        "temporary"
       ],
       "decision": "excluded"
     },
@@ -3438,6 +3309,18 @@
       "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0956-46da-ad8d-b6771ca25a2e&tab=output",
       "exclusion_reasons": [
         "experimental_model_runner_v2"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "MoE Refactor Integration Test (B200 - TEMPORARY)",
+      "canonical_key": "moe refactor integration test (b200 - temporary)",
+      "state": "passed",
+      "queue": "b200-k8s",
+      "url": "https://buildkite.com/vllm/ci/builds/81236/steps/canvas?jid=019fb19d-0942-4911-8493-602f83cdcde7&tab=output",
+      "exclusion_reasons": [
+        "temporary",
+        "moe_refactor_temporary"
       ],
       "decision": "excluded"
     },
@@ -3634,11 +3517,29 @@
     },
     {
       "decision": "missing_from_upstream",
+      "target_id": 18,
+      "label": "Basic Correctness",
+      "canonical_key": "basic correctness",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
       "target_id": 38,
       "label": "Kernels KDA Test",
       "canonical_key": "kernels kda test",
       "source_signal": "red",
       "readiness_signal": "yellow",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 90,
+      "label": "Entrypoints Integration (Multimodal)",
+      "canonical_key": "entrypoints integration (multimodal)",
+      "source_signal": "green",
+      "readiness_signal": "green",
       "target_signal": "green"
     }
   ]
