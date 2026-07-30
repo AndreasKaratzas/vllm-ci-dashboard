@@ -1229,6 +1229,11 @@ def test_trajectory_has_exact_capacity_projection_subview():
     assert "mi355_preferred" in OPS_JS
     assert "Configured quota does not reconcile with observed capacity signals." in OPS_JS
     assert "Queue-native connected agents versus planning quota" in OPS_JS
+    assert "Configured planning quota:" in OPS_JS
+    assert "Live connected-agent capacity is reported separately below." in OPS_JS
+    assert "amd-cpu is Docker-build-only" in OPS_JS
+    assert "perf_eval and retiring MI325 queues are excluded" in OPS_JS
+    assert "{label: 'Provider', value: (row.sourceQueue || {}).provider || 'Not specified'}" in OPS_JS
     assert "Suite-alone simultaneous-start queue-shape gap" in OPS_JS
     assert "Background + suite zero-wait fixed-family gap" in OPS_JS
     assert "START-AT-ONCE GAP" in OPS_JS
@@ -1383,13 +1388,13 @@ const publishedTargetRows = [
   ['amd_mi250_2', 0, 0, 0, 0, 24, 2],
   ['amd_mi250_4', 0, 0, 1, 1, 16, 4],
   ['amd_mi250_8', 0, 0, 0, 0, 4, 8],
-  ['amd_mi300_1', 37, 49, 81, 112, 232, 1],
-  ['amd_mi300_2', 5, 5, 21, 21, 30, 2],
-  ['amd_mi300_4', 4, 4, 22, 22, 29, 4],
+  ['amd_mi300_1', 37, 49, 60, 84, 296, 1],
+  ['amd_mi300_2', 5, 5, 17, 17, 18, 2],
+  ['amd_mi300_4', 4, 4, 21, 21, 19, 4],
   ['amd_mi300_8', 1, 1, 3, 3, 2, 8],
-  ['amd_mi355_1', 0, 0, 7, 7, 48, 1],
-  ['amd_mi355_2', 0, 0, 5, 5, 8, 2],
-  ['amd_mi355_4', 0, 0, 0, 0, 8, 4],
+  ['amd_mi355_1', 0, 0, 28, 35, 240, 1],
+  ['amd_mi355_2', 0, 0, 9, 9, 20, 2],
+  ['amd_mi355_4', 0, 0, 1, 1, 16, 4],
   ['amd_mi355_8', 0, 0, 0, 0, 1, 8],
 ];
 const publishedTargetProfile = {
@@ -1429,7 +1434,11 @@ const publishedTargetScenario = helpers.capacityScenario(publishedTargetProfile,
   baseline: 'peak',
   suites: 1,
 });
-assert.equal(publishedTargetScenario.shapeGapGpus, 8);
+assert.equal(publishedTargetScenario.shapeGapGpus, 16);
+assert.equal(
+  publishedTargetScenario.rows.find(function (row) { return row.id === 'amd_mi300_4'; }).shapeGapGpus,
+  8
+);
 assert.equal(
   publishedTargetScenario.rows.find(function (row) { return row.id === 'amd_mi300_8'; }).shapeGapGpus,
   8

@@ -88,19 +88,19 @@ def test_capacity_payload_projects_theoretical_group_count(tmp_path: Path) -> No
     assert payload["summary"]["capacity_scoped_group_count"] == 2
     assert payload["summary"]["gated_job_count"] == 5
     assert payload["schema_version"] == 2
-    assert payload["summary"]["total_capacity"] == 680
-    assert payload["summary"]["total_gpu_capacity"] == 970
-    assert payload["summary"]["total_eight_gpu_node_equivalents"] == 121.25
-    assert payload["summary"]["future_eligible_capacity"] == 480
-    assert payload["summary"]["future_eligible_gpu_capacity"] == 750
-    assert payload["summary"]["future_eligible_eight_gpu_node_equivalents"] == 93.75
+    assert payload["summary"]["total_capacity"] == 934
+    assert payload["summary"]["total_gpu_capacity"] == 1218
+    assert payload["summary"]["total_eight_gpu_node_equivalents"] == 152.25
+    assert payload["summary"]["future_eligible_capacity"] == 734
+    assert payload["summary"]["future_eligible_gpu_capacity"] == 998
+    assert payload["summary"]["future_eligible_eight_gpu_node_equivalents"] == 124.75
     projection = payload["projection"]
     assert projection["target_groups"] == 4
     assert projection["theoretical_groups"] == 4
     assert projection["scale"] == 2.0
     assert projection["projected_total_jobs"] == 10.0
     assert projection["projected_total_gpus"] == 10.0
-    assert projection["future_capacity"]["concurrent_jobs"] == 480
+    assert projection["future_capacity"]["concurrent_jobs"] == 734
     assert projection["queues_requiring_migration"] == ["amd_mi325_1"]
     assert projection["projected_gap_jobs"] == 4.0
     queues = {row["id"]: row for row in projection["queues"]}
@@ -150,10 +150,36 @@ def test_capacity_config_has_exact_standard_queue_scope_and_quotas() -> None:
         "main": ["ci", "amd-ci", "amd-distributed-inference-ci"],
     }
     assert config["scope"]["excluded_queue_classes"] == ["perf_eval"]
+    assert config["scope"]["non_gating_queues"] == [
+        {
+            "id": "amd-cpu",
+            "label": "amd_cpu",
+            "family": "MI250-CPU",
+            "purpose": "docker_builds_only",
+            "max_concurrent_jobs": 15,
+            "node_equivalents": 1.875,
+        },
+        {
+            "id": "amd_mi300_perf_eval",
+            "family": "MI300",
+            "purpose": "perf_eval",
+            "max_concurrent_jobs": 1,
+            "node_equivalents": 1.0,
+        },
+        {
+            "id": "amd_mi355_perf_eval",
+            "family": "MI355",
+            "provider": "TW",
+            "purpose": "perf_eval",
+            "max_concurrent_jobs": 6,
+            "node_equivalents": 6.0,
+        },
+    ]
 
     queues = {row["id"]: row for row in config["queues"]}
     assert len(queues) == 16
     assert not any("perf_eval" in queue_id for queue_id in queues)
+    assert "amd-cpu" not in queues
     assert [queues[f"amd_mi250_{size}"]["max_concurrent_jobs"] for size in (1, 2, 4, 8)] == [
         78,
         24,
@@ -161,9 +187,9 @@ def test_capacity_config_has_exact_standard_queue_scope_and_quotas() -> None:
         4,
     ]
     assert [queues[f"amd_mi300_{size}"]["max_concurrent_jobs"] for size in (1, 2, 4, 8)] == [
-        232,
-        30,
-        29,
+        296,
+        18,
+        19,
         2,
     ]
     assert [queues[f"amd_mi325_{size}"]["max_concurrent_jobs"] for size in (1, 2, 4, 8)] == [
@@ -173,10 +199,16 @@ def test_capacity_config_has_exact_standard_queue_scope_and_quotas() -> None:
         0,
     ]
     assert [queues[f"amd_mi355_{size}"]["max_concurrent_jobs"] for size in (1, 2, 4, 8)] == [
-        48,
-        8,
-        8,
+        240,
+        20,
+        16,
         1,
+    ]
+    assert [queues[f"amd_mi355_{size}"]["provider"] for size in (1, 2, 4, 8)] == [
+        "Crusoe",
+        "Crusoe",
+        "TW",
+        "Crusoe",
     ]
     assert all(row["monitored"] for row in queues.values())
     assert all(
@@ -198,16 +230,16 @@ def test_family_capacity_rollups_weight_each_queue_by_gpus_per_job(tmp_path: Pat
     assert families["MI250"]["max_concurrent_jobs"] == 122
     assert families["MI250"]["gpu_capacity"] == 222
     assert families["MI250"]["eight_gpu_node_equivalents"] == 27.75
-    assert families["MI300"]["max_concurrent_jobs"] == 293
+    assert families["MI300"]["max_concurrent_jobs"] == 335
     assert families["MI300"]["gpu_capacity"] == 424
     assert families["MI300"]["eight_gpu_node_equivalents"] == 53.0
     assert families["MI325"]["max_concurrent_jobs"] == 200
     assert families["MI325"]["gpu_capacity"] == 220
     assert families["MI325"]["eight_gpu_node_equivalents"] == 27.5
     assert families["MI325"]["future_gpu_capacity"] == 0
-    assert families["MI355"]["max_concurrent_jobs"] == 65
-    assert families["MI355"]["gpu_capacity"] == 104
-    assert families["MI355"]["eight_gpu_node_equivalents"] == 13.0
+    assert families["MI355"]["max_concurrent_jobs"] == 277
+    assert families["MI355"]["gpu_capacity"] == 352
+    assert families["MI355"]["eight_gpu_node_equivalents"] == 44.0
 
 
 def test_160_group_sensitivity_flags_mi300_8_bottleneck() -> None:

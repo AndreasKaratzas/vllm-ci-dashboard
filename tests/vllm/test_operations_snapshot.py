@@ -1146,6 +1146,95 @@ def test_exact_capacity_projection_expands_parallelism_and_queue_width():
     assert projected_queues["amd_mi300_8"]["current_gated_gpu_slots"] == 0
 
 
+def test_capacity_projection_repartitions_multiple_same_family_queue_gaps():
+    capacity = {
+        "projection": {"target_groups": 2},
+        "summary": {
+            "capacity_scoped_group_count": 0,
+            "capacity": {
+                "future_eligible": {
+                    "queue_count": 3,
+                    "concurrent_jobs": 14,
+                    "gpus": 24,
+                    "eight_gpu_node_equivalents": 3,
+                },
+                "retiring": {"gpus": 0},
+            },
+        },
+        "queues": [
+            {
+                "id": "amd_mi300_1",
+                "label": "mi300_1",
+                "family": "MI300",
+                "gpus_per_job": 1,
+                "future_max_concurrent_jobs": 12,
+                "future_gpu_capacity": 12,
+                "capacity_eligible": True,
+            },
+            {
+                "id": "amd_mi300_4",
+                "label": "mi300_4",
+                "family": "MI300",
+                "gpus_per_job": 4,
+                "future_max_concurrent_jobs": 1,
+                "future_gpu_capacity": 4,
+                "capacity_eligible": True,
+            },
+            {
+                "id": "amd_mi300_8",
+                "label": "mi300_8",
+                "family": "MI300",
+                "gpus_per_job": 8,
+                "future_max_concurrent_jobs": 1,
+                "future_gpu_capacity": 8,
+                "capacity_eligible": True,
+            },
+        ],
+    }
+    matrix = {
+        "rows": [
+            {
+                "id": "four",
+                "cells": {
+                    "mi300": {
+                        "exists": True,
+                        "variants": [{"agent_pool": "mi300_4", "parallelism": 2}],
+                    },
+                },
+            },
+            {
+                "id": "eight",
+                "cells": {
+                    "mi300": {
+                        "exists": True,
+                        "variants": [{"agent_pool": "mi300_8", "parallelism": 2}],
+                    },
+                },
+            },
+        ],
+    }
+
+    projection = ops._exact_target_topology(capacity, matrix)
+
+    one_suite = projection["scenarios"][0]
+    assert one_suite["fits_aggregate_capacity"] is True
+    assert one_suite["fits_family_capacity"] is True
+    assert one_suite["fits_queue_shapes"] is False
+    assert one_suite["shape_gap_gpus"] == 12
+    assert len(one_suite["queue_gaps"]) == 2
+    recommendation = projection["recommendation"]
+    assert recommendation["net_new_hardware_required_for_one_suite"] is False
+    assert recommendation["repartition_possible_within_family"] is True
+    assert recommendation["additional_runner_jobs"] == 2
+    assert recommendation["additional_runner_gpus"] == 12
+    assert len(recommendation["queue_reallocations"]) == 2
+    assert {
+        row["family_spare_gpus"]
+        for row in recommendation["queue_reallocations"]
+    } == {12}
+    assert "does not require net-new silicon" in recommendation["summary"]
+
+
 def test_capacity_projection_publishes_exact_mi355_preferred_placement():
     queues = []
     for architecture, widths in {
@@ -1372,6 +1461,7 @@ def test_capacity_simulation_profile_publishes_source_backed_wait_inputs():
             "id": "amd_mi300_1",
             "label": "mi300_1",
             "family": "MI300",
+            "provider": "Example provider",
             "gpus_per_job": 1,
             "max_concurrent_jobs": 20,
             "groups": 1,
@@ -1500,6 +1590,9 @@ def test_capacity_simulation_profile_publishes_source_backed_wait_inputs():
     assert profile["topology"]["delta"]["gpu_slots"] == 16
     rows = {row["id"]: row for row in profile["queues"]}
     one_gpu = rows["amd_mi300_1"]
+    assert one_gpu["provider"] == "Example provider"
+    assert "amd-cpu" in profile["assumptions"]["capacity"]
+    assert "Docker builds" in profile["assumptions"]["capacity"]
     assert one_gpu["history"]["sample_count"] == 3
     assert one_gpu["history"]["current"]["running"] == 25
     assert one_gpu["history"]["current"]["waiting"] == 10

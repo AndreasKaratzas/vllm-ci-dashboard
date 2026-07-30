@@ -122,6 +122,59 @@ def load_capacity_config(path: Path = CAPACITY_CONFIG_PATH) -> dict[str, Any]:
         str(item).strip().lower() for item in excluded_classes
     }:
         raise ValueError(f"{path} scope.excluded_queue_classes must include perf_eval")
+    non_gating_queues = scope.get("non_gating_queues")
+    if not isinstance(non_gating_queues, list) or not non_gating_queues:
+        raise ValueError(f"{path} scope.non_gating_queues must be a non-empty list")
+    normalized_non_gating: list[dict[str, Any]] = []
+    seen_non_gating_ids: set[str] = set()
+    for index, raw in enumerate(non_gating_queues):
+        if not isinstance(raw, dict):
+            raise ValueError(f"{path} scope.non_gating_queues[{index}] must be an object")
+        queue_id = str(raw.get("id") or "").strip().lower()
+        purpose = str(raw.get("purpose") or "").strip().lower()
+        max_concurrent_jobs = raw.get("max_concurrent_jobs")
+        node_equivalents = raw.get("node_equivalents")
+        if (
+            queue_id != "amd-cpu"
+            and not queue_id.startswith("amd_")
+        ) or queue_id in seen_non_gating_ids:
+            raise ValueError(
+                f"{path} scope.non_gating_queues[{index}].id must be a unique amd_ queue"
+            )
+        if purpose not in {"docker_builds_only", "perf_eval"}:
+            raise ValueError(
+                f"{path} scope.non_gating_queues[{index}].purpose is unsupported"
+            )
+        if (
+            not isinstance(max_concurrent_jobs, int)
+            or isinstance(max_concurrent_jobs, bool)
+            or max_concurrent_jobs < 0
+        ):
+            raise ValueError(
+                f"{path} scope.non_gating_queues[{index}].max_concurrent_jobs "
+                "must be a non-negative integer"
+            )
+        if (
+            not isinstance(node_equivalents, (int, float))
+            or isinstance(node_equivalents, bool)
+            or node_equivalents < 0
+        ):
+            raise ValueError(
+                f"{path} scope.non_gating_queues[{index}].node_equivalents "
+                "must be a non-negative number"
+            )
+        seen_non_gating_ids.add(queue_id)
+        normalized_non_gating.append({
+            **raw,
+            "id": queue_id,
+            "purpose": purpose,
+            "max_concurrent_jobs": max_concurrent_jobs,
+            "node_equivalents": float(node_equivalents),
+        })
+    if "amd-cpu" not in seen_non_gating_ids:
+        raise ValueError(f"{path} scope.non_gating_queues must include amd-cpu")
+    scope = dict(scope)
+    scope["non_gating_queues"] = normalized_non_gating
 
     raw_queues = payload.get("queues")
     if not isinstance(raw_queues, list) or not raw_queues:
@@ -134,6 +187,7 @@ def load_capacity_config(path: Path = CAPACITY_CONFIG_PATH) -> dict[str, Any]:
         queue_id = str(raw.get("id") or "").strip().lower()
         label = str(raw.get("label") or "").strip()
         family = str(raw.get("family") or "").strip().upper()
+        provider = str(raw.get("provider") or "").strip()
         lifecycle = str(raw.get("lifecycle") or "").strip().lower()
         gpus_per_job = raw.get("gpus_per_job")
         max_concurrent_jobs = raw.get("max_concurrent_jobs")
@@ -175,6 +229,7 @@ def load_capacity_config(path: Path = CAPACITY_CONFIG_PATH) -> dict[str, Any]:
                 "id": queue_id,
                 "label": label,
                 "family": family,
+                "provider": provider or None,
                 "gpus_per_job": gpus_per_job,
                 "max_concurrent_jobs": max_concurrent_jobs,
                 "monitored": monitored,
@@ -184,6 +239,7 @@ def load_capacity_config(path: Path = CAPACITY_CONFIG_PATH) -> dict[str, Any]:
         )
 
     normalized = dict(payload)
+    normalized["scope"] = scope
     normalized["queues"] = normalized_queues
     return normalized
 
@@ -691,8 +747,9 @@ def build_capacity_payload(
         "assumptions": {
             "capacity_basis": (
                 "User-supplied maximum concurrent jobs for standard AMD queues. "
-                "perf_eval queues are excluded and MI325 is monitored but excluded "
-                "from future eligible capacity because it is retiring."
+                "perf_eval queues are excluded, amd-cpu is reserved for Docker builds "
+                "and excluded, and MI325 is monitored but excluded from future eligible "
+                "capacity because it is retiring."
             ),
             "projection_model": (
                 "Linear sensitivity scaling of current mirror.amd group count, "

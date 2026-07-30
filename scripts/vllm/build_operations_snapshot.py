@@ -3650,6 +3650,7 @@ def _queue_capacity_catalog(capacity: dict) -> dict[str, dict]:
             "id": queue_id,
             "label": raw.get("label") or queue_id.removeprefix("amd_"),
             "family": raw.get("family") or "unknown",
+            "provider": raw.get("provider"),
             "gpus_per_job": max(1, int(raw.get("gpus_per_job") or 1)),
             "max_concurrent_jobs": max(
                 0,
@@ -5330,6 +5331,7 @@ def _capacity_simulation_profile(
             "id": queue_id,
             "label": target.get("label") or queue_id.removeprefix("amd_"),
             "family": target.get("family") or "unknown",
+            "provider": target.get("provider"),
             "gpus_per_job": gpus_per_job,
             "capacity_jobs": max_concurrent_jobs,
             "capacity_gpus": max_concurrent_jobs * gpus_per_job,
@@ -5518,7 +5520,8 @@ def _capacity_simulation_profile(
         "assumptions": {
             "capacity": (
                 "Configured future-eligible queue quotas are treated as concurrent "
-                "job slots. MI325 and perf-eval queues remain excluded."
+                "job slots. MI325 and perf-eval queues remain excluded; amd-cpu is "
+                "reserved for Docker builds and is not GPU gating capacity."
             ),
             "history": (
                 "Current is the latest complete joint observation. Typical, peak, "
@@ -5784,17 +5787,34 @@ def _exact_target_topology(
             projection.get("declared_new_groups") or 0
         )
     one_suite = scenarios[0]
-    only_gap = one_suite["queue_gaps"][0] if len(one_suite["queue_gaps"]) == 1 else None
-    repartition_possible = bool(
-        only_gap
-        and next(
-            (
-                row["gpu_capacity"] - row["gpu_slots"]
-                for row in family_rows
-                if row["family"] == only_gap["family"]
-            ),
+    queue_gaps = one_suite["queue_gaps"]
+    gap_gpus_by_family: dict[str, int] = defaultdict(int)
+    for gap in queue_gaps:
+        gap_gpus_by_family[str(gap["family"])] += int(gap["gap_gpus"])
+    spare_gpus_by_family: dict[str, int] = defaultdict(int)
+    for row in queue_rows:
+        spare_gpus_by_family[str(row["family"])] += max(
             0,
-        ) >= only_gap["gap_gpus"]
+            int(row["gpu_capacity"]) - int(row["gpu_slots"]),
+        )
+    repartition_possible = bool(queue_gaps) and all(
+        spare_gpus_by_family.get(family, 0) >= gap_gpus
+        for family, gap_gpus in gap_gpus_by_family.items()
+    )
+    queue_reallocations = [
+        {
+            **gap,
+            "family_spare_gpus": spare_gpus_by_family.get(str(gap["family"]), 0),
+            "family_spare_semantics": (
+                "gross_same_family_queue_surplus_before_deficit_reallocation"
+            ),
+        }
+        for gap in queue_gaps
+    ]
+    largest_gap = max(
+        queue_gaps,
+        key=lambda gap: (int(gap["gap_gpus"]), int(gap["gap_jobs"])),
+        default=None,
     )
     runtime_estimate = _target_runtime_estimate(
         amd_test_matrix,
@@ -5810,20 +5830,40 @@ def _exact_target_topology(
         queue_history or [],
     )
     standalone_net_new_required = not (
-        one_suite["fits_aggregate_capacity"] and repartition_possible
+        one_suite["fits_aggregate_capacity"]
+        and one_suite["fits_family_capacity"]
+        and (one_suite["fits_queue_shapes"] or repartition_possible)
     )
-    standalone_summary = (
-        f"Repartition {only_gap['gap_gpus']} spare {only_gap['family']} GPUs "
-        f"into {only_gap['gap_jobs']} additional {only_gap['label']} runner; "
-        "the standalone target suite does not require net-new silicon."
-        if repartition_possible and only_gap
-        else (
+    if repartition_possible and len(queue_gaps) == 1:
+        gap = queue_gaps[0]
+        runner_suffix = "" if int(gap["gap_jobs"]) == 1 else "s"
+        standalone_summary = (
+            f"Repartition {gap['gap_gpus']} spare {gap['family']} GPUs "
+            f"into {gap['gap_jobs']} additional {gap['label']} runner{runner_suffix}; "
+            "the standalone target suite does not require net-new silicon."
+        )
+    elif repartition_possible:
+        family_label = ", ".join(sorted(gap_gpus_by_family))
+        actions = ", ".join(
+            f"{gap['gap_jobs']} additional {gap['label']} "
+            f"runner{'s' if int(gap['gap_jobs']) != 1 else ''} "
+            f"({gap['gap_gpus']} GPUs)"
+            for gap in queue_gaps
+        )
+        standalone_summary = (
+            f"Repartition {one_suite['shape_gap_gpus']} spare GPUs within "
+            f"{family_label} into {actions}; the standalone target suite does "
+            "not require net-new silicon."
+        )
+    elif one_suite["fits_aggregate_capacity"] and one_suite["fits_queue_shapes"]:
+        standalone_summary = (
             "The standalone target suite fits both aggregate capacity and every "
             "queue shape."
-            if one_suite["fits_aggregate_capacity"] and one_suite["fits_queue_shapes"]
-            else "The standalone target suite requires additional or migrated queue capacity."
         )
-    )
+    else:
+        standalone_summary = (
+            "The standalone target suite requires additional or migrated queue capacity."
+        )
     unplaced_retiring = simulation_profile.get("unplaced_retiring_workload") or {}
     mi325_migration_unplaced = bool(
         unplaced_retiring.get("available") is True
@@ -5903,9 +5943,14 @@ def _exact_target_topology(
             },
             "queue_shape_change_required": not one_suite["fits_queue_shapes"],
             "repartition_possible_within_family": repartition_possible,
-            "bottleneck_queue": only_gap["id"] if only_gap else None,
-            "additional_runner_jobs": only_gap["gap_jobs"] if only_gap else 0,
-            "additional_runner_gpus": only_gap["gap_gpus"] if only_gap else 0,
+            "bottleneck_queue": largest_gap["id"] if largest_gap else None,
+            "additional_runner_jobs": sum(
+                int(gap["gap_jobs"]) for gap in queue_gaps
+            ),
+            "additional_runner_gpus": sum(
+                int(gap["gap_gpus"]) for gap in queue_gaps
+            ),
+            "queue_reallocations": queue_reallocations,
             "summary": (
                 standalone_summary
                 + " Overall hardware need is indeterminate until the retiring MI325 "

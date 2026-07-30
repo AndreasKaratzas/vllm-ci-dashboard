@@ -7927,6 +7927,7 @@
       description: wait.reason || 'Projected queue response for the selected route-shareable scenario.',
       fields: [
         {label: 'Traffic model', value: result.trafficMode === 'sustained' ? 'Sustained arrivals' : 'One-time burst'},
+        {label: 'Provider', value: (row.sourceQueue || {}).provider || 'Not specified'},
         {label: 'Baseline', value: result.trafficMode === 'sustained' ? 'Five-weekday started-cohort rate proxy' : result.baseline},
         {label: 'Observed running / waiting', value: row.baselineRunning === null ? null : value(row.baselineRunning) + ' / ' + value(row.baselineWaiting)},
         {label: 'Scenario jobs', value: integer(row.demandJobs)},
@@ -8118,6 +8119,15 @@
           : 'A one-time burst assumes no future arrivals after the selected gate is submitted.')),
     ]);
     host.append(panel('Capacity scenario planner', 'Inputs are encoded in the URL for review and sharing', plannerControls, 'ops-capacity-planner'));
+    const futurePool = capacity.future_capacity || {};
+    host.append(n(
+      'div',
+      'ops-evidence-note is-info',
+      'Configured planning quota: ' + integer(futurePool.gpus || 0)
+        + ' GPU slots across active MI250, MI300, and MI355 queues. '
+        + 'amd-cpu is Docker-build-only; perf_eval and retiring MI325 queues are excluded. '
+        + 'Live connected-agent capacity is reported separately below.'
+    ));
     if (selectedPlacement && selectedPlacement.limitation) {
       const placementNote = n('div', 'ops-evidence-note is-info');
       add(placementNote, [
