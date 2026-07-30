@@ -21,6 +21,7 @@ def _step(
     semantic_title: str = "",
     fingerprint: str = "",
     num_gpus: int | None = None,
+    working_dir: str = "",
 ) -> ConfigStep:
     return ConfigStep(
         label=label,
@@ -38,6 +39,7 @@ def _step(
         member_groups=(group,),
         member_agent_pools=(agent_pool,),
         num_gpus=num_gpus,
+        working_dir=working_dir,
     )
 
 
@@ -812,6 +814,12 @@ def test_report_counts_every_parsed_definition_and_documents_collision_policy(
     assert report["summary"]["total_nvidia_steps"] == 2
     assert report["summary"]["unique_amd_identities"] == 1
     assert report["summary"]["unique_nvidia_identities"] == 1
+    assert report["summary"]["amd_identity_families"] == 2
+    assert report["summary"]["covered_identity_families"] == 2
+    assert report["summary"]["amd_only_identity_families"] == 0
+    assert report["summary"]["partially_covered_identity_families"] == 0
+    assert report["summary"]["identity_family_replica_rows"] == 0
+    assert report["summary"]["identity_family_coverage_rate_pct"] == 100.0
     assert report["summary"]["amd_identity_collision_rows"] == 1
     assert report["summary"]["nvidia_identity_collision_rows"] == 1
     assert report["summary"]["matched"] == 2
@@ -832,6 +840,195 @@ def test_report_counts_every_parsed_definition_and_documents_collision_policy(
         "pool-mi300",
         "pool-mi355",
     }
+    assert all(
+        match["amd_identity_family_key"]
+        for match in report["matches"]
+    )
+
+
+def test_amd_identity_families_preserve_same_architecture_workloads():
+    steps = [
+        _step(
+            "V1 e2e (4 GPUs)",
+            "v1 e2e (4 gpus)",
+            [
+                "pytest -v -s "
+                "v1/e2e/spec_decode/test_spec_decode.py "
+                '-k "eagle_correctness_heavy"',
+            ],
+            ".buildkite/test-amd.yaml",
+            definition_id="amd#v1-generic",
+            agent_pool="mi300_4",
+            semantic_title="V1 e2e (4 GPUs)",
+            working_dir="/vllm-workspace/tests",
+        ),
+        _step(
+            "V1 e2e (4xH100-4xMI300)",
+            "v1 e2e (4 gpus)",
+            ["pytest -v -s v1/e2e/test_hybrid_chunked_prefill.py"],
+            ".buildkite/test-amd.yaml",
+            definition_id="amd#v1-h100",
+            agent_pool="mi300_4",
+            semantic_title="V1 e2e (4xH100-4xMI)",
+        ),
+        _step(
+            "LM Eval Large Models (4xA100-4xMI300)",
+            "lm eval large models (4 gpus)",
+            [
+                "pytest -s -v test_lm_eval_correctness.py "
+                "--config-list-file=configs/models-large.txt",
+            ],
+            ".buildkite/test-amd.yaml",
+            definition_id="amd#large-a100-mi300",
+            agent_pool="mi300_4",
+            semantic_title="LM Eval Large Models (4xA100-4xMI)",
+            working_dir="/vllm-workspace/.buildkite/lm-eval-harness",
+        ),
+        _step(
+            "LM Eval Large Models (4xH100-4xMI300)",
+            "lm eval large models (4 gpus)",
+            [
+                "pytest -s -v test_lm_eval_correctness.py "
+                "--config-list-file=configs/models-large-rocm-fp8.txt",
+            ],
+            ".buildkite/test-amd.yaml",
+            definition_id="amd#large-h100-mi300",
+            agent_pool="mi300_4",
+            semantic_title="LM Eval Large Models (4xH100-4xMI)",
+            working_dir="/vllm-workspace/.buildkite/lm-eval-harness",
+        ),
+        _step(
+            "LM Eval Large Models (4xH100-4xMI355)",
+            "lm eval large models (4 gpus)",
+            [
+                "pytest -s -v test_lm_eval_correctness.py "
+                "--config-list-file=configs/models-large-rocm-fp8.txt",
+            ],
+            ".buildkite/test-amd.yaml",
+            definition_id="amd#large-h100-mi355",
+            agent_pool="mi355_4",
+            semantic_title="LM Eval Large Models (4xH100-4xMI)",
+            working_dir="/vllm-workspace/.buildkite/lm-eval-harness",
+        ),
+    ]
+
+    families, family_by_definition = (
+        config_parity._amd_identity_family_keys(steps)
+    )
+
+    assert len(families) == 4
+    assert (
+        family_by_definition["amd#v1-generic"]
+        != family_by_definition["amd#v1-h100"]
+    )
+    assert (
+        family_by_definition["amd#large-a100-mi300"]
+        != family_by_definition["amd#large-h100-mi300"]
+    )
+    assert (
+        family_by_definition["amd#large-h100-mi300"]
+        == family_by_definition["amd#large-h100-mi355"]
+    )
+
+
+def test_amd_identity_families_treat_pool_sizes_as_one_architecture():
+    steps = [
+        _step(
+            "Aliased workload (1 GPU)",
+            "aliased workload",
+            ["pytest -v -s tests/aliased/test_workload.py"],
+            ".buildkite/test-amd.yaml",
+            definition_id="amd#aliased-mi300-1",
+            agent_pool="mi300_1",
+            semantic_title="Aliased workload",
+        ),
+        _step(
+            "Aliased workload (2 GPUs)",
+            "aliased workload",
+            ["pytest -v -s tests/aliased/test_workload.py"],
+            ".buildkite/test-amd.yaml",
+            definition_id="amd#aliased-mi300-2",
+            agent_pool="mi300_2",
+            semantic_title="Aliased workload",
+        ),
+    ]
+
+    families, family_by_definition = (
+        config_parity._amd_identity_family_keys(steps)
+    )
+
+    assert len(families) == 2
+    assert (
+        family_by_definition["amd#aliased-mi300-1"]
+        != family_by_definition["amd#aliased-mi300-2"]
+    )
+
+
+def test_amd_identity_families_merge_cross_architecture_yaml_replicas():
+    steps = [
+        _step(
+            "Distributed Tests (2xH100-2xMI300)",
+            "distributed tests (2 gpus)",
+            [
+                "pytest -v -s tests/distributed/test_context_parallel.py",
+                "pytest -v -s tests/v1/distributed/test_dbo.py",
+            ],
+            ".buildkite/test-amd.yaml",
+            definition_id="amd#distributed-mi300",
+            agent_pool="mi300_2",
+            semantic_title="Distributed Tests (2xH100-2xMI)",
+        ),
+        _step(
+            "Distributed Tests (2xH100-2xMI355)",
+            "distributed tests (2 gpus)",
+            [
+                "pytest -v -s tests/distributed/test_context_parallel.py",
+                "pytest -v -s tests/distributed/test_rocm_quick_reduce.py",
+            ],
+            ".buildkite/test-amd.yaml",
+            definition_id="amd#distributed-mi355",
+            agent_pool="mi355_2",
+            semantic_title="Distributed Tests (2xH100-2xMI)",
+        ),
+        _step(
+            "GPQA Eval (GPT-OSS) (2xH100-2xMI300)",
+            "gpqa eval (gpt-oss) (2 gpus)",
+            [
+                "pytest -s -v evals/gpt_oss/test_gpqa_correctness.py "
+                "--config-list-file=configs/models-gfx942.txt",
+            ],
+            ".buildkite/test-amd.yaml",
+            definition_id="amd#gpqa-mi300",
+            agent_pool="mi300_2",
+            semantic_title="GPQA Eval (GPT-OSS) (2xH100-2xMI)",
+        ),
+        _step(
+            "GPQA Eval (GPT-OSS) (2xB200-2xMI355)",
+            "gpqa eval (gpt-oss) (2 gpus)",
+            [
+                "pytest -s -v evals/gpt_oss/test_gpqa_correctness.py "
+                "--config-list-file=configs/models-gfx950.txt",
+            ],
+            ".buildkite/test-amd.yaml",
+            definition_id="amd#gpqa-mi355",
+            agent_pool="mi355_2",
+            semantic_title="GPQA Eval (GPT-OSS) (2xB200-2xMI)",
+        ),
+    ]
+
+    families, family_by_definition = (
+        config_parity._amd_identity_family_keys(steps)
+    )
+
+    assert len(families) == 2
+    assert (
+        family_by_definition["amd#distributed-mi300"]
+        == family_by_definition["amd#distributed-mi355"]
+    )
+    assert (
+        family_by_definition["amd#gpqa-mi300"]
+        == family_by_definition["amd#gpqa-mi355"]
+    )
 
 
 def test_inline_mirror_excludes_only_its_exact_collision_row():

@@ -875,6 +875,127 @@ class DashboardAudit:
                         f"definition_parity.summary.{key}={parity_summary.get(key)} but rows imply {expected}",
                         relpath,
                     )
+            # Identity families are a second, deliberately coarser
+            # conservation layer above collision-safe AMD definition nodes.
+            # Reconstruct them only from the family keys published on the
+            # rows. Do not infer them from identity_key, definition IDs, or
+            # total_amd_steps: those are separate contracts and a lossy family
+            # normalizer must not be able to hide a dropped definition node.
+            covered_family_rows = [
+                *parity_matches,
+                *parity_inline_mirror_variants,
+                *parity_additional_variants,
+            ]
+            all_family_rows = [
+                *covered_family_rows,
+                *parity_amd_only,
+            ]
+
+            def published_family_keys(rows: list) -> tuple[set[str], int]:
+                keys: set[str] = set()
+                invalid = 0
+                for raw_row in rows:
+                    value = _mapping(raw_row).get("amd_identity_family_key")
+                    if not isinstance(value, str) or not value.strip():
+                        invalid += 1
+                        continue
+                    keys.add(value.strip())
+                return keys, invalid
+
+            covered_family_keys, invalid_covered_family_keys = (
+                published_family_keys(covered_family_rows)
+            )
+            amd_only_member_family_keys, invalid_amd_only_family_keys = (
+                published_family_keys(parity_amd_only)
+            )
+            all_family_keys = (
+                covered_family_keys | amd_only_member_family_keys
+            )
+            invalid_family_keys = (
+                invalid_covered_family_keys
+                + invalid_amd_only_family_keys
+            )
+            if invalid_family_keys:
+                self.error(
+                    "definition-parity-identity-family-key",
+                    (
+                        f"{invalid_family_keys} AMD definition rows lack a "
+                        "non-empty amd_identity_family_key"
+                    ),
+                    relpath,
+                )
+
+            partially_covered_family_keys = (
+                covered_family_keys & amd_only_member_family_keys
+            )
+            exclusively_amd_only_family_keys = (
+                amd_only_member_family_keys - covered_family_keys
+            )
+            expected_family_counts = {
+                "amd_identity_families": len(all_family_keys),
+                "covered_identity_families": len(covered_family_keys),
+                "amd_only_identity_families": len(
+                    exclusively_amd_only_family_keys
+                ),
+                "partially_covered_identity_families": len(
+                    partially_covered_family_keys
+                ),
+                "identity_family_replica_rows": (
+                    len(all_family_rows) - len(all_family_keys)
+                ),
+            }
+            missing_family_summary_fields = (
+                set(expected_family_counts) | {"identity_family_coverage_rate_pct"}
+            ) - set(parity_summary)
+            if missing_family_summary_fields:
+                self.error(
+                    "definition-parity-identity-family-schema",
+                    (
+                        "definition_parity.summary is missing identity-family "
+                        f"fields {sorted(missing_family_summary_fields)}"
+                    ),
+                    relpath,
+                )
+            for key, expected in expected_family_counts.items():
+                if _safe_int(parity_summary.get(key), -1) != expected:
+                    self.error(
+                        "definition-parity-identity-family-count",
+                        (
+                            f"definition_parity.summary.{key}="
+                            f"{parity_summary.get(key)} but published "
+                            f"amd_identity_family_key values imply {expected}"
+                        ),
+                        relpath,
+                    )
+            expected_family_coverage_rate = (
+                round(
+                    len(covered_family_keys) / len(all_family_keys) * 100,
+                    1,
+                )
+                if all_family_keys
+                else 0.0
+            )
+            if (
+                abs(
+                    _safe_float(
+                        parity_summary.get("identity_family_coverage_rate_pct"),
+                        -1.0,
+                    )
+                    - expected_family_coverage_rate
+                )
+                > 0.05
+            ):
+                self.error(
+                    "definition-parity-identity-family-coverage",
+                    (
+                        "definition_parity.summary."
+                        "identity_family_coverage_rate_pct="
+                        f"{parity_summary.get('identity_family_coverage_rate_pct')} "
+                        "but published amd_identity_family_key values imply "
+                        f"{expected_family_coverage_rate}"
+                    ),
+                    relpath,
+                )
             covered_plus_gaps = (
                 expected_counts["covered"]
                 + expected_counts["amd_only"]

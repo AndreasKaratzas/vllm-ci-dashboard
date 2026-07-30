@@ -811,6 +811,71 @@ class TestConfigParity:
             "config_parity.json",
         )
 
+    def test_identity_family_summary_and_rows_reconcile(self):
+        d = _load_json_or_skip("config_parity.json")
+        summary = d.get("summary", {})
+        family_summary_fields = {
+            "amd_identity_families",
+            "covered_identity_families",
+            "amd_only_identity_families",
+            "partially_covered_identity_families",
+            "identity_family_replica_rows",
+            "identity_family_coverage_rate_pct",
+        }
+        _assert_has_keys(
+            summary,
+            family_summary_fields,
+            "config_parity.json.summary",
+        )
+
+        covered_rows = [
+            *d.get("matches", []),
+            *d.get("inline_mirror_variants", []),
+            *d.get("additional_variants", []),
+        ]
+        amd_only_rows = d.get("amd_only", [])
+        all_rows = [*covered_rows, *amd_only_rows]
+        for index, row in enumerate(all_rows):
+            key = row.get("amd_identity_family_key")
+            assert isinstance(key, str) and key.strip(), (
+                f"config_parity.json AMD row {index} lacks a non-empty "
+                "amd_identity_family_key"
+            )
+
+        covered_keys = {
+            row["amd_identity_family_key"].strip()
+            for row in covered_rows
+        }
+        amd_only_member_keys = {
+            row["amd_identity_family_key"].strip()
+            for row in amd_only_rows
+        }
+        all_keys = covered_keys | amd_only_member_keys
+        expected_counts = {
+            "amd_identity_families": len(all_keys),
+            "covered_identity_families": len(covered_keys),
+            "amd_only_identity_families": len(amd_only_member_keys - covered_keys),
+            "partially_covered_identity_families": len(
+                covered_keys & amd_only_member_keys
+            ),
+            "identity_family_replica_rows": len(all_rows) - len(all_keys),
+        }
+        for field, expected in expected_counts.items():
+            assert summary[field] == expected, (
+                f"config_parity.json.summary.{field}={summary[field]!r}; "
+                f"published family keys imply {expected}"
+            )
+
+        expected_rate = (
+            round(len(covered_keys) / len(all_keys) * 100, 1)
+            if all_keys
+            else 0.0
+        )
+        assert summary["identity_family_coverage_rate_pct"] == pytest.approx(
+            expected_rate,
+            abs=0.05,
+        )
+
 
 class TestFailureTrends:
     def test_top_level_keys(self):

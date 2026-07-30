@@ -278,6 +278,92 @@ def test_operations_audit_rejects_mixed_latest_and_retained_amd_counts(tmp_path)
     assert "operations-amd-latest-catalog-count" in codes
 
 
+def test_operations_audit_reconciles_identity_families_independently(
+    tmp_path,
+):
+    ci = tmp_path / "data/vllm/ci"
+    ci.mkdir(parents=True)
+    (ci / "ci_health.json").write_text("{}")
+    (ci / "operations_v2.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "definition_parity": {
+                    "source": {"commit_sha": "a" * 40},
+                    "summary": {
+                        "matched": 2,
+                        "direct_matches": 2,
+                        "inline_mirror_variants": 0,
+                        "additional_variants": 0,
+                        "covered": 2,
+                        "amd_only": 2,
+                        "nvidia_only": 0,
+                        "mirrors": 0,
+                        "command_twins": 0,
+                        "inline_mirror_variant_kinds": {
+                            "effective_command_duplicate": 0,
+                            "same_hardware_command_variant": 0,
+                            "hardware_variant": 0,
+                        },
+                        "total_amd_steps": 4,
+                        "raw_amd_steps": 4,
+                        "total_nvidia_steps": 2,
+                        # The rows below publish three families. Deliberately corrupt
+                        # only this family-layer count while keeping node and physical
+                        # definition conservation valid.
+                        "amd_identity_families": 4,
+                        "covered_identity_families": 2,
+                        "amd_only_identity_families": 1,
+                        "partially_covered_identity_families": 1,
+                        "identity_family_replica_rows": 1,
+                        "identity_family_coverage_rate_pct": 66.7,
+                    },
+                    "matches": [
+                        {
+                            "amd_definition_id": "amd#1",
+                            "amd_member_definition_ids": ["amd#1"],
+                            "amd_identity_family_key": "family-a",
+                            "nvidia_definition_id": "nvidia#1",
+                            "match_method": "identity",
+                        },
+                        {
+                            "amd_definition_id": "amd#2",
+                            "amd_member_definition_ids": ["amd#2"],
+                            "amd_identity_family_key": "family-b",
+                            "nvidia_definition_id": "nvidia#2",
+                            "match_method": "identity",
+                        },
+                    ],
+                    "inline_mirror_variants": [],
+                    "additional_variants": [],
+                    "amd_only": [
+                        {
+                            "definition_id": "amd#3",
+                            "member_definition_ids": ["amd#3"],
+                            "amd_identity_family_key": "family-b",
+                        },
+                        {
+                            "definition_id": "amd#4",
+                            "member_definition_ids": ["amd#4"],
+                            "amd_identity_family_key": "family-c",
+                        },
+                    ],
+                    "nvidia_only": [],
+                    "mirrors": [],
+                },
+            }
+        )
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_operations_v2()
+    codes = {finding.code for finding in audit.report.errors}
+
+    assert "definition-parity-identity-family-count" in codes
+    assert "definition-parity-amd-logical-conservation" not in codes
+    assert "definition-parity-amd-physical-conservation" not in codes
+
+
 def test_operations_audit_rejects_file_mtime_as_source_freshness(
     tmp_path, monkeypatch
 ):
