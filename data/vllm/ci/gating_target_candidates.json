@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-01T12:32:29Z",
+  "generated_at": "2026-08-01T14:19:43Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -24,10 +24,10 @@
     "upstream_build": 81767,
     "amd_ci_build": 11556,
     "canonical_target_count": 125,
-    "row_count": 226,
+    "row_count": 228,
     "canonical_match_count": 116,
     "likely_duplicate_count": 15,
-    "new_candidate_count": 45,
+    "new_candidate_count": 47,
     "excluded_count": 47,
     "missing_from_upstream_count": 3,
     "by_decision": {
@@ -35,7 +35,7 @@
       "excluded": 47,
       "likely_duplicate": 15,
       "missing_from_upstream": 3,
-      "new_candidate": 45
+      "new_candidate": 47
     }
   },
   "rows": [
@@ -2038,7 +2038,7 @@
       "canonical_key": "v1 attention",
       "state": "passed",
       "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/81767/steps/canvas?jid=019fbbe9-aa42-4bdc-b587-d2f4ee54bf05&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81767/steps/canvas?jid=019fbbe9-aa40-436c-a25c-2995fb04652b&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 103,
@@ -2188,6 +2188,23 @@
       "state": "passed",
       "queue": "gpu_4_queue",
       "url": "https://buildkite.com/vllm/ci/builds/81767/steps/canvas?jid=019fbbe9-aa66-4dfb-8d7f-72092d380716&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "DSv4-Flash Disaggregated DP EP",
+      "canonical_key": "dsv4-flash disaggregated dp ep",
+      "state": "passed",
+      "queue": "H200",
+      "url": "https://buildkite.com/vllm/ci/builds/81767/steps/canvas?jid=019fbbe9-aa64-422f-ae5f-1fba8ccbb10c&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -2550,6 +2567,30 @@
       "internal_signal": {
         "state": "not_observed",
         "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "LM Eval Large Models (8xH200)",
+      "canonical_key": "lm eval large models (8 gpus)",
+      "state": "passed",
+      "queue": "H200",
+      "url": "https://buildkite.com/vllm/ci/builds/81767/steps/canvas?jid=019fbbe9-aad2-4099-89cb-6402e0ed2b13&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "passed",
+        "jobs": [
+          {
+            "label": "LM Eval Large Models (8xH200-8xMI300)",
+            "state": "passed",
+            "queue": "amd_mi300_8",
+            "url": "https://buildkite.com/vllm/amd-ci/builds/11556/steps/canvas?jid=019fbc8d-6cbc-42bd-b761-ecf18b986eb1&tab=output"
+          }
+        ]
       },
       "proposal_matches": []
     },
