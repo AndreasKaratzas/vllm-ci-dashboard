@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-07-31T23:38:01Z",
+  "generated_at": "2026-08-01T01:33:53Z",
   "days": 30,
-  "total_changes": 93,
+  "total_changes": 94,
   "changes": [
     {
       "date": "2026-03-10",
@@ -3376,6 +3376,62 @@
         "title": "[Kernel][CI] `--jit-monitor-mode error` e2e tests for kernel warmup infra",
         "url": "https://github.com/vllm-project/vllm/pull/50109",
         "author": "NickLucche"
+      }
+    },
+    {
+      "date": "2026-08-01",
+      "sha": "fcdc7c2e9c9b",
+      "message": "[CI] Organize speculative decoding E2E tests by coverage (#50330)",
+      "author": "Michael Goin",
+      "added": [
+        "Spec Decode AL DFlash Nightly",
+        "Spec Decode AL DSpark Nightly",
+        "Spec Decode AL MTP + Other Acceptance Nightly",
+        "Spec Decode Draft Model Nightly (B200)",
+        "Spec Decode Eagle Nightly (B200)",
+        "Spec Decode Speculators + MTP Nightly (B200)",
+        "Speculators Correctness Nightly (H100)",
+        "V1 Spec Decode"
+      ],
+      "removed": [
+        "Spec Decode Acceptance Rates Nightly",
+        "Spec Decode Draft Model Nightly B200",
+        "Spec Decode Eagle Nightly B200",
+        "Spec Decode MTP hybrid (B200)",
+        "Spec Decode Speculators + MTP Nightly B200",
+        "Speculators Correctness",
+        "V1 Spec Decode",
+        "V1 e2e (4 GPUs)"
+      ],
+      "amd_added": [],
+      "amd_removed": [
+        "V1 e2e (4 GPUs)"
+      ],
+      "upstream_added": [
+        "Spec Decode AL DFlash Nightly",
+        "Spec Decode AL DSpark Nightly",
+        "Spec Decode AL MTP + Other Acceptance Nightly",
+        "Spec Decode Draft Model Nightly (B200)",
+        "Spec Decode Eagle Nightly (B200)",
+        "Spec Decode Speculators + MTP Nightly (B200)",
+        "Speculators Correctness Nightly (H100)",
+        "V1 Spec Decode"
+      ],
+      "upstream_removed": [
+        "Spec Decode Acceptance Rates Nightly",
+        "Spec Decode Draft Model Nightly B200",
+        "Spec Decode Eagle Nightly B200",
+        "Spec Decode MTP hybrid (B200)",
+        "Spec Decode Speculators + MTP Nightly B200",
+        "Speculators Correctness",
+        "V1 Spec Decode",
+        "V1 e2e (4 GPUs)"
+      ],
+      "pr": {
+        "number": 50330,
+        "title": "[CI] Organize speculative decoding E2E tests by coverage",
+        "url": "https://github.com/vllm-project/vllm/pull/50330",
+        "author": "mgoin"
       }
     }
   ],
