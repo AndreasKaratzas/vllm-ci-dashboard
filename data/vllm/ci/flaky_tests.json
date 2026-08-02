@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-08-02T06:54:50Z",
+  "generated_at": "2026-08-02T11:14:44Z",
   "window_builds": 10,
-  "total_flaky": 9,
+  "total_flaky": 8,
   "tests": [
     {
       "test_id": "mi355_1: V1 Sample + Logits::__job_level__",
@@ -59,28 +59,6 @@
       "mean_duration": 0.0
     },
     {
-      "test_id": "mi250_1: Python-only Installation::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.3333,
-      "appearances": 9,
-      "last_seen": "2026-08-01",
-      "first_failure": null,
-      "failure_streak": 0,
-      "history": [
-        "P",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "P",
-        "P"
-      ],
-      "module": "mi250_1: Python-only Installation",
-      "mean_duration": 0.0
-    },
-    {
       "test_id": "mi355_1: Regression::__job_level__",
       "label": "flaky",
       "pass_rate": 0.3333,
@@ -110,6 +88,29 @@
         "F"
       ],
       "module": "mi355_2: Weight Loading Multiple GPU",
+      "mean_duration": 0.0
+    },
+    {
+      "test_id": "mi250_1: Python-only Installation::__job_level__",
+      "label": "flaky",
+      "pass_rate": 0.4,
+      "appearances": 10,
+      "last_seen": "2026-08-02",
+      "first_failure": null,
+      "failure_streak": 0,
+      "history": [
+        "P",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "P",
+        "P",
+        "P"
+      ],
+      "module": "mi250_1: Python-only Installation",
       "mean_duration": 0.0
     },
     {
@@ -154,29 +155,6 @@
         "P"
       ],
       "module": "mi325_1: Python-only Installation",
-      "mean_duration": 0.0
-    },
-    {
-      "test_id": "mi355_2: Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (B200-MI355)::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.7,
-      "appearances": 29,
-      "last_seen": "2026-08-01",
-      "first_failure": null,
-      "failure_streak": 0,
-      "history": [
-        "F",
-        "F",
-        "P",
-        "P",
-        "P",
-        "F",
-        "P",
-        "P",
-        "P",
-        "P"
-      ],
-      "module": "mi355_2: Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (B200-MI355)",
       "mean_duration": 0.0
     }
   ]
