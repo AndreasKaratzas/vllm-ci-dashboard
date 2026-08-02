@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-08-02T12:24:39Z",
+  "generated_at": "2026-08-02T14:21:20Z",
   "amd_date": "2026-08-02",
   "upstream_date": "2026-08-02",
   "parity_pct": 0.0,
-  "total_tests": 759,
+  "total_tests": 767,
   "summary": {
-    "upstream_only": 412,
+    "upstream_only": 420,
     "amd_only": 347
   },
   "by_module": {
@@ -19,7 +19,7 @@
     },
     "AMD: Basic Models Tests (Other) (mi300_1)": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 2
     },
     "AMD: Benchmarks CLI Test (mi300_1)": {
       "parity_pct": 100.0,
@@ -127,19 +127,19 @@
     },
     "AMD: Language Models Test (Extended Pooling) (mi300_1)": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 2
     },
     "AMD: Language Models Tests (Extra Standard) 1 (mi300_1)": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 2
     },
     "AMD: Language Models Tests (Extra Standard) 2 (mi300_1)": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 2
     },
     "AMD: Language Models Tests (Hybrid) 1 (mi300_1)": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 2
     },
     "AMD: Language Models Tests (Hybrid) 2 (mi300_1)": {
       "parity_pct": 100.0,
@@ -147,7 +147,7 @@
     },
     "AMD: Language Models Tests (Standard) (mi300_1)": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 2
     },
     "AMD: LoRA 1 (mi300_1)": {
       "parity_pct": 100.0,
@@ -402,6 +402,10 @@
       "upstream_only": 1
     },
     "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "DSv4-Flash Disaggregated DP EP": {
       "parity_pct": 100.0,
       "upstream_only": 1
     },
@@ -758,6 +762,10 @@
       "upstream_only": 1
     },
     "LM Eval Large Models (4xH100)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "LM Eval Large Models (8xH200)": {
       "parity_pct": 100.0,
       "upstream_only": 1
     },
@@ -2482,7 +2490,7 @@
       "family_key": "basic models tests (extra initialization)",
       "family_name": "basic models tests (extra initialization)",
       "amd_job_name": "mi300_1: Basic Models Tests (Extra Initialization) 3",
-      "upstream_job_name": "Basic Models Tests (Extra Initialization) 1",
+      "upstream_job_name": "Basic Models Tests (Extra Initialization) 2",
       "amd": {
         "total": 364,
         "passed": 364,
@@ -2519,8 +2527,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/81823/steps/canvas?jid=019fc110-2408-4dbe-911f-72343342e3b7&tab=output",
-          "job_name": "Basic Models Tests (Extra Initialization) 1",
+          "url": "https://buildkite.com/vllm/ci/builds/81823/steps/canvas?jid=019fc110-2409-4b8f-828d-d95d18fc5a4a&tab=output",
+          "job_name": "Basic Models Tests (Extra Initialization) 2",
           "side": "upstream"
         }
       ],
@@ -5194,7 +5202,7 @@
       "family_key": "gpqa eval (gpt-oss) (2 gpus)",
       "family_name": "gpqa eval (gpt-oss) (2 gpus)",
       "amd_job_name": "mi355_2: GPQA Eval (GPT-OSS) (2xB200-2xMI355)",
-      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xB200)",
+      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xH100)",
       "amd": {
         "total": 4,
         "passed": 4,
@@ -5231,15 +5239,15 @@
           "side": "amd"
         },
         {
-          "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/81823/steps/canvas?jid=019fc110-23e1-43b0-802f-d5630141094d&tab=output",
-          "job_name": "GPQA Eval (GPT-OSS) (2xB200)",
-          "side": "upstream"
-        },
-        {
           "hw": "h100",
           "url": "https://buildkite.com/vllm/ci/builds/81823/steps/canvas?jid=019fc110-23e2-476d-a81f-a97830b8fe48&tab=output",
           "job_name": "GPQA Eval (GPT-OSS) (2xH100)",
+          "side": "upstream"
+        },
+        {
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/81823/steps/canvas?jid=019fc110-23e1-43b0-802f-d5630141094d&tab=output",
+          "job_name": "GPQA Eval (GPT-OSS) (2xB200)",
           "side": "upstream"
         }
       ],
@@ -5257,7 +5265,7 @@
       "family_key": "gpqa eval (gpt-oss) (2 gpus)",
       "family_name": "gpqa eval (gpt-oss) (2 gpus)",
       "amd_job_name": "mi300_2: GPQA Eval (GPT-OSS) (2xH100-2xMI300)",
-      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xB200)",
+      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xH100)",
       "amd": {
         "total": 1,
         "passed": 1,
@@ -5294,15 +5302,15 @@
           "side": "amd"
         },
         {
-          "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/81823/steps/canvas?jid=019fc110-23e1-43b0-802f-d5630141094d&tab=output",
-          "job_name": "GPQA Eval (GPT-OSS) (2xB200)",
-          "side": "upstream"
-        },
-        {
           "hw": "h100",
           "url": "https://buildkite.com/vllm/ci/builds/81823/steps/canvas?jid=019fc110-23e2-476d-a81f-a97830b8fe48&tab=output",
           "job_name": "GPQA Eval (GPT-OSS) (2xH100)",
+          "side": "upstream"
+        },
+        {
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/81823/steps/canvas?jid=019fc110-23e1-43b0-802f-d5630141094d&tab=output",
+          "job_name": "GPQA Eval (GPT-OSS) (2xB200)",
           "side": "upstream"
         }
       ],
@@ -5886,7 +5894,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 80.05000000000001
+        "duration": 80.05
       },
       "hardware": [
         "h100",
@@ -6583,7 +6591,7 @@
       "family_key": "lm eval large models (8 gpus)",
       "family_name": "lm eval large models (8 gpus)",
       "amd_job_name": "mi300_8: LM Eval Large Models (8xH200-8xMI300)",
-      "upstream_job_name": null,
+      "upstream_job_name": "LM Eval Large Models (8xH200)",
       "amd": {
         "total": 7,
         "passed": 2,
@@ -6594,8 +6602,18 @@
         "error": 0,
         "duration": 665.51
       },
-      "upstream": null,
+      "upstream": {
+        "total": 6,
+        "passed": 6,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 2210.94
+      },
       "hardware": [
+        "h200",
         "mi300"
       ],
       "hw_failures": null,
@@ -6607,9 +6625,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/11571/steps/canvas?sid=019fc1b3-d5b4-44f5-81c4-bca4f44bf2fe&tab=output",
           "job_name": "mi300_8: LM Eval Large Models (8xH200-8xMI300)",
           "side": "amd"
+        },
+        {
+          "hw": "h200",
+          "url": "https://buildkite.com/vllm/ci/builds/81823/steps/canvas?jid=019fc110-23e8-498a-b889-91fd7b94cfe4&tab=output",
+          "job_name": "LM Eval Large Models (8xH200)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 1,
+        "passed": -4,
+        "failed": 0,
+        "skipped": 5
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -8019,7 +8049,7 @@
       "family_key": "multi-modal processor (cpu)",
       "family_name": "multi-modal processor (cpu)",
       "amd_job_name": "mi250_1: Multi-Modal Processor (CPU) 2",
-      "upstream_job_name": "Multi-Modal Processor (CPU) 3",
+      "upstream_job_name": "Multi-Modal Processor (CPU) 1",
       "amd": {
         "total": 1153,
         "passed": 1012,
@@ -8056,8 +8086,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/81823/steps/canvas?jid=019fc110-2421-49f1-814c-961a9949de38&tab=output",
-          "job_name": "Multi-Modal Processor (CPU) 3",
+          "url": "https://buildkite.com/vllm/ci/builds/81823/steps/canvas?jid=019fc110-241e-45f3-b506-722594e6030f&tab=output",
+          "job_name": "Multi-Modal Processor (CPU) 1",
           "side": "upstream"
         }
       ],
@@ -11159,6 +11189,40 @@
       "backfilled": false
     },
     {
+      "name": "dsv4-flash disaggregated dp ep",
+      "family_key": "dsv4-flash disaggregated dp ep",
+      "family_name": "dsv4-flash disaggregated dp ep",
+      "amd_job_name": null,
+      "upstream_job_name": "DSv4-Flash Disaggregated DP EP",
+      "amd": null,
+      "upstream": {
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 418.84
+      },
+      "hardware": [
+        "h100"
+      ],
+      "hw_failures": null,
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/81823/steps/canvas?jid=019fc110-2351-4c42-8707-0f4dd4ac796e&tab=output",
+          "job_name": "DSv4-Flash Disaggregated DP EP",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
       "name": "extract hidden states integration (2 gpus)",
       "family_key": "extract hidden states integration (2 gpus)",
       "family_name": "extract hidden states integration (2 gpus)",
@@ -13063,25 +13127,6 @@
       ],
       "status": "upstream_only",
       "backfilled": false
-    },
-    {
-      "name": "dsv4-flash disaggregated dp ep",
-      "family_key": "dsv4-flash disaggregated dp ep",
-      "family_name": "dsv4-flash disaggregated dp ep",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
     }
   ],
   "details": [
@@ -13098,9 +13143,15 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "AMD: Basic Models Tests (Other) (mi300_1)::__job_level__",
+      "test_id": "AMD: Basic Models Tests (Other) (mi300_1)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "AMD: Basic Models Tests (Other) (mi300_1)::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
       "category": "upstream_only"
     },
     {
@@ -13338,39 +13389,69 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "AMD: Language Models Test (Extended Pooling) (mi300_1)::__job_level__",
+      "test_id": "AMD: Language Models Test (Extended Pooling) (mi300_1)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "AMD: Language Models Tests (Extra Standard) 1 (mi300_1)::__job_level__",
+      "test_id": "AMD: Language Models Test (Extended Pooling) (mi300_1)::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "AMD: Language Models Tests (Extra Standard) 1 (mi300_1)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "AMD: Language Models Tests (Extra Standard) 2 (mi300_1)::__job_level__",
+      "test_id": "AMD: Language Models Tests (Extra Standard) 1 (mi300_1)::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "AMD: Language Models Tests (Extra Standard) 2 (mi300_1)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "AMD: Language Models Tests (Hybrid) 1 (mi300_1)::__job_level__",
+      "test_id": "AMD: Language Models Tests (Extra Standard) 2 (mi300_1)::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "AMD: Language Models Tests (Hybrid) 1 (mi300_1)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "AMD: Language Models Tests (Hybrid) 2 (mi300_1)::__job_level__",
+      "test_id": "AMD: Language Models Tests (Hybrid) 1 (mi300_1)::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "AMD: Language Models Tests (Hybrid) 2 (mi300_1)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "AMD: Language Models Tests (Standard) (mi300_1)::__job_level__",
+      "test_id": "AMD: Language Models Tests (Standard) (mi300_1)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "AMD: Language Models Tests (Standard) (mi300_1)::__skipped__",
+      "amd_status": "missing",
+      "upstream_status": "skipped",
       "category": "upstream_only"
     },
     {
@@ -13428,13 +13509,13 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "AMD: Model Executor (mi300_1)::__job_level__",
+      "test_id": "AMD: Model Executor (mi300_1)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
-      "test_id": "AMD: Multi-Modal Accuracy Eval (Small Models) (mi300_1)::__job_level__",
+      "test_id": "AMD: Multi-Modal Accuracy Eval (Small Models) (mi300_1)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
@@ -13572,7 +13653,7 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "AMD: V1 Sample + Logits (mi300_1)::__job_level__",
+      "test_id": "AMD: V1 Sample + Logits (mi300_1)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
@@ -13879,6 +13960,12 @@
     },
     {
       "test_id": "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "DSv4-Flash Disaggregated DP EP::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
@@ -14623,6 +14710,12 @@
     },
     {
       "test_id": "LM Eval Large Models (4xH100)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "LM Eval Large Models (8xH200)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"

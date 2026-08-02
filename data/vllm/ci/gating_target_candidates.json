@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-02T12:35:13Z",
+  "generated_at": "2026-08-02T14:30:52Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -24,10 +24,10 @@
     "upstream_build": 81823,
     "amd_ci_build": 11571,
     "canonical_target_count": 125,
-    "row_count": 225,
+    "row_count": 227,
     "canonical_match_count": 116,
     "likely_duplicate_count": 15,
-    "new_candidate_count": 45,
+    "new_candidate_count": 47,
     "excluded_count": 46,
     "missing_from_upstream_count": 3,
     "by_decision": {
@@ -35,7 +35,7 @@
       "excluded": 46,
       "likely_duplicate": 15,
       "missing_from_upstream": 3,
-      "new_candidate": 45
+      "new_candidate": 47
     }
   },
   "rows": [
@@ -2200,6 +2200,23 @@
       "proposal_matches": []
     },
     {
+      "label": "DSv4-Flash Disaggregated DP EP",
+      "canonical_key": "dsv4-flash disaggregated dp ep",
+      "state": "passed",
+      "queue": "H200",
+      "url": "https://buildkite.com/vllm/ci/builds/81823/steps/canvas?jid=019fc110-2351-4c42-8707-0f4dd4ac796e&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
       "label": "Engine",
       "canonical_key": "engine",
       "state": "passed",
@@ -2550,6 +2567,30 @@
       "internal_signal": {
         "state": "not_observed",
         "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "LM Eval Large Models (8xH200)",
+      "canonical_key": "lm eval large models (8 gpus)",
+      "state": "passed",
+      "queue": "H200",
+      "url": "https://buildkite.com/vllm/ci/builds/81823/steps/canvas?jid=019fc110-23e8-498a-b889-91fd7b94cfe4&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "passed",
+        "jobs": [
+          {
+            "label": "LM Eval Large Models (8xH200-8xMI300)",
+            "state": "passed",
+            "queue": "amd_mi300_8",
+            "url": "https://buildkite.com/vllm/amd-ci/builds/11571/steps/canvas?jid=019fc1b3-d66b-4681-8e8e-2c83b764be46&tab=output"
+          }
+        ]
       },
       "proposal_matches": []
     },
