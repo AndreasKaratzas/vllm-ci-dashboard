@@ -54,35 +54,25 @@
     "21ffe3c419d3b4b3f009": {
       "build_number": 11591,
       "build_url": "https://buildkite.com/vllm/amd-ci/builds/11591",
-      "finished_at": "2026-08-03T10:07:56.873Z",
+      "finished_at": "2026-08-03T16:59:25.947Z",
       "group_id": "21ffe3c419d3b4b3f009",
       "hardware": "mi250",
-      "job_id": "019fc6dc-f16e-4ca1-b02a-27934218b866",
-      "job_url": "https://buildkite.com/vllm/amd-ci/builds/11591/steps/canvas?jid=019fc6dc-f16e-4ca1-b02a-27934218b866&tab=output",
+      "job_id": "019fc871-d6d0-43f3-ba4f-3dcb1b4a212b",
+      "job_url": "https://buildkite.com/vllm/amd-ci/builds/11591/steps/canvas?jid=019fc871-d6d0-43f3-ba4f-3dcb1b4a212b&tab=output",
       "name": "Language Models Test (MTEB)",
-      "observed_at": "2026-08-03T10:07:56.873Z",
+      "observed_at": "2026-08-03T16:59:25.947Z",
       "queue": "amd_mi250_1",
       "raw_name": "mi250_1: Language Models Test (MTEB)",
       "result": "soft_fail",
-      "retry_evidence": {},
-      "started_at": "2026-08-03T09:25:46.117Z",
-      "step_key": ""
-    },
-    "2584596b0edb22cdaafd": {
-      "build_number": 11591,
-      "build_url": "https://buildkite.com/vllm/amd-ci/builds/11591",
-      "finished_at": "2026-08-03T09:27:54.236Z",
-      "group_id": "2584596b0edb22cdaafd",
-      "hardware": "mi300",
-      "job_id": "019fc6dc-f19d-4c2c-9a2e-4683d8c744c0",
-      "job_url": "https://buildkite.com/vllm/amd-ci/builds/11591/steps/canvas?jid=019fc6dc-f19d-4c2c-9a2e-4683d8c744c0&tab=output",
-      "name": "Language Models Test (Extended Generation)",
-      "observed_at": "2026-08-03T09:27:54.236Z",
-      "queue": "amd_mi300_1",
-      "raw_name": "mi300_1: Language Models Test (Extended Generation)",
-      "result": "soft_fail",
-      "retry_evidence": {},
-      "started_at": "2026-08-03T09:27:01.438Z",
+      "retry_evidence": {
+        "job_id": "019fc871-d6d0-43f3-ba4f-3dcb1b4a212b",
+        "retries_count": 1,
+        "retry_source": {
+          "job_id": "019fc6dc-f16e-4ca1-b02a-27934218b866",
+          "retry_type": "manual"
+        }
+      },
+      "started_at": "2026-08-03T16:25:35.637Z",
       "step_key": ""
     },
     "2c1830b017bc6efd1f38": {
@@ -136,23 +126,6 @@
       "started_at": "2026-08-03T09:27:05.515Z",
       "step_key": ""
     },
-    "4c520885b3f159942562": {
-      "build_number": 11591,
-      "build_url": "https://buildkite.com/vllm/amd-ci/builds/11591",
-      "finished_at": "2026-08-03T10:29:55.003Z",
-      "group_id": "4c520885b3f159942562",
-      "hardware": "mi355",
-      "job_id": "019fc6dc-f1c2-448f-8540-27db1dd286cb",
-      "job_url": "https://buildkite.com/vllm/amd-ci/builds/11591/steps/canvas?jid=019fc6dc-f1c2-448f-8540-27db1dd286cb&tab=output",
-      "name": "Multi-Modal Models (Extended Generation 1)",
-      "observed_at": "2026-08-03T10:29:55.003Z",
-      "queue": "amd_mi355_1",
-      "raw_name": "mi355_1: Multi-Modal Models (Extended Generation 1)",
-      "result": "soft_fail",
-      "retry_evidence": {},
-      "started_at": "2026-08-03T09:25:47.370Z",
-      "step_key": ""
-    },
     "59e8c4aade239b8e12bf": {
       "build_number": 11591,
       "build_url": "https://buildkite.com/vllm/amd-ci/builds/11591",
@@ -187,40 +160,6 @@
       "started_at": "2026-08-03T09:26:18.595Z",
       "step_key": ""
     },
-    "6ade3c447ca725e5a0e4": {
-      "build_number": 11591,
-      "build_url": "https://buildkite.com/vllm/amd-ci/builds/11591",
-      "finished_at": "2026-08-03T09:34:32.621Z",
-      "group_id": "6ade3c447ca725e5a0e4",
-      "hardware": "mi355",
-      "job_id": "019fc6dc-f1c3-4988-a9d9-7b640ca21c02",
-      "job_url": "https://buildkite.com/vllm/amd-ci/builds/11591/steps/canvas?jid=019fc6dc-f1c3-4988-a9d9-7b640ca21c02&tab=output",
-      "name": "Multi-Modal Models (Extended Pooling)",
-      "observed_at": "2026-08-03T09:34:32.621Z",
-      "queue": "amd_mi355_1",
-      "raw_name": "mi355_1: Multi-Modal Models (Extended Pooling)",
-      "result": "soft_fail",
-      "retry_evidence": {},
-      "started_at": "2026-08-03T09:29:32.450Z",
-      "step_key": ""
-    },
-    "711c7ac7073795bda083": {
-      "build_number": 11591,
-      "build_url": "https://buildkite.com/vllm/amd-ci/builds/11591",
-      "finished_at": "2026-08-03T09:27:43.192Z",
-      "group_id": "711c7ac7073795bda083",
-      "hardware": "mi300",
-      "job_id": "019fc6dc-f19d-477a-b0b4-3dd54478a37c",
-      "job_url": "https://buildkite.com/vllm/amd-ci/builds/11591/steps/canvas?jid=019fc6dc-f19d-477a-b0b4-3dd54478a37c&tab=output",
-      "name": "Language Models Tests (Hybrid) 1",
-      "observed_at": "2026-08-03T09:27:43.192Z",
-      "queue": "amd_mi300_1",
-      "raw_name": "mi300_1: Language Models Tests (Hybrid) 1",
-      "result": "soft_fail",
-      "retry_evidence": {},
-      "started_at": "2026-08-03T09:27:03.019Z",
-      "step_key": ""
-    },
     "75da88d7cb7c5d39e051": {
       "build_number": 11591,
       "build_url": "https://buildkite.com/vllm/amd-ci/builds/11591",
@@ -236,23 +175,6 @@
       "result": "soft_fail",
       "retry_evidence": {},
       "started_at": "2026-08-03T09:27:08.494Z",
-      "step_key": ""
-    },
-    "7b89cbb75a299df901d2": {
-      "build_number": 11591,
-      "build_url": "https://buildkite.com/vllm/amd-ci/builds/11591",
-      "finished_at": "2026-08-03T09:27:45.471Z",
-      "group_id": "7b89cbb75a299df901d2",
-      "hardware": "mi300",
-      "job_id": "019fc6dc-f19d-41b2-be3c-bfd9f05556c2",
-      "job_url": "https://buildkite.com/vllm/amd-ci/builds/11591/steps/canvas?jid=019fc6dc-f19d-41b2-be3c-bfd9f05556c2&tab=output",
-      "name": "Language Models Tests (Hybrid) 2",
-      "observed_at": "2026-08-03T09:27:45.471Z",
-      "queue": "amd_mi300_1",
-      "raw_name": "mi300_1: Language Models Tests (Hybrid) 2",
-      "result": "soft_fail",
-      "retry_evidence": {},
-      "started_at": "2026-08-03T09:27:02.633Z",
       "step_key": ""
     },
     "8483852606181f5504d9": {
@@ -482,8 +404,8 @@
     "number": 205,
     "opened_at": "2026-07-18T00:41:12Z"
   },
-  "last_fingerprint": "35e34358a6f8ee1ab94d33e67b6a94dd90e39e0c941a2b96a33140d4c7f29e4e",
-  "last_run": "2026-08-03T16:50:32Z",
+  "last_fingerprint": "c0097a4c202490e2b11a42efbb546cc50a69ffcc703e0a00884b8f50bd37474e",
+  "last_run": "2026-08-03T18:35:50Z",
   "processed_build_numbers": [
     10478,
     10504,
@@ -514,7 +436,8 @@
     11474,
     11528,
     11556,
-    11571
+    11571,
+    11591
   ],
   "schema_version": 1,
   "suppressed": false,
