@@ -42,10 +42,12 @@ sys.path.insert(0, str(SCRIPTS))
 from collect_ci import (  # noqa: E402
     _cache_covers_all_jobs,
     _cached_job_names,
+    _compact_amd_build_snapshot,
     _find_false_normalization_merges,
     _find_missing_parity_groups,
     _is_parity_excluded_group,
     _should_verify_cache_coverage,
+    write_amd_nightly_snapshot,
 )
 
 
@@ -297,6 +299,7 @@ class TestCacheCoversAllJobs:
                 summary_only_build, jsonl, "amd", 7791
             ) is False
             m.assert_called_once_with("amd", 7791)
+        assert summary_only_build == full_detail
 
     def test_api_failure_on_detail_falls_back_to_trusting_cache(self, tmp_path):
         # If Buildkite is flaky we must not make collection fail outright
@@ -310,3 +313,58 @@ class TestCacheCoversAllJobs:
             assert _cache_covers_all_jobs(
                 summary_only_build, jsonl, "amd", 7791
             ) is True
+
+
+class TestFrozenAmdNightlySnapshot:
+    def test_snapshot_keeps_only_matrix_fields_and_strips_pii(self, tmp_path):
+        build = {
+            "number": 7791,
+            "state": "running",
+            "branch": "main",
+            "commit": "a" * 40,
+            "created_at": "2026-04-18T09:00:00Z",
+            "message": "AMD Full CI Run - nightly",
+            "web_url": "https://buildkite.com/vllm/amd-ci/builds/7791",
+            "creator": {"name": "Private User", "email": "private@example.com"},
+            "jobs": [
+                {
+                    "type": "script",
+                    "id": "job-1",
+                    "name": "mi300_1: Engine",
+                    "state": "running",
+                    "soft_failed": False,
+                    "agent_query_rules": [
+                        "queue=amd_mi300_1",
+                        "agent-name=private-agent",
+                    ],
+                    "step": {"id": "engine", "key": "private-key"},
+                    "agent": {"name": "private-agent"},
+                    "raw_log_url": "https://example.invalid/private",
+                }
+            ],
+        }
+
+        compact = _compact_amd_build_snapshot(build)
+        assert compact["number"] == 7791
+        assert compact["jobs"] == [
+            {
+                "type": "script",
+                "id": "job-1",
+                "name": "mi300_1: Engine",
+                "state": "running",
+                "soft_failed": False,
+                "agent_query_rules": ["queue=amd_mi300_1"],
+                "step": {"id": "engine"},
+            }
+        ]
+        serialized = json.dumps(compact)
+        assert "private@example.com" not in serialized
+        assert "private-agent" not in serialized
+        assert "raw_log_url" not in serialized
+
+        path = write_amd_nightly_snapshot(build, tmp_path)
+        assert path == tmp_path / ".cache" / "amd_nightly_snapshot.json"
+        payload = json.loads(path.read_text())
+        assert payload["schema_version"] == 1
+        assert payload["pipeline"] == "amd-ci"
+        assert payload["build"] == compact

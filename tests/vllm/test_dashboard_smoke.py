@@ -42,6 +42,10 @@ OPTIONAL_DATA_FILES = {
     # requires PROJECTS_READ_TOKEN to query Projects V2. Absent on fresh clones
     # and between the first dry-run and the first live run after deploy.
     "data/vllm/ci/project_items.json",
+    # Split from operations_v2.json during collection/site assembly. The
+    # bundle directory is intentionally gitignored and absent on a fresh clone.
+    "data/vllm/ci/operations_v2/ownership.json",
+    "data/vllm/ci/operations_v2/reliability.json",
     # Written once by scripts/vllm/encrypt_kill_auth.py with the admin's
     # Buildkite token. Its absence is the expected state on fresh clones —
     # the Queue tab falls back to "no-auth" in the kill flow.

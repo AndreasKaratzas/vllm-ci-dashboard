@@ -42,10 +42,7 @@ RAW_YAML_URL_TEMPLATE = (
     "https://raw.githubusercontent.com/vllm-project/vllm/"
     "{commit}/.buildkite/test-amd.yaml"
 )
-BUILDKITE_BUILD_URL = (
-    "https://api.buildkite.com/v2/organizations/vllm/"
-    "pipelines/amd-ci/builds/{build_number}"
-)
+DEFAULT_BUILD_SNAPSHOT = Path(".cache") / "amd_nightly_snapshot.json"
 
 AREA_PATTERNS = [
     ("Kernels", re.compile(r"^kernels?|attention test|quantization test", re.I)),
@@ -798,28 +795,52 @@ def build_buildkite_job_index(
     return index
 
 
-def fetch_buildkite_job_index(
-    build_number: int | str | None,
-    token: str,
+def load_frozen_build_snapshot(
+    path: Path,
+    expected_build_number: int | str | None,
+) -> dict[str, Any] | None:
+    """Load the point-in-time AMD roster emitted by ``collect_ci.py``.
+
+    A present but malformed or mismatched snapshot is a hard error. Silently
+    using it would attach states and links from one build to another; falling
+    back to a fresh Buildkite request would recreate the temporal race this
+    snapshot exists to prevent.
+    """
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Unable to read frozen AMD build snapshot {path}: {exc}") from exc
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        raise ValueError(f"Frozen AMD build snapshot {path} must use schema_version 1")
+    if payload.get("pipeline") != "amd-ci":
+        raise ValueError(f"Frozen AMD build snapshot {path} must identify amd-ci")
+    build = payload.get("build")
+    if not isinstance(build, dict) or not build.get("number"):
+        raise ValueError(f"Frozen AMD build snapshot {path} has no build number")
+    if not isinstance(build.get("jobs"), list):
+        raise ValueError(f"Frozen AMD build snapshot {path} has no jobs list")
+    if (
+        expected_build_number not in (None, "")
+        and str(build.get("number")) != str(expected_build_number)
+    ):
+        raise ValueError(
+            "Frozen AMD build snapshot mismatch: "
+            f"expected #{expected_build_number}, found #{build.get('number')}"
+        )
+    return build
+
+
+def frozen_or_analytics_job_index(
+    analytics_index: dict[str, dict[str, list[dict[str, Any]]]],
+    frozen_build: dict[str, Any] | None,
     shard_bases: list[str],
 ) -> dict[str, dict[str, list[dict[str, Any]]]]:
-    if build_number in (None, "") or not token:
-        return {}
-    try:
-        response = requests.get(
-            BUILDKITE_BUILD_URL.format(build_number=build_number),
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=30,
-        )
-        response.raise_for_status()
-        build = response.json()
-    except (requests.RequestException, ValueError) as exc:
-        log.warning("Could not fetch AMD build #%s detail: %s", build_number, exc)
-        return {}
-    if str(build.get("number") or "") != str(build_number):
-        log.warning("Ignoring mismatched AMD build detail for #%s", build_number)
-        return {}
-    return build_buildkite_job_index(build, shard_bases)
+    """Prefer the frozen roster wholesale; use analytics only when absent."""
+    if frozen_build is None:
+        return analytics_index
+    return build_buildkite_job_index(frozen_build, shard_bases)
 
 
 def build_hotness_job_index(
@@ -1199,6 +1220,15 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Explicit YAML URL override (default: the latest AMD build commit)",
     )
+    parser.add_argument(
+        "--build-snapshot",
+        type=str,
+        default=None,
+        help=(
+            "Frozen AMD build snapshot from collect_ci.py "
+            "(default: <output>/.cache/amd_nightly_snapshot.json)"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -1213,33 +1243,47 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
 
     analytics = _load_json(output / "analytics.json", {})
-    hotness = _load_json(output / "hotness.json", {})
     ci_health = _load_json(output / "ci_health.json", {})
     parity = _load_json(output / "parity_report.json", {})
     shard_bases = _load_json(output / "shard_bases.json", [])
 
-    latest_job_index, analytics_latest_build = build_latest_job_index(analytics, shard_bases)
+    analytics_job_index, analytics_latest_build = build_latest_job_index(
+        analytics, shard_bases
+    )
     latest_build = latest_build_metadata(analytics_latest_build, ci_health, parity)
+    snapshot_path = (
+        Path(args.build_snapshot)
+        if args.build_snapshot
+        else output / DEFAULT_BUILD_SNAPSHOT
+    )
+    frozen_build = load_frozen_build_snapshot(
+        snapshot_path,
+        latest_build.get("number") if latest_build else None,
+    )
+    if frozen_build is not None:
+        # The frozen response is the source of both roster and commit. Preserve
+        # analytics-only fields such as the normalized nightly date.
+        latest_build = {**(latest_build or {}), **frozen_build}
+        log.info(
+            "Using frozen AMD build #%s roster from %s",
+            frozen_build.get("number"),
+            snapshot_path,
+        )
+    else:
+        log.warning(
+            "Frozen AMD build snapshot %s is unavailable; using the already "
+            "collected analytics roster without a live Buildkite fallback",
+            snapshot_path,
+        )
+    latest_job_index = frozen_or_analytics_job_index(
+        analytics_job_index,
+        frozen_build,
+        shard_bases,
+    )
     yaml_url = yaml_url_for_build(latest_build, args.yaml_url)
     log.info("Fetching build-pinned AMD YAML from %s", yaml_url)
     yaml_text = fetch_yaml_text(yaml_url)
     steps, architectures = parse_steps(yaml_text)
-    buildkite_job_index = fetch_buildkite_job_index(
-        latest_build.get("number") if latest_build else None,
-        os.getenv("BUILDKITE_TOKEN", "").strip(),
-        shard_bases,
-    )
-    if buildkite_job_index:
-        latest_job_index = merge_latest_job_indexes(
-            buildkite_job_index,
-            latest_job_index,
-        )
-    hotness_job_index = build_hotness_job_index(
-        hotness,
-        latest_build.get("number") if latest_build else None,
-        shard_bases,
-    )
-    latest_job_index = merge_latest_job_indexes(latest_job_index, hotness_job_index)
     parity_exact_index, parity_norm_index = build_parity_amd_index(parity, shard_bases)
 
     matrix = build_matrix(

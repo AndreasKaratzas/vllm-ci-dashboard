@@ -129,9 +129,11 @@ class TestGatingExecutiveData:
     def test_gating_targets_schema(self):
         d = _load_json_or_skip("gating_targets.json")
         _assert_has_keys(d, {"generated_at", "source", "summary", "groups"}, "gating_targets.json")
-        assert d["summary"]["target_group_count"] == 125
-        assert len(d["groups"]) == 125
-        first = d["groups"][0]
+        groups = d["groups"]
+        assert groups
+        assert d["summary"]["target_group_count"] == len(groups)
+        assert len({row["id"] for row in groups}) == len(groups)
+        first = groups[0]
         _assert_has_keys(
             first,
             {

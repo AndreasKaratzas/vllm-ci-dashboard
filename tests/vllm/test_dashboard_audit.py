@@ -65,7 +65,11 @@ def test_dashboard_audit_requires_workload_mapping_v2_ranges():
 def test_dashboard_audit_validates_v2_evidence_and_targets():
     report = run_audit(ROOT)
     metrics = report.metrics["operations_v2"]
-    assert metrics["active_targets"] == 127
+    assert metrics["active_targets"] > 0
+    assert metrics["active_targets"] == (
+        metrics["canonical_targets"]
+        + metrics["active_targets_outside_canonical"]
+    )
     assert metrics["mixed_outcome_candidates"] > 0
     assert metrics["reliability_observations"] == metrics["linked_reliability_observations"]
 

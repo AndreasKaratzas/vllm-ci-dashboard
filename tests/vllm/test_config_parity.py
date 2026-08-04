@@ -58,9 +58,75 @@ def _snapshot_archive() -> bytes:
     return stream.getvalue()
 
 
-def test_source_snapshot_resolves_main_once_and_pins_archive_to_commit(monkeypatch):
+def test_source_snapshot_resolves_requested_sha_once_and_pins_archive(monkeypatch):
     calls = []
     archive = _snapshot_archive()
+    requested_sha = "a" * 40
+
+    class Response:
+        def __init__(self, payload=None, content=b""):
+            self._payload = payload
+            self.content = content
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        assert url.endswith(f"/tarball/{requested_sha}")
+        return Response(content=archive)
+
+    monkeypatch.setenv("VLLM_CONFIG_SHA", requested_sha)
+    monkeypatch.setattr(config_parity, "_SOURCE_SNAPSHOT", None)
+    monkeypatch.setattr(config_parity.requests, "get", fake_get)
+
+    first = config_parity._load_source_snapshot()
+    second = config_parity._load_source_snapshot()
+
+    assert first is second
+    assert first.commit_sha == requested_sha
+    assert sorted(first.files) == [
+        ".buildkite/test-amd.yaml",
+        ".buildkite/test_areas/basic.yaml",
+    ]
+    assert calls == [
+        f"https://api.github.com/repos/vllm-project/vllm/tarball/{requested_sha}",
+    ]
+    assert config_parity._source_provenance()["branch"] == "main"
+    assert config_parity._source_provenance()["commit_sha"] == requested_sha
+
+
+def test_source_snapshot_rejects_non_full_resolved_sha(monkeypatch):
+    calls = []
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"sha": "deadbeef"}
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        return Response()
+
+    monkeypatch.delenv("VLLM_CONFIG_SHA", raising=False)
+    monkeypatch.setattr(config_parity, "_SOURCE_SNAPSHOT", None)
+    monkeypatch.setattr(config_parity.requests, "get", fake_get)
+
+    assert config_parity._load_source_snapshot() is None
+    assert calls == [
+        "https://api.github.com/repos/vllm-project/vllm/commits/main",
+    ]
+
+
+def test_source_snapshot_resolves_main_before_fetching_archive(monkeypatch):
+    calls = []
+    archive = _snapshot_archive()
+    resolved_sha = "b" * 40
 
     class Response:
         def __init__(self, payload=None, content=b""):
@@ -76,25 +142,21 @@ def test_source_snapshot_resolves_main_once_and_pins_archive_to_commit(monkeypat
     def fake_get(url, **kwargs):
         calls.append(url)
         if url.endswith("/commits/main"):
-            return Response({"sha": "deadbeef"})
-        assert url.endswith("/tarball/deadbeef")
+            return Response({"sha": resolved_sha})
+        assert url.endswith(f"/tarball/{resolved_sha}")
         return Response(content=archive)
 
+    monkeypatch.delenv("VLLM_CONFIG_SHA", raising=False)
     monkeypatch.setattr(config_parity, "_SOURCE_SNAPSHOT", None)
     monkeypatch.setattr(config_parity.requests, "get", fake_get)
 
-    first = config_parity._load_source_snapshot()
-    second = config_parity._load_source_snapshot()
+    snapshot = config_parity._load_source_snapshot()
 
-    assert first is second
-    assert first.commit_sha == "deadbeef"
-    assert sorted(first.files) == [
-        ".buildkite/test-amd.yaml",
-        ".buildkite/test_areas/basic.yaml",
-    ]
+    assert snapshot is not None
+    assert snapshot.commit_sha == resolved_sha
     assert calls == [
         "https://api.github.com/repos/vllm-project/vllm/commits/main",
-        "https://api.github.com/repos/vllm-project/vllm/tarball/deadbeef",
+        f"https://api.github.com/repos/vllm-project/vllm/tarball/{resolved_sha}",
     ]
 
 

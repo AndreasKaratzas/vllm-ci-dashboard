@@ -48,6 +48,34 @@ jobs:
       - name: Install dependencies
         run: pip install requests pyyaml pytest cryptography
 
+      - name: Resolve immutable vLLM config snapshot
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+
+          import requests
+
+          headers = {"Accept": "application/vnd.github+json"}
+          token = os.environ.get("GITHUB_TOKEN", "").strip()
+          if token:
+              headers["Authorization"] = f"Bearer {token}"
+          response = requests.get(
+              "https://api.github.com/repos/vllm-project/vllm/commits/main",
+              headers=headers,
+              timeout=30,
+          )
+          response.raise_for_status()
+          sha = str(response.json().get("sha") or "").strip().lower()
+          if not re.fullmatch(r"[0-9a-f]{40}", sha):
+              raise SystemExit("GitHub did not resolve vLLM main to a full commit SHA")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+              env_file.write(f"VLLM_CONFIG_SHA={sha}\n")
+          print(f"Pinned current vLLM configuration to {sha}")
+          PY
+
       - name: Ensure CI Operations issue labels
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -84,7 +112,9 @@ jobs:
       - name: Collect queue capacity monitor
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python scripts/vllm/collect_capacity_monitor.py --output data/vllm/ci/
+        run: >-
+          python scripts/vllm/collect_capacity_monitor.py
+          --output data/vllm/ci/ --ref "$VLLM_CONFIG_SHA"
 
       - name: Watch queue latency (open/close issues)
         env:
@@ -217,7 +247,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Collect AMD test matrix
-        run: python scripts/vllm/collect_amd_test_matrix.py --output data/vllm/ci/
+        run: >-
+          python scripts/vllm/collect_amd_test_matrix.py --output data/vllm/ci/
+          --build-snapshot data/vllm/ci/.cache/amd_nightly_snapshot.json
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -552,8 +584,26 @@ jobs:
             const output = ${{ toJSON(steps.run-tests.outputs.output) }} || 'No output captured';
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const date = new Date().toISOString().slice(0, 10);
-            const title = `Hourly CI failure — ${date}`;
-            const body = [
+            const ownershipMarker = '<!-- ci-failure-owner:hourly-master -->';
+            const legacySignature = '*Auto-created by hourly-master workflow.*';
+            const recoveryPattern = /<!-- hourly-ci-recovery-streak:\d+ -->/;
+            const normalizedFailures = [...new Set(
+              failures.split('\n').map(line => {
+                const match = line.match(/^(FAILED|ERROR)\s+(.+?)(?:\s+-\s+.*)?$/);
+                return match ? `${match[1]} ${match[2]}` : null;
+              }).filter(Boolean),
+            )].sort();
+            const fingerprintSource = normalizedFailures.join('\n') ||
+              `pytest:${summary.replace(/\b\d+(?:\.\d+)?s\b/g, '<duration>')}`;
+            const fingerprint = require('crypto')
+              .createHash('sha256')
+              .update(fingerprintSource)
+              .digest('hex')
+              .slice(0, 16);
+            const fingerprintMarker = `<!-- hourly-ci-fingerprint:${fingerprint} -->`;
+            const recoveryMarker = '<!-- hourly-ci-recovery-streak:0 -->';
+            const title = `Hourly CI failure [${fingerprint.slice(0, 8)}] — ${date}`;
+            const report = [
               `## Test Failure — ${date}`,
               '',
               `**Summary:** \`${summary}\``,
@@ -574,23 +624,89 @@ jobs:
               '',
               '*Auto-created by hourly-master workflow.*',
             ].join('\n');
+            const body = [
+              ownershipMarker,
+              fingerprintMarker,
+              recoveryMarker,
+              '',
+              report,
+            ].join('\n');
 
-            const existing = await github.rest.issues.listForRepo({
+            const allIssues = await github.paginate(github.rest.issues.listForRepo, {
               owner: context.repo.owner, repo: context.repo.repo,
-              labels: 'ci-failure', state: 'open', per_page: 5,
+              labels: 'ci-failure', state: 'all', per_page: 100,
             });
-            if (existing.data.length > 0) {
+            const openIssues = allIssues.filter(issue => issue.state === 'open');
+            const ownedOpenIssues = openIssues.filter(issue => {
+              const issueBody = issue.body || '';
+              return issueBody.includes(ownershipMarker) ||
+                issueBody.includes(legacySignature);
+            });
+            // A failed suite breaks the global recovery streak for every hourly
+            // incident, even when this run has a different failure fingerprint.
+            for (const issue of ownedOpenIssues) {
+              let resetBody = issue.body || '';
+              if (!resetBody.includes(ownershipMarker)) {
+                resetBody = `${ownershipMarker}\n${resetBody}`;
+              }
+              resetBody = recoveryPattern.test(resetBody)
+                ? resetBody.replace(recoveryPattern, recoveryMarker)
+                : `${recoveryMarker}\n${resetBody}`;
+              if (resetBody !== (issue.body || '')) {
+                await github.rest.issues.update({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: issue.number, body: resetBody,
+                });
+                issue.body = resetBody;
+              }
+            }
+            const exact = allIssues.find(issue => {
+              const issueBody = issue.body || '';
+              return issueBody.includes(ownershipMarker) &&
+                issueBody.includes(fingerprintMarker);
+            });
+            const legacy = openIssues.find(issue => {
+              const issueBody = issue.body || '';
+              return issueBody.includes(legacySignature) &&
+                !issueBody.includes('<!-- hourly-ci-fingerprint:') &&
+                normalizedFailures.every(failure => issueBody.includes(failure));
+            });
+            const existing = exact || legacy;
+            if (existing) {
+              let migratedBody = existing.body || '';
+              if (!migratedBody.includes(ownershipMarker)) {
+                migratedBody = `${ownershipMarker}\n${migratedBody}`;
+              }
+              if (!migratedBody.includes(fingerprintMarker)) {
+                migratedBody = `${fingerprintMarker}\n${migratedBody}`;
+              }
+              if (recoveryPattern.test(migratedBody)) {
+                migratedBody = migratedBody.replace(recoveryPattern, recoveryMarker);
+              } else {
+                migratedBody = `${recoveryMarker}\n${migratedBody}`;
+              }
+              if (migratedBody !== (existing.body || '')) {
+                await github.rest.issues.update({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: existing.number, body: migratedBody, state: 'open',
+                });
+              } else if (existing.state !== 'open') {
+                await github.rest.issues.update({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: existing.number, state: 'open',
+                });
+              }
               try {
                 await github.rest.issues.addAssignees({
                   owner: context.repo.owner, repo: context.repo.repo,
-                  issue_number: existing.data[0].number, assignees: [context.repo.owner],
+                  issue_number: existing.number, assignees: [context.repo.owner],
                 });
               } catch (error) {
                 if (error.status !== 422) throw error;
               }
               await github.rest.issues.createComment({
                 owner: context.repo.owner, repo: context.repo.repo,
-                issue_number: existing.data[0].number, body: body,
+                issue_number: existing.number, body: report,
               });
             } else {
               await github.rest.issues.create({
@@ -607,19 +723,46 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const issues = await github.rest.issues.listForRepo({
+            const ownershipMarker = '<!-- ci-failure-owner:hourly-master -->';
+            const legacySignature = '*Auto-created by hourly-master workflow.*';
+            const recoveryPattern = /<!-- hourly-ci-recovery-streak:(\d+) -->/;
+            const requiredRecoveryRuns = 2;
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
               owner: context.repo.owner, repo: context.repo.repo,
-              labels: 'ci-failure', state: 'open', per_page: 10,
+              labels: 'ci-failure', state: 'open', per_page: 100,
             });
-            for (const issue of issues.data) {
+            const ownedIssues = issues.filter(issue => {
+              const body = issue.body || '';
+              return body.includes(ownershipMarker) || body.includes(legacySignature);
+            });
+            for (const issue of ownedIssues) {
+              const body = issue.body || '';
+              const match = body.match(recoveryPattern);
+              const recoveryStreak = match ? Number(match[1]) : 0;
+              const nextRecoveryStreak = recoveryStreak + 1;
+              const nextMarker = `<!-- hourly-ci-recovery-streak:${nextRecoveryStreak} -->`;
+              let nextBody = body.includes(ownershipMarker)
+                ? body
+                : `${ownershipMarker}\n${body}`;
+              nextBody = recoveryPattern.test(nextBody)
+                ? nextBody.replace(recoveryPattern, nextMarker)
+                : `${nextMarker}\n${nextBody}`;
+              if (nextRecoveryStreak < requiredRecoveryRuns) {
+                await github.rest.issues.update({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: issue.number, body: nextBody,
+                });
+                console.log(`Issue #${issue.number} has one successful recovery run; leaving it open.`);
+                continue;
+              }
               await github.rest.issues.createComment({
                 owner: context.repo.owner, repo: context.repo.repo,
                 issue_number: issue.number,
-                body: `Tests passing again. Closing.\n\n**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                body: `Tests passed in ${requiredRecoveryRuns} consecutive published runs. Closing.\n\n**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
               });
               await github.rest.issues.update({
                 owner: context.repo.owner, repo: context.repo.repo,
-                issue_number: issue.number, state: 'closed',
+                issue_number: issue.number, body: nextBody, state: 'closed',
               });
             }
 

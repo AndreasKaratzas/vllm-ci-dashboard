@@ -1216,13 +1216,39 @@ class DashboardAudit:
                 )
 
         gating = _mapping(payload.get("gating"))
+        reviewed_targets = _rows(gating.get("target_groups"))
         active = _rows(gating.get("active_target_groups"))
         active_summary = _mapping(gating.get("active_target_summary"))
         expected_active = _safe_int(active_summary.get("target_group_count"))
+        expected_canonical = _safe_int(
+            active_summary.get("canonical_group_count")
+        )
+        expected_outside_canonical = _safe_int(
+            active_summary.get("active_outside_canonical_count")
+        )
         if len(active) != expected_active:
             self.error(
                 "operations-active-target-count",
                 f"active target rows={len(active)} but summary target_group_count={expected_active}",
+                relpath,
+            )
+        if len(reviewed_targets) != expected_canonical:
+            self.error(
+                "operations-canonical-target-count",
+                (
+                    f"reviewed target rows={len(reviewed_targets)} but summary "
+                    f"canonical_group_count={expected_canonical}"
+                ),
+                relpath,
+            )
+        if expected_active != expected_canonical + expected_outside_canonical:
+            self.error(
+                "operations-active-target-summary",
+                (
+                    f"active target count={expected_active} but canonical "
+                    f"({expected_canonical}) + outside canonical "
+                    f"({expected_outside_canonical}) do not reconcile"
+                ),
                 relpath,
             )
 
@@ -1796,6 +1822,8 @@ class DashboardAudit:
 
         self.report.metrics["operations_v2"] = {
             "active_targets": len(active),
+            "canonical_targets": expected_canonical,
+            "active_targets_outside_canonical": expected_outside_canonical,
             "amd_latest_job_variants": _safe_int(
                 amd_health_summary.get("latest_group_count")
             ),

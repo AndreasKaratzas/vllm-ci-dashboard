@@ -37,6 +37,7 @@ CAPACITY_CONFIG_PATH = ROOT / "config" / "vllm_amd_queue_capacity.json"
 
 GITHUB_REPO = "vllm-project/vllm"
 GITHUB_REF = "main"
+GITHUB_API_BASE = "https://api.github.com/repos"
 TEST_AREAS_DIR = ".buildkite/test_areas"
 
 SKIP_DIRS = {
@@ -69,6 +70,7 @@ BINARY_EXTS = {
     ".zip",
 }
 MULTISPACE_RE = re.compile(r"\s+")
+FULL_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 
 
 def load_capacity_config(path: Path = CAPACITY_CONFIG_PATH) -> dict[str, Any]:
@@ -275,6 +277,35 @@ CAPACITY_BY_QUEUE = {row["id"]: row for row in CAPACITY_QUEUES}
 def _github_headers() -> dict[str, str]:
     token = os.getenv("GITHUB_TOKEN", "").strip()
     return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def _requested_config_ref(fallback: str = GITHUB_REF) -> str:
+    """Return the workflow-pinned config ref, falling back to semantic main."""
+
+    return os.getenv("VLLM_CONFIG_SHA", "").strip() or fallback
+
+
+def _resolve_commit_sha(repo: str, requested_ref: str) -> str:
+    """Resolve a branch or requested SHA to one immutable full commit SHA."""
+
+    normalized_ref = requested_ref.strip().lower()
+    if FULL_COMMIT_SHA_RE.fullmatch(normalized_ref):
+        return normalized_ref
+    response = requests.get(
+        f"{GITHUB_API_BASE}/{repo}/commits/{requested_ref}",
+        headers=_github_headers(),
+        timeout=30,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    commit_sha = str(
+        payload.get("sha") if isinstance(payload, dict) else ""
+    ).strip().lower()
+    if not FULL_COMMIT_SHA_RE.fullmatch(commit_sha):
+        raise ValueError(
+            f"GitHub did not resolve {repo}@{requested_ref} to a full 40-hex SHA"
+        )
+    return commit_sha
 
 
 def clean_text(value: Any) -> str:
@@ -714,6 +745,8 @@ def build_capacity_payload(
     source_kind: str = "local",
     github_repo: str = GITHUB_REPO,
     ref: str = GITHUB_REF,
+    requested_ref: str | None = None,
+    commit_sha: str = "",
     theoretical_groups: int | None = None,
 ) -> dict[str, Any]:
     groups = parse_amd_mirror_groups(repo_root)
@@ -735,6 +768,14 @@ def build_capacity_payload(
             "kind": source_kind,
             "github_repo": github_repo,
             "ref": ref,
+            "branch": GITHUB_REF,
+            "requested_ref": requested_ref or ref,
+            "commit_sha": commit_sha,
+            "commit_url": (
+                f"https://github.com/{github_repo}/commit/{commit_sha}"
+                if commit_sha
+                else ""
+            ),
             "test_areas_path": TEST_AREAS_DIR,
             "capacity_config_path": CAPACITY_CONFIG_PATH.relative_to(ROOT).as_posix(),
             "capacity_config_schema_version": CAPACITY_CONFIG["schema_version"],
@@ -827,21 +868,25 @@ def repo_root_context(
     *,
     github_repo: str,
     ref: str,
-) -> Iterator[tuple[Path, str]]:
-    for candidate in _candidate_repo_roots(explicit_repo_root):
-        if _looks_like_vllm_repo(candidate):
-            yield candidate.resolve(), "local"
-            return
+) -> Iterator[tuple[Path, str, str]]:
+    requested_ref = _requested_config_ref(ref)
+    pinned_by_workflow = bool(os.getenv("VLLM_CONFIG_SHA", "").strip())
+    if not pinned_by_workflow and requested_ref == GITHUB_REF:
+        for candidate in _candidate_repo_roots(explicit_repo_root):
+            if _looks_like_vllm_repo(candidate):
+                yield candidate.resolve(), "local", ""
+                return
 
     with tempfile.TemporaryDirectory(prefix="vllm-capacity-") as tmp:
-        url = _archive_url(github_repo, ref)
+        commit_sha = _resolve_commit_sha(github_repo, requested_ref)
+        url = _archive_url(github_repo, commit_sha)
         log.info("Fetching %s", url)
         resp = requests.get(url, headers=_github_headers(), timeout=60)
         resp.raise_for_status()
         repo_root = _extract_archive(resp.content, Path(tmp) / "repo")
         if not _looks_like_vllm_repo(repo_root):
             raise RuntimeError(f"Downloaded archive did not contain {TEST_AREAS_DIR}")
-        yield repo_root, "github_archive"
+        yield repo_root, "github_archive", commit_sha
 
 
 def parse_args() -> argparse.Namespace:
@@ -863,17 +908,20 @@ def main() -> None:
     args = parse_args()
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
+    requested_ref = _requested_config_ref(args.ref)
 
     with repo_root_context(
         args.repo_root,
         github_repo=args.github_repo,
-        ref=args.ref,
-    ) as (repo_root, source_kind):
+        ref=requested_ref,
+    ) as (repo_root, source_kind, commit_sha):
         payload = build_capacity_payload(
             repo_root,
             source_kind=source_kind,
             github_repo=args.github_repo,
-            ref=args.ref,
+            ref=GITHUB_REF,
+            requested_ref=requested_ref,
+            commit_sha=commit_sha,
             theoretical_groups=args.theoretical_groups,
         )
 

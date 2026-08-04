@@ -263,6 +263,20 @@ class TestHourlyMasterWorkflow:
         assert "collect_gating_target_candidates.py" in text
         assert "gating_target_candidates.json" in text
 
+    def test_amd_matrix_uses_the_frozen_collect_ci_roster(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        names = [step.get("name") for step in steps]
+        collect_ci_index = names.index("Collect CI data")
+        matrix_index = names.index("Collect AMD test matrix")
+        matrix = steps[matrix_index]
+
+        assert collect_ci_index < matrix_index
+        assert (
+            "--build-snapshot data/vllm/ci/.cache/amd_nightly_snapshot.json"
+            in matrix["run"]
+        )
+
     def test_ci_collect_calls_collect_gating_proposals(self):
         text = _load_workflow_text("ci-collect.yml")
         assert "collect_gating_proposals.py" in text
@@ -279,6 +293,25 @@ class TestHourlyMasterWorkflow:
     def test_calls_github_data_collection(self):
         text = _load_workflow_text("hourly-master.yml")
         assert "collect.py" in text, "hourly-master.yml must call collect.py"
+
+    def test_current_config_collectors_share_one_immutable_vllm_sha(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        names = [step.get("name") for step in steps]
+        resolve = steps[names.index("Resolve immutable vLLM config snapshot")]
+        capacity = steps[names.index("Collect queue capacity monitor")]
+        collect_ci = steps[names.index("Collect CI data")]
+
+        assert names.index("Resolve immutable vLLM config snapshot") < names.index(
+            "Collect queue capacity monitor"
+        ) < names.index("Collect CI data")
+        assert "VLLM_CONFIG_SHA" in resolve["run"]
+        assert "[0-9a-f]{40}" in resolve["run"]
+        assert 'env_file.write(f"VLLM_CONFIG_SHA={sha}\\n")' in resolve["run"]
+        assert '--ref "$VLLM_CONFIG_SHA"' in capacity["run"]
+        # GITHUB_ENV values are inherited by every later collection step,
+        # including config_parity inside collect_ci.
+        assert "VLLM_CONFIG_SHA" not in (collect_ci.get("env") or {})
 
     def test_github_freshness_watches_ready_ticket_snapshots(self):
         text = _load_workflow_text("hourly-master.yml")
@@ -313,6 +346,47 @@ class TestHourlyMasterWorkflow:
         assert "steps.run-tests.outcome == 'success'" in condition
         assert "steps.run-tests.outputs.exit_code == '0'" in condition
         assert "always()" not in condition
+
+    def test_failure_issues_use_exact_fingerprints_and_migrate_legacy_issues(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        create = next(
+            step for step in steps if step.get("name") == "Create issue on test failure"
+        )
+        script = create["with"]["script"]
+
+        assert "createHash('sha256')" in script
+        assert "Hourly CI failure [${fingerprint.slice(0, 8)}]" in script
+        assert "<!-- ci-failure-owner:hourly-master -->" in script
+        assert "<!-- hourly-ci-fingerprint:${fingerprint} -->" in script
+        assert "normalizedFailures" in script
+        assert "github.paginate(github.rest.issues.listForRepo" in script
+        assert "labels: 'ci-failure', state: 'all'" in script
+        assert "allIssues.find" in script
+        assert "issue_number: existing.number, body: migratedBody, state: 'open'" in script
+        assert "issueBody.includes(ownershipMarker)" in script
+        assert "issueBody.includes(fingerprintMarker)" in script
+        assert "*Auto-created by hourly-master workflow.*" in script
+        assert "for (const issue of ownedOpenIssues)" in script
+        assert "resetBody.replace(recoveryPattern, recoveryMarker)" in script
+        assert "migratedBody.replace(recoveryPattern, recoveryMarker)" in script
+        assert "existing.data[0]" not in script
+
+    def test_hourly_issue_closure_is_owned_and_requires_two_green_runs(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        close = next(
+            step for step in steps if step.get("name") == "Close issue on test success"
+        )
+        script = close["with"]["script"]
+
+        assert "const requiredRecoveryRuns = 2" in script
+        assert "github.paginate(github.rest.issues.listForRepo" in script
+        assert "issues.filter" in script
+        assert "body.includes(ownershipMarker) || body.includes(legacySignature)" in script
+        assert "nextRecoveryStreak < requiredRecoveryRuns" in script
+        assert "issue_number: issue.number, body: nextBody, state: 'closed'" in script
+        assert "for (const issue of issues.data)" not in script
 
     def test_final_main_publication_retries_push_races_and_fails_closed(self):
         data = _load_workflow("hourly-master.yml")
@@ -400,6 +474,33 @@ class TestNightlyCIWorkflow:
         assert "assignees: [context.repo.owner]" in text
         assert "GitHub assignee: ${context.repo.owner}." in text
         assert "cc @${context.repo.owner}" not in text
+
+    def test_nightly_issue_lifecycle_only_mutates_nightly_owned_issues(self):
+        data = _load_workflow("nightly-ci.yml")
+        create_steps = data["jobs"]["create-issue-on-failure"]["steps"]
+        close_steps = data["jobs"]["close-issue-on-success"]["steps"]
+        create = next(
+            step
+            for step in create_steps
+            if step.get("name") == "Create or update GitHub issue"
+        )["with"]["script"]
+        close = next(
+            step
+            for step in close_steps
+            if step.get("name") == "Close resolved ci-failure issues"
+        )["with"]["script"]
+
+        for script in (create, close):
+            assert "<!-- ci-failure-owner:nightly-ci -->" in script
+            assert (
+                "*This issue was created automatically by the nightly CI workflow.*"
+                in script
+            )
+            assert "github.paginate(github.rest.issues.listForRepo" in script
+        assert "openIssues.find" in create
+        assert "existing.data[0]" not in create
+        assert "issues.filter" in close
+        assert "for (const issue of issues.data)" not in close
 
 
 # ---------------------------------------------------------------------------

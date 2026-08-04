@@ -48,6 +48,7 @@ VLLM_REPOSITORY = "vllm-project/vllm"
 VLLM_BRANCH = "main"
 VLLM_API_BASE = f"https://api.github.com/repos/{VLLM_REPOSITORY}"
 COMMAND_TWIN_TITLE_THRESHOLD = 0.65
+FULL_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 
 
 # ---------------------------------------------------------------------------
@@ -143,16 +144,21 @@ def _load_source_snapshot() -> Optional[ConfigSourceSnapshot]:
     if _SOURCE_SNAPSHOT is not None:
         return _SOURCE_SNAPSHOT
 
+    requested_ref = os.getenv("VLLM_CONFIG_SHA", "").strip() or VLLM_BRANCH
     try:
-        commit_response = requests.get(
-            f"{VLLM_API_BASE}/commits/{VLLM_BRANCH}",
-            headers=_github_headers(),
-            timeout=30,
-        )
-        commit_response.raise_for_status()
-        commit_sha = str(commit_response.json().get("sha") or "")
-        if not commit_sha:
-            raise ValueError("GitHub commit response did not contain a SHA")
+        commit_sha = requested_ref.lower()
+        if not FULL_COMMIT_SHA_RE.fullmatch(commit_sha):
+            commit_response = requests.get(
+                f"{VLLM_API_BASE}/commits/{requested_ref}",
+                headers=_github_headers(),
+                timeout=30,
+            )
+            commit_response.raise_for_status()
+            commit_sha = str(commit_response.json().get("sha") or "").strip().lower()
+        if not FULL_COMMIT_SHA_RE.fullmatch(commit_sha):
+            raise ValueError(
+                "GitHub commit response did not contain a full 40-hex SHA"
+            )
 
         archive_response = requests.get(
             f"{VLLM_API_BASE}/tarball/{commit_sha}",
@@ -185,7 +191,7 @@ def _load_source_snapshot() -> Optional[ConfigSourceSnapshot]:
         )
         return _SOURCE_SNAPSHOT
     except Exception as e:
-        log.warning("Failed to download vLLM %s snapshot: %s", VLLM_BRANCH, e)
+        log.warning("Failed to download vLLM %s snapshot: %s", requested_ref, e)
         return None
 
 

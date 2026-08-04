@@ -3,6 +3,10 @@
 
 from __future__ import annotations
 
+import json
+
+import pytest
+
 from vllm.collect_amd_test_matrix import (
     aggregate_state,
     build_buildkite_job_index,
@@ -11,7 +15,9 @@ from vllm.collect_amd_test_matrix import (
     build_matrix,
     build_parity_amd_index,
     canonical_title,
+    frozen_or_analytics_job_index,
     latest_build_metadata,
+    load_frozen_build_snapshot,
     longest_shared_title_substring,
     merge_latest_job_indexes,
     parse_steps,
@@ -62,6 +68,73 @@ def test_default_yaml_url_is_pinned_to_the_observed_build_commit():
     assert yaml_url_for_build(
         {"commit": commit}, "https://example.invalid/override.yml"
     ) == "https://example.invalid/override.yml"
+
+
+def test_frozen_snapshot_is_authoritative_over_later_analytics_roster(tmp_path):
+    snapshot_path = tmp_path / "amd_nightly_snapshot.json"
+    snapshot_path.write_text(json.dumps({
+        "schema_version": 1,
+        "pipeline": "amd-ci",
+        "build": {
+            "number": 10972,
+            "commit": "a" * 40,
+            "jobs": [
+                {
+                    "id": "passed",
+                    "type": "script",
+                    "name": "mi300_1: Passed Group",
+                    "state": "passed",
+                    "agent_query_rules": ["queue=amd_mi300_1"],
+                },
+                {
+                    "id": "running",
+                    "type": "script",
+                    "name": "mi300_1: Running Group",
+                    "state": "running",
+                    "agent_query_rules": ["queue=amd_mi300_1"],
+                },
+            ],
+        },
+    }))
+    analytics = {
+        "amd-ci": {
+            "builds": [{
+                "number": 10972,
+                "jobs": [
+                    {"name": "Passed Group", "state": "passed", "q": "amd_mi300_1"},
+                    {"name": "Running Group", "state": "passed", "q": "amd_mi300_1"},
+                    {"name": "Finished Later", "state": "passed", "q": "amd_mi300_1"},
+                ],
+            }]
+        }
+    }
+    analytics_index, _ = build_latest_job_index(analytics, [])
+
+    frozen = load_frozen_build_snapshot(snapshot_path, 10972)
+    selected = frozen_or_analytics_job_index(analytics_index, frozen, [])
+
+    assert set(selected["mi300"]) == {"passed group", "running group"}
+    assert selected["mi300"]["running group"][0]["state"] == "running"
+    assert "finished later" not in selected["mi300"]
+
+
+def test_frozen_snapshot_rejects_wrong_build(tmp_path):
+    snapshot_path = tmp_path / "amd_nightly_snapshot.json"
+    snapshot_path.write_text(json.dumps({
+        "schema_version": 1,
+        "pipeline": "amd-ci",
+        "build": {"number": 10971, "jobs": []},
+    }))
+
+    with pytest.raises(ValueError, match=r"expected #10972, found #10971"):
+        load_frozen_build_snapshot(snapshot_path, 10972)
+
+
+def test_missing_frozen_snapshot_uses_collected_analytics_without_network(tmp_path):
+    analytics_index = {"mi300": {"engine": [{"state": "passed"}]}}
+
+    assert load_frozen_build_snapshot(tmp_path / "missing.json", 10972) is None
+    assert frozen_or_analytics_job_index(analytics_index, None, []) is analytics_index
 
 
 def _parity_row(amd_job_name, hw, url, failed=0):

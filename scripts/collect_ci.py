@@ -57,6 +57,7 @@ log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT = ROOT / "data" / "vllm" / "ci"
 QUARANTINE_PATH = ROOT / "config" / "quarantine.yaml"
+AMD_NIGHTLY_SNAPSHOT = Path(".cache") / "amd_nightly_snapshot.json"
 
 # Configure CI framework with vLLM-specific settings
 cfg.configure(VLLM_ORG, VLLM_PIPELINES)
@@ -254,7 +255,12 @@ def _cache_covers_all_jobs(
     # summary, so fetch detail when jobs is missing/empty.
     if "jobs" not in build or not build.get("jobs"):
         try:
-            build = fetch_build_detail(pipeline_key, build_num)
+            detail = fetch_build_detail(pipeline_key, build_num)
+            # Keep this exact response on the shared build object. Downstream
+            # summaries, parity, and the frozen AMD matrix roster must all see
+            # the same point-in-time job set used for this cache decision.
+            build.clear()
+            build.update(detail)
         except Exception as e:
             # If the API is flaky at the moment, be conservative and trust
             # the cache. Next cron tick will try again.
@@ -495,6 +501,107 @@ def _latest_signal_summary(summaries: list):
     return next((summary for summary in summaries if summary.has_test_results), None)
 
 
+def _merge_with_previous(
+    by_build: list[tuple[int, str, list[TestResult]]],
+) -> tuple[list[TestResult], str, int, set[str]]:
+    """Select the latest result build and fill missing jobs from its predecessor."""
+    if len(by_build) < 2:
+        entry = max(by_build, key=lambda x: (x[1], len(x[2]))) if by_build else None
+        return (
+            entry[2] if entry else [],
+            entry[1] if entry else "",
+            entry[0] if entry else 0,
+            set(),
+        )
+
+    sorted_builds = sorted(by_build, key=lambda x: (x[1], len(x[2])), reverse=True)
+    latest = sorted_builds[0]
+    latest_jobs = {result.job_name for result in latest[2]}
+    merged = list(latest[2])
+    backfilled = set()
+    for previous in sorted_builds[1:]:
+        if previous[0] == latest[0]:
+            continue
+        for result in previous[2]:
+            if result.job_name not in latest_jobs:
+                merged.append(result)
+                latest_jobs.add(result.job_name)
+                backfilled.add(result.job_name)
+        break
+    return merged, latest[1], latest[0], backfilled
+
+
+def _compact_amd_build_snapshot(build: dict) -> dict:
+    """Return the PII-free AMD build fields needed by the matrix collector."""
+    build_fields = (
+        "number",
+        "state",
+        "branch",
+        "commit",
+        "created_at",
+        "finished_at",
+        "message",
+        "web_url",
+    )
+    job_fields = (
+        "type",
+        "id",
+        "name",
+        "state",
+        "soft_failed",
+        "retried_in_job_id",
+        "web_url",
+    )
+    snapshot = {
+        key: build[key]
+        for key in build_fields
+        if key in build and build[key] is not None
+    }
+    jobs = []
+    for raw_job in build.get("jobs") or []:
+        if not isinstance(raw_job, dict):
+            continue
+        job = {
+            key: raw_job[key]
+            for key in job_fields
+            if key in raw_job and raw_job[key] is not None
+        }
+        queue_rules = [
+            str(rule)
+            for rule in raw_job.get("agent_query_rules") or []
+            if str(rule).startswith("queue=")
+        ]
+        if queue_rules:
+            job["agent_query_rules"] = queue_rules
+        raw_step = raw_job.get("step") or {}
+        step_id = raw_step.get("id") if isinstance(raw_step, dict) else None
+        if step_id:
+            job["step"] = {"id": step_id}
+        jobs.append(job)
+    snapshot["jobs"] = jobs
+    return snapshot
+
+
+def write_amd_nightly_snapshot(build: dict, output_dir: Path) -> Path:
+    """Freeze the selected AMD nightly roster for downstream collectors."""
+    path = output_dir / AMD_NIGHTLY_SNAPSHOT
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": 1,
+        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "pipeline": "amd-ci",
+        "build": _compact_amd_build_snapshot(build),
+    }
+    path.write_text(json.dumps(payload, indent=2))
+    log.info(
+        "Wrote frozen AMD nightly snapshot %s for build #%s with %d jobs",
+        path,
+        payload["build"].get("number"),
+        len(payload["build"]["jobs"]),
+    )
+    return path
+
+
 def main():
     parser = argparse.ArgumentParser(description="Collect vLLM CI test data from Buildkite")
     parser.add_argument("--days", type=int, default=8, help="Days of history (8 = covers collection lag and retries)")
@@ -574,6 +681,55 @@ def main():
         else:
             upstream_by_build = pipeline_results
 
+    latest_amd: list[TestResult] = []
+    amd_date = ""
+    amd_build_num = 0
+    amd_backfilled: set[str] = set()
+    if "amd" in pipelines:
+        latest_amd, amd_date, amd_build_num, amd_backfilled = _merge_with_previous(
+            amd_by_build
+        )
+
+        # Freeze the exact roster that this collection pass selected. The
+        # matrix collector consumes this file instead of making a later API
+        # request after more jobs may have finished.
+        amd_snapshot_build = next(
+            (
+                build
+                for build in all_builds.get("amd", [])
+                if build.get("number") == amd_build_num
+            ),
+            None,
+        )
+        if amd_snapshot_build and not amd_snapshot_build.get("jobs"):
+            try:
+                detail = fetch_build_detail("amd", amd_build_num)
+                amd_snapshot_build.clear()
+                amd_snapshot_build.update(detail)
+            except Exception as exc:
+                log.warning(
+                    "Could not hydrate frozen AMD build #%s roster: %s",
+                    amd_build_num,
+                    exc,
+                )
+        if amd_snapshot_build and amd_snapshot_build.get("jobs"):
+            write_amd_nightly_snapshot(amd_snapshot_build, output_dir)
+        elif amd_snapshot_build:
+            log.warning(
+                "AMD build #%s has no hydrated job roster; leaving the frozen "
+                "snapshot absent so downstream collection uses existing analytics",
+                amd_build_num,
+            )
+
+    latest_upstream: list[TestResult] = []
+    up_date = ""
+    up_build_num = 0
+    up_backfilled: set[str] = set()
+    if "upstream" in pipelines:
+        latest_upstream, up_date, up_build_num, up_backfilled = _merge_with_previous(
+            upstream_by_build
+        )
+
     # Compute health for AMD tests (primary focus)
     amd_health = []
     amd_summaries = []
@@ -612,32 +768,6 @@ def main():
         # Use the most recent build, but backfill missing job groups from
         # the previous build. This handles jobs still running in the latest
         # build (e.g., Transformers Nightly Models which runs for hours).
-        def _merge_with_previous(by_build):
-            """Take latest build's results, fill gaps from previous build.
-            Returns (merged_results, date, latest_build_number, backfilled_job_names)."""
-            if len(by_build) < 2:
-                entry = max(by_build, key=lambda x: (x[1], len(x[2]))) if by_build else None
-                return (entry[2] if entry else [], entry[1] if entry else "",
-                        entry[0] if entry else 0, set())
-            sorted_builds = sorted(by_build, key=lambda x: (x[1], len(x[2])), reverse=True)
-            latest = sorted_builds[0]
-            latest_jobs = {r.job_name for r in latest[2]}
-            merged = list(latest[2])
-            backfilled = set()
-            for prev in sorted_builds[1:]:
-                if prev[0] == latest[0]:
-                    continue
-                for r in prev[2]:
-                    if r.job_name not in latest_jobs:
-                        merged.append(r)
-                        latest_jobs.add(r.job_name)
-                        backfilled.add(r.job_name)
-                break
-            return merged, latest[1], latest[0], backfilled
-
-        latest_amd, amd_date, amd_build_num, amd_backfilled = _merge_with_previous(amd_by_build)
-        latest_upstream, up_date, up_build_num, up_backfilled = _merge_with_previous(upstream_by_build)
-
         if latest_amd and latest_upstream:
             # Only pass CURRENT-build results to compute_parity.
             # Backfilled results have stale failure data from previous builds
@@ -684,12 +814,14 @@ def main():
                 (b for b in all_builds.get("amd", []) if b.get("number") == amd_build_num),
                 None,
             )
-            # Re-fetch full build detail to get ALL jobs (including non-terminal)
+            # The selected build was hydrated and frozen above. Reuse that
+            # exact response so parity and the matrix share one job roster.
             if amd_latest_build and not amd_latest_build.get("jobs"):
-                try:
-                    amd_latest_build = fetch_build_detail("amd", amd_build_num)
-                except Exception:
-                    pass
+                log.warning(
+                    "Frozen AMD build #%s has no job roster; pending parity "
+                    "groups will remain unavailable until the next collection",
+                    amd_build_num,
+                )
             if amd_latest_build:
                 all_script_jobs = [
                     j for j in amd_latest_build.get("jobs", [])

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import tarfile
 from pathlib import Path
 
 from vllm import collect_capacity_monitor as ccm
@@ -59,6 +61,25 @@ steps:
 """,
     )
     return repo
+
+
+def _snapshot_archive() -> bytes:
+    stream = io.BytesIO()
+    yaml_bytes = b"""group: Models
+steps:
+- label: Pinned mirror
+  key: pinned-mirror
+  mirror:
+    amd:
+      device: mi300_1
+"""
+    with tarfile.open(fileobj=stream, mode="w:gz") as archive:
+        info = tarfile.TarInfo(
+            "vllm-pinned/.buildkite/test_areas/models.yaml"
+        )
+        info.size = len(yaml_bytes)
+        archive.addfile(info, io.BytesIO(yaml_bytes))
+    return stream.getvalue()
 
 
 def test_parse_amd_mirror_groups_counts_only_mirror_amd(tmp_path: Path) -> None:
@@ -279,6 +300,98 @@ def test_160_group_sensitivity_flags_mi300_8_bottleneck() -> None:
         4,
     )
     assert queues["amd_mi300_8"]["projected_gap_jobs"] == 1.0
+
+
+def test_workflow_config_sha_is_resolved_once_and_archive_is_commit_pinned(
+    monkeypatch,
+) -> None:
+    requested_sha = "a" * 40
+    archive = _snapshot_archive()
+    calls: list[str] = []
+
+    class Response:
+        def __init__(self, payload=None, content=b"") -> None:
+            self._payload = payload
+            self.content = content
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        assert url == ccm._archive_url(ccm.GITHUB_REPO, requested_sha)
+        return Response(content=archive)
+
+    monkeypatch.setenv("VLLM_CONFIG_SHA", requested_sha)
+    monkeypatch.setattr(ccm.requests, "get", fake_get)
+
+    with ccm.repo_root_context(
+        None,
+        github_repo=ccm.GITHUB_REPO,
+        ref=ccm.GITHUB_REF,
+    ) as (repo_root, source_kind, commit_sha):
+        payload = ccm.build_capacity_payload(
+            repo_root,
+            source_kind=source_kind,
+            github_repo=ccm.GITHUB_REPO,
+            ref=ccm.GITHUB_REF,
+            requested_ref=ccm._requested_config_ref(),
+            commit_sha=commit_sha,
+        )
+
+    assert calls == [
+        ccm._archive_url(ccm.GITHUB_REPO, requested_sha),
+    ]
+    assert payload["source"]["branch"] == "main"
+    assert payload["source"]["ref"] == "main"
+    assert payload["source"]["requested_ref"] == requested_sha
+    assert payload["source"]["commit_sha"] == requested_sha
+    assert payload["source"]["commit_url"].endswith(f"/commit/{requested_sha}")
+    assert [row["label"] for row in payload["groups"]] == ["Pinned mirror"]
+
+
+def test_capacity_commit_resolution_requires_full_sha(monkeypatch) -> None:
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self):
+            return {"sha": "deadbeef"}
+
+    monkeypatch.setattr(ccm.requests, "get", lambda *args, **kwargs: Response())
+
+    try:
+        ccm._resolve_commit_sha(ccm.GITHUB_REPO, "main")
+    except ValueError as exc:
+        assert "full 40-hex SHA" in str(exc)
+    else:
+        raise AssertionError("short resolved SHA should be rejected")
+
+
+def test_capacity_branch_ref_resolves_to_full_sha(monkeypatch) -> None:
+    resolved_sha = "b" * 40
+    calls = []
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self):
+            return {"sha": resolved_sha}
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        return Response()
+
+    monkeypatch.setattr(ccm.requests, "get", fake_get)
+
+    assert ccm._resolve_commit_sha(ccm.GITHUB_REPO, "main") == resolved_sha
+    assert calls == [
+        f"https://api.github.com/repos/{ccm.GITHUB_REPO}/commits/main"
+    ]
 
 
 def test_local_vllm_checkout_has_capacity_scoped_amd_mirrors() -> None:

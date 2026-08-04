@@ -119,6 +119,11 @@ def test_main_fails_when_collector_reports_a_different_commit(
         "build_config_parity",
         lambda: {"source": {"commit_sha": other_sha}},
     )
+    monkeypatch.setattr(
+        collect_ownership_parity,
+        "load_pinned_snapshot",
+        lambda commit: object(),
+    )
 
     result = collect_ownership_parity.main(
         ["--input-dir", str(input_dir), "--output", str(output_dir)]
