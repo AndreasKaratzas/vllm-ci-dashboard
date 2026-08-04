@@ -1,6 +1,36 @@
 {
-  "collected_at": "2026-08-03T08:05:28Z",
+  "collected_at": "2026-08-04T04:51:19Z",
   "prs": [
+    {
+      "number": 50907,
+      "title": "[ROCm] Remove stale SDPA and skinny GEMM workarounds",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-08-03T19:16:40Z",
+      "updated_at": "2026-08-03T19:17:21Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/50907",
+      "labels": [
+        "documentation",
+        "rocm",
+        "multi-modality"
+      ],
+      "draft": true,
+      "body_head": "- Remove ROCm-wide Math SDPA forcing from Transformers multimodal execution and affected test conftests.\r\n- Remove blanket skinny GEMM disable overrides while retaining independent backend and determinism settings.\r\n- Make non-contiguous skinny GEMM activations contiguous and fall back safely for unsupported weight or bias layouts.\r\n- Use default speech attention on MI250 while retaining supported AITER routing on CDNA3+ hardware.\r\n- Keep embedding reference comparisons aligned with the server's per-request execution geometry.\r\n\r\nThis addresses [#37736](https://github.com/vllm-project/vllm/issues/37736), where stale ROCm Math SDPA forcing made the 32-image Gemma3 profiling forward OOM on MI250. With default SDPA selection, the same profile completes while preserving model behavior. Removing blanket skinny GEMM disables exposed a non-contiguous activation bug in the ROCm GEMM dispatcher, which is fixed by normalizing supported inputs and falling back for unsupported operand layouts. Broad multimodal and targeted ROCm validation passed, with unrelated model-access and optional-dependency failures classified separately.",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        37736
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "documentation",
+        "multi-modality"
+      ]
+    },
     {
       "number": 37717,
       "title": "[ROCm][CI] Add large_gpu_mark to test_max_tokens_none for ROCm",

@@ -1,14 +1,15 @@
 # Weekly Digest
 
-Week of 2026-07-27 to 2026-08-03
+Week of 2026-07-28 to 2026-08-04
 
 ## New Releases
 
-- **vllm**: [v0.26.0](https://github.com/vllm-project/vllm/releases/tag/v0.26.0)
+_No new releases this week._
 
 ## PRs This Week
 
-_No PR activity this week._
+### vllm
+- Opened: [#50907](https://github.com/vllm-project/vllm/pull/50907) [ROCm] Remove stale SDPA and skinny GEMM workarounds (@AndreasKaratzas)
 
 ## New Issues This Week
 

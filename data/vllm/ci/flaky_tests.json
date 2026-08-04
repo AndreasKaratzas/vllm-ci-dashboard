@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-08-03T07:52:24Z",
+  "generated_at": "2026-08-04T04:37:36Z",
   "window_builds": 10,
-  "total_flaky": 8,
+  "total_flaky": 9,
   "tests": [
     {
       "test_id": "mi355_1: V1 Sample + Logits::__job_level__",
@@ -59,17 +59,57 @@
       "mean_duration": 0.0
     },
     {
-      "test_id": "mi355_1: Regression::__job_level__",
+      "test_id": "mi355_2: Weight Loading Multiple GPU - Large Models::__job_level__",
       "label": "flaky",
       "pass_rate": 0.3333,
       "appearances": 3,
-      "last_seen": "2026-07-24",
-      "first_failure": "2026-07-22",
-      "failure_streak": 2,
+      "last_seen": "2026-08-03",
+      "first_failure": null,
+      "failure_streak": 0,
+      "history": [
+        "F",
+        "F",
+        "P"
+      ],
+      "module": "mi355_2: Weight Loading Multiple GPU - Large Models",
+      "mean_duration": 0.0
+    },
+    {
+      "test_id": "mi250_1: Python-only Installation::__job_level__",
+      "label": "flaky",
+      "pass_rate": 0.4,
+      "appearances": 11,
+      "last_seen": "2026-08-03",
+      "first_failure": null,
+      "failure_streak": 0,
+      "history": [
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "F",
+        "P",
+        "P",
+        "P",
+        "P"
+      ],
+      "module": "mi250_1: Python-only Installation",
+      "mean_duration": 0.0
+    },
+    {
+      "test_id": "mi355_1: Regression::__job_level__",
+      "label": "flaky",
+      "pass_rate": 0.5,
+      "appearances": 4,
+      "last_seen": "2026-08-03",
+      "first_failure": null,
+      "failure_streak": 0,
       "history": [
         "P",
         "F",
-        "F"
+        "F",
+        "P"
       ],
       "module": "mi355_1: Regression",
       "mean_duration": 0.0
@@ -77,40 +117,18 @@
     {
       "test_id": "mi355_2: Weight Loading Multiple GPU::__job_level__",
       "label": "flaky",
-      "pass_rate": 0.3333,
-      "appearances": 3,
-      "last_seen": "2026-07-28",
-      "first_failure": "2026-07-24",
-      "failure_streak": 2,
-      "history": [
-        "P",
-        "F",
-        "F"
-      ],
-      "module": "mi355_2: Weight Loading Multiple GPU",
-      "mean_duration": 0.0
-    },
-    {
-      "test_id": "mi250_1: Python-only Installation::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.4,
-      "appearances": 10,
-      "last_seen": "2026-08-02",
+      "pass_rate": 0.5,
+      "appearances": 4,
+      "last_seen": "2026-08-03",
       "first_failure": null,
       "failure_streak": 0,
       "history": [
         "P",
         "F",
         "F",
-        "F",
-        "F",
-        "F",
-        "F",
-        "P",
-        "P",
         "P"
       ],
-      "module": "mi250_1: Python-only Installation",
+      "module": "mi355_2: Weight Loading Multiple GPU",
       "mean_duration": 0.0
     },
     {

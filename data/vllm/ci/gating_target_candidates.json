@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-03T08:04:16Z",
+  "generated_at": "2026-08-04T04:50:47Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -22,12 +22,12 @@
   },
   "summary": {
     "upstream_build": 81913,
-    "amd_ci_build": 11571,
+    "amd_ci_build": 11591,
     "canonical_target_count": 125,
-    "row_count": 224,
+    "row_count": 227,
     "canonical_match_count": 116,
     "likely_duplicate_count": 15,
-    "new_candidate_count": 44,
+    "new_candidate_count": 47,
     "excluded_count": 46,
     "missing_from_upstream_count": 3,
     "by_decision": {
@@ -35,7 +35,7 @@
       "excluded": 46,
       "likely_duplicate": 15,
       "missing_from_upstream": 3,
-      "new_candidate": 44
+      "new_candidate": 47
     }
   },
   "rows": [
@@ -89,7 +89,7 @@
           "title": "[ROCm][CI] Gating more ROCm tests",
           "author": "AndreasKaratzas",
           "label": "Async Engine, Inputs, Utils, Worker",
-          "device": "mi325_1",
+          "device": "mi300_1",
           "yaml_file": ".buildkite/test_areas/misc.yaml"
         }
       ]
@@ -728,7 +728,7 @@
           "title": "[ROCm][CI] Gating more ROCm tests",
           "author": "AndreasKaratzas",
           "label": "Entrypoints Unit Tests",
-          "device": "mi300_1",
+          "device": "mi355_1",
           "yaml_file": ".buildkite/test_areas/entrypoints.yaml"
         }
       ]
@@ -953,7 +953,7 @@
       "canonical_key": "kernels core operation test",
       "state": "passed",
       "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/81913/steps/canvas?jid=019fc636-7388-4be7-ad9a-da3d8f4401ea&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81913/steps/canvas?jid=019fc636-7388-46f4-96fe-3c33b1005497&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 7,
@@ -1179,7 +1179,7 @@
           "title": "[ROCm][CI] Gating more ROCm tests",
           "author": "AndreasKaratzas",
           "label": "Language Models Test (MTEB)",
-          "device": "mi300_1",
+          "device": "mi250_1",
           "yaml_file": ".buildkite/test_areas/models_language.yaml"
         }
       ]
@@ -1204,7 +1204,7 @@
           "title": "[ROCm][CI] Gating more ROCm tests",
           "author": "AndreasKaratzas",
           "label": "Language Models Test (PPL)",
-          "device": "mi300_1",
+          "device": "mi250_1",
           "yaml_file": ".buildkite/test_areas/models_language.yaml"
         }
       ]
@@ -1508,7 +1508,7 @@
           "title": "[ROCm][CI] Gating more ROCm tests",
           "author": "AndreasKaratzas",
           "label": "Multi-Modal Models (Extended Generation 2)",
-          "device": "mi300_1",
+          "device": "mi355_1",
           "yaml_file": ".buildkite/test_areas/models_multimodal.yaml"
         }
       ]
@@ -1533,7 +1533,7 @@
           "title": "[ROCm][CI] Gating more ROCm tests",
           "author": "AndreasKaratzas",
           "label": "Multi-Modal Models (Extended Generation 3)",
-          "device": "mi300_1",
+          "device": "mi355_1",
           "yaml_file": ".buildkite/test_areas/models_multimodal.yaml"
         }
       ]
@@ -1633,7 +1633,7 @@
           "title": "[ROCm][CI] Gating more ROCm tests",
           "author": "AndreasKaratzas",
           "label": "Multi-Modal Processor",
-          "device": "mi300_1",
+          "device": "mi355_1",
           "yaml_file": ".buildkite/test_areas/models_multimodal.yaml"
         }
       ]
@@ -2038,7 +2038,7 @@
       "canonical_key": "v1 attention",
       "state": "passed",
       "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/81913/steps/canvas?jid=019fc636-72d0-4393-ac3a-552856c2f11f&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81913/steps/canvas?jid=019fc636-72cd-4dbd-b5d4-329260c6a0ed&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 103,
@@ -2200,6 +2200,23 @@
       "proposal_matches": []
     },
     {
+      "label": "DSv4-Flash Disaggregated DP EP",
+      "canonical_key": "dsv4-flash disaggregated dp ep",
+      "state": "passed",
+      "queue": "H200",
+      "url": "https://buildkite.com/vllm/ci/builds/81913/steps/canvas?jid=019fc636-72ff-45c8-8696-dfe9307699db&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
       "label": "Engine",
       "canonical_key": "engine",
       "state": "passed",
@@ -2217,7 +2234,7 @@
             "label": "Engine",
             "state": "passed",
             "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/11571/steps/canvas?jid=019fc1b3-d663-4c21-9ab8-d4dfe21745d8&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/11591/steps/canvas?jid=019fc6dc-f18a-4b6b-bc63-bdd61c567460&tab=output"
           }
         ]
       },
@@ -2330,7 +2347,7 @@
       "canonical_key": "gh200 test",
       "state": "soft_fail",
       "queue": "gh200_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/81913/steps/canvas?jid=019fc636-733e-4577-81eb-6c7a397b83bf&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81913/steps/canvas?jid=019fc99c-bfe4-4b6c-8b53-f1891530e881&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -2377,7 +2394,7 @@
             "label": "Kernels (B200-MI355)",
             "state": "passed",
             "queue": "amd_mi355_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/11571/steps/canvas?jid=019fc1b3-d696-4f4a-a16c-53ecd9e32509&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/11591/steps/canvas?jid=019fc6dc-f1be-45ea-81fd-956d45e0941e&tab=output"
           }
         ]
       },
@@ -2505,9 +2522,9 @@
     {
       "label": "LM Eval KV-Offload (1xH200)",
       "canonical_key": "lm eval kv-offload (1 gpus)",
-      "state": "failed",
+      "state": "passed",
       "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/81913/steps/canvas?jid=019fc636-7396-4b7f-8128-161425ceea11&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81913/steps/canvas?jid=019fc99c-c0ba-44f8-bf62-2b982dd82623&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -2554,11 +2571,52 @@
       "proposal_matches": []
     },
     {
+      "label": "LM Eval Large Models (8xH200)",
+      "canonical_key": "lm eval large models (8 gpus)",
+      "state": "passed",
+      "queue": "H200",
+      "url": "https://buildkite.com/vllm/ci/builds/81913/steps/canvas?jid=019fc636-7397-4ae9-a740-bf572aee7b44&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "passed",
+        "jobs": [
+          {
+            "label": "LM Eval Large Models (8xH200-8xMI300)",
+            "state": "passed",
+            "queue": "amd_mi300_8",
+            "url": "https://buildkite.com/vllm/amd-ci/builds/11591/steps/canvas?jid=019fc6dc-f192-4509-ae4f-d05ba9bb4128&tab=output"
+          }
+        ]
+      },
+      "proposal_matches": []
+    },
+    {
       "label": "LM Eval Large Models EP (2xB200)",
       "canonical_key": "lm eval large models ep (2 gpus)",
       "state": "passed",
       "queue": "b200-k8s",
       "url": "https://buildkite.com/vllm/ci/builds/81913/steps/canvas?jid=019fc678-3112-4e44-8773-6f6613769732&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "LM Eval PCP (4xB200)",
+      "canonical_key": "lm eval pcp (4 gpus)",
+      "state": "failed",
+      "queue": "b200-k8s",
+      "url": "https://buildkite.com/vllm/ci/builds/81913/steps/canvas?jid=019fca13-8131-4f3f-bcfa-6636b1022f66&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -2874,7 +2932,17 @@
         "state": "not_observed",
         "jobs": []
       },
-      "proposal_matches": []
+      "proposal_matches": [
+        {
+          "pr": 44969,
+          "url": "https://github.com/vllm-project/vllm/pull/44969",
+          "title": "[ROCm][CI] Gating more ROCm tests",
+          "author": "AndreasKaratzas",
+          "label": "Speculators Correctness Nightly (H100)",
+          "device": "mi300_1",
+          "yaml_file": ".buildkite/test_areas/spec_decode.yaml"
+        }
+      ]
     },
     {
       "label": "Torch Stable ABI Audit",
@@ -2911,7 +2979,7 @@
             "label": "vLLM IR Tests",
             "state": "passed",
             "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/11571/steps/canvas?jid=019fc1b3-d66c-4756-931e-965a6cd95fcd&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/11591/steps/canvas?jid=019fc6dc-f193-4afb-af55-638f040ddf2f&tab=output"
           }
         ]
       },
@@ -3123,7 +3191,7 @@
       "canonical_key": "ascend npu test",
       "state": "soft_fail",
       "queue": "ascend",
-      "url": "https://buildkite.com/vllm/ci/builds/81913/steps/canvas?jid=019fc636-733b-444e-bc0d-94f4937c48db&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/81913/steps/canvas?jid=019fc99c-bed4-4da8-8bd5-7bfe8a4bce87&tab=output",
       "exclusion_reasons": [
         "cpu_or_non_gpu"
       ],

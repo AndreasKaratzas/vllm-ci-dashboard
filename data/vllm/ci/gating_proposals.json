@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-03T08:04:08Z",
+  "generated_at": "2026-08-04T04:50:38Z",
   "source_repo": "vllm-project/vllm",
   "tracked_authors": [
     "AndreasKaratzas",
@@ -24,12 +24,12 @@
     "proposal_pr_count": 1,
     "proposed_group_count": 22,
     "by_device": {
-      "mi250_1": 4,
+      "mi250_1": 6,
       "mi250_2": 1,
-      "mi300_1": 12,
+      "mi300_1": 7,
       "mi300_2": 2,
       "mi300_4": 2,
-      "mi325_1": 1
+      "mi355_1": 4
     },
     "by_author": {
       "AndreasKaratzas": 22
@@ -42,10 +42,10 @@
     "retained_pr_count": 0,
     "retained_pr_numbers": [],
     "lookback_days": 35,
-    "since_date": "2026-06-29",
+    "since_date": "2026-06-30",
     "fresh_candidate_count": 0,
     "candidate_cache": {
-      "generated_at": "2026-08-03T08:04:08Z",
+      "generated_at": "2026-08-04T04:50:38Z",
       "pr_count": 1,
       "proposal_pr_numbers": [
         44969
@@ -59,11 +59,11 @@
           "author": "AndreasKaratzas",
           "state": "open",
           "created_at": "2026-06-09T06:56:07Z",
-          "updated_at": "2026-08-01T02:18:03Z",
-          "checked_at": "2026-08-03T08:04:08Z",
+          "updated_at": "2026-08-03T22:28:09Z",
+          "checked_at": "2026-08-04T04:50:38Z",
           "has_new_mirrors": true,
           "new_mirror_count": 22,
-          "head_sha": "33972a2e298b06c2e66fcdecadd8f41cf6c32db8",
+          "head_sha": "e93d87249a76a0d6237fc5d38cc6110c68157f5d",
           "new_mirror_labels": [
             "Cudagraph",
             "Docker Build Metadata",
@@ -86,7 +86,7 @@
             "Multi-Modal Models (Extended Generation 3)",
             "Plugin Tests (2 GPUs)",
             "PyTorch Compilation Unit Tests",
-            "Speculators Correctness"
+            "Speculators Correctness Nightly (H100)"
           ],
           "from_previous_proposal": true
         }
@@ -102,10 +102,10 @@
       "api_url": "https://api.github.com/repos/vllm-project/vllm/pulls/44969",
       "author": "AndreasKaratzas",
       "head_ref": "akaratza_stage_d_gating",
-      "head_sha": "33972a2e298b06c2e66fcdecadd8f41cf6c32db8",
+      "head_sha": "e93d87249a76a0d6237fc5d38cc6110c68157f5d",
       "base_ref": "main",
-      "base_sha": "8700f86a7012b2354c3f2834c1a0d2b6023b0bcd",
-      "updated_at": "2026-08-01T02:18:03Z",
+      "base_sha": "4a3447d200e5aa428d68d1a00aa00f1a19a1a729",
+      "updated_at": "2026-08-03T22:28:09Z",
       "created_at": "2026-06-09T06:56:07Z",
       "new_mirror_count": 22,
       "new_mirrors": [
@@ -151,7 +151,7 @@
           "key": "v1-e2e-4xh100",
           "area": "Engine",
           "yaml_file": ".buildkite/test_areas/engine.yaml",
-          "yaml_index": 6,
+          "yaml_index": 5,
           "device": "mi300_4",
           "timeout_in_minutes": 32,
           "source_file_dependencies": [
@@ -167,7 +167,7 @@
           "area": "Entrypoints",
           "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
           "yaml_index": 0,
-          "device": "mi300_1",
+          "device": "mi355_1",
           "timeout_in_minutes": 32,
           "source_file_dependencies": [
             "vllm/entrypoints",
@@ -254,8 +254,8 @@
           "key": "async-engine-inputs-utils-worker",
           "area": "Miscellaneous",
           "yaml_file": ".buildkite/test_areas/misc.yaml",
-          "yaml_index": 10,
-          "device": "mi325_1",
+          "yaml_index": 9,
+          "device": "mi300_1",
           "timeout_in_minutes": 36,
           "source_file_dependencies": [
             "vllm/assets/",
@@ -310,7 +310,7 @@
             "tests/v1/spec_decode/test_max_len.py",
             "tests/v1/spec_decode/test_rejection_sampler_utils.py",
             "tests/v1/spec_decode/test_synthetic_rejection_sampler_utils.py",
-            "tests/v1/e2e/spec_decode/test_spec_decode.py"
+            "tests/v1/e2e/spec_decode/"
           ]
         },
         {
@@ -356,7 +356,7 @@
           "area": "Models - Language",
           "yaml_file": ".buildkite/test_areas/models_language.yaml",
           "yaml_index": 5,
-          "device": "mi300_1",
+          "device": "mi250_1",
           "timeout_in_minutes": 64,
           "source_file_dependencies": [
             "vllm/model_executor/models/qwen3_5.py",
@@ -386,7 +386,7 @@
           "area": "Models - Language",
           "yaml_file": ".buildkite/test_areas/models_language.yaml",
           "yaml_index": 7,
-          "device": "mi300_1",
+          "device": "mi250_1",
           "timeout_in_minutes": 58,
           "source_file_dependencies": [
             "vllm/",
@@ -400,7 +400,7 @@
           "area": "Models - Multimodal",
           "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
           "yaml_index": 5,
-          "device": "mi300_1",
+          "device": "mi355_1",
           "timeout_in_minutes": 115,
           "source_file_dependencies": [
             "vllm/",
@@ -414,8 +414,8 @@
           "key": "multi-modal-models-extended-generation-2",
           "area": "Models - Multimodal",
           "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
-          "yaml_index": 8,
-          "device": "mi300_1",
+          "yaml_index": 9,
+          "device": "mi355_1",
           "timeout_in_minutes": 98,
           "source_file_dependencies": [
             "vllm/",
@@ -428,8 +428,8 @@
           "key": "multi-modal-models-extended-generation-3",
           "area": "Models - Multimodal",
           "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
-          "yaml_index": 9,
-          "device": "mi300_1",
+          "yaml_index": 10,
+          "device": "mi355_1",
           "timeout_in_minutes": 86,
           "source_file_dependencies": [
             "vllm/",
@@ -467,15 +467,16 @@
         },
         {
           "identity": "speculators-correctness",
-          "label": "Speculators Correctness",
+          "label": "Speculators Correctness Nightly (H100)",
           "key": "speculators-correctness",
           "area": "Spec Decode",
           "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
-          "yaml_index": 7,
+          "yaml_index": 8,
           "device": "mi300_1",
           "timeout_in_minutes": 36,
           "source_file_dependencies": [
             "vllm/v1/spec_decode/",
+            "vllm/v1/worker/gpu/spec_decode/dflash/",
             "vllm/model_executor/models/qwen3_dflash.py",
             "tests/v1/spec_decode/test_speculators_correctness.py"
           ]
