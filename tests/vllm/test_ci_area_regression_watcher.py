@@ -102,7 +102,7 @@ def _area():
     }
 
 
-def test_issue_body_has_actionable_status_and_no_mentions():
+def test_issue_body_tags_owner_and_assignee_and_ccs_ranked_owners_once():
     body = watcher._issue_body(_area(), "https://example.invalid/run")
 
     assert "Hard group" in body
@@ -112,7 +112,29 @@ def test_issue_body_has_actionable_status_and_no_mentions():
     assert "Restore parity with upstream definitions" in body
     assert "Primary" in body
     assert "| availability |" not in body
-    assert "@" not in body
+    assert "Selected owner and GitHub assignee: @primary" in body
+    assert "CC (remaining ranked area owners): @secondary @tertiary" in body
+    for login in ("primary", "secondary", "tertiary"):
+        assert body.count(f"@{login}") == 1
+
+
+def test_issue_body_mentions_fallback_assignee_and_sanitizes_untrusted_at_signs():
+    area = _area()
+    area["actual_assignee"] = {
+        "display_name": "CI Lead @not-a-mention",
+        "github_login": "ci-lead",
+    }
+    area["regressions"][0]["label"] = "Hard @outsider group"
+
+    body = watcher._issue_body(area, "https://example.invalid/run")
+
+    assert "- Selected owner: @primary" in body
+    assert "- GitHub assignee: @ci-lead" in body
+    assert "CC (remaining ranked area owners): @secondary @tertiary" in body
+    assert "@not-a-mention" not in body
+    assert "@outsider" not in body
+    for login in ("primary", "ci-lead", "secondary", "tertiary"):
+        assert body.count(f"@{login}") == 1
 
 
 def test_selected_available_owner_is_used_when_assignable():
@@ -150,9 +172,13 @@ def test_no_assignable_account_leaves_issue_unassigned():
     assert watcher._can_mutate_area(False, actual) is True
 
 
-def test_fingerprint_changes_with_assignment_or_runtime_result():
+def test_fingerprint_changes_with_assignment_owner_chain_or_runtime_result():
     area = _area()
     baseline = watcher._fingerprint(area)
+
+    area["owners"][1]["github_login"] = "new-secondary"
+    assert watcher._fingerprint(area) != baseline
+    area = _area()
 
     area["actual_assignee"] = {
         "display_name": "CI Lead",
@@ -163,6 +189,92 @@ def test_fingerprint_changes_with_assignment_or_runtime_result():
     changed_assignment = watcher._fingerprint(area)
     area["regressions"][0]["build_number"] = 11302
     assert watcher._fingerprint(area) != changed_assignment
+
+
+def test_notification_revision_preserves_unchanged_manual_close_suppression():
+    area = _area()
+    fingerprint = watcher._fingerprint(area)
+    legacy_fingerprint = watcher._legacy_fingerprint(area)
+    migrated = watcher._migrate_body_schema_state(
+        {
+            "suppressed": True,
+            "suppressed_fingerprint": legacy_fingerprint,
+            "last_fingerprint": legacy_fingerprint,
+            "body_schema_version": watcher.ISSUE_BODY_SCHEMA_VERSION - 1,
+        },
+        fingerprint=fingerprint,
+        legacy_fingerprint=legacy_fingerprint,
+    )
+
+    assert migrated["suppressed"] is True
+    assert migrated["suppressed_fingerprint"] == fingerprint
+    assert migrated["last_fingerprint"] == fingerprint
+    assert migrated["body_schema_version"] == watcher.ISSUE_BODY_SCHEMA_VERSION
+
+
+def test_notification_revision_does_not_mask_changed_suppressed_signal():
+    prior_area = _area()
+    prior_fingerprint = watcher._legacy_fingerprint(prior_area)
+    current_area = _area()
+    current_area["regressions"][0]["build_number"] += 1
+    current_fingerprint = watcher._fingerprint(current_area)
+    migrated = watcher._migrate_body_schema_state(
+        {
+            "suppressed": True,
+            "suppressed_fingerprint": prior_fingerprint,
+            "last_fingerprint": prior_fingerprint,
+        },
+        fingerprint=current_fingerprint,
+        legacy_fingerprint=watcher._legacy_fingerprint(current_area),
+    )
+
+    assert migrated["suppressed_fingerprint"] == prior_fingerprint
+    assert migrated["suppressed_fingerprint"] != current_fingerprint
+
+    class ReopenClient:
+        def find_open_issue(self, _marker):
+            return None
+
+        def open_issue(self, _title, _body, _labels, _assignees):
+            return 456
+
+    reconciled = watcher.reconcile_managed_issue(
+        migrated,
+        active=True,
+        fingerprint=current_fingerprint,
+        title="changed regression",
+        body="changed evidence",
+        ownership_marker="<!-- changed-signal-test:v1 -->",
+        recovery_body="recovered",
+        observed_at="2026-07-28T00:00:00Z",
+        label_specs=[],
+        client=ReopenClient(),
+        assignees=["primary"],
+    )
+    assert reconciled["suppressed"] is False
+    assert reconciled["issue"]["number"] == 456
+
+
+def test_notification_revision_forces_exactly_one_open_issue_body_update():
+    area = _area()
+    fingerprint = watcher._fingerprint(area)
+    legacy = watcher._migrate_body_schema_state(
+        {
+            "issue": {"number": 123, "opened_at": "2026-07-27T23:00:00Z"},
+            "last_fingerprint": watcher._legacy_fingerprint(area),
+        },
+        fingerprint=fingerprint,
+        legacy_fingerprint=watcher._legacy_fingerprint(area),
+    )
+
+    assert legacy["last_fingerprint"] == ""
+    legacy["last_fingerprint"] = fingerprint
+    current = watcher._migrate_body_schema_state(
+        legacy,
+        fingerprint=fingerprint,
+        legacy_fingerprint=watcher._legacy_fingerprint(area),
+    )
+    assert current["last_fingerprint"] == fingerprint
 
 
 def _source_documents(now):

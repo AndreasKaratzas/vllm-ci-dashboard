@@ -24,6 +24,7 @@ def _config():
     return validate_ownership_config(
         {
             "schema_version": 1,
+            "policy": {"mentions": True},
             "ci_lead": {
                 "display_name": "CI Lead",
                 "github_login": "ci-lead",
@@ -64,6 +65,7 @@ def test_committed_rotation_matches_the_31_requested_rank_chains():
     from vllm.ci.ownership import load_ownership_config
 
     config = load_ownership_config(ROOT / "config" / "vllm_ci_ownership.json")
+    assert config["policy"]["mentions"] is True
     expected = {
         "attention": ["djramic", "aarushjain29", "peizhang56"],
         "basic_correctness": ["gchinora", "music-dino", "divakar-amd"],
@@ -180,6 +182,18 @@ def test_config_requires_complete_distinct_rank_chain():
     payload["areas"]["kernels"] = payload["areas"]["kernels"][:2]
 
     with pytest.raises(ValueError, match="exactly ranks 1, 2, and 3"):
+        validate_ownership_config(payload)
+
+
+def test_config_requires_mentions_and_valid_github_logins():
+    payload = _config()
+    payload["policy"]["mentions"] = False
+    with pytest.raises(ValueError, match="must enable GitHub mentions"):
+        validate_ownership_config(payload)
+
+    payload = _config()
+    payload["owners"][0]["github_login"] = "invalid@login"
+    with pytest.raises(ValueError, match="invalid GitHub login"):
         validate_ownership_config(payload)
 
 

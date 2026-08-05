@@ -818,6 +818,110 @@ class TestParsedResultFallback:
             "?jid=019ed951-af8e-4dc8-9590-72a47f9fed96&tab=output"
         )
 
+    def test_exact_job_id_keeps_manual_retry_metadata_off_original_attempt(self, tmp_path):
+        results_dir = tmp_path / "test_results"
+        results_dir.mkdir()
+        result_date = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+        raw_name = "mi300_1: Retryable Group"
+        (results_dir / f"{result_date}_amd.jsonl").write_text(json.dumps({
+            "name": "__passed__ (4)",
+            "status": "passed",
+            "duration_secs": 30.0,
+            "job_name": raw_name,
+            "job_id": "original-job",
+            "step_id": "retryable-step",
+            "build_number": 11600,
+            "pipeline": "amd-ci",
+            "date": result_date,
+        }) + "\n")
+        buildkite_builds = [{
+            "number": 11600,
+            "jobs": [
+                {
+                    "name": "Retryable Group",
+                    "raw_name": raw_name,
+                    "state": "passed",
+                    "job_id": "original-job",
+                    "step_id": "retryable-step",
+                    "dur": 12.0,
+                    "started_at": "2026-08-01T09:10:00Z",
+                    "finished_at": "2026-08-01T09:22:00Z",
+                    "retried_in_job_id": "manual-retry-job",
+                },
+                {
+                    "name": "Retryable Group",
+                    "raw_name": raw_name,
+                    "state": "passed",
+                    "job_id": "manual-retry-job",
+                    "step_id": "retryable-step",
+                    "dur": 5.0,
+                    "started_at": "2026-08-02T15:00:00Z",
+                    "finished_at": "2026-08-02T15:05:00Z",
+                    "retry_source": "manual",
+                },
+            ],
+        }]
+
+        builds = ca.load_test_result_builds(
+            tmp_path,
+            "amd-ci",
+            14,
+            buildkite_builds=buildkite_builds,
+            previous_builds=[],
+        )
+
+        job = builds[0]["jobs"][0]
+        assert job["job_id"] == "original-job"
+        assert job["finished_at"] == "2026-08-01T09:22:00Z"
+        assert job["wall_completion_mins"] == 12.0
+        assert job["retried_in_job_id"] == "manual-retry-job"
+        assert "retry_source" not in job
+
+    def test_explicit_unknown_job_id_does_not_fall_back_to_same_name_retry(self, tmp_path):
+        results_dir = tmp_path / "test_results"
+        results_dir.mkdir()
+        result_date = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+        raw_name = "mi300_1: Retryable Group"
+        (results_dir / f"{result_date}_amd.jsonl").write_text(json.dumps({
+            "name": "__passed__ (4)",
+            "status": "passed",
+            "duration_secs": 30.0,
+            "job_name": raw_name,
+            "job_id": "original-job-not-in-metadata",
+            "step_id": "retryable-step",
+            "build_number": 11600,
+            "pipeline": "amd-ci",
+            "date": result_date,
+        }) + "\n")
+        buildkite_builds = [{
+            "number": 11600,
+            "jobs": [{
+                "name": "Retryable Group",
+                "raw_name": raw_name,
+                "state": "passed",
+                "job_id": "same-name-manual-retry",
+                "step_id": "retryable-step",
+                "dur": 5.0,
+                "started_at": "2026-08-02T15:00:00Z",
+                "finished_at": "2026-08-02T15:05:00Z",
+                "retry_source": "manual",
+            }],
+        }]
+
+        builds = ca.load_test_result_builds(
+            tmp_path,
+            "amd-ci",
+            14,
+            buildkite_builds=buildkite_builds,
+            previous_builds=[],
+        )
+
+        job = builds[0]["jobs"][0]
+        assert job["job_id"] == "original-job-not-in-metadata"
+        assert "finished_at" not in job
+        assert "wall_completion_mins" not in job
+        assert "retry_source" not in job
+
     def test_keeps_hardware_specific_result_jobs_separate(self, tmp_path):
         """Same title on MI300 and MI355 must not collapse into one job.
 

@@ -116,7 +116,8 @@ def test_ci_ownership_renderer_is_reusable_and_removed_from_ci_health():
         "America/Chicago",
         "UNMAPPED TARGETS",
         "GitHub assignability is checked before mutation",
-        "automation issue text contains no user mentions",
+        "Regression issues tag the selected owner and verified assignee",
+        "CC each remaining ranked area owner once",
     ):
         assert contract in OPS_JS
     assert "private PTO" not in OPS_JS

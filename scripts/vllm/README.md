@@ -98,8 +98,9 @@ smaller reviewed runtime-target plan. Area attribution prefers commit-pinned
 definition-parity source files, then reviewed aliases/overrides. Ambiguous or
 unmapped rows remain unassigned and visible; they are never routed through a
 lossy category guess. Issue assignment walks ranks 1→2→3, verifies repository
-assignability, and falls back to the CI lead. All issue bodies are mention-free
-and the shared issue client rejects any repository other than the dashboard.
+assignability, and falls back to the CI lead. Every regression issue tags the
+selected owner and verified assignee, then CCs each remaining ranked area owner
+once. The shared issue client rejects any repository other than the dashboard.
 
 `scripts/build_site.py --cache-bust-index` assembles `docs/` and `data/`
 into `_site/` using `config/public_data_manifest.json`; unlisted collector

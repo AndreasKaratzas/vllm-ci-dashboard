@@ -138,8 +138,9 @@ hours. If every ranked owner is outside working hours, or a schedule cannot be
 evaluated safely, assignment falls back to the CI lead. The watcher also verifies
 that the selected login can be assigned in this repository; otherwise it
 assigns the CI lead. If neither account is verifiably assignable, the watcher
-refuses to open an unassigned issue. Automated issue text never uses `@`
-mentions and no issue can be opened outside the dashboard repository.
+refuses to open an unassigned issue. Each regression issue tags the selected
+owner and verified assignee, then CCs every remaining ranked area owner exactly
+once. No issue can be opened outside the dashboard repository.
 
 Use one GitHub Project, **AMD CI Operations**, with label-backed views instead
 of three separate projects: `workstream:infra`, `workstream:dashboard-ci`, and

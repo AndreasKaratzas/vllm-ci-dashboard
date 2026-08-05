@@ -836,10 +836,15 @@ def _amd_test_observation(bucket: dict, metadata: dict) -> dict:
     return row
 
 
-def _amd_test_sort_key(row: dict) -> tuple[str, int]:
+def _amd_test_sort_key(row: dict) -> tuple[int, str]:
+    """Order AMD observations by nightly cycle, then attempt timestamp.
+
+    An older Buildkite build can be retried after a newer nightly completes.
+    Completion time therefore cannot define which nightly is current.
+    """
     return (
-        str(row.get("observed_at") or row.get("date") or ""),
         _strict_int(row.get("build_number")) or 0,
+        str(row.get("observed_at") or row.get("date") or ""),
     )
 
 

@@ -292,11 +292,20 @@ def job_metadata_keys(job):
     return keys
 
 
-def _build_job_metadata(builds: list[dict]) -> dict[int, dict[str, dict]]:
-    """Index existing per-job timing/queue metadata by build number and name."""
-    meta: dict[int, dict[str, dict]] = {}
+def _build_job_metadata(builds: list[dict]) -> dict[int, dict[str, dict[str, dict]]]:
+    """Index existing per-job metadata by build number, exact ID, and name.
+
+    Buildkite retains superseded attempts when ``include_retried_jobs`` is
+    enabled.  Those attempts commonly share a name, so the ID index is the
+    authoritative join for parsed JSONL rows that carry a ``job_id``.  The
+    name index remains a fallback for historical rows without job identity.
+    """
+    meta: dict[int, dict[str, dict[str, dict]]] = {}
     for build in builds:
-        by_name = meta.setdefault(int(build.get("number") or 0), {})
+        index = meta.setdefault(
+            int(build.get("number") or 0),
+            {"by_job_id": {}, "by_name": {}},
+        )
         for job in build.get("jobs") or []:
             payload = {
                 k: job[k]
@@ -318,9 +327,42 @@ def _build_job_metadata(builds: list[dict]) -> dict[int, dict[str, dict]]:
                 payload.setdefault("wall_completion_mins", job["dur"])
                 payload.setdefault("duration_source", "buildkite_wall")
             payload.update({k: job[k] for k in RETRY_FIELDS if k in job})
+            job_id = str(job.get("job_id") or "")
+            if job_id:
+                index["by_job_id"][job_id] = payload
             for key in job_metadata_keys(job):
-                by_name[key] = payload
+                index["by_name"][key] = payload
     return meta
+
+
+def _merge_job_metadata(
+    base: dict[int, dict[str, dict[str, dict]]],
+    fresh: dict[int, dict[str, dict[str, dict]]],
+) -> dict[int, dict[str, dict[str, dict]]]:
+    """Merge metadata indexes, letting a fresh Buildkite read win by key."""
+    for build_number, incoming in fresh.items():
+        current = base.setdefault(build_number, {"by_job_id": {}, "by_name": {}})
+        current["by_job_id"].update(incoming.get("by_job_id") or {})
+        current["by_name"].update(incoming.get("by_name") or {})
+    return base
+
+
+def _job_metadata_for_result(
+    index: dict[str, dict[str, dict]],
+    result_job: dict,
+) -> dict:
+    """Resolve metadata for one parsed-result job without crossing attempts."""
+    job_id = str(result_job.get("job_id") or "")
+    if job_id:
+        # An exact identity is authoritative. Falling back to a shared name
+        # here can attach a manual retry's timestamps to the original attempt.
+        return (index.get("by_job_id") or {}).get(job_id) or {}
+
+    by_name = index.get("by_name") or {}
+    for key in job_metadata_keys(result_job):
+        if key in by_name:
+            return by_name[key]
+    return {}
 
 
 def _build_metadata(builds: list[dict]) -> dict[int, dict]:
@@ -355,8 +397,7 @@ def load_test_result_builds(output: Path, pipeline_slug: str, days: int, buildki
     bk_meta = _build_metadata(buildkite_builds or [])
     prev_meta = _build_metadata(previous_builds or [])
     job_meta = _build_job_metadata(previous_builds or [])
-    for build_number, jobs in _build_job_metadata(buildkite_builds or []).items():
-        job_meta.setdefault(build_number, {}).update(jobs)
+    _merge_job_metadata(job_meta, _build_job_metadata(buildkite_builds or []))
 
     grouped: dict[int, dict] = {}
     for path in paths:
@@ -416,10 +457,9 @@ def load_test_result_builds(output: Path, pipeline_slug: str, days: int, buildki
         jobs = []
         passed = failed = soft = skipped = 0
         for raw_name, raw_job in sorted(bucket["jobs"].items()):
-            metadata = (
-                job_meta.get(build_number, {}).get(raw_name)
-                or job_meta.get(build_number, {}).get(raw_job["name"])
-                or {}
+            metadata = _job_metadata_for_result(
+                job_meta.get(build_number, {}),
+                raw_job,
             )
             state = _result_status_to_job_state(raw_job["statuses"])
             if metadata.get("state") == "soft_fail" or metadata.get("soft_failed"):

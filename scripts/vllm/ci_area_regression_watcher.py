@@ -6,7 +6,8 @@ the operations bundle is freshly built. Test targets are attributed back to thei
 ``.buildkite/test_areas/*.yaml`` source, then assigned through the ranked owner
 chain. Working hours come only from the committed regional profiles. A missing
 schedule, an out-of-hours chain, or an unassignable selected account escalates
-to the CI lead. Issue text intentionally contains no ``@`` mentions.
+to the CI lead. Each managed regression issue tags the selected owner and the
+verified assignee, then CCs every remaining ranked area owner exactly once.
 """
 
 from __future__ import annotations
@@ -61,6 +62,16 @@ MAX_NIGHTLY_AGE = timedelta(hours=36)
 FUTURE_SKEW = timedelta(minutes=15)
 MAX_ISSUE_ROWS = 50
 OWNERSHIP_MARKER_PREFIX = "vllm-ci-dashboard:managed-alert:ci-area-regression"
+ISSUE_BODY_SCHEMA_VERSION = 2
+GITHUB_LOGIN_RE = re.compile(
+    r"(?=.{1,39}\Z)[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\Z"
+)
+GITHUB_MENTION_RE = re.compile(
+    r"(?<![A-Za-z0-9-])@"
+    r"(?P<login>(?=.{1,39}(?:[^A-Za-z0-9-]|$))[A-Za-z0-9]"
+    r"(?:[A-Za-z0-9-]*[A-Za-z0-9])?)"
+    r"(?![A-Za-z0-9-])"
+)
 DASHBOARD_URL = (
     "https://andreaskaratzas.github.io/vllm-ci-dashboard/"
     "?ops_ready_view=ownership#ci-ready"
@@ -182,7 +193,65 @@ def _write_json(path: Path, value: dict) -> None:
 
 
 def _md(value: Any) -> str:
-    return str(value or "-").replace("|", "\\|").replace("\n", " ")
+    return (
+        str(value or "-")
+        .replace("@", "&#64;")
+        .replace("|", "\\|")
+        .replace("\n", " ")
+    )
+
+
+def _github_login(value: Any) -> str:
+    login = str(value or "").strip()
+    if login and not GITHUB_LOGIN_RE.fullmatch(login):
+        raise ValueError(f"Invalid GitHub login in ownership issue: {login!r}")
+    return login
+
+
+def _notification_lines(area: dict) -> tuple[list[str], list[str]]:
+    """Render role-aware, case-insensitively deduplicated GitHub mentions."""
+    selected = _github_login(
+        (area.get("selected_owner") or {}).get("github_login")
+    )
+    actual = _github_login(
+        (area.get("actual_assignee") or {}).get("github_login")
+    )
+    if not selected:
+        raise ValueError("Managed CI ownership issue requires a selected owner")
+
+    lines: list[str] = []
+    mentioned: list[str] = []
+    seen: set[str] = set()
+
+    def mention(login: str) -> str:
+        folded = login.casefold()
+        if folded in seen:
+            raise ValueError(f"Duplicate ownership mention requested for {login!r}")
+        seen.add(folded)
+        mentioned.append(login)
+        return f"@{login}"
+
+    if actual and actual.casefold() == selected.casefold():
+        lines.append(
+            f"- Selected owner and GitHub assignee: {mention(selected)}"
+        )
+    else:
+        lines.append(f"- Selected owner: {mention(selected)}")
+        if actual:
+            lines.append(f"- GitHub assignee: {mention(actual)}")
+
+    cc: list[str] = []
+    for owner in sorted(
+        (row for row in (area.get("owners") or []) if isinstance(row, dict)),
+        key=lambda row: int(row.get("rank") or 0),
+    ):
+        login = _github_login(owner.get("github_login"))
+        if not login or login.casefold() in seen:
+            continue
+        cc.append(mention(login))
+    if cc:
+        lines.append(f"- CC (remaining ranked area owners): {' '.join(cc)}")
+    return lines, mentioned
 
 
 def _owner_rank(area: dict) -> str:
@@ -204,9 +273,10 @@ def _issue_title(area: dict) -> str:
 def _issue_body(area: dict, run_url: str) -> str:
     counts = area.get("counts") or {}
     selected = area.get("selected_owner") or {}
-    actual = area.get("actual_assignee") or selected
+    actual = area.get("actual_assignee") or {}
+    notification_lines, expected_mentions = _notification_lines(area)
     lines = [
-        f"## AMD CI regression — `{area['source_file']}`",
+        f"## AMD CI regression — `{_md(area['source_file'])}`",
         "",
         (
             f"**{int(counts.get('incidents') or 0)} target groups are regressing: "
@@ -217,6 +287,10 @@ def _issue_body(area: dict, run_url: str) -> str:
         f"Selected owner: **{_md(selected.get('display_name'))}** (rank {_owner_rank(area)}).",
         f"GitHub assignee: **{_md(actual.get('display_name'))}**.",
         f"Assignment decision: `{_md(area.get('assignment_reason'))}`.",
+        "",
+        "### Notifications",
+        "",
+        *notification_lines,
         "",
         "### Escalation chain",
         "",
@@ -272,18 +346,25 @@ def _issue_body(area: dict, run_url: str) -> str:
             "",
             (
                 f"*Managed from {run_url}. This watcher updates or closes only the tracked "
-                "issue for this test area. Issue bodies intentionally contain no user mentions.*"
+                "issue for this test area. The selected owner, verified assignee, and "
+                "remaining ranked owners are notified once in this body.*"
             ),
         ]
     )
     body = "\n".join(lines) + "\n"
-    if "@" in body:
-        raise ValueError("Managed CI ownership issue bodies must not contain @ mentions")
+    observed_mentions = [
+        match.group("login") for match in GITHUB_MENTION_RE.finditer(body)
+    ]
+    if observed_mentions != expected_mentions:
+        raise ValueError(
+            "Managed CI ownership issue mentions must contain only the deduplicated "
+            "selected owner, assignee, and ranked CC list"
+        )
     return body
 
 
-def _fingerprint(area: dict) -> str:
-    compact = {
+def _fingerprint_payload(area: dict) -> dict:
+    return {
         "area": area.get("area"),
         "selected_owner": (area.get("selected_owner") or {}).get("github_login"),
         "actual_assignee": (area.get("actual_assignee") or {}).get("github_login"),
@@ -300,8 +381,61 @@ def _fingerprint(area: dict) -> str:
             row.get("label") for row in area.get("upstream_parity_gaps") or []
         ],
     }
+
+
+def _hash_fingerprint_payload(compact: dict) -> str:
     encoded = json.dumps(compact, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _legacy_fingerprint(area: dict) -> str:
+    """Return the pre-notification-policy signal hash for state migration only."""
+    return _hash_fingerprint_payload(_fingerprint_payload(area))
+
+
+def _fingerprint(area: dict) -> str:
+    compact = _fingerprint_payload(area)
+    compact["owners"] = [
+        {
+            "rank": row.get("rank"),
+            "github_login": row.get("github_login"),
+            "display_name": row.get("display_name"),
+        }
+        for row in area.get("owners") or []
+    ]
+    return _hash_fingerprint_payload(compact)
+
+
+def _migrate_body_schema_state(
+    state: dict,
+    *,
+    fingerprint: str,
+    legacy_fingerprint: str,
+) -> dict:
+    """Force one open-issue refresh without hiding genuine signal changes."""
+    normalized = normalize_managed_state(state)
+    try:
+        body_schema = int(normalized.get("body_schema_version") or 1)
+    except (TypeError, ValueError):
+        body_schema = 1
+    if body_schema >= ISSUE_BODY_SCHEMA_VERSION:
+        return normalized
+
+    if normalized["suppressed"]:
+        # The new signal hash includes the ordered CC chain. Preserve a manual
+        # close only when the stored legacy hash proves that the underlying
+        # regression and assignment signal is unchanged.
+        if normalized["suppressed_fingerprint"] == legacy_fingerprint:
+            normalized["suppressed_fingerprint"] = fingerprint
+            if normalized["last_fingerprint"] == legacy_fingerprint:
+                normalized["last_fingerprint"] = fingerprint
+    elif normalized.get("issue"):
+        # Body schema is intentionally separate from signal identity. Clearing
+        # this value makes an existing open issue refresh once; a successful
+        # update stores the current signal hash again.
+        normalized["last_fingerprint"] = ""
+    normalized["body_schema_version"] = ISSUE_BODY_SCHEMA_VERSION
+    return normalized
 
 
 def _owner_by_login(config: dict, login: str) -> dict:
@@ -460,10 +594,16 @@ def run() -> int:
             continue
         assignees = [actual["github_login"]] if actual else None
         marker = f"<!-- {OWNERSHIP_MARKER_PREFIX}:{area_key}:v1 -->"
-        reconciled = reconcile_managed_issue(
+        fingerprint = _fingerprint(area)
+        prior_area = _migrate_body_schema_state(
             prior_areas.get(area_key) or {},
+            fingerprint=fingerprint,
+            legacy_fingerprint=_legacy_fingerprint(area),
+        )
+        reconciled = reconcile_managed_issue(
+            prior_area,
             active=active,
-            fingerprint=_fingerprint(area),
+            fingerprint=fingerprint,
             title=_issue_title(area),
             body=_issue_body(area, run_url),
             ownership_marker=marker,
@@ -486,6 +626,7 @@ def run() -> int:
             client=client,
             assignees=assignees,
         )
+        reconciled["body_schema_version"] = ISSUE_BODY_SCHEMA_VERSION
         next_areas[area_key] = reconciled
         checkpoint_areas[area_key] = reconciled
         _attach_issue(area, reconciled, repo)

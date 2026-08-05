@@ -729,6 +729,73 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
     assert health["provenance"]["nightly_metadata"]["unjoined_group_observations"] == 1
 
 
+def test_amd_test_catalog_prefers_newer_build_over_late_retry_of_older_build(tmp_path):
+    group_name = "mi300_1: Retry-sensitive tests"
+    _write_json(tmp_path / "analytics.json", {
+        "amd-ci": {
+            "generated_at": GENERATED_AT,
+            "builds": [
+                {
+                    "number": 11651,
+                    "date": "2026-08-04",
+                    "created_at": "2026-08-04T09:00:00Z",
+                    "web_url": "https://buildkite.com/vllm/amd-ci/builds/11651",
+                    "jobs": [{
+                        "raw_name": group_name,
+                        "job_id": "nightly-job",
+                        "state": "passed",
+                        "finished_at": "2026-08-04T10:00:00Z",
+                    }],
+                },
+                {
+                    "number": 11591,
+                    "date": "2026-08-03",
+                    "created_at": "2026-08-03T09:00:00Z",
+                    "web_url": "https://buildkite.com/vllm/amd-ci/builds/11591",
+                    "jobs": [{
+                        "raw_name": group_name,
+                        "job_id": "late-retry-job",
+                        "state": "passed",
+                        "finished_at": "2026-08-04T15:22:00Z",
+                    }],
+                },
+            ],
+        },
+    })
+    _write_jsonl(tmp_path / "test_results" / "2026-08-03_amd.jsonl", [{
+        "name": "test_retry_sensitive",
+        "status": "passed",
+        "duration_secs": 1,
+        "job_name": group_name,
+        "job_id": "late-retry-job",
+        "build_number": 11591,
+        "pipeline": "amd-ci",
+        "date": "2026-08-03",
+    }], trailing="\n")
+    _write_jsonl(tmp_path / "test_results" / "2026-08-04_amd.jsonl", [{
+        "name": "test_retry_sensitive",
+        "status": "passed",
+        "duration_secs": 1,
+        "job_name": group_name,
+        "job_id": "nightly-job",
+        "build_number": 11651,
+        "pipeline": "amd-ci",
+        "date": "2026-08-04",
+    }], trailing="\n")
+
+    health = ops.build_snapshot(tmp_path, generated_at=GENERATED_AT)["amd_test_health"]
+    group = health["group_catalog"][0]
+
+    assert health["summary"]["latest_build_number"] == 11651
+    assert health["summary"]["latest_group_count"] == 1
+    assert group["latest_build_number"] == 11651
+    assert [row["build_number"] for row in group["observations"]] == [11591, 11651]
+    assert sum(
+        row["latest_build_number"] == health["summary"]["latest_build_number"]
+        for row in health["group_catalog"]
+    ) == health["summary"]["latest_group_count"]
+
+
 def test_amd_test_health_is_unavailable_for_missing_or_corrupt_results(tmp_path):
     missing = ops.build_snapshot(tmp_path, generated_at=GENERATED_AT)["amd_test_health"]
 

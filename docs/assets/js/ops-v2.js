@@ -3290,7 +3290,7 @@
       n('span', '', workingHoursConfigured
         ? 'EU follows 09:00–17:00 Serbia time (Europe/Belgrade) and NA follows 09:00–17:00 Chicago time (America/Chicago), Monday through Friday. The first in-hours owner is selected in rank order. Missing or invalid working-hour schedules fail closed to the CI lead, even when the regional profile source is healthy.'
         : 'Regional working-hour profiles are unavailable or invalid. Missing or invalid working-hour schedules fail closed to the CI lead.'),
-      n('span', '', ' GitHub assignability is checked before mutation, and automation issue text contains no user mentions.'),
+      n('span', '', ' GitHub assignability is checked before mutation. Regression issues tag the selected owner and verified assignee, then CC each remaining ranked area owner once.'),
       project.url ? n('span', '', ' ') : null,
       project.url ? externalLink('Open AMD CI Operations project', project.url) : null,
       project.url ? n('span', '', '.') : null,

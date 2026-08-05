@@ -23,6 +23,9 @@ PASS_STATES = {"passed", "pass"}
 MULTISPACE_RE = re.compile(r"\s+")
 AMD_PREFIX_RE = re.compile(r"^AMD:\s*", re.IGNORECASE)
 SHARD_TEMPLATE_SUFFIX_RE = re.compile(r"\s*%N\s*$", re.IGNORECASE)
+GITHUB_LOGIN_RE = re.compile(
+    r"(?=.{1,39}\Z)[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\Z"
+)
 
 
 def utc_now() -> datetime:
@@ -129,6 +132,12 @@ def validate_ownership_config(payload: Any) -> dict:
     lead_name = str(lead.get("display_name") or "").strip()
     if not lead_login or not lead_name:
         raise ValueError("ci_lead requires display_name and github_login")
+    if not GITHUB_LOGIN_RE.fullmatch(lead_login):
+        raise ValueError(f"ci_lead has invalid GitHub login {lead_login!r}")
+
+    policy = payload.get("policy")
+    if not isinstance(policy, dict) or policy.get("mentions") is not True:
+        raise ValueError("Ownership policy must enable GitHub mentions")
 
     raw_profiles = payload.get("working_hours_profiles") or {}
     if not isinstance(raw_profiles, dict):
@@ -155,6 +164,8 @@ def validate_ownership_config(payload: Any) -> dict:
         name = str(row.get("display_name") or "").strip()
         if not login or not name:
             raise ValueError("Every owner requires display_name and github_login")
+        if not GITHUB_LOGIN_RE.fullmatch(login):
+            raise ValueError(f"Owner has invalid GitHub login {login!r}")
         folded = login.casefold()
         if folded in owners_by_login:
             raise ValueError(f"Duplicate owner login: {login}")
@@ -702,7 +713,7 @@ def build_ownership_status(
             "issue_grain": "one state-owned issue per test area",
             "assignment": "first available owner by ascending rank; otherwise CI lead",
             "availability": "regional working hours only; missing or invalid schedules fail closed",
-            "mentions": "issue bodies never use @ mentions",
+            "mentions": "selected owner and verified assignee tagged once; remaining ranked owners CCed once",
             "repository": "AndreasKaratzas/vllm-ci-dashboard",
             "workstream": "dev",
         },
