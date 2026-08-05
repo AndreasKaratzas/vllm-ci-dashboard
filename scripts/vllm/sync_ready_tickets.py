@@ -673,6 +673,10 @@ _HW_PREFIX_RE = re.compile(r"^mi\d+_\d+:\s*", re.IGNORECASE)
 _HW_PREFIX_CAPTURE_RE = re.compile(r"^(mi\d+_\d+):\s*", re.IGNORECASE)
 _CI_PREFIX_RE = re.compile(r"^\[CI Failure\]:\s*", re.IGNORECASE)
 _PULL_URL_RE = re.compile(r"https?://github\.com/([^/\s]+/[^/\s]+)/pull/(\d+)", re.IGNORECASE)
+_BUILDKITE_BUILD_URL_RE = re.compile(
+    r"https?://buildkite\.com/[^/\s)]+/[^/\s)]+/builds/(\d+)",
+    re.IGNORECASE,
+)
 _PR_CONTEXT_REF_RE = re.compile(
     r"(?i)\b(?:pr|pull request|expected to be solved after|solved after)\b[^\n#]{0,120}#(\d+)"
 )
@@ -1076,6 +1080,9 @@ def _extract_linked_prs_from_text(text: str, repo_full_name: str) -> list[dict]:
     refs: dict[int, dict] = {}
     body = text or ""
     repo_norm = (repo_full_name or "").lower()
+    buildkite_build_numbers = {
+        int(match.group(1)) for match in _BUILDKITE_BUILD_URL_RE.finditer(body)
+    }
 
     for match in _PULL_URL_RE.finditer(body):
         repo = match.group(1)
@@ -1089,6 +1096,8 @@ def _extract_linked_prs_from_text(text: str, repo_full_name: str) -> list[dict]:
 
     for match in _PR_CONTEXT_REF_RE.finditer(body):
         number = int(match.group(1))
+        if number in buildkite_build_numbers:
+            continue
         refs.setdefault(number, {
             "number": number,
             "url": f"https://github.com/{repo_full_name}/pull/{number}",

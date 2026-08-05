@@ -112,6 +112,60 @@ SEARCH_ISSUES_PR_SHAPE = {
 }
 
 
+class TestLinkedPrReferences:
+    def test_buildkite_build_labeled_as_pr_is_not_a_github_reference(self):
+        repo = "vllm-project/vllm"
+        text = (
+            "[PR #82340](https://buildkite.com/vllm/ci/builds/82340#job) failed\n"
+            "PR #82340 (retry) also failed\n"
+            "PR for this here #40176\n"
+        )
+
+        assert collect.extract_pr_refs(text, repo) == [{
+            "repo": repo,
+            "number": 40176,
+            "url": "https://github.com/vllm-project/vllm/pull/40176",
+        }]
+
+    def test_unresolved_heuristic_reference_is_pruned_before_publication(
+        self, monkeypatch, capsys
+    ):
+        repo = "vllm-project/vllm"
+        confirmed_raw = dict(REAL_PR)
+        confirmed_raw.update({
+            "number": 49937,
+            "html_url": f"https://github.com/{repo}/pull/49937",
+        })
+        confirmed_pr = collect.normalize_pr(confirmed_raw)
+        issues = [{
+            "number": 51115,
+            "linked_prs": [
+                {
+                    "repo": repo,
+                    "number": 49937,
+                    "url": f"https://github.com/{repo}/pull/49937",
+                },
+                {
+                    "repo": repo,
+                    "number": 82340,
+                    "url": f"https://github.com/{repo}/pull/82340",
+                },
+            ],
+        }]
+        prs = []
+        monkeypatch.setattr(
+            collect,
+            "fetch_pr_by_number",
+            lambda _repo, number: confirmed_pr if number == 49937 else None,
+        )
+
+        collect.resolve_project_issue_pr_refs(repo, issues, prs)
+
+        assert [ref["number"] for ref in issues[0]["linked_prs"]] == [49937]
+        assert [pr["number"] for pr in prs] == [49937]
+        assert "Ignoring unresolved PR reference #82340" in capsys.readouterr().out
+
+
 # ---------------------------------------------------------------------------
 # Fake ``gh_api`` — returns specific payloads per endpoint prefix.
 # ---------------------------------------------------------------------------
