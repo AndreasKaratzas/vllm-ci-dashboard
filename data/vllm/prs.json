@@ -1,5 +1,5 @@
 {
-  "collected_at": "2026-08-05T04:55:26Z",
+  "collected_at": "2026-08-05T20:28:27Z",
   "prs": [
     {
       "number": 50907,
@@ -8,7 +8,7 @@
       "state": "open",
       "merged": false,
       "created_at": "2026-08-03T19:16:40Z",
-      "updated_at": "2026-08-05T01:50:37Z",
+      "updated_at": "2026-08-05T18:22:09Z",
       "html_url": "https://github.com/vllm-project/vllm/pull/50907",
       "labels": [
         "documentation",
@@ -29,6 +29,40 @@
       "other_tags": [
         "documentation",
         "multi-modality"
+      ]
+    },
+    {
+      "number": 49937,
+      "title": "[ROCm] Add AITER FP8 ViT encoder attention",
+      "author": "LiuYinfeng01",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-07-27T05:15:38Z",
+      "updated_at": "2026-07-30T06:25:43Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/49937",
+      "labels": [
+        "documentation",
+        "performance",
+        "rocm",
+        "ready",
+        "v1"
+      ],
+      "draft": false,
+      "body_head": "## Summary\n\n- enable AITER per-tensor FP8 attention for multimodal vision encoders on gfx942 and gfx950\n- preserve packed variable-length image/video boundaries through AITER's native varlen kernel\n- add compile-safe custom-op wrapping, architecture/symbol validation, correctness tests, a benchmark, and ROCm usage docs\n\n## Why this is not duplicate work\n\nI searched open vLLM PRs for `AITER FP8 ViT encoder attention` and `ROCM_AITER_FA mm encoder fp8`, and searched open issues for the same area. No existing PR implements AITER FP8 multimodal encoder attention. The existing FP8 ViT path is FlashInfer/cuDNN-only.\n\n## Implementation\n\nQ/K/V reuse the existing ViT per-tensor FP8 quantization and scale calibration path. `ROCM_AITER_FA` dispatches quantized packed tensors to `flash_attn_varlen_fp8_pertensor_func`, restores the activation dtype, and removes temporary head-dimension padding. Other ROCm FlashAttention and NVIDIA FlashInfer paths are unchanged.\n\n## Test plan\n\n- [x] `pytest -q tests/kernels/attention/test_mha_attn.py -k aiter_fp8` (13 passed)\n- [x] complete `tests/kernels/attention/test_mha_attn.py` before the final architecture-gate test addition (46 passed, 4 skipped)\n- [x] BF16 and FP16; head dimensions 64, 72, 80; two packed varlen layouts\n- [x] non-contiguous interleaved QKV views\n- [x] `torch.compile(fullgraph=True)` wrapper parity (max diff 0)\n- [x] Ruff formatting/lint and Python compile checks\n\nHardware: MI300X (`gfx942:sramecc+:xnack-`), ROCm 7.2, PyTorch 2.11 development build.\n\n## Model evaluation\n\n`Qwen/Qwen3-VL-2B-Instruct`, BF16 weights, greedy decoding, four prompts over vLLM's `cherry_blossom` image asset. Compared AITER BF16 with dynamic AITER FP8 attention. Both paths consistently identified cherry blossoms, the pink/blue color palette, Tokyo, and Tokyo Skytree; no requested visual fact was lost. Representative FP8 generation: \u201cThis photo was taken in Japan, specifically in the city of Tokyo. The prominent tower ... is the Tokyo Skytree.\u201d\n\n## ",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        51115
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "documentation",
+        "performance",
+        "ready",
+        "v1"
       ]
     },
     {
