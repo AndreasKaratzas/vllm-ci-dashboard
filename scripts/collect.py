@@ -23,6 +23,10 @@ _PULL_URL_RE = re.compile(
     r"https?://github\.com/([^/\s]+/[^/\s]+)/pull/(\d+)",
     re.IGNORECASE,
 )
+_BUILDKITE_BUILD_URL_RE = re.compile(
+    r"https?://buildkite\.com/[^/\s)]+/[^/\s)]+/builds/(\d+)",
+    re.IGNORECASE,
+)
 _PR_CONTEXT_REF_RE = re.compile(
     r"(?i)\b(?:pr|pull request|pull)\b[^\n#]{0,160}#(\d+)"
 )
@@ -577,9 +581,13 @@ def fetch_issue_comments(repo, number):
 
 def extract_pr_refs(text, default_repo):
     """Extract GitHub PR references from issue text/comment text."""
+    body = text or ""
     refs = []
     seen = set()
-    for match in _PULL_URL_RE.finditer(text or ""):
+    buildkite_build_numbers = {
+        int(match.group(1)) for match in _BUILDKITE_BUILD_URL_RE.finditer(body)
+    }
+    for match in _PULL_URL_RE.finditer(body):
         repo = match.group(1)
         number = int(match.group(2))
         key = (repo.lower(), number)
@@ -591,8 +599,14 @@ def extract_pr_refs(text, default_repo):
             "number": number,
             "url": f"https://github.com/{repo}/pull/{number}",
         })
-    for match in _PR_CONTEXT_REF_RE.finditer(text or ""):
+    for match in _PR_CONTEXT_REF_RE.finditer(body):
         number = int(match.group(1))
+        # CI issue prose sometimes calls a Buildkite run "PR #<build>".  An
+        # explicit GitHub pull URL above remains authoritative, but a bare
+        # heuristic reference must not turn a demonstrated Buildkite build ID
+        # into a fabricated same-repository pull request.
+        if number in buildkite_build_numbers:
+            continue
         key = (default_repo.lower(), number)
         if key in seen:
             continue
@@ -603,6 +617,47 @@ def extract_pr_refs(text, default_repo):
             "url": f"https://github.com/{default_repo}/pull/{number}",
         })
     return refs
+
+
+def resolve_project_issue_pr_refs(repo, issues, prs):
+    """Retain same-repo issue links only when GitHub confirms the PR exists.
+
+    Textual ``PR #N`` references are necessarily heuristic.  A missing or
+    non-PR target should make that optional Home-page relationship disappear
+    for this collection, not leave ``issues.json`` inconsistent with
+    ``prs.json`` and freeze publication of unrelated CI-health data.
+    """
+    pr_by_number = {
+        pr.get("number"): pr
+        for pr in prs
+        if isinstance(pr, dict) and isinstance(pr.get("number"), int)
+    }
+    repo_norm = repo.lower()
+
+    for issue in issues:
+        valid_refs = []
+        for ref in issue.get("linked_prs") or []:
+            if not isinstance(ref, dict):
+                continue
+            ref_repo = (ref.get("repo") or repo).lower()
+            if ref_repo != repo_norm:
+                valid_refs.append(ref)
+                continue
+            number = ref.get("number")
+            if not isinstance(number, int):
+                continue
+            if number not in pr_by_number:
+                pr = fetch_pr_by_number(repo, number)
+                if not pr:
+                    print(
+                        f"  WARNING: Ignoring unresolved PR reference #{number} "
+                        f"from project issue #{issue.get('number')}"
+                    )
+                    continue
+                prs.append(pr)
+                pr_by_number[number] = pr
+            valid_refs.append(ref)
+        issue["linked_prs"] = valid_refs
 
 
 def enrich_project_issues_with_linked_prs(repo, issues):
@@ -807,21 +862,11 @@ def collect_project(name, cfg):
                 prs.append(pr)
                 existing_nums.add(number)
 
-    # Guarantee that PRs referenced from any open project #39 issue body or
-    # comment are present and tagged as CI PRs.
+    # Resolve heuristic references from project #39 issue prose.  Only
+    # GitHub-confirmed same-repo PRs survive into issues.json, and every
+    # retained PR is present in prs.json for the cross-surface audit.
     if project_issues:
-        existing_nums = {p["number"] for p in prs}
-        for issue in project_issues:
-            for ref in issue.get("linked_prs") or []:
-                if (ref.get("repo") or repo).lower() != repo.lower():
-                    continue
-                number = ref.get("number")
-                if not isinstance(number, int) or number in existing_nums:
-                    continue
-                pr = fetch_pr_by_number(repo, number)
-                if pr:
-                    prs.append(pr)
-                    existing_nums.add(number)
+        resolve_project_issue_pr_refs(repo, project_issues, prs)
 
     apply_pr_tags(prs, project_issues, repo)
     prs = sorted(prs, key=lambda p: p["updated_at"], reverse=True)

@@ -224,6 +224,29 @@ class TestLinkedPrExtraction:
             {"number": 40176, "url": "https://github.com/vllm-project/vllm/pull/40176"},
         ]
 
+    def test_ignores_buildkite_build_numbers_labeled_as_prs(self):
+        repo = "vllm-project/vllm"
+        text = (
+            "[PR #82340](https://buildkite.com/vllm/ci/builds/82340#job) failed\n"
+            "PR #82340 (retry) also failed\n"
+            "PR for this here #40176\n"
+        )
+
+        assert srt._extract_linked_prs_from_text(text, repo) == [
+            {"number": 40176, "url": "https://github.com/vllm-project/vllm/pull/40176"},
+        ]
+
+    def test_explicit_github_pull_url_wins_over_buildkite_number_collision(self):
+        repo = "vllm-project/vllm"
+        text = (
+            "PR #82340 ran at https://buildkite.com/vllm/ci/builds/82340\n"
+            "Actual pull: https://github.com/vllm-project/vllm/pull/82340\n"
+        )
+
+        assert srt._extract_linked_prs_from_text(text, repo) == [
+            {"number": 82340, "url": "https://github.com/vllm-project/vllm/pull/82340"},
+        ]
+
 
 class TestNormalizeTitle:
     # Secondary lookup so a hand-filed ``[CI Failure]: Transformers ...``
