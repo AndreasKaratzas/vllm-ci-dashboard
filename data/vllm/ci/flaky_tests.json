@@ -1,65 +1,27 @@
 {
-  "generated_at": "2026-08-04T04:37:36Z",
+  "generated_at": "2026-08-05T04:37:53Z",
   "window_builds": 10,
-  "total_flaky": 9,
+  "total_flaky": 6,
   "tests": [
     {
-      "test_id": "mi355_1: V1 Sample + Logits::__job_level__",
+      "test_id": "mi355_1: V1 Core + KV + Metrics::__job_level__",
       "label": "flaky",
       "pass_rate": 0.25,
-      "appearances": 8,
+      "appearances": 4,
       "last_seen": "2026-07-31",
       "first_failure": null,
       "failure_streak": 0,
       "history": [
-        "P",
-        "F",
-        "F",
-        "F",
         "F",
         "F",
         "F",
         "P"
       ],
-      "module": "mi355_1: V1 Sample + Logits",
+      "module": "mi355_1: V1 Core + KV + Metrics",
       "mean_duration": 0.0
     },
     {
-      "test_id": "mi355_1: V1 Spec Decode::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.25,
-      "appearances": 4,
-      "last_seen": "2026-07-28",
-      "first_failure": "2026-07-22",
-      "failure_streak": 3,
-      "history": [
-        "P",
-        "F",
-        "F",
-        "F"
-      ],
-      "module": "mi355_1: V1 Spec Decode",
-      "mean_duration": 0.0
-    },
-    {
-      "test_id": "mi355_1: V1 attention (B200-MI355)::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.25,
-      "appearances": 4,
-      "last_seen": "2026-07-26",
-      "first_failure": "2026-07-24",
-      "failure_streak": 3,
-      "history": [
-        "P",
-        "F",
-        "F",
-        "F"
-      ],
-      "module": "mi355_1: V1 attention (B200-MI355)",
-      "mean_duration": 0.0
-    },
-    {
-      "test_id": "mi355_2: Weight Loading Multiple GPU - Large Models::__job_level__",
+      "test_id": "mi355_1: Regression::__job_level__",
       "label": "flaky",
       "pass_rate": 0.3333,
       "appearances": 3,
@@ -71,15 +33,31 @@
         "F",
         "P"
       ],
-      "module": "mi355_2: Weight Loading Multiple GPU - Large Models",
+      "module": "mi355_1: Regression",
+      "mean_duration": 0.0
+    },
+    {
+      "test_id": "mi355_2: Weight Loading Multiple GPU::__job_level__",
+      "label": "flaky",
+      "pass_rate": 0.3333,
+      "appearances": 3,
+      "last_seen": "2026-08-03",
+      "first_failure": null,
+      "failure_streak": 0,
+      "history": [
+        "F",
+        "F",
+        "P"
+      ],
+      "module": "mi355_2: Weight Loading Multiple GPU",
       "mean_duration": 0.0
     },
     {
       "test_id": "mi250_1: Python-only Installation::__job_level__",
       "label": "flaky",
-      "pass_rate": 0.4,
-      "appearances": 11,
-      "last_seen": "2026-08-03",
+      "pass_rate": 0.5,
+      "appearances": 12,
+      "last_seen": "2026-08-04",
       "first_failure": null,
       "failure_streak": 0,
       "history": [
@@ -88,7 +66,7 @@
         "F",
         "F",
         "F",
-        "F",
+        "P",
         "P",
         "P",
         "P",
@@ -98,44 +76,10 @@
       "mean_duration": 0.0
     },
     {
-      "test_id": "mi355_1: Regression::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.5,
-      "appearances": 4,
-      "last_seen": "2026-08-03",
-      "first_failure": null,
-      "failure_streak": 0,
-      "history": [
-        "P",
-        "F",
-        "F",
-        "P"
-      ],
-      "module": "mi355_1: Regression",
-      "mean_duration": 0.0
-    },
-    {
-      "test_id": "mi355_2: Weight Loading Multiple GPU::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.5,
-      "appearances": 4,
-      "last_seen": "2026-08-03",
-      "first_failure": null,
-      "failure_streak": 0,
-      "history": [
-        "P",
-        "F",
-        "F",
-        "P"
-      ],
-      "module": "mi355_2: Weight Loading Multiple GPU",
-      "mean_duration": 0.0
-    },
-    {
       "test_id": "mi300_1: Python-only Installation::__job_level__",
       "label": "flaky",
       "pass_rate": 0.6,
-      "appearances": 11,
+      "appearances": 10,
       "last_seen": "2026-07-14",
       "first_failure": "2026-07-11",
       "failure_streak": 4,

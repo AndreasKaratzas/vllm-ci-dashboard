@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-08-04T04:50:27Z",
+  "generated_at": "2026-08-05T04:54:12Z",
   "days": 30,
-  "total_changes": 97,
+  "total_changes": 98,
   "changes": [
     {
       "date": "2026-03-10",
@@ -3499,6 +3499,40 @@
         "url": "https://github.com/vllm-project/vllm/pull/50839",
         "author": "noooop"
       }
+    },
+    {
+      "date": "2026-08-05",
+      "sha": "9cd9f8c20bc3",
+      "message": "Prune redundant tests points in `correctness_e2e/[test_sequence_parallel,test_async_tp]` (#51068)",
+      "author": "Michael Goin",
+      "added": [
+        "AsyncTP Correctness Tests (2xB200)",
+        "Sequence Parallel Correctness Tests (2xB200)"
+      ],
+      "removed": [
+        "AsyncTP Correctness Tests (2xH100)",
+        "AsyncTP Correctness Tests (B200)",
+        "Sequence Parallel Correctness Tests (2 GPUs)",
+        "Sequence Parallel Correctness Tests (2xH100)"
+      ],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "AsyncTP Correctness Tests (2xB200)",
+        "Sequence Parallel Correctness Tests (2xB200)"
+      ],
+      "upstream_removed": [
+        "AsyncTP Correctness Tests (2xH100)",
+        "AsyncTP Correctness Tests (B200)",
+        "Sequence Parallel Correctness Tests (2 GPUs)",
+        "Sequence Parallel Correctness Tests (2xH100)"
+      ],
+      "pr": {
+        "number": 51068,
+        "title": "Prune redundant tests points in `correctness_e2e/[test_sequence_parallel,test_async_tp]`",
+        "url": "https://github.com/vllm-project/vllm/pull/51068",
+        "author": "mgoin"
+      }
     }
   ],
   "_no_change_shas": [
@@ -3667,6 +3701,7 @@
     "bcbeaac786c1b86076ad2c161eca4c34693e4dcc",
     "bcfdadb1bc4db9dc8fe82710d4301a1d11114a3c",
     "bd8c4c0752b7542c687ed06c2284cfb594a61e48",
+    "c25093a30580a5e81604f36147500cfdb739e2a6",
     "c32e97602d54f34fb60ff956dae09f9a557ec50a",
     "c3b1f9e827a4fa771ca7e5991496dd4d6275027e",
     "c6fe94b4d5b418fa213af0e5884eddd304333dcd",
@@ -3677,6 +3712,7 @@
     "ceae5bcbda06ac41ff76317c4475e8b1165e419e",
     "d01d0b46468f08e6b7643ae0574899f4f31fd15a",
     "d077622d600322d46abe492ea8355a871ba3a2fc",
+    "d16e7f9da4c12c9487d4ccd6c97fb30d8bf74376",
     "d28d86e8a34bf2617be294c235d6e6ef3321917b",
     "d2f22dfc9f3551a19988101d742d08b0b925d813",
     "d6b61e5166ac3eec7f828d0a102c30a76f6aecf3",
