@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-06T12:51:38Z",
+  "generated_at": "2026-08-06T15:23:00Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -24,18 +24,18 @@
     "upstream_build": 82629,
     "amd_ci_build": 11764,
     "canonical_target_count": 125,
-    "row_count": 226,
+    "row_count": 229,
     "canonical_match_count": 114,
     "likely_duplicate_count": 15,
-    "new_candidate_count": 47,
-    "excluded_count": 45,
+    "new_candidate_count": 49,
+    "excluded_count": 46,
     "missing_from_upstream_count": 5,
     "by_decision": {
       "canonical": 114,
-      "excluded": 45,
+      "excluded": 46,
       "likely_duplicate": 15,
       "missing_from_upstream": 5,
-      "new_candidate": 47
+      "new_candidate": 49
     }
   },
   "rows": [
@@ -953,7 +953,7 @@
       "canonical_key": "kernels core operation test",
       "state": "passed",
       "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/82629/steps/canvas?jid=019fd5a9-dda4-4097-85bb-bb8a3010bdc8&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/82629/steps/canvas?jid=019fd5a9-dda4-4523-a064-08d4b7827158&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 7,
@@ -2008,7 +2008,7 @@
       "canonical_key": "v1 attention",
       "state": "passed",
       "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/82629/steps/canvas?jid=019fd5a9-dc38-4d16-8b99-3a321a7ff23a&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/82629/steps/canvas?jid=019fd5a9-dc35-4cfa-a92e-d179a6031f09&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 103,
@@ -2158,6 +2158,23 @@
       "state": "passed",
       "queue": "b200-k8s",
       "url": "https://buildkite.com/vllm/ci/builds/82629/steps/canvas?jid=019fd5a9-dc87-46ef-9137-406dcedcc91e&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "DSv4-Flash Disaggregated DP EP",
+      "canonical_key": "dsv4-flash disaggregated dp ep",
+      "state": "failed",
+      "queue": "H200",
+      "url": "https://buildkite.com/vllm/ci/builds/82629/steps/canvas?jid=019fd5a9-dc7a-427a-bd5c-98218a7c7390&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -2444,6 +2461,23 @@
       "state": "passed",
       "queue": "b200-k8s",
       "url": "https://buildkite.com/vllm/ci/builds/82629/steps/canvas?jid=019fd5a9-ddd4-44b0-b202-db629d5ccf36&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Kimi-Linear-48B-A3B Disaggregated DP EP",
+      "canonical_key": "kimi-linear-48b-a3b disaggregated dp ep",
+      "state": "passed",
+      "queue": "H200",
+      "url": "https://buildkite.com/vllm/ci/builds/82629/steps/canvas?jid=019fd5a9-dc7f-4742-b18f-c627092ad49d&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -3131,7 +3165,7 @@
       "canonical_key": "v1 attention",
       "state": "passed",
       "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/82629/steps/canvas?jid=019fd5a9-dc32-48de-b324-dedc4803c3a1&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/82629/steps/canvas?jid=019fd5f7-b65c-44bf-9ec2-d44d5332ea94&tab=output",
       "exclusion_reasons": [],
       "decision": "likely_duplicate",
       "duplicate_of": "V1 attention (H100-MI300)",
@@ -3444,6 +3478,18 @@
       "url": "https://buildkite.com/vllm/ci/builds/82629/steps/canvas?jid=019fd5a9-ddcf-4726-8389-17b4a3388249&tab=output",
       "exclusion_reasons": [
         "experimental_model_runner_v2"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "MoE Refactor Integration Test (B200 - TEMPORARY)",
+      "canonical_key": "moe refactor integration test (b200 - temporary)",
+      "state": "passed",
+      "queue": "b200-k8s",
+      "url": "https://buildkite.com/vllm/ci/builds/82629/steps/canvas?jid=019fd6f9-ddc4-471c-ba9a-5ddb8d70f89a&tab=output",
+      "exclusion_reasons": [
+        "temporary",
+        "moe_refactor_temporary"
       ],
       "decision": "excluded"
     },
