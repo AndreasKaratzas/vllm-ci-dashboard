@@ -69,7 +69,10 @@ def _write(path: Path, text: str = "{}\n") -> None:
 
 
 def _operation_generated_files() -> list[str]:
-    return ["vllm/ci/operations_v2_manifest.json"] + [
+    return [
+        "vllm/ci/operations_v2_manifest.json",
+        "vllm/ci/queue_history_chart.json",
+    ] + [
         f"vllm/ci/operations_v2/{name}.json"
         for name in (
             "amd_agent_health",
@@ -248,7 +251,10 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
         f"vllm/ci/{descriptor['path']}"
         for descriptor in operation_manifest["sections"].values()
     }
-    assert operation_sections | {"vllm/ci/operations_v2_manifest.json"} == set(
+    assert operation_sections | {
+        "vllm/ci/operations_v2_manifest.json",
+        "vllm/ci/queue_history_chart.json",
+    } == set(
         manifest["generated_files"]
     )
     published_diagnostic_sources = {

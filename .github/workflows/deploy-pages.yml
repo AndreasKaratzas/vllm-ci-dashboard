@@ -25,13 +25,23 @@ jobs:
 
       - name: Sync live data from gh-pages
         run: |
-          # gh-pages has the latest CI + queue data. Sync unless corrupt.
+          # queue-data owns independent queue history; gh-pages remains the
+          # source for other live datasets and a queue migration fallback.
+          git fetch origin queue-data --depth=1 || true
           git fetch origin gh-pages --depth=1 || true
 
-          # Quick corruption check: if ANY file on gh-pages has conflict markers, skip ALL syncing
+          if git rev-parse --verify --quiet origin/queue-data >/dev/null; then
+            python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/queue-data
+            LIVE_QUEUE_JOBS="$RUNNER_TEMP/queue_jobs.json"
+            git show origin/queue-data:data/vllm/ci/queue_jobs.json > "$LIVE_QUEUE_JOBS"
+            python -m json.tool "$LIVE_QUEUE_JOBS" >/dev/null
+            install -m 0644 "$LIVE_QUEUE_JOBS" data/vllm/ci/queue_jobs.json
+          fi
+
+          # A corrupt legacy Pages copy must not block the independent branch.
           CORRUPT=$(git show origin/gh-pages:data/vllm/ci/ci_health.json 2>/dev/null | head -5 | grep -c "^>>>>>>>\|^<<<<<<<\|^=======" || true)
           if [ "$CORRUPT" -gt 0 ]; then
-            echo "WARNING: gh-pages data is corrupted (merge conflict markers). Skipping all sync — deploying from main only."
+            echo "WARNING: gh-pages data is corrupted; keeping queue-data plus main inputs."
           else
             # Merge data/vllm/ci/queue_timeseries.jsonl by timestamp. The
             # collector rejects conflict markers and normalizes legacy rows.

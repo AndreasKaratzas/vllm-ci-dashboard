@@ -987,6 +987,7 @@ class TestContentSecurityPolicy:
         directive = connect.group(1)
         assert "api.github.com" in directive
         assert "api.buildkite.com" in directive
+        assert "raw.githubusercontent.com" in directive
         assert " * " not in directive and not directive.strip().endswith("*")
         # A bare ``https:`` token (not ``https://<host>``) would allow any
         # HTTPS origin — that's the regression we really want to catch.

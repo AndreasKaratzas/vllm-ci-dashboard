@@ -453,7 +453,7 @@ class TestNoOrphanedCronSchedules:
         # hourly-master.yml owns the frequent collection cadence, while the
         # ready-ticket sync is intentionally limited to the 3x/day master-
         # issue updater.
-        allowed = {"hourly-master.yml", "ready-tickets-live.yml"}
+        allowed = {"hourly-master.yml", "queue-monitor.yml", "ready-tickets-live.yml"}
         for f in WORKFLOWS.glob("*.yml"):
             data = yaml.safe_load(f.read_text())
             triggers = data.get(True, data.get("on", {}))
@@ -712,7 +712,7 @@ class TestDeployDataFreshness:
         steps = next(iter(data["jobs"].values())).get("steps", [])
         names = [step.get("name", "") for step in steps]
         assert (
-            names.index("Sync queue data from gh-pages")
+            names.index("Sync queue data from durable live branch")
             < names.index("Normalize and prune queue history")
             < names.index("Collect queue snapshot")
         )

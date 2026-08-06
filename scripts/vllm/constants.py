@@ -153,6 +153,12 @@ QUEUE_HISTORY_RESET_TS = "2026-04-20T23:40:00Z"
 # the dashboard controls.
 QUEUE_HISTORY_RETENTION_DAYS = 30
 
+# Frequent queue polling is retained at full resolution for incident response.
+# Older observations retain one actual snapshot per UTC hour plus every
+# queue's p50/p95/p99 peak value and exact observation time for that hour.
+QUEUE_HISTORY_HIGH_RES_HOURS = 48
+QUEUE_HISTORY_ARCHIVE_BUCKET_MINUTES = 60
+
 # ---------------------------------------------------------------------------
 # queue_issue_watcher thresholds
 # ---------------------------------------------------------------------------

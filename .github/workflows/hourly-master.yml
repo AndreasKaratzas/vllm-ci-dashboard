@@ -83,10 +83,16 @@ jobs:
         run: python scripts/vllm/ensure_ci_operations_labels.py
 
       # ── Phase 1: Queue snapshot (fast, ~15s) ──
-      - name: Sync queue data from gh-pages
+      - name: Sync queue data from durable live branch
         run: |
+          git fetch origin queue-data --depth=1 || true
           git fetch origin gh-pages --depth=1 || true
-          python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/gh-pages
+          if git rev-parse --verify --quiet origin/queue-data >/dev/null; then
+            python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/queue-data
+          fi
+          if git rev-parse --verify --quiet origin/gh-pages >/dev/null; then
+            python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/gh-pages
+          fi
 
       - name: Sync issue automation state from gh-pages
         run: |

@@ -12,12 +12,19 @@
   ]);
   const cache = new Map();
   const charts = new Map();
+  const QUEUE_AUTO_REFRESH_MS = 5 * 60 * 1000;
+  const QUEUE_LIVE_BASE = 'https://raw.githubusercontent.com/AndreasKaratzas/vllm-ci-dashboard/queue-data/data/vllm/ci/';
   let operationsManifestPromise = null;
   let chartLibraryPromise = null;
+  let lastQueueRefreshAt = 0;
   const SOURCE_ASSETS = {
     operations: 'data/vllm/ci/operations_v2_manifest.json',
     operationsManifest: 'data/vllm/ci/operations_v2_manifest.json',
-    queueHistory: 'data/vllm/ci/queue_timeseries.jsonl',
+    queueSection: QUEUE_LIVE_BASE + 'operations_v2/queue.json',
+    queueChartHistory: QUEUE_LIVE_BASE + 'queue_history_chart.json',
+    queueChartHistoryFallback: 'data/vllm/ci/queue_history_chart.json',
+    queueHistory: QUEUE_LIVE_BASE + 'queue_timeseries.jsonl',
+    queueHistoryFallback: 'data/vllm/ci/queue_timeseries.jsonl',
     workloadMapping: 'data/vllm/ci/workload_mapping.json',
     perf: 'data/vllm/perf_eval/perf_eval.json',
     amdPipeline: 'https://buildkite.com/vllm/amd-ci',
@@ -2070,8 +2077,14 @@
     const related = (jobs || []).filter(function (job) { return job.queue === name; });
     const p50Source = waitSourceDetail(row, 'p50');
     const p95Source = waitSourceDetail(row, 'p95');
+    const sampledP50 = sampleWaitValue(row, 'p50');
+    const sampledP95 = sampleWaitValue(row, 'p95');
     const p99Value = waitValue(row, 'p99');
     const sampleCount = waitSampleCount(row);
+    const sampleExpected = Number.isFinite(Number(row.wait_sample_expected_count)) ? Number(row.wait_sample_expected_count) : null;
+    const sampleCoverage = sampleExpected === null
+      ? 'Unavailable'
+      : (sampleCount === null ? '0' : integer(sampleCount)) + ' / ' + integer(sampleExpected) + ' non-zombie waiting jobs - ' + (row.wait_sample_complete === true ? 'reconciled' : 'not reconciled');
     const content = related.length ? dataTable([
       {label: 'Job', sticky: true, render: function (job) { return externalLink(job.name || 'Unnamed job', job.url); }},
       {label: 'State', render: function (job) { return linkedBadge(job.state || 'unknown', job.url); }},
@@ -2081,15 +2094,21 @@
     openDetailDrawer({
       id: 'queue-' + name,
       title: name,
-      subtitle: 'Current queue state; official and scheduled-sample waits remain separate',
+      subtitle: 'Current queue state; queue-native waits include the visible backlog, while scheduled samples exclude jobs flagged at 4+ hours',
       fields: [
         {label: 'Running', value: integer(row.running)},
         {label: 'Waiting', value: integer(row.waiting)},
         {label: 'Connected agents', value: hasAgentMeasurement(row) ? integer(row.connected_agents !== undefined ? row.connected_agents : row.agents) : 'Unavailable'},
-        {label: 'p50 official/fallback', value: duration(waitValue(row, 'p50')) + (p50Source ? ' - ' + p50Source : '')},
-        {label: 'p95 official/fallback', value: duration(waitValue(row, 'p95')) + (p95Source ? ' - ' + p95Source : '')},
+        {label: 'p50 Buildkite native', value: duration(officialWaitValue(row, 'p50'))},
+        {label: 'p95 Buildkite native', value: duration(officialWaitValue(row, 'p95'))},
+        {label: 'p50 primary / fallback', value: duration(waitValue(row, 'p50')) + (p50Source ? ' - ' + p50Source : '')},
+        {label: 'p95 primary / fallback', value: duration(waitValue(row, 'p95')) + (p95Source ? ' - ' + p95Source : '')},
+        {label: 'p50 reconstructed sample', value: sampledP50 === null ? 'Not measured' : duration(sampledP50)},
+        {label: 'p95 reconstructed sample', value: sampledP95 === null ? 'Not measured' : duration(sampledP95)},
         {label: 'p99 scheduled sample', value: p99Value === null || p99Value === undefined ? 'Not measured' : duration(p99Value) + (sampleCount !== null ? ' - n=' + integer(sampleCount) : '')},
         {label: 'p99 source', value: value(waitSourceDetail(row, 'p99'))},
+        {label: 'Scheduled sample coverage', value: sampleCoverage},
+        {label: '4h+ waiting jobs excluded from sample', value: integer(row.zombie_waiting)},
         {label: 'Count source', value: row.count_source},
       ],
       sources: row.queue_url || row.url
@@ -2378,6 +2397,135 @@
     return cache.get(key);
   }
 
+  function queueTimestamp(value) {
+    const parsed = new Date(value || '').getTime();
+    return Number.isFinite(parsed) ? parsed : -Infinity;
+  }
+
+  function queueSectionTimestamp(section) {
+    return queueTimestamp((((section || {}).queue || {}).snapshot || {}).ts);
+  }
+
+  function decodeQueueChartHistory(payload) {
+    if (!payload || payload.schema_version !== 1 || !Array.isArray(payload.points)) return [];
+    const names = payload.queue_names || [];
+    const sources = payload.wait_sources || [null];
+    const providers = payload.wait_providers || [null];
+    return payload.points.map(function (point) {
+      const queues = {};
+      (point[1] || []).forEach(function (values, index) {
+        if (!Array.isArray(values) || !names[index]) return;
+        const row = {
+          waiting: Number(values[0] || 0),
+          running: Number(values[1] || 0),
+          p50_wait: values[2],
+          p95_wait: values[3],
+          p99_wait: values[4],
+          p50_wait_source: sources[values[5]] || null,
+          p95_wait_source: sources[values[6]] || null,
+          p99_wait_source: sources[values[7]] || null,
+          official_wait_source: providers[values[8]] || null,
+          sample_wait_source: providers[values[9]] || null,
+          wait_sample_count: values[10],
+          wait_sample_expected_count: values[11],
+          wait_sample_complete: values[12] === null || values[12] === undefined ? null : values[12] === 1,
+        };
+        if (Array.isArray(values[13])) {
+          row.archive_wait_peaks = {};
+          ['p50', 'p95', 'p99'].forEach(function (metric, peakIndex) {
+            const peak = values[13][peakIndex];
+            if (!Array.isArray(peak)) return;
+            row.archive_wait_peaks[metric] = {
+              value: peak[0],
+              source: sources[peak[1]] || null,
+              provider: providers[peak[2]] || null,
+              sample_count: peak[3],
+              observed_at: peak[4],
+              sample_expected: peak[5],
+              sample_complete: peak[6],
+            };
+          });
+        }
+        if (Array.isArray(values[14])) {
+          row.official_wait = {p50: values[14][0], p95: values[14][1], max: values[14][2]};
+        }
+        if (Array.isArray(values[15])) {
+          row.sample_wait = {available: true, count: values[10], p50: values[15][0], p95: values[15][1], p99: values[15][2]};
+        }
+        if (Array.isArray(values[16])) {
+          row.archive_sample_wait_peaks = {};
+          ['p50', 'p95', 'p99'].forEach(function (metric, peakIndex) {
+            const peak = values[16][peakIndex];
+            if (!Array.isArray(peak)) return;
+            row.archive_sample_wait_peaks[metric] = {
+              value: peak[0],
+              source: sources[peak[1]] || 'sample_wait',
+              provider: providers[peak[2]] || null,
+              sample_count: peak[3],
+              observed_at: peak[4],
+              sample_expected: peak[5],
+              sample_complete: peak[6],
+            };
+          });
+        }
+        if (values[17] === 1) row.history_observation_only = true;
+        queues[names[index]] = row;
+      });
+      return {ts: point[0], queues: queues};
+    }).filter(function (snapshot) { return queueTimestamp(snapshot.ts) > -Infinity; });
+  }
+
+  function mergeQueueHistory(rows) {
+    const byTimestamp = new Map();
+    (rows || []).forEach(function (snapshot) {
+      if (snapshot && queueTimestamp(snapshot.ts) > -Infinity && snapshot.queues) {
+        const key = String(snapshot.ts);
+        const previous = byTimestamp.get(key);
+        if (!previous) {
+          byTimestamp.set(key, snapshot);
+          return;
+        }
+        const queues = Object.assign({}, previous.queues || {});
+        Object.entries(snapshot.queues || {}).forEach(function (entry) {
+          const oldRow = queues[entry[0]] || {};
+          const newRow = entry[1] || {};
+          queues[entry[0]] = Object.assign({}, oldRow, newRow, {
+            archive_wait_peaks: Object.assign({}, oldRow.archive_wait_peaks || {}, newRow.archive_wait_peaks || {}),
+            archive_sample_wait_peaks: Object.assign({}, oldRow.archive_sample_wait_peaks || {}, newRow.archive_sample_wait_peaks || {}),
+          });
+        });
+        byTimestamp.set(key, Object.assign({}, previous, snapshot, {queues: queues}));
+      }
+    });
+    return Array.from(byTimestamp.values()).sort(function (a, b) { return String(a.ts).localeCompare(String(b.ts)); });
+  }
+
+  async function loadQueueHistory(queueBlock) {
+    const compactResults = await Promise.allSettled([
+      fetchJSON(SOURCE_ASSETS.queueChartHistory),
+      fetchJSON(SOURCE_ASSETS.queueChartHistoryFallback),
+    ]);
+    // Apply older payloads first, then merge newer same-timestamp rows while
+    // retaining any richer hourly peak envelopes from either publication.
+    const compactPayloads = compactResults.filter(function (result) { return result.status === 'fulfilled'; }).map(function (result) {
+      return result.value;
+    }).sort(function (a, b) {
+      return queueTimestamp(a.generated_at) - queueTimestamp(b.generated_at);
+    });
+    const compactRows = compactPayloads.flatMap(decodeQueueChartHistory);
+    const compact = mergeQueueHistory(compactRows);
+    const current = queueBlock.snapshot && queueBlock.snapshot.ts ? queueBlock.snapshot : null;
+    const compactLastMs = compact.length ? queueTimestamp(compact[compact.length - 1].ts) : -Infinity;
+    const currentMs = current ? queueTimestamp(current.ts) : -Infinity;
+    let fallback = [];
+    if (!compact.length || currentMs - compactLastMs > 30 * 60 * 1000) {
+      try { fallback = await fetchJSONL(SOURCE_ASSETS.queueHistoryFallback); } catch (_) {
+        fallback = Array.isArray(queueBlock.history) ? queueBlock.history : [];
+      }
+    }
+    return mergeQueueHistory([].concat(fallback, compact, current ? [current] : []));
+  }
+
   function isPlainObject(value) {
     return value && typeof value === 'object' && !Array.isArray(value);
   }
@@ -2434,10 +2582,21 @@
     const descriptors = sectionNames.map(function (name) {
       const descriptor = manifest.sections[name];
       if (!descriptor || !descriptor.path) throw new Error('Operations section "' + name + '" is missing from the manifest');
-      return descriptor;
+      return {name: name, descriptor: descriptor};
     });
-    const sections = await Promise.all(descriptors.map(function (descriptor) {
-      return fetchJSON(resolveOperationSectionPath(descriptor.path));
+    const sections = await Promise.all(descriptors.map(function (entry) {
+      const fallback = resolveOperationSectionPath(entry.descriptor.path);
+      if (entry.name === 'queue') {
+        return Promise.allSettled([
+          fetchJSON(SOURCE_ASSETS.queueSection),
+          fetchJSON(fallback),
+        ]).then(function (results) {
+          const candidates = results.filter(function (result) { return result.status === 'fulfilled'; }).map(function (result) { return result.value; });
+          if (!candidates.length) throw new Error('No queue section is available');
+          return candidates.sort(function (a, b) { return queueSectionTimestamp(b) - queueSectionTimestamp(a); })[0];
+        });
+      }
+      return fetchJSON(fallback);
     }));
     const combined = mergeOperationPayload({}, ops || manifest.shell);
     sections.forEach(function (section) { mergeOperationPayload(combined, section); });
@@ -6532,16 +6691,32 @@
     });
   }
 
+  function officialWaitValue(row, metric) {
+    const measured = ((row || {}).official_wait || {})[metric];
+    return measured !== null && measured !== undefined && Number.isFinite(Number(measured)) ? Number(measured) : null;
+  }
+
+  function sampleWaitValue(row, metric) {
+    const measured = ((row || {}).sample_wait || {})[metric];
+    return measured !== null && measured !== undefined && Number.isFinite(Number(measured)) ? Number(measured) : null;
+  }
+
   function waitValue(row, metric) {
-    const current = row.current_wait || {};
+    const nativeValue = officialWaitValue(row, metric);
+    if ((metric === 'p50' || metric === 'p95') && nativeValue !== null) return nativeValue;
+    const sampledValue = sampleWaitValue(row, metric);
+    if (metric === 'p99' && sampledValue !== null) return sampledValue;
+    const current = (row || {}).current_wait || {};
     if (current[metric] && current[metric].value !== undefined) return current[metric].value;
-    if (metric === 'p99' && row.p99_wait_source !== 'sample_wait') return null;
-    return row[metric + '_wait'];
+    if (metric === 'p99' && (row || {}).p99_wait_source !== 'sample_wait') return null;
+    return (row || {})[metric + '_wait'];
   }
 
   function waitSource(row, metric) {
-    const current = row.current_wait || {};
-    const source = (current[metric] && current[metric].source) || row[metric + '_wait_source'] || row.wait_source || null;
+    if ((metric === 'p50' || metric === 'p95') && officialWaitValue(row, metric) !== null) return 'official_wait';
+    if (metric === 'p99' && sampleWaitValue(row, metric) !== null) return 'sample_wait';
+    const current = (row || {}).current_wait || {};
+    const source = (current[metric] && current[metric].source) || (row || {})[metric + '_wait_source'] || (row || {}).wait_source || null;
     return source && !['none', 'unavailable', 'unknown'].includes(String(source).toLowerCase()) ? source : null;
   }
 
@@ -6559,10 +6734,36 @@
     return Number.isFinite(Number(count)) ? Number(count) : null;
   }
 
+  function historyWaitObservation(row, metric, sourceFamily) {
+    const sourceKey = sourceFamily === 'sample_wait' ? 'archive_sample_wait_peaks' : 'archive_wait_peaks';
+    let peak = ((row || {})[sourceKey] || {})[metric];
+    if (!peak && sourceFamily === 'sample_wait') {
+      const compatibilityPeak = ((row || {}).archive_wait_peaks || {})[metric];
+      if (compatibilityPeak && compatibilityPeak.source === 'sample_wait') peak = compatibilityPeak;
+    }
+    if (peak && peak.value !== null && peak.value !== undefined) {
+      const detail = peak.provider && peak.provider !== peak.source ? peak.source + ' - ' + peak.provider : peak.source;
+      return {value: peak.value, source: peak.source, sourceDetail: detail, sampleCount: peak.sample_count, sampleExpected: peak.sample_expected, sampleComplete: peak.sample_complete, observedAt: peak.observed_at};
+    }
+    if (sourceFamily === 'official_wait') {
+      const nativeValue = officialWaitValue(row || {}, metric);
+      return {value: nativeValue, source: nativeValue === null ? null : 'official_wait', sourceDetail: nativeValue === null ? null : value((row || {}).official_wait_source || 'queue_native_metrics'), sampleCount: null, sampleExpected: null, sampleComplete: null, observedAt: null};
+    }
+    if (sourceFamily === 'sample_wait') {
+      const sampledValue = sampleWaitValue(row || {}, metric);
+      return {value: sampledValue, source: sampledValue === null ? null : 'sample_wait', sourceDetail: sampledValue === null ? null : 'sample_wait - ' + value((row || {}).sample_wait_source || 'scheduled_jobs'), sampleCount: waitSampleCount(row || {}), sampleExpected: row.wait_sample_expected_count, sampleComplete: row.wait_sample_complete, observedAt: null};
+    }
+    return {value: waitValue(row || {}, metric), source: waitSource(row || {}, metric), sourceDetail: waitSourceDetail(row || {}, metric), sampleCount: waitSampleCount(row || {}), sampleExpected: row.wait_sample_expected_count, sampleComplete: row.wait_sample_complete, observedAt: null};
+  }
+
   function queueHasWaitMeasurement(row) {
     return ['p50', 'p95', 'p99'].some(function (metric) {
-      const measured = waitValue(row || {}, metric);
-      return measured !== null && measured !== undefined && Number.isFinite(Number(measured));
+      return [
+        historyWaitObservation(row || {}, metric),
+        historyWaitObservation(row || {}, metric, 'sample_wait'),
+      ].some(function (observation) {
+        return observation.value !== null && observation.value !== undefined && Number.isFinite(Number(observation.value));
+      });
     });
   }
 
@@ -6591,10 +6792,11 @@
       {label: 'Queue', sticky: true, render: function (item) { return linkButton(item.name, function () { openQueueDetail(item.name, item.row, []); }); }},
       {label: 'Running', numeric: true, render: function (item) { return integer(item.row.running); }},
       {label: 'Waiting', numeric: true, render: function (item) { return integer(item.row.waiting); }},
-      {label: 'p50', numeric: true, render: function (item) { return duration(waitValue(item.row, 'p50')); }},
-      {label: 'p95 official/fallback', numeric: true, render: function (item) { return duration(waitValue(item.row, 'p95')); }},
-      {label: 'p99 sampled', numeric: true, render: function (item) { return duration(waitValue(item.row, 'p99')); }},
-      {label: 'Wait source', render: function (item) { return value([waitSourceDetail(item.row, 'p95'), waitSourceDetail(item.row, 'p99')].filter(Boolean).join(', ')); }},
+      {label: 'p50 primary', numeric: true, render: function (item) { return duration(historyWaitObservation(item.row, 'p50').value); }},
+      {label: 'p95 primary', numeric: true, render: function (item) { return duration(historyWaitObservation(item.row, 'p95').value); }},
+      {label: 'p95 reconstructed', numeric: true, render: function (item) { return duration(historyWaitObservation(item.row, 'p95', 'sample_wait').value); }},
+      {label: 'p99 sampled', numeric: true, render: function (item) { return duration(historyWaitObservation(item.row, 'p99', 'sample_wait').value); }},
+      {label: 'Wait source', render: function (item) { return value([historyWaitObservation(item.row, 'p95').sourceDetail, historyWaitObservation(item.row, 'p95', 'sample_wait').sourceDetail, historyWaitObservation(item.row, 'p99', 'sample_wait').sourceDetail].filter(Boolean).filter(function (sourceName, index, all) { return all.indexOf(sourceName) === index; }).join(', ')); }},
     ], rows, integer(rows.length) + ' queues with activity or a wait measurement in this snapshot', {name: 'queue-snapshot', minWidth: '980px'}) : n('div', 'ops-empty', 'No queue activity or source-reported wait measurements exist in this snapshot.');
     openDetailDrawer({
       id: 'queue-snapshot-' + value(snapshot.ts),
@@ -6622,42 +6824,73 @@
       : Object.prototype.hasOwnProperty.call(snapshot.queues || {}, queueName)
         ? [[queueName, (snapshot.queues || {})[queueName]]]
         : [];
-    function highest(metric) {
+    function highest(metric, sourceFamily) {
       return entries.map(function (entry) {
-        return {queue: entry[0], value: waitValue(entry[1] || {}, metric), source: waitSource(entry[1] || {}, metric), sourceDetail: waitSourceDetail(entry[1] || {}, metric), sampleCount: waitSampleCount(entry[1] || {})};
+        const observed = historyWaitObservation(entry[1] || {}, metric, sourceFamily);
+        return {queue: entry[0], value: observed.value, source: observed.source, sourceDetail: observed.sourceDetail, sampleCount: observed.sampleCount, sampleExpected: observed.sampleExpected, sampleComplete: observed.sampleComplete, observedAt: observed.observedAt};
       }).filter(function (row) {
         return row.value !== null && row.value !== undefined && Number.isFinite(Number(row.value));
       }).sort(function (a, b) { return Number(b.value) - Number(a.value) || a.queue.localeCompare(b.queue); });
     }
-    function leaders(metric) {
-      const ranked = highest(metric);
+    function leaders(metric, sourceFamily) {
+      const ranked = highest(metric, sourceFamily);
       if (!ranked.length) return {leader: {}, rows: []};
       const max = Number(ranked[0].value);
       return {leader: ranked[0], rows: ranked.filter(function (row) { return Number(row.value) === max; })};
     }
     const p50Rank = leaders('p50'), p95Rank = leaders('p95'), p99Rank = leaders('p99');
+    const sampleP50Rank = leaders('p50', 'sample_wait');
+    const sampleP95Rank = leaders('p95', 'sample_wait');
     const p50 = p50Rank.leader, p95 = p95Rank.leader, p99 = p99Rank.leader;
+    const sampleP50 = sampleP50Rank.leader, sampleP95 = sampleP95Rank.leader;
     return {
       ts: snapshot.ts,
       snapshot: snapshot,
       p50: p50.value !== undefined ? Number(p50.value) : null,
       p95: p95.value !== undefined ? Number(p95.value) : null,
       p99: p99.value !== undefined ? Number(p99.value) : null,
+      sampleP50: sampleP50.value !== undefined ? Number(sampleP50.value) : null,
+      sampleP95: sampleP95.value !== undefined ? Number(sampleP95.value) : null,
       p50Queue: p50.queue,
       p95Queue: p95.queue,
       p99Queue: p99.queue,
+      sampleP50Queue: sampleP50.queue,
+      sampleP95Queue: sampleP95.queue,
       p50Queues: p50Rank.rows.map(function (row) { return row.queue; }),
       p95Queues: p95Rank.rows.map(function (row) { return row.queue; }),
       p99Queues: p99Rank.rows.map(function (row) { return row.queue; }),
+      sampleP50Queues: sampleP50Rank.rows.map(function (row) { return row.queue; }),
+      sampleP95Queues: sampleP95Rank.rows.map(function (row) { return row.queue; }),
       p50Source: p50.source,
       p95Source: p95.source,
       p99Source: p99.source,
+      sampleP50Source: sampleP50.source,
+      sampleP95Source: sampleP95.source,
       p50SourceDetail: p50.sourceDetail,
       p95SourceDetail: p95.sourceDetail,
       p99SourceDetail: p99.sourceDetail,
+      sampleP50SourceDetail: sampleP50.sourceDetail,
+      sampleP95SourceDetail: sampleP95.sourceDetail,
+      p50ObservedAt: p50.observedAt,
+      p95ObservedAt: p95.observedAt,
+      p99ObservedAt: p99.observedAt,
+      sampleP50ObservedAt: sampleP50.observedAt,
+      sampleP95ObservedAt: sampleP95.observedAt,
       p50SampleCount: p50.sampleCount,
       p95SampleCount: p95.sampleCount,
       p99SampleCount: p99.sampleCount,
+      sampleP50SampleCount: sampleP50.sampleCount,
+      sampleP95SampleCount: sampleP95.sampleCount,
+      p50SampleExpected: p50.sampleExpected,
+      p95SampleExpected: p95.sampleExpected,
+      p99SampleExpected: p99.sampleExpected,
+      sampleP50SampleExpected: sampleP50.sampleExpected,
+      sampleP95SampleExpected: sampleP95.sampleExpected,
+      p50SampleComplete: p50.sampleComplete,
+      p95SampleComplete: p95.sampleComplete,
+      p99SampleComplete: p99.sampleComplete,
+      sampleP50SampleComplete: sampleP50.sampleComplete,
+      sampleP95SampleComplete: sampleP95.sampleComplete,
     };
   }
 
@@ -6669,16 +6902,17 @@
     return integer(names.length) + ' queues tied';
   }
 
-  function queuePressureRows(snapshot, history) {
+  function queuePressureRows(snapshot, history, publishedBaseline) {
     return selectedQueues(snapshot, true).map(function (entry) {
       const name = entry[0], currentRow = entry[1] || {};
       const loads = (history || []).filter(function (point) { return point && point.ts !== snapshot.ts; }).map(function (point) {
         const row = ((point.queues || {})[name]);
-        return row ? Number(row.running || 0) + Number(row.waiting || 0) : null;
+        return row && !row.history_observation_only ? Number(row.running || 0) + Number(row.waiting || 0) : null;
       }).filter(function (load) { return Number.isFinite(load); });
+      const retained = (publishedBaseline || {})[name] || {};
       const current = Number(currentRow.running || 0) + Number(currentRow.waiting || 0);
-      const baselineMedian = percentileValue(loads, 0.5);
-      const baselineP95 = percentileValue(loads, 0.95);
+      const baselineMedian = loads.length ? percentileValue(loads, 0.5) : Number.isFinite(Number(retained.median)) ? Number(retained.median) : null;
+      const baselineP95 = loads.length ? percentileValue(loads, 0.95) : Number.isFinite(Number(retained.p95)) ? Number(retained.p95) : null;
       const pressureRatio = Number(baselineP95) > 0 ? current / Number(baselineP95) : current > 0 ? null : 0;
       return {
         name: name,
@@ -6689,7 +6923,7 @@
         baselineMedian: baselineMedian,
         baselineP95: baselineP95,
         pressureRatio: pressureRatio,
-        historyPoints: loads.length,
+        historyPoints: loads.length || Number(retained.snapshot_count || 0),
         elevated: baselineP95 !== null && current > Number(baselineP95),
       };
     }).filter(function (row) {
@@ -6698,6 +6932,26 @@
       if (a.elevated !== b.elevated) return a.elevated ? -1 : 1;
       return Number(b.current || 0) - Number(a.current || 0);
     });
+  }
+
+  function queueChartPointsWithBreaks(points, nowMs) {
+    const highResolutionCutoff = nowMs - 48 * 60 * 60 * 1000;
+    const output = [];
+    (points || []).forEach(function (point, index) {
+      const previous = index ? points[index - 1] : null;
+      const previousMs = previous ? queueTimestamp(previous.ts) : -Infinity;
+      const currentMs = queueTimestamp(point.ts);
+      if (
+        previous
+        && previousMs >= highResolutionCutoff
+        && currentMs >= highResolutionCutoff
+        && currentMs - previousMs > 30 * 60 * 1000
+      ) {
+        output.push({ts: new Date(previousMs + (currentMs - previousMs) / 2).toISOString(), isGap: true});
+      }
+      output.push(point);
+    });
+    return output;
   }
 
   async function renderQueue(host, ops) {
@@ -6718,13 +6972,17 @@
     }, {waiting: 0, running: 0, agents: 0, agentMeasurements: 0, countSources: new Set()});
     const snapshotSources = snapshot.sources || snapshot.provenance || (((queueBlock.provenance || {}).snapshot || {}).sources) || {};
     const countProvenance = Array.from(sums.countSources).join(', ') || snapshotSources.counts || snapshotSources.count_source || snapshotSources.mode || 'source unavailable';
-    function highest(metric) {
-      const vals = allScopeEntries.map(function (e) { return {queue: e[0], value: waitValue(e[1], metric), source: waitSource(e[1], metric), row: e[1]}; }).filter(function (r) { return r.value !== null && r.value !== undefined && r.value !== '' && Number.isFinite(Number(r.value)); });
+    function highestNative(metric) {
+      const vals = allScopeEntries.map(function (entry) { return {queue: entry[0], value: officialWaitValue(entry[1], metric), row: entry[1]}; }).filter(function (result) { return result.value !== null; });
       return vals.sort(function (a, b) { return Number(b.value) - Number(a.value); })[0] || {};
     }
-    const p95 = highest('p95'), p99 = highest('p99');
-    const p95Coverage = allScopeEntries.filter(function (entry) { return waitValue(entry[1] || {}, 'p95') !== null && waitValue(entry[1] || {}, 'p95') !== undefined; }).length;
-    const p99Coverage = allScopeEntries.filter(function (entry) { return waitValue(entry[1] || {}, 'p99') !== null && waitValue(entry[1] || {}, 'p99') !== undefined; }).length;
+    function highestSample(metric) {
+      const vals = allScopeEntries.map(function (entry) { return {queue: entry[0], value: sampleWaitValue(entry[1], metric), row: entry[1]}; }).filter(function (result) { return result.value !== null; });
+      return vals.sort(function (a, b) { return Number(b.value) - Number(a.value); })[0] || {};
+    }
+    const p95 = highestNative('p95'), sampledP95 = highestSample('p95');
+    const p95Coverage = allScopeEntries.filter(function (entry) { return officialWaitValue(entry[1] || {}, 'p95') !== null; }).length;
+    const sampledP95Coverage = allScopeEntries.filter(function (entry) { return sampleWaitValue(entry[1] || {}, 'p95') !== null; }).length;
     add(host, pageHeader('Queue Monitor', 'Current queue counts, named queue-level wait measurements, retained history, and exact active jobs.', snapshot.ts));
     const controls = n('div', 'ops-toolbar ops-queue-toolbar');
     controls.append(segmented([{id: 'current', label: 'Current'}, {id: 'history', label: 'History'}, {id: 'jobs', label: 'Jobs'}], state.queueView, function (id) { setRouteState('ci-queue', 'queueView', id, 'queue_view'); }, 'Queue monitor mode'));
@@ -6741,8 +6999,8 @@
     host.append(statusStrip([
       {id: 'queue-running', label: 'RUNNING NOW', value: integer(sums.running), meta: allScopeEntries.length + ' queues in scope', onOpen: function () { setRouteState('ci-queue', 'queueView', 'jobs', 'queue_view'); }},
       {id: 'queue-waiting', label: 'WAITING NOW', value: integer(sums.waiting), meta: 'count source: ' + countProvenance, tone: sums.waiting ? 'is-warning' : 'is-success', provenance: countProvenance, onOpen: function () { setRouteState('ci-queue', 'queueView', 'jobs', 'queue_view'); }},
-      {id: 'queue-p95-leader', label: 'P95 QUEUE LEADER', value: p95.queue ? duration(p95.value) : '-', meta: p95.queue ? p95.queue + ' - ' + value(waitSourceDetail(p95.row, 'p95')) : 'No p95 source - ' + integer(p95Coverage) + ' measured queues', tone: p95.queue ? 'is-warning' : 'is-neutral', onOpen: function () { p95.queue ? openQueueDetail(p95.queue, p95.row, []) : openMetricDetail({label: 'Current p95 queue leader', value: '-', meta: 'No queue in scope reported a current p95. Missing values are not zero.'}); }},
-      {id: 'queue-p99-leader', label: 'SAMPLED P99 LEADER', value: p99.queue ? duration(p99.value) : '-', meta: p99.queue ? p99.queue + ' - ' + (waitSampleCount(p99.row) !== null ? 'n=' + integer(waitSampleCount(p99.row)) + ' scheduled jobs' : 'sample count unavailable') : 'No sampled p99 - ' + integer(p99Coverage) + ' measured queues', tone: p99.queue ? 'is-danger' : 'is-neutral', onOpen: function () { p99.queue ? openQueueDetail(p99.queue, p99.row, []) : openMetricDetail({label: 'Current sampled p99 queue leader', value: '-', meta: 'p99 is rendered only from the current scheduled-job sample. It is unavailable when no sample exists.'}); }},
+      {id: 'queue-p95-leader', label: 'BUILDKITE P95 LEADER', value: p95.queue ? duration(p95.value) : '-', meta: p95.queue ? p95.queue + ' - ' + value(waitSourceDetail(p95.row, 'p95')) : 'No p95 source - ' + integer(p95Coverage) + ' measured queues', tone: p95.queue ? 'is-warning' : 'is-neutral', onOpen: function () { p95.queue ? openQueueDetail(p95.queue, p95.row, []) : openMetricDetail({label: 'Current p95 queue leader', value: '-', meta: 'No queue in scope reported a current p95. Missing values are not zero.'}); }},
+      {id: 'queue-sampled-p95-leader', label: 'RECONSTRUCTED P95', value: sampledP95.queue ? duration(sampledP95.value) : '-', meta: sampledP95.queue ? sampledP95.queue + ' - n=' + integer(waitSampleCount(sampledP95.row)) + ' scheduled jobs' : 'No reconstructed p95 - ' + integer(sampledP95Coverage) + ' measured queues', tone: sampledP95.queue ? 'is-danger' : 'is-neutral', onOpen: function () { sampledP95.queue ? openQueueDetail(sampledP95.queue, sampledP95.row, []) : openMetricDetail({label: 'Current reconstructed p95 queue leader', value: '-', meta: 'The reconstructed series uses scheduled jobs fetched separately from Buildkite queue-native metrics.'}); }},
     ]));
 
     const jobs = queueBlock.queue_jobs || {};
@@ -6752,7 +7010,7 @@
     });
 
     if (state.queueView === 'current') {
-      const pressureRows = queuePressureRows(snapshot, Array.isArray(queueBlock.history) ? queueBlock.history : []);
+      const pressureRows = queuePressureRows(snapshot, Array.isArray(queueBlock.history) ? queueBlock.history : [], queueBlock.pressure_baseline || {});
       if (pressureRows.length) {
         const pressureTop = pressureRows.slice(0, 14);
         const pressureChart = chartPanel('Queue pressure against retained baseline', 'Current running + waiting versus each queue\'s historical p95 load', 'queue-pressure');
@@ -6781,8 +7039,9 @@
         {label: 'Running', numeric: true, render: function (item) { return linkButton(integer(item[1].running), function () { openQueueDetail(item[0], item[1], activeJobs); }); }},
         {label: 'Waiting', numeric: true, render: function (item) { return linkButton(integer(item[1].waiting), function () { openQueueDetail(item[0], item[1], activeJobs); }); }},
         {label: 'Agents', numeric: true, render: function (item) { return linkButton(hasAgentMeasurement(item[1]) ? integer(item[1].connected_agents) : '-', function () { openQueueDetail(item[0], item[1], activeJobs); }); }},
-        {label: 'p50', numeric: true, render: function (item) { return linkButton(duration(waitValue(item[1], 'p50')), function () { openQueueDetail(item[0], item[1], activeJobs); }); }},
-        {label: 'p95 official/fallback', numeric: true, render: function (item) { const source = waitSourceDetail(item[1], 'p95'); return linkButton(duration(waitValue(item[1], 'p95')) + (source ? ' - ' + source : ''), function () { openQueueDetail(item[0], item[1], activeJobs); }); }},
+        {label: 'p50 Buildkite', numeric: true, render: function (item) { return linkButton(duration(officialWaitValue(item[1], 'p50')), function () { openQueueDetail(item[0], item[1], activeJobs); }); }},
+        {label: 'p95 Buildkite', numeric: true, render: function (item) { return linkButton(duration(officialWaitValue(item[1], 'p95')), function () { openQueueDetail(item[0], item[1], activeJobs); }); }},
+        {label: 'p50 / p95 reconstructed', numeric: true, render: function (item) { const p50 = sampleWaitValue(item[1], 'p50'), p95 = sampleWaitValue(item[1], 'p95'); return linkButton((p50 === null ? '-' : duration(p50)) + ' / ' + (p95 === null ? '-' : duration(p95)), function () { openQueueDetail(item[0], item[1], activeJobs); }); }},
         {label: 'p99 scheduled sample', numeric: true, render: function (item) { const measured = waitValue(item[1], 'p99'); const count = waitSampleCount(item[1]); return linkButton(measured === null || measured === undefined ? '-' : duration(measured) + (count !== null ? ' - n=' + integer(count) : ''), function () { openQueueDetail(item[0], item[1], activeJobs); }); }},
         {label: 'Measurement source', render: function (item) { const row = item[1]; return linkButton([waitSourceDetail(row, 'p50'), waitSourceDetail(row, 'p95'), waitSourceDetail(row, 'p99')].filter(Boolean).filter(function (x, i, a) { return a.indexOf(x) === i; }).join(', ') || 'No wait measurement', function () { openQueueDetail(item[0], row, activeJobs); }); }},
       ], entries, integer(entries.length) + (state.queueIncludeIdle ? ' queues including idle' : ' active or problem queues')));
@@ -6810,14 +7069,14 @@
       return;
     }
 
-    let history = Array.isArray(queueBlock.history) ? queueBlock.history : [];
-    if (!history.length) {
-      try { history = await fetchJSONL('data/vllm/ci/queue_timeseries.jsonl'); } catch (_) {}
-    }
-    history = history.filter(function (snap) { return snap && snap.ts && snap.queues; }).sort(function (a, b) { return String(a.ts).localeCompare(String(b.ts)); });
-    const latestHistoryMs = history.length ? new Date(history[history.length - 1].ts).getTime() : Date.now();
+    let history = await loadQueueHistory(queueBlock);
+    const rangeEndMs = Date.now();
     const rangeHours = state.queueRange === '30d' ? 720 : state.queueRange === '7d' ? 168 : 24;
-    history = history.filter(function (snap) { const time = new Date(snap.ts).getTime(); return !Number.isFinite(time) || time >= latestHistoryMs - rangeHours * 3600000; });
+    const rangeStartMs = rangeEndMs - rangeHours * 3600000;
+    history = history.filter(function (snap) {
+      const time = queueTimestamp(snap.ts);
+      return time >= rangeStartMs && time <= rangeEndMs + 5 * 60 * 1000;
+    });
     const queueNames = Array.from(new Set(history.flatMap(function (snap) {
       return Object.keys(snap.queues || {}).filter(function (name) {
         return !isRetiredQueue(name) && (state.queueScope === 'all' || isAmdQueue(name));
@@ -6841,6 +7100,7 @@
     queueField.append(queueSelect);
     const historyToolbar = n('div', 'ops-toolbar');
     historyToolbar.append(queueField);
+    historyToolbar.append(n('span', 'ops-evidence-method', 'Times shown in ' + (Intl.DateTimeFormat().resolvedOptions().timeZone || 'browser local time')));
     host.append(historyToolbar);
     const selectedHistory = state.queueHistoryQueue === 'fleet' ? history : history.filter(function (snap) {
       return Object.prototype.hasOwnProperty.call(snap.queues || {}, state.queueHistoryQueue);
@@ -6850,12 +7110,31 @@
       for (const [name, row] of Object.entries(snap.queues || {})) {
         if (isRetiredQueue(name) || (state.queueScope !== 'all' && !isAmdQueue(name))) continue;
         if (state.queueHistoryQueue !== 'fleet' && name !== state.queueHistoryQueue) continue;
+        if (row.history_observation_only) continue;
         waiting += Number(row.waiting || 0);
         running += Number(row.running || 0);
         queues += 1;
       }
       return {ts: snap.ts, waiting: waiting, running: running, snapshot: snap, queues: queues};
     });
+    const expectedCoverageStartMs = Math.max(rangeStartMs, rangeEndMs - 48 * 60 * 60 * 1000);
+    const highResolutionPoints = points.filter(function (point) { return queueTimestamp(point.ts) >= expectedCoverageStartMs; });
+    const coverageProblems = [];
+    if (!highResolutionPoints.length) {
+      coverageProblems.push('no retained snapshots in the recent high-resolution window');
+    } else {
+      const firstMs = queueTimestamp(highResolutionPoints[0].ts);
+      const lastMs = queueTimestamp(highResolutionPoints[highResolutionPoints.length - 1].ts);
+      if (firstMs - expectedCoverageStartMs > 30 * 60 * 1000) coverageProblems.push('coverage begins ' + duration((firstMs - expectedCoverageStartMs) / 60000) + ' late');
+      if (rangeEndMs - lastMs > 30 * 60 * 1000) coverageProblems.push('latest snapshot is ' + duration((rangeEndMs - lastMs) / 60000) + ' old');
+      const largestRecentGapMs = highResolutionPoints.slice(1).reduce(function (largest, point, index) {
+        return Math.max(largest, queueTimestamp(point.ts) - queueTimestamp(highResolutionPoints[index].ts));
+      }, 0);
+      if (largestRecentGapMs > 30 * 60 * 1000) coverageProblems.push('largest interior gap is ' + duration(largestRecentGapMs / 60000));
+    }
+    if (coverageProblems.length) {
+      host.append(n('div', 'ops-evidence-note is-warning', 'Collection coverage warning: ' + coverageProblems.join('; ') + '. Chart lines are broken across missing high-resolution intervals; hourly archive spacing older than 48 hours is intentional.'));
+    }
     const summary = queueBlock.history_summary || {};
     const selectedHistoryStart = selectedHistory.length ? selectedHistory[0].ts : summary.first_observed_at;
     const historyLabel = state.queueHistoryQueue === 'fleet' ? (state.queueScope === 'amd' ? 'All AMD queues' : 'All queues') : state.queueHistoryQueue;
@@ -6868,61 +7147,71 @@
     const activityMeta = integer(points.length) + ' snapshots in ' + state.queueRange + ' - running and waiting ' + (state.queueHistoryQueue === 'fleet' ? 'summed across observed queues' : 'for this queue') + (selectedHistoryStart ? ' - begins ' + shortDate(selectedHistoryStart) : '');
     const cp = chartPanel(activityTitle, activityMeta, 'queue-history');
     host.append(cp.root);
+    const activityChartPoints = queueChartPointsWithBreaks(points, rangeEndMs);
     drawChart('queue-history', cp.canvas, {type: 'line', data: {
-      labels: points.map(function (p) { return shortDate(p.ts); }),
+      labels: activityChartPoints.map(function (p) { return shortDate(p.ts); }),
       datasets: [
-        {label: 'Running', data: points.map(function (p) { return p.running; }), borderColor: '#22b8ad', backgroundColor: '#22b8ad', pointRadius: 0, borderWidth: 2},
-        {label: 'Waiting', data: points.map(function (p) { return p.waiting; }), borderColor: '#e3a63a', backgroundColor: '#e3a63a', pointRadius: 0, borderWidth: 2},
+        {label: 'Running', data: activityChartPoints.map(function (p) { return p.isGap ? null : p.running; }), borderColor: '#22b8ad', backgroundColor: '#22b8ad', pointRadius: 0, borderWidth: 2, spanGaps: false},
+        {label: 'Waiting', data: activityChartPoints.map(function (p) { return p.isGap ? null : p.waiting; }), borderColor: '#e3a63a', backgroundColor: '#e3a63a', pointRadius: 0, borderWidth: 2, spanGaps: false},
       ],
     }, evidenceTitle: historyLabel + ' queue activity history', evidenceAsset: SOURCE_ASSETS.queueHistory, evidence: points.map(function (point) { return {label: shortDate(point.ts), timestamp: point.ts, valueSummary: integer(point.running) + ' running - ' + integer(point.waiting) + ' waiting', details: {running: point.running, waiting: point.waiting, queues: point.queues, selected_queue: state.queueHistoryQueue}, sources: [{label: 'Open published queue history', url: SOURCE_ASSETS.queueHistory}], onOpen: function () { openQueueSnapshotDetail(point.snapshot, Object.assign({}, point, {selectedQueue: state.queueHistoryQueue})); }}; })});
 
     const waitPoints = selectedHistory.map(function (snap) { return queueWaitHistoryPoint(snap, state.queueHistoryQueue); });
-    const waitEvidenceCount = waitPoints.filter(function (point) { return point.p50 !== null || point.p95 !== null || point.p99 !== null; }).length;
+    const waitEvidenceCount = waitPoints.filter(function (point) { return point.p50 !== null || point.p95 !== null || point.sampleP50 !== null || point.sampleP95 !== null || point.p99 !== null; }).length;
     if (waitEvidenceCount) {
       const waitTitle = state.queueHistoryQueue === 'fleet' ? 'Worst individual queue wait at each snapshot' : state.queueHistoryQueue + ': reported wait history';
       const waitSubtitle = state.queueHistoryQueue === 'fleet'
         ? 'Each point names the queue with the largest reported value; ties are preserved and no fleet percentile is calculated'
-        : 'p50/p95 prefer official queue metrics; p99 is only the current scheduled-job sample';
+        : 'Solid p50/p95 are Buildkite-native when available; dashed p50/p95 are separately reconstructed from scheduled jobs; p99 is sample-only';
       const waitChart = chartPanel(waitTitle, waitSubtitle + ' - ' + integer(waitEvidenceCount) + ' measured snapshots', 'queue-wait-history');
       host.append(waitChart.root);
+      const waitChartPoints = queueChartPointsWithBreaks(waitPoints, rangeEndMs);
       drawChart('queue-wait-history', waitChart.canvas, {
         type: 'line',
         data: {
-          labels: waitPoints.map(function (point) { return shortDate(point.ts); }),
+          labels: waitChartPoints.map(function (point) { return shortDate(point.ts); }),
           datasets: [
-            {label: 'p50 official/fallback', metric: 'p50', data: waitPoints.map(function (point) { return point.p50; }), borderColor: '#22b8ad', backgroundColor: '#22b8ad', pointRadius: 3, borderWidth: 2},
-            {label: 'p95 official/fallback', metric: 'p95', data: waitPoints.map(function (point) { return point.p95; }), borderColor: '#e3a63a', backgroundColor: '#e3a63a', pointRadius: 3, borderWidth: 2},
-            {label: 'p99 scheduled sample', metric: 'p99', data: waitPoints.map(function (point) { return point.p99; }), borderColor: '#cf8dd9', backgroundColor: '#cf8dd9', pointRadius: 3, borderWidth: 1.5},
+            {label: 'p50 primary', metric: 'p50', pointKey: 'p50', data: waitChartPoints.map(function (point) { return point.isGap ? null : point.p50; }), borderColor: '#22b8ad', backgroundColor: '#22b8ad', pointRadius: 3, borderWidth: 2, spanGaps: false},
+            {label: 'p95 primary', metric: 'p95', pointKey: 'p95', data: waitChartPoints.map(function (point) { return point.isGap ? null : point.p95; }), borderColor: '#e3a63a', backgroundColor: '#e3a63a', pointRadius: 3, borderWidth: 2, spanGaps: false},
+            {label: 'p50 reconstructed', metric: 'p50', pointKey: 'sampleP50', data: waitChartPoints.map(function (point) { return point.isGap ? null : point.sampleP50; }), borderColor: '#78d9d1', backgroundColor: '#78d9d1', borderDash: [6, 4], pointRadius: 2, borderWidth: 1.5, spanGaps: false},
+            {label: 'p95 reconstructed', metric: 'p95', pointKey: 'sampleP95', data: waitChartPoints.map(function (point) { return point.isGap ? null : point.sampleP95; }), borderColor: '#f4c66f', backgroundColor: '#f4c66f', borderDash: [6, 4], pointRadius: 2, borderWidth: 1.5, spanGaps: false},
+            {label: 'p99 scheduled sample', metric: 'p99', pointKey: 'p99', data: waitChartPoints.map(function (point) { return point.isGap ? null : point.p99; }), borderColor: '#cf8dd9', backgroundColor: '#cf8dd9', pointRadius: 3, borderWidth: 1.5, spanGaps: false},
           ],
         },
         options: {
           scales: {x: {grid: {display: false}, ticks: {maxTicksLimit: 8}}, y: {beginAtZero: true, title: {display: true, text: 'Wait minutes'}}},
           plugins: {tooltip: {callbacks: {
             label: function (context) {
-              const metric = context.dataset.metric;
-              const point = waitPoints[context.dataIndex] || {};
-              const queues = point[metric + 'Queues'] || [point[metric + 'Queue']].filter(Boolean);
+              const key = context.dataset.pointKey || context.dataset.metric;
+              const point = waitChartPoints[context.dataIndex] || {};
+              const queues = point[key + 'Queues'] || [point[key + 'Queue']].filter(Boolean);
               return context.dataset.label + ': ' + duration(context.parsed.y) + (queues.length ? ' - ' + queueLeaderSummary(queues) : '');
             },
             afterLabel: function (context) {
-              const metric = context.dataset.metric;
-              const point = waitPoints[context.dataIndex] || {};
-              const source = point[metric + 'SourceDetail'] || point[metric + 'Source'];
-              const count = point[metric + 'SampleCount'];
-              return [source ? 'Source: ' + source : null, metric === 'p99' && count !== null && count !== undefined ? 'Scheduled sample: n=' + integer(count) : null].filter(Boolean);
+              const key = context.dataset.pointKey || context.dataset.metric;
+              const point = waitChartPoints[context.dataIndex] || {};
+              const source = point[key + 'SourceDetail'] || point[key + 'Source'];
+              const count = point[key + 'SampleCount'];
+              const expected = point[key + 'SampleExpected'];
+              const complete = point[key + 'SampleComplete'];
+              const observedAt = point[key + 'ObservedAt'];
+              const coverage = source && source.indexOf('sample_wait') !== -1 && count !== null && count !== undefined
+                ? 'Scheduled sample: ' + integer(count) + (expected !== null && expected !== undefined ? ' / ' + integer(expected) : '') + (complete === true ? ' - reconciled' : complete === false ? ' - partial' : '')
+                : null;
+              return [source ? 'Source: ' + source : null, observedAt ? 'Hourly peak observed: ' + shortDate(observedAt) : null, coverage].filter(Boolean);
             },
           }}},
         },
         evidenceTitle: waitTitle,
         evidenceAsset: SOURCE_ASSETS.queueHistory,
-        evidence: waitPoints.map(function (point) { return {label: shortDate(point.ts), timestamp: point.ts, valueSummary: 'p50 ' + duration(point.p50) + ' (' + queueLeaderSummary(point.p50Queues) + ') - p95 ' + duration(point.p95) + ' (' + queueLeaderSummary(point.p95Queues) + ') - p99 ' + duration(point.p99) + ' (' + queueLeaderSummary(point.p99Queues) + ')', details: {p50: duration(point.p50), p50_queues: (point.p50Queues || []).join(', '), p50_source: point.p50SourceDetail || point.p50Source, p95: duration(point.p95), p95_queues: (point.p95Queues || []).join(', '), p95_source: point.p95SourceDetail || point.p95Source, p99_sampled: duration(point.p99), p99_queues: (point.p99Queues || []).join(', '), p99_source: point.p99SourceDetail || point.p99Source, p99_sample_count: point.p99SampleCount}, sources: [{label: 'Open published queue history', url: SOURCE_ASSETS.queueHistory}], onOpen: function () { const activityPoint = points.find(function (row) { return row.ts === point.ts; }) || {}; openQueueSnapshotDetail(point.snapshot, {running: activityPoint.running, waiting: activityPoint.waiting, queues: activityPoint.queues, selectedQueue: state.queueHistoryQueue}); }}; }),
+        evidence: waitPoints.map(function (point) { return {label: shortDate(point.ts), timestamp: point.ts, valueSummary: 'primary p50 ' + duration(point.p50) + ' (' + queueLeaderSummary(point.p50Queues) + ') - primary p95 ' + duration(point.p95) + ' (' + queueLeaderSummary(point.p95Queues) + ') - reconstructed p95 ' + duration(point.sampleP95) + ' (' + queueLeaderSummary(point.sampleP95Queues) + ')', details: {p50_primary: duration(point.p50), p50_queues: (point.p50Queues || []).join(', '), p50_source: point.p50SourceDetail || point.p50Source, p50_peak_observed_at: point.p50ObservedAt, p95_primary: duration(point.p95), p95_queues: (point.p95Queues || []).join(', '), p95_source: point.p95SourceDetail || point.p95Source, p95_peak_observed_at: point.p95ObservedAt, p50_reconstructed: duration(point.sampleP50), p50_reconstructed_queues: (point.sampleP50Queues || []).join(', '), p95_reconstructed: duration(point.sampleP95), p95_reconstructed_queues: (point.sampleP95Queues || []).join(', '), p95_reconstructed_sample_count: point.sampleP95SampleCount, p99_sampled: duration(point.p99), p99_queues: (point.p99Queues || []).join(', '), p99_source: point.p99SourceDetail || point.p99Source, p99_peak_observed_at: point.p99ObservedAt, p99_sample_count: point.p99SampleCount}, sources: [{label: 'Open published queue history', url: SOURCE_ASSETS.queueHistory}], onOpen: function () { const activityPoint = points.find(function (row) { return row.ts === point.ts; }) || {}; openQueueSnapshotDetail(point.snapshot, {running: activityPoint.running, waiting: activityPoint.waiting, queues: activityPoint.queues, selectedQueue: state.queueHistoryQueue}); }}; }),
       });
 
       function peak(metric) {
         return waitPoints.filter(function (point) { return point[metric] !== null && point[metric] !== undefined; }).sort(function (a, b) { return Number(b[metric]) - Number(a[metric]); })[0] || null;
       }
       const leaderGrid = n('div', 'ops-wait-leader-grid');
-      [['p50', 'PEAK P50', ''], ['p95', 'PEAK P95', 'is-warning'], ['p99', 'PEAK SAMPLED P99', 'is-danger']].forEach(function (spec) {
+      [['p50', 'PEAK PRIMARY P50', ''], ['p95', 'PEAK PRIMARY P95', 'is-warning'], ['sampleP95', 'PEAK RECONSTRUCTED P95', 'is-warning'], ['p99', 'PEAK SAMPLED P99', 'is-danger']].forEach(function (spec) {
         const metric = spec[0];
         const point = peak(metric);
         const queueNamesForPoint = point ? point[metric + 'Queues'] || [point[metric + 'Queue']].filter(Boolean) : [];
@@ -6932,7 +7221,7 @@
           n('span', 'ops-stat-label', spec[1]),
           n('strong', 'ops-wait-leader-value', point ? duration(point[metric]) : '-'),
           n('span', 'ops-wait-leader-queue', point ? queueLeaderSummary(queueNamesForPoint) : 'No measurement'),
-          n('span', 'ops-wait-leader-meta', point ? shortDate(point.ts) + ' - ' + value(point[metric + 'SourceDetail'] || point[metric + 'Source']) + (metric === 'p99' && point.p99SampleCount !== null && point.p99SampleCount !== undefined ? ' - n=' + integer(point.p99SampleCount) : '') : 'Missing values are not zero'),
+          n('span', 'ops-wait-leader-meta', point ? shortDate(point[metric + 'ObservedAt'] || point.ts) + ' - ' + value(point[metric + 'SourceDetail'] || point[metric + 'Source']) + (metric === 'p99' && point.p99SampleCount !== null && point.p99SampleCount !== undefined ? ' - n=' + integer(point.p99SampleCount) : '') : 'Missing values are not zero'),
         ]);
         card.addEventListener('click', function () {
           if (!point) return;
@@ -6948,14 +7237,16 @@
     } else {
       host.append(n('div', 'ops-evidence-note is-info', 'No source-reported queue wait percentiles exist for ' + historyLabel + ' in this range. Counts remain historical evidence; missing waits are not rendered as zero.'));
     }
-    if (points.length < 2) host.append(n('div', 'ops-evidence-note is-info', 'Historical collection has only one snapshot in this range. The dashboard will not infer a trend until another source-backed point exists.'));
+    if (points.length === 0) host.append(n('div', 'ops-evidence-note is-info', 'Historical collection has no snapshots in this range.'));
+    else if (points.length === 1) host.append(n('div', 'ops-evidence-note is-info', 'Historical collection has only one snapshot in this range. The dashboard will not infer a trend until another source-backed point exists.'));
     const waitsByTimestamp = new Map(waitPoints.map(function (point) { return [point.ts, point]; }));
     const historyColumns = [
       {label: 'Snapshot', sticky: true, render: function (point) { return linkButton(shortDate(point.ts), function () { openQueueSnapshotDetail(point.snapshot, Object.assign({}, point, {selectedQueue: state.queueHistoryQueue})); }); }},
       {label: 'Running', numeric: true, render: function (point) { return linkButton(integer(point.running), function () { openQueueSnapshotDetail(point.snapshot, Object.assign({}, point, {selectedQueue: state.queueHistoryQueue})); }); }},
       {label: 'Waiting', numeric: true, render: function (point) { return linkButton(integer(point.waiting), function () { openQueueSnapshotDetail(point.snapshot, Object.assign({}, point, {selectedQueue: state.queueHistoryQueue})); }); }},
       {label: 'Queues', numeric: true, render: function (point) { return linkButton(integer(point.queues), function () { openQueueSnapshotDetail(point.snapshot, Object.assign({}, point, {selectedQueue: state.queueHistoryQueue})); }); }},
-      {label: 'Worst p95 queue', render: function (point) { const wait = waitsByTimestamp.get(point.ts) || {}; return linkButton(wait.p95Queue ? queueLeaderSummary(wait.p95Queues) + ' - ' + duration(wait.p95) : '-', function () { openQueueSnapshotDetail(point.snapshot, Object.assign({}, point, {selectedQueue: state.queueHistoryQueue})); }); }},
+      {label: 'Worst primary p95 queue', render: function (point) { const wait = waitsByTimestamp.get(point.ts) || {}; return linkButton(wait.p95Queue ? queueLeaderSummary(wait.p95Queues) + ' - ' + duration(wait.p95) : '-', function () { openQueueSnapshotDetail(point.snapshot, Object.assign({}, point, {selectedQueue: state.queueHistoryQueue})); }); }},
+      {label: 'Worst reconstructed p95', render: function (point) { const wait = waitsByTimestamp.get(point.ts) || {}; return linkButton(wait.sampleP95Queue ? queueLeaderSummary(wait.sampleP95Queues) + ' - ' + duration(wait.sampleP95) : '-', function () { openQueueSnapshotDetail(point.snapshot, Object.assign({}, point, {selectedQueue: state.queueHistoryQueue})); }); }},
       {label: 'Worst sampled p99 queue', render: function (point) { const wait = waitsByTimestamp.get(point.ts) || {}; return linkButton(wait.p99Queue ? queueLeaderSummary(wait.p99Queues) + ' - ' + duration(wait.p99) : '-', function () { openQueueSnapshotDetail(point.snapshot, Object.assign({}, point, {selectedQueue: state.queueHistoryQueue})); }); }},
     ];
     host.append(compactTablePanel('Queue history snapshots', integer(points.length) + ' snapshots; worst-wait columns always name the queue', historyColumns, points.slice().reverse(), {
@@ -6963,7 +7254,7 @@
       limit: 14,
       browserSubtitle: historyLabel + ' in the selected ' + state.queueRange + ' range',
       searchPlaceholder: 'Filter by timestamp or leading queue',
-      searchText: function (point) { const wait = waitsByTimestamp.get(point.ts) || {}; return [point.ts, wait.p95Queue, wait.p99Queue].join(' '); },
+      searchText: function (point) { const wait = waitsByTimestamp.get(point.ts) || {}; return [point.ts, wait.p95Queue, wait.sampleP95Queue, wait.p99Queue].join(' '); },
       geometry: {name: 'queue-history-snapshots', minWidth: '980px'},
     }));
   }
@@ -10169,18 +10460,21 @@
   }
 
   async function render(tabId, force) {
-    if (!OWNED_TABS.has(tabId)) return;
+    if (!OWNED_TABS.has(tabId)) return false;
     syncRouteState(tabId);
     const host = ownedHost(tabId);
-    if (!host) return;
+    if (!host) return false;
     const token = String(Date.now()) + Math.random();
     host.dataset.renderToken = token;
     clear(host);
     pruneInactiveCharts();
     host.append(n('div', 'ops-loading', 'Loading operational data...'));
     try {
+      if (tabId === 'ci-queue' && !force && Date.now() - lastQueueRefreshAt >= QUEUE_AUTO_REFRESH_MS) {
+        await invalidateQueueData();
+      }
       const ops = await loadOperations(tabId);
-      if (host.dataset.renderToken !== token) return;
+      if (host.dataset.renderToken !== token) return false;
       clear(host);
       setFreshness(ops);
       if (tabId === 'projects') await renderHome(host, ops);
@@ -10190,6 +10484,8 @@
       else if (tabId === 'ci-queue') await renderQueue(host, ops);
       else if (tabId === 'ci-hotness') await renderTrajectory(host, ops);
       else if (tabId === 'ci-omni') await renderOmni(host, ops);
+      if (tabId === 'ci-queue') lastQueueRefreshAt = Date.now();
+      return true;
     } catch (error) {
       clear(host);
       const retry = button('Retry', function () {
@@ -10199,11 +10495,32 @@
       }, true);
       add(host, [pageHeader('AMD CI Operations', 'The requested operational data could not be loaded.', null, retry), n('div', 'ops-error', error.message || String(error))]);
       console.error('Ops v2 render failed:', error);
+      return false;
     }
+  }
+
+  async function invalidateQueueData() {
+    cache.delete(SOURCE_ASSETS.operationsManifest);
+    cache.delete(SOURCE_ASSETS.queueSection);
+    cache.delete(SOURCE_ASSETS.queueChartHistory);
+    cache.delete(SOURCE_ASSETS.queueChartHistoryFallback);
+    cache.delete('jsonl:' + SOURCE_ASSETS.queueHistory);
+    cache.delete('jsonl:' + SOURCE_ASSETS.queueHistoryFallback);
+    operationsManifestPromise = null;
+    const manifest = await operationsManifest();
+    const descriptor = manifest && manifest.sections && manifest.sections.queue;
+    if (descriptor && descriptor.path) cache.delete(resolveOperationSectionPath(descriptor.path));
+  }
+
+  async function refreshQueueData() {
+    if (activeTab() !== 'ci-queue' || document.visibilityState === 'hidden') return;
+    await invalidateQueueData();
+    if (!await render('ci-queue', true)) throw new Error('Queue refresh did not render successfully');
   }
 
   window.OpsV2 = {
     render: render,
+    refreshQueue: refreshQueueData,
     renderOwnership: renderOwnership,
     state: state,
     openTestGroupHistory: openTestGroupHistory,
@@ -10249,5 +10566,21 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     render(activeTab());
+    window.setInterval(function () {
+      refreshQueueData().catch(function (error) {
+        console.error('Queue auto-refresh failed:', error);
+      });
+    }, QUEUE_AUTO_REFRESH_MS);
+    document.addEventListener('visibilitychange', function () {
+      if (
+        document.visibilityState === 'visible'
+        && activeTab() === 'ci-queue'
+        && Date.now() - lastQueueRefreshAt >= QUEUE_AUTO_REFRESH_MS
+      ) {
+        refreshQueueData().catch(function (error) {
+          console.error('Queue visibility refresh failed:', error);
+        });
+      }
+    });
   });
 })();

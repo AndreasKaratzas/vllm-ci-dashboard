@@ -6,7 +6,7 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 
 | Script | Purpose | Trigger |
 |--------|---------|---------|
-| `collect_queue_snapshot.py` | Captures Buildkite queue state from cluster metrics + active jobs, prunes pre-fix history, and excludes >4h zombie jobs from queue analytics | Every 30 min via `hourly-master.yml`, plus manual/webhook `queue-monitor.yml` runs |
+| `collect_queue_snapshot.py` | Captures Buildkite queue state from cluster metrics + active jobs, records scheduled-job sample coverage against queue counts, and excludes >4h zombie jobs from reconstructed latency analytics | Every 10 min via `queue-monitor.yml`, plus canonical `hourly-master.yml` runs |
 | `collect_analytics.py` | Builds failure rankings, duration rankings, queue wait stats | Every 30 min via `hourly-master.yml` |
 | `collect_amd_test_matrix.py` | Normalizes upstream `test-amd.yaml` into a dynamic per-architecture coverage matrix, matched against the latest AMD nightly | Every 30 min via `hourly-master.yml` |
 | `collect_ownership_parity.py` | Builds the ownership routing map from the exact vLLM commit referenced by the latest AMD matrix | Every 30 min after matrix collection |
@@ -14,6 +14,7 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 | `collect_gating_proposals.py` | Finds recent open PRs from tracked AMD engineers that add new `.buildkite/test_areas` AMD mirrors, then follows cached proposal PRs until they stop adding mirrors | Every 30 min via `hourly-master.yml` |
 | `collect_gating_target_candidates.py` | Builds a review-only audit of upstream nightly GPU jobs vs the canonical AMD gating target list, including likely duplicates, exclusions, new candidates, and explicit `%N` shard aggregation | Every 30 min via `hourly-master.yml` |
 | `build_operations_snapshot.py` | Builds the private v2 operations input plus its public manifest and lazy section shards; runtime targets resolve through exact matrix aliases and definition parity with explicit unresolved reasons | Every canonical collection and Pages assembly |
+| `build_queue_section.py` | Builds only the compact public Queue shard from queue-owned inputs | Every independent queue-monitor run |
 | `ci_area_regression_watcher.py` | Maps every exact AMD matrix definition to its owned test-area rotation and reconciles one state-owned dashboard issue per regressing area | Every 30 min after matrix collection |
 | `ensure_ci_operations_labels.py` | Ensures managed and workstream labels exist before issue watchers run | Every canonical collection |
 | `sync_ci_operations_project.py` | Adds open managed dashboard issues to the linked AMD CI Operations Project, split by workstream labels | Every 30 min after issue reconciliation |
@@ -44,9 +45,11 @@ only for the `addProjectV2ItemById` mutation against the configured Project.
 Missing project credentials are a safe no-op; the script never removes Project
 items, edits issue content, or targets another repository.
 
-For queue monitoring specifically, the token should also have Buildkite GraphQL access enabled so `collect_queue_snapshot.py` can read cluster queue metrics (`connected_agents`, `waiting`, `running`). If GraphQL access is unavailable, the collector falls back to the legacy active-build scan.
+For queue monitoring specifically, the token needs Buildkite GraphQL access so `collect_queue_snapshot.py` can read cluster queue metrics and scheduled jobs. A dedicated replacement token should be read-only (`read_builds` and `read_clusters`; plus GraphQL access). If GraphQL is unavailable, the collector falls back to the legacy active-build scan.
 
-Queue history is automatically pruned to the post-fix reset epoch declared in `vllm.constants`, so older snapshots from the pre-fix collector do not re-enter the dashboard via `gh-pages` sync.
+Buildkite's queue-native p50/p95 remain the site-comparable primary values whenever they are available. The fully paginated scheduled-job reconstruction is stored and charted separately, with exact non-zombie n/N coverage, because equal counts do not prove that two sequential reads contain the same jobs or use the same percentile estimator. Queue history keeps every poll for 48 hours, then retains one actual snapshot plus every queue's primary and reconstructed p50/p95/p99 peaks and exact observation times per UTC hour for the remainder of the 30-day window.
+
+The frequent collector force-publishes a single-commit `queue-data` branch containing only queue-owned evidence and a compact chart feed. The browser compares its current snapshot with the canonical Pages shard, uses the newer one, and falls back to the Pages history if the dedicated feed becomes stale. The verbose JSONL remains available as drill-down evidence but is not reparsed on every chart refresh.
 
 ## Data Flow
 
@@ -56,6 +59,9 @@ Buildkite API
     v
 collect_queue_snapshot.py --> data/vllm/ci/queue_timeseries.jsonl
                           --> data/vllm/ci/queue_jobs.json
+build_queue_section.py    --> data/vllm/ci/operations_v2/queue.json
+                          --> data/vllm/ci/queue_history_chart.json
+                          --> queue-data branch (live browser feed)
 collect_capacity_monitor.py --> data/vllm/ci/capacity_monitor.json
 collect_analytics.py      --> data/vllm/ci/analytics.json
 collect_amd_test_matrix.py --> data/vllm/ci/amd_test_matrix.json

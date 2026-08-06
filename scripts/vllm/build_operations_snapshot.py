@@ -26,6 +26,7 @@ DEFAULT_INPUT = ROOT / "data" / "vllm" / "ci"
 DEFAULT_OUTPUT_NAME = "operations_v2.json"
 OPERATIONS_MANIFEST_NAME = "operations_v2_manifest.json"
 OPERATIONS_BUNDLE_DIR_NAME = "operations_v2"
+QUEUE_HISTORY_CHART_NAME = "queue_history_chart.json"
 NIGHTLY_BUILD_LIMIT = 30
 RANKING_LIMIT = 20
 CHANGE_LIMIT = 20
@@ -71,8 +72,15 @@ QUEUE_HISTORY_SHARD_FIELDS = {
     "max_wait_source",
     "wait_source",
     "wait_sample_count",
+    "wait_sample_expected_count",
+    "wait_sample_complete",
+    "official_wait",
+    "sample_wait",
     "official_wait_source",
     "sample_wait_source",
+    "archive_wait_peaks",
+    "archive_sample_wait_peaks",
+    "history_observation_only",
     "metrics_ts",
 }
 
@@ -3304,8 +3312,11 @@ def _compact_history_snapshot(snapshot: dict) -> dict:
             "p90_wait", "p90_wait_source", "p95_wait", "p95_wait_source",
             "p99_wait", "p99_wait_source", "avg_wait", "avg_wait_source",
             "max_wait", "max_wait_source", "wait_source", "wait_source_family",
-            "wait_sample_count", "sample_count", "official_wait_source",
+            "wait_sample_count", "wait_sample_expected_count", "wait_sample_complete",
+            "sample_count", "official_wait_source",
             "sample_wait_source", "metrics_ts", "current_wait",
+            "official_wait", "sample_wait", "archive_wait_peaks",
+            "archive_sample_wait_peaks", "history_observation_only",
         )
         row = {
             key: source[key]
@@ -3326,6 +3337,8 @@ def _compact_history_snapshot(snapshot: dict) -> dict:
     return {
         "ts": snapshot.get("ts"),
         "schema_version": snapshot.get("schema_version"),
+        "history_mode": snapshot.get("history_mode"),
+        "archive_bucket_start": snapshot.get("archive_bucket_start"),
         "total_waiting": snapshot.get("total_waiting", 0),
         "total_running": snapshot.get("total_running", 0),
         "total_zombie_waiting": snapshot.get("total_zombie_waiting", 0),
@@ -3338,6 +3351,27 @@ def _compact_history_snapshot(snapshot: dict) -> dict:
             if sources.get(key) is not None
         } | ({"history_provenance": history_provenance} if history_provenance else {}),
     }
+
+
+def _queue_pressure_baseline(history: list[dict]) -> dict:
+    queue_names = sorted({
+        name for snapshot in history for name in (snapshot.get("queues") or {})
+    })
+    baseline = {}
+    for name in queue_names:
+        loads = sorted(
+            float((row.get("running") or 0) + (row.get("waiting") or 0))
+            for snapshot in history
+            if isinstance((row := (snapshot.get("queues") or {}).get(name)), dict)
+        )
+        if not loads:
+            continue
+        baseline[name] = {
+            "median": _percentile(loads, 50),
+            "p95": _percentile(loads, 95),
+            "snapshot_count": len(loads),
+        }
+    return baseline
 
 
 def _queue(snapshot: dict, queue_jobs: dict, history: list[dict]) -> dict:
@@ -3356,6 +3390,7 @@ def _queue(snapshot: dict, queue_jobs: dict, history: list[dict]) -> dict:
         "snapshot": snapshot,
         "queue_jobs": queue_jobs,
         "history": history,
+        "pressure_baseline": _queue_pressure_baseline(history),
         "history_summary": {
             "snapshot_count": len(history),
             "first_observed_at": history[0].get("ts") if history else None,
@@ -6326,9 +6361,126 @@ def _compact_queue_history(history: list[dict]) -> list[dict]:
 
 
 def _compact_queue(queue: dict) -> dict:
+    """Publish current state; history stays in its lazy JSONL asset.
+
+    At a ten-minute cadence, repeating every queue row here would exhaust the
+    section's six-megabyte publication budget in less than an hour.
+    """
     compact = dict(queue)
-    compact["history"] = _compact_queue_history(list(queue.get("history") or []))
+    compact["history"] = []
     return compact
+
+
+def build_queue_history_chart(history: list[dict], generated_at: str | None = None) -> dict:
+    """Encode queue chart history without repeating field names per queue/poll."""
+    queue_names = sorted({
+        name
+        for snapshot in history
+        for name in (snapshot.get("queues") or {})
+        if not _is_excluded_queue(name)
+    })
+    wait_sources: list[str | None] = [None]
+    wait_providers: list[str | None] = [None]
+
+    def table_index(table: list[str | None], value: object) -> int:
+        normalized = str(value) if value not in (None, "") else None
+        if normalized not in table:
+            table.append(normalized)
+        return table.index(normalized)
+
+    points = []
+    for snapshot in history:
+        queues = snapshot.get("queues") or {}
+        encoded_queues = []
+        for name in queue_names:
+            row = queues.get(name)
+            if not isinstance(row, dict):
+                encoded_queues.append(None)
+                continue
+            sample_complete = row.get("wait_sample_complete")
+            archived_peaks = []
+            archived_sample_peaks = []
+            for metric in ("p50", "p95", "p99"):
+                peak = (row.get("archive_wait_peaks") or {}).get(metric)
+                archived_peaks.append(
+                    [
+                        peak.get("value"),
+                        table_index(wait_sources, peak.get("source")),
+                        table_index(wait_providers, peak.get("provider")),
+                        peak.get("sample_count"),
+                        peak.get("observed_at"),
+                        peak.get("sample_expected"),
+                        peak.get("sample_complete"),
+                    ]
+                    if isinstance(peak, dict)
+                    else None
+                )
+                sample_peak = (row.get("archive_sample_wait_peaks") or {}).get(metric)
+                archived_sample_peaks.append(
+                    [
+                        sample_peak.get("value"),
+                        table_index(wait_sources, sample_peak.get("source")),
+                        table_index(wait_providers, sample_peak.get("provider")),
+                        sample_peak.get("sample_count"),
+                        sample_peak.get("observed_at"),
+                        sample_peak.get("sample_expected"),
+                        sample_peak.get("sample_complete"),
+                    ]
+                    if isinstance(sample_peak, dict)
+                    else None
+                )
+            official_wait = row.get("official_wait") or {}
+            sample_wait = row.get("sample_wait") or {}
+            encoded_queues.append([
+                int(row.get("waiting") or 0),
+                int(row.get("running") or 0),
+                row.get("p50_wait"),
+                row.get("p95_wait"),
+                row.get("p99_wait"),
+                table_index(wait_sources, row.get("p50_wait_source")),
+                table_index(wait_sources, row.get("p95_wait_source")),
+                table_index(wait_sources, row.get("p99_wait_source")),
+                table_index(wait_providers, row.get("official_wait_source")),
+                table_index(wait_providers, row.get("sample_wait_source")),
+                row.get("wait_sample_count"),
+                row.get("wait_sample_expected_count"),
+                None if sample_complete is None else int(bool(sample_complete)),
+                archived_peaks if any(archived_peaks) else None,
+                [
+                    official_wait.get("p50"),
+                    official_wait.get("p95"),
+                    official_wait.get("max"),
+                ] if any(official_wait.get(metric) is not None for metric in ("p50", "p95", "max")) else None,
+                [
+                    sample_wait.get("p50"),
+                    sample_wait.get("p95"),
+                    sample_wait.get("p99"),
+                ] if any(sample_wait.get(metric) is not None for metric in ("p50", "p95", "p99")) else None,
+                archived_sample_peaks if any(archived_sample_peaks) else None,
+                1 if row.get("history_observation_only") else None,
+            ])
+        points.append([snapshot.get("ts"), encoded_queues])
+
+    return {
+        "schema_version": 1,
+        "generated_at": generated_at or (history[-1].get("ts") if history else None),
+        "queue_names": queue_names,
+        "wait_sources": wait_sources,
+        "wait_providers": wait_providers,
+        "row_fields": [
+            "waiting", "running", "p50_wait", "p95_wait", "p99_wait",
+            "p50_source", "p95_source", "p99_source", "official_provider",
+            "sample_provider", "sample_count", "sample_expected", "sample_complete",
+            "archive_wait_peaks", "official_wait", "sample_wait",
+            "archive_sample_wait_peaks", "history_observation_only",
+        ],
+        "points": points,
+    }
+
+
+def write_queue_history_chart(path: Path, history: list[dict], generated_at: str | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_encoded_json(build_queue_history_chart(history, generated_at)))
 
 
 def _diagnostic_section(payload: dict) -> dict:
@@ -6460,6 +6612,12 @@ def write_snapshot_bundle(
     manifest_path = output.parent / OPERATIONS_MANIFEST_NAME
     manifest_encoded = _encoded_json(manifest)
     manifest_path.write_text(manifest_encoded)
+    chart_path = output.parent / QUEUE_HISTORY_CHART_NAME
+    write_queue_history_chart(
+        chart_path,
+        list((payload.get("queue") or {}).get("history") or []),
+        str(payload.get("generated_at") or "") or None,
+    )
     if log:
         if write_monolith:
             print(f"Wrote {output} ({len(monolith.encode('utf-8'))} bytes)")

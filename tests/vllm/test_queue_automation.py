@@ -220,11 +220,17 @@ class TestQueueMonitorWorkflow:
         return yaml.safe_load(path.read_text())
 
     def test_has_trigger(self, workflow):
-        """queue-monitor must have workflow_dispatch (schedule moved to hourly-master)."""
+        """queue-monitor must have an automatic or manual trigger."""
         triggers = workflow.get(True, {})  # 'on' parses as True in yaml
         assert "workflow_dispatch" in triggers or "schedule" in triggers, (
             "queue-monitor must have workflow_dispatch or schedule trigger"
         )
+
+    def test_has_independent_ten_minute_schedule(self, workflow):
+        """Queue evidence must not depend on the large dashboard workflow succeeding."""
+        triggers = workflow.get(True, {})
+        crons = [row.get("cron") for row in triggers.get("schedule", [])]
+        assert "2,12,22,32,42,52 * * * *" in crons
 
     def test_does_not_publish_a_partial_root_site(self, workflow):
         """The queue collector must not overwrite unrelated live dashboard data."""
@@ -239,6 +245,20 @@ class TestQueueMonitorWorkflow:
         step_names = [s.get("name", "") for s in steps]
         assert not any("assemble" in n.lower() for n in step_names)
 
+    def test_live_branch_is_limited_to_queue_owned_files(self, workflow):
+        steps = workflow["jobs"]["snapshot"]["steps"]
+        publish = next(
+            step for step in steps if step.get("name") == "Publish durable live queue evidence"
+        )
+        script = publish.get("run", "")
+        assert "git -C \"$LIVE_ROOT\" push --force origin HEAD:queue-data" in script
+        assert "data/vllm/ci/queue_timeseries.jsonl" in script
+        assert "data/vllm/ci/queue_jobs.json" in script
+        assert "data/vllm/ci/queue_history_chart.json" in script
+        assert "data/vllm/ci/operations_v2/queue.json" in script
+        assert "data/vllm/ci/operations_v2_manifest.json" not in script
+        assert "peaceiris/actions-gh-pages" not in script
+
     def test_workflow_references_correct_script(self):
         path = WORKFLOWS / "queue-monitor.yml"
         if not path.exists():
@@ -252,39 +272,34 @@ class TestQueueMonitorWorkflow:
         perms = workflow.get("permissions", {})
         assert perms.get("contents") == "write", "queue-monitor needs contents:write to push data"
 
-    def test_push_failure_is_non_blocking(self):
-        """A protected main branch should produce a clear warning, not a crash."""
+    def test_does_not_race_the_canonical_main_or_pages_writers(self):
         path = WORKFLOWS / "queue-monitor.yml"
         if not path.exists():
             pytest.skip("queue-monitor.yml not present")
         content = path.read_text()
-        assert "|| " in content or "continue-on-error" in content, (
-            "queue-monitor push to main must be non-blocking"
-        )
+        assert "group: queue-data-publish" in content
+        assert "ref: main" in content
+        assert "git pull --rebase origin main" not in content
+        assert "HEAD:gh-pages" not in content
 
-    def test_workflow_syncs_from_gh_pages(self):
-        """Workflow must sync queue data from gh-pages before collecting,
-        because the push to main may have been blocked by branch protection."""
+    def test_workflow_syncs_from_durable_queue_branch(self):
+        """The dedicated branch must be merged before every collection."""
         path = WORKFLOWS / "queue-monitor.yml"
         if not path.exists():
             pytest.skip("queue-monitor.yml not present")
         content = path.read_text()
-        assert "gh-pages" in content and "queue_timeseries" in content, (
-            "queue-monitor must sync queue_timeseries from gh-pages before "
-            "collecting to avoid data loss when main push fails"
-        )
+        assert "origin/queue-data" in content
+        assert "--merge-history-git-ref origin/queue-data" in content
+        assert "origin/gh-pages" in content  # first-run migration fallback
 
-    def test_deploy_pages_syncs_queue_from_gh_pages(self):
-        """deploy-pages.yml must also sync queue data from gh-pages so it
-        doesn't overwrite fresh data with stale main data."""
+    def test_deploy_pages_syncs_queue_from_durable_branch(self):
+        """A manual full deploy must retain independently collected history."""
         path = WORKFLOWS / "deploy-pages.yml"
         if not path.exists():
             pytest.skip("deploy-pages.yml not present")
         content = path.read_text()
-        assert "gh-pages" in content and "queue_timeseries" in content, (
-            "deploy-pages.yml must sync queue_timeseries from gh-pages to "
-            "avoid overwriting fresh queue data"
-        )
+        assert "origin/queue-data" in content
+        assert "--merge-history-git-ref origin/queue-data" in content
 
 
 class TestQueueDashboardControls:

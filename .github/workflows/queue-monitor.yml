@@ -1,24 +1,30 @@
-name: Queue Monitor (Hourly)
+name: Queue Monitor (10 minute)
 
 on:
+  schedule:
+    # Keep queue history independent from the large dashboard build. GitHub
+    # cron can be delayed, so use six off-minute opportunities per hour.
+    - cron: '2,12,22,32,42,52 * * * *'
   repository_dispatch:
     types: [buildkite_queue_changed]
-  workflow_dispatch:       # Manual trigger (hourly runs handled by hourly-master)
+  workflow_dispatch:
 
 concurrency:
-  # Serialize its main-branch data commit with the canonical collector.
-  group: gh-pages-deploy
+  # Queue evidence has a dedicated branch, so it can keep polling while the
+  # much larger dashboard workflow holds the gh-pages deployment lock.
+  group: queue-data-publish
   cancel-in-progress: false
 
 permissions:
   contents: write
-  issues: write
 
 jobs:
   snapshot:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
 
       - uses: actions/setup-python@v5
         with:
@@ -27,23 +33,19 @@ jobs:
       - name: Install dependencies
         run: pip install requests pyyaml
 
-      - name: Sync queue data from gh-pages
+      - name: Sync durable queue history
         run: |
-          # The push to main may fail due to branch protection, so gh-pages
-          # may have newer queue data than main. Fetch the live version.
-          git fetch origin gh-pages --depth=1 || true
-          python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/gh-pages
-
-      - name: Sync queue issue state from gh-pages
-        run: |
-          git fetch origin gh-pages --depth=1 || true
-          for f in open_queue_issues.json open_queue_zombie_issues.json; do
-            LIVE=$(git show origin/gh-pages:data/vllm/ci/$f 2>/dev/null || true)
-            if [ -n "$LIVE" ]; then
-              echo "$LIVE" > data/vllm/ci/$f
-              echo "Synced $f from gh-pages"
+          # queue-data is the independent source of truth. Keep the current
+          # gh-pages copy as a migration/failure fallback for the first run.
+          if git fetch origin queue-data --depth=1 \
+            && git rev-parse --verify --quiet origin/queue-data >/dev/null; then
+            python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/queue-data
+          else
+            git fetch origin gh-pages --depth=1 || true
+            if git rev-parse --verify --quiet origin/gh-pages >/dev/null; then
+              python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/gh-pages
             fi
-          done
+          fi
 
       - name: Prune queue history to post-fix baseline
         run: python scripts/vllm/collect_queue_snapshot.py --prune-only
@@ -57,41 +59,32 @@ jobs:
           echo "After: $(wc -l < data/vllm/ci/queue_timeseries.jsonl) lines"
           tail -1 data/vllm/ci/queue_timeseries.jsonl | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'Latest: ts={d[\"ts\"]}, queues={len(d[\"queues\"])}')"
 
-      - name: Collect queue capacity monitor
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python scripts/vllm/collect_capacity_monitor.py --output data/vllm/ci/
+      - name: Build live queue section
+        run: python scripts/vllm/build_queue_section.py
 
-      - name: Watch queue latency (open/close issues)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-        run: python scripts/vllm/queue_issue_watcher.py
-
-      - name: Watch zombie queue jobs (open/close issues)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-        run: python scripts/vllm/queue_zombie_watcher.py
-
-      - name: Commit and push
+      - name: Publish durable live queue evidence
         run: |
-          echo "Lines in file: $(wc -l < data/vllm/ci/queue_timeseries.jsonl)"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/vllm/ci/queue_timeseries.jsonl data/vllm/ci/queue_jobs.json data/vllm/ci/capacity_monitor.json data/vllm/ci/open_queue_issues.json data/vllm/ci/open_queue_zombie_issues.json
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "queue snapshot $(date -u +%Y-%m-%dT%H:%M)"
-            # Push to main is best-effort — branch protection may block it.
-            # Root publication is deliberately owned by hourly-master.
-            if git pull --rebase origin main; then
-              git push || echo "::warning::Push to main failed (branch protection). Hourly-master will recollect and publish."
-            else
-              git rebase --abort || true
-              echo "::warning::Rebase against origin/main failed; no data was published."
-            fi
-          fi
+          # Publish only queue-owned files on a dedicated single-commit branch.
+          # Canonical gh-pages rebuilds can no longer overwrite or delay polls.
+          LIVE_ROOT=$(mktemp -d)
+          cleanup() {
+            git worktree remove --force "$LIVE_ROOT" 2>/dev/null || true
+            rm -rf "$LIVE_ROOT"
+          }
+          trap cleanup EXIT
+          git worktree add --detach "$LIVE_ROOT" HEAD
+          git -C "$LIVE_ROOT" switch --orphan queue-data-publish
+          git -C "$LIVE_ROOT" rm -rf --ignore-unmatch .
+          install -D -m 0644 data/vllm/ci/queue_timeseries.jsonl "$LIVE_ROOT/data/vllm/ci/queue_timeseries.jsonl"
+          install -D -m 0644 data/vllm/ci/queue_jobs.json "$LIVE_ROOT/data/vllm/ci/queue_jobs.json"
+          install -D -m 0644 data/vllm/ci/queue_history_chart.json "$LIVE_ROOT/data/vllm/ci/queue_history_chart.json"
+          install -D -m 0644 data/vllm/ci/operations_v2/queue.json "$LIVE_ROOT/data/vllm/ci/operations_v2/queue.json"
+          git -C "$LIVE_ROOT" config user.name "github-actions[bot]"
+          git -C "$LIVE_ROOT" config user.email "github-actions[bot]@users.noreply.github.com"
+          git -C "$LIVE_ROOT" add \
+            data/vllm/ci/queue_timeseries.jsonl \
+            data/vllm/ci/queue_jobs.json \
+            data/vllm/ci/queue_history_chart.json \
+            data/vllm/ci/operations_v2/queue.json
+          git -C "$LIVE_ROOT" commit -m "queue: live snapshot $(date -u +%Y-%m-%dT%H:%M)"
+          git -C "$LIVE_ROOT" push --force origin HEAD:queue-data

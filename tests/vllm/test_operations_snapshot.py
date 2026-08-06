@@ -913,6 +913,8 @@ def test_compact_queue_history_retains_observed_idle_rows_and_wait_provenance():
     compact = ops._compact_history_snapshot({
         "ts": GENERATED_AT,
         "schema_version": 2,
+        "history_mode": "hourly_queue_wait_peaks",
+        "archive_bucket_start": "2026-04-22T12:00:00Z",
         "total_waiting": 0,
         "total_running": 0,
         "queues": {
@@ -934,6 +936,13 @@ def test_compact_queue_history_retains_observed_idle_rows_and_wait_provenance():
                 "wait_source_family": "queue_native",
                 "p95_wait": 0.0,
                 "p95_wait_source": "official_wait",
+                "archive_wait_peaks": {
+                    "p95": {
+                        "value": 75.0,
+                        "observed_at": "2026-04-22T12:25:00Z",
+                        "source": "sample_wait",
+                    }
+                },
             },
             "amd_mi355b_1": {"waiting": 0, "running": 0},
         },
@@ -944,10 +953,13 @@ def test_compact_queue_history_retains_observed_idle_rows_and_wait_provenance():
     assert "unobserved_queue" not in compact["queues"]
     assert "amd_mi355b_1" not in compact["queues"]
     assert compact["tracked_queue_count"] == 1
+    assert compact["history_mode"] == "hourly_queue_wait_peaks"
+    assert compact["archive_bucket_start"] == "2026-04-22T12:00:00Z"
     idle = compact["queues"]["amd_mi300_1"]
     assert idle["waiting"] == idle["running"] == 0
     assert idle["wait_sample_count"] == idle["sample_count"] == 0
     assert idle["official_wait_source"] is None
+    assert idle["archive_wait_peaks"]["p95"]["value"] == 75.0
     assert idle["sample_wait_source"] == "scheduled_job_scan"
     assert idle["metrics_ts"] == "2026-04-22T11:59:00Z"
     assert idle["current_wait"]["p95"] == {"value": 0.0, "source": "official_wait"}
@@ -3774,6 +3786,7 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
     payload["queue"]["history"] = [{
         "ts": GENERATED_AT,
         "schema_version": 2,
+        "history_mode": "hourly_queue_wait_peaks",
         "queues": {
             "amd_mi300_1": {
                 "waiting": 0,
@@ -3781,7 +3794,37 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
                 "p50_wait": None,
                 "p99_wait": 2.5,
                 "p99_wait_source": "sample_wait",
+                "official_wait": {"p50": 1.5, "p95": 12.0, "max": 20.0},
+                "sample_wait": {
+                    "available": True,
+                    "count": 4,
+                    "p50": 5.0,
+                    "p95": 75.0,
+                    "p99": 2.5,
+                },
+                "wait_sample_count": 4,
+                "wait_sample_expected_count": 4,
+                "wait_sample_complete": True,
                 "current_wait": {"p99": {"value": 2.5, "source": "sample_wait"}},
+                "archive_wait_peaks": {
+                    "p95": {
+                        "value": 12.0,
+                        "observed_at": "2026-04-22T12:15:00Z",
+                        "source": "official_wait",
+                        "provider": "queue_native_metrics",
+                    }
+                },
+                "archive_sample_wait_peaks": {
+                    "p95": {
+                        "value": 75.0,
+                        "observed_at": "2026-04-22T12:25:00Z",
+                        "source": "sample_wait",
+                        "provider": "scheduled_job_scan",
+                        "sample_count": 4,
+                        "sample_expected": 4,
+                        "sample_complete": True,
+                    }
+                },
                 "unused_collector_field": "not shipped",
             },
         },
@@ -3830,13 +3873,22 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
     queue = json.loads(
         (output.parent / manifest["sections"]["queue"]["path"]).read_text()
     )["queue"]
-    history_row = queue["history"][0]["queues"]["amd_mi300_1"]
-    assert history_row["waiting"] == 0
-    assert history_row["running"] == 1
-    assert history_row["p99_wait"] == 2.5
-    assert "p50_wait" not in history_row
-    assert "current_wait" not in history_row
-    assert "unused_collector_field" not in history_row
+    assert queue["history"] == []
+    assert queue["history_summary"] == payload["queue"]["history_summary"]
+    assert queue["history_summary"]["source_path"] == "queue_timeseries.jsonl"
+    chart = json.loads((output.parent / ops.QUEUE_HISTORY_CHART_NAME).read_text())
+    encoded_row = chart["points"][0][1][0]
+    encoded_peak = encoded_row[13][1]
+    assert encoded_peak[0] == 12.0
+    assert chart["wait_sources"][encoded_peak[1]] == "official_wait"
+    assert chart["wait_providers"][encoded_peak[2]] == "queue_native_metrics"
+    assert encoded_row[14] == [1.5, 12.0, 20.0]
+    assert encoded_row[15] == [5.0, 75.0, 2.5]
+    encoded_sample_peak = encoded_row[16][1]
+    assert encoded_sample_peak[0] == 75.0
+    assert chart["wait_sources"][encoded_sample_peak[1]] == "sample_wait"
+    assert chart["wait_providers"][encoded_sample_peak[2]] == "scheduled_job_scan"
+    assert encoded_sample_peak[3:] == [4, "2026-04-22T12:25:00Z", 4, True]
 
     gating = json.loads(
         (output.parent / manifest["sections"]["gating"]["path"]).read_text()

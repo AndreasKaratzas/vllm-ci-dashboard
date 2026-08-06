@@ -48,7 +48,9 @@ would require an authenticated backend or private hosting.
 
 ## Data Collection
 
-The main data path is `.github/workflows/hourly-master.yml`, which runs every 30 minutes and serializes every Pages writer behind the shared `gh-pages-deploy` lock.
+The main data path is `.github/workflows/hourly-master.yml`, which runs every 30 minutes. Queue evidence is also collected independently every 10 minutes by `.github/workflows/queue-monitor.yml` and published to the dedicated `queue-data` branch; the Queue UI reads the freshest of that live feed and the canonical Pages snapshot. Unrelated dashboard audits and full-site deployment locks therefore cannot discard or delay queue observations.
+
+Buildkite-native p50/p95 remain the site-comparable queue series. Percentiles reconstructed from the separately fetched scheduled-job population are retained and charted with their own labels and n/N coverage; they never silently replace native values.
 
 | Script | Purpose |
 |--------|---------|
@@ -63,6 +65,7 @@ The main data path is `.github/workflows/hourly-master.yml`, which runs every 30
 | `scripts/vllm/collect_queue_snapshot.py` | Queue timeseries, workload-attributed counts, and the exact active-job ledger |
 | `scripts/vllm/collect_capacity_monitor.py` | AMD queue capacity limits plus mirror test-group dependency projections |
 | `scripts/vllm/build_operations_snapshot.py` | Build the versioned operations manifest and lazy CI Health, Queue, and Omni read-model shards |
+| `scripts/vllm/build_queue_section.py` | Build only the live Queue read-model shard for the independent queue publisher |
 | `scripts/vllm/ci_area_regression_watcher.py` | Reconcile one dashboard-repository issue per regressing test area using the ranked owner chain, regional working hours, and exact AMD evidence |
 | `scripts/vllm/sync_ci_operations_project.py` | Add open managed dashboard issues to the single AMD CI Operations Project by workstream |
 | `scripts/vllm/ensure_ci_operations_labels.py` | Ensure the managed-issue and Project workstream labels exist before any watcher runs |
@@ -85,6 +88,7 @@ python scripts/vllm/collect_gating_target_candidates.py --output data/vllm/ci/
 python scripts/vllm/collect_queue_snapshot.py
 python scripts/vllm/collect_capacity_monitor.py --output data/vllm/ci/
 python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
+python scripts/vllm/build_queue_section.py
 python scripts/vllm/ci_area_regression_watcher.py
 python scripts/vllm/sync_ci_operations_project.py
 python scripts/vllm/audit_dashboard_data.py --strict-warnings

@@ -18,17 +18,18 @@
           unsafe-inline covers the pre-paint theme bootstrap below; all
           real code lives in same-origin ``assets/js/*``. Chart.js is loaded
           asynchronously from jsDelivr after the operational shell renders.
-      - ``connect-src 'self' api.github.com api.buildkite.com``
-          These two are the ONLY outbound origins the user's tokens touch.
-          An injected script that tries to POST tokens to ``evil.com``
-          gets blocked by the browser even before it reaches the network.
+      - ``connect-src 'self' api.github.com api.buildkite.com raw.githubusercontent.com``
+          The API origins are the only token-bearing destinations. The raw
+          GitHub origin serves the public queue-data branch and receives no
+          browser credential. An injected script that tries to POST tokens to
+          ``evil.com`` gets blocked before it reaches the network.
       - ``base-uri 'self'``             — stops ``<base>`` injection attacks.
       - ``form-action 'self'``          — no cross-origin form POSTs.
 
     When you add a new outbound host (e.g. a second CI backend), extend
     ``connect-src`` explicitly — do not broaden to ``*``.
   -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com https://github.com; font-src 'self' data:; connect-src 'self' https://api.github.com https://api.buildkite.com; base-uri 'self'; form-action 'self'; frame-ancestors 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com https://github.com; font-src 'self' data:; connect-src 'self' https://api.github.com https://api.buildkite.com https://raw.githubusercontent.com; base-uri 'self'; form-action 'self'; frame-ancestors 'none'">
   <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
 
   <link rel="stylesheet" href="assets/css/dashboard.css?v=56">

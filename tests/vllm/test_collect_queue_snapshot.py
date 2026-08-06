@@ -10,6 +10,8 @@ import json
 from datetime import datetime, timezone
 from unittest.mock import patch
 
+import pytest
+
 from vllm import collect_queue_snapshot as cqs
 
 
@@ -59,6 +61,108 @@ class TestOfficialWaitSummary:
             "p95": None,
             "max": None,
         }
+
+
+class TestRestApiResilience:
+    def test_rate_limit_raises_instead_of_looking_like_an_empty_page(self, monkeypatch):
+        class RateLimitedResponse:
+            status_code = 429
+
+        monkeypatch.setattr(cqs.requests, "get", lambda *args, **kwargs: RateLimitedResponse())
+
+        with pytest.raises(RuntimeError, match="rate limited"):
+            cqs.bk_get("/organizations/vllm/builds", "fake-token")
+
+    def test_rate_limited_legacy_scan_aborts_before_publishing_jobs(
+        self, monkeypatch, tmp_path
+    ):
+        output = tmp_path / "queue_timeseries.jsonl"
+        monkeypatch.setattr(cqs, "OUTPUT", output, raising=False)
+        monkeypatch.setattr(
+            cqs,
+            "fetch_cluster_queue_metrics",
+            lambda token: (_ for _ in ()).throw(RuntimeError("metrics unavailable")),
+        )
+        monkeypatch.setattr(
+            cqs,
+            "fetch_active_cluster_jobs",
+            lambda token, queue_ids_by_key=None: (_ for _ in ()).throw(
+                RuntimeError("graphql unavailable")
+            ),
+        )
+        monkeypatch.setattr(
+            cqs,
+            "bk_get",
+            lambda path, token, params=None: (_ for _ in ()).throw(
+                RuntimeError("Buildkite REST API rate limited")
+            ),
+        )
+
+        with pytest.raises(RuntimeError, match="rate limited"):
+            cqs.collect_snapshot("fake-token")
+
+        assert not (output.parent / "queue_jobs.json").exists()
+
+    def test_pagination_continues_beyond_five_full_pages(self, monkeypatch):
+        requested_pages = []
+
+        def fake_get(path, token, params=None):
+            page = (params or {}).get("page", 1)
+            requested_pages.append(page)
+            return [{"page": page}] * 100 if page <= 6 else []
+
+        monkeypatch.setattr(cqs, "bk_get", fake_get)
+
+        rows = cqs.bk_get_paginated("/organizations/vllm/builds", "fake-token")
+
+        assert len(rows) == 600
+        assert requested_pages == list(range(1, 8))
+
+    def test_full_final_page_raises_at_safety_cap(self, monkeypatch):
+        monkeypatch.setattr(
+            cqs,
+            "bk_get",
+            lambda path, token, params=None: [{"page": (params or {}).get("page")}] * 100,
+        )
+
+        with pytest.raises(RuntimeError, match="pagination safety cap"):
+            cqs.bk_get_paginated(
+                "/organizations/vllm/builds",
+                "fake-token",
+                max_pages=2,
+            )
+
+    def test_legacy_state_scans_deduplicate_transitioning_jobs(self, monkeypatch):
+        def fake_paginated(path, token, params=None, max_pages=None):
+            requested_state = (params or {}).get("state")
+            job_state = "running" if requested_state == "running" else "scheduled"
+            return [{
+                "number": 42,
+                "branch": "main",
+                "commit": "abc123def456",
+                "source": "schedule",
+                "pipeline": {"slug": "amd-ci"},
+                "web_url": "https://buildkite.com/vllm/amd-ci/builds/42",
+                "jobs": [{
+                    "type": "script",
+                    "id": "transitioning-job",
+                    "state": job_state,
+                    "name": "mi250_1: test",
+                    "agent_query_rules": ["queue=amd_mi250_1"],
+                    "runnable_at": "2026-08-04T18:00:00Z",
+                    "started_at": (
+                        "2026-08-04T18:01:00Z" if job_state == "running" else None
+                    ),
+                }],
+            }]
+
+        monkeypatch.setattr(cqs, "bk_get_paginated", fake_paginated)
+
+        jobs = cqs._collect_legacy_active_jobs("fake-token")
+
+        assert len(jobs) == 1
+        assert jobs[0]["job_uuid"] == "transitioning-job"
+        assert jobs[0]["state"] == "RUNNING"
 
 
 class TestRewriteJobUrl:
@@ -461,6 +565,139 @@ class TestHistoryPrune:
         assert len(lines) == 1
         assert json.loads(lines[0])["ts"] == "2026-05-20T00:00:00Z"
 
+    def test_archive_compaction_keeps_hourly_peak_and_recent_full_resolution(self, tmp_path):
+        path = tmp_path / "queue_timeseries.jsonl"
+
+        def snapshot(ts: str, p95: float, max_wait: float | None = None) -> dict:
+            row = _history_snapshot(ts)
+            queue = row["queues"]["amd_mi250_1"]
+            queue["official_wait"] = {
+                "p50": p95 / 2,
+                "p95": p95,
+                "max": p95 if max_wait is None else max_wait,
+            }
+            queue["official_wait_source"] = "queue_native_metrics"
+            queue["count_source"] = "cluster_metrics"
+            return row
+
+        rows = [
+            snapshot("2026-06-16T10:05:00Z", 5.0),
+            snapshot("2026-06-16T10:25:00Z", 80.0),
+            snapshot("2026-06-16T10:55:00Z", 10.0, 100.0),
+            snapshot("2026-06-18T11:05:00Z", 1.0),
+            snapshot("2026-06-18T11:15:00Z", 2.0),
+            snapshot("2026-06-18T11:25:00Z", 3.0),
+        ]
+        path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+        total, kept = cqs.prune_history_file(
+            path, now=datetime(2026, 6, 18, 12, 0, tzinfo=timezone.utc)
+        )
+
+        output = [json.loads(line) for line in path.read_text().splitlines()]
+        assert total == 6
+        assert kept == 4
+        assert [row["ts"] for row in output] == [
+            "2026-06-16T10:25:00Z",
+            "2026-06-18T11:05:00Z",
+            "2026-06-18T11:15:00Z",
+            "2026-06-18T11:25:00Z",
+        ]
+        assert output[0]["queues"]["amd_mi250_1"]["p95_wait"] == 80.0
+
+    def test_archive_envelope_preserves_each_queues_peak_timestamp(self):
+        def snapshot(ts: str, mi250_p95: float, mi300_p95: float) -> dict:
+            row = _history_snapshot(ts)
+            base = row["queues"]["amd_mi250_1"]
+            queues = {}
+            for name, p95 in (
+                ("amd_mi250_1", mi250_p95),
+                ("amd_mi300_1", mi300_p95),
+            ):
+                queue = json.loads(json.dumps(base))
+                queue["official_wait"] = {"p50": p95 / 2, "p95": p95, "max": p95}
+                queue["official_wait_source"] = "queue_native_metrics"
+                queue["sample_wait"] = {
+                    "available": True,
+                    "count": 2,
+                    "p50": p95 / 2 + 1,
+                    "p95": p95 + 5,
+                    "p99": p95 + 8,
+                }
+                queue["sample_wait_source"] = "cluster_queue_graphql"
+                queue["wait_sample_count"] = 2
+                queue["count_source"] = "cluster_metrics"
+                queues[name] = queue
+            row["queues"] = queues
+            return row
+
+        compacted = cqs.compact_history_resolution(
+            [
+                snapshot("2026-06-16T10:05:00Z", 80.0, 10.0),
+                snapshot("2026-06-16T10:25:00Z", 20.0, 90.0),
+            ],
+            datetime(2026, 6, 18, 12, 0, tzinfo=timezone.utc),
+        )
+
+        assert len(compacted) == 1
+        archived = compacted[0]
+        assert archived["history_mode"] == "hourly_queue_wait_peaks"
+        mi250 = archived["queues"]["amd_mi250_1"]["archive_wait_peaks"]["p95"]
+        mi300 = archived["queues"]["amd_mi300_1"]["archive_wait_peaks"]["p95"]
+        assert (mi250["value"], mi250["observed_at"]) == (
+            80.0,
+            "2026-06-16T10:05:00Z",
+        )
+        assert (mi300["value"], mi300["observed_at"]) == (
+            90.0,
+            "2026-06-16T10:25:00Z",
+        )
+        mi250_sample = archived["queues"]["amd_mi250_1"][
+            "archive_sample_wait_peaks"
+        ]["p95"]
+        mi300_sample = archived["queues"]["amd_mi300_1"][
+            "archive_sample_wait_peaks"
+        ]["p95"]
+        assert (mi250_sample["value"], mi250_sample["observed_at"]) == (
+            85.0,
+            "2026-06-16T10:05:00Z",
+        )
+        assert (mi300_sample["value"], mi300_sample["observed_at"]) == (
+            95.0,
+            "2026-06-16T10:25:00Z",
+        )
+        assert cqs.compact_history_resolution(
+            compacted,
+            datetime(2026, 6, 18, 12, 0, tzinfo=timezone.utc),
+        ) == compacted
+
+    def test_equal_timestamp_raw_merge_retains_incoming_archive_peaks(self, tmp_path):
+        raw = _history_snapshot("2026-06-16T10:25:00Z")
+        envelope = json.loads(json.dumps(raw))
+        envelope["history_mode"] = "hourly_queue_wait_peaks"
+        envelope["archive_bucket_start"] = "2026-06-16T10:00:00Z"
+        envelope["queues"]["amd_mi250_1"]["archive_wait_peaks"] = {
+            "p95": {
+                "value": 80.0,
+                "observed_at": "2026-06-16T10:05:00Z",
+                "source": "sample_wait",
+                "provider": "scheduled_job_scan",
+                "sample_count": 4,
+            }
+        }
+        path = tmp_path / "queue_timeseries.jsonl"
+        path.write_text(json.dumps(raw) + "\n")
+
+        cqs.merge_history_rows(path, [envelope])
+
+        merged = json.loads(path.read_text())
+        assert merged["history_mode"] == "hourly_queue_wait_peaks"
+        peak = merged["queues"]["amd_mi250_1"]["archive_wait_peaks"]["p95"]
+        assert (peak["value"], peak["observed_at"]) == (
+            80.0,
+            "2026-06-16T10:05:00Z",
+        )
+
 
 def _active_job(
     queue: str,
@@ -476,12 +713,16 @@ def _active_job(
     build: int = 100,
     commit: str = "abc123def456",
     build_url: str = "https://buildkite.com/vllm/amd-ci/builds/100",
+    job_uuid: str | None = None,
 ) -> dict:
     return {
         "queue": queue,
         "state": state,
         "name": name,
-        "job_uuid": "deadbeef-1234-5678-90ab-cdef01234567",
+        "job_uuid": job_uuid or "::".join(
+            str(value or "")
+            for value in (queue, state, runnable_at, started_at, name, build)
+        ),
         "build_url": build_url,
         "pipeline": pipeline,
         "build": build,
@@ -526,9 +767,19 @@ def _build(state_pipeline="amd-ci", branch="main", jobs=None, number=100, commit
     }
 
 
-def _job(queue, state, runnable_at=None, started_at=None, name="mi250_1: foo", web_url=""):
+def _job(
+    queue,
+    state,
+    runnable_at=None,
+    started_at=None,
+    name="mi250_1: foo",
+    web_url="",
+    job_id=None,
+):
     return {
-        "id": "deadbeef-1234-5678-90ab-cdef01234567",
+        "id": job_id or "::".join(
+            str(value or "") for value in (queue, state, runnable_at, started_at, name)
+        ),
         "type": "script",
         "state": state,
         "name": name,
@@ -563,6 +814,73 @@ class TestCollectSnapshot:
         assert snap["sources"]["agents"] == "unavailable"
         assert snap["sources"]["official_wait"] == "unavailable"
         assert snap["sources"]["counts"] == "active_job_scan"
+
+    def test_job_scan_includes_queues_without_native_counts_but_trusts_native_zero(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "queue_timeseries.jsonl", raising=False)
+        monkeypatch.setattr(
+            cqs,
+            "TRACKED_QUEUES",
+            frozenset({"amd_mi250_1", "amd_mi250_2", "amd_mi300_1", "amd_mi355_1"}),
+        )
+        monkeypatch.setattr(
+            cqs,
+            "fetch_cluster_queue_metrics",
+            lambda token: {
+                "amd_mi250_1": {
+                    "graphql_id": "native-zero-id",
+                    "counts_available": True,
+                    "waiting": 0,
+                    "running": 0,
+                },
+                "amd_mi300_1": {
+                    "graphql_id": "missing-counts-id",
+                    "counts_available": False,
+                    "waiting": 0,
+                    "running": 0,
+                },
+                "amd_mi355_1": {
+                    "graphql_id": "native-active-id",
+                    "counts_available": True,
+                    "waiting": 1,
+                    "running": 0,
+                },
+            },
+        )
+        captured_queue_ids = []
+
+        def fake_fetch(token, queue_ids_by_key=None):
+            captured_queue_ids.append(
+                None if queue_ids_by_key is None else dict(queue_ids_by_key)
+            )
+            if queue_ids_by_key is None:
+                missing = _active_job("amd_mi250_2", "SCHEDULED")
+                missing["job_uuid"] = "missing-queue-job"
+                duplicate = _active_job("amd_mi300_1", "SCHEDULED")
+                duplicate["job_uuid"] = "native-missing-counts-job"
+                return [missing, duplicate]
+            scoped = _active_job("amd_mi300_1", "SCHEDULED")
+            scoped["job_uuid"] = "native-missing-counts-job"
+            return [scoped]
+
+        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", fake_fetch)
+
+        snapshot = cqs.collect_snapshot("fake-token")
+
+        assert captured_queue_ids == [
+            {
+                "amd_mi300_1": "missing-counts-id",
+                "amd_mi355_1": "native-active-id",
+            },
+            None,
+        ]
+        assert snapshot["queues"]["amd_mi300_1"]["waiting"] == 1
+        assert snapshot["queues"]["amd_mi300_1"]["count_source"] == "active_job_scan"
+        assert snapshot["queues"]["amd_mi250_1"]["waiting"] == 0
+        assert snapshot["queues"]["amd_mi250_1"]["count_source"] == "cluster_metrics"
+        assert snapshot["queues"]["amd_mi250_2"]["waiting"] == 1
+        assert snapshot["queues"]["amd_mi250_2"]["sample_wait"]["available"] is True
 
     def test_excluded_queues_never_reach_rows_jobs_or_totals(self, monkeypatch, tmp_path):
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "queue_timeseries.jsonl", raising=False)
@@ -757,6 +1075,8 @@ class TestCollectSnapshot:
         assert row["max_wait"] == 20.0
         assert row["p50_wait_source"] == "official_wait"
         assert row["p95_wait_source"] == "official_wait"
+        assert row["wait_sample_expected_count"] == 9
+        assert row["wait_sample_complete"] is False
         assert row["p99_wait_source"] == "sample_wait"
         assert row["max_wait_source"] == "official_wait"
         assert row["p75_wait"] == 5.0
@@ -843,7 +1163,34 @@ class TestCollectSnapshot:
         assert row["p99_wait_source"] == "sample_wait"
         assert row["current_wait"]["p99"] == {"value": 5.0, "source": "sample_wait"}
 
-    def test_official_p50_and_p95_are_selected_but_sample_supplies_p99(self, monkeypatch, tmp_path):
+    def test_any_partial_sample_does_not_replace_queue_native_percentiles(self):
+        for expected, sampled in ((2, 1), (20, 19), (243, 242)):
+            row = cqs._apply_wait_contract(
+                {
+                    "waiting": expected,
+                    "running": 0,
+                    "zombie_waiting": 0,
+                    "count_source": "cluster_metrics",
+                },
+                {"p50": 0.0, "p95": 75.0, "max": 90.0},
+                {
+                    "available": True,
+                    "count": sampled,
+                    "p50": 20.0,
+                    "p95": 20.0,
+                    "p99": 20.0,
+                    "max": 20.0,
+                },
+            )
+
+            assert row["wait_sample_expected_count"] == expected
+            assert row["wait_sample_complete"] is False
+            assert (row["p50_wait"], row["p50_wait_source"]) == (0.0, "official_wait")
+            assert (row["p95_wait"], row["p95_wait_source"]) == (75.0, "official_wait")
+
+    def test_reconciled_job_sample_stays_separate_from_native_percentiles(
+        self, monkeypatch, tmp_path
+    ):
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)
         monkeypatch.setattr(
             cqs,
@@ -874,9 +1221,13 @@ class TestCollectSnapshot:
             snap = cqs.collect_snapshot("fake-token")
 
         row = snap["queues"]["amd_mi250_1"]
+        assert row["wait_sample_expected_count"] == 2
+        assert row["wait_sample_complete"] is True
         assert (row["p50_wait"], row["p50_wait_source"]) == (2.0, "official_wait")
         assert (row["p95_wait"], row["p95_wait_source"]) == (12.0, "official_wait")
         assert (row["p99_wait"], row["p99_wait_source"]) == (10.0, "sample_wait")
+        assert row["sample_wait"]["p50"] == 10.0
+        assert row["sample_wait"]["p95"] == 10.0
         assert row["sample_wait"]["p99"] == 10.0
         assert row["current_wait"] == {
             "p50": {"value": 2.0, "source": "official_wait"},
@@ -914,12 +1265,17 @@ class TestCollectSnapshot:
             snap = cqs.collect_snapshot("fake-token")
 
         row = snap["queues"]["amd_mi250_1"]
+        assert row["wait_sample_complete"] is True
         assert (row["p50_wait"], row["p50_wait_source"]) == (0.0, "official_wait")
         assert (row["p95_wait"], row["p95_wait_source"]) == (0.0, "official_wait")
+        assert row["sample_wait"]["p50"] == 18.0
+        assert row["sample_wait"]["p95"] == 18.0
         assert (row["p99_wait"], row["p99_wait_source"]) == (18.0, "sample_wait")
         assert (row["max_wait"], row["max_wait_source"]) == (18.0, "sample_wait")
 
-    def test_sample_fills_missing_official_percentile_only(self, monkeypatch, tmp_path):
+    def test_complete_sample_wins_over_partially_available_official_percentiles(
+        self, monkeypatch, tmp_path
+    ):
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)
         monkeypatch.setattr(
             cqs,
@@ -949,10 +1305,14 @@ class TestCollectSnapshot:
             snap = cqs.collect_snapshot("fake-token")
 
         row = snap["queues"]["amd_mi250_1"]
+        assert row["wait_sample_complete"] is True
         assert (row["p50_wait"], row["p50_wait_source"]) == (5.0, "sample_wait")
         assert (row["p95_wait"], row["p95_wait_source"]) == (12.0, "official_wait")
+        assert row["sample_wait"]["p95"] == 5.0
 
-    def test_queue_scoped_fetch_marks_other_queue_samples_unavailable(self, monkeypatch, tmp_path):
+    def test_missing_metrics_queues_are_sampled_by_organization_query(
+        self, monkeypatch, tmp_path
+    ):
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)
         monkeypatch.setattr(
             cqs,
@@ -976,14 +1336,14 @@ class TestCollectSnapshot:
         sampled = snap["queues"]["amd_mi250_1"]["sample_wait"]
         assert sampled["available"] is True
         assert sampled["count"] == 0
-        unavailable = next(
+        recovered = next(
             row
             for queue, row in snap["queues"].items()
             if queue != "amd_mi250_1" and row["count_source"] == "active_job_scan"
         )["sample_wait"]
-        assert unavailable["available"] is False
-        assert unavailable["count"] is None
-        assert unavailable["p99"] is None
+        assert recovered["available"] is True
+        assert recovered["count"] == 0
+        assert recovered["p99"] is None
 
     def test_workload_split_from_omni_queue(self, monkeypatch, tmp_path):
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)

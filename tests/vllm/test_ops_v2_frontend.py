@@ -1237,7 +1237,9 @@ def test_gating_drilldown_combines_every_strict_group_id_and_observation():
 def test_queue_modes_ranges_provenance_and_missing_values_are_explicit():
     for label in ("Current", "History", "Jobs", "24h", "7d", "30d", "Include idle"):
         assert label in OPS_JS
-    assert "row.p99_wait_source !== 'sample_wait'" in OPS_JS
+    assert "function officialWaitValue" in OPS_JS
+    assert "function sampleWaitValue" in OPS_JS
+    assert "metric === 'p99' && (row || {}).p99_wait_source !== 'sample_wait'" in OPS_JS
     assert "No queue in scope reported a current p95" in OPS_JS
     assert "agentMeasurements" in OPS_JS
     assert "function hasAgentMeasurement" in OPS_JS
@@ -1245,15 +1247,46 @@ def test_queue_modes_ranges_provenance_and_missing_values_are_explicit():
     assert "'active_jobs', 'webhook', 'job_scan'" in OPS_JS
     assert "countProvenance" in OPS_JS
     assert "count source: ' + countProvenance" in OPS_JS
-    assert "P95 QUEUE LEADER" in OPS_JS
-    assert "SAMPLED P99 LEADER" in OPS_JS
-    assert "p95 official/fallback" in OPS_JS
+    assert "BUILDKITE P95 LEADER" in OPS_JS
+    assert "RECONSTRUCTED P95" in OPS_JS
+    assert "p95 Buildkite" in OPS_JS
+    assert "p95 reconstructed" in OPS_JS
     assert "p99 scheduled sample" in OPS_JS
     assert "waitSampleCount" in OPS_JS
+    assert "Scheduled sample coverage" in OPS_JS
+    assert "non-zombie waiting jobs" in OPS_JS
+    assert "4h+ waiting jobs excluded from sample" in OPS_JS
     assert "waitSourceDetail" in OPS_JS
     assert "minutes === null || minutes === undefined" in OPS_JS
     assert "Array.isArray(queueBlock.history)" in OPS_JS
     assert "queueBlock.history_summary" in OPS_JS
+    assert "archive_sample_wait_peaks" in OPS_JS
+    assert "history_observation_only" in OPS_JS
+
+
+def test_queue_history_refreshes_and_exposes_collection_gaps_and_timezone():
+    assert "QUEUE_AUTO_REFRESH_MS = 5 * 60 * 1000" in OPS_JS
+    assert "/queue-data/data/vllm/ci/" in OPS_JS
+    assert "queueSection: QUEUE_LIVE_BASE + 'operations_v2/queue.json'" in OPS_JS
+    assert "queueChartHistory: QUEUE_LIVE_BASE + 'queue_history_chart.json'" in OPS_JS
+    assert "queueChartHistoryFallback: 'data/vllm/ci/queue_history_chart.json'" in OPS_JS
+    assert "queueHistory: QUEUE_LIVE_BASE + 'queue_timeseries.jsonl'" in OPS_JS
+    assert "queueHistoryFallback: 'data/vllm/ci/queue_timeseries.jsonl'" in OPS_JS
+    assert "queueTimestamp(a.generated_at) - queueTimestamp(b.generated_at)" in OPS_JS
+    assert "entry.name === 'queue'" in OPS_JS
+    assert "async function refreshQueueData" in OPS_JS
+    assert "cache.delete(SOURCE_ASSETS.queueSection)" in OPS_JS
+    assert "cache.delete(resolveOperationSectionPath(descriptor.path))" in OPS_JS
+    assert "refreshQueue: refreshQueueData" in OPS_JS
+    assert "Collection coverage warning:" in OPS_JS
+    assert "Chart lines are broken across missing high-resolution intervals" in OPS_JS
+    assert "hourly archive spacing older than 48 hours is intentional" in OPS_JS
+    assert "queueChartPointsWithBreaks" in OPS_JS
+    assert "spanGaps: false" in OPS_JS
+    assert "cache.delete(SOURCE_ASSETS.queueChartHistory)" in OPS_JS
+    assert "cache.delete(SOURCE_ASSETS.queueChartHistoryFallback)" in OPS_JS
+    assert "Intl.DateTimeFormat().resolvedOptions().timeZone" in OPS_JS
+    assert "const rangeEndMs = Date.now()" in OPS_JS
 
 
 def test_queue_history_has_selectable_wait_and_pressure_visualizations():
@@ -1268,7 +1301,10 @@ def test_queue_history_has_selectable_wait_and_pressure_visualizations():
         "Worst individual queue wait at each snapshot",
         "Combined scope has two different reducers",
         "p95Queues",
+        "sampleP95Queues",
         "p99Queues",
+        "p50 reconstructed",
+        "p95 reconstructed",
         "Worst sampled p99 queue",
         "Queue pressure against retained baseline",
         "Historical p95",

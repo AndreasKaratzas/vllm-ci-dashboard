@@ -12,6 +12,7 @@ metrics are unavailable.
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import json
 import logging
 import os
@@ -33,6 +34,8 @@ from vllm.constants import (  # noqa: E402
     BK_CLUSTER_UUID,
     BK_GRAPHQL_URL,
     BK_ORG,
+    QUEUE_HISTORY_ARCHIVE_BUCKET_MINUTES,
+    QUEUE_HISTORY_HIGH_RES_HOURS,
     QUEUE_HISTORY_RETENTION_DAYS,
     QUEUE_ZOMBIE_THRESHOLD_MIN,
     TRACKED_QUEUES,
@@ -197,31 +200,48 @@ GRAPHQL_ACTIVE_STATES = tuple(sorted(GRAPHQL_WAITING_STATES | GRAPHQL_RUNNING_ST
 # because they are not part of queue-page waiting-job metrics.
 LEGACY_WAITING_STATES = frozenset({"scheduled"})
 LEGACY_RUNNING_STATES = frozenset({"assigned", "accepted", "running", "canceling", "timing_out"})
+# At 100 records per page this permits 10,000 active builds per state while
+# still bounding a broken/repeating pagination response. Hitting the bound is
+# an incomplete observation and must fail rather than publish partial counts.
+REST_PAGINATION_SAFETY_CAP = 100
 
 
 def bk_get(path: str, token: str, params: dict | None = None):
     headers = {"Authorization": f"Bearer {token}"}
     resp = requests.get(f"{BK_API_BASE}{path}", headers=headers, params=params, timeout=30)
     if resp.status_code == 429:
-        log.warning("Rate limited on %s", path)
-        return []
+        raise RuntimeError(f"Buildkite REST API rate limited on {path}")
     resp.raise_for_status()
     return resp.json()
 
 
-def bk_get_paginated(path: str, token: str, params: dict | None = None, max_pages: int = 5):
-    """Fetch all pages from a Buildkite REST API endpoint."""
+def bk_get_paginated(
+    path: str,
+    token: str,
+    params: dict | None = None,
+    max_pages: int = REST_PAGINATION_SAFETY_CAP,
+):
+    """Fetch every REST page, or fail if exhaustion cannot be proven."""
+    if max_pages < 1:
+        raise ValueError("max_pages must be positive")
     params = dict(params or {})
     params.setdefault("per_page", 100)
     all_items: list = []
     for page in range(1, max_pages + 1):
         params["page"] = page
         items = bk_get(path, token, params)
-        if not isinstance(items, list) or not items:
+        if not isinstance(items, list):
+            raise RuntimeError(f"Buildkite REST API returned a non-list page for {path}")
+        if not items:
             break
         all_items.extend(items)
         if len(items) < params["per_page"]:
             break
+        if page == max_pages:
+            raise RuntimeError(
+                f"Buildkite REST pagination safety cap reached for {path} "
+                f"after {max_pages} full pages"
+            )
     return all_items
 
 
@@ -363,6 +383,31 @@ def _apply_wait_contract(row: dict, official_wait: dict, sample_wait: dict) -> d
     row["official_wait"] = official
     row["sample_wait"] = sampled
     row["wait_sample_count"] = sampled["count"]
+
+    # Queue-native metrics and the job scan are captured a few seconds apart.
+    # Record whether their counts reconcile, but never treat an equal count as
+    # proof that both reads contain the same job population. Jobs can dispatch
+    # while new jobs arrive, and Buildkite may use a different percentile
+    # estimator. The queue-native p50/p95 therefore remain the UI-comparable
+    # values; the scheduled-job reconstruction is retained as separate
+    # evidence and is only a fallback when the native value is unavailable.
+    waiting = _as_count(row.get("waiting"))
+    zombie_waiting = _as_count(row.get("zombie_waiting"))
+    expected_count = (
+        max(0, waiting - zombie_waiting)
+        if row.get("count_source") == "cluster_metrics"
+        else waiting
+    )
+    # Percentiles are tail-sensitive: even one missing job can be the slowest
+    # observation and materially lower p95. Exact n/n is useful coverage
+    # evidence, not permission to relabel the reconstructed value as native.
+    sample_complete = bool(
+        sampled["available"]
+        and sampled["count"] is not None
+        and sampled["count"] == expected_count
+    )
+    row["wait_sample_expected_count"] = expected_count
+    row["wait_sample_complete"] = sample_complete
 
     for metric in ("p50", "p95"):
         if official[metric] is not None:
@@ -595,6 +640,23 @@ def _scope_totals(queues: dict[str, dict]) -> dict:
     }
 
 
+def _selected_waits_source(queues: dict[str, dict]) -> str:
+    selected = {
+        row.get(f"{metric}_wait_source")
+        for row in queues.values()
+        for metric in ("p50", "p95")
+        if row.get(f"{metric}_wait") is not None
+    }
+    selected.discard(None)
+    if not selected:
+        return "none"
+    if selected == {"sample_wait"}:
+        return "scheduled_jobs"
+    if selected == {"official_wait"}:
+        return "cluster_metrics"
+    return "mixed"
+
+
 def _wait_field_descriptions() -> dict:
     return {
         "official_wait": (
@@ -605,13 +667,23 @@ def _wait_field_descriptions() -> dict:
             "available records whether that queue's jobs were fetched, and count is null when they were not."
         ),
         "current_wait": "Displayed p50, p95, and p99 values paired with their per-field source labels.",
-        "p50_wait": "official_wait.p50 when available, otherwise sample_wait.p50, otherwise null.",
-        "p95_wait": "official_wait.p95 when available, otherwise sample_wait.p95, otherwise null.",
+        "p50_wait": (
+            "official_wait.p50 when available, otherwise sample_wait.p50, otherwise null."
+        ),
+        "p95_wait": (
+            "official_wait.p95 when available, otherwise sample_wait.p95, otherwise null."
+        ),
         "p99_wait": "sample_wait.p99 when sampled jobs are available, otherwise null.",
         "p75_wait_p90_wait_avg_wait": "Sample-only compatibility fields; null without sampled jobs.",
         "max_wait": "Greater reported value of official_wait.max and sample_wait.max, otherwise null.",
         "field_source_labels": (
             "Each root wait field has a matching *_wait_source value of official_wait, sample_wait, or null."
+        ),
+        "sample_reconciliation": (
+            "wait_sample_expected_count is the non-zombie waiting count. "
+            "wait_sample_complete requires an exact count match between the queue-native "
+            "metrics read and the fully paginated scheduled-job read. Equal counts do not "
+            "prove equal job membership, so sampled percentiles remain separately labeled."
         ),
     }
 
@@ -631,7 +703,13 @@ def normalize_history_snapshot(snapshot: dict) -> dict | None:
         else {}
     )
     already_migrated = history_provenance.get("migration") == "legacy_queue_snapshot_v1_to_v2"
-    legacy = not _snapshot_has_current_schema(snapshot)
+    row_is_legacy = {
+        queue: not _queue_row_has_current_schema(row)
+        for queue, row in queues.items()
+    }
+    # A single sparse/archive-only queue must not downgrade every otherwise
+    # typed row in the snapshot to the legacy migration path.
+    legacy = bool(row_is_legacy) and all(row_is_legacy.values())
     historical = legacy or already_migrated
     snapshot_count_source = str(original_sources.get("counts") or "unknown")
     snapshot_active_jobs_source = str(original_sources.get("active_jobs") or "active_job_scan")
@@ -640,7 +718,7 @@ def normalize_history_snapshot(snapshot: dict) -> dict | None:
             row,
             snapshot_count_source,
             snapshot_active_jobs_source,
-            legacy=legacy,
+            legacy=row_is_legacy.get(queue, True),
         )
         for queue, row in sorted(queues.items())
         if not is_excluded_queue(queue)
@@ -732,6 +810,7 @@ def normalize_history_snapshot(snapshot: dict) -> dict | None:
             if has_sample_scan
             else "unavailable"
         )
+        sources["waits"] = _selected_waits_source(normalized_queues)
     normalized["sources"] = sources
     return normalized
 
@@ -766,8 +845,255 @@ def normalize_history_rows(rows: list[dict]) -> list[dict]:
     for snapshot in rows:
         normalized = normalize_history_snapshot(snapshot)
         if normalized is not None:
-            by_timestamp[normalized["ts"]] = normalized
+            previous = by_timestamp.get(normalized["ts"])
+            by_timestamp[normalized["ts"]] = (
+                _merge_same_timestamp_snapshots(previous, normalized)
+                if previous is not None
+                else normalized
+            )
     return [by_timestamp[ts] for ts in sorted(by_timestamp)]
+
+
+def _merge_same_timestamp_snapshots(previous: dict, current: dict) -> dict:
+    """Let current values win while retaining richer hourly peak evidence."""
+    merged = deepcopy(current)
+    if previous.get("history_mode") == "hourly_queue_wait_peaks" or current.get(
+        "history_mode"
+    ) == "hourly_queue_wait_peaks":
+        merged["history_mode"] = "hourly_queue_wait_peaks"
+        merged["archive_bucket_start"] = (
+            current.get("archive_bucket_start") or previous.get("archive_bucket_start")
+        )
+
+    merged_queues = merged.setdefault("queues", {})
+    queue_names = set((previous.get("queues") or {})) | set((current.get("queues") or {}))
+    for name in queue_names:
+        for peak_field in ("archive_wait_peaks", "archive_sample_wait_peaks"):
+            peak_candidates: dict[str, list[dict]] = {}
+            for snapshot in (previous, current):
+                row = (snapshot.get("queues") or {}).get(name)
+                for metric, peak in ((row or {}).get(peak_field) or {}).items():
+                    if (
+                        isinstance(peak, dict)
+                        and _as_optional_float(peak.get("value")) is not None
+                    ):
+                        peak_candidates.setdefault(metric, []).append(peak)
+            if not peak_candidates:
+                continue
+            target = merged_queues.get(name)
+            if not isinstance(target, dict):
+                target = deepcopy((previous.get("queues") or {}).get(name) or {})
+                merged_queues[name] = target
+            peaks = dict(target.get(peak_field) or {})
+            for metric, candidates in peak_candidates.items():
+                peaks[metric] = deepcopy(max(
+                    candidates,
+                    key=lambda peak: (
+                        _as_optional_float(peak.get("value")),
+                        str(peak.get("observed_at") or ""),
+                    ),
+                ))
+            target[peak_field] = peaks
+
+    previous_resolution = (previous.get("sources") or {}).get("history_resolution")
+    if previous_resolution and not (merged.get("sources") or {}).get("history_resolution"):
+        sources = dict(merged.get("sources") or {})
+        sources["history_resolution"] = previous_resolution
+        merged["sources"] = sources
+    return merged
+
+
+def _snapshot_peak_wait(snapshot: dict) -> float:
+    values = [
+        _as_optional_float(row.get("p95_wait"))
+        for row in (snapshot.get("queues") or {}).values()
+        if isinstance(row, dict)
+    ]
+    return max((value for value in values if value is not None), default=-1.0)
+
+
+def _archive_bucket_snapshot(snapshots: list[dict]) -> dict:
+    """Retain one coherent snapshot plus each queue's exact hourly wait peaks."""
+    representative = max(
+        snapshots,
+        key=lambda snapshot: (
+            _snapshot_peak_wait(snapshot),
+            _as_count(snapshot.get("total_waiting")),
+            snapshot["ts"],
+        ),
+    )
+    archived = deepcopy(representative)
+    archived["history_mode"] = "hourly_queue_wait_peaks"
+    archived["archive_bucket_start"] = parse_iso(representative["ts"]).replace(
+        minute=0, second=0, microsecond=0
+    ).isoformat().replace("+00:00", "Z")
+
+    queue_names = sorted({
+        name for snapshot in snapshots for name in (snapshot.get("queues") or {})
+    })
+    archived_queues = archived.setdefault("queues", {})
+    for name in queue_names:
+        peaks = {}
+        sample_peaks = {}
+        for metric in ("p50", "p95", "p99"):
+            candidates = []
+            sample_candidates = []
+            for snapshot in snapshots:
+                row = (snapshot.get("queues") or {}).get(name)
+                if not isinstance(row, dict):
+                    continue
+                existing_peak = (row.get("archive_wait_peaks") or {}).get(metric)
+                if isinstance(existing_peak, dict):
+                    existing_value = _as_optional_float(existing_peak.get("value"))
+                    if existing_value is not None:
+                        candidates.append((
+                            existing_value,
+                            str(existing_peak.get("observed_at") or snapshot["ts"]),
+                            existing_peak.get("source"),
+                            existing_peak.get("provider"),
+                            existing_peak.get("sample_count"),
+                            existing_peak.get("sample_expected"),
+                            existing_peak.get("sample_complete"),
+                        ))
+                        if existing_peak.get("source") == "sample_wait":
+                            sample_candidates.append(candidates[-1])
+                existing_sample_peak = (row.get("archive_sample_wait_peaks") or {}).get(
+                    metric
+                )
+                if isinstance(existing_sample_peak, dict):
+                    existing_sample_value = _as_optional_float(
+                        existing_sample_peak.get("value")
+                    )
+                    if existing_sample_value is not None:
+                        sample_candidates.append((
+                            existing_sample_value,
+                            str(existing_sample_peak.get("observed_at") or snapshot["ts"]),
+                            "sample_wait",
+                            existing_sample_peak.get("provider")
+                            or existing_sample_peak.get("source"),
+                            existing_sample_peak.get("sample_count"),
+                            existing_sample_peak.get("sample_expected"),
+                            existing_sample_peak.get("sample_complete"),
+                        ))
+                value = _as_optional_float(row.get(f"{metric}_wait"))
+                if value is None:
+                    source = None
+                else:
+                    source = row.get(f"{metric}_wait_source")
+                    provider = (
+                        row.get("official_wait_source")
+                        if source == "official_wait"
+                        else row.get("sample_wait_source")
+                        if source == "sample_wait"
+                        else None
+                    )
+                    candidates.append((
+                        value,
+                        snapshot["ts"],
+                        source,
+                        provider,
+                        row.get("wait_sample_count") if source == "sample_wait" else None,
+                        row.get("wait_sample_expected_count")
+                        if source == "sample_wait"
+                        else None,
+                        row.get("wait_sample_complete") if source == "sample_wait" else None,
+                    ))
+                sample_value = _as_optional_float((row.get("sample_wait") or {}).get(metric))
+                if sample_value is not None:
+                    sample_candidates.append((
+                        sample_value,
+                        snapshot["ts"],
+                        "sample_wait",
+                        row.get("sample_wait_source"),
+                        row.get("wait_sample_count"),
+                        row.get("wait_sample_expected_count"),
+                        row.get("wait_sample_complete"),
+                    ))
+            if candidates:
+                (
+                    value,
+                    observed_at,
+                    source,
+                    provider,
+                    sample_count,
+                    sample_expected,
+                    sample_complete,
+                ) = max(candidates, key=lambda item: (item[0], item[1]))
+                peaks[metric] = {
+                    "value": value,
+                    "observed_at": observed_at,
+                    "source": source,
+                    "provider": provider,
+                    "sample_count": sample_count,
+                    "sample_expected": sample_expected,
+                    "sample_complete": sample_complete,
+                }
+            if sample_candidates:
+                (
+                    sample_value,
+                    sample_observed_at,
+                    _,
+                    sample_provider,
+                    sample_count,
+                    sample_expected,
+                    sample_complete,
+                ) = max(sample_candidates, key=lambda item: (item[0], item[1]))
+                sample_peaks[metric] = {
+                    "value": sample_value,
+                    "observed_at": sample_observed_at,
+                    "source": "sample_wait",
+                    "provider": sample_provider,
+                    "sample_count": sample_count,
+                    "sample_expected": sample_expected,
+                    "sample_complete": sample_complete,
+                }
+        if not peaks and not sample_peaks:
+            continue
+        target = archived_queues.get(name)
+        if not isinstance(target, dict):
+            target = {
+                "waiting": 0,
+                "running": 0,
+                "count_source": "unavailable",
+                "history_observation_only": True,
+            }
+            archived_queues[name] = target
+        if peaks:
+            target["archive_wait_peaks"] = peaks
+        if sample_peaks:
+            target["archive_sample_wait_peaks"] = sample_peaks
+
+    sources = dict(archived.get("sources") or {})
+    sources["history_resolution"] = (
+        "One actual snapshot per UTC hour plus per-queue primary and reconstructed "
+        "sample p50/p95/p99 peaks with their exact observation timestamps."
+    )
+    archived["sources"] = sources
+    return archived
+
+
+def compact_history_resolution(rows: list[dict], now: datetime) -> list[dict]:
+    """Keep recent polls and per-queue wait peaks in older hourly envelopes."""
+    normalized = normalize_history_rows(rows)
+    high_resolution_cutoff = now - timedelta(hours=QUEUE_HISTORY_HIGH_RES_HOURS)
+    recent: list[dict] = []
+    archive_buckets: dict[datetime, list[dict]] = {}
+
+    for snapshot in normalized:
+        observed_at = parse_iso(snapshot.get("ts") or "")
+        if observed_at is None:
+            continue
+        if observed_at >= high_resolution_cutoff:
+            recent.append(snapshot)
+            continue
+        minute = (
+            observed_at.minute // QUEUE_HISTORY_ARCHIVE_BUCKET_MINUTES
+        ) * QUEUE_HISTORY_ARCHIVE_BUCKET_MINUTES
+        bucket = observed_at.replace(minute=minute, second=0, microsecond=0)
+        archive_buckets.setdefault(bucket, []).append(snapshot)
+
+    archive = [_archive_bucket_snapshot(bucket) for bucket in archive_buckets.values()]
+    return normalize_history_rows([*archive, *recent])
 
 
 def write_history_file(path: Path, rows: list[dict]) -> None:
@@ -819,15 +1145,17 @@ def merge_history_from_git_ref(path: Path, git_ref: str) -> tuple[int, int]:
 
 
 def prune_history_file(path: Path, now: datetime | None = None) -> tuple[int, int]:
-    """Migrate history in place, then drop only pre-reset or stale snapshots."""
+    """Migrate, retain recent detail, and preserve hourly historical spikes."""
     total, snapshots = _read_history_file(path)
     if total == 0 and not path.exists():
         return 0, 0
 
-    cutoff = _history_cutoff(now or datetime.now(timezone.utc))
+    current_time = now or datetime.now(timezone.utc)
+    cutoff = _history_cutoff(current_time)
     kept = [snapshot for snapshot in snapshots if parse_iso(snapshot["ts"]) >= cutoff]
-    write_history_file(path, kept)
-    return total, len(normalize_history_rows(kept))
+    compacted = compact_history_resolution(kept, current_time)
+    write_history_file(path, compacted)
+    return total, len(compacted)
 
 
 def _wait_summary(times: list[float]) -> dict:
@@ -986,6 +1314,40 @@ def _graphql_job_record(node: dict, fallback_queue: str = "") -> dict | None:
     }
 
 
+def _deduplicate_active_jobs(records: list[dict]) -> list[dict]:
+    """Deduplicate overlapping scans by job UUID, preferring the later state.
+
+    REST build-state scans are sequential, so the same build can appear in
+    both responses while it transitions. GraphQL supplemental reads can also
+    overlap a queue-scoped read. Only a stable job UUID is safe to collapse;
+    unidentified records remain separate rather than risking a false merge.
+    """
+    deduplicated: list[dict] = []
+    positions: dict[str, int] = {}
+
+    def state_rank(record: dict) -> int:
+        state = str(record.get("state") or "").upper()
+        if state in GRAPHQL_RUNNING_STATES or state.lower() in LEGACY_RUNNING_STATES:
+            return 2
+        if state in GRAPHQL_WAITING_STATES or state.lower() in LEGACY_WAITING_STATES:
+            return 1
+        return 0
+
+    for record in records:
+        job_uuid = str(record.get("job_uuid") or "").strip()
+        if not job_uuid:
+            deduplicated.append(record)
+            continue
+        position = positions.get(job_uuid)
+        if position is None:
+            positions[job_uuid] = len(deduplicated)
+            deduplicated.append(record)
+            continue
+        if state_rank(record) >= state_rank(deduplicated[position]):
+            deduplicated[position] = record
+    return deduplicated
+
+
 def _fetch_graphql_jobs(
     token: str,
     *,
@@ -1106,7 +1468,7 @@ def _collect_legacy_active_jobs(token: str) -> list[dict]:
                         "fallback_url": job.get("web_url", "") or "",
                     }
                 )
-    return records
+    return _deduplicate_active_jobs(records)
 
 
 def _seed_queue_metrics(queue_stats: dict, metrics_by_queue: dict[str, dict]) -> None:
@@ -1272,21 +1634,45 @@ def collect_snapshot(token: str) -> dict:
         if (
             not is_excluded_queue(queue)
             and meta.get("graphql_id")
-            and (_as_count(meta.get("waiting")) or _as_count(meta.get("running")))
+            and (
+                not meta.get("counts_available", True)
+                or _as_count(meta.get("waiting"))
+                or _as_count(meta.get("running"))
+            )
         )
+    }
+    metrics_queue_keys = {
+        queue.casefold() for queue in metrics_by_queue if not is_excluded_queue(queue)
+    }
+    missing_metrics_queues = {
+        queue
+        for queue in TRACKED_QUEUES
+        if not is_excluded_queue(queue) and queue.casefold() not in metrics_queue_keys
     }
 
     try:
-        active_jobs = fetch_active_cluster_jobs(token, active_queue_ids or None)
-        active_jobs_source = (
-            "cluster_queue_graphql" if active_queue_ids else "organization_jobs_graphql"
-        )
-        sampled_queues = set(active_queue_ids) if active_queue_ids else None
+        if active_queue_ids and missing_metrics_queues:
+            active_jobs = fetch_active_cluster_jobs(token, active_queue_ids)
+            organization_jobs = fetch_active_cluster_jobs(token, None)
+            missing_by_key = {queue.casefold(): queue for queue in missing_metrics_queues}
+            for job in organization_jobs:
+                canonical_queue = missing_by_key.get(str(job.get("queue") or "").casefold())
+                if canonical_queue:
+                    active_jobs.append({**job, "queue": canonical_queue})
+            active_jobs_source = "cluster_queue_and_organization_jobs_graphql"
+            sampled_queues = set(active_queue_ids) | missing_metrics_queues
+        else:
+            active_jobs = fetch_active_cluster_jobs(token, active_queue_ids or None)
+            active_jobs_source = (
+                "cluster_queue_graphql" if active_queue_ids else "organization_jobs_graphql"
+            )
+            sampled_queues = set(active_queue_ids) if active_queue_ids else None
     except Exception as exc:
         log.warning(
             "Buildkite GraphQL active jobs unavailable, falling back to build scan: %s", exc
         )
         active_jobs = _collect_legacy_active_jobs(token)
+    active_jobs = _deduplicate_active_jobs(active_jobs)
 
     trusted_count_queues = {
         queue
@@ -1347,11 +1733,7 @@ def collect_snapshot(token: str) -> dict:
         "total_zombie_running": sum(int(s.get("zombie_running") or 0) for s in queues.values()),
         "sources": {
             "counts": counts_source,
-            "waits": (
-                "cluster_metrics"
-                if has_official_wait
-                else ("scheduled_jobs" if has_sample_wait else "none")
-            ),
+            "waits": _selected_waits_source(queues),
             "active_jobs": active_jobs_source,
             "agents": "queue_native_metrics" if has_agent_metrics else "unavailable",
             "official_wait": ("queue_native_metrics" if has_official_wait else "unavailable"),
