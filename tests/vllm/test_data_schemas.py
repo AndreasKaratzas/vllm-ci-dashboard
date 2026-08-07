@@ -716,6 +716,45 @@ class TestOpenAmdMainFailureIssues:
         assert d["issue"] is None or isinstance(d["issue"], dict)
 
 
+class TestOpenCiMainFailureIssues:
+    def test_state_schema(self):
+        d = _load_json_or_skip("open_ci_main_failure_issues.json")
+        _assert_has_keys(
+            d,
+            {
+                "schema_version",
+                "initialized",
+                "processed_build_numbers",
+                "group_watermarks",
+                "active",
+                "issue",
+                "suppressed",
+                "last_fingerprint",
+                "last_run",
+            },
+            "open_ci_main_failure_issues.json",
+        )
+        assert isinstance(d["initialized"], bool)
+        assert isinstance(d["processed_build_numbers"], list)
+        assert all(isinstance(number, int) for number in d["processed_build_numbers"])
+        assert isinstance(d["group_watermarks"], dict)
+        assert isinstance(d["active"], dict)
+        assert d["issue"] is None or isinstance(d["issue"], dict)
+        for group_id, row in d["active"].items():
+            assert isinstance(group_id, str) and group_id
+            _assert_has_keys(
+                row,
+                {
+                    "good_commit",
+                    "bad_commit",
+                    "commit_range_status",
+                    "compare_url",
+                    "bisect_command",
+                },
+                f"open_ci_main_failure_issues.json.active[{group_id!r}]",
+            )
+
+
 class TestOpenAmdDurationRegressionIssues:
     def test_state_schema(self):
         d = _load_json_or_skip("open_amd_duration_regression_issues.json")

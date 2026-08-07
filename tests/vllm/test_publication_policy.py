@@ -57,7 +57,7 @@ def test_operational_documentation_matches_the_canonical_publication_path() -> N
 
     assert "CI_OWNER_AVAILABILITY_JSON" not in scripts_readme
     assert "regional working-hour profiles" in scripts_readme
-    assert "Every 30 min via `hourly-master.yml`" in scripts_readme
+    assert "Hourly via `hourly-master.yml`" in scripts_readme
     assert "operations_v2_manifest.json + operations_v2/*.json" in scripts_readme
     assert "exact active-job ledger counts remain separate" in audit
     assert "hard failures, soft failures, and" in audit

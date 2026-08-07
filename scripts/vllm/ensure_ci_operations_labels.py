@@ -19,6 +19,7 @@ from vllm.ci.managed_issue import (  # noqa: E402
 LABEL_SPECS = [
     ("automated", "6f42c1", "Managed by dashboard automation"),
     ("amd-ci-regression", "d73a49", "Latest AMD CI target regression"),
+    ("ci-main-failure", "d73a49", "Unresolved upstream CI test-group failure on origin/main"),
     ("workstream:infra", "0e8a16", "AMD CI infrastructure and capacity"),
     (
         "workstream:dashboard-ci",

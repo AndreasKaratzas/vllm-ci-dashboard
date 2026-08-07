@@ -58,7 +58,7 @@ ANALYTICS_NIGHTLY_LIMIT = 30
 ANALYTICS_WINDOW_BUILD_LIMIT = 50
 ANALYTICS_WINDOW_NIGHTLY_LIMIT = 30
 GATING_NIGHTLY_LIMIT = 30
-# The AMD all-main ledger exists for the 30-minute live alert, not long-range
+# The AMD all-main ledger exists for the hourly live alert, not long-range
 # browser analytics. Bounding it keeps analytics.json from growing needlessly.
 AMD_MAIN_OBSERVATION_LIMIT = 24
 BK_GET_MAX_ATTEMPTS = 5

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from vllm import agent_health_issue_watcher as agent
 from vllm import amd_duration_regression_watcher as duration
 from vllm import amd_main_failure_watcher as amd
+from vllm import ci_main_failure_watcher as upstream
 from vllm.ci.managed_issue import reconcile_managed_issue, validate_target_repo
 
 
@@ -251,6 +252,288 @@ def test_amd_issue_body_contains_exact_job_evidence_and_rule():
     assert "@AndreasKaratzas" not in body
 
 
+def _ci_build(number, finished_at, commit, *, created_at=None):
+    return {
+        "number": number,
+        "finished_at": finished_at,
+        "created_at": created_at or finished_at,
+        "commit": commit,
+    }
+
+
+def _ci_observation(number, result, observed_at, job_id, commit):
+    build_url = f"https://buildkite.com/vllm/ci/builds/{number}"
+    return {
+        "source_pipeline": "ci",
+        "build_number": number,
+        "build_url": build_url,
+        "build_commit": commit,
+        "job_id": job_id,
+        "job_url": f"{build_url}/steps/canvas?jid={job_id}&tab=output",
+        "observed_at": observed_at,
+        "started_at": observed_at,
+        "finished_at": observed_at,
+        "result": result,
+        "eligible_for_reliability": True,
+    }
+
+
+def _ci_group(group_id, observations):
+    return {
+        "group_id": group_id,
+        "name": "Upstream group",
+        "raw_name": "gpu_1: Upstream group",
+        "step_key": "upstream-step",
+        "hardware": "h100",
+        "queue": "h100",
+        "observations": observations,
+    }
+
+
+def test_upstream_watcher_retains_last_good_and_first_bad_commit():
+    good = "a" * 40
+    first_bad = "b" * 40
+    later_bad = "c" * 40
+    recovered_commit = "d" * 40
+    reliability = {
+        "generated_at": "2026-07-17T12:10:00Z",
+        "builds": [
+            _ci_build(30, "2026-07-17T10:00:00Z", good),
+            _ci_build(31, "2026-07-17T11:00:00Z", first_bad),
+        ],
+        "groups": [
+            _ci_group(
+                "upstream-group",
+                [
+                    _ci_observation(
+                        31, "failed", "2026-07-17T10:50:00Z", "bad-31", first_bad
+                    ),
+                    _ci_observation(
+                        30, "passed", "2026-07-17T09:50:00Z", "good-30", good
+                    ),
+                ],
+            )
+        ],
+    }
+
+    initialized = upstream.advance_incidents(reliability, upstream._default_state())
+    incident = initialized["active"]["upstream-group"]
+
+    assert incident["good_commit"] == good
+    assert incident["good_build_number"] == 30
+    assert incident["bad_commit"] == first_bad
+    assert incident["bad_build_number"] == 31
+    assert incident["commit_range_status"] == "candidate"
+    assert incident["compare_url"].endswith(f"/compare/{good}...{first_bad}")
+    assert incident["bisect_command"] == f"git bisect start {first_bad} {good}"
+
+    reliability["generated_at"] = "2026-07-17T13:10:00Z"
+    reliability["builds"].append(
+        _ci_build(32, "2026-07-17T12:00:00Z", later_bad)
+    )
+    reliability["groups"][0]["observations"].insert(
+        0,
+        _ci_observation(
+            32, "soft_fail", "2026-07-17T11:50:00Z", "bad-32", later_bad
+        ),
+    )
+    continued = upstream.advance_incidents(reliability, initialized)
+    incident = continued["active"]["upstream-group"]
+    assert incident["good_commit"] == good
+    assert incident["bad_commit"] == first_bad
+    assert incident["latest_bad_commit"] == later_bad
+
+    reliability["generated_at"] = "2026-07-17T14:10:00Z"
+    reliability["builds"].append(
+        _ci_build(33, "2026-07-17T13:00:00Z", recovered_commit)
+    )
+    reliability["groups"][0]["observations"].insert(
+        0,
+        _ci_observation(
+            33,
+            "passed",
+            "2026-07-17T12:50:00Z",
+            "good-33",
+            recovered_commit,
+        ),
+    )
+    recovered = upstream.advance_incidents(reliability, continued)
+    assert recovered["active"] == {}
+
+
+def test_upstream_issue_body_contains_bisect_candidate():
+    good = "a" * 40
+    bad = "b" * 40
+    row = {
+        "group_id": "upstream-group",
+        "name": "Upstream group",
+        "hardware": "h100",
+        "queue": "h100",
+        "result": "failed",
+        "build_number": 31,
+        "build_url": "https://buildkite.com/vllm/ci/builds/31",
+        "job_url": "https://buildkite.com/vllm/ci/builds/31/steps/canvas?jid=bad-31&tab=output",
+        "observed_at": "2026-07-17T10:50:00Z",
+        "good_commit": good,
+        "bad_commit": bad,
+        "commit_range_status": "candidate",
+        "compare_url": f"https://github.com/vllm-project/vllm/compare/{good}...{bad}",
+        "bisect_command": f"git bisect start {bad} {good}",
+    }
+
+    body = upstream._issue_body(
+        {"upstream-group": row},
+        {"generated_at": "2026-07-17T12:00:00Z"},
+        "https://github.com/run",
+        "AndreasKaratzas",
+    )
+
+    assert "Upstream CI origin/main test-group alert" in body
+    assert f"/compare/{good}...{bad}" in body
+    assert f"git bisect start {bad} {good}" in body
+    assert "ancestry must be verified" in body
+
+
+def test_upstream_watcher_orders_commit_range_by_build_creation():
+    good = "1" * 40
+    bad = "2" * 40
+    reliability = {
+        "generated_at": "2026-07-17T13:10:00Z",
+        "builds": [
+            _ci_build(
+                40,
+                "2026-07-17T12:30:00Z",
+                good,
+                created_at="2026-07-17T10:00:00Z",
+            ),
+            _ci_build(
+                41,
+                "2026-07-17T11:30:00Z",
+                bad,
+                created_at="2026-07-17T11:00:00Z",
+            ),
+        ],
+        "groups": [
+            _ci_group(
+                "out-of-order-group",
+                [
+                    _ci_observation(
+                        41, "failed", "2026-07-17T11:20:00Z", "bad-41", bad
+                    ),
+                    _ci_observation(
+                        40, "passed", "2026-07-17T12:20:00Z", "good-40", good
+                    ),
+                ],
+            )
+        ],
+    }
+
+    state = upstream.advance_incidents(reliability, upstream._default_state())
+
+    incident = state["active"]["out-of-order-group"]
+    assert incident["good_commit"] == good
+    assert incident["bad_commit"] == bad
+
+
+def test_upstream_watcher_initializes_from_each_groups_latest_outcome():
+    bad = "1" * 40
+    recovered = "2" * 40
+    reliability = {
+        "generated_at": "2026-07-17T13:10:00Z",
+        "builds": [
+            _ci_build(45, "2026-07-17T11:30:00Z", bad),
+            _ci_build(46, "2026-07-17T12:30:00Z", recovered),
+        ],
+        "groups": [
+            _ci_group(
+                "recovered-before-enable-group",
+                [
+                    _ci_observation(
+                        46, "passed", "2026-07-17T12:20:00Z", "good-46", recovered
+                    ),
+                    _ci_observation(45, "failed", "2026-07-17T11:20:00Z", "bad-45", bad),
+                ],
+            )
+        ],
+    }
+
+    state = upstream.advance_incidents(reliability, upstream._default_state())
+
+    assert state["active"] == {}
+    assert state["group_watermarks"]["recovered-before-enable-group"]["build_number"] == 46
+
+
+def test_upstream_watcher_ignores_older_build_that_finishes_late():
+    bad = "3" * 40
+    old_good = "2" * 40
+    recovered_commit = "4" * 40
+    reliability = {
+        "generated_at": "2026-07-17T12:10:00Z",
+        "builds": [
+            _ci_build(
+                51,
+                "2026-07-17T11:30:00Z",
+                bad,
+                created_at="2026-07-17T11:00:00Z",
+            )
+        ],
+        "groups": [
+            _ci_group(
+                "late-build-group",
+                [
+                    _ci_observation(
+                        51, "failed", "2026-07-17T11:20:00Z", "bad-51", bad
+                    )
+                ],
+            )
+        ],
+    }
+    initial = upstream.advance_incidents(reliability, upstream._default_state())
+    assert "late-build-group" in initial["active"]
+
+    reliability["generated_at"] = "2026-07-17T13:10:00Z"
+    reliability["builds"].append(
+        _ci_build(
+            50,
+            "2026-07-17T12:30:00Z",
+            old_good,
+            created_at="2026-07-17T10:00:00Z",
+        )
+    )
+    reliability["groups"][0]["observations"].append(
+        _ci_observation(
+            50, "passed", "2026-07-17T12:20:00Z", "old-good-50", old_good
+        )
+    )
+    after_late_pass = upstream.advance_incidents(reliability, initial)
+    assert "late-build-group" in after_late_pass["active"]
+    incident = after_late_pass["active"]["late-build-group"]
+    assert incident["good_commit"] == old_good
+    assert incident["bad_commit"] == bad
+
+    reliability["generated_at"] = "2026-07-17T14:10:00Z"
+    reliability["builds"].append(
+        _ci_build(
+            52,
+            "2026-07-17T13:30:00Z",
+            recovered_commit,
+            created_at="2026-07-17T12:00:00Z",
+        )
+    )
+    reliability["groups"][0]["observations"].insert(
+        0,
+        _ci_observation(
+            52,
+            "passed",
+            "2026-07-17T13:20:00Z",
+            "recovered-52",
+            recovered_commit,
+        ),
+    )
+    recovered = upstream.advance_incidents(reliability, after_late_pass)
+    assert recovered["active"] == {}
+
+
 def _duration_reliability(recent, baseline):
     observations = []
     for index, minutes in enumerate(list(recent) + list(baseline)):
@@ -435,3 +718,5 @@ def test_alert_payload_freshness_fails_closed():
     assert not amd._is_fresh({"generated_at": "2026-07-17T08:00:00Z"}, now)
     assert duration._is_fresh({"generated_at": "2026-07-17T10:00:00Z"}, now)
     assert not duration._is_fresh({"generated_at": "2026-07-17T08:00:00Z"}, now)
+    assert upstream._is_fresh({"generated_at": "2026-07-17T10:00:00Z"}, now)
+    assert not upstream._is_fresh({"generated_at": "2026-07-17T08:00:00Z"}, now)

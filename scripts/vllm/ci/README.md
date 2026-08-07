@@ -124,7 +124,7 @@ Four workflows divide canonical publication from focused manual/event collectors
 
 | Workflow | Schedule | Purpose |
 |----------|----------|---------|
-| `hourly-master.yml` | Every 30 minutes + Buildkite completion webhooks | Full collection, validation, and the only scheduled root-site deployment |
+| `hourly-master.yml` | Hourly + Buildkite nightly-completion webhooks | Full collection, validation, and the only scheduled root-site deployment |
 | `daily-update.yml` | Manual | Focused GitHub-data refresh committed to `main` |
 | `ci-collect.yml` | Manual | Focused Buildkite CI refresh committed to `main` |
 | `queue-monitor.yml` | Queue webhooks + manual | Queue snapshots and bounded queue issue automation; canonical publication follows via `hourly-master.yml` |
@@ -143,13 +143,17 @@ Queue analytics intentionally exclude waiting or running jobs older than 4 hours
 
 ### Managed Alert Issues
 
-The unified 30-minute Data Collection workflow also reconciles three bounded
+The unified hourly Data Collection workflow also reconciles four bounded
 umbrella issues in this repository:
 
 - AMD main test-group failures use the exhaustive amd-ci branch=main reliability
   cohort. The latest retry attempt in a build wins; a later pass resolves the
   same strict label + step + hardware + queue identity. Soft failures remain
   incidents because the test command failed even when Buildkite continued.
+- Upstream CI main test-group failures use the exhaustive ci branch=main
+  reliability cohort and the same strict retry-aware identity. Each active
+  incident retains the last known passing commit and first failing commit as a
+  candidate range for later ancestry validation and automated git bisection.
 - AMD main duration regressions compare the median wall completion time of the
   latest three successful final attempts with the preceding six to twelve runs.
   Queue wait is excluded. A 15% increase opens the alert, and the baseline stays
@@ -160,7 +164,8 @@ umbrella issues in this repository:
   across at least two groups on one physical AMD node.
 
 State lives in open_amd_main_failure_issues.json,
-open_amd_duration_regression_issues.json, and open_agent_health_issues.json.
+open_ci_main_failure_issues.json, open_amd_duration_regression_issues.json, and
+open_agent_health_issues.json.
 Each watcher can update or close only the issue number in its own state file; it
 never searches for issues by label, and it verifies a watcher-specific ownership
 marker before any update or close. When a signal recovers, its watcher comments

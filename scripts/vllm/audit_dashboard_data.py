@@ -205,7 +205,12 @@ DATA_SPECS: tuple[DataSpec, ...] = (
     DataSpec(
         "data/vllm/ci/analytics.json",
         ("scripts/vllm/collect_analytics.py",),
-        ("scripts/vllm/build_operations_snapshot.py", "docs/assets/js/ci-analytics.js"),
+        (
+            "scripts/vllm/build_operations_snapshot.py",
+            "scripts/vllm/amd_main_failure_watcher.py",
+            "scripts/vllm/ci_main_failure_watcher.py",
+            "docs/assets/js/ci-analytics.js",
+        ),
         ("amd-ci", "ci"),
         "Nightly comparison plus all-main reliability evidence",
     ),

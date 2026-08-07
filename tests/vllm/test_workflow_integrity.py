@@ -1121,31 +1121,38 @@ class TestAlertAutomationWorkflow:
         assert "open_queue_issues.json" in sync_run
         assert "open_queue_zombie_issues.json" in sync_run
         assert "open_amd_main_failure_issues.json" not in sync_run
+        assert "open_ci_main_failure_issues.json" not in sync_run
         assert "open_amd_duration_regression_issues.json" not in sync_run
         assert "open_agent_health_issues.json" not in sync_run
 
         amd_collect = names.index("Collect CI analytics")
         agent_collect = names.index("Collect AMD agent health (all builds, all branches)")
         amd_watch = names.index("Watch AMD main test-group failures (open/close issue)")
+        ci_watch = names.index(
+            "Watch upstream CI main test-group failures (open/close issue)"
+        )
         duration_watch = names.index("Watch AMD main duration regressions (open/close issue)")
         agent_watch = names.index("Watch AMD CI agent health (open/close issue)")
 
         assert amd_watch > amd_collect
+        assert ci_watch > amd_collect
         assert duration_watch > amd_collect
         assert agent_watch > agent_collect
         assert steps[amd_watch]["run"] == "python scripts/vllm/amd_main_failure_watcher.py"
+        assert steps[ci_watch]["run"] == "python scripts/vllm/ci_main_failure_watcher.py"
         assert steps[duration_watch]["run"] == "python scripts/vllm/amd_duration_regression_watcher.py"
         assert steps[agent_watch]["run"] == "python scripts/vllm/agent_health_issue_watcher.py"
-        for index in (amd_watch, duration_watch, agent_watch):
+        for index in (amd_watch, ci_watch, duration_watch, agent_watch):
             env = steps[index].get("env") or {}
             assert {"GITHUB_TOKEN", "GITHUB_REPOSITORY", "GITHUB_RUN_ID"} <= set(env)
 
         persist = names.index("Persist managed alert issue state")
-        assert persist > max(amd_watch, duration_watch, agent_watch)
+        assert persist > max(amd_watch, ci_watch, duration_watch, agent_watch)
         assert steps[persist].get("if") == "always()"
         persist_run = steps[persist].get("run", "")
         for state_file in (
             "open_amd_main_failure_issues.json",
+            "open_ci_main_failure_issues.json",
             "open_amd_duration_regression_issues.json",
             "open_agent_health_issues.json",
         ):

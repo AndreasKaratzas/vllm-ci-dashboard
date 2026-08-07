@@ -26,6 +26,7 @@ def test_label_set_has_exact_project_workstreams():
     assert names == [
         "automated",
         "amd-ci-regression",
+        "ci-main-failure",
         "workstream:infra",
         "workstream:dashboard-ci",
         "workstream:dev",

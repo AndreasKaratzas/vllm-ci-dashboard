@@ -7,18 +7,19 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 | Script | Purpose | Trigger |
 |--------|---------|---------|
 | `collect_queue_snapshot.py` | Captures Buildkite queue state from cluster metrics + active jobs, records scheduled-job sample coverage against queue counts, and excludes >4h zombie jobs from reconstructed latency analytics | Every 10 min via `queue-monitor.yml`, plus canonical `hourly-master.yml` runs |
-| `collect_analytics.py` | Builds failure rankings, duration rankings, queue wait stats | Every 30 min via `hourly-master.yml` |
-| `collect_amd_test_matrix.py` | Normalizes upstream `test-amd.yaml` into a dynamic per-architecture coverage matrix, matched against the latest AMD nightly | Every 30 min via `hourly-master.yml` |
+| `collect_analytics.py` | Builds failure rankings, duration rankings, queue wait stats | Hourly via `hourly-master.yml` |
+| `collect_amd_test_matrix.py` | Normalizes upstream `test-amd.yaml` into a dynamic per-architecture coverage matrix, matched against the latest AMD nightly | Hourly via `hourly-master.yml` |
 | `collect_ownership_parity.py` | Builds the ownership routing map from the exact vLLM commit referenced by the latest AMD matrix | Every 30 min after matrix collection |
 | `collect_gating_targets.py` | Regenerates `gating_targets.json` from the authoritative `config/vllm_amd_gating_targets.json` | Every canonical `hourly-master.yml` run |
-| `collect_gating_proposals.py` | Finds recent open PRs from tracked AMD engineers that add new `.buildkite/test_areas` AMD mirrors, then follows cached proposal PRs until they stop adding mirrors | Every 30 min via `hourly-master.yml` |
-| `collect_gating_target_candidates.py` | Builds a review-only audit of upstream nightly GPU jobs vs the canonical AMD gating target list, including likely duplicates, exclusions, new candidates, and explicit `%N` shard aggregation | Every 30 min via `hourly-master.yml` |
+| `collect_gating_proposals.py` | Finds recent open PRs from tracked AMD engineers that add new `.buildkite/test_areas` AMD mirrors, then follows cached proposal PRs until they stop adding mirrors | Hourly via `hourly-master.yml` |
+| `collect_gating_target_candidates.py` | Builds a review-only audit of upstream nightly GPU jobs vs the canonical AMD gating target list, including likely duplicates, exclusions, new candidates, and explicit `%N` shard aggregation | Hourly via `hourly-master.yml` |
 | `build_operations_snapshot.py` | Builds the private v2 operations input plus its public manifest and lazy section shards; runtime targets resolve through exact matrix aliases and definition parity with explicit unresolved reasons | Every canonical collection and Pages assembly |
 | `build_queue_section.py` | Builds only the compact public Queue shard from queue-owned inputs | Every independent queue-monitor run |
-| `ci_area_regression_watcher.py` | Maps every exact AMD matrix definition to its owned test-area rotation and reconciles one state-owned dashboard issue per regressing area | Every 30 min after matrix collection |
+| `ci_main_failure_watcher.py` | Reconciles one upstream `ci`/`main` failure issue and retains bisect candidate bounds per strict group | Hourly after analytics collection |
+| `ci_area_regression_watcher.py` | Maps every exact AMD matrix definition to its owned test-area rotation and reconciles one state-owned dashboard issue per regressing area | Hourly after matrix collection |
 | `ensure_ci_operations_labels.py` | Ensures managed and workstream labels exist before issue watchers run | Every canonical collection |
-| `sync_ci_operations_project.py` | Adds open managed dashboard issues to the linked AMD CI Operations Project, split by workstream labels | Every 30 min after issue reconciliation |
-| `audit_dashboard_data.py` | Cross-checks generated data, frontend assumptions, and deploy workflow ordering before publishing | Every 30 min via `hourly-master.yml` + local debugging |
+| `sync_ci_operations_project.py` | Adds open managed dashboard issues to the linked AMD CI Operations Project, split by workstream labels | Hourly after issue reconciliation |
+| `audit_dashboard_data.py` | Cross-checks generated data, frontend assumptions, and deploy workflow ordering before publishing | Hourly via `hourly-master.yml` + local debugging |
 | `config_parity.py` | Compares AMD vs NVIDIA CI config (commands, test lists) | Part of `collect_ci.py` |
 | `pipelines.py` | Pipeline definitions (slug, name patterns, build filters) | Imported by other scripts |
 
@@ -64,6 +65,8 @@ build_queue_section.py    --> data/vllm/ci/operations_v2/queue.json
                           --> queue-data branch (live browser feed)
 collect_capacity_monitor.py --> data/vllm/ci/capacity_monitor.json
 collect_analytics.py      --> data/vllm/ci/analytics.json
+                           --> ci_main_failure_watcher.py
+                           --> open_ci_main_failure_issues.json (private state)
 collect_amd_test_matrix.py --> data/vllm/ci/amd_test_matrix.json
 collect_ownership_parity.py --> data/vllm/ci/ownership_config_parity.json
 collect_gating_targets.py --> data/vllm/ci/gating_targets.json
