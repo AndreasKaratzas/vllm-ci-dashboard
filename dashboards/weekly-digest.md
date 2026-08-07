@@ -1,6 +1,6 @@
 # Weekly Digest
 
-Week of 2026-07-30 to 2026-08-06
+Week of 2026-07-31 to 2026-08-07
 
 ## New Releases
 
@@ -10,7 +10,6 @@ _No new releases this week._
 
 ### vllm
 - Opened: [#50907](https://github.com/vllm-project/vllm/pull/50907) [ROCm] Remove stale SDPA and skinny GEMM workarounds (@AndreasKaratzas)
-- Merged: [#49937](https://github.com/vllm-project/vllm/pull/49937) [ROCm] Add AITER FP8 ViT encoder attention (@LiuYinfeng01)
 
 ## New Issues This Week
 
