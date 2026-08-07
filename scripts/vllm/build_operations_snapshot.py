@@ -1994,7 +1994,8 @@ def _platform_comparison(
     cohort_builds: int,
 ) -> dict:
     grouped: dict[tuple[str, str], list[dict]] = defaultdict(list)
-    exact_identity: dict[str, tuple[str, str]] = {}
+    exact_identity: dict[str, tuple[str, str, str]] = {}
+    catalog_identity: dict[str, tuple[str, str, str]] = {}
     for row in catalog:
         platform = _comparison_platform(row)
         if platform not in {"amd", "cuda"}:
@@ -2003,22 +2004,31 @@ def _platform_comparison(
         if not key:
             continue
         grouped[(platform, key)].append(row)
+        group_id = str(row.get("id") or "")
+        if group_id:
+            catalog_identity[group_id] = (platform, key, group_id)
         for identity in [row.get("name"), *(row.get("raw_names") or [])]:
             if identity:
-                exact_identity[str(identity).casefold()] = (platform, key)
+                exact_identity[str(identity).casefold()] = (platform, key, group_id)
 
-    def retry_identity(row: dict) -> tuple[str, str] | None:
+    def retry_identity(row: dict) -> tuple[str, str, str] | None:
+        group_id = str(row.get("group_id") or "")
+        if group_id and group_id in catalog_identity:
+            return catalog_identity[group_id]
         name = str(row.get("name") or "")
         exact = exact_identity.get(name.casefold())
         if exact:
             return exact
         key = _comparison_key(name)
         platform = "amd" if AMD_PREFIX_RE.match(name) else "cuda"
-        return (platform, key) if grouped.get((platform, key)) else None
+        candidates = grouped.get((platform, key)) or []
+        if len(candidates) != 1:
+            return None
+        return (platform, key, str(candidates[0].get("id") or ""))
 
-    retry_involved_counts: Counter[tuple[str, str]] = Counter()
-    child_retry_counts: Counter[tuple[str, str]] = Counter()
-    recovery_counts: Counter[tuple[str, str]] = Counter()
+    retry_involved_counts: Counter[tuple[str, str, str]] = Counter()
+    child_retry_counts: Counter[tuple[str, str, str]] = Counter()
+    recovery_counts: Counter[tuple[str, str, str]] = Counter()
     if retry_analysis.get("available") is True:
         for row in retry_analysis.get("retry_attempts") or []:
             if identity := retry_identity(row):
@@ -2029,31 +2039,37 @@ def _platform_comparison(
             if identity := retry_identity(row):
                 recovery_counts[identity] += 1
 
+    def group_count(
+        counter: Counter[tuple[str, str, str]],
+        platform: str,
+        key: str,
+        groups: list[dict],
+    ) -> int:
+        return sum(
+            counter[(platform, key, str(group.get("id") or ""))]
+            for group in groups
+        )
+
+    def counter_total(
+        counter: Counter[tuple[str, str, str]],
+        platform: str,
+        keys: set[str],
+    ) -> int:
+        return sum(
+            count
+            for (item_platform, key, _), count in counter.items()
+            if item_platform == platform and key in keys
+        )
+
     amd_keys = sorted(key for platform, key in grouped if platform == "amd")
     rows = []
     for key in amd_keys:
         amd_groups = grouped[("amd", key)]
         cuda_groups = grouped.get(("cuda", key), [])
-        amd = _comparison_side(
-            amd_groups,
-            cohort_builds,
-            child_retry_counts[("amd", key)],
-            recovery_counts[("amd", key)],
-            retry_involved_counts[("amd", key)],
-        )
-        cuda = _comparison_side(
-            cuda_groups,
-            cohort_builds,
-            child_retry_counts[("cuda", key)],
-            recovery_counts[("cuda", key)],
-            retry_involved_counts[("cuda", key)],
-        )
         label = _comparison_label(amd_groups[0].get("name"))
         match_issues = []
         if not cuda_groups:
             match_issues.append("no_cuda_equivalent")
-        if len(amd_groups) > 1:
-            match_issues.append("shared_amd_base_label")
         if len(cuda_groups) > 1:
             match_issues.append("ambiguous_cuda_variants")
         if cuda_groups and any(
@@ -2062,68 +2078,104 @@ def _platform_comparison(
             match_issues.append("generic_or_unsupported_gpu_reference")
         if HARDWARE_WORD_RE.search(label):
             match_issues.append("hardware_specific_label")
-        comparison_eligible = not match_issues
-        match_status = "exact_cuda_pair" if comparison_eligible else match_issues[0]
-        rows.append({
-            "id": hashlib.sha1(f"ci-amd-cuda:{key}".encode()).hexdigest()[:20],
-            "label": label,
-            "comparison_key": key,
-            "match_status": match_status,
-            "match_issues": match_issues,
-            "comparison_eligible": comparison_eligible,
-            "amd": amd,
-            "cuda": cuda,
-            "incident_rate_delta_pp": (
-                round(float(amd["incident_rate_pct"]) - float(cuda["incident_rate_pct"]), 1)
-                if comparison_eligible and amd["incident_rate_pct"] is not None and cuda["incident_rate_pct"] is not None
-                else None
-            ),
-            "retry_frequency_delta_pp": (
-                round(float(amd["retry_frequency_pct"]) - float(cuda["retry_frequency_pct"]), 1)
-                if comparison_eligible and amd["retry_frequency_pct"] is not None and cuda["retry_frequency_pct"] is not None
-                else None
-            ),
-            "worst_p90_delta_mins": (
-                round(float(amd["worst_p90_duration_mins"]) - float(cuda["worst_p90_duration_mins"]), 1)
-                if comparison_eligible and amd["worst_p90_duration_mins"] is not None and cuda["worst_p90_duration_mins"] is not None
-                else None
-            ),
-        })
+
+        # A base label can legitimately run on several AMD hardware variants.
+        # Keep the comparison one-to-one by emitting one row per AMD variant
+        # when there is exactly one explicit CUDA reference. Previously the
+        # arrival of a second AMD variant invalidated the whole base label and
+        # could drive every comparison count to zero during a live refresh.
+        selections = (
+            [([amd_group], cuda_groups, []) for amd_group in amd_groups]
+            if not match_issues
+            else [(amd_groups, cuda_groups, match_issues)]
+        )
+        for selected_amd, selected_cuda, row_issues in selections:
+            comparison_eligible = not row_issues
+            match_status = "exact_cuda_pair" if comparison_eligible else row_issues[0]
+            amd = _comparison_side(
+                selected_amd,
+                cohort_builds,
+                group_count(child_retry_counts, "amd", key, selected_amd),
+                group_count(recovery_counts, "amd", key, selected_amd),
+                group_count(retry_involved_counts, "amd", key, selected_amd),
+            )
+            cuda = _comparison_side(
+                selected_cuda,
+                cohort_builds,
+                group_count(child_retry_counts, "cuda", key, selected_cuda),
+                group_count(recovery_counts, "cuda", key, selected_cuda),
+                group_count(retry_involved_counts, "cuda", key, selected_cuda),
+            )
+            variant_id = (
+                str(selected_amd[0].get("id") or "")
+                if comparison_eligible
+                else "review"
+            )
+            rows.append({
+                "id": hashlib.sha1(
+                    f"ci-amd-cuda:{key}:{variant_id}".encode()
+                ).hexdigest()[:20],
+                "label": label,
+                "comparison_key": key,
+                "match_status": match_status,
+                "match_issues": row_issues,
+                "comparison_eligible": comparison_eligible,
+                "amd": amd,
+                "cuda": cuda,
+                "incident_rate_delta_pp": (
+                    round(float(amd["incident_rate_pct"]) - float(cuda["incident_rate_pct"]), 1)
+                    if comparison_eligible and amd["incident_rate_pct"] is not None and cuda["incident_rate_pct"] is not None
+                    else None
+                ),
+                "retry_frequency_delta_pp": (
+                    round(float(amd["retry_frequency_pct"]) - float(cuda["retry_frequency_pct"]), 1)
+                    if comparison_eligible and amd["retry_frequency_pct"] is not None and cuda["retry_frequency_pct"] is not None
+                    else None
+                ),
+                "worst_p90_delta_mins": (
+                    round(float(amd["worst_p90_duration_mins"]) - float(cuda["worst_p90_duration_mins"]), 1)
+                    if comparison_eligible and amd["worst_p90_duration_mins"] is not None and cuda["worst_p90_duration_mins"] is not None
+                    else None
+                ),
+            })
     rows.sort(
         key=lambda row: (
             -(float(row["amd"].get("incident_rate_pct") or 0)),
             str(row.get("label") or "").casefold(),
         )
     )
-    label_matched = [row for row in rows if row["cuda"]["variant_count"]]
     matched = [row for row in rows if row["comparison_eligible"]]
     amd_groups = [row for (platform, _), values in grouped.items() if platform == "amd" for row in values]
+    matched_keys = {row["comparison_key"] for row in matched}
+    label_matched_keys = {
+        key for key in amd_keys if grouped.get(("cuda", key))
+    }
     matched_cuda_groups = [
         row
-        for item in matched
-        for row in grouped.get(("cuda", item["comparison_key"]), [])
+        for key in sorted(matched_keys)
+        for row in grouped.get(("cuda", key), [])
     ]
-    amd_child_retries = sum(child_retry_counts[("amd", key)] for key in amd_keys)
-    amd_retry_involved = sum(retry_involved_counts[("amd", key)] for key in amd_keys)
-    amd_recoveries = sum(recovery_counts[("amd", key)] for key in amd_keys)
-    matched_keys = {row["comparison_key"] for row in matched}
+    amd_key_set = set(amd_keys)
+    amd_child_retries = counter_total(child_retry_counts, "amd", amd_key_set)
+    amd_retry_involved = counter_total(retry_involved_counts, "amd", amd_key_set)
+    amd_recoveries = counter_total(recovery_counts, "amd", amd_key_set)
     comparable_amd_groups = [
         row
-        for item in matched
-        for row in grouped.get(("amd", item["comparison_key"]), [])
+        for key in sorted(matched_keys)
+        for row in grouped.get(("amd", key), [])
     ]
-    comparable_amd_child_retries = sum(
-        child_retry_counts[("amd", key)] for key in matched_keys
+    comparable_amd_child_retries = counter_total(
+        child_retry_counts, "amd", matched_keys
     )
-    comparable_amd_retry_involved = sum(
-        retry_involved_counts[("amd", key)] for key in matched_keys
+    comparable_amd_retry_involved = counter_total(
+        retry_involved_counts, "amd", matched_keys
     )
-    comparable_amd_recoveries = sum(
-        recovery_counts[("amd", key)] for key in matched_keys
+    comparable_amd_recoveries = counter_total(
+        recovery_counts, "amd", matched_keys
     )
-    cuda_child_retries = sum(child_retry_counts[("cuda", key)] for key in matched_keys)
-    cuda_retry_involved = sum(retry_involved_counts[("cuda", key)] for key in matched_keys)
-    cuda_recoveries = sum(recovery_counts[("cuda", key)] for key in matched_keys)
+    cuda_child_retries = counter_total(child_retry_counts, "cuda", matched_keys)
+    cuda_retry_involved = counter_total(retry_involved_counts, "cuda", matched_keys)
+    cuda_recoveries = counter_total(recovery_counts, "cuda", matched_keys)
     amd_totals = _comparison_side(
         amd_groups, cohort_builds, amd_child_retries, amd_recoveries, amd_retry_involved
     )
@@ -2149,13 +2201,15 @@ def _platform_comparison(
         "source_pipeline": "ci",
         "cohort_build_count": cohort_builds,
         "summary": {
-            "amd_base_group_count": len(rows),
+            "amd_base_group_count": len(amd_keys),
+            "amd_comparison_row_count": len(rows),
             "amd_variant_count": len(amd_groups),
-            "label_matched_base_group_count": len(label_matched),
-            "matched_base_group_count": len(matched),
-            "comparable_base_group_count": len(matched),
-            "review_required_base_group_count": len(rows) - len(matched),
-            "unmatched_amd_base_group_count": len(rows) - len(label_matched),
+            "label_matched_base_group_count": len(label_matched_keys),
+            "matched_base_group_count": len(matched_keys),
+            "comparable_base_group_count": len(matched_keys),
+            "comparable_variant_pair_count": len(matched),
+            "review_required_base_group_count": len(amd_keys) - len(matched_keys),
+            "unmatched_amd_base_group_count": len(amd_keys) - len(label_matched_keys),
             "matched_cuda_variant_count": len(matched_cuda_groups),
             "amd": amd_totals,
             "comparable_amd": comparable_amd_totals,
@@ -2164,7 +2218,7 @@ def _platform_comparison(
         "matching": {
             "amd_rule": "AMD: prefix, MI hardware, or amd_mi* queue",
             "cuda_rule": "NVIDIA hardware or known CUDA queue; Intel GPU, CPU, NPU, and unknown groups excluded",
-            "equivalence_rule": "case-insensitive exact label after removing only AMD:/mi*_n wrapper decoration; comparative deltas require one AMD variant, one explicit NVIDIA variant, and hardware-neutral wording",
+            "equivalence_rule": "case-insensitive exact label after removing only AMD:/mi*_n wrapper decoration; each comparative row pairs one AMD hardware variant with one explicit NVIDIA reference and hardware-neutral wording",
             "scope": "completed upstream ci branch=main builds in the strict retained cohort",
             "frequency_unit": "terminal attempts per 100 cohort builds; child retry share uses retry_source rows over terminal attempts",
         },

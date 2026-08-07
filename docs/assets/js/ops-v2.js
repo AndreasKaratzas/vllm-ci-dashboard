@@ -5833,7 +5833,16 @@
   }
 
   function combineComparisonSides(rows, sideName) {
-    const sides = rows.map(function (row) { return row[sideName] || {}; });
+    const seenGroupSets = new Set();
+    const sides = [];
+    rows.forEach(function (row) {
+      const side = row[sideName] || {};
+      const groupIds = (side.group_ids || []).slice().sort();
+      const identity = groupIds.length ? groupIds.join('|') : String(row.id || '') + ':' + sideName;
+      if (seenGroupSets.has(identity)) return;
+      seenGroupSets.add(identity);
+      sides.push(side);
+    });
     const runs = sides.reduce(function (sum, side) { return sum + Number(side.runs || 0); }, 0);
     const incidents = sides.reduce(function (sum, side) { return sum + Number(side.incidents || 0); }, 0);
     const children = sides.reduce(function (sum, side) { return sum + Number(side.child_retry_attempts || 0); }, 0);
@@ -6146,7 +6155,7 @@
     const windowInfo = comparison.window || {};
     analyticsWindowControl(host, comparison);
     host.append(statusStrip([
-      {label: 'ACTIVE AMD GROUPS', value: integer(active.length) + ' / ' + integer(summary.amd_base_group_count), meta: integer(amd.runs) + ' exact attempts in ' + state.analyticsWindow, onOpen: function () { openTableBrowser({id: 'flake-comparison-all', title: 'AMD and CUDA incident comparison', subtitle: state.analyticsWindow + ' upstream branch=main window', rows: sorted, columns: comparisonFlakeColumns(ops, reliability, retry), searchText: comparisonSearchText, geometry: {name: 'flake-comparison', minWidth: '1260px'}}); }},
+      {label: 'ACTIVE AMD VARIANTS', value: integer(active.length) + ' / ' + integer(summary.amd_comparison_row_count || summary.amd_base_group_count), meta: integer(amd.runs) + ' exact attempts in ' + state.analyticsWindow, onOpen: function () { openTableBrowser({id: 'flake-comparison-all', title: 'AMD and CUDA incident comparison', subtitle: state.analyticsWindow + ' upstream branch=main window', rows: sorted, columns: comparisonFlakeColumns(ops, reliability, retry), searchText: comparisonSearchText, geometry: {name: 'flake-comparison', minWidth: '1260px'}}); }},
       {label: 'AMD INCIDENTS', value: integer(amd.incidents), meta: comparisonPercent(amd, 'incident_rate_pct') + ' of ' + integer(amd.runs) + ' attempts', tone: Number(amd.incidents) ? 'is-warning' : 'is-success'},
       {label: 'REGRESSED VS PRIOR', value: windowInfo.completeAggregate ? '-' : integer(summary.regressed_incident_group_count), meta: windowInfo.completeAggregate ? 'choose 1h-7d for movement' : integer(summary.new_incident_group_count) + ' newly incident groups', tone: Number(summary.regressed_incident_group_count) ? 'is-danger' : 'is-success'},
       {label: 'PAIRED AMD / CUDA', value: comparisonPercent(pairedAmd, 'incident_rate_pct') + ' / ' + comparisonPercent(cuda, 'incident_rate_pct'), meta: integer(comparable.length) + ' active exact pairs'},
@@ -6173,7 +6182,7 @@
       evidenceSummary: function (row) { return comparisonPercent(row.amd, 'incident_rate_pct') + ' AMD - ' + comparisonPercent(row.cuda, 'incident_rate_pct') + ' CUDA'; },
       ops: ops, reliability: reliability, retry: retry, focus: 'flakes',
     });
-    host.append(compactTablePanel('AMD incident comparison', integer(active.length) + ' active AMD groups - ' + integer(comparable.length) + ' active exact CUDA pairs', comparisonFlakeColumns(ops, reliability, retry), sorted, {
+    host.append(compactTablePanel('AMD incident comparison', integer(active.length) + ' active AMD variant rows - ' + integer(comparable.length) + ' active exact CUDA pairs', comparisonFlakeColumns(ops, reliability, retry), sorted, {
       id: 'flake-comparison-browser',
       limit: 12,
       alwaysBrowse: true,
@@ -6263,7 +6272,7 @@
       {label: 'AMD / CUDA gap', numeric: true, width: '120px', render: function (row) { const control = linkButton(comparisonDelta(row.retry_frequency_delta_pp, ' pp'), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'retries'); }); control.classList.add('ops-comparison-delta', comparisonTone(row.retry_frequency_delta_pp, 2)); return control; }},
       {label: 'Evidence', width: '90px', render: function (row) { return linkButton('Inspect', function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'retries'); }, 'Inspect exact retry attempts and recoveries'); }},
     ];
-    host.append(compactTablePanel('AMD retry comparison', integer(active.length) + ' active AMD groups - ' + integer(comparable.length) + ' active exact CUDA pairs', columns, sorted, {
+    host.append(compactTablePanel('AMD retry comparison', integer(active.length) + ' active AMD variant rows - ' + integer(comparable.length) + ' active exact CUDA pairs', columns, sorted, {
       id: 'retry-comparison-browser',
       limit: 12,
       alwaysBrowse: true,

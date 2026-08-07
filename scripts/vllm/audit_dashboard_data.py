@@ -1524,6 +1524,116 @@ class DashboardAudit:
             for row in catalog
             if isinstance(row, dict) and row.get("id")
         }
+        comparison = _mapping(reliability.get("platform_comparison"))
+        comparison_rows = [
+            row
+            for row in _rows(comparison.get("rows"))
+            if isinstance(row, dict)
+        ]
+        comparison_summary = _mapping(comparison.get("summary"))
+        comparison_keys = {
+            str(row.get("comparison_key") or "")
+            for row in comparison_rows
+            if row.get("comparison_key")
+        }
+        eligible_comparison_rows = [
+            row for row in comparison_rows if row.get("comparison_eligible") is True
+        ]
+        matched_comparison_keys = {
+            str(row.get("comparison_key") or "")
+            for row in eligible_comparison_rows
+            if row.get("comparison_key")
+        }
+        label_matched_keys = {
+            str(row.get("comparison_key") or "")
+            for row in comparison_rows
+            if row.get("comparison_key")
+            and _safe_int(_mapping(row.get("cuda")).get("variant_count")) > 0
+        }
+        comparison_amd_ids = {
+            str(group_id)
+            for row in comparison_rows
+            for group_id in _rows(_mapping(row.get("amd")).get("group_ids"))
+            if group_id
+        }
+        matched_cuda_ids = {
+            str(group_id)
+            for row in eligible_comparison_rows
+            for group_id in _rows(_mapping(row.get("cuda")).get("group_ids"))
+            if group_id
+        }
+        comparison_counts = {
+            "amd_base_group_count": len(comparison_keys),
+            "amd_variant_count": len(comparison_amd_ids),
+            "label_matched_base_group_count": len(label_matched_keys),
+            "matched_base_group_count": len(matched_comparison_keys),
+            "comparable_base_group_count": len(matched_comparison_keys),
+            "review_required_base_group_count": (
+                len(comparison_keys) - len(matched_comparison_keys)
+            ),
+            "unmatched_amd_base_group_count": (
+                len(comparison_keys) - len(label_matched_keys)
+            ),
+            "matched_cuda_variant_count": len(matched_cuda_ids),
+        }
+        if comparison:
+            mismatched_counts = {
+                key: (comparison_summary.get(key), expected)
+                for key, expected in comparison_counts.items()
+                if _safe_int(comparison_summary.get(key), -1) != expected
+            }
+            if "amd_comparison_row_count" in comparison_summary and _safe_int(
+                comparison_summary.get("amd_comparison_row_count"), -1
+            ) != len(comparison_rows):
+                mismatched_counts["amd_comparison_row_count"] = (
+                    comparison_summary.get("amd_comparison_row_count"),
+                    len(comparison_rows),
+                )
+            if "comparable_variant_pair_count" in comparison_summary and _safe_int(
+                comparison_summary.get("comparable_variant_pair_count"), -1
+            ) != len(eligible_comparison_rows):
+                mismatched_counts["comparable_variant_pair_count"] = (
+                    comparison_summary.get("comparable_variant_pair_count"),
+                    len(eligible_comparison_rows),
+                )
+            if mismatched_counts:
+                self.error(
+                    "operations-platform-comparison-counts",
+                    (
+                        "platform_comparison summary does not reconcile with its "
+                        f"published rows: {mismatched_counts}"
+                    ),
+                    relpath,
+                )
+            invalid_pairs = [
+                row
+                for row in comparison_rows
+                if (
+                    row.get("comparison_eligible") is True
+                    and (
+                        row.get("match_status") != "exact_cuda_pair"
+                        or _safe_int(_mapping(row.get("amd")).get("variant_count")) != 1
+                        or _safe_int(_mapping(row.get("cuda")).get("variant_count")) != 1
+                    )
+                )
+                or (
+                    row.get("comparison_eligible") is not True
+                    and row.get("match_status") == "exact_cuda_pair"
+                )
+            ]
+            missing_catalog_ids = (
+                comparison_amd_ids | matched_cuda_ids
+            ) - set(catalog_by_id)
+            if invalid_pairs or missing_catalog_ids:
+                self.error(
+                    "operations-platform-comparison-eligibility",
+                    (
+                        f"{len(invalid_pairs)} comparison rows violate exact-pair "
+                        f"eligibility and {len(missing_catalog_ids)} referenced group "
+                        "IDs are absent from the reliability catalog"
+                    ),
+                    relpath,
+                )
         candidates = _rows(reliability.get("flaky_candidates"))
         cohort_build_numbers = {
             _safe_int(number, -1)
@@ -1840,6 +1950,8 @@ class DashboardAudit:
             "other_main_builds": cohort_other_main,
             "retry_attempts": len(retry_attempts),
             "retry_recoveries": len(recoveries),
+            "platform_comparison_base_groups": len(comparison_keys),
+            "platform_comparison_variant_pairs": len(eligible_comparison_rows),
             "source_age_hours": source_ages,
         }
 

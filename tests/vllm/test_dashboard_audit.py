@@ -282,6 +282,59 @@ def test_operations_audit_rejects_mixed_latest_and_retained_amd_counts(tmp_path)
     assert "operations-amd-latest-catalog-count" in codes
 
 
+def test_operations_audit_reconciles_platform_comparison_counts(tmp_path):
+    ci = tmp_path / "data/vllm/ci"
+    ci.mkdir(parents=True)
+    (ci / "operations_v2.json").write_text(json.dumps({
+        "schema_version": 2,
+        "reliability": {
+            "available": True,
+            "source_pipeline": "ci",
+            "group_catalog": [
+                {"id": "amd-1"},
+                {"id": "amd-2"},
+                {"id": "cuda-1"},
+            ],
+            "platform_comparison": {
+                "available": True,
+                "source_pipeline": "ci",
+                "summary": {
+                    "amd_base_group_count": 99,
+                    "amd_comparison_row_count": 1,
+                    "amd_variant_count": 2,
+                    "label_matched_base_group_count": 1,
+                    "matched_base_group_count": 1,
+                    "comparable_base_group_count": 1,
+                    "comparable_variant_pair_count": 1,
+                    "review_required_base_group_count": 0,
+                    "unmatched_amd_base_group_count": 0,
+                    "matched_cuda_variant_count": 1,
+                },
+                "rows": [{
+                    "comparison_key": "shared test",
+                    "comparison_eligible": True,
+                    "match_status": "exact_cuda_pair",
+                    "amd": {
+                        "variant_count": 1,
+                        "group_ids": ["amd-1"],
+                    },
+                    "cuda": {
+                        "variant_count": 1,
+                        "group_ids": ["cuda-1"],
+                    },
+                }],
+            },
+        },
+    }))
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_operations_v2()
+
+    assert "operations-platform-comparison-counts" in {
+        finding.code for finding in audit.report.errors
+    }
+
+
 def test_operations_audit_reconciles_identity_families_independently(
     tmp_path,
 ):

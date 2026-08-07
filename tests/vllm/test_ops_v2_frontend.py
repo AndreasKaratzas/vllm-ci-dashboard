@@ -235,7 +235,7 @@ def test_amd_health_and_platform_comparison_are_distinct_first_visit_surfaces():
         "function platformComparison",
         "function openPlatformComparisonDetail",
         "function renderPlatformFlakes",
-        "ACTIVE AMD GROUPS",
+        "ACTIVE AMD VARIANTS",
         "AMD incident comparison",
     ):
         assert contract in OPS_JS
@@ -249,6 +249,8 @@ def test_amd_health_and_platform_comparison_are_distinct_first_visit_surfaces():
         assert contract in OPS_CSS
     assert "name: 'flake-comparison'" in OPS_JS
     assert "comparisonFlakeColumns" in OPS_JS
+    assert "const seenGroupSets = new Set()" in OPS_JS
+    assert "if (seenGroupSets.has(identity)) return" in OPS_JS
     assert "renderGroupOverviewCharts(host, catalog" not in OPS_JS
 
     health = OPS_DATA["amd_test_health"]
@@ -270,9 +272,18 @@ def test_amd_health_and_platform_comparison_are_distinct_first_visit_surfaces():
     comparison = OPS_DATA["reliability"]["platform_comparison"]
     assert comparison["available"] is True
     assert comparison["source_pipeline"] == "ci"
-    assert comparison["summary"]["amd_base_group_count"] == len(comparison["rows"])
-    assert comparison["summary"]["matched_base_group_count"] > 0
-    assert comparison["summary"]["comparable_base_group_count"] + comparison["summary"]["review_required_base_group_count"] == len(comparison["rows"])
+    comparison_keys = {row["comparison_key"] for row in comparison["rows"]}
+    eligible = [row for row in comparison["rows"] if row["comparison_eligible"]]
+    matched_keys = {row["comparison_key"] for row in eligible}
+    assert comparison["summary"]["amd_base_group_count"] == len(comparison_keys)
+    assert comparison["summary"].get(
+        "amd_comparison_row_count", len(comparison["rows"])
+    ) == len(comparison["rows"])
+    assert comparison["summary"]["matched_base_group_count"] == len(matched_keys)
+    assert comparison["summary"].get(
+        "comparable_variant_pair_count", len(eligible)
+    ) == len(eligible)
+    assert comparison["summary"]["comparable_base_group_count"] + comparison["summary"]["review_required_base_group_count"] == comparison["summary"]["amd_base_group_count"]
     assert all(row["amd"]["variant_count"] > 0 for row in comparison["rows"])
     assert all(isinstance(row["match_issues"], list) for row in comparison["rows"])
     assert all(row["comparison_eligible"] == (row["match_status"] == "exact_cuda_pair") for row in comparison["rows"])
