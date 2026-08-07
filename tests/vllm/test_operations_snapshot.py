@@ -2443,6 +2443,82 @@ def test_platform_comparison_is_amd_first_and_matches_only_exact_cuda_labels():
     assert unmatched["cuda"]["variant_count"] == 0
 
 
+def test_platform_comparison_pairs_each_amd_variant_with_one_cuda_reference():
+    def group(group_id, name, hardware, queue, runs=10):
+        return {
+            "id": group_id,
+            "name": name,
+            "raw_names": [name],
+            "hardware": hardware,
+            "queues": [queue],
+            "runs": runs,
+            "build_count": runs,
+            "passed": runs,
+            "failed": 0,
+            "soft_failed": 0,
+            "incident_count": 0,
+            "incident_rate_pct": 0,
+            "mixed_outcomes": False,
+            "latest_state": "passed",
+            "latest_observed_at": "2026-08-07T00:00:00Z",
+            "latest_url": (
+                "https://buildkite.com/vllm/ci/builds/1/steps/canvas"
+                f"?jid={group_id}"
+            ),
+            "median_dur": 5,
+            "p90_dur": 10,
+            "max_dur": 11,
+            "duration_basis": "job_wall",
+        }
+
+    comparison = ops._platform_comparison(
+        [
+            group(
+                "amd-mi300",
+                "AMD: Shared Test (mi300_1)",
+                "mi300",
+                "amd_mi300_1",
+            ),
+            group(
+                "amd-mi355",
+                "AMD: Shared Test (mi355_1)",
+                "mi355",
+                "amd_mi355_1",
+            ),
+            group("cuda-h200", "Shared Test", "h200", "h200_35gb"),
+        ],
+        {
+            "available": True,
+            "retry_attempts": [
+                {
+                    "group_id": "amd-mi300",
+                    "name": "AMD: Shared Test (mi300_1)",
+                    "retry_source": {"job_id": "original"},
+                }
+            ],
+            "failed_then_passed_recoveries": [],
+        },
+        cohort_builds=10,
+    )
+
+    assert comparison["summary"]["amd_base_group_count"] == 1
+    assert comparison["summary"]["amd_comparison_row_count"] == 2
+    assert comparison["summary"]["matched_base_group_count"] == 1
+    assert comparison["summary"]["comparable_variant_pair_count"] == 2
+    assert comparison["summary"]["matched_cuda_variant_count"] == 1
+    assert len(comparison["rows"]) == 2
+    assert all(row["comparison_eligible"] for row in comparison["rows"])
+    assert all(row["match_status"] == "exact_cuda_pair" for row in comparison["rows"])
+    assert all(row["amd"]["variant_count"] == 1 for row in comparison["rows"])
+    assert all(row["cuda"]["variant_count"] == 1 for row in comparison["rows"])
+    assert {row["amd"]["group_ids"][0] for row in comparison["rows"]} == {
+        "amd-mi300",
+        "amd-mi355",
+    }
+    assert comparison["summary"]["matched_cuda"]["runs"] == 10
+    assert sum(row["amd"]["child_retry_attempts"] for row in comparison["rows"]) == 1
+
+
 def test_upstream_reliability_fails_closed_without_a_strict_main_cohort():
     payload = ops._reliability(
         {

@@ -421,6 +421,16 @@ class TestHourlyMasterWorkflow:
         has_frequent = any("* * * *" in c for c in crons)
         assert has_frequent, f"hourly-master.yml must have a recurring cron, found: {crons}"
 
+    def test_full_refresh_runs_once_per_hour(self):
+        data = _load_workflow("hourly-master.yml")
+        triggers = data.get(True, data.get("on", {}))
+        schedules = triggers.get("schedule", []) if isinstance(triggers, dict) else []
+        crons = [s.get("cron", "") for s in schedules]
+        assert crons == ["13 * * * *"], (
+            "The full refresh takes about 25 minutes and must not be queued "
+            f"more than once per hour; found {crons}"
+        )
+
     def test_syncs_ci_data_from_gh_pages(self):
         text = _load_workflow_text("hourly-master.yml")
         assert "git fetch origin gh-pages" in text or "git show origin/gh-pages" in text

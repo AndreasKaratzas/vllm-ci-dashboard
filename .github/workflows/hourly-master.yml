@@ -6,7 +6,10 @@ name: Data Collection
 # Those workflows keep their workflow_dispatch triggers for manual runs.
 on:
   schedule:
-    - cron: '13,43 * * * *'  # Every 30 min at :13,:43
+    # The full collection regularly takes about 25 minutes. Run it hourly so
+    # delayed schedules cannot bunch up behind the non-canceling deploy lock.
+    # Lightweight queue monitoring remains on its separate 10-minute cadence.
+    - cron: '13 * * * *'
   repository_dispatch:
     types: [buildkite_build_finished, perf_eval_build_finished]
   workflow_dispatch:
