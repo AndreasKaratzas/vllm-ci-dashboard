@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-07T12:49:24Z",
+  "generated_at": "2026-08-07T18:24:25Z",
   "source_repo": "vllm-project/vllm",
   "tracked_authors": [
     "AndreasKaratzas",
@@ -45,7 +45,7 @@
     "since_date": "2026-07-03",
     "fresh_candidate_count": 0,
     "candidate_cache": {
-      "generated_at": "2026-08-07T12:49:24Z",
+      "generated_at": "2026-08-07T18:24:25Z",
       "pr_count": 1,
       "proposal_pr_numbers": [
         44969
@@ -59,11 +59,11 @@
           "author": "AndreasKaratzas",
           "state": "open",
           "created_at": "2026-06-09T06:56:07Z",
-          "updated_at": "2026-08-06T19:59:08Z",
-          "checked_at": "2026-08-07T12:49:24Z",
+          "updated_at": "2026-08-07T17:01:48Z",
+          "checked_at": "2026-08-07T18:24:25Z",
           "has_new_mirrors": true,
           "new_mirror_count": 22,
-          "head_sha": "181075c3523a5c5e035e12bf39e9d539a515ea49",
+          "head_sha": "15faae42ff30d5cc60e46ea9d817ac4a424f50d1",
           "new_mirror_labels": [
             "Cudagraph",
             "Docker Build Metadata",
@@ -102,10 +102,10 @@
       "api_url": "https://api.github.com/repos/vllm-project/vllm/pulls/44969",
       "author": "AndreasKaratzas",
       "head_ref": "akaratza_stage_d_gating",
-      "head_sha": "181075c3523a5c5e035e12bf39e9d539a515ea49",
+      "head_sha": "15faae42ff30d5cc60e46ea9d817ac4a424f50d1",
       "base_ref": "main",
-      "base_sha": "adc3e03517d2e7333a3bb2083bb4d394a2986876",
-      "updated_at": "2026-08-06T19:59:08Z",
+      "base_sha": "e229fdbc873b689bd9eb61559c4f8828b7e1a2f9",
+      "updated_at": "2026-08-07T17:01:48Z",
       "created_at": "2026-06-09T06:56:07Z",
       "new_mirror_count": 22,
       "new_mirrors": [
@@ -186,6 +186,7 @@
           "timeout_in_minutes": 47,
           "source_file_dependencies": [
             "vllm/",
+            "!vllm/distributed/kv_transfer/",
             "tests/entrypoints/openai/responses"
           ]
         },
@@ -200,6 +201,7 @@
           "timeout_in_minutes": 55,
           "source_file_dependencies": [
             "vllm/",
+            "!vllm/distributed/kv_transfer/",
             "tests/entrypoints/multimodal"
           ]
         },
@@ -261,6 +263,7 @@
             "vllm/assets/",
             "vllm/config/",
             "vllm/distributed/",
+            "!vllm/distributed/kv_transfer/",
             "vllm/engine/",
             "vllm/inputs/",
             "vllm/model_executor/",
@@ -346,6 +349,7 @@
           "timeout_in_minutes": 69,
           "source_file_dependencies": [
             "vllm/",
+            "!vllm/distributed/kv_transfer/",
             "tests/models/language/generation"
           ]
         },
@@ -390,6 +394,7 @@
           "timeout_in_minutes": 58,
           "source_file_dependencies": [
             "vllm/",
+            "!vllm/distributed/kv_transfer/",
             "tests/models/language/pooling_mteb_test"
           ]
         },
@@ -404,6 +409,7 @@
           "timeout_in_minutes": 115,
           "source_file_dependencies": [
             "vllm/",
+            "!vllm/distributed/kv_transfer/",
             "tests/models/multimodal",
             "tests/models/registry.py"
           ]
@@ -419,6 +425,7 @@
           "timeout_in_minutes": 98,
           "source_file_dependencies": [
             "vllm/",
+            "!vllm/distributed/kv_transfer/",
             "tests/models/multimodal/generation"
           ]
         },
@@ -433,6 +440,7 @@
           "timeout_in_minutes": 86,
           "source_file_dependencies": [
             "vllm/",
+            "!vllm/distributed/kv_transfer/",
             "tests/models/multimodal/generation"
           ]
         },
