@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-08T15:08:59Z",
+  "generated_at": "2026-08-08T16:05:25Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -24,10 +24,10 @@
     "upstream_build": 82981,
     "amd_ci_build": 11836,
     "canonical_target_count": 125,
-    "row_count": 227,
+    "row_count": 229,
     "canonical_match_count": 114,
     "likely_duplicate_count": 15,
-    "new_candidate_count": 47,
+    "new_candidate_count": 49,
     "excluded_count": 46,
     "missing_from_upstream_count": 5,
     "by_decision": {
@@ -35,7 +35,7 @@
       "excluded": 46,
       "likely_duplicate": 15,
       "missing_from_upstream": 5,
-      "new_candidate": 47
+      "new_candidate": 49
     }
   },
   "rows": [
@@ -2008,7 +2008,7 @@
       "canonical_key": "v1 attention",
       "state": "passed",
       "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f15f-408a-964e-dd7c10c8e332&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f162-4aca-b2a7-ac204d571a0c&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 103,
@@ -2158,6 +2158,23 @@
       "state": "passed",
       "queue": "b200-k8s",
       "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f1ad-430d-bb43-b36edda6314f&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "DSv4-Flash Disaggregated DP EP",
+      "canonical_key": "dsv4-flash disaggregated dp ep",
+      "state": "failed",
+      "queue": "H200",
+      "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f19c-4027-9dfa-f2a8847baabe&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -2444,6 +2461,23 @@
       "state": "passed",
       "queue": "b200-k8s",
       "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f261-41cd-bdb0-df92cde95e08&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Kimi-Linear-48B-A3B Disaggregated DP EP",
+      "canonical_key": "kimi-linear-48b-a3b disaggregated dp ep",
+      "state": "passed",
+      "queue": "H200",
+      "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f1a2-42bb-a1a2-f404ac66e225&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -3131,7 +3165,7 @@
       "canonical_key": "v1 attention",
       "state": "passed",
       "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f15e-4f0c-b675-1d2cb46db833&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f15b-4a04-8a22-0a45748e5fb9&tab=output",
       "exclusion_reasons": [],
       "decision": "likely_duplicate",
       "duplicate_of": "V1 attention (H100-MI300)",

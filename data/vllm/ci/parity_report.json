@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-08-08T14:57:39Z",
+  "generated_at": "2026-08-08T15:53:24Z",
   "amd_date": "2026-08-08",
   "upstream_date": "2026-08-08",
   "parity_pct": 0.0,
-  "total_tests": 760,
+  "total_tests": 762,
   "summary": {
-    "upstream_only": 414,
+    "upstream_only": 416,
     "amd_only": 346
   },
   "by_module": {
@@ -405,6 +405,10 @@
       "parity_pct": 100.0,
       "upstream_only": 1
     },
+    "DSv4-Flash Disaggregated DP EP": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
     "DeepSeek V2-Lite Prefetch Offload Accuracy (H100)": {
       "parity_pct": 100.0,
       "upstream_only": 1
@@ -724,6 +728,10 @@
     "Kimi K3 Unit Tests (B200)": {
       "parity_pct": 100.0,
       "upstream_only": 2
+    },
+    "Kimi-Linear-48B-A3B Disaggregated DP EP": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
     },
     "LM Eval Humming Act fp8/int8 (B200 - TEMPORARY)": {
       "parity_pct": 100.0,
@@ -2513,7 +2521,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 11572.55
+        "duration": 11572.550000000001
       },
       "hardware": [
         "h100",
@@ -5582,7 +5590,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3627.2700000000004
+        "duration": 3627.27
       },
       "hardware": [
         "h100",
@@ -5945,7 +5953,7 @@
       "family_key": "kernels moe test",
       "family_name": "kernels moe test",
       "amd_job_name": "mi300_1: Kernels MoE Test 2",
-      "upstream_job_name": "Kernels MoE Test 2",
+      "upstream_job_name": "Kernels MoE Test 3",
       "amd": {
         "total": 15327,
         "passed": 8946,
@@ -5989,8 +5997,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f232-4289-b320-216ff9fe39e3&tab=output",
-          "job_name": "Kernels MoE Test 2",
+          "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f232-444f-95b3-981ee965a577&tab=output",
+          "job_name": "Kernels MoE Test 3",
           "side": "upstream"
         }
       ],
@@ -6318,7 +6326,7 @@
       "family_key": "language models tests (extra standard)",
       "family_name": "language models tests (extra standard)",
       "amd_job_name": "mi300_1: Language Models Tests (Extra Standard) 1",
-      "upstream_job_name": "Language Models Tests (Extra Standard) 1",
+      "upstream_job_name": "Language Models Tests (Extra Standard) 2",
       "amd": {
         "total": 19,
         "passed": 13,
@@ -6355,8 +6363,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f26b-4b3b-81cd-ebf8c013a1ea&tab=output",
-          "job_name": "Language Models Tests (Extra Standard) 1",
+          "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f26c-405e-bad3-8200f4d1ee34&tab=output",
+          "job_name": "Language Models Tests (Extra Standard) 2",
           "side": "upstream"
         }
       ],
@@ -6374,7 +6382,7 @@
       "family_key": "language models tests (hybrid)",
       "family_name": "language models tests (hybrid)",
       "amd_job_name": "mi300_1: Language Models Tests (Hybrid) 2",
-      "upstream_job_name": "Language Models Tests (Hybrid) 2",
+      "upstream_job_name": "Language Models Tests (Hybrid) 1",
       "amd": {
         "total": 40,
         "passed": 38,
@@ -6411,8 +6419,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f26c-4a79-b60f-79567fe1c794&tab=output",
-          "job_name": "Language Models Tests (Hybrid) 2",
+          "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f26c-43fb-8660-de144d232cd2&tab=output",
+          "job_name": "Language Models Tests (Hybrid) 1",
           "side": "upstream"
         }
       ],
@@ -6965,7 +6973,7 @@
       "family_key": "lora",
       "family_name": "lora",
       "amd_job_name": "mi300_1: LoRA 1",
-      "upstream_job_name": "LoRA 1",
+      "upstream_job_name": "LoRA 3",
       "amd": {
         "total": 6940,
         "passed": 6832,
@@ -7002,8 +7010,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f246-48e9-a9e4-18bf27a88a97&tab=output",
-          "job_name": "LoRA 1",
+          "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f246-4bd1-8e4a-d76645a7b0d7&tab=output",
+          "job_name": "LoRA 3",
           "side": "upstream"
         }
       ],
@@ -8133,7 +8141,7 @@
       "family_key": "multi-modal processor (cpu)",
       "family_name": "multi-modal processor (cpu)",
       "amd_job_name": "mi250_1: Multi-Modal Processor (CPU) 3",
-      "upstream_job_name": "Multi-Modal Processor (CPU) 2",
+      "upstream_job_name": "Multi-Modal Processor (CPU) 3",
       "amd": {
         "total": 1181,
         "passed": 1049,
@@ -8152,7 +8160,7 @@
         "xfailed": 1,
         "xpassed": 0,
         "error": 0,
-        "duration": 6313.200000000001
+        "duration": 6313.2
       },
       "hardware": [
         "h100",
@@ -8170,8 +8178,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f278-4837-bb77-40044bdd3e99&tab=output",
-          "job_name": "Multi-Modal Processor (CPU) 2",
+          "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f279-47bb-896b-4c484077b347&tab=output",
+          "job_name": "Multi-Modal Processor (CPU) 3",
           "side": "upstream"
         }
       ],
@@ -10335,7 +10343,7 @@
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f15e-4f0c-b675-1d2cb46db833&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f15b-4a04-8a22-0a45748e5fb9&tab=output",
           "job_name": "V1 attention (B200)",
           "side": "upstream"
         }
@@ -10391,7 +10399,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f15f-408a-964e-dd7c10c8e332&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f162-4aca-b2a7-ac204d571a0c&tab=output",
           "job_name": "V1 attention (H100-MI300)",
           "side": "upstream"
         }
@@ -11229,6 +11237,42 @@
       "backfilled": false
     },
     {
+      "name": "dsv4-flash disaggregated dp ep",
+      "family_key": "dsv4-flash disaggregated dp ep",
+      "family_name": "dsv4-flash disaggregated dp ep",
+      "amd_job_name": null,
+      "upstream_job_name": "DSv4-Flash Disaggregated DP EP",
+      "amd": null,
+      "upstream": {
+        "total": 1,
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 0.0
+      },
+      "hardware": [
+        "h100"
+      ],
+      "hw_failures": {
+        "h100": 1
+      },
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f19c-4027-9dfa-f2a8847baabe&tab=output",
+          "job_name": "DSv4-Flash Disaggregated DP EP",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
       "name": "extract hidden states integration (2 gpus)",
       "family_key": "extract hidden states integration (2 gpus)",
       "family_name": "extract hidden states integration (2 gpus)",
@@ -11904,6 +11948,40 @@
           "hw": "b200",
           "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f261-41cd-bdb0-df92cde95e08&tab=output",
           "job_name": "Kimi K3 Unit Tests (B200)",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
+      "name": "kimi-linear-48b-a3b disaggregated dp ep",
+      "family_key": "kimi-linear-48b-a3b disaggregated dp ep",
+      "family_name": "kimi-linear-48b-a3b disaggregated dp ep",
+      "amd_job_name": null,
+      "upstream_job_name": "Kimi-Linear-48B-A3B Disaggregated DP EP",
+      "amd": null,
+      "upstream": {
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 250.17
+      },
+      "hardware": [
+        "h100"
+      ],
+      "hw_failures": null,
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/82981/steps/canvas?jid=019fdff6-f1a2-42bb-a1a2-f404ac66e225&tab=output",
+          "job_name": "Kimi-Linear-48B-A3B Disaggregated DP EP",
           "side": "upstream"
         }
       ],
@@ -13207,44 +13285,6 @@
       ],
       "status": "upstream_only",
       "backfilled": false
-    },
-    {
-      "name": "dsv4-flash disaggregated dp ep",
-      "family_key": "dsv4-flash disaggregated dp ep",
-      "family_name": "dsv4-flash disaggregated dp ep",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "kimi-linear-48b-a3b disaggregated dp ep",
-      "family_key": "kimi-linear-48b-a3b disaggregated dp ep",
-      "family_name": "kimi-linear-48b-a3b disaggregated dp ep",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
     }
   ],
   "details": [
@@ -14065,6 +14105,12 @@
       "category": "upstream_only"
     },
     {
+      "test_id": "DSv4-Flash Disaggregated DP EP::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
       "test_id": "DeepSeek V2-Lite Prefetch Offload Accuracy (H100)::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -14758,6 +14804,12 @@
       "test_id": "Kimi K3 Unit Tests (B200)::__skipped__",
       "amd_status": "missing",
       "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Kimi-Linear-48B-A3B Disaggregated DP EP::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
