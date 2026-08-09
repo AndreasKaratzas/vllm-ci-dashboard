@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-09T07:32:09Z",
+  "generated_at": "2026-08-09T09:18:55Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -24,18 +24,18 @@
     "upstream_build": 83039,
     "amd_ci_build": 11836,
     "canonical_target_count": 125,
-    "row_count": 223,
+    "row_count": 229,
     "canonical_match_count": 114,
     "likely_duplicate_count": 15,
-    "new_candidate_count": 45,
-    "excluded_count": 44,
+    "new_candidate_count": 49,
+    "excluded_count": 46,
     "missing_from_upstream_count": 5,
     "by_decision": {
       "canonical": 114,
-      "excluded": 44,
+      "excluded": 46,
       "likely_duplicate": 15,
       "missing_from_upstream": 5,
-      "new_candidate": 45
+      "new_candidate": 49
     }
   },
   "rows": [
@@ -983,7 +983,7 @@
       "canonical_key": "kernels helion test",
       "state": "passed",
       "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b341-46f2-bec7-f0954878fafb&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b341-467d-a6b2-7aaa11e5a0a2&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 92,
@@ -2456,6 +2456,23 @@
       "proposal_matches": []
     },
     {
+      "label": "Kernels Root Misc Test (B200)",
+      "canonical_key": "kernels root misc test",
+      "state": "passed",
+      "queue": "b200-k8s",
+      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe555-b04a-40ba-b73f-a7356bffc129&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
       "label": "Kimi K3 Unit Tests (B200)",
       "canonical_key": "kimi k3 unit test",
       "state": "passed",
@@ -2609,6 +2626,23 @@
       "proposal_matches": []
     },
     {
+      "label": "LM Eval Small Models Distributed (2xB200)",
+      "canonical_key": "lm eval small models distributed (2 gpus)",
+      "state": "failed",
+      "queue": "b200-k8s",
+      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b350-44bd-957c-268e8eea15ba&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
       "label": "Multi-Modal Models (PPL)",
       "canonical_key": "multi-modal models (ppl)",
       "state": "passed",
@@ -2745,6 +2779,23 @@
       "proposal_matches": []
     },
     {
+      "label": "Sequence Parallel Correctness Tests (2xB200)",
+      "canonical_key": "sequence parallel correctness test (2 gpus)",
+      "state": "passed",
+      "queue": "b200-k8s",
+      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe54f-ca35-4309-8c08-0e3db03a8bb4&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
       "label": "Spec Decode AL DFlash Nightly",
       "canonical_key": "spec decode al dflash nightly",
       "state": "passed",
@@ -2801,6 +2852,23 @@
       "state": "passed",
       "queue": "b200-k8s",
       "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b3d4-4eda-a42b-f0e96724bd9c&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Spec Decode Draft Model Nightly (B200)",
+      "canonical_key": "spec decode draft model nightly",
+      "state": "passed",
+      "queue": "b200-k8s",
+      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe557-00b9-4ccc-ab48-a8ff8d2b7b13&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -3348,6 +3416,17 @@
       "decision": "excluded"
     },
     {
+      "label": "LM Eval Humming f16 (H100 - TEMPORARY)",
+      "canonical_key": "lm eval humming f16 (h100 - temporary)",
+      "state": "passed",
+      "queue": "mithril-h100-pool",
+      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b34d-4b88-9b0b-187790121f69&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
       "label": "Model Runner V2 Core Tests",
       "canonical_key": "model runner v2 core test",
       "state": "passed",
@@ -3399,6 +3478,18 @@
       "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b36a-4a44-95af-998e0b344613&tab=output",
       "exclusion_reasons": [
         "experimental_model_runner_v2"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "MoE Refactor Integration Test (B200 - TEMPORARY)",
+      "canonical_key": "moe refactor integration test (b200 - temporary)",
+      "state": "passed",
+      "queue": "b200-k8s",
+      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b351-4113-9020-93714da74176&tab=output",
+      "exclusion_reasons": [
+        "temporary",
+        "moe_refactor_temporary"
       ],
       "decision": "excluded"
     },
