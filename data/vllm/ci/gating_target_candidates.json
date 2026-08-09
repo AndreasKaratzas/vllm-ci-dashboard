@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-09T16:01:15Z",
+  "generated_at": "2026-08-09T17:13:36Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -24,10 +24,10 @@
     "upstream_build": 83039,
     "amd_ci_build": 11863,
     "canonical_target_count": 125,
-    "row_count": 231,
+    "row_count": 232,
     "canonical_match_count": 114,
     "likely_duplicate_count": 15,
-    "new_candidate_count": 51,
+    "new_candidate_count": 52,
     "excluded_count": 46,
     "missing_from_upstream_count": 5,
     "by_decision": {
@@ -35,7 +35,7 @@
       "excluded": 46,
       "likely_duplicate": 15,
       "missing_from_upstream": 5,
-      "new_candidate": 51
+      "new_candidate": 52
     }
   },
   "rows": [
@@ -2588,6 +2588,36 @@
       "internal_signal": {
         "state": "not_observed",
         "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "LM Eval Large Models (8xH200)",
+      "canonical_key": "lm eval large models (8 gpus)",
+      "state": "passed",
+      "queue": "H200",
+      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b34f-476f-bede-d23c004a6365&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "passed",
+        "jobs": [
+          {
+            "label": "LM Eval Large Models (8xH200-8xMI300)",
+            "state": "passed",
+            "queue": "amd_mi300_8",
+            "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?jid=019fe5c0-5752-4f90-8c67-01879bb0e048&tab=output"
+          },
+          {
+            "label": "LM Eval Large Models (8xB200-8xMI355)",
+            "state": "passed",
+            "queue": "amd_mi355_8",
+            "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?jid=019fe5c0-5775-403e-8e9d-d180ad760670&tab=output"
+          }
+        ]
       },
       "proposal_matches": []
     },
