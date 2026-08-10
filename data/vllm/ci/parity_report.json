@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-08-10T02:39:07Z",
+  "generated_at": "2026-08-10T04:59:16Z",
   "amd_date": "2026-08-09",
   "upstream_date": "2026-08-09",
   "parity_pct": 0.0,
-  "total_tests": 765,
+  "total_tests": 766,
   "summary": {
-    "upstream_only": 421,
+    "upstream_only": 422,
     "amd_only": 344
   },
   "by_module": {
@@ -410,6 +410,10 @@
       "upstream_only": 1
     },
     "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "DSv4-Flash Disaggregated DP EP": {
       "parity_pct": 100.0,
       "upstream_only": 1
     },
@@ -2510,7 +2514,7 @@
       "family_key": "basic models tests (extra initialization)",
       "family_name": "basic models tests (extra initialization)",
       "amd_job_name": "mi300_1: Basic Models Tests (Extra Initialization) 1",
-      "upstream_job_name": "Basic Models Tests (Extra Initialization) 1",
+      "upstream_job_name": "Basic Models Tests (Extra Initialization) 2",
       "amd": {
         "total": 368,
         "passed": 368,
@@ -2547,8 +2551,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b36f-4fab-8087-4fff1f34dc09&tab=output",
-          "job_name": "Basic Models Tests (Extra Initialization) 1",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b36f-4762-b1e3-9220320445f4&tab=output",
+          "job_name": "Basic Models Tests (Extra Initialization) 2",
           "side": "upstream"
         }
       ],
@@ -5512,7 +5516,7 @@
       "family_key": "kernels attention test",
       "family_name": "kernels attention test",
       "amd_job_name": "mi300_1: Kernels Attention Test 2",
-      "upstream_job_name": "Kernels Attention Test 1",
+      "upstream_job_name": "Kernels Attention Test 2",
       "amd": {
         "total": 13630,
         "passed": 6297,
@@ -5556,8 +5560,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b33e-465b-8c85-8ef425cced33&tab=output",
-          "job_name": "Kernels Attention Test 1",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b33e-4fd2-8bf6-3e0168a81fd4&tab=output",
+          "job_name": "Kernels Attention Test 2",
           "side": "upstream"
         }
       ],
@@ -5612,7 +5616,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b33f-4360-bde4-19a920f80645&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b33e-457b-8219-6bb0c2ff8998&tab=output",
           "job_name": "Kernels Core Operation Test",
           "side": "upstream"
         }
@@ -5780,7 +5784,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b341-46f2-bec7-f0954878fafb&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b341-467d-a6b2-7aaa11e5a0a2&tab=output",
           "job_name": "Kernels Helion Test",
           "side": "upstream"
         }
@@ -5957,7 +5961,7 @@
       "family_key": "kernels moe test",
       "family_name": "kernels moe test",
       "amd_job_name": "mi300_1: Kernels MoE Test 1",
-      "upstream_job_name": "Kernels MoE Test 1",
+      "upstream_job_name": "Kernels MoE Test 2",
       "amd": {
         "total": 15325,
         "passed": 8944,
@@ -6001,8 +6005,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b342-4468-b8e3-9a3baee94bb1&tab=output",
-          "job_name": "Kernels MoE Test 1",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b342-4453-b277-57d39bf75216&tab=output",
+          "job_name": "Kernels MoE Test 2",
           "side": "upstream"
         }
       ],
@@ -6020,7 +6024,7 @@
       "family_key": "kernels quantization test",
       "family_name": "kernels quantization test",
       "amd_job_name": "mi300_1: Kernels Quantization Test 2",
-      "upstream_job_name": "Kernels Quantization Test 2",
+      "upstream_job_name": "Kernels Quantization Test 1",
       "amd": {
         "total": 26932,
         "passed": 15266,
@@ -6064,8 +6068,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b343-4b0c-8cc9-f4eb9b4ba29c&tab=output",
-          "job_name": "Kernels Quantization Test 2",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b342-4c0f-ad20-54b553f562b8&tab=output",
+          "job_name": "Kernels Quantization Test 1",
           "side": "upstream"
         }
       ],
@@ -8189,7 +8193,7 @@
       "family_key": "multi-modal processor (cpu)",
       "family_name": "multi-modal processor (cpu)",
       "amd_job_name": "mi250_1: Multi-Modal Processor (CPU) 2",
-      "upstream_job_name": "Multi-Modal Processor (CPU) 2",
+      "upstream_job_name": "Multi-Modal Processor (CPU) 1",
       "amd": {
         "total": 1181,
         "passed": 1049,
@@ -8226,8 +8230,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b3a5-452f-945b-5bc5a1495da8&tab=output",
-          "job_name": "Multi-Modal Processor (CPU) 2",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b3a2-4880-ab5c-7bcc0b5a2b77&tab=output",
+          "job_name": "Multi-Modal Processor (CPU) 1",
           "side": "upstream"
         }
       ],
@@ -10443,7 +10447,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b27a-4642-a778-fe6798ce1d18&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b27d-492a-9313-137bc498c404&tab=output",
           "job_name": "V1 attention (H100-MI300)",
           "side": "upstream"
         }
@@ -11342,6 +11346,42 @@
           "hw": "b200",
           "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b2c4-4e5b-afb0-8f8acafeeb8c&tab=output",
           "job_name": "Distributed Tests (2xB200)",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
+      "name": "dsv4-flash disaggregated dp ep",
+      "family_key": "dsv4-flash disaggregated dp ep",
+      "family_name": "dsv4-flash disaggregated dp ep",
+      "amd_job_name": null,
+      "upstream_job_name": "DSv4-Flash Disaggregated DP EP",
+      "amd": null,
+      "upstream": {
+        "total": 1,
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 0.0
+      },
+      "hardware": [
+        "h100"
+      ],
+      "hw_failures": {
+        "h100": 1
+      },
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe948-7563-4055-b624-043494388c90&tab=output",
+          "job_name": "DSv4-Flash Disaggregated DP EP",
           "side": "upstream"
         }
       ],
@@ -13355,25 +13395,6 @@
       ],
       "status": "upstream_only",
       "backfilled": false
-    },
-    {
-      "name": "dsv4-flash disaggregated dp ep",
-      "family_key": "dsv4-flash disaggregated dp ep",
-      "family_name": "dsv4-flash disaggregated dp ep",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
     }
   ],
   "details": [
@@ -14209,6 +14230,12 @@
       "test_id": "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "DSv4-Flash Disaggregated DP EP::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
       "category": "upstream_only"
     },
     {
