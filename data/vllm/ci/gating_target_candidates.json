@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-10T00:02:20Z",
+  "generated_at": "2026-08-10T02:52:52Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -24,10 +24,10 @@
     "upstream_build": 83039,
     "amd_ci_build": 11863,
     "canonical_target_count": 125,
-    "row_count": 232,
+    "row_count": 231,
     "canonical_match_count": 114,
     "likely_duplicate_count": 15,
-    "new_candidate_count": 52,
+    "new_candidate_count": 51,
     "excluded_count": 46,
     "missing_from_upstream_count": 5,
     "by_decision": {
@@ -35,7 +35,7 @@
       "excluded": 46,
       "likely_duplicate": 15,
       "missing_from_upstream": 5,
-      "new_candidate": 52
+      "new_candidate": 51
     }
   },
   "rows": [
@@ -526,9 +526,9 @@
     {
       "label": "Elastic EP Scaling Test",
       "canonical_key": "elastic ep scaling test",
-      "state": "failed",
+      "state": "passed",
       "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b2eb-4395-a906-caa886d27306&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe948-7658-486e-b067-845547d36e3d&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 21,
@@ -951,9 +951,9 @@
     {
       "label": "Kernels Core Operation Test",
       "canonical_key": "kernels core operation test",
-      "state": "failed",
+      "state": "passed",
       "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b33e-457b-8219-6bb0c2ff8998&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b33f-4360-bde4-19a920f80645&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 7,
@@ -1433,7 +1433,7 @@
       "canonical_key": "model executor",
       "state": "failed",
       "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b364-4b08-81ce-138bc3689e06&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe948-7b6e-462e-9203-0fd9aadb585b&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 72,
@@ -1478,7 +1478,7 @@
       "canonical_key": "multi-modal models (extended generation 1)",
       "state": "failed",
       "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b39f-4a6f-b866-12db1b0f897c&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe948-7c3b-4071-8dcb-549978457056&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 120,
@@ -1518,7 +1518,7 @@
       "canonical_key": "multi-modal models (extended generation 3)",
       "state": "failed",
       "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b3a0-413c-8bcc-25e46b040284&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe948-7ca5-42da-81de-66d127e006d1&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 99,
@@ -2008,7 +2008,7 @@
       "canonical_key": "v1 attention",
       "state": "passed",
       "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b27d-492a-9313-137bc498c404&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b27a-4642-a778-fe6798ce1d18&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 103,
@@ -2204,23 +2204,6 @@
       "proposal_matches": []
     },
     {
-      "label": "DSv4-Flash Disaggregated DP EP",
-      "canonical_key": "dsv4-flash disaggregated dp ep",
-      "state": "failed",
-      "queue": "H200",
-      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b2b0-42bf-ab09-8762b1434f8b&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
       "label": "Engine",
       "canonical_key": "engine",
       "state": "passed",
@@ -2351,7 +2334,7 @@
       "canonical_key": "gh200 test",
       "state": "soft_fail",
       "queue": "gh200_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b2f8-4d63-9247-9828af4eaefb&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe948-78d0-4f0a-b8ff-e45a62314d94&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -2692,9 +2675,9 @@
     {
       "label": "LM Eval Small Models Distributed (2xB200)",
       "canonical_key": "lm eval small models distributed (2 gpus)",
-      "state": "failed",
+      "state": "passed",
       "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b350-44bd-957c-268e8eea15ba&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe948-7b0c-45d7-a61c-ffeb034946d9&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -3183,7 +3166,7 @@
       "canonical_key": "kernels fusedmoe layer test (2 gpus)",
       "state": "failed",
       "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b340-480c-8c94-7cea1876e0e8&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe948-7a57-4b88-8fab-d3dd6c47c366&tab=output",
       "exclusion_reasons": [],
       "decision": "likely_duplicate",
       "duplicate_of": "Kernels FusedMoE Layer Test (2 H100s)",
@@ -3252,7 +3235,7 @@
       "canonical_key": "ascend npu test",
       "state": "soft_fail",
       "queue": "ascend",
-      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b2f4-4633-8cf1-71dad9e5049f&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe948-7717-4fc7-947a-be3557021928&tab=output",
       "exclusion_reasons": [
         "cpu_or_non_gpu"
       ],
@@ -3438,9 +3421,9 @@
     {
       "label": "LM Eval Humming Act fp8/int8 (H100 - TEMPORARY)",
       "canonical_key": "lm eval humming act fp8/int8 (h100 - temporary)",
-      "state": "failed",
+      "state": "passed",
       "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b34c-4b96-84b8-b5ae1ca69d01&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe948-7ab1-4a31-a9e9-b0eececf80db&tab=output",
       "exclusion_reasons": [
         "temporary"
       ],
@@ -3504,9 +3487,9 @@
     {
       "label": "Model Runner V2 Distributed (2 GPUs)",
       "canonical_key": "model runner v2 distributed (2 gpus)",
-      "state": "failed",
+      "state": "passed",
       "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b369-407c-99af-1e9d3e82266b&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe948-7bcc-49cc-aadc-a2a11a2cde03&tab=output",
       "exclusion_reasons": [
         "experimental_model_runner_v2"
       ],
@@ -3740,9 +3723,9 @@
     {
       "label": "XPU V1 test",
       "canonical_key": "xpu v1 test",
-      "state": "failed",
+      "state": "passed",
       "queue": "intel-gpu",
-      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b32f-48bf-bdcc-8ff4c378e549&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe948-7998-44ca-9e3e-9e565d688e86&tab=output",
       "exclusion_reasons": [
         "cpu_or_non_gpu"
       ],

@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-08-09T23:51:32Z",
+  "generated_at": "2026-08-10T02:39:07Z",
   "amd_date": "2026-08-09",
   "upstream_date": "2026-08-09",
   "parity_pct": 0.0,
-  "total_tests": 770,
+  "total_tests": 765,
   "summary": {
-    "upstream_only": 426,
+    "upstream_only": 421,
     "amd_only": 344
   },
   "by_module": {
@@ -413,10 +413,6 @@
       "parity_pct": 100.0,
       "upstream_only": 1
     },
-    "DSv4-Flash Disaggregated DP EP": {
-      "parity_pct": 100.0,
-      "upstream_only": 1
-    },
     "DeepSeek V2-Lite Prefetch Offload Accuracy (H100)": {
       "parity_pct": 100.0,
       "upstream_only": 1
@@ -511,7 +507,7 @@
     },
     "Elastic EP Scaling Test": {
       "parity_pct": 100.0,
-      "upstream_only": 2
+      "upstream_only": 1
     },
     "Engine": {
       "parity_pct": 100.0,
@@ -659,7 +655,7 @@
     },
     "Kernels Core Operation Test": {
       "parity_pct": 100.0,
-      "upstream_only": 3
+      "upstream_only": 2
     },
     "Kernels DeepGEMM Test (H100)": {
       "parity_pct": 100.0,
@@ -747,7 +743,7 @@
     },
     "LM Eval Humming Act fp8/int8 (H100 - TEMPORARY)": {
       "parity_pct": 100.0,
-      "upstream_only": 2
+      "upstream_only": 1
     },
     "LM Eval Humming Act int8 (A100 - TEMPORARY)": {
       "parity_pct": 100.0,
@@ -2164,10 +2160,6 @@
     "mi355_8: LM Eval Large Models (8xB200-8xMI355)": {
       "parity_pct": 100.0,
       "amd_only": 1
-    },
-    "v1/distributed/test_async_llm_dp.py": {
-      "parity_pct": 100.0,
-      "upstream_only": 1
     },
     "vLLM IR Tests": {
       "parity_pct": 100.0,
@@ -4056,21 +4048,19 @@
       },
       "upstream": {
         "total": 5,
-        "passed": 4,
-        "failed": 1,
+        "passed": 5,
+        "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1657.8
+        "duration": 1302.13
       },
       "hardware": [
         "h100",
         "mi300"
       ],
-      "hw_failures": {
-        "h100": 1
-      },
+      "hw_failures": null,
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
@@ -4082,15 +4072,15 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b2eb-4395-a906-caa886d27306&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe948-7658-486e-b067-845547d36e3d&tab=output",
           "job_name": "Elastic EP Scaling Test",
           "side": "upstream"
         }
       ],
       "delta": {
         "total": 0,
-        "passed": 1,
-        "failed": -1,
+        "passed": 0,
+        "failed": 0,
         "skipped": 0
       },
       "status": "both",
@@ -5228,7 +5218,7 @@
       "family_key": "gpqa eval (gpt-oss) (2 gpus)",
       "family_name": "gpqa eval (gpt-oss) (2 gpus)",
       "amd_job_name": "mi355_2: GPQA Eval (GPT-OSS) (2xB200-2xMI355)",
-      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xH100)",
+      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xB200)",
       "amd": {
         "total": 4,
         "passed": 4,
@@ -5265,15 +5255,15 @@
           "side": "amd"
         },
         {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b348-476c-9e1c-1156cce7dbe8&tab=output",
-          "job_name": "GPQA Eval (GPT-OSS) (2xH100)",
-          "side": "upstream"
-        },
-        {
           "hw": "b200",
           "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b348-494a-a4d3-46ac8e6cac0c&tab=output",
           "job_name": "GPQA Eval (GPT-OSS) (2xB200)",
+          "side": "upstream"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b348-476c-9e1c-1156cce7dbe8&tab=output",
+          "job_name": "GPQA Eval (GPT-OSS) (2xH100)",
           "side": "upstream"
         }
       ],
@@ -5291,7 +5281,7 @@
       "family_key": "gpqa eval (gpt-oss) (2 gpus)",
       "family_name": "gpqa eval (gpt-oss) (2 gpus)",
       "amd_job_name": "mi300_2: GPQA Eval (GPT-OSS) (2xH100-2xMI300)",
-      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xH100)",
+      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xB200)",
       "amd": {
         "total": 1,
         "passed": 1,
@@ -5328,15 +5318,15 @@
           "side": "amd"
         },
         {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b348-476c-9e1c-1156cce7dbe8&tab=output",
-          "job_name": "GPQA Eval (GPT-OSS) (2xH100)",
-          "side": "upstream"
-        },
-        {
           "hw": "b200",
           "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b348-494a-a4d3-46ac8e6cac0c&tab=output",
           "job_name": "GPQA Eval (GPT-OSS) (2xB200)",
+          "side": "upstream"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b348-476c-9e1c-1156cce7dbe8&tab=output",
+          "job_name": "GPQA Eval (GPT-OSS) (2xH100)",
           "side": "upstream"
         }
       ],
@@ -5598,21 +5588,19 @@
       },
       "upstream": {
         "total": 3187,
-        "passed": 3159,
-        "failed": 3,
+        "passed": 3162,
+        "failed": 0,
         "skipped": 25,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3144.7999999999997
+        "duration": 3117.4199999999996
       },
       "hardware": [
         "h100",
         "mi300"
       ],
-      "hw_failures": {
-        "h100": 3
-      },
+      "hw_failures": null,
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
@@ -5624,15 +5612,15 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b33e-457b-8219-6bb0c2ff8998&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b33f-4360-bde4-19a920f80645&tab=output",
           "job_name": "Kernels Core Operation Test",
           "side": "upstream"
         }
       ],
       "delta": {
         "total": 169,
-        "passed": -6,
-        "failed": -3,
+        "passed": -9,
+        "failed": 0,
         "skipped": 178
       },
       "status": "both",
@@ -7218,7 +7206,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 127.58
+        "duration": 125.9
       },
       "hardware": [
         "h100",
@@ -7238,7 +7226,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b364-4b08-81ce-138bc3689e06&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe948-7b6e-462e-9203-0fd9aadb585b&tab=output",
           "job_name": "Model Executor",
           "side": "upstream"
         }
@@ -7325,26 +7313,22 @@
         "duration": 0.0
       },
       "upstream": {
-        "total": 2,
+        "total": 1,
         "passed": 1,
-        "failed": 1,
+        "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 104.71
+        "duration": 93.05
       },
       "hardware": [
         "h100",
         "mi300"
       ],
-      "hw_failures": {
-        "h100": 1
-      },
+      "hw_failures": null,
       "hw_canceled": null,
-      "failure_tests": [
-        "test_load[True-mp-RequestOutputKind.DELTA-hmellor/tiny-random-LlamaForCausalLM]"
-      ],
+      "failure_tests": [],
       "job_links": [
         {
           "hw": "mi300",
@@ -7354,15 +7338,15 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b369-407c-99af-1e9d3e82266b&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe948-7bcc-49cc-aadc-a2a11a2cde03&tab=output",
           "job_name": "Model Runner V2 Distributed (2 GPUs)",
           "side": "upstream"
         }
       ],
       "delta": {
-        "total": -1,
+        "total": 0,
         "passed": 0,
-        "failed": -1,
+        "failed": 0,
         "skipped": 0
       },
       "status": "both",
@@ -7672,7 +7656,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4.2
+        "duration": 4.08
       },
       "hardware": [
         "h100",
@@ -7699,7 +7683,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b39f-4a6f-b866-12db1b0f897c&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe948-7c3b-4071-8dcb-549978457056&tab=output",
           "job_name": "Multi-Modal Models (Extended Generation 1)",
           "side": "upstream"
         }
@@ -7793,7 +7777,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2992.96
+        "duration": 2832.61
       },
       "hardware": [
         "h100",
@@ -7822,7 +7806,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b3a0-413c-8bcc-25e46b040284&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe948-7ca5-42da-81de-66d127e006d1&tab=output",
           "job_name": "Multi-Modal Models (Extended Generation 3)",
           "side": "upstream"
         }
@@ -8205,7 +8189,7 @@
       "family_key": "multi-modal processor (cpu)",
       "family_name": "multi-modal processor (cpu)",
       "amd_job_name": "mi250_1: Multi-Modal Processor (CPU) 2",
-      "upstream_job_name": "Multi-Modal Processor (CPU) 1",
+      "upstream_job_name": "Multi-Modal Processor (CPU) 2",
       "amd": {
         "total": 1181,
         "passed": 1049,
@@ -8242,8 +8226,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b3a2-4880-ab5c-7bcc0b5a2b77&tab=output",
-          "job_name": "Multi-Modal Processor (CPU) 1",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b3a5-452f-945b-5bc5a1495da8&tab=output",
+          "job_name": "Multi-Modal Processor (CPU) 2",
           "side": "upstream"
         }
       ],
@@ -10459,7 +10443,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b27d-492a-9313-137bc498c404&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b27a-4642-a778-fe6798ce1d18&tab=output",
           "job_name": "V1 attention (H100-MI300)",
           "side": "upstream"
         }
@@ -11365,42 +11349,6 @@
       "backfilled": false
     },
     {
-      "name": "dsv4-flash disaggregated dp ep",
-      "family_key": "dsv4-flash disaggregated dp ep",
-      "family_name": "dsv4-flash disaggregated dp ep",
-      "amd_job_name": null,
-      "upstream_job_name": "DSv4-Flash Disaggregated DP EP",
-      "amd": null,
-      "upstream": {
-        "total": 1,
-        "passed": 0,
-        "failed": 1,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0,
-        "error": 0,
-        "duration": 0.0
-      },
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": {
-        "h100": 1
-      },
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [
-        {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b2b0-42bf-ab09-8762b1434f8b&tab=output",
-          "job_name": "DSv4-Flash Disaggregated DP EP",
-          "side": "upstream"
-        }
-      ],
-      "status": "upstream_only",
-      "backfilled": false
-    },
-    {
       "name": "extract hidden states integration (2 gpus)",
       "family_key": "extract hidden states integration (2 gpus)",
       "family_name": "extract hidden states integration (2 gpus)",
@@ -11925,7 +11873,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 326.19
+        "duration": 294.63
       },
       "hardware": [
         "h100"
@@ -11938,7 +11886,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b340-480c-8c94-7cea1876e0e8&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe948-7a57-4b88-8fab-d3dd6c47c366&tab=output",
           "job_name": "Kernels FusedMoE Layer Test (2 B200s)",
           "side": "upstream"
         }
@@ -12193,26 +12141,24 @@
       "amd": null,
       "upstream": {
         "total": 9,
-        "passed": 8,
-        "failed": 1,
+        "passed": 9,
+        "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1935.18
+        "duration": 1941.39
       },
       "hardware": [
         "h100"
       ],
-      "hw_failures": {
-        "h100": 1
-      },
+      "hw_failures": null,
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b34c-4b96-84b8-b5ae1ca69d01&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe948-7ab1-4a31-a9e9-b0eececf80db&tab=output",
           "job_name": "LM Eval Humming Act fp8/int8 (H100 - TEMPORARY)",
           "side": "upstream"
         }
@@ -12535,26 +12481,24 @@
       "amd": null,
       "upstream": {
         "total": 1,
-        "passed": 0,
-        "failed": 1,
+        "passed": 1,
+        "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 277.33
       },
       "hardware": [
         "b200"
       ],
-      "hw_failures": {
-        "b200": 1
-      },
+      "hw_failures": null,
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b350-44bd-957c-268e8eea15ba&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe948-7b0c-45d7-a61c-ffeb034946d9&tab=output",
           "job_name": "LM Eval Small Models Distributed (2xB200)",
           "side": "upstream"
         }
@@ -13386,33 +13330,50 @@
       "upstream_job_name": "XPU V1 test",
       "amd": null,
       "upstream": {
-        "total": 4,
-        "passed": 3,
-        "failed": 1,
-        "skipped": 0,
+        "total": 1122,
+        "passed": 1109,
+        "failed": 0,
+        "skipped": 13,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 463.45
+        "duration": 826.53
       },
       "hardware": [
         "h100"
       ],
-      "hw_failures": {
-        "h100": 1
-      },
+      "hw_failures": null,
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe51c-b32f-48bf-bdcc-8ff4c378e549&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/83039/steps/canvas?jid=019fe948-7998-44ca-9e3e-9e565d688e86&tab=output",
           "job_name": "XPU V1 test",
           "side": "upstream"
         }
       ],
       "status": "upstream_only",
       "backfilled": false
+    },
+    {
+      "name": "dsv4-flash disaggregated dp ep",
+      "family_key": "dsv4-flash disaggregated dp ep",
+      "family_name": "dsv4-flash disaggregated dp ep",
+      "amd_job_name": null,
+      "upstream_job_name": null,
+      "amd": null,
+      "upstream": null,
+      "hardware": [
+        "h100"
+      ],
+      "hw_failures": null,
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [],
+      "delta": null,
+      "status": "upstream_only",
+      "backfilled": true
     }
   ],
   "details": [
@@ -14251,12 +14212,6 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "DSv4-Flash Disaggregated DP EP::__job_level__",
-      "amd_status": "missing",
-      "upstream_status": "failed",
-      "category": "upstream_only"
-    },
-    {
       "test_id": "DeepSeek V2-Lite Prefetch Offload Accuracy (H100)::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -14428,12 +14383,6 @@
       "test_id": "Elastic EP Scaling Test::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": "Elastic EP Scaling Test::__unidentified_failures__",
-      "amd_status": "missing",
-      "upstream_status": "failed",
       "category": "upstream_only"
     },
     {
@@ -14779,12 +14728,6 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "Kernels Core Operation Test::__unidentified_failures__",
-      "amd_status": "missing",
-      "upstream_status": "failed",
-      "category": "upstream_only"
-    },
-    {
       "test_id": "Kernels DeepGEMM Test (H100)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -14989,12 +14932,6 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "LM Eval Humming Act fp8/int8 (H100 - TEMPORARY)::__unidentified_failures__",
-      "amd_status": "missing",
-      "upstream_status": "failed",
-      "category": "upstream_only"
-    },
-    {
       "test_id": "LM Eval Humming Act int8 (A100 - TEMPORARY)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -15073,9 +15010,9 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "LM Eval Small Models Distributed (2xB200)::__unidentified_failures__",
+      "test_id": "LM Eval Small Models Distributed (2xB200)::__passed__",
       "amd_status": "missing",
-      "upstream_status": "failed",
+      "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
@@ -15913,9 +15850,9 @@
       "category": "upstream_only"
     },
     {
-      "test_id": "XPU V1 test::__unidentified_failures__",
+      "test_id": "XPU V1 test::__skipped__",
       "amd_status": "missing",
-      "upstream_status": "failed",
+      "upstream_status": "skipped",
       "category": "upstream_only"
     },
     {
@@ -18017,12 +17954,6 @@
       "amd_status": "passed",
       "upstream_status": "missing",
       "category": "amd_only"
-    },
-    {
-      "test_id": "v1/distributed/test_async_llm_dp.py::test_load[True-mp-RequestOutputKind.DELTA-hmellor/tiny-random-LlamaForCausalLM]",
-      "amd_status": "missing",
-      "upstream_status": "failed",
-      "category": "upstream_only"
     },
     {
       "test_id": "vLLM IR Tests::__passed__",
