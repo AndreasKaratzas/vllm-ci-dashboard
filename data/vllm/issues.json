@@ -1,6 +1,31 @@
 {
-  "collected_at": "2026-08-10T06:42:00Z",
+  "collected_at": "2026-08-10T09:09:45Z",
   "issues": [
+    {
+      "number": 51644,
+      "title": "[CI Failure]: tests/kernels/moe/test_deepep_moe.py SIGSEGV on ROCm, drop the two teardown workarounds once the image ships rocm-systems#6942",
+      "author": "stefankoncarevic",
+      "state": "open",
+      "created_at": "2026-08-10T08:53:30Z",
+      "updated_at": "2026-08-10T08:53:41Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/51644",
+      "labels": [
+        "rocm",
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "Backlog",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\ntests/kernels/moe/test_deepep_moe.py::test_deep_ep_moe\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [x] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\nThe test passes today only because two workarounds are in tree, and this issue tracks\nremoving them.\n\nWithout them, every high-throughput variant dies with SIGSEGV, 28 of 28, while every\nlow-latency variant passes. The test body completes and the process dies during teardown\ninside the ROCm HSA runtime, where AqlQueue's destructor writes to signals whose backing\nmemory has already been unmapped. That path is only reached while rocprofiler-sdk is\nattached, which recent torch builds do implicitly. It reproduces with a plain HIP program\nunder rocprofv3, with no torch, DeepEP or vLLM involved.\n\nThe workarounds to remove, both guarded by current_platform.is_rocm():\n\n1. tests/kernels/moe/test_deepep_moe.py sets ROCPROFILER_REGISTER_ENABLED=0 so the spawned\n   workers do not inherit the profiler (#51173).\n2. tests/kernels/moe/parallel_utils.py leaves the worker through os._exit after destroying\n   the process group (#51174).\n\nThe defect is fixed upstream in https://github.com/ROCm/rocm-systems/pull/6942. Once a CI\nbase image ships a ROCm build containing it, drop both and confirm with\n\n    pytest -v -s tests/kernels/moe/test_deepep_moe.py\n\nwhich should stay at 56 passed.\n\n### \ud83d\udcdd History of failing test\n\nNot a vLLM regression. It appeared without any change on the vLLM side, once torch builds\nbegan attaching rocprofiler-sdk implicitly, and it was masked on 5 Aug 2026 by #51173 and\n#51174, so Buildkite shows the test green from then on.\n\n### CC List.\n\n@AndreasKaratzas @Rohan138",
+      "linked_prs": [
+        {
+          "repo": "ROCm/rocm-systems",
+          "number": 6942,
+          "url": "https://github.com/ROCm/rocm-systems/pull/6942"
+        }
+      ]
+    },
     {
       "number": 51115,
       "title": "[CI Failure]: test_mha_attn_varlen_forward_aiter_fp8 \u2014 \"invalid argument for fmha_fwd\" on MI300X",
