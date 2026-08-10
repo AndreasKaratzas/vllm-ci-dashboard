@@ -47,12 +47,12 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-5bc8cd9dd71f6293",
           "label": "V1 attention",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56d0-4699-944f-f8fcf0043d98&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b079-4e69-ad75-f6f53fcf0a95&tab=output"
         }
       ],
       "upstream_parity_gaps": []
@@ -104,12 +104,12 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-0fc6fd065e5e1170",
           "label": "Basic Correctness",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5686-4cf2-afa8-9abe5396ba28&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b027-4d25-a8e5-ded16bd0f230&tab=output"
         }
       ],
       "upstream_parity_gaps": []
@@ -161,21 +161,21 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-f97f592bf36d8f80",
           "label": "Attention Benchmarks Smoke Test",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56db-4bd7-9491-409e6fe5d619&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b085-4687-9658-2681f66b6488&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-55d46b943197441f",
           "label": "Benchmarks CLI Test",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5688-476d-927e-dd52c8e4fff8&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b029-4cce-be84-124aaa98e1f8&tab=output"
         }
       ],
       "upstream_parity_gaps": []
@@ -190,15 +190,19 @@
       "assignment_reason": "selected_owner_not_assignable_ci_lead",
       "counts": {
         "hard": 0,
-        "incidents": 0,
-        "passed": 3,
-        "soft": 0,
+        "incidents": 1,
+        "passed": 2,
+        "soft": 1,
         "targets": 3,
         "unobserved": 0,
         "upstream_parity_gaps": 8
       },
       "escalated_to_ci_lead": false,
-      "issue": null,
+      "issue": {
+        "number": 440,
+        "suppressed": false,
+        "url": "https://github.com/AndreasKaratzas/vllm-ci-dashboard/issues/440"
+      },
       "owners": [
         {
           "display_name": "Fu, Charlie",
@@ -216,7 +220,17 @@
           "rank": 3
         }
       ],
-      "regressions": [],
+      "regressions": [
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-3b6ae9b509a3a3a0",
+          "label": "Distributed Compile Unit Tests (2xH100-2xMI)",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "soft",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b02e-45e6-9235-0c42b0f8305a&tab=output"
+        }
+      ],
       "selected_owner": {
         "display_name": "Koncarevic, Stefan",
         "github_login": "stefankoncarevic",
@@ -227,64 +241,64 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-3b6ae9b509a3a3a0",
           "label": "Distributed Compile Unit Tests (2xH100-2xMI)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-568c-4c1d-ba81-522ebe006c9f&tab=output"
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "soft",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b02e-45e6-9235-0c42b0f8305a&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-44943534877246c8",
           "label": "Fusion E2E Config Sweep",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5689-4cdf-b2f0-3637b2bf17db&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b02a-43c4-8b6d-359bd4b554d0&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-6b2ce3f2299deb42",
           "label": "Fusion E2E Quick",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-568a-4eb8-8176-76d1d1b3006b&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b02b-4638-a399-aa315a3e4dee&tab=output"
         }
       ],
       "upstream_parity_gaps": [
         {
           "label": "AsyncTP Correctness Tests (2xB200)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/compile.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/compile.yaml"
         },
         {
           "label": "Fusion and Compile Unit Tests (2xB200)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/compile.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/compile.yaml"
         },
         {
           "label": "Fusion E2E Config Sweep (B200)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/compile.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/compile.yaml"
         },
         {
           "label": "Fusion E2E TP2 (B200)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/compile.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/compile.yaml"
         },
         {
           "label": "Fusion E2E TP2 AR-RMS Config Sweep (H100)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/compile.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/compile.yaml"
         },
         {
           "label": "Fusion E2E TP2 AsyncTP Config Sweep (H100)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/compile.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/compile.yaml"
         },
         {
           "label": "Fusion E2E TP2 Quick (H100)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/compile.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/compile.yaml"
         },
         {
           "label": "Sequence Parallel Correctness Tests (2xB200)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/compile.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/compile.yaml"
         }
       ]
     },
@@ -335,21 +349,21 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-8b97dd8f73fd9ea5",
           "label": "Cudagraph",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-567f-4f98-82e8-2552e97f9104&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b020-49ed-a251-7b3f6dfeea58&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-0b0d240b9e751e4c",
           "label": "Platform Tests",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-568d-4210-b55e-df3e983db324&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b02f-497e-a0ec-23343a7f86a4&tab=output"
         }
       ],
       "upstream_parity_gaps": []
@@ -401,97 +415,97 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-bddfcb9be2d662d4",
           "label": "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56d4-48fb-bb4e-725ad3648e9c&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b07d-4961-b6ea-ff08912972f7&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-b2314a6a6ee5c102",
           "label": "Distributed NixlConnector PD accuracy (4 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56d6-4225-b245-839e269a054c&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b07f-4a92-b3f0-2c5b449d2c75&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-f054544369688ed0",
           "label": "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56d6-4afa-b465-a79a7727843d&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b080-4cbc-af56-4879f12431a8&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-d591265448df9e29",
           "label": "Hybrid SSM NixlConnector PD accuracy tests (4 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56d7-4fd2-80da-1fd642039ff6&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b080-48fc-90da-79d9bca042cb&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-e0d5721a15cb2672",
           "label": "Hybrid SSM NixlConnector PD prefix cache test (2 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56d7-4c43-a8a0-184591855ff9&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b081-4d80-ae8e-9583b228d136&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-e6ef13b172ce4b90",
           "label": "MultiConnector (Nixl+Offloading) PD accuracy (2 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56d8-4192-b64e-9fecbc78e5ad&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b082-4493-9ee9-326157fc01f4&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-22d5e1a2a7c0ca24",
           "label": "MultiConnector (Nixl+Offloading) PD edge cases (2 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56d9-4992-8ba5-16923b35695e&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b083-4914-aa74-407e8b1cfd47&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-234d6d982bf1cbc6",
           "label": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56d4-42a6-8f46-d57eb26c2774&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b07d-4a69-aae5-e94cdb0a5ca8&tab=output"
         }
       ],
       "upstream_parity_gaps": [
         {
           "label": "Distributed FlashInfer NixlConnector PD accuracy (4 GPUs)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/disaggregated.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/disaggregated.yaml"
         },
         {
           "label": "DSv4-Flash Disaggregated DP EP",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/disaggregated.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/disaggregated.yaml"
         },
         {
           "label": "Kimi-Linear-48B-A3B Disaggregated DP EP",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/disaggregated.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/disaggregated.yaml"
         },
         {
           "label": "NixlConnector PD edge case test (2 GPUs)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/disaggregated.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/disaggregated.yaml"
         },
         {
           "label": "Push NixlConnector PP prefill PD accuracy (4 GPUs)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/disaggregated.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/disaggregated.yaml"
         }
       ]
     },
@@ -505,15 +519,19 @@
       "assignment_reason": "selected_owner_not_assignable_ci_lead",
       "counts": {
         "hard": 0,
-        "incidents": 0,
-        "passed": 14,
-        "soft": 0,
+        "incidents": 1,
+        "passed": 13,
+        "soft": 1,
         "targets": 14,
         "unobserved": 0,
         "upstream_parity_gaps": 2
       },
       "escalated_to_ci_lead": false,
-      "issue": null,
+      "issue": {
+        "number": 441,
+        "suppressed": false,
+        "url": "https://github.com/AndreasKaratzas/vllm-ci-dashboard/issues/441"
+      },
       "owners": [
         {
           "display_name": "Fu, Charlie",
@@ -531,7 +549,17 @@
           "rank": 3
         }
       ],
-      "regressions": [],
+      "regressions": [
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-0ec73fdacc8560b3",
+          "label": "Distributed Tests (2xH100-2xMI355)",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "soft",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b086-470d-a112-d446b74fce75&tab=output"
+        }
+      ],
       "selected_owner": {
         "display_name": "Koncarevic, Stefan",
         "github_login": "stefankoncarevic",
@@ -542,139 +570,139 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-c7bf4a648ad34ab5",
-          "label": "Distributed Comm Ops",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-568f-498c-a25d-d4911913b366&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-96349a13f1df279d",
-          "label": "Distributed Compile + Comm (4 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5695-4749-80b7-d34913d13239&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-627fcb5e357e1aec",
-          "label": "Distributed Compile + RPC Tests (2 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-568d-4b04-af5c-274d81d0e9f1&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-b67c6fb4a13e1ea7",
-          "label": "Distributed DP Tests (2 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56d2-49ce-95ca-3ebeb94d13df&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-982638dfafc38ae8",
-          "label": "Distributed DP Tests (4 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56d5-455c-9639-93231936db94&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-e792618e75411332",
-          "label": "Distributed Tests (2xH100-2xMI300)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5690-4444-b7a3-a0b0f70edb15&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-0ec73fdacc8560b3",
           "label": "Distributed Tests (2xH100-2xMI355)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56dc-4a37-9b2d-33cb36ea98f5&tab=output"
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "soft",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b086-470d-a112-d446b74fce75&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
+          "id": "matrix-row-c7bf4a648ad34ab5",
+          "label": "Distributed Comm Ops",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b031-406c-a9c3-d3d534e51c07&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-96349a13f1df279d",
+          "label": "Distributed Compile + Comm (4 GPUs)",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b038-465d-a7e9-5174c8cec169&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-627fcb5e357e1aec",
+          "label": "Distributed Compile + RPC Tests (2 GPUs)",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b02e-4a17-945e-455641c18861&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-b67c6fb4a13e1ea7",
+          "label": "Distributed DP Tests (2 GPUs)",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b07b-4550-b9de-972c913f3280&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-982638dfafc38ae8",
+          "label": "Distributed DP Tests (4 GPUs)",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b07e-43aa-b51c-2ec3bcd182a1&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-e792618e75411332",
+          "label": "Distributed Tests (2xH100-2xMI300)",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b033-4eaf-a0fc-3caea04f452e&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
           "id": "matrix-row-84356b11e9c7d476",
           "label": "Distributed Tests (4xA100-4xMI)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5691-41c1-87d2-279ecc35ded9&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b034-48e5-b4a6-8f47d1a4e4f9&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-d7f7ad231b1b6d7c",
           "label": "Distributed Tests (8xH100-8xMI)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5694-4079-b7de-2862ad89e9cc&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b037-49a7-9671-5395cc9bc3a8&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-c845ed04b3826b47",
           "label": "Distributed Torchrun + Examples (4 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5692-4d0f-b46e-65b5b839ab24&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b034-4568-b38c-3f9d9cdac2f0&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-e74fdbc7d8556931",
           "label": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5694-4bc4-b975-acb359a2e482&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b037-496b-bcc3-d9c85e8568d1&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-3fc0f2db47be7f33",
           "label": "Pipeline + Context Parallelism (4 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-567a-44d3-a3a1-7f241ab604a5&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b01b-4846-b6f2-23c0e1fabc60&tab=output"
         },
         {
           "area_method": "reviewed_area_override",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-fcf849fcfa40e029",
           "label": "Qwen3-Next-80B-A3B-Instruct MTP Async EPLB Accuracy",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56a5-467e-9c30-6d67be974e35&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b049-41a5-90ab-43cafa896cb0&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-2666e1e81ef1eed0",
           "label": "RayExecutorV2 (4 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5693-415d-bc8c-1e49cba59ae0&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b036-401a-8128-e0ce94719f93&tab=output"
         }
       ],
       "upstream_parity_gaps": [
         {
           "label": "2 Node Test (4 GPUs)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/distributed.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/distributed.yaml"
         },
         {
           "label": "Distributed Tests (2xB200)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/distributed.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/distributed.yaml"
         }
       ]
     },
@@ -726,12 +754,12 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-a6688a27a7911c70",
           "label": "Docker Build Metadata (ROCm)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5686-4fca-a22b-fc4351bb52b2&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b026-4fe5-8f4f-d4b7febac5d8&tab=output"
         }
       ],
       "upstream_parity_gaps": []
@@ -783,48 +811,48 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-a72253969df84f70",
           "label": "DeepSeek V2-Lite Prefetch Offload Accuracy",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-569e-437e-bde5-121d2082a8f0&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b041-47fb-a43c-a87f94bc7cce&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-2566fcd48f1cce00",
           "label": "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100-4xMI)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56a3-461a-a0bc-a9595597507c&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b046-4a83-87ea-651f2b3ada62&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-4ba04498eb20687c",
           "label": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy (4xH100-4xMI)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56a5-45b6-88b6-570addeea816&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b048-4141-8653-5b30b0fd0760&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-ad1abd80e46787cd",
           "label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56e3-4f2c-9046-1a7618974766&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b08e-4926-9c67-9507e5076ead&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-9bcecdd2727c6c5c",
           "label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100-4xMI)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56a4-419c-abc3-f9f3f22bcc0b&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b048-4271-8ff5-7ce64707bd55&tab=output"
         }
       ],
       "upstream_parity_gaps": []
@@ -876,66 +904,66 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-097328f69d6c5107",
           "label": "e2e Core (1 GPU)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5680-4546-b10d-c23cd15ea6b2&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b021-49be-ae92-5b4135a85e19&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-2ec3059bd72ac099",
           "label": "e2e Scheduling (1 GPU)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5681-4771-a343-21361667b708&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b021-475c-933d-1d2bb94cf016&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-8e75ebbdb21505d2",
           "label": "Engine",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5696-4306-b9e8-d084adacde51&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b039-4fc1-b4aa-4b7cb93548ee&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-61be6f67bacb5bc1",
           "label": "Engine (1 GPU) [MI250]",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5681-4e8d-b2bb-a157ebda0f4d&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b022-460a-9087-8ea61f50e844&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-ec0d1984fe129d33",
           "label": "Engine (1 GPU) [MI300]",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56cb-47b5-8ee4-41419c90496a&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b073-4d7e-a4fe-a4017d84bb97&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-2ad555a567162b2d",
           "label": "V1 e2e (2 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56d3-42de-abf7-bcb3c199b3ab&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b07c-43ce-85de-ec55c19a56c2&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-b7ce63897e96b410",
           "label": "V1 e2e (4xH100-4xMI)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56d9-409e-aaee-baac671f8948&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b083-4791-b281-130fb474fe5a&tab=output"
         }
       ],
       "upstream_parity_gaps": []
@@ -950,15 +978,19 @@
       "assignment_reason": "selected_owner_not_assignable_ci_lead",
       "counts": {
         "hard": 0,
-        "incidents": 0,
-        "passed": 12,
-        "soft": 0,
+        "incidents": 1,
+        "passed": 11,
+        "soft": 1,
         "targets": 12,
         "unobserved": 0,
         "upstream_parity_gaps": 0
       },
       "escalated_to_ci_lead": false,
-      "issue": null,
+      "issue": {
+        "number": 442,
+        "suppressed": false,
+        "url": "https://github.com/AndreasKaratzas/vllm-ci-dashboard/issues/442"
+      },
       "owners": [
         {
           "display_name": "Andreas Karatzas",
@@ -976,7 +1008,17 @@
           "rank": 3
         }
       ],
-      "regressions": [],
+      "regressions": [
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-b387aa6f22d0fb9b",
+          "label": "Entrypoints Integration (API Server OpenAI - Part 2)",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "soft",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b088-48c5-a01a-9a72c11d7082&tab=output"
+        }
+      ],
       "selected_owner": {
         "display_name": "Koncarevic, Stefan",
         "github_login": "stefankoncarevic",
@@ -987,111 +1029,111 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-ce065c9499d6aeb3",
-          "label": "Entrypoints Integration (API Server Generate)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-569a-427c-b0c7-ba729aaf5a21&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-7918ad00bb2cba23",
-          "label": "Entrypoints Integration (API Server OpenAI - Part 1) [MI300]",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5699-4516-9769-cee0754bc824&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-1db25222277b466d",
-          "label": "Entrypoints Integration (API Server OpenAI - Part 1) [MI355]",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56dd-41d5-987a-4f6a1e8ab5ff&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-b387aa6f22d0fb9b",
           "label": "Entrypoints Integration (API Server OpenAI - Part 2)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5699-495b-a43c-6d13e81667fe&tab=output"
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "soft",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b088-48c5-a01a-9a72c11d7082&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
+          "id": "matrix-row-ce065c9499d6aeb3",
+          "label": "Entrypoints Integration (API Server Generate)",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b03d-44f2-8a04-dc2c8b4354cb&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-7918ad00bb2cba23",
+          "label": "Entrypoints Integration (API Server OpenAI - Part 1) [MI300]",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b03c-4a3a-8940-aab6eae901f9&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-1db25222277b466d",
+          "label": "Entrypoints Integration (API Server OpenAI - Part 1) [MI355]",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b087-4d84-8c60-134901d419e0&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
           "id": "matrix-row-26b258da543e032c",
           "label": "Entrypoints Integration (API Server)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5698-4d1a-abcf-e9d7511877b4&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b03b-4705-80ce-029dae7f6339&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-e54ae1b95e1747c0",
           "label": "Entrypoints Integration (LLM)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5697-4d15-83c2-ec865ea49560&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b03a-44ea-9078-137c4748efe6&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-01b220d1437e280d",
           "label": "Entrypoints Integration (Multimodal)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-569c-441f-828d-85711bcfcec9&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b03f-4000-947b-607dd0d84404&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-360c5100c0eeb062",
           "label": "Entrypoints Integration (Pooling)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-569d-40ed-ad43-15ab29338991&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b040-41d5-9e99-78ac65d90bc3&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-92ccee2c82ffd09b",
           "label": "Entrypoints Integration (Responses API)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-569b-4bf0-9eb2-7b2602a9ad96&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b03d-4fad-a3c2-cb3bef0a4272&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-329f678c873a4233",
           "label": "Entrypoints Integration (Speech to Text)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-569c-4329-95d6-444c5ca4c526&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b03f-4e0d-8aba-ff55d1f6a7c6&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-0e56ce82749bebf9",
           "label": "Entrypoints Unit Tests",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5696-4be0-8b55-33f211b19299&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b039-45ff-af4e-141a9b6f4f13&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-2881c8c34f248013",
           "label": "OpenAI API correctness",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-569d-465b-9443-fbe6988f16e1&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b040-402d-9fb2-265ae37d8f02&tab=output"
         }
       ],
       "upstream_parity_gaps": []
@@ -1143,30 +1185,30 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-46bf05490177d70b",
           "label": "Elastic EP Scaling Test",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5692-47b5-bd0b-0d9e805a6234&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b035-4b44-b9ce-47e33fad2a59&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-478e457121eb86ff",
           "label": "EPLB Algorithm",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-568f-43c3-ae1d-2a29883c0206&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b031-4d5f-ad4c-f39d34e9f61a&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-9ca97a25f00fb423",
           "label": "EPLB Execution",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5690-4594-9313-0410c87fcb8c&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b032-4ef1-9c5c-d15d4bbcd97b&tab=output"
         }
       ],
       "upstream_parity_gaps": []
@@ -1219,7 +1261,7 @@
       "upstream_parity_gaps": [
         {
           "label": "Fault Tolerance E2E (2xH100)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/fault_tolerance.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/fault_tolerance.yaml"
         }
       ]
     },
@@ -1270,139 +1312,139 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-ed1c8fa21bac695f",
           "label": "Kernels",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56e5-4cb2-9155-76fe817226b1&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b091-45c7-a97d-2ca2ae92ff71&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-5d01be34637d8e82",
           "label": "Kernels Attention Test",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56aa-4bcf-aad6-50a34bcf87d9&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b04e-42a4-b352-789ac9bd3470&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-c3bde52a31c82168",
           "label": "Kernels Core Operation Test",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56ab-4786-89fe-c811719239e7&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b04e-4a07-9000-56ae67ca83e4&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-e128f02f014cf708",
           "label": "Kernels FP8 MoE Test (2xH100-2xMI)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56ae-4791-b516-ff43bfd367f6&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b052-4fda-ab65-9fc76fb3d56f&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-cd1bff8c35f7b8fc",
           "label": "Kernels Helion Test",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-567b-47b3-bce5-ee9869dc0cb0&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b01c-4c63-b813-a1814dde59bd&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-a1b54f533aad9835",
           "label": "Kernels Mamba Test",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56ac-4b95-a021-8cf0dbea27ae&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b050-4e0b-9814-3cefa660b838&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-05ae9bb43d97954f",
           "label": "Kernels MoE Test",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56ad-4f64-94b1-0d35d7fb80a4&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b051-4a8a-b0f5-66d6445c46dd&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-09c9123de6ff352a",
           "label": "Kernels Quantization Test",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56ad-42c1-994a-928f40ddbb9c&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b051-47ed-aaed-9ed16210e9d9&tab=output"
         },
         {
           "area_method": "reviewed_area_override",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-03d1cd5d686588bd",
           "label": "ROCm AITER Ops Test",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56c7-4de0-bfbe-f732c412bebb&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b06f-4bbc-9739-35e00ce96d8b&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-afe63621275ab29c",
           "label": "vLLM IR Tests",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56a9-47e9-8ef1-8a417f9ec0d0&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b04c-461e-9a61-ba8a4a49caf6&tab=output"
         }
       ],
       "upstream_parity_gaps": [
         {
           "label": "Deepseek V4 Kernel Test (B200)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/kernels.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/kernels.yaml"
         },
         {
           "label": "Deepseek V4 Kernel Test (H100)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/kernels.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/kernels.yaml"
         },
         {
           "label": "Kernels Attention DiffKV Test (H100)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/kernels.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/kernels.yaml"
         },
         {
           "label": "Kernels DeepGEMM Test (H100)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/kernels.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/kernels.yaml"
         },
         {
           "label": "Kernels FlashMLA Test (H100)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/kernels.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/kernels.yaml"
         },
         {
           "label": "Kernels Fp4 MoE Test (B200)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/kernels.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/kernels.yaml"
         },
         {
           "label": "Kernels FP8 MoE Test (1xH100)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/kernels.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/kernels.yaml"
         },
         {
           "label": "Kernels FusedMoE Layer Test (2 B200s)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/kernels.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/kernels.yaml"
         },
         {
           "label": "Kernels FusedMoE Layer Test (2 H100s)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/kernels.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/kernels.yaml"
         },
         {
           "label": "Kernels MiniMax Reduce RMS Test (2 GPUs)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/kernels.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/kernels.yaml"
         },
         {
           "label": "Kernels Root Misc Test (B200)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/kernels.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/kernels.yaml"
         }
       ]
     },
@@ -1416,15 +1458,19 @@
       "assignment_reason": "selected_owner_not_assignable_ci_lead",
       "counts": {
         "hard": 0,
-        "incidents": 0,
-        "passed": 12,
-        "soft": 0,
+        "incidents": 3,
+        "passed": 9,
+        "soft": 3,
         "targets": 12,
         "unobserved": 0,
         "upstream_parity_gaps": 17
       },
       "escalated_to_ci_lead": false,
-      "issue": null,
+      "issue": {
+        "number": 443,
+        "suppressed": false,
+        "url": "https://github.com/AndreasKaratzas/vllm-ci-dashboard/issues/443"
+      },
       "owners": [
         {
           "display_name": "Zhang, Pei",
@@ -1442,7 +1488,35 @@
           "rank": 3
         }
       ],
-      "regressions": [],
+      "regressions": [
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-00b169ac3dc49702",
+          "label": "GPQA Eval (GPT-OSS) (2xB200-2xMI)",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "soft",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b08c-4a97-bd51-430c47cf9771&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-fdc875affbdf5bc5",
+          "label": "LM Eval Large Models (8xB200-8xMI)",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "soft",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b08f-49c6-b2ca-fe8d4d3254df&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-5122a70a7fb1ed1c",
+          "label": "LM Eval Qwen3-5 Models",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "soft",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b08c-4f48-8901-fe51c5f3b4e5&tab=output"
+        }
+      ],
       "selected_owner": {
         "display_name": "Marty, Felix",
         "github_login": "fxmarty-amd",
@@ -1453,181 +1527,181 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-00b169ac3dc49702",
           "label": "GPQA Eval (GPT-OSS) (2xB200-2xMI)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56e1-494c-81bf-62c8a5175c12&tab=output"
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "soft",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b08c-4a97-bd51-430c47cf9771&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-8242bb0169191b00",
-          "label": "GPQA Eval (GPT-OSS) (2xH100-2xMI)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56a1-4bb2-8044-742759de443e&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-de4da766fb0020df",
-          "label": "LM Eval Large Models (4xA100-4xMI)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56a3-4b0a-9e54-44c667a81c49&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-cbd7d6b9487d13ea",
-          "label": "LM Eval Large Models (4xH100-4xMI)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56a7-44b2-90c2-8bbb16244dbd&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-fdc875affbdf5bc5",
           "label": "LM Eval Large Models (8xB200-8xMI)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56e4-44e9-abd4-91fee56f9f0e&tab=output"
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "soft",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b08f-49c6-b2ca-fe8d4d3254df&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-71470caf8f6d36e3",
-          "label": "LM Eval Large Models (8xH200-8xMI)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56a6-41d5-9ad2-40ba8fb04815&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-5122a70a7fb1ed1c",
           "label": "LM Eval Qwen3-5 Models",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56e1-4eca-9328-adec3f2d1a6b&tab=output"
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "soft",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b08c-4f48-8901-fe51c5f3b4e5&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
+          "id": "matrix-row-8242bb0169191b00",
+          "label": "GPQA Eval (GPT-OSS) (2xH100-2xMI)",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b045-4937-b570-2ae9e401182e&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-de4da766fb0020df",
+          "label": "LM Eval Large Models (4xA100-4xMI)",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b047-4ec7-8f40-26d9e1eed817&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-cbd7d6b9487d13ea",
+          "label": "LM Eval Large Models (4xH100-4xMI)",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b04b-4fdb-9a0b-6435aff87e62&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-71470caf8f6d36e3",
+          "label": "LM Eval Large Models (8xH200-8xMI)",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b049-4c3a-8fc6-6cf37bd665f3&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
           "id": "matrix-row-7b693eb8cc7902ad",
           "label": "LM Eval Small Models",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-569f-44b5-bebb-391fa0ba83ac&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b042-45d2-ad29-526b2f89a386&tab=output"
         },
         {
           "area_method": "reviewed_area_override",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-ce7f71f846638665",
           "label": "LM Eval Small Models (2xB200-2xMI)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56a2-4ab1-b591-4ab8ce42510a&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b045-403a-9a34-527b182a8e0b&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-dcbb8d2c1b4bf861",
           "label": "LM Eval Small Models (MI300)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56a0-4e35-8ac8-83a8d0662ae4&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b043-4504-a317-64a113181170&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-a06fb19192b8b24c",
           "label": "MRCR Eval Small Models",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-569f-4857-8c30-d2e13a123c40&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b043-4b6c-929c-27c702f25392&tab=output"
         },
         {
           "area_method": "reviewed_area_override",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-d897fbaf39cfe697",
           "label": "ROCm LM Eval Large Models (8 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56a7-4b20-b2ad-160a2da6390b&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b04a-413b-8fe5-9f0fb2e290e1&tab=output"
         }
       ],
       "upstream_parity_gaps": [
         {
           "label": "GPQA Eval (GPT-OSS) (DGX Spark)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/lm_eval.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/lm_eval.yaml"
         },
         {
           "label": "LM Eval Humming Act fp8/int8 (B200 - TEMPORARY)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/lm_eval.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/lm_eval.yaml"
         },
         {
           "label": "LM Eval Humming Act fp8/int8 (H100 - TEMPORARY)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/lm_eval.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/lm_eval.yaml"
         },
         {
           "label": "LM Eval Humming Act int8 (A100 - TEMPORARY)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/lm_eval.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/lm_eval.yaml"
         },
         {
           "label": "LM Eval Humming f16 (A100 - TEMPORARY)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/lm_eval.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/lm_eval.yaml"
         },
         {
           "label": "LM Eval Humming f16 (B200 - TEMPORARY)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/lm_eval.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/lm_eval.yaml"
         },
         {
           "label": "LM Eval Humming f16 (H100 - TEMPORARY)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/lm_eval.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/lm_eval.yaml"
         },
         {
           "label": "LM Eval KV-Offload (1xH200)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/lm_eval.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/lm_eval.yaml"
         },
         {
           "label": "LM Eval KV-Offload (2xH100)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/lm_eval.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/lm_eval.yaml"
         },
         {
           "label": "LM Eval KV-Offload (4xH100)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/lm_eval.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/lm_eval.yaml"
         },
         {
           "label": "LM Eval Large Models EP (2xB200)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/lm_eval.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/lm_eval.yaml"
         },
         {
           "label": "LM Eval PCP (4xB200)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/lm_eval.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/lm_eval.yaml"
         },
         {
           "label": "LM Eval Small Models Distributed (2xB200)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/lm_eval.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/lm_eval.yaml"
         },
         {
           "label": "LM Eval TurboQuant KV Cache",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/lm_eval.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/lm_eval.yaml"
         },
         {
           "label": "MoE Refactor Integration Test (B200 - TEMPORARY)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/lm_eval.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/lm_eval.yaml"
         },
         {
           "label": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/lm_eval.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/lm_eval.yaml"
         },
         {
           "label": "MoE Refactor Integration Test (H100 - TEMPORARY)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/lm_eval.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/lm_eval.yaml"
         }
       ]
     },
@@ -1678,21 +1752,21 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-c0f5e2c9f730981e",
           "label": "LoRA",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56af-40b9-b6d6-7c3b45a44c7e&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b053-409a-b056-0ca10737aac7&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-b99973e18201614c",
           "label": "LoRA TP (Distributed)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56b0-462a-840a-093509b0aece&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b054-4860-979b-bfa9dfce4f16&tab=output"
         }
       ],
       "upstream_parity_gaps": []
@@ -1707,9 +1781,9 @@
       "assignment_reason": "selected_owner_not_assignable_ci_lead",
       "counts": {
         "hard": 0,
-        "incidents": 1,
-        "passed": 11,
-        "soft": 1,
+        "incidents": 2,
+        "passed": 10,
+        "soft": 2,
         "targets": 12,
         "unobserved": 0,
         "upstream_parity_gaps": 3
@@ -1740,12 +1814,21 @@
       "regressions": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-f92ce259de41d826",
           "label": "Acceptance Length Test (Large Models)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "soft",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56c9-4a83-b399-77f7b85ccaea&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b072-4ef9-906a-cd0afa1c5cb0&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-ca3befaacc562866",
+          "label": "V1 Core + KV + Metrics",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "soft",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b09c-400d-8259-a6a955f7c329&tab=output"
         }
       ],
       "selected_owner": {
@@ -1758,125 +1841,125 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-f92ce259de41d826",
           "label": "Acceptance Length Test (Large Models)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "soft",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56c9-4a83-b399-77f7b85ccaea&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b072-4ef9-906a-cd0afa1c5cb0&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-89217e7c10938806",
-          "label": "Async Engine, Inputs, Utils, Worker",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-568e-4556-9456-d3b91b4d6018&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-eedb2e163fd9c4df",
-          "label": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5683-4ffd-8152-c3db14573544&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-e47dc8646899fd94",
-          "label": "Batch Invariance",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-567f-400b-912c-98b34ced542b&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-e68ee04dff59551b",
-          "label": "Examples",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56a8-4332-9a94-ed385983bfaa&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-ed8a591865a42d21",
-          "label": "Extract Hidden States Integration",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56cf-4276-97ed-20c2d9f0a284&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-9bc481190653c104",
-          "label": "Metrics, Tracing (2 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56d2-492b-b722-c6da744dd5a7&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-87f8ec7ac7abe128",
-          "label": "Python-only Installation",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5684-4f4a-b176-f9a5f0efd25a&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-f9f0955ea4a62478",
-          "label": "Regression",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56c8-44cb-acda-0cf4f4c6b86f&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-ca3befaacc562866",
           "label": "V1 Core + KV + Metrics",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56d1-4928-84a8-54bdb514626a&tab=output"
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "soft",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b09c-400d-8259-a6a955f7c329&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
+          "id": "matrix-row-89217e7c10938806",
+          "label": "Async Engine, Inputs, Utils, Worker",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b030-4f5e-9d85-541780ad9c4a&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-eedb2e163fd9c4df",
+          "label": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b024-4d4e-80b6-bb488178b217&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-e47dc8646899fd94",
+          "label": "Batch Invariance",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b01f-4f88-8e58-6b1d0398915b&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-e68ee04dff59551b",
+          "label": "Examples",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b04c-4a39-a761-bc77b6ec8de9&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-ed8a591865a42d21",
+          "label": "Extract Hidden States Integration",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b078-430e-ae58-2ddaad8ad940&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-9bc481190653c104",
+          "label": "Metrics, Tracing (2 GPUs)",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b07b-40a5-ade8-b049295f31a2&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-87f8ec7ac7abe128",
+          "label": "Python-only Installation",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b025-45d1-9168-7c26a46c7337&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-f9f0955ea4a62478",
+          "label": "Regression",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b070-4490-8b70-565e207b416c&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
           "id": "matrix-row-13b2a8aee9a1734e",
           "label": "V1 others (CPU)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5683-4e89-a2df-c6a7c3e9e435&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b024-47d1-aa75-2619dd7a39e8&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-fc6c951b0111633d",
           "label": "V1 Sample + Logits",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56d1-46b3-88d2-57a838579904&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b07a-47ae-91d3-9cb412b3a980&tab=output"
         }
       ],
       "upstream_parity_gaps": [
         {
           "label": "Batch Invariance (A100)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/misc.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/misc.yaml"
         },
         {
           "label": "Batch Invariance (B200)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/misc.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/misc.yaml"
         },
         {
           "label": "Extract Hidden States Integration (2 GPUs)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/misc.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/misc.yaml"
         }
       ]
     },
@@ -1927,12 +2010,12 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-a7d8537c11a5308f",
           "label": "Model Executor",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56b0-414a-a2d1-876f6a8ef2f9&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b054-4b07-93ea-7a3b81ba6a5f&tab=output"
         }
       ],
       "upstream_parity_gaps": []
@@ -1984,48 +2067,48 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-f11449cb637a4286",
           "label": "Model Runner V2 Core Tests",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56b1-46b8-8690-65f38f656236&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b055-48b9-a685-a689258d5895&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-028c8bd8a324d5d1",
           "label": "Model Runner V2 Distributed (2 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56b2-4466-977a-82400ba880cd&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b057-421f-9369-dd8fb1deda55&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-2da0dcfaab8dc32b",
           "label": "Model Runner V2 Examples",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56b2-471d-bd34-75ca4ead237e&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b055-4b1a-8972-fe045395aecf&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-a3e6394404341342",
           "label": "Model Runner V2 Pipeline Parallelism (4 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56b3-47cd-90c6-43efb16320dc&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b057-443b-8c32-95c3f2b74d9a&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-12b55051fa18b5a6",
           "label": "Model Runner V2 Spec Decode",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56b3-440c-9354-eefb23d519e4&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b058-4f8e-81f4-a42638bdc5d4&tab=output"
         }
       ],
       "upstream_parity_gaps": []
@@ -2078,49 +2161,49 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-71a2b719d2768711",
           "label": "Basic Models Test (Other CPU)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-567b-4a2a-8bae-d4eb1dc967bf&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b01c-457e-8f31-617a0b34a9de&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-e97f0096409dd5af",
           "label": "Basic Models Tests (Extra Initialization)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56b4-4215-b49f-f5b624f4a9a1&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b059-4080-a535-d914ddb80c4b&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-b5203eebd6baf97f",
           "label": "Basic Models Tests (Initialization)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56b5-4974-b73a-d04a61b6bccf&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b05a-4c84-89cb-584d7f27f47f&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-89f80595143697ca",
           "label": "Basic Models Tests (Other)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56b5-41f2-a003-8e8c87390bf3&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b05b-4ed5-9e96-7a1f8b6d54e1&tab=output"
         }
       ],
       "upstream_parity_gaps": [
         {
           "label": "Inkling Unit Tests (B200)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/models_basic.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/models_basic.yaml"
         },
         {
           "label": "Kimi K3 Unit Tests (B200)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/models_basic.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/models_basic.yaml"
         }
       ]
     },
@@ -2171,12 +2254,12 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-94e54952b076df05",
           "label": "Distributed Model Tests (2 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5687-41bd-b0ec-671f6a1f276c&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b028-419f-8f0f-4480169191ae&tab=output"
         }
       ],
       "upstream_parity_gaps": []
@@ -2191,19 +2274,15 @@
       "assignment_reason": "selected_owner_not_assignable_ci_lead",
       "counts": {
         "hard": 0,
-        "incidents": 2,
-        "passed": 10,
-        "soft": 2,
+        "incidents": 0,
+        "passed": 11,
+        "soft": 0,
         "targets": 12,
-        "unobserved": 0,
+        "unobserved": 1,
         "upstream_parity_gaps": 1
       },
       "escalated_to_ci_lead": false,
-      "issue": {
-        "number": 417,
-        "suppressed": false,
-        "url": "https://github.com/AndreasKaratzas/vllm-ci-dashboard/issues/417"
-      },
+      "issue": null,
       "owners": [
         {
           "display_name": "Wong, Matt",
@@ -2221,26 +2300,7 @@
           "rank": 3
         }
       ],
-      "regressions": [
-        {
-          "area_method": "reviewed_area_override",
-          "build_number": 11863,
-          "id": "matrix-row-c653bdf6af8a7e10",
-          "label": "Transformers Nightly Models (Initialization)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "soft",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56c0-4c22-be39-7aab2bf24164&tab=output"
-        },
-        {
-          "area_method": "reviewed_area_override",
-          "build_number": 11863,
-          "id": "matrix-row-53ce960a565cfb96",
-          "label": "Transformers Nightly Models (Processing)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "soft",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56c0-40b4-ba67-342181ae5c6b&tab=output"
-        }
-      ],
+      "regressions": [],
       "selected_owner": {
         "display_name": "Koncarevic, Stefan",
         "github_login": "stefankoncarevic",
@@ -2251,117 +2311,117 @@
       "targets": [
         {
           "area_method": "reviewed_area_override",
-          "build_number": 11863,
-          "id": "matrix-row-c653bdf6af8a7e10",
-          "label": "Transformers Nightly Models (Initialization)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "soft",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56c0-4c22-be39-7aab2bf24164&tab=output"
-        },
-        {
-          "area_method": "reviewed_area_override",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-53ce960a565cfb96",
           "label": "Transformers Nightly Models (Processing)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "soft",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56c0-40b4-ba67-342181ae5c6b&tab=output"
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "unobserved",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b068-4bb7-938c-b466c3ee1757&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-747b6c3fb010d60b",
           "label": "Language Models Test (Extended Generation) [MI300]",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56b8-482f-ba89-ecdd9024890c&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b05e-471e-baf4-d433aeecd135&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-dea13b705c25a606",
           "label": "Language Models Test (Extended Generation) [MI355]",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56ea-438a-a2a7-176579c0a680&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b094-4298-8cbb-732dfc8b9a1a&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-d01ab4057cab02d5",
           "label": "Language Models Test (Extended Pooling)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56b6-4e5d-b646-ca8305bb63cc&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b05c-4ca2-98d1-a74401a4974a&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-14fe9adb69700a59",
           "label": "Language Models Test (MTEB)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-567c-4267-979e-3a5cb904e6af&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b01d-4c7c-a2ae-f9704bc7943a&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-ed7737ed10f26927",
           "label": "Language Models Test (PPL) [MI250]",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-567c-4ff1-9771-95c947677e0c&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b01e-46e4-b675-955cf67aa3de&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-4002a27d81a200fe",
           "label": "Language Models Test (PPL) [MI355]",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56eb-4f68-a7bf-fea77f51cb93&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b096-48a4-88de-ecfe177c5657&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-0e7e721c3f3d4e2b",
           "label": "Language Models Tests (Extra Standard)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56b8-46ff-8f7a-759928e22a2d&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b05d-48c6-be5d-56e3351ce367&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-4d9d41a29dbcb487",
           "label": "Language Models Tests (Hybrid)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56b9-4798-8c3f-604c6c123207&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b05f-4df1-bcca-252843e78f0e&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-07f8cdd443b090e5",
           "label": "Language Models Tests (Standard)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56b7-4b81-821e-0ee22c7bfcf5&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b05c-4e36-a13a-f837ee275955&tab=output"
         },
         {
           "area_method": "reviewed_area_override",
-          "build_number": 11863,
+          "build_number": 11876,
+          "id": "matrix-row-c653bdf6af8a7e10",
+          "label": "Transformers Nightly Models (Initialization)",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b067-4e81-b7cd-f3f4d0ba04c3&tab=output"
+        },
+        {
+          "area_method": "reviewed_area_override",
+          "build_number": 11876,
           "id": "matrix-row-692465a3f6116180",
           "label": "Transformers Nightly Models (Single)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56c1-458c-917d-29b6bdb40409&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b069-40d0-9bfe-4385fe17209d&tab=output"
         }
       ],
       "upstream_parity_gaps": [
         {
           "label": "Language Models Tests (Granite L4 Compatibility)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/models_language.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/models_language.yaml"
         }
       ]
     },
@@ -2376,10 +2436,10 @@
       "counts": {
         "hard": 0,
         "incidents": 1,
-        "passed": 12,
+        "passed": 11,
         "soft": 1,
         "targets": 13,
-        "unobserved": 0,
+        "unobserved": 1,
         "upstream_parity_gaps": 0
       },
       "escalated_to_ci_lead": false,
@@ -2408,12 +2468,12 @@
       "regressions": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-823b4bc9f4981671",
           "label": "Multi-Modal Models (Extended Generation 3)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "soft",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56bb-4004-9922-fbcf9b4135fa&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b061-4791-a3f4-13e456b084d5&tab=output"
         }
       ],
       "selected_owner": {
@@ -2426,120 +2486,120 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-823b4bc9f4981671",
           "label": "Multi-Modal Models (Extended Generation 3)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "soft",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56bb-4004-9922-fbcf9b4135fa&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b061-4791-a3f4-13e456b084d5&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-6a82df19ec7fe39b",
-          "label": "Multi-Modal Accuracy Eval (Small Models)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56a1-4e1e-b797-0d2990049965&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-c109967afbbf1c4d",
-          "label": "Multi-Modal Models (Extended Generation 1)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56ba-49f5-8c53-1c1e372d844e&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-7c504aa398083061",
-          "label": "Multi-Modal Models (Extended Generation 2)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56ba-4dee-bc0a-bfae05609e93&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-f9ea2e168f22e15a",
-          "label": "Multi-Modal Models (Extended Pooling)",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56be-4bf5-bab7-fba3a191d8a4&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-f034d334d3cebdab",
-          "label": "Multi-Modal Models (Standard) 1: qwen2",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56bc-4e6b-999d-63180fc95e66&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-4abc49555f8a1ef2",
-          "label": "Multi-Modal Models (Standard) 2: qwen3 + gemma",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56bf-461f-a6e0-4589d92d6691&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-daee2afafe9f9bfb",
-          "label": "Multi-Modal Models (Standard) 3: llava + qwen2_vl [MI250]",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-567d-4126-84d7-ccfcdd49628e&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-c05e9e7a73ca7c40",
-          "label": "Multi-Modal Models (Standard) 3: llava + qwen2_vl [MI300]",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56bc-479d-b8b4-93e8c1ee903b&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-d57244680f25f74d",
-          "label": "Multi-Modal Models (Standard) 4: other + whisper [MI300]",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56bd-440e-a669-b53f9ba7f0b4&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
-          "id": "matrix-row-e1720790947a55fc",
-          "label": "Multi-Modal Models (Standard) 4: other + whisper [MI355]",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56ef-4565-816a-a5bcf0b0ab97&tab=output"
-        },
-        {
-          "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-ca134ce6f6dfdf07",
           "label": "Multi-Modal Processor",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56bd-441c-a5cb-bf60336ddee9&tab=output"
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "unobserved",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?jid=019feae6-b10a-47aa-8cdf-41926a8bbd2b&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
+          "id": "matrix-row-6a82df19ec7fe39b",
+          "label": "Multi-Modal Accuracy Eval (Small Models)",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b044-4343-b7b3-73fe2de908c9&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-c109967afbbf1c4d",
+          "label": "Multi-Modal Models (Extended Generation 1)",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b05f-401c-a850-97a31efcca01&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-7c504aa398083061",
+          "label": "Multi-Modal Models (Extended Generation 2)",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b060-4309-8c7c-d0bc65eed065&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-f9ea2e168f22e15a",
+          "label": "Multi-Modal Models (Extended Pooling)",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b064-448d-8b80-72b731095ed2&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-f034d334d3cebdab",
+          "label": "Multi-Modal Models (Standard) 1: qwen2",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b062-42dd-a207-60f86b82e585&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-4abc49555f8a1ef2",
+          "label": "Multi-Modal Models (Standard) 2: qwen3 + gemma",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b065-4fcd-85c7-01ac9b695d0e&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-daee2afafe9f9bfb",
+          "label": "Multi-Modal Models (Standard) 3: llava + qwen2_vl [MI250]",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b01e-451d-b291-df6d1cd0814a&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-c05e9e7a73ca7c40",
+          "label": "Multi-Modal Models (Standard) 3: llava + qwen2_vl [MI300]",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b062-42ae-bb8a-e88d7e5a1b9d&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-d57244680f25f74d",
+          "label": "Multi-Modal Models (Standard) 4: other + whisper [MI300]",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b063-432b-8161-82806d03c106&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
+          "id": "matrix-row-e1720790947a55fc",
+          "label": "Multi-Modal Models (Standard) 4: other + whisper [MI355]",
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "passed",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b09a-48b6-a73e-f0cca55c281b&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 11876,
           "id": "matrix-row-2526f6a58304d1ae",
           "label": "Multi-Modal Processor (CPU)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-567e-4a1e-bea9-76b970c95c0d&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b01f-4093-994c-ac6295f9f216&tab=output"
         }
       ],
       "upstream_parity_gaps": []
@@ -2592,31 +2652,31 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-ee2e60297b49f345",
           "label": "GGUF Plugin",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56c2-49dc-b1d0-062e5adf729b&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b06a-46ad-b301-8d2a5a39ba24&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-1816b1d1822808a8",
           "label": "Plugin Tests (2 GPUs)",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56c2-4fd7-b3ac-f778ddb61d3d&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b069-4ccb-a6a6-9eb86a38725e&tab=output"
         }
       ],
       "upstream_parity_gaps": [
         {
           "label": "BitsAndBytes Plugin",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/plugins.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/plugins.yaml"
         },
         {
           "label": "BitsAndBytes Plugin (2 GPUs)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/plugins.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/plugins.yaml"
         }
       ]
     },
@@ -2663,12 +2723,12 @@
       "regressions": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-2910fcfca711bc93",
           "label": "PyTorch Compilation Passes Unit Tests",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "soft",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-568a-4c50-bab4-ecb60251e17a&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b02c-4837-b442-42e1662254ff&tab=output"
         }
       ],
       "selected_owner": {
@@ -2681,44 +2741,44 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-2910fcfca711bc93",
           "label": "PyTorch Compilation Passes Unit Tests",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "soft",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-568a-4c50-bab4-ecb60251e17a&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b02c-4837-b442-42e1662254ff&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-89d89478a884664a",
           "label": "PyTorch Compilation Unit Tests",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5688-4141-b96b-859ddbb56287&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b02a-4f36-9b0d-9087c5588f53&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-405613b083261211",
           "label": "Pytorch Nightly Dependency Override Check",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-568b-422a-87f7-a8917b665514&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b02d-4fc6-8033-df2c4f4107a5&tab=output"
         }
       ],
       "upstream_parity_gaps": [
         {
           "label": "PyTorch Compilation Unit Tests (H100)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/pytorch.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/pytorch.yaml"
         },
         {
           "label": "PyTorch Fullgraph CUDAGraph (L4 Compatibility)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/pytorch.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/pytorch.yaml"
         },
         {
           "label": "PyTorch Fullgraph Test",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/pytorch.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/pytorch.yaml"
         }
       ]
     },
@@ -2733,10 +2793,10 @@
       "counts": {
         "hard": 0,
         "incidents": 0,
-        "passed": 4,
+        "passed": 3,
         "soft": 0,
         "targets": 4,
-        "unobserved": 0,
+        "unobserved": 1,
         "upstream_parity_gaps": 2
       },
       "escalated_to_ci_lead": false,
@@ -2769,49 +2829,49 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-07f5716c9e9ed808",
           "label": "Quantization [MI300]",
-          "observed_at": "2026-08-10T09:08:44Z",
-          "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56c6-4f2d-a60c-b05114961d73&tab=output"
+          "observed_at": "2026-08-10T10:56:30Z",
+          "result": "unobserved",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?jid=019feae6-b10f-46d3-b9ae-33c078fb58a8&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-c8f5545b7f862551",
           "label": "Quantization [MI355]",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56f0-4bea-bedf-fef13f3f1afa&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b09b-434a-b599-dee566dbac98&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-8f1b6b83e81b7934",
           "label": "Quantized Models Test [MI300]",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56bf-448f-8397-85535aa5bf7d&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b066-497e-a779-b63ce1cfd068&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-6037a115c1119a98",
           "label": "Quantized Models Test [MI355]",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56f0-4fca-9149-60906f265707&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b09a-402b-9efb-d8229115272f&tab=output"
         }
       ],
       "upstream_parity_gaps": [
         {
           "label": "Quantized Fusions",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/quantization.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/quantization.yaml"
         },
         {
           "label": "Quantized MoE Test (B200)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/quantization.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/quantization.yaml"
         }
       ]
     },
@@ -2862,12 +2922,12 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-f86453198f2dbfd3",
           "label": "Ray Dependency Compatibility Check",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56c9-4cc4-b279-1a52eaaa39ce&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b071-42cf-858c-2ee1900369af&tab=output"
         }
       ],
       "upstream_parity_gaps": []
@@ -2920,66 +2980,66 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-72e59df2b8693f0b",
           "label": "Rust Frontend Cargo Style + Clippy",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5685-4e29-b457-d0ed9c168e88&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b025-42a6-86ec-7602a9dda5cf&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-bdb7419c3d82a01a",
           "label": "Rust Frontend Cargo Tests",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5685-434d-abed-2d22c63bde54&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b026-40ac-8674-dd0d28b14bcf&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-9a1f6adbad0ecbdb",
           "label": "Rust Frontend Core Correctness",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56c4-408b-ad64-d0228caa8251&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b06c-49f8-aca4-d1e756fb02b9&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-733bb68dde8cf2bd",
           "label": "Rust Frontend Distributed",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56c6-4581-92be-dccfade361ed&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b06e-49ea-b018-1820d1618129&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-0c97241a9efe1cde",
           "label": "Rust Frontend OpenAI Coverage",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56c3-45b2-b7df-c81b92e964d5&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b06b-4068-9ab3-e3221f4f7bb5&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-2f1614df4a44fdf0",
           "label": "Rust Frontend Serve Admin Coverage",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56c3-4db3-8c6b-adedcd765d1c&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b06c-4ce8-bdf7-50f8198a8135&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-667e0aaba26d2326",
           "label": "Rust Frontend Tool Use",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56c5-461c-9439-7f000333f044&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b06d-4bd1-88c2-29805c918cc7&tab=output"
         }
       ],
       "upstream_parity_gaps": []
@@ -3031,12 +3091,12 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-5443f009b978ad1b",
           "label": "Samplers Test",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56c8-44da-a018-d42dc0adb782&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b070-44d7-acda-94e70f9efd8e&tab=output"
         }
       ],
       "upstream_parity_gaps": []
@@ -3088,87 +3148,87 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-fee7844059841d87",
           "label": "Spec Decode Draft Model",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5682-4bdd-8a4e-3af27373806d&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b022-412b-b095-9a6335a7a301&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-f9d935982756921e",
           "label": "Spec Decode Eagle",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56cc-48e7-a583-b6cdf10fdcb8&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b074-44ee-b3d5-f05554e72392&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-7b84c2c2092554d8",
           "label": "Spec Decode Ngram + Suffix",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56cd-40fd-b09b-f069e7dd075e&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b075-4aa8-be51-d1681c14d8a9&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-1fdc93ff50172dfd",
           "label": "Spec Decode Speculators + MTP",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-5682-465d-a43b-ac78c8d44b86&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b023-49e2-8d89-a177a3f7a9f2&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-b936437522c0ddc7",
           "label": "Speculators Correctness",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56ce-4ebb-85ee-d2537b266180&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b076-415c-b5fa-44d028e6c957&tab=output"
         },
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-ae28e85ed149a719",
           "label": "V1 Spec Decode",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56cf-40dc-82b7-10a66994c2e7&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b077-446a-a0b2-2ab53c660e64&tab=output"
         }
       ],
       "upstream_parity_gaps": [
         {
           "label": "Spec Decode AL DFlash Nightly",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/spec_decode.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/spec_decode.yaml"
         },
         {
           "label": "Spec Decode AL DSpark Nightly",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/spec_decode.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/spec_decode.yaml"
         },
         {
           "label": "Spec Decode AL MTP + Other Acceptance Nightly",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/spec_decode.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/spec_decode.yaml"
         },
         {
           "label": "Spec Decode DeepSeek MTP Parallel Load (B200)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/spec_decode.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/spec_decode.yaml"
         },
         {
           "label": "Spec Decode Draft Model Nightly (B200)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/spec_decode.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/spec_decode.yaml"
         },
         {
           "label": "Spec Decode Eagle Nightly (B200)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/spec_decode.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/spec_decode.yaml"
         },
         {
           "label": "Spec Decode Speculators + MTP Nightly (B200)",
-          "url": "https://github.com/vllm-project/vllm/blob/243c63baf5239f961305e25160c1bf6d34096df4/.buildkite/test_areas/spec_decode.yaml"
+          "url": "https://github.com/vllm-project/vllm/blob/3a79957b62ade336010cc052e322d0005eb091a2/.buildkite/test_areas/spec_decode.yaml"
         }
       ]
     },
@@ -3219,21 +3279,21 @@
       "targets": [
         {
           "area_method": "definition_parity",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-82d285020f8981a4",
           "label": "Weight Loading Multiple GPU",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56da-4ed1-ae5a-e0eb766d8c1c&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b084-43f0-a1a9-34993b07273f&tab=output"
         },
         {
           "area_method": "reviewed_area_override",
-          "build_number": 11863,
+          "build_number": 11876,
           "id": "matrix-row-e79b029d5bba76b0",
           "label": "Weight Loading Multiple GPU - Large Models",
-          "observed_at": "2026-08-10T09:08:44Z",
+          "observed_at": "2026-08-10T10:56:30Z",
           "result": "passed",
-          "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56db-4054-9a1a-014fc558ca2f&tab=output"
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b085-46ab-8981-7960d4e237eb&tab=output"
         }
       ],
       "upstream_parity_gaps": []
@@ -3251,7 +3311,7 @@
     "github_login": "AndreasKaratzas",
     "working_hours_profile": "NA"
   },
-  "generated_at": "2026-08-10T09:09:10Z",
+  "generated_at": "2026-08-10T10:56:56Z",
   "issue_mutations": "enabled",
   "policy": {
     "assignment": "first available owner by ascending rank; otherwise CI lead",
@@ -3270,55 +3330,55 @@
   },
   "schema_version": 1,
   "sources": {
-    "current_parity_commit": "243c63baf5239f961305e25160c1bf6d34096df4",
-    "runtime_commit": "c4239986427a40389fd79c1a4f6afd48aea6512e"
+    "current_parity_commit": "3a79957b62ade336010cc052e322d0005eb091a2",
+    "runtime_commit": "243c63baf5239f961305e25160c1bf6d34096df4"
   },
   "summary": {
     "areas": 31,
-    "areas_with_incidents": 4,
+    "areas_with_incidents": 7,
     "hard": 0,
-    "incidents": 5,
-    "soft": 5,
+    "incidents": 10,
+    "soft": 10,
     "unmapped_targets": 4,
-    "unobserved": 0,
+    "unobserved": 3,
     "upstream_parity_gaps": 64
   },
   "unmapped_targets": [
     {
       "area_method": "area_unmapped",
-      "build_number": 11863,
+      "build_number": 11876,
       "id": "matrix-row-1cee6aa044864988",
       "label": "Kernels KDA Test",
-      "observed_at": "2026-08-10T09:08:44Z",
+      "observed_at": "2026-08-10T10:56:30Z",
       "result": "passed",
-      "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56ab-44f5-9052-0418301ccd10&tab=output"
+      "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b04f-41d4-93ce-05ed6f2c6ac4&tab=output"
     },
     {
       "area_method": "area_unmapped",
-      "build_number": 11863,
+      "build_number": 11876,
       "id": "matrix-row-504ad116da56d2d8",
       "label": "Kernels MLA",
-      "observed_at": "2026-08-10T09:08:44Z",
+      "observed_at": "2026-08-10T10:56:30Z",
       "result": "passed",
-      "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-56a9-444f-ad35-c6fcd56b9dca&tab=output"
+      "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b04d-453d-9d2c-108056634902&tab=output"
     },
     {
       "area_method": "area_unmapped",
-      "build_number": 11863,
+      "build_number": 11876,
       "id": "matrix-row-fd5aaa8b772d805c",
       "label": "PyTorch Fullgraph",
-      "observed_at": "2026-08-10T09:08:44Z",
+      "observed_at": "2026-08-10T10:56:30Z",
       "result": "passed",
-      "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-568b-4c79-a3cf-221e56575653&tab=output"
+      "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b02d-428b-8e20-319c53f989c5&tab=output"
     },
     {
       "area_method": "area_unmapped",
-      "build_number": 11863,
+      "build_number": 11876,
       "id": "matrix-row-446ec09b545b721b",
       "label": "PyTorch Fullgraph Smoke Test",
-      "observed_at": "2026-08-10T09:08:44Z",
+      "observed_at": "2026-08-10T10:56:30Z",
       "result": "passed",
-      "url": "https://buildkite.com/vllm/amd-ci/builds/11863/steps/canvas?sid=019fe5c0-567a-4931-bb95-d19f349292c2&tab=output"
+      "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?sid=019feae6-b01b-4201-a245-76a56548f495&tab=output"
     }
   ]
 }
