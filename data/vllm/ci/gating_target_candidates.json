@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-10T10:56:51Z",
+  "generated_at": "2026-08-10T12:22:49Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -26,15 +26,15 @@
     "canonical_target_count": 125,
     "row_count": 232,
     "canonical_match_count": 114,
-    "likely_duplicate_count": 14,
+    "likely_duplicate_count": 15,
     "new_candidate_count": 52,
     "excluded_count": 46,
-    "missing_from_upstream_count": 6,
+    "missing_from_upstream_count": 5,
     "by_decision": {
       "canonical": 114,
       "excluded": 46,
-      "likely_duplicate": 14,
-      "missing_from_upstream": 6,
+      "likely_duplicate": 15,
+      "missing_from_upstream": 5,
       "new_candidate": 52
     }
   },
@@ -983,7 +983,7 @@
       "canonical_key": "kernels helion test",
       "state": "passed",
       "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ced2-4d63-bb7c-66ca30b81fa9&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ced2-4ead-a3f9-345df6bffca7&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 92,
@@ -2008,7 +2008,7 @@
       "canonical_key": "v1 attention",
       "state": "passed",
       "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdc3-4c42-a56f-225596557972&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdc0-4773-b583-4d74339f107e&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 103,
@@ -3167,6 +3167,18 @@
       "proposal_matches": []
     },
     {
+      "label": "Kernels FP8 MoE Test (2xH100)",
+      "canonical_key": "kernels fp8 moe test (2 gpus)",
+      "state": "passed",
+      "queue": "mithril-h100-pool",
+      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea8c-65fd-473f-bbde-300e049108e1&tab=output",
+      "exclusion_reasons": [],
+      "decision": "likely_duplicate",
+      "duplicate_of": "Kernels FP8 MoE Test (2 H100s)",
+      "target_id": 24,
+      "proposal_matches": []
+    },
+    {
       "label": "Kernels FusedMoE Layer Test (2 B200s)",
       "canonical_key": "kernels fusedmoe layer test (2 gpus)",
       "state": "passed",
@@ -3744,15 +3756,6 @@
       "source_signal": "red",
       "readiness_signal": "red",
       "target_signal": "red"
-    },
-    {
-      "decision": "missing_from_upstream",
-      "target_id": 24,
-      "label": "Kernels FP8 MoE Test (2 H100s)",
-      "canonical_key": "kernels fp8 moe test (2 gpus)",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "green"
     },
     {
       "decision": "missing_from_upstream",
