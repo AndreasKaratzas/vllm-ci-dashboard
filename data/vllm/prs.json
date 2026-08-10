@@ -1,5 +1,5 @@
 {
-  "collected_at": "2026-08-10T17:26:43Z",
+  "collected_at": "2026-08-10T18:24:02Z",
   "prs": [
     {
       "number": 50907,
@@ -8,18 +8,19 @@
       "state": "open",
       "merged": false,
       "created_at": "2026-08-03T19:16:40Z",
-      "updated_at": "2026-08-10T07:23:02Z",
+      "updated_at": "2026-08-10T18:23:28Z",
       "html_url": "https://github.com/vllm-project/vllm/pull/50907",
       "labels": [
         "documentation",
         "rocm",
         "ready",
+        "needs-rebase",
         "multi-modality",
         "gpt-oss",
         "kv-connector"
       ],
       "draft": false,
-      "body_head": "- Remove ROCm-wide Math SDPA forcing from Transformers multimodal execution and affected test conftests.\r\n- Remove blanket skinny GEMM disable overrides while retaining independent backend and determinism settings.\r\n- Make non-contiguous skinny GEMM activations contiguous and fall back safely for unsupported weight or bias layouts.\r\n- Use default speech attention on MI250 while retaining supported AITER routing on CDNA3+ hardware.\r\n- Keep embedding reference comparisons aligned with the server's per-request execution geometry.\r\n\r\nThis addresses [#37736](https://github.com/vllm-project/vllm/issues/37736), where stale ROCm Math SDPA forcing made the 32-image Gemma3 profiling forward OOM on MI250. With default SDPA selection, the same profile completes while preserving model behavior. Removing blanket skinny GEMM disables exposed a non-contiguous activation bug in the ROCm GEMM dispatcher, which is fixed by normalizing supported inputs and falling back for unsupported operand layouts. Broad multimodal and targeted ROCm validation passed, with unrelated model-access and optional-dependency failures classified separately.\n\n### Scope clarification\n\nThe Gemma 4 heterogeneous-config changes that overlapped with #49797 were removed in `16dcc652c`; that work remains evaluated in #49797. This PR therefore no longer duplicates those changes.\n\n### Validation\n\n- `.venv/bin/pre-commit run --files <six reverted paths>` \u2014 passed all applicable hooks.\n- `.venv/bin/python -m compileall -q <six reverted paths>` \u2014 passed.\n- Diff verification confirmed all six paths match this PR's merge base and the changed-file intersection with #49797 is empty.\n- Targeted pytest did not run locally because the checkout lacks the full test dependencies (`tblib` and `transformers`).\n- Model evals were not rerun for this subtraction-only commit; the remaining changes retain the validation summarized above.\n\nAI assistance was used to identify and remove the cross-PR overlap and verify the resulting diff.",
+      "body_head": "- Remove ROCm-wide Math SDPA forcing from Transformers multimodal execution and affected test conftests.\r\n- Remove blanket skinny GEMM disable overrides while retaining independent backend and determinism settings.\r\n- Make non-contiguous skinny GEMM activations contiguous and fall back safely for unsupported weight or bias layouts.\r\n- Use default speech attention on MI250 while retaining supported AITER routing on CDNA3+ hardware.\r\n- Keep embedding reference comparisons aligned with the server's per-request execution geometry.\r\n\r\nThis addresses [#37736](https://github.com/vllm-project/vllm/issues/37736), where stale ROCm Math SDPA forcing made the 32-image Gemma3 profiling forward OOM on MI250. With default SDPA selection, the same profile completes while preserving model behavior. Removing blanket skinny GEMM disables exposed a non-contiguous activation bug in the ROCm GEMM dispatcher, which is fixed by normalizing supported inputs and falling back for unsupported operand layouts. Broad multimodal and targeted ROCm validation passed, with unrelated model-access and optional-dependency failures classified separately.",
       "is_ci_pr": true,
       "is_rocm_pr": true,
       "ci_issue_numbers": [
@@ -32,6 +33,7 @@
       "other_tags": [
         "documentation",
         "ready",
+        "needs-rebase",
         "multi-modality",
         "gpt-oss",
         "kv-connector"
