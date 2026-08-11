@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-08-11T13:47:32Z",
+  "generated_at": "2026-08-11T15:24:18Z",
   "amd_date": "2026-08-11",
   "upstream_date": "2026-08-11",
   "parity_pct": 0.0,
-  "total_tests": 767,
+  "total_tests": 770,
   "summary": {
-    "upstream_only": 426,
+    "upstream_only": 429,
     "amd_only": 341
   },
   "by_module": {
@@ -497,6 +497,10 @@
       "parity_pct": 100.0,
       "upstream_only": 1
     },
+    "Distributed Tests (8xH100)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
     "Distributed Torchrun + Examples (4 GPUs)": {
       "parity_pct": 100.0,
       "upstream_only": 1
@@ -774,6 +778,14 @@
       "upstream_only": 2
     },
     "LM Eval KV-Offload (2xH100)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "LM Eval KV-Offload (4xH100)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "LM Eval Large Models (4xH100)": {
       "parity_pct": 100.0,
       "upstream_only": 1
     },
@@ -3636,7 +3648,7 @@
       "family_key": "distributed tests (8 gpus)",
       "family_name": "distributed tests (8 gpus)",
       "amd_job_name": "mi300_8: Distributed Tests (8xH100-8xMI300)",
-      "upstream_job_name": null,
+      "upstream_job_name": "Distributed Tests (8xH100)",
       "amd": {
         "total": 1,
         "passed": 1,
@@ -3647,8 +3659,18 @@
         "error": 0,
         "duration": 0.0
       },
-      "upstream": null,
+      "upstream": {
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 0.0
+      },
       "hardware": [
+        "h100",
         "mi300"
       ],
       "hw_failures": null,
@@ -3660,9 +3682,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/11920/steps/canvas?sid=019ff00d-230d-4b79-9bc7-30a18495f367&tab=output",
           "job_name": "mi300_8: Distributed Tests (8xH100-8xMI300)",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5fec-4547-b955-ab525507e29f&tab=output",
+          "job_name": "Distributed Tests (8xH100)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -5490,7 +5524,7 @@
       "family_key": "kernels attention test",
       "family_name": "kernels attention test",
       "amd_job_name": "mi300_1: Kernels Attention Test 1",
-      "upstream_job_name": "Kernels Attention Test 1",
+      "upstream_job_name": "Kernels Attention Test 2",
       "amd": {
         "total": 13754,
         "passed": 6405,
@@ -5534,8 +5568,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-6051-4e17-af46-ae79ed7e093b&tab=output",
-          "job_name": "Kernels Attention Test 1",
+          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-6051-457b-b306-689b8602c734&tab=output",
+          "job_name": "Kernels Attention Test 2",
           "side": "upstream"
         }
       ],
@@ -6364,7 +6398,7 @@
       "family_key": "language models tests (hybrid)",
       "family_name": "language models tests (hybrid)",
       "amd_job_name": "mi300_1: Language Models Tests (Hybrid) 1",
-      "upstream_job_name": "Language Models Tests (Hybrid) 1",
+      "upstream_job_name": "Language Models Tests (Hybrid) 2",
       "amd": {
         "total": 40,
         "passed": 38,
@@ -6401,8 +6435,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-60a0-4494-91f5-aeffc0955d75&tab=output",
-          "job_name": "Language Models Tests (Hybrid) 1",
+          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-60a1-4bf1-8741-a7d3633f56a7&tab=output",
+          "job_name": "Language Models Tests (Hybrid) 2",
           "side": "upstream"
         }
       ],
@@ -6483,7 +6517,7 @@
       "family_key": "lm eval large models (4 gpus)",
       "family_name": "lm eval large models (4 gpus)",
       "amd_job_name": "mi300_4: LM Eval Large Models (4xA100-4xMI300)",
-      "upstream_job_name": null,
+      "upstream_job_name": "LM Eval Large Models (4xH100)",
       "amd": {
         "total": 6,
         "passed": 6,
@@ -6494,8 +6528,18 @@
         "error": 0,
         "duration": 1386.22
       },
-      "upstream": null,
+      "upstream": {
+        "total": 2,
+        "passed": 2,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 1453.18
+      },
       "hardware": [
+        "h100",
         "mi300"
       ],
       "hw_failures": null,
@@ -6507,9 +6551,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/11920/steps/canvas?sid=019ff00d-2333-4a38-a5d8-1c9d1ef4acbc&tab=output",
           "job_name": "mi300_4: LM Eval Large Models (4xA100-4xMI300)",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-6070-49ec-bc81-5bb64bb2a8d0&tab=output",
+          "job_name": "LM Eval Large Models (4xH100)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -6517,7 +6573,7 @@
       "family_key": "lm eval large models (4 gpus)",
       "family_name": "lm eval large models (4 gpus)",
       "amd_job_name": "mi300_4: LM Eval Large Models (4xH100-4xMI300)",
-      "upstream_job_name": null,
+      "upstream_job_name": "LM Eval Large Models (4xH100)",
       "amd": {
         "total": 1,
         "passed": 1,
@@ -6528,8 +6584,18 @@
         "error": 0,
         "duration": 1076.19
       },
-      "upstream": null,
+      "upstream": {
+        "total": 2,
+        "passed": 2,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 1453.18
+      },
       "hardware": [
+        "h100",
         "mi300"
       ],
       "hw_failures": null,
@@ -6541,9 +6607,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/11920/steps/canvas?sid=019ff00d-2338-4ae6-801f-abd421709a9d&tab=output",
           "job_name": "mi300_4: LM Eval Large Models (4xH100-4xMI300)",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-6070-49ec-bc81-5bb64bb2a8d0&tab=output",
+          "job_name": "LM Eval Large Models (4xH100)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": -1,
+        "passed": -1,
+        "failed": 0,
+        "skipped": 0
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -6551,7 +6629,7 @@
       "family_key": "lm eval large models (4 gpus)",
       "family_name": "lm eval large models (4 gpus)",
       "amd_job_name": "mi355_4: LM Eval Large Models (4xH100-4xMI355)",
-      "upstream_job_name": null,
+      "upstream_job_name": "LM Eval Large Models (4xH100)",
       "amd": {
         "total": 1,
         "passed": 1,
@@ -6562,8 +6640,18 @@
         "error": 0,
         "duration": 851.95
       },
-      "upstream": null,
+      "upstream": {
+        "total": 2,
+        "passed": 2,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 1453.18
+      },
       "hardware": [
+        "h100",
         "mi355"
       ],
       "hw_failures": null,
@@ -6575,9 +6663,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/11920/steps/canvas?sid=019ff00d-2379-4c53-bb0a-aa063423e401&tab=output",
           "job_name": "mi355_4: LM Eval Large Models (4xH100-4xMI355)",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-6070-49ec-bc81-5bb64bb2a8d0&tab=output",
+          "job_name": "LM Eval Large Models (4xH100)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": -1,
+        "passed": -1,
+        "failed": 0,
+        "skipped": 0
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -6891,7 +6991,7 @@
       "family_key": "lora",
       "family_name": "lora",
       "amd_job_name": "mi300_1: LoRA 3",
-      "upstream_job_name": "LoRA 1",
+      "upstream_job_name": "LoRA 4",
       "amd": {
         "total": 6940,
         "passed": 6832,
@@ -6928,8 +7028,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-607a-4cd8-8c53-7358e6c1d129&tab=output",
-          "job_name": "LoRA 1",
+          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-607c-4793-be91-44488f890654&tab=output",
+          "job_name": "LoRA 4",
           "side": "upstream"
         }
       ],
@@ -10255,7 +10355,7 @@
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5f7f-4eff-9e24-772649e3c72a&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5f83-43ca-b2a6-2181f454431e&tab=output",
           "job_name": "V1 attention (B200)",
           "side": "upstream"
         }
@@ -10311,7 +10411,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5f83-46a6-bc84-464d0bb4e0de&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5f87-49b0-a98b-32cfb928c7cf&tab=output",
           "job_name": "V1 attention (H100-MI300)",
           "side": "upstream"
         }
@@ -12207,6 +12307,40 @@
       "backfilled": false
     },
     {
+      "name": "lm eval kv-offload (4 gpus)",
+      "family_key": "lm eval kv-offload (4 gpus)",
+      "family_name": "lm eval kv-offload (4 gpus)",
+      "amd_job_name": null,
+      "upstream_job_name": "LM Eval KV-Offload (4xH100)",
+      "amd": null,
+      "upstream": {
+        "total": 2,
+        "passed": 2,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 1466.58
+      },
+      "hardware": [
+        "h100"
+      ],
+      "hw_failures": null,
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-605f-4713-b5e9-4f266e613c21&tab=output",
+          "job_name": "LM Eval KV-Offload (4xH100)",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
       "name": "lm eval large models ep (2 gpus)",
       "family_key": "lm eval large models ep (2 gpus)",
       "family_name": "lm eval large models ep (2 gpus)",
@@ -13231,25 +13365,6 @@
       "delta": null,
       "status": "upstream_only",
       "backfilled": true
-    },
-    {
-      "name": "lm eval kv-offload (4 gpus)",
-      "family_key": "lm eval kv-offload (4 gpus)",
-      "family_name": "lm eval kv-offload (4 gpus)",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
     }
   ],
   "details": [
@@ -14256,6 +14371,12 @@
       "category": "upstream_only"
     },
     {
+      "test_id": "Distributed Tests (8xH100)::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
       "test_id": "Distributed Torchrun + Examples (4 GPUs)::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -14881,6 +15002,18 @@
     },
     {
       "test_id": "LM Eval KV-Offload (2xH100)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "LM Eval KV-Offload (4xH100)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "LM Eval Large Models (4xH100)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
