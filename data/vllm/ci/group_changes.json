@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-08-11T00:07:23Z",
+  "generated_at": "2026-08-11T02:46:58Z",
   "days": 30,
-  "total_changes": 102,
+  "total_changes": 103,
   "changes": [
     {
       "date": "2026-03-10",
@@ -3630,6 +3630,38 @@
         "title": "[Migration] Migrate bitsandbytes support to OOT plugin",
         "url": "https://github.com/vllm-project/vllm/pull/43529",
         "author": "Isotr0py"
+      }
+    },
+    {
+      "date": "2026-08-11",
+      "sha": "1a1727330a14",
+      "message": "[CI] Solidify speculative decoding E2E coverage (#50713)",
+      "author": "Andreas Karatzas",
+      "added": [
+        "Spec Decode DeepSeek MTP Parallel Load (2xB200-2xMI300)",
+        "Spec Decode Eagle 1: DeepSeek + Qwen",
+        "Spec Decode Eagle 2: Llama 3 + Qwen VL + Other"
+      ],
+      "removed": [
+        "Spec Decode DeepSeek MTP Parallel Load (B200)",
+        "Spec Decode Eagle"
+      ],
+      "amd_added": [],
+      "amd_removed": [],
+      "upstream_added": [
+        "Spec Decode DeepSeek MTP Parallel Load (2xB200-2xMI300)",
+        "Spec Decode Eagle 1: DeepSeek + Qwen",
+        "Spec Decode Eagle 2: Llama 3 + Qwen VL + Other"
+      ],
+      "upstream_removed": [
+        "Spec Decode DeepSeek MTP Parallel Load (B200)",
+        "Spec Decode Eagle"
+      ],
+      "pr": {
+        "number": 50713,
+        "title": "[CI] Solidify speculative decoding E2E coverage",
+        "url": "https://github.com/vllm-project/vllm/pull/50713",
+        "author": "AndreasKaratzas"
       }
     }
   ],
