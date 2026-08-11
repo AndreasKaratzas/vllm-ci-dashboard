@@ -51,6 +51,9 @@ PATH_ALLOWLIST = (
     "data/",  # hashed user entries + CI data with commit SHAs
     "flake.lock",
     "node_modules/",
+    "tests/browser/node_modules/",  # pinned third-party browser-test dependencies
+    "tests/browser/test-results/",  # generated Playwright traces and snapshots
+    "tests/browser/playwright-report/",  # generated Playwright HTML report
     "_site/",
     ".venv/",  # local dev virtualenv — third-party wheels carry SHA-1/256 blobs
     ".tox/",

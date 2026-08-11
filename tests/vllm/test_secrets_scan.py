@@ -64,6 +64,9 @@ class TestAllowlist:
         "data/users.json",
         "data/vllm/ci/ci_health.json",
         "flake.lock",
+        "tests/browser/node_modules/playwright/index.js",
+        "tests/browser/test-results/trace/resources/request.json",
+        "tests/browser/playwright-report/index.html",
     ])
     def test_paths_skipped(self, rel):
         assert ss._is_allowlisted(rel)

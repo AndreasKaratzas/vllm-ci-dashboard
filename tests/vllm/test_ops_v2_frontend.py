@@ -1360,6 +1360,50 @@ def test_workload_anomaly_views_compare_recent_and_baseline_evidence():
     assert "Open exact cadence, baseline, and recent Buildkite history" in OPS_JS
 
 
+def test_workload_frequency_signal_handles_missing_baseline_in_javascript():
+    if not shutil.which("node"):
+        import pytest
+
+        pytest.skip("node is not available")
+    script = r"""
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const sandbox = {
+  window: {__OPS_V2_TEST__: true},
+  document: {addEventListener: function () {}},
+  console: console,
+  URL: URL,
+};
+vm.createContext(sandbox);
+vm.runInContext(source, sandbox, {filename: process.argv[1]});
+const signal = sandbox.window.OpsV2Test.trajectoryFrequencySignal;
+assert.equal(signal(null).text, 'baseline limited');
+assert.equal(signal(undefined).text, 'baseline limited');
+assert.equal(signal(null).tone, 'is-info');
+assert.equal(signal(25.4).text, '+25%');
+assert.equal(signal(125).tone, 'is-warning');
+"""
+    result = subprocess.run(
+        ["node", "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_ops_render_marks_boot_state_and_records_handled_errors():
+    render_body = OPS_JS[
+        OPS_JS.index("async function render(tabId") : OPS_JS.index("async function invalidateQueueData")
+    ]
+    assert "host.dataset.renderState = 'loading'" in render_body
+    assert "host.dataset.renderState = 'ready'" in render_body
+    assert "host.dataset.renderState = 'error'" in render_body
+    assert "window.__recordBootIssue('ops-v2 render'" in render_body
+
+
 
 def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
     for contract in (

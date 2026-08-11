@@ -26,10 +26,14 @@
       - ``base-uri 'self'``             — stops ``<base>`` injection attacks.
       - ``form-action 'self'``          — no cross-origin form POSTs.
 
+    ``frame-ancestors`` is deliberately omitted here: browsers ignore it in
+    a meta-delivered policy. It must be set as an HTTP response header if the
+    dashboard moves behind a host that supports custom response headers.
+
     When you add a new outbound host (e.g. a second CI backend), extend
     ``connect-src`` explicitly — do not broaden to ``*``.
   -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com https://github.com; font-src 'self' data:; connect-src 'self' https://api.github.com https://api.buildkite.com https://raw.githubusercontent.com; base-uri 'self'; form-action 'self'; frame-ancestors 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com https://github.com; font-src 'self' data:; connect-src 'self' https://api.github.com https://api.buildkite.com https://raw.githubusercontent.com; base-uri 'self'; form-action 'self'">
   <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
 
   <link rel="stylesheet" href="assets/css/dashboard.css?v=56">
@@ -59,12 +63,18 @@
           at: Date.now(),
         });
       }
+      function activeV2OwnsBoot() {
+        var active = document.querySelector('.tab-panel.active');
+        var host = active && active.querySelector('.ops-v2-host');
+        return !!(host && ['loading', 'ready', 'error'].includes(host.dataset.renderState));
+      }
       function renderFallback() {
         var last = document.getElementById('last-updated');
         var dash = document.getElementById('dashboard');
         var weekly = document.getElementById('weekly-summary');
         var parity = document.getElementById('parity-view');
         if (!last || !dash) return;
+        if (activeV2OwnsBoot()) return;
         if (last.textContent !== 'Loading...' && dash.textContent.trim()) return;
         if (weekly) weekly.innerHTML = '';
         if (parity) parity.innerHTML = '';
@@ -166,7 +176,7 @@
   <script src="assets/js/ci-testbuild.js?v=5"></script>
   <script src="assets/js/ci-ready.js?v=8"></script>
   <script src="assets/js/ci-admin.js?v=3"></script>
-  <script src="assets/js/ops-v2.js?v=12"></script>
+  <script src="assets/js/ops-v2.js?v=13"></script>
   <script>
     (function(){
       var btn = document.getElementById('theme-toggle');

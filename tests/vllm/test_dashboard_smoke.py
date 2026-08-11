@@ -511,6 +511,12 @@ if (amdUrl !== 'https://buildkite.com/vllm/amd-ci/builds/456/steps/canvas?sid=st
         assert "__renderBootFallback" in text, (
             "index.html should provide a visible fallback when startup never completes"
         )
+        fallback = text[text.index("function activeV2OwnsBoot()") : text.index("window.__bootIssues")]
+        assert "document.querySelector('.tab-panel.active')" in fallback
+        assert "['loading', 'ready', 'error'].includes(host.dataset.renderState)" in fallback
+        assert fallback.index("if (activeV2OwnsBoot()) return;") < fallback.index(
+            "last.textContent = 'Dashboard startup failed'"
+        ), "the boot watchdog must leave active loading, successful, and handled-error v2 panels to OpsV2"
 
     def test_auth_boot_does_not_auto_block_dashboard(self):
         text = (JS / "auth.js").read_text()

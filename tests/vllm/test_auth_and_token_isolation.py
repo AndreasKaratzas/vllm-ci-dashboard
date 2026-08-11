@@ -998,10 +998,12 @@ class TestContentSecurityPolicy:
             "connect-src must enumerate hosts, not open bare 'https:' scheme"
         )
 
-    def test_frame_ancestors_none(self):
-        # Defeat clickjacking — the dashboard cannot be framed.
+    def test_meta_policy_omits_header_only_frame_ancestors(self):
+        # Browsers ignore frame-ancestors in a meta-delivered CSP and log a
+        # console error. Clickjacking protection must be supplied as an HTTP
+        # response header by a future fronting host, not advertised here.
         csp = self._csp()
-        assert "frame-ancestors 'none'" in csp
+        assert "frame-ancestors" not in csp
 
     def test_script_src_is_allowlisted(self):
         csp = self._csp()

@@ -169,6 +169,52 @@ class TestWorkflowYAML:
                 )
 
 
+class TestPrimaryCIWorkflow:
+    """Keep the required test and browser failure propagation in primary CI."""
+
+    def test_pytest_pipeline_propagates_the_pytest_exit_code(self):
+        data = _load_workflow("ci.yml")
+        steps = data["jobs"]["test"]["steps"]
+        run_tests = next(step for step in steps if step.get("name") == "Run tests")
+        assert run_tests.get("id") == "run-tests"
+        assert "set -o pipefail" in run_tests.get("run", "")
+        assert "pytest tests/ -v --tb=short 2>&1 | tee test-output.txt" in run_tests.get(
+            "run", ""
+        )
+
+    def test_pr_comment_uses_the_terminal_pytest_summary(self):
+        data = _load_workflow("ci.yml")
+        steps = data["jobs"]["test"]["steps"]
+        comment = next(
+            step for step in steps if step.get("name") == "Comment test results on PR"
+        )["with"]["script"]
+        assert "[...lines].reverse().find" in comment
+        assert "outcomePattern" in comment
+        assert "steps.run-tests.outcome" in comment
+        assert "fs.existsSync('test-output.txt')" in comment
+        assert "lines.find(l => l.includes('passed')" not in comment
+
+    def test_e2e_smoke_runs_the_pinned_playwright_suite(self):
+        data = _load_workflow("ci.yml")
+        steps = data["jobs"]["e2e-smoke"]["steps"]
+        names = [step.get("name") for step in steps]
+        assert "Install browser smoke dependencies" in names
+        assert "Install Chromium" in names
+        assert "Run dashboard browser smoke" in names
+
+        package = REPO_ROOT / "tests" / "browser" / "package.json"
+        package_text = package.read_text()
+        assert '"@playwright/test": "1.62.1"' in package_text
+        assert '"pretest": "python3 ../../scripts/build_site.py"' in package_text
+
+        smoke = (REPO_ROOT / "tests" / "browser" / "dashboard-smoke.spec.mjs").read_text()
+        assert "'/#ci-hotness'" in smoke
+        assert "CI Workload Trajectory" in smoke
+        assert "browserErrors" in smoke
+        assert ".ops-error" in smoke
+        assert "12_500" in smoke
+
+
 # ---------------------------------------------------------------------------
 # 3b. CI Collect workflow completeness
 # ---------------------------------------------------------------------------

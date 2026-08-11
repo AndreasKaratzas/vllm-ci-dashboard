@@ -7279,6 +7279,15 @@
     return raw >= 0 && raw <= 1 ? raw * 100 : raw;
   }
 
+  function trajectoryFrequencySignal(raw) {
+    const change = raw === null || raw === undefined || raw === '' ? NaN : Number(raw);
+    if (!Number.isFinite(change)) return {text: 'baseline limited', tone: 'is-info'};
+    return {
+      text: (change >= 0 ? '+' : '') + change.toFixed(0) + '%',
+      tone: change >= 100 ? 'is-warning' : 'is-info',
+    };
+  }
+
   function percentileValue(values, percentile) {
     const sorted = values.filter(function (item) { return Number.isFinite(Number(item)); }).map(Number).sort(function (a, b) { return a - b; });
     if (!sorted.length) return null;
@@ -9333,7 +9342,7 @@
     if (anomalyDetails.length) {
       const anomalyColumns = [
         {label: 'Test group variant', sticky: true, width: '340px', render: function (row) { return groupIdentityCell(row, function () { openTrajectoryAnomalyHistory(row, anomalyData); }); }},
-        {label: 'Frequency signal', width: '150px', render: function (row) { const hasChange = Number.isFinite(Number(row.frequencyChangePct)); const text = hasChange ? (row.frequencyChangePct >= 0 ? '+' : '') + row.frequencyChangePct.toFixed(0) + '%' : 'baseline limited'; return linkedBadge(text, exactPipelineEvidenceUrl(row.latest, 'ci'), function () { openTrajectoryAnomalyHistory(row, anomalyData); }, Number(row.frequencyChangePct) >= 100 ? 'is-warning' : 'is-info'); }},
+        {label: 'Frequency signal', width: '150px', render: function (row) { const signal = trajectoryFrequencySignal(row.frequencyChangePct); return linkedBadge(signal.text, exactPipelineEvidenceUrl(row.latest, 'ci'), function () { openTrajectoryAnomalyHistory(row, anomalyData); }, signal.tone); }},
         {label: 'Latest builds / day', numeric: true, width: '150px', render: function (row) { return linkButton(row.recentRate === null ? '-' : row.recentRate.toFixed(1), function () { openTrajectoryAnomalyHistory(row, anomalyData); }); }},
         {label: 'Prior builds / day', numeric: true, width: '150px', render: function (row) { return linkButton(row.baselineRate === null ? '-' : row.baselineRate.toFixed(1), function () { openTrajectoryAnomalyHistory(row, anomalyData); }); }},
         {label: 'Median change', numeric: true, width: '130px', render: function (row) { return linkButton(row.durationChangePct === null ? '-' : (row.durationChangePct >= 0 ? '+' : '') + row.durationChangePct.toFixed(0) + '%', function () { openTrajectoryAnomalyHistory(row, anomalyData); }); }},
@@ -10475,6 +10484,7 @@
     if (!host) return false;
     const token = String(Date.now()) + Math.random();
     host.dataset.renderToken = token;
+    host.dataset.renderState = 'loading';
     clear(host);
     pruneInactiveCharts();
     host.append(n('div', 'ops-loading', 'Loading operational data...'));
@@ -10494,6 +10504,7 @@
       else if (tabId === 'ci-hotness') await renderTrajectory(host, ops);
       else if (tabId === 'ci-omni') await renderOmni(host, ops);
       if (tabId === 'ci-queue') lastQueueRefreshAt = Date.now();
+      host.dataset.renderState = 'ready';
       return true;
     } catch (error) {
       clear(host);
@@ -10503,6 +10514,10 @@
         render(tabId, true);
       }, true);
       add(host, [pageHeader('AMD CI Operations', 'The requested operational data could not be loaded.', null, retry), n('div', 'ops-error', error.message || String(error))]);
+      host.dataset.renderState = 'error';
+      if (typeof window.__recordBootIssue === 'function') {
+        window.__recordBootIssue('ops-v2 render', tabId + ': ' + (error.message || String(error)));
+      }
       console.error('Ops v2 render failed:', error);
       return false;
     }
@@ -10565,6 +10580,7 @@
       omniWindowPoints: omniWindowPoints,
       omniAgeBand: omniAgeBand,
       omniDailyRows: omniDailyRows,
+      trajectoryFrequencySignal: trajectoryFrequencySignal,
     };
   }
 

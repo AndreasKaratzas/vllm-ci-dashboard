@@ -57,7 +57,10 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Run tests
-        run: pytest tests/ -v --tb=short 2>&1 | tee test-output.txt
+        id: run-tests
+        run: |
+          set -o pipefail
+          pytest tests/ -v --tb=short 2>&1 | tee test-output.txt
 
       - name: Comment test results on PR
         if: github.event_name == 'pull_request' && always()
@@ -65,22 +68,31 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const output = fs.readFileSync('test-output.txt', 'utf8');
+            const output = fs.existsSync('test-output.txt')
+              ? fs.readFileSync('test-output.txt', 'utf8')
+              : 'Pytest did not produce test-output.txt.';
             const lines = output.split('\n');
 
-            // Extract summary line
-            const summary = lines.find(l => l.includes('passed') || l.includes('failed') || l.includes('error')) || 'No summary';
-            const passed = (summary.match(/(\d+) passed/) || [,'0'])[1];
-            const failed = (summary.match(/(\d+) failed/) || [,'0'])[1];
-            const skipped = (summary.match(/(\d+) skipped/) || [,'0'])[1];
-            const hasFailures = parseInt(failed) > 0;
+            // Pytest writes its aggregate result at the end. Search backwards
+            // for a numeric outcome so a test name containing "passed" cannot
+            // be mistaken for the terminal summary.
+            const outcomePattern = /\b\d+\s+(?:passed|failed|errors?|skipped|xfailed|xpassed|deselected|warnings?)\b/i;
+            const summary = [...lines].reverse().find(line => outcomePattern.test(line))
+              || 'No terminal pytest summary found';
+            const count = pattern => Number((summary.match(new RegExp(`\\b(\\d+)\\s+${pattern}\\b`, 'i')) || [,'0'])[1]);
+            const passed = count('passed');
+            const failed = count('failed');
+            const errors = count('errors?');
+            const skipped = count('skipped');
+            const stepFailed = '${{ steps.run-tests.outcome }}' !== 'success';
+            const hasFailures = stepFailed || failed > 0 || errors > 0;
 
             const icon = hasFailures ? '❌' : '✅';
             const status = hasFailures ? 'FAILED' : 'PASSED';
 
             let body = `## ${icon} CI Tests ${status}\n\n`;
-            body += `| Passed | Failed | Skipped |\n|--------|--------|--------|\n`;
-            body += `| ${passed} | ${failed} | ${skipped} |\n\n`;
+            body += `| Passed | Failed | Errors | Skipped |\n|--------|--------|--------|---------|\n`;
+            body += `| ${passed} | ${failed} | ${errors} | ${skipped} |\n\n`;
 
             if (hasFailures) {
               // Show failed test details
@@ -222,9 +234,8 @@ jobs:
           "
 
   e2e-smoke:
-    # End-to-end: serve the static dashboard, make sure every asset & data
-    # file referenced by the SPA is reachable, and run the JS files through
-    # Node's parser to catch syntax errors the brace-check can't see.
+    # End-to-end: assemble the exact public site, render every public route in
+    # Chromium with current generated data, and fail on browser/runtime errors.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -246,63 +257,22 @@ jobs:
           done
           exit $FAIL
 
-      - name: Serve docs/ and fetch every referenced asset
-        run: |
-          python3 -m http.server 8000 --directory docs &
-          SERVER_PID=$!
-          trap "kill $SERVER_PID 2>/dev/null || true" EXIT
-          sleep 1
+      - name: Install browser smoke dependencies
+        working-directory: tests/browser
+        run: npm ci
 
-          # Wait for server
-          for i in 1 2 3 4 5; do
-            curl -sf http://127.0.0.1:8000/ >/dev/null && break
-            sleep 1
-          done
+      - name: Install Chromium
+        working-directory: tests/browser
+        run: npx playwright install --with-deps chromium
 
-          FAIL=0
-          # Every asset the SPA pulls at bootstrap
-          for path in \
-            /index.html \
-            /assets/css/dashboard.css \
-            /assets/js/dashboard.js \
-            /assets/js/ci-health.js \
-            /assets/js/ci-analytics.js \
-            /assets/js/ci-queue.js \
-            /assets/js/utils.js; do
-            code=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:8000${path}")
-            if [ "$code" != "200" ]; then
-              echo "❌ ${path} -> HTTP ${code}"
-              FAIL=1
-            else
-              echo "✅ ${path} -> 200"
-            fi
-          done
-          exit $FAIL
+      - name: Run dashboard browser smoke
+        working-directory: tests/browser
+        run: npm test
 
-      - name: Verify data fixtures present on HTTP
-        run: |
-          python3 -m http.server 8000 --directory . &
-          SERVER_PID=$!
-          trap "kill $SERVER_PID 2>/dev/null || true" EXIT
-          sleep 1
-
-          FAIL=0
-          for f in ci_health.json parity_report.json analytics.json \
-                   queue_jobs.json open_queue_issues.json open_queue_zombie_issues.json config_parity.json \
-                   failure_trends.json flaky_tests.json; do
-            path="/data/vllm/ci/${f}"
-            code=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:8000${path}")
-            # Missing data files are tolerated (fresh clone) — but if present,
-            # they must parse as JSON.
-            if [ "$code" = "200" ]; then
-              if ! curl -sf "http://127.0.0.1:8000${path}" | python3 -m json.tool >/dev/null; then
-                echo "❌ ${path} is not valid JSON"
-                FAIL=1
-              else
-                echo "✅ ${path} served + parsed"
-              fi
-            else
-              echo "⚠️  ${path} -> HTTP ${code} (absent; fresh-clone tolerated)"
-            fi
-          done
-          exit $FAIL
+      - name: Upload browser traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-browser-traces
+          path: tests/browser/test-results
+          if-no-files-found: ignore
