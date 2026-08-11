@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-11T12:15:44Z",
+  "generated_at": "2026-08-11T13:59:21Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -25,16 +25,16 @@
     "amd_ci_build": 11920,
     "canonical_target_count": 125,
     "row_count": 230,
-    "canonical_match_count": 109,
+    "canonical_match_count": 112,
     "likely_duplicate_count": 14,
     "new_candidate_count": 50,
     "excluded_count": 46,
-    "missing_from_upstream_count": 11,
+    "missing_from_upstream_count": 8,
     "by_decision": {
-      "canonical": 109,
+      "canonical": 112,
       "excluded": 46,
       "likely_duplicate": 14,
-      "missing_from_upstream": 11,
+      "missing_from_upstream": 8,
       "new_candidate": 50
     }
   },
@@ -285,6 +285,21 @@
       "canonical_label": "DeepSeek V2-Lite Prefetch Offload Accuracy (H100)",
       "source_signal": "red",
       "readiness_signal": "red",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100)",
+      "canonical_key": "deepseek v2-lite sync eplb accuracy (4 gpus)",
+      "state": "passed",
+      "queue": "mithril-h100-pool",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5ff7-49a0-b7b9-42ee782d8812&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 58,
+      "canonical_label": "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100)",
+      "source_signal": "red",
+      "readiness_signal": "green",
       "target_signal": "green",
       "proposal_matches": []
     },
@@ -1824,6 +1839,36 @@
       "proposal_matches": []
     },
     {
+      "label": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy",
+      "canonical_key": "qwen3-30b-a3b-fp8 dp4 async eplb accuracy",
+      "state": "passed",
+      "queue": "mithril-h100-pool",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5ff7-4b03-b4d0-c9567d8f7b9e&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 35,
+      "canonical_label": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100)",
+      "canonical_key": "qwen3-30b-a3b-fp8-block sync eplb accuracy (4 gpus)",
+      "state": "passed",
+      "queue": "mithril-h100-pool",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5ff8-463a-b8d7-5b450684e0f0&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 59,
+      "canonical_label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
       "label": "Ray Dependency Compatibility Check",
       "canonical_key": "ray dependency compatibility check",
       "state": "passed",
@@ -3095,7 +3140,7 @@
       "canonical_key": "v1 attention",
       "state": "passed",
       "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5f83-43ca-b2a6-2181f454431e&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5f7f-4eff-9e24-772649e3c72a&tab=output",
       "exclusion_reasons": [],
       "decision": "likely_duplicate",
       "duplicate_of": "V1 attention (H100-MI300)",
@@ -3634,15 +3679,6 @@
     },
     {
       "decision": "missing_from_upstream",
-      "target_id": 35,
-      "label": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy",
-      "canonical_key": "qwen3-30b-a3b-fp8 dp4 async eplb accuracy",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "green"
-    },
-    {
-      "decision": "missing_from_upstream",
       "target_id": 38,
       "label": "Kernels KDA Test",
       "canonical_key": "kernels kda test",
@@ -3655,24 +3691,6 @@
       "target_id": 57,
       "label": "Distributed Tests (8 GPUs)(H100)",
       "canonical_key": "distributed test (8 gpus)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green"
-    },
-    {
-      "decision": "missing_from_upstream",
-      "target_id": 58,
-      "label": "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100)",
-      "canonical_key": "deepseek v2-lite sync eplb accuracy (4 gpus)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green"
-    },
-    {
-      "decision": "missing_from_upstream",
-      "target_id": 59,
-      "label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100)",
-      "canonical_key": "qwen3-30b-a3b-fp8-block sync eplb accuracy (4 gpus)",
       "source_signal": "red",
       "readiness_signal": "green",
       "target_signal": "green"

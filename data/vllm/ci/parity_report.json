@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-08-11T12:03:00Z",
+  "generated_at": "2026-08-11T13:47:32Z",
   "amd_date": "2026-08-11",
   "upstream_date": "2026-08-11",
   "parity_pct": 0.0,
-  "total_tests": 760,
+  "total_tests": 767,
   "summary": {
-    "upstream_only": 423,
-    "amd_only": 337
+    "upstream_only": 426,
+    "amd_only": 341
   },
   "by_module": {
     "2 Node Test (4 GPUs)": {
@@ -430,6 +430,10 @@
       "upstream_only": 1
     },
     "DeepSeek V2-Lite Prefetch Offload Accuracy (H100)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100)": {
       "parity_pct": 100.0,
       "upstream_only": 1
     },
@@ -1049,7 +1053,15 @@
       "parity_pct": 100.0,
       "upstream_only": 2
     },
+    "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
     "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (2xB200)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100)": {
       "parity_pct": 100.0,
       "upstream_only": 1
     },
@@ -1278,6 +1290,10 @@
       "amd_only": 2
     },
     "mi250_1: PyTorch Fullgraph Smoke Test": {
+      "parity_pct": 100.0,
+      "amd_only": 1
+    },
+    "mi250_1: Python-only Installation": {
       "parity_pct": 100.0,
       "amd_only": 1
     },
@@ -1732,6 +1748,10 @@
     "mi300_1: Transformers Nightly Models (Processing) 5": {
       "parity_pct": 100.0,
       "amd_only": 2
+    },
+    "mi300_1: Transformers Nightly Models (Processing) 6": {
+      "parity_pct": 100.0,
+      "amd_only": 3
     },
     "mi300_1: Transformers Nightly Models (Processing) 7": {
       "parity_pct": 100.0,
@@ -2489,7 +2509,7 @@
       "name": "basic models tests (extra initialization)",
       "family_key": "basic models tests (extra initialization)",
       "family_name": "basic models tests (extra initialization)",
-      "amd_job_name": "mi300_1: Basic Models Tests (Extra Initialization) 4",
+      "amd_job_name": "mi300_1: Basic Models Tests (Extra Initialization) 2",
       "upstream_job_name": "Basic Models Tests (Extra Initialization) 1",
       "amd": {
         "total": 368,
@@ -2499,7 +2519,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 11980.65
+        "duration": 11980.649999999998
       },
       "upstream": {
         "total": 368,
@@ -2522,7 +2542,7 @@
         {
           "hw": "mi300",
           "url": "https://buildkite.com/vllm/amd-ci/builds/11920/steps/canvas?sid=019ff00d-2348-4ac3-8c1d-fbe0409e8a85&tab=output",
-          "job_name": "mi300_1: Basic Models Tests (Extra Initialization) 4",
+          "job_name": "mi300_1: Basic Models Tests (Extra Initialization) 2",
           "side": "amd"
         },
         {
@@ -2938,7 +2958,7 @@
       "family_key": "deepseek v2-lite sync eplb accuracy (4 gpus)",
       "family_name": "deepseek v2-lite sync eplb accuracy (4 gpus)",
       "amd_job_name": "mi300_4: DeepSeek V2-Lite Sync EPLB Accuracy (4xH100-4xMI300)",
-      "upstream_job_name": null,
+      "upstream_job_name": "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100)",
       "amd": {
         "total": 1,
         "passed": 1,
@@ -2949,8 +2969,18 @@
         "error": 0,
         "duration": 0.0
       },
-      "upstream": null,
+      "upstream": {
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 0.0
+      },
       "hardware": [
+        "h100",
         "mi300"
       ],
       "hw_failures": null,
@@ -2962,9 +2992,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/11920/steps/canvas?sid=019ff00d-2332-41f3-9606-8f9faff3b679&tab=output",
           "job_name": "mi300_4: DeepSeek V2-Lite Sync EPLB Accuracy (4xH100-4xMI300)",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5ff7-49a0-b7b9-42ee782d8812&tab=output",
+          "job_name": "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -5510,7 +5552,7 @@
       "name": "kernels core operation test",
       "family_key": "kernels core operation test",
       "family_name": "kernels core operation test",
-      "amd_job_name": "mi300_1: Kernels Core Operation Test 1",
+      "amd_job_name": "mi300_1: Kernels Core Operation Test 2",
       "upstream_job_name": "Kernels Core Operation Test",
       "amd": {
         "total": 3356,
@@ -5545,7 +5587,7 @@
         {
           "hw": "mi300",
           "url": "https://buildkite.com/vllm/amd-ci/builds/11920/steps/canvas?sid=019ff00d-233e-4288-80fd-e6d2fa0454f7&tab=output",
-          "job_name": "mi300_1: Kernels Core Operation Test 1",
+          "job_name": "mi300_1: Kernels Core Operation Test 2",
           "side": "amd"
         },
         {
@@ -5894,8 +5936,8 @@
       "name": "kernels moe test",
       "family_key": "kernels moe test",
       "family_name": "kernels moe test",
-      "amd_job_name": "mi300_1: Kernels MoE Test 1",
-      "upstream_job_name": "Kernels MoE Test 2",
+      "amd_job_name": "mi300_1: Kernels MoE Test 2",
+      "upstream_job_name": "Kernels MoE Test 1",
       "amd": {
         "total": 15337,
         "passed": 8946,
@@ -5904,7 +5946,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 13708.329999999998
+        "duration": 13708.33
       },
       "upstream": {
         "total": 21,
@@ -5928,7 +5970,7 @@
         {
           "hw": "mi300",
           "url": "https://buildkite.com/vllm/amd-ci/builds/11920/steps/canvas?sid=019ff00d-2340-4b95-83ea-1eef0ae13b70&tab=output",
-          "job_name": "mi300_1: Kernels MoE Test 1",
+          "job_name": "mi300_1: Kernels MoE Test 2",
           "side": "amd"
         },
         {
@@ -5939,8 +5981,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-6054-43b1-86aa-5bda5a5f4b3f&tab=output",
-          "job_name": "Kernels MoE Test 2",
+          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-6054-4485-9472-1ad95228f8ba&tab=output",
+          "job_name": "Kernels MoE Test 1",
           "side": "upstream"
         }
       ],
@@ -5958,7 +6000,7 @@
       "family_key": "kernels quantization test",
       "family_name": "kernels quantization test",
       "amd_job_name": "mi300_1: Kernels Quantization Test 1",
-      "upstream_job_name": "Kernels Quantization Test 2",
+      "upstream_job_name": "Kernels Quantization Test 1",
       "amd": {
         "total": 26980,
         "passed": 15314,
@@ -6002,8 +6044,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-6055-403e-87d4-f7ebf98d28bb&tab=output",
-          "job_name": "Kernels Quantization Test 2",
+          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-6055-4c0f-9135-864e2c2f0ac1&tab=output",
+          "job_name": "Kernels Quantization Test 1",
           "side": "upstream"
         }
       ],
@@ -6266,7 +6308,7 @@
       "family_key": "language models tests (extra standard)",
       "family_name": "language models tests (extra standard)",
       "amd_job_name": "mi300_1: Language Models Tests (Extra Standard) 2",
-      "upstream_job_name": "Language Models Tests (Extra Standard) 2",
+      "upstream_job_name": "Language Models Tests (Extra Standard) 1",
       "amd": {
         "total": 19,
         "passed": 13,
@@ -6303,8 +6345,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-60a0-4d79-b3d2-d975c057b0b6&tab=output",
-          "job_name": "Language Models Tests (Extra Standard) 2",
+          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-60a0-428f-a8ea-da70199e09b2&tab=output",
+          "job_name": "Language Models Tests (Extra Standard) 1",
           "side": "upstream"
         }
       ],
@@ -6848,7 +6890,7 @@
       "name": "lora",
       "family_key": "lora",
       "family_name": "lora",
-      "amd_job_name": "mi300_1: LoRA 1",
+      "amd_job_name": "mi300_1: LoRA 3",
       "upstream_job_name": "LoRA 1",
       "amd": {
         "total": 6940,
@@ -6858,7 +6900,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 11460.089999999998
+        "duration": 11460.09
       },
       "upstream": {
         "total": 6942,
@@ -6881,7 +6923,7 @@
         {
           "hw": "mi300",
           "url": "https://buildkite.com/vllm/amd-ci/builds/11920/steps/canvas?sid=019ff00d-2343-4e27-8f02-75d252997627&tab=output",
-          "job_name": "mi300_1: LoRA 1",
+          "job_name": "mi300_1: LoRA 3",
           "side": "amd"
         },
         {
@@ -8014,7 +8056,7 @@
       "name": "multi-modal processor (cpu)",
       "family_key": "multi-modal processor (cpu)",
       "family_name": "multi-modal processor (cpu)",
-      "amd_job_name": "mi250_1: Multi-Modal Processor (CPU) 1",
+      "amd_job_name": "mi250_1: Multi-Modal Processor (CPU) 3",
       "upstream_job_name": "Multi-Modal Processor (CPU) 2",
       "amd": {
         "total": 1181,
@@ -8034,7 +8076,7 @@
         "xfailed": 1,
         "xpassed": 0,
         "error": 0,
-        "duration": 6104.41
+        "duration": 6104.410000000001
       },
       "hardware": [
         "h100",
@@ -8047,7 +8089,7 @@
         {
           "hw": "mi250",
           "url": "https://buildkite.com/vllm/amd-ci/builds/11920/steps/canvas?sid=019ff00d-22ef-4315-bd19-449346a987a2&tab=output",
-          "job_name": "mi250_1: Multi-Modal Processor (CPU) 1",
+          "job_name": "mi250_1: Multi-Modal Processor (CPU) 3",
           "side": "amd"
         },
         {
@@ -8459,6 +8501,64 @@
       "backfilled": false
     },
     {
+      "name": "python-only installation",
+      "family_key": "python-only installation",
+      "family_name": "python-only installation",
+      "amd_job_name": "mi250_1: Python-only Installation",
+      "upstream_job_name": "Python-only Installation",
+      "amd": {
+        "total": 1,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 1,
+        "duration": 0.0
+      },
+      "upstream": {
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 0.0
+      },
+      "hardware": [
+        "h100",
+        "mi250"
+      ],
+      "hw_failures": {
+        "mi250": 1
+      },
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "mi250",
+          "url": "https://buildkite.com/vllm/amd-ci/builds/11920/steps/canvas?sid=019ff00d-22f6-4147-be61-c24dacc699eb&tab=output",
+          "job_name": "mi250_1: Python-only Installation",
+          "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-6085-4196-9ea8-a2a10aa48ffe&tab=output",
+          "job_name": "Python-only Installation",
+          "side": "upstream"
+        }
+      ],
+      "delta": {
+        "total": 0,
+        "passed": -1,
+        "failed": 0,
+        "skipped": 0
+      },
+      "status": "both",
+      "backfilled": false
+    },
+    {
       "name": "pytorch compilation passes unit tests",
       "family_key": "pytorch compilation passes unit tests",
       "family_name": "pytorch compilation passes unit tests",
@@ -8827,7 +8927,7 @@
       "family_key": "qwen3-30b-a3b-fp8 dp4 async eplb accuracy (4 gpus)",
       "family_name": "qwen3-30b-a3b-fp8 dp4 async eplb accuracy (4 gpus)",
       "amd_job_name": "mi300_4: Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy (4xH100-4xMI300)",
-      "upstream_job_name": null,
+      "upstream_job_name": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy",
       "amd": {
         "total": 1,
         "passed": 1,
@@ -8838,8 +8938,18 @@
         "error": 0,
         "duration": 0.0
       },
-      "upstream": null,
+      "upstream": {
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 0.0
+      },
       "hardware": [
+        "h100",
         "mi300"
       ],
       "hw_failures": null,
@@ -8851,9 +8961,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/11920/steps/canvas?sid=019ff00d-2335-4fb8-ac94-8928a9d62b33&tab=output",
           "job_name": "mi300_4: Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy (4xH100-4xMI300)",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5ff7-4b03-b4d0-c9567d8f7b9e&tab=output",
+          "job_name": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -8861,7 +8983,7 @@
       "family_key": "qwen3-30b-a3b-fp8-block sync eplb accuracy (4 gpus)",
       "family_name": "qwen3-30b-a3b-fp8-block sync eplb accuracy (4 gpus)",
       "amd_job_name": "mi300_4: Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100-4xMI300)",
-      "upstream_job_name": null,
+      "upstream_job_name": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100)",
       "amd": {
         "total": 1,
         "passed": 1,
@@ -8872,8 +8994,18 @@
         "error": 0,
         "duration": 0.0
       },
-      "upstream": null,
+      "upstream": {
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 0.0
+      },
       "hardware": [
+        "h100",
         "mi300"
       ],
       "hw_failures": null,
@@ -8885,9 +9017,21 @@
           "url": "https://buildkite.com/vllm/amd-ci/builds/11920/steps/canvas?sid=019ff00d-2334-4143-aa11-c9d47104a6fb&tab=output",
           "job_name": "mi300_4: Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100-4xMI300)",
           "side": "amd"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5ff8-463a-b8d7-5b450684e0f0&tab=output",
+          "job_name": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100)",
+          "side": "upstream"
         }
       ],
-      "status": "amd_only",
+      "delta": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0
+      },
+      "status": "both",
       "backfilled": false
     },
     {
@@ -10006,20 +10150,22 @@
       "amd_job_name": "mi300_1: Transformers Nightly Models (Processing) 1",
       "upstream_job_name": null,
       "amd": {
-        "total": 1172,
-        "passed": 1053,
-        "failed": 0,
-        "skipped": 118,
+        "total": 1337,
+        "passed": 1201,
+        "failed": 1,
+        "skipped": 134,
         "xfailed": 1,
         "xpassed": 0,
         "error": 0,
-        "duration": 40072.03999999999
+        "duration": 50050.22
       },
       "upstream": null,
       "hardware": [
         "mi300"
       ],
-      "hw_failures": null,
+      "hw_failures": {
+        "mi300": 1
+      },
       "hw_canceled": null,
       "failure_tests": [],
       "job_links": [
@@ -10109,7 +10255,7 @@
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5f83-43ca-b2a6-2181f454431e&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5f7f-4eff-9e24-772649e3c72a&tab=output",
           "job_name": "V1 attention (B200)",
           "side": "upstream"
         }
@@ -12437,44 +12583,6 @@
       "backfilled": false
     },
     {
-      "name": "python-only installation",
-      "family_key": "python-only installation",
-      "family_name": "python-only installation",
-      "amd_job_name": null,
-      "upstream_job_name": "Python-only Installation",
-      "amd": null,
-      "upstream": {
-        "total": 1,
-        "passed": 1,
-        "failed": 0,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0,
-        "error": 0,
-        "duration": 0.0
-      },
-      "hardware": [
-        "h100",
-        "mi250"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [
-        {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-6085-4196-9ea8-a2a10aa48ffe&tab=output",
-          "job_name": "Python-only Installation",
-          "side": "upstream"
-        }
-      ],
-      "status": "upstream_only",
-      "backfilled": true,
-      "hw_backfilled": {
-        "mi250": true
-      }
-    },
-    {
       "name": "pytorch compilation unit tests (h100)",
       "family_key": "pytorch compilation unit tests",
       "family_name": "pytorch compilation unit tests",
@@ -14028,6 +14136,12 @@
       "category": "upstream_only"
     },
     {
+      "test_id": "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100)::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
       "test_id": "Deepseek V4 Kernel Test (B200)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -15342,7 +15456,19 @@
       "category": "upstream_only"
     },
     {
+      "test_id": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
       "test_id": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (2xB200)::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100)::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
@@ -15836,6 +15962,12 @@
     {
       "test_id": "mi250_1: PyTorch Fullgraph Smoke Test::__passed__",
       "amd_status": "passed",
+      "upstream_status": "missing",
+      "category": "amd_only"
+    },
+    {
+      "test_id": "mi250_1: Python-only Installation::__job_level__",
+      "amd_status": "error",
       "upstream_status": "missing",
       "category": "amd_only"
     },
@@ -16856,6 +16988,24 @@
     {
       "test_id": "mi300_1: Transformers Nightly Models (Processing) 5::__skipped__",
       "amd_status": "skipped",
+      "upstream_status": "missing",
+      "category": "amd_only"
+    },
+    {
+      "test_id": "mi300_1: Transformers Nightly Models (Processing) 6::__passed__",
+      "amd_status": "passed",
+      "upstream_status": "missing",
+      "category": "amd_only"
+    },
+    {
+      "test_id": "mi300_1: Transformers Nightly Models (Processing) 6::__skipped__",
+      "amd_status": "skipped",
+      "upstream_status": "missing",
+      "category": "amd_only"
+    },
+    {
+      "test_id": "mi300_1: Transformers Nightly Models (Processing) 6::__unidentified_failures__",
+      "amd_status": "failed",
       "upstream_status": "missing",
       "category": "amd_only"
     },
