@@ -4,6 +4,7 @@ Week of 2026-08-04 to 2026-08-11
 
 ## New Releases
 
+- **vllm**: [v0.27.1](https://github.com/vllm-project/vllm/releases/tag/v0.27.1)
 - **vllm**: [v0.27.0](https://github.com/vllm-project/vllm/releases/tag/v0.27.0)
 
 ## PRs This Week

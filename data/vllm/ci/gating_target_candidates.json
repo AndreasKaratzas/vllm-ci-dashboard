@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-11T07:50:52Z",
+  "generated_at": "2026-08-11T11:24:55Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -22,17 +22,17 @@
   },
   "summary": {
     "upstream_build": 83298,
-    "amd_ci_build": 11876,
+    "amd_ci_build": 11920,
     "canonical_target_count": 125,
-    "row_count": 229,
+    "row_count": 230,
     "canonical_match_count": 109,
     "likely_duplicate_count": 14,
     "new_candidate_count": 50,
-    "excluded_count": 45,
+    "excluded_count": 46,
     "missing_from_upstream_count": 11,
     "by_decision": {
       "canonical": 109,
-      "excluded": 45,
+      "excluded": 46,
       "likely_duplicate": 14,
       "missing_from_upstream": 11,
       "new_candidate": 50
@@ -968,7 +968,7 @@
       "canonical_key": "kernels helion test",
       "state": "passed",
       "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-6054-4118-92f2-5bf64d5c8a54&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-6054-4626-bb15-23f96bcf36b9&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 92,
@@ -1933,7 +1933,7 @@
       "canonical_key": "v1 attention",
       "state": "passed",
       "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5f83-46a6-bc84-464d0bb4e0de&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5f87-49b0-a98b-32cfb928c7cf&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 103,
@@ -2146,7 +2146,7 @@
             "label": "Engine",
             "state": "passed",
             "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?jid=019feae6-b0fa-4bce-bd8d-6943f85322e2&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/11920/steps/canvas?jid=019ff00d-23f9-4f45-b16e-a282e75dc41c&tab=output"
           }
         ]
       },
@@ -2306,7 +2306,7 @@
             "label": "Kernels (B200-MI355)",
             "state": "passed",
             "queue": "amd_mi355_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?jid=019feae6-b126-4fda-b926-ddad19060779&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/11920/steps/canvas?jid=019ff00d-2441-4860-8721-0e481e056f1b&tab=output"
           }
         ]
       },
@@ -2918,7 +2918,7 @@
             "label": "vLLM IR Tests",
             "state": "passed",
             "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?jid=019feae6-b100-4607-8848-57aebeecb8f4&tab=output"
+            "url": "https://buildkite.com/vllm/amd-ci/builds/11920/steps/canvas?jid=019ff00d-2411-43ac-9a9a-7fb815d4a3a2&tab=output"
           }
         ]
       },
@@ -3395,6 +3395,17 @@
       "state": "passed",
       "queue": "gpu_4_queue",
       "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-608f-4446-bff1-69983d7dc974&tab=output",
+      "exclusion_reasons": [
+        "experimental_model_runner_v2"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Model Runner V2 Spec Decode",
+      "canonical_key": "model runner v2 spec decode",
+      "state": "passed",
+      "queue": "h200_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef9f-0e10-4352-a305-2461dda7dd56&tab=output",
       "exclusion_reasons": [
         "experimental_model_runner_v2"
       ],
