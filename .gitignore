@@ -39,3 +39,10 @@ data/vllm/ci/.cache/
 # Generated at collection/site-assembly time from operations_v2.json. The
 # small manifest is tracked, but the large lazy section files are deploy-only.
 data/vllm/ci/operations_v2/
+
+# Durable, privacy-minimized queue lifecycle observations are reconciled on
+# the orphan queue-lifecycle-data branch. Main and Pages retain only the
+# bounded aggregate so the seven-day ledger does not enter repository history.
+data/vllm/ci/queue_lifecycle_jobs/
+data/vllm/ci/.queue_lifecycle_jobs.stage.*/
+data/vllm/ci/.queue_lifecycle_jobs.backup.*/

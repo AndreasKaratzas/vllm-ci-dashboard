@@ -88,8 +88,12 @@ jobs:
       # ── Phase 1: Queue snapshot (fast, ~15s) ──
       - name: Sync queue data from durable live branch
         run: |
-          git fetch origin queue-data --depth=1 || true
-          git fetch origin gh-pages --depth=1 || true
+          git fetch origin \
+            +refs/heads/queue-data:refs/remotes/origin/queue-data \
+            --depth=1 || true
+          git fetch origin \
+            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+            --depth=1 || true
           if git rev-parse --verify --quiet origin/queue-data >/dev/null; then
             python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/queue-data
           fi
@@ -97,9 +101,28 @@ jobs:
             python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/gh-pages
           fi
 
+      - name: Sync validated queue lifecycle aggregate
+        run: |
+          # Lifecycle collection owns an independent branch. A missing or
+          # temporarily unavailable branch must not block unrelated queue/CI
+          # publication; retain the last validated aggregate already on main.
+          LIVE_QUEUE_LIFECYCLE="$RUNNER_TEMP/queue_lifecycle.json"
+          if git fetch origin \
+            +refs/heads/queue-lifecycle-data:refs/remotes/origin/queue-lifecycle-data \
+            --depth=1 \
+            && git show origin/queue-lifecycle-data:data/vllm/ci/queue_lifecycle.json > "$LIVE_QUEUE_LIFECYCLE" \
+            && python -m json.tool "$LIVE_QUEUE_LIFECYCLE" >/dev/null; then
+            install -m 0644 "$LIVE_QUEUE_LIFECYCLE" data/vllm/ci/queue_lifecycle.json
+            echo "Synced the independently collected lifecycle aggregate."
+          else
+            echo "::warning::Lifecycle aggregate unavailable or invalid; retaining last validated main copy."
+          fi
+
       - name: Sync issue automation state from gh-pages
         run: |
-          git fetch origin gh-pages --depth=1 || true
+          git fetch origin \
+            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+            --depth=1 || true
           # Marker-owned AMD alert state is committed to main immediately after
           # reconciliation. Keep gh-pages fallback only for legacy queue state.
           for f in open_queue_issues.json open_queue_zombie_issues.json; do
@@ -562,7 +585,9 @@ jobs:
         id: post-deploy-validation
         run: |
           echo "Checking gh-pages for merge conflict markers..."
-          git fetch origin gh-pages --depth=1 2>/dev/null || true
+          git fetch origin \
+            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+            --depth=1 2>/dev/null || true
           CORRUPT=0
           for f in $(git ls-tree -r --name-only origin/gh-pages -- data/ 2>/dev/null | grep '\.json$\|\.jsonl$'); do
             CONTENT=$(git show "origin/gh-pages:$f" 2>/dev/null || true)

@@ -235,6 +235,7 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
         "vllm/ci/amd_test_matrix.json",
         "vllm/ci/gating_targets.json",
         "vllm/ci/omni_surge_heuristic.json",
+        "vllm/ci/queue_lifecycle.json",
         "vllm/ci/queue_timeseries.jsonl",
         "vllm/ci/ready_tickets.json",
         "vllm/ci/workload_mapping.json",
@@ -280,6 +281,7 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
         "vllm/ci/operations_v2.json",
         "vllm/ci/test_results/2026-07-27_amd.jsonl",
         "vllm/perf_eval/events.jsonl",
+        "vllm/ci/queue_lifecycle_jobs/2026-08-11.jsonl.gz",
     }
     for relative in forbidden:
         assert relative not in allowed_exact

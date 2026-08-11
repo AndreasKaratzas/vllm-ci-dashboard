@@ -27,8 +27,15 @@ jobs:
         run: |
           # queue-data owns independent queue history; gh-pages remains the
           # source for other live datasets and a queue migration fallback.
-          git fetch origin queue-data --depth=1 || true
-          git fetch origin gh-pages --depth=1 || true
+          git fetch origin \
+            +refs/heads/queue-data:refs/remotes/origin/queue-data \
+            --depth=1 || true
+          git fetch origin \
+            +refs/heads/queue-lifecycle-data:refs/remotes/origin/queue-lifecycle-data \
+            --depth=1 || true
+          git fetch origin \
+            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+            --depth=1 || true
 
           if git rev-parse --verify --quiet origin/queue-data >/dev/null; then
             python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/queue-data
@@ -36,6 +43,16 @@ jobs:
             git show origin/queue-data:data/vllm/ci/queue_jobs.json > "$LIVE_QUEUE_JOBS"
             python -m json.tool "$LIVE_QUEUE_JOBS" >/dev/null
             install -m 0644 "$LIVE_QUEUE_JOBS" data/vllm/ci/queue_jobs.json
+          fi
+
+          if git rev-parse --verify --quiet origin/queue-lifecycle-data >/dev/null; then
+            LIVE_QUEUE_LIFECYCLE="$RUNNER_TEMP/queue_lifecycle.json"
+            if git show origin/queue-lifecycle-data:data/vllm/ci/queue_lifecycle.json > "$LIVE_QUEUE_LIFECYCLE" 2>/dev/null \
+              && python -m json.tool "$LIVE_QUEUE_LIFECYCLE" >/dev/null; then
+              install -m 0644 "$LIVE_QUEUE_LIFECYCLE" data/vllm/ci/queue_lifecycle.json
+            else
+              echo "::warning::queue-lifecycle-data has no valid aggregate; keeping the main-branch copy."
+            fi
           fi
 
           # A corrupt legacy Pages copy must not block the independent branch.
@@ -78,7 +95,9 @@ jobs:
       - name: Post-deploy validation
         id: post-deploy-validation
         run: |
-          git fetch origin gh-pages --depth=1 2>/dev/null || true
+          git fetch origin \
+            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+            --depth=1 2>/dev/null || true
           CORRUPT=0
           for f in $(git ls-tree -r --name-only origin/gh-pages -- data/ 2>/dev/null | grep '\.json$\|\.jsonl$'); do
             CONTENT=$(git show "origin/gh-pages:$f" 2>/dev/null || true)

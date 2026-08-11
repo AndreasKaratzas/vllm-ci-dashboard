@@ -34,6 +34,7 @@ def test_dashboard_audit_covers_core_user_facing_data_files():
         "data/vllm/ci/analytics.json",
         "data/vllm/ci/amd_test_matrix.json",
         "data/vllm/ci/gating_proposals.json",
+        "data/vllm/ci/queue_lifecycle.json",
         "data/vllm/ci/queue_timeseries.jsonl",
         "data/vllm/ci/workload_mapping.json",
         "data/vllm/ci/operations_v2.json",

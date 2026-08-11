@@ -27,7 +27,10 @@ Collects nightly CI test data from Buildkite, analyzes test health, and produces
 
 - Python 3.10+
 - `requests` and `pyyaml` packages
-- Buildkite API token with **read_builds** and **read_artifacts** scopes
+- Buildkite API token with **read_builds**, **read_artifacts**, and
+  **read_clusters** scopes. Queue lifecycle collection needs `read_builds` for
+  organization-wide build cohorts and `read_clusters` for the exact queue UUID
+  allowlist.
 - If you run `collect_queue_snapshot.py`, the token should also have **Enable GraphQL API Access** so queue-native cluster metrics can be read
 
 ### Install
@@ -128,6 +131,7 @@ Four workflows divide canonical publication from focused manual/event collectors
 | `daily-update.yml` | Manual | Focused GitHub-data refresh committed to `main` |
 | `ci-collect.yml` | Manual | Focused Buildkite CI refresh committed to `main` |
 | `queue-monitor.yml` | Queue webhooks + manual | Queue snapshots and bounded queue issue automation; canonical publication follows via `hourly-master.yml` |
+| `queue-lifecycle.yml` | Hourly + manual | Organization-wide direct job lifecycle observations for the twelve canonical MI250/MI300/MI355 queues |
 
 All secrets are managed via GitHub Actions encrypted secrets (Settings > Secrets > Actions). The `BUILDKITE_TOKEN` is never exposed in logs — GitHub automatically masks secret values.
 
@@ -140,6 +144,46 @@ validated publication.
 Buildkite queue freshness now uses those job-level webhook events (`job.scheduled`, `job.started`, `job.finished`) plus agent events (`agent.connected`, `agent.disconnected`, `agent.lost`, `agent.stopping`) to dispatch the lightweight `queue-monitor.yml` workflow. This keeps queue counts and zombie-job alerts fresher without forcing the heavier CI collectors to run on every queue change.
 
 Queue analytics intentionally exclude waiting or running jobs older than 4 hours. Those jobs are treated as zombies, surfaced separately in `queue_jobs.json`, and tracked via `queue_zombie_watcher.py` so the main queue charts stay conservative.
+
+Canonical AMD lifecycle analytics are intentionally narrower than the general
+queue monitor. `collect_queue_lifecycle.py` queries only the twelve standard
+`amd_mi250_*`, `amd_mi300_*`, and `amd_mi355_*` queues at widths 1, 2, 4, and
+8. MI325, MI355B, CPU, partner, perf-eval, and router queues are excluded from
+these totals. The collector records three event-time facts independently:
+incoming work at REST `build.jobs[].runnable_at`, served work at
+`build.jobs[].started_at`, and completions at `build.jobs[].finished_at`. It
+derives queue wait and runtime only when both required source
+timestamps are present, and publishes exact observed rolling two-hour counts
+plus UTC hour buckets in `queue_lifecycle.json`. The supported organization
+Builds REST endpoint does not filter job event timestamps directly. The
+collector unions builds finished inside the source window, builds created
+inside it, and every active build state, then filters jobs by the twelve direct
+cluster-queue UUIDs. Every retained value is therefore an exact direct job
+observation, while the aggregate separately declares residual population
+limits such as page-number drift and terminal builds whose soft-failed jobs
+finish substantially later.
+
+The reconciled, deduplicated seven-day job-observation ledger lives only on the
+`queue-lifecycle-data` branch as daily files under `queue_lifecycle_jobs/`; it
+is neither committed to `main` nor published to Pages. Each compact row contains a hashed
+job identity, its canonical queue, direct event timestamps, derived durations,
+outcome, and retry flags. UTC-day segmentation lets unchanged days reuse their
+existing Git objects instead of rewriting the whole ledger; a late start or
+completion can still update the segment containing that job's earliest retained
+event. The ledger deliberately omits labels, URLs, branches,
+commits, pipeline names, and other build metadata. Per-segment and total-size
+guards prevent GitHub blob-limit and repository-pressure failures.
+
+Lifecycle collection runs independently once per hour so an API or schema
+failure cannot delay the ten-minute point-in-time queue monitor. Organization-
+wide finished, created, and active-build cohorts use bounded, verified REST
+pagination, and the public aggregate includes the exact source window, cohort
+filters, query coverage, and provenance. Incomplete pagination, an unreadable
+established ledger, or a failed Buildkite query causes collection to fail
+instead of silently publishing a partial window. Workflows pass the existing
+`BUILDKITE_TOKEN` secret to the collector as
+`BUILDKITE_API_TOKEN`; tokens must never be placed in source, generated data,
+logs, or dashboard URLs.
 
 ### Managed Alert Issues
 

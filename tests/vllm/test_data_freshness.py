@@ -260,6 +260,16 @@ class TestQueueDataFreshness:
         assert "queues" in last, f"Latest snapshot missing 'queues': {list(last.keys())}"
         assert isinstance(last["queues"], dict), "queues is not a dict"
 
+    def test_queue_lifecycle_exists(self):
+        assert (DATA / "vllm" / "ci" / "queue_lifecycle.json").exists()
+
+    def test_queue_lifecycle_aggregate_fresh(self):
+        _skip_if_local()
+        payload = json.loads(
+            (DATA / "vllm" / "ci" / "queue_lifecycle.json").read_text()
+        )
+        _check_freshness("queue_lifecycle.json", payload.get("generated_at", ""))
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Project data freshness (GitHub data)

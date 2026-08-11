@@ -22,11 +22,12 @@ const PUBLIC_VIEWS = [
     tab: 'ci-perf-eval',
     heading: 'Performance & Evaluation',
   })),
-  ...['current', 'history', 'jobs'].map(view => ({
+  ...['current', 'lifecycle', 'history', 'jobs'].map(view => ({
     name: `queue ${view}`,
     url: `/?ops_queue_view=${view}#ci-queue`,
     tab: 'ci-queue',
     heading: 'Queue Monitor',
+    lifecycleSeed: view === 'lifecycle',
   })),
   {
     name: 'trajectory capacity',
@@ -46,6 +47,16 @@ test.describe('public dashboard routes', () => {
         if (message.type() === 'error') browserErrors.push(`console: ${message.text()}`);
       });
 
+      if (route.lifecycleSeed) {
+        // Make the live raw candidate intentionally unusable without creating
+        // a browser network error. This locks the assembled Pages seed path.
+        await page.route('https://raw.githubusercontent.com/**/queue_lifecycle.json*', request => request.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: 'null',
+        }));
+      }
+
       await page.goto(route.url, { waitUntil: 'domcontentloaded' });
 
       const panel = page.locator(`#tab-${route.tab}`);
@@ -53,6 +64,10 @@ test.describe('public dashboard routes', () => {
       await expect(panel.locator('h1.ops-page-title')).toHaveText(route.heading);
       await expect(panel.locator('.ops-loading')).toHaveCount(0);
       await expect(panel.locator('.ops-error')).toHaveCount(0);
+      if (route.lifecycleSeed) {
+        await expect(panel).toContainText('Lifecycle observations unavailable');
+        await expect(panel.locator('.ops-stat-value')).toHaveText(['-', '-', '-', '-']);
+      }
 
       // Deep links defer the Home payload briefly. Let that background work
       // settle so its failures are included in the runtime-error assertion.

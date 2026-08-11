@@ -36,15 +36,28 @@ jobs:
       - name: Sync durable queue history
         run: |
           # queue-data is the independent source of truth. Keep the current
-          # gh-pages copy as a migration/failure fallback for the first run.
-          if git fetch origin queue-data --depth=1 \
-            && git rev-parse --verify --quiet origin/queue-data >/dev/null; then
+          # gh-pages copy only as a first-run migration source. A transport
+          # failure while an established branch exists must fail closed; a
+          # stale fallback followed by an orphan force-push would lose history.
+          set +e
+          git ls-remote --exit-code origin refs/heads/queue-data >/dev/null 2>&1
+          QUEUE_DATA_STATUS=$?
+          set -e
+          if [ "$QUEUE_DATA_STATUS" -eq 0 ]; then
+            git fetch origin \
+              +refs/heads/queue-data:refs/remotes/origin/queue-data \
+              --depth=1
             python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/queue-data
-          else
-            git fetch origin gh-pages --depth=1 || true
+          elif [ "$QUEUE_DATA_STATUS" -eq 2 ]; then
+            git fetch origin \
+              +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+              --depth=1 || true
             if git rev-parse --verify --quiet origin/gh-pages >/dev/null; then
               python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/gh-pages
             fi
+          else
+            echo "::error::Could not determine durable queue-data branch state; refusing to publish."
+            exit "$QUEUE_DATA_STATUS"
           fi
 
       - name: Prune queue history to post-fix baseline

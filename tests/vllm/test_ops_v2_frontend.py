@@ -1246,7 +1246,7 @@ def test_gating_drilldown_combines_every_strict_group_id_and_observation():
 
 
 def test_queue_modes_ranges_provenance_and_missing_values_are_explicit():
-    for label in ("Current", "History", "Jobs", "24h", "7d", "30d", "Include idle"):
+    for label in ("Current", "Lifecycle", "History", "Jobs", "24h", "7d", "30d", "Include idle"):
         assert label in OPS_JS
     assert "function officialWaitValue" in OPS_JS
     assert "function sampleWaitValue" in OPS_JS
@@ -1296,8 +1296,214 @@ def test_queue_history_refreshes_and_exposes_collection_gaps_and_timezone():
     assert "spanGaps: false" in OPS_JS
     assert "cache.delete(SOURCE_ASSETS.queueChartHistory)" in OPS_JS
     assert "cache.delete(SOURCE_ASSETS.queueChartHistoryFallback)" in OPS_JS
+    assert "cache.delete(SOURCE_ASSETS.queueLifecycle)" in OPS_JS
+    assert "cache.delete(SOURCE_ASSETS.queueLifecycleFallback)" in OPS_JS
     assert "Intl.DateTimeFormat().resolvedOptions().timeZone" in OPS_JS
     assert "const rangeEndMs = Date.now()" in OPS_JS
+
+
+def test_queue_lifecycle_view_matches_the_published_rolling_contract():
+    for contract in (
+        "queueLifecycle: QUEUE_LIFECYCLE_LIVE_BASE + 'queue_lifecycle.json'",
+        "/queue-lifecycle-data/data/vllm/ci/",
+        "queueLifecycleFallback: 'data/vllm/ci/queue_lifecycle.json'",
+        "async function loadQueueLifecycle",
+        "function queueLifecyclePayloadValid",
+        "function queueLifecycleCandidateQuality",
+        "function compareQueueLifecycleCandidates",
+        "const sources = [SOURCE_ASSETS.queueLifecycle, SOURCE_ASSETS.queueLifecycleFallback]",
+        "queueTimestamp(right.payload.generated_at)",
+        "candidates.sort(compareQueueLifecycleCandidates)",
+        "Exact observed direct events - rolling 2h",
+        "Lifecycle coverage warning",
+        "Per-queue observed direct lifecycle events",
+        "Hourly observed direct lifecycle flow",
+        "Hourly lifecycle latency",
+        "Lifecycle provenance",
+        "other_outcomes",
+        "retry_attempts_completed",
+        "retried_jobs_completed",
+        "row.metrics.canceled",
+        "row.metrics.timed_out",
+        "row.metrics.expired",
+        "row.metrics.broken",
+        "row.metrics.skipped",
+        "queue_wait_seconds",
+        "runtime_seconds",
+        "end_exclusive",
+        "row.totals || {}",
+        "Open Pages lifecycle fallback",
+        "metric_exhaustiveness",
+        "the population is not presented as exhaustive",
+        "queueLifecycleRows(payload, 'canonical')",
+        "Canonical AMD lifecycle scope",
+        "zero-valued seed placeholders are not observations",
+        "queueLifecycleDisplayCount(payload",
+    ):
+        assert contract in OPS_JS
+    assert "queueScope: 'amd'" in OPS_JS
+    assert "queue_scope: 'amd'" in OPS_JS
+    assert "['canonical', 'amd', 'all']" in OPS_JS
+    assert "['current', 'lifecycle', 'history', 'jobs']" in OPS_JS
+    assert "seconds / 60" in OPS_JS
+    assert "cache.delete(SOURCE_ASSETS.queueLifecycle)" in OPS_JS
+    assert "cache.delete(SOURCE_ASSETS.queueLifecycleFallback)" in OPS_JS
+
+
+def test_queue_lifecycle_scope_metrics_and_freshest_source_execute_in_javascript():
+    if not shutil.which("node"):
+        import pytest
+
+        pytest.skip("node is not available")
+    script = r"""
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const livePayload = {
+  schema_version: 1,
+  generated_at: '2026-08-11T10:00:00Z',
+  window: {start: '2026-08-11T08:00:00Z', end_exclusive: '2026-08-11T10:00:00Z', hours: 2},
+  coverage: {api_collection_performed: true, api_complete: true, complete: true, status: 'complete'},
+  totals: {incoming: 99},
+  queues: {
+    amd_mi250_1: {incoming: 2, served: 1, completed: 1, passed: 1, failed: 0, soft_failed: 0, canceled: 0, timed_out: 0, expired: 0, broken: 0, skipped: 0, other_outcomes: 0, retry_attempts_completed: 0, retried_jobs_completed: 0,
+      queue_wait_seconds: {count: 1, avg: 90, p50: 90, p95: 90, max: 90},
+      runtime_seconds: {count: 1, avg: 600, p50: 600, p95: 600, max: 600}},
+    amd_mi300_8: {incoming: 3, served: 2, completed: 2, passed: 1, failed: 1, soft_failed: 0, canceled: 0, timed_out: 0, expired: 0, broken: 0, skipped: 0, other_outcomes: 0, retry_attempts_completed: 1, retried_jobs_completed: 1},
+    amd_mi325_1: {incoming: 100, served: 100, completed: 100, passed: 100, failed: 0, soft_failed: 0, other_outcomes: 0},
+    gpu_queue: {incoming: 200, served: 200, completed: 200, passed: 200, failed: 0, soft_failed: 0, other_outcomes: 0},
+  },
+  hourly: [
+    {start: '2026-08-11T09:00:00Z', end_exclusive: '2026-08-11T10:00:00Z', totals: {incoming: 3}},
+    {start: '2026-08-11T08:00:00Z', end_exclusive: '2026-08-11T09:00:00Z', totals: {incoming: 2}},
+  ],
+};
+const pagesPayload = Object.assign({}, livePayload, {
+  generated_at: '2026-08-11T11:00:00Z',
+  coverage: {api_collection_performed: false, api_complete: false, complete: false},
+});
+const sandbox = {
+  window: {__OPS_V2_TEST__: true},
+  document: {addEventListener: function () {}},
+  console: console,
+  URL: URL,
+  fetch: function (url) {
+    const payload = String(url).includes('raw.githubusercontent.com') ? livePayload : pagesPayload;
+    return Promise.resolve({ok: true, json: function () { return Promise.resolve(payload); }});
+  },
+};
+vm.createContext(sandbox);
+vm.runInContext(source, sandbox, {filename: process.argv[1]});
+const helpers = sandbox.window.OpsV2Test;
+
+['250', '300', '355'].forEach(function (family) {
+  ['1', '2', '4', '8'].forEach(function (width) {
+    assert.equal(helpers.isCanonicalAmdQueue('amd_mi' + family + '_' + width), true);
+  });
+});
+['amd_mi325_1', 'amd_mi300_16', 'amd_mi355b_1', 'amd-cpu', 'gpu_queue'].forEach(function (queue) {
+  assert.equal(helpers.isCanonicalAmdQueue(queue), false);
+});
+assert.equal(helpers.queueMatchesScope('amd_mi300_8', 'canonical'), true);
+assert.equal(helpers.queueMatchesScope('amd_mi325_1', 'canonical'), false);
+assert.equal(helpers.queueMatchesScope('amd-cpu', 'amd'), true);
+assert.equal(helpers.queueMatchesScope('gpu_queue', 'all'), true);
+assert.equal(helpers.queueMatchesScope('amd_mi355b_1', 'all'), false);
+
+const rows = helpers.queueLifecycleRows(livePayload, 'canonical');
+assert.equal(helpers.queueLifecyclePayloadValid(livePayload), true);
+assert.equal(helpers.queueLifecyclePayloadValid({schema_version: 1}), false);
+assert.equal(helpers.queueLifecycleCandidateQuality(livePayload), 2);
+assert.equal(helpers.queueLifecycleCandidateQuality(pagesPayload), 0);
+assert.equal(JSON.stringify(rows.map(function (row) { return row.name; })), JSON.stringify(['amd_mi300_8', 'amd_mi250_1']));
+const totals = helpers.queueLifecycleTotals(livePayload, rows);
+assert.equal(totals.incoming, 5);
+assert.equal(totals.completed, 3);
+assert.equal(totals.passed, 2);
+assert.equal(totals.failed, 1);
+assert.equal(totals.other_outcomes, 0);
+assert.equal(totals.retry_attempts_completed, 1);
+assert.equal(totals.retried_jobs_completed, 1);
+assert.equal(helpers.queueLifecycleMinutes(rows[1].metrics, 'queue_wait_seconds', 'avg'), 1.5);
+const hourly = helpers.queueLifecycleHourlyRows(livePayload);
+assert.equal(hourly[0].ts, '2026-08-11T08:00:00Z');
+assert.equal(hourly[0].end_exclusive, '2026-08-11T09:00:00Z');
+assert.equal(hourly[0].incoming, 2);
+assert.equal(helpers.queueLifecycleCoverage(livePayload).complete, true);
+assert.equal(helpers.queueLifecycleCoverage(Object.assign({}, livePayload, {
+  window: {start: '2026-08-11T09:00:00Z', end_exclusive: '2026-08-11T10:00:00Z', hours: 1},
+})).complete, false);
+const limitedCoverage = helpers.queueLifecycleCoverage(Object.assign({}, livePayload, {
+  coverage: {complete: true, metric_exhaustiveness: {
+    incoming: {complete: false, limitation: 'runnableAt cannot be time-filtered'},
+    completed: {complete: true},
+  }},
+}));
+assert.equal(limitedCoverage.complete, false);
+assert.ok(limitedCoverage.problems.some(function (problem) { return problem.includes('incoming exhaustiveness is limited'); }));
+const bootstrapPayload = Object.assign({}, livePayload, {
+  coverage: {api_collection_performed: false, complete: false},
+});
+assert.equal(helpers.queueLifecycleObservationsAvailable(bootstrapPayload), false);
+assert.equal(helpers.queueLifecycleDisplayCount(bootstrapPayload, 0), '-');
+assert.equal(helpers.queueLifecycleDisplayCount(livePayload, 0), '0');
+
+(async function () {
+  const selected = await helpers.loadQueueLifecycle();
+  assert.equal(selected.generated_at, livePayload.generated_at);
+  assert.ok(selected.__sourceAsset.includes('raw.githubusercontent.com'));
+  const newerCollected = Object.assign({}, livePayload, {generated_at: '2026-08-11T12:00:00Z'});
+  const ranked = [
+    {payload: livePayload, priority: 0},
+    {payload: newerCollected, priority: 1},
+  ].sort(helpers.compareQueueLifecycleCandidates);
+  assert.equal(ranked[0].payload.generated_at, newerCollected.generated_at);
+  const tied = [
+    {payload: livePayload, priority: 1},
+    {payload: livePayload, priority: 0},
+  ].sort(helpers.compareQueueLifecycleCandidates);
+  assert.equal(tied[0].priority, 0);
+})().catch(function (error) {
+  console.error(error);
+  process.exitCode = 1;
+});
+"""
+    result = subprocess.run(
+        ["node", "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_queue_detail_exposes_direct_native_metrics_without_zero_filling_missing_values():
+    detail = OPS_JS[
+        OPS_JS.index("function openQueueDetail") : OPS_JS.index("function openPerfHistory")
+    ]
+    for contract in (
+        "Min wait - latest Buildkite metrics bucket",
+        "Max wait - latest Buildkite metrics bucket",
+        "Jobs passed - latest Buildkite metrics bucket",
+        "Jobs failed - latest Buildkite metrics bucket",
+        "Latest metrics bucket observed",
+        "Native metrics provenance",
+        "officialWaitValue(row, 'min')",
+        "officialWaitValue(row, 'max')",
+        "integer(row.jobs_passed)",
+        "integer(row.jobs_failed)",
+        "row.official_wait_source",
+        "row.jobs_passed_source",
+        "row.jobs_failed_source",
+        "row.metrics_ts",
+    ):
+        assert contract in detail
+    assert "Latest passed / failed" in OPS_JS
+    assert "Number(row.jobs_passed || 0)" not in detail
+    assert "Number(row.jobs_failed || 0)" not in detail
+    assert "row.jobs_passed === null || row.jobs_passed === undefined ? '-'" in detail
+    assert "row.jobs_failed === null || row.jobs_failed === undefined ? '-'" in detail
 
 
 def test_queue_history_has_selectable_wait_and_pressure_visualizations():
@@ -1308,7 +1514,7 @@ def test_queue_history_has_selectable_wait_and_pressure_visualizations():
         "function queuePressureRows",
         "Select queue for historical activity and wait time",
         "const selectedHistory = state.queueHistoryQueue === 'fleet'",
-        "All AMD queues combined",
+        "queueScopeLabel(state.queueScope",
         "Worst individual queue wait at each snapshot",
         "Combined scope has two different reducers",
         "p95Queues",
@@ -1435,17 +1641,18 @@ def test_retired_mi355b_queues_are_excluded_on_every_frontend_path():
     assert "name === 'amd_mi250_8'" not in OPS_JS
     assert "/^amd_mi355b(?:_|$)/i" in OPS_JS
     assert "&& !isRetiredQueue(name)" in OPS_JS
-    assert "if (isRetiredQueue(entry[0])) return false" in OPS_JS
-    assert "if (isRetiredQueue(job.queue)) return false" in OPS_JS
+    assert "if (isRetiredQueue(queue)) return false" in OPS_JS
+    assert "queueMatchesScope(entry[0])" in OPS_JS
+    assert "queueMatchesScope(job.queue)" in OPS_JS
     assert "isRetiredQueue(name)" in OPS_JS
 
 
 def test_amd_cpu_is_included_in_general_amd_scope_but_omni_uses_exact_allowlist():
     assert "function isAmdQueue" in OPS_JS
     assert "name === 'amd-cpu' || name.startsWith('amd_')" in OPS_JS
-    assert "!isAmdQueue(entry[0])" in OPS_JS
-    assert "state.queueScope === 'all' || isAmdQueue(job.queue)" in OPS_JS
-    assert "state.queueScope === 'all' || isAmdQueue(name)" in OPS_JS
+    assert "return isAmdQueue(queue)" in OPS_JS
+    assert "queueMatchesScope(job.queue)" in OPS_JS
+    assert "queueMatchesScope(name)" in OPS_JS
     assert "const mapping = omni.mapping_history || {}" in OPS_JS
     assert "Object.keys(omniByQueue).concat(Object.keys(mainByQueue))" in OPS_JS
     assert "INCOMING OMNI JOBS" in OPS_JS

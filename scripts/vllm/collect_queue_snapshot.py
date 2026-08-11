@@ -30,6 +30,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vllm.constants import (  # noqa: E402
+    AMD_METRIC_TARGET_QUEUES,
     BK_API_BASE,
     BK_CLUSTER_UUID,
     BK_GRAPHQL_URL,
@@ -79,6 +80,8 @@ query QueueMetrics($org: ID!, $cluster: ID!, $first: Int!, $after: String) {
               connectedAgentsCount
               waitingJobsCount
               runningJobsCount
+              jobsPassedCount
+              jobsFailedCount
               waitTimeSec {
                 min
                 p50
@@ -289,6 +292,10 @@ def _queue_row() -> dict:
         "total": 0,
         "connected_agents": None,
         "connected_agents_source": None,
+        "jobs_passed": None,
+        "jobs_passed_source": None,
+        "jobs_failed": None,
+        "jobs_failed_source": None,
         "zombie_waiting": 0,
         "zombie_running": 0,
         "wait_times": [],
@@ -355,7 +362,7 @@ def _as_optional_float(value) -> float | None:
 
 
 def _empty_official_wait() -> dict:
-    return {"p50": None, "p95": None, "max": None}
+    return {"min": None, "p50": None, "p95": None, "max": None}
 
 
 def _empty_sample_wait(*, available: bool, count: int | None) -> dict:
@@ -366,10 +373,84 @@ def _empty_sample_wait(*, available: bool, count: int | None) -> dict:
     }
 
 
-def _apply_wait_contract(row: dict, official_wait: dict, sample_wait: dict) -> dict:
+def _reconcile_wait_sample(row: dict, sampled: dict) -> tuple[int, bool, dict]:
+    """Compare a scheduled-job scan with counts, never with native wait values.
+
+    Queue-native metrics and job reads are independent observations.  Exhaustive
+    pagination proves that the job query ended, but an equal count cannot prove
+    that both reads observed the same job membership.  The compatibility
+    ``wait_sample_complete`` flag therefore means count coverage only; the
+    structured reconciliation makes that limitation explicit.
+    """
+    waiting = _as_count(row.get("waiting"))
+    zombie_waiting = _as_count(row.get("zombie_waiting"))
+    sample_available = bool(sampled.get("available"))
+    sample_count = _as_optional_count(sampled.get("count"))
+    count_source = str(row.get("count_source") or "unknown")
+
+    if count_source == "cluster_metrics":
+        expected_non_zombie = max(0, waiting - zombie_waiting)
+        reference_kind = "queue_native_waiting_jobs_including_observed_zombies"
+        reference_count = waiting
+        observed_count = (
+            sample_count + zombie_waiting if sample_available and sample_count is not None else None
+        )
+    else:
+        # Active-job counts already exclude jobs classified as zombies from the
+        # row's waiting total, so compare the same non-zombie population.
+        expected_non_zombie = waiting
+        reference_kind = "published_non_zombie_waiting_jobs"
+        reference_count = waiting
+        observed_count = sample_count if sample_available else None
+
+    if not sample_available:
+        status = "not_sampled"
+        reason = "scheduled_job_scan_not_performed_for_queue"
+        count_delta = None
+        counts_match = None
+    elif sample_count is None:
+        status = "invalid"
+        reason = "scheduled_job_scan_missing_count"
+        count_delta = None
+        counts_match = False
+    else:
+        count_delta = observed_count - reference_count
+        counts_match = count_delta == 0
+        if counts_match:
+            status = "count_match"
+            reason = None
+        elif count_delta < 0:
+            status = "count_mismatch"
+            reason = "scheduled_job_scan_below_reference_count"
+        else:
+            status = "count_mismatch"
+            reason = "scheduled_job_scan_above_reference_count"
+
+    count_complete = counts_match is True
+    details = {
+        "status": status,
+        "reason": reason,
+        "reference_kind": reference_kind,
+        "reference_count": reference_count,
+        "observed_count": observed_count,
+        "count_delta": count_delta,
+        "membership_verified": False,
+        "native_wait_values_used": False,
+    }
+    return expected_non_zombie, count_complete, details
+
+
+def _apply_wait_contract(
+    row: dict,
+    official_wait: dict,
+    sample_wait: dict,
+    *,
+    emit_reconciliation: bool = True,
+) -> dict:
     """Attach typed wait fields and their provenance to one queue row."""
     official = {
-        metric: _as_optional_float(official_wait.get(metric)) for metric in ("p50", "p95", "max")
+        metric: _as_optional_float(official_wait.get(metric))
+        for metric in ("min", "p50", "p95", "max")
     }
     sample_count = _as_optional_count(sample_wait.get("count"))
     sample_available = bool(sample_wait.get("available"))
@@ -384,43 +465,33 @@ def _apply_wait_contract(row: dict, official_wait: dict, sample_wait: dict) -> d
     row["sample_wait"] = sampled
     row["wait_sample_count"] = sampled["count"]
 
-    # Queue-native metrics and the job scan are captured a few seconds apart.
-    # Record whether their counts reconcile, but never treat an equal count as
-    # proof that both reads contain the same job population. Jobs can dispatch
-    # while new jobs arrive, and Buildkite may use a different percentile
-    # estimator. The queue-native p50/p95 therefore remain the UI-comparable
-    # values; the scheduled-job reconstruction is retained as separate
-    # evidence and is only a fallback when the native value is unavailable.
-    waiting = _as_count(row.get("waiting"))
-    zombie_waiting = _as_count(row.get("zombie_waiting"))
-    expected_count = (
-        max(0, waiting - zombie_waiting)
-        if row.get("count_source") == "cluster_metrics"
-        else waiting
-    )
-    # Percentiles are tail-sensitive: even one missing job can be the slowest
-    # observation and materially lower p95. Exact n/n is useful coverage
-    # evidence, not permission to relabel the reconstructed value as native.
-    sample_complete = bool(
-        sampled["available"]
-        and sampled["count"] is not None
-        and sampled["count"] == expected_count
-    )
+    expected_count, sample_complete, reconciliation = _reconcile_wait_sample(row, sampled)
     row["wait_sample_expected_count"] = expected_count
     row["wait_sample_complete"] = sample_complete
+    row.pop("wait_sample_promotable", None)
+    row.pop("wait_sample_reconciliation", None)
+    if emit_reconciliation and (
+        expected_count > 0
+        or (sampled["count"] or 0) > 0
+        or reconciliation["status"] == "count_mismatch"
+    ):
+        row["wait_sample_reconciliation"] = reconciliation
+
+    row["min_wait"] = official["min"]
+    row["min_wait_source"] = "official_wait" if official["min"] is not None else None
 
     for metric in ("p50", "p95"):
         if official[metric] is not None:
             value, source = official[metric], "official_wait"
-        elif sampled[metric] is not None:
+        elif sample_complete and sampled[metric] is not None:
             value, source = sampled[metric], "sample_wait"
         else:
             value, source = None, None
         row[f"{metric}_wait"] = value
         row[f"{metric}_wait_source"] = source
 
-    row["p99_wait"] = sampled["p99"]
-    row["p99_wait_source"] = "sample_wait" if sampled["p99"] is not None else None
+    row["p99_wait"] = sampled["p99"] if sample_complete else None
+    row["p99_wait_source"] = "sample_wait" if row["p99_wait"] is not None else None
     row["current_wait"] = {
         metric: {
             "value": row[f"{metric}_wait"],
@@ -430,10 +501,10 @@ def _apply_wait_contract(row: dict, official_wait: dict, sample_wait: dict) -> d
     }
 
     for metric in ("p75", "p90", "avg"):
-        row[f"{metric}_wait"] = sampled[metric]
-        row[f"{metric}_wait_source"] = "sample_wait" if sampled[metric] is not None else None
+        row[f"{metric}_wait"] = sampled[metric] if sample_complete else None
+        row[f"{metric}_wait_source"] = "sample_wait" if row[f"{metric}_wait"] is not None else None
     official_max = official["max"]
-    sampled_max = sampled["max"]
+    sampled_max = sampled["max"] if sample_complete else None
     if sampled_max is not None and (official_max is None or sampled_max > official_max):
         row["max_wait"] = sampled_max
         row["max_wait_source"] = "sample_wait"
@@ -445,6 +516,36 @@ def _apply_wait_contract(row: dict, official_wait: dict, sample_wait: dict) -> d
         "official_wait": "cluster_metrics",
         "sample_wait": "scheduled_jobs",
     }.get(row["p95_wait_source"], "none")
+    return row
+
+
+def _apply_metric_sources(row: dict) -> dict:
+    """Attach compact per-field source labels to queue metrics in a live row."""
+    count_source = str(row.get("count_source") or "unknown")
+    if count_source == "cluster_metrics":
+        count_provider = "queue_native_metrics"
+    elif count_source == "active_job_scan":
+        count_provider = "active_job_scan"
+    else:
+        count_provider = count_source if count_source != "unknown" else None
+
+    row["waiting_source"] = count_provider
+    row["running_source"] = count_provider
+    row["jobs_passed"] = _as_optional_count(row.get("jobs_passed"))
+    row["jobs_failed"] = _as_optional_count(row.get("jobs_failed"))
+    if row["jobs_passed"] is not None and not row.get("jobs_passed_source"):
+        row["jobs_passed_source"] = (
+            "queue_native_metrics" if count_source == "cluster_metrics" else None
+        )
+    if row["jobs_failed"] is not None and not row.get("jobs_failed_source"):
+        row["jobs_failed_source"] = (
+            "queue_native_metrics" if count_source == "cluster_metrics" else None
+        )
+
+    # Provider paths are invariant and live once in sources.metric_fields.
+    # Repeating them for every queue more than doubles the 48-hour payload.
+    row.pop("official_wait_field_sources", None)
+    row.pop("field_provenance", None)
     return row
 
 
@@ -545,6 +646,27 @@ def _normalize_queue_row(
     legacy: bool,
 ) -> dict:
     source_row = row if isinstance(row, dict) else {}
+    # Detailed evidence is intentionally forward-only. Backfilling it into
+    # every retained JSONL row roughly doubles the history file, while adding
+    # no evidence that was captured at the time. Newly collected rows already
+    # carry these markers before they enter normalization, so re-normalization
+    # remains idempotent without inflating older snapshots.
+    retain_native_activity = not legacy and any(
+        field in source_row
+        for field in ("jobs_passed", "jobs_passed_source", "jobs_failed", "jobs_failed_source")
+    )
+    source_official_wait = source_row.get("official_wait")
+    retain_native_min = not legacy and (
+        (isinstance(source_official_wait, dict) and "min" in source_official_wait)
+        or "min_wait" in source_row
+    )
+    retain_wait_reconciliation = not legacy and isinstance(
+        source_row.get("wait_sample_reconciliation"), dict
+    )
+    retain_metric_sources = not legacy and (
+        "waiting_source" in source_row or "running_source" in source_row
+    )
+
     normalized = dict(source_row)
     normalized.pop("wait_times", None)
     normalized["waiting"] = _as_count(source_row.get("waiting"))
@@ -553,6 +675,12 @@ def _normalize_queue_row(
     normalized["total"] = normalized["waiting"] + normalized["running"]
     normalized["zombie_waiting"] = _as_count(source_row.get("zombie_waiting"))
     normalized["zombie_running"] = _as_count(source_row.get("zombie_running"))
+    if retain_native_activity:
+        normalized["jobs_passed"] = _as_optional_count(source_row.get("jobs_passed"))
+        normalized["jobs_failed"] = _as_optional_count(source_row.get("jobs_failed"))
+    else:
+        for field in ("jobs_passed", "jobs_passed_source", "jobs_failed", "jobs_failed_source"):
+            normalized.pop(field, None)
 
     original_count_source = str(
         source_row.get("count_source") or snapshot_count_source or "unknown"
@@ -601,6 +729,17 @@ def _normalize_queue_row(
         normalized["connected_agents"] = (
             _as_count(source_row.get("connected_agents")) if agent_source else None
         )
+        if retain_native_activity:
+            normalized["jobs_passed_source"] = source_row.get("jobs_passed_source") or (
+                "queue_native_metrics"
+                if count_source == "cluster_metrics" and normalized["jobs_passed"] is not None
+                else None
+            )
+            normalized["jobs_failed_source"] = source_row.get("jobs_failed_source") or (
+                "queue_native_metrics"
+                if count_source == "cluster_metrics" and normalized["jobs_failed"] is not None
+                else None
+            )
         official_wait = source_row.get("official_wait") or _empty_official_wait()
         sample_wait = source_row.get("sample_wait") or _empty_sample_wait(
             available=False,
@@ -608,7 +747,7 @@ def _normalize_queue_row(
         )
         has_official = any(
             _as_optional_float(official_wait.get(metric)) is not None
-            for metric in ("p50", "p95", "max")
+            for metric in ("min", "p50", "p95", "max")
         )
         normalized["official_wait_source"] = source_row.get("official_wait_source") or (
             "queue_native_metrics" if has_official else None
@@ -619,7 +758,20 @@ def _normalize_queue_row(
             or ("active_job_scan" if sample_wait.get("available") else None)
         )
 
-    normalized = _apply_wait_contract(normalized, official_wait, sample_wait)
+    normalized = _apply_wait_contract(
+        normalized,
+        official_wait,
+        sample_wait,
+        emit_reconciliation=retain_wait_reconciliation,
+    )
+    if not retain_native_min:
+        normalized["official_wait"].pop("min", None)
+        normalized.pop("min_wait", None)
+        normalized.pop("min_wait_source", None)
+    normalized.pop("official_wait_field_sources", None)
+    normalized.pop("field_provenance", None)
+    if retain_metric_sources:
+        normalized = _apply_metric_sources(normalized)
     return _normalize_workload_splits(normalized, snapshot_active_jobs_source)
 
 
@@ -637,6 +789,34 @@ def _scope_totals(queues: dict[str, dict]) -> dict:
         "count_source": source,
         "count_sources": count_sources,
         "queue_count": len(queues),
+    }
+
+
+def _target_queue_scope(queues: dict[str, dict]) -> dict:
+    """Describe the canonical AMD metric cohort without filtering other queues."""
+    queue_ids = list(AMD_METRIC_TARGET_QUEUES)
+    present = [queue for queue in queue_ids if queue in queues]
+    return {
+        "id": "amd_mi250_mi300_mi355",
+        "families": ["MI250", "MI300", "MI355"],
+        "gpu_widths": [1, 2, 4, 8],
+        "queue_ids": queue_ids,
+        "queue_count": len(queue_ids),
+        "rows_present": present,
+        "rows_missing": [queue for queue in queue_ids if queue not in queues],
+        "all_rows_present": len(present) == len(queue_ids),
+        "native_count_queue_ids": [
+            queue
+            for queue in queue_ids
+            if (queues.get(queue) or {}).get("count_source") == "cluster_metrics"
+        ],
+        "native_activity_queue_ids": [
+            queue
+            for queue in queue_ids
+            if (queues.get(queue) or {}).get("jobs_passed_source") == "queue_native_metrics"
+            and (queues.get(queue) or {}).get("jobs_failed_source") == "queue_native_metrics"
+        ],
+        "monitoring_scope": "annotation_only_general_queue_monitoring_is_retained",
     }
 
 
@@ -660,30 +840,69 @@ def _selected_waits_source(queues: dict[str, dict]) -> str:
 def _wait_field_descriptions() -> dict:
     return {
         "official_wait": (
-            "Buildkite queue-native waitTimeSec converted to minutes; contains only p50, p95, and max."
+            "Buildkite queue-native waitTimeSec converted to minutes; contains min, p50, p95, and max."
         ),
         "sample_wait": (
             "Exact statistics in minutes from fetched, currently SCHEDULED, non-zombie jobs; "
             "available records whether that queue's jobs were fetched, and count is null when they were not."
         ),
         "current_wait": "Displayed p50, p95, and p99 values paired with their per-field source labels.",
+        "min_wait": "official_wait.min when Buildkite reports it, otherwise null.",
         "p50_wait": (
-            "official_wait.p50 when available, otherwise sample_wait.p50, otherwise null."
+            "official_wait.p50 when available, otherwise a count-reconciled sample_wait.p50, "
+            "otherwise null."
         ),
         "p95_wait": (
-            "official_wait.p95 when available, otherwise sample_wait.p95, otherwise null."
+            "official_wait.p95 when available, otherwise a count-reconciled sample_wait.p95, "
+            "otherwise null."
         ),
-        "p99_wait": "sample_wait.p99 when sampled jobs are available, otherwise null.",
-        "p75_wait_p90_wait_avg_wait": "Sample-only compatibility fields; null without sampled jobs.",
-        "max_wait": "Greater reported value of official_wait.max and sample_wait.max, otherwise null.",
+        "p99_wait": "sample_wait.p99 only when scheduled-job counts reconcile, otherwise null.",
+        "p75_wait_p90_wait_avg_wait": (
+            "Sample-only compatibility fields; null unless scheduled-job counts reconcile."
+        ),
+        "max_wait": (
+            "Greater of official_wait.max and a count-reconciled sample_wait.max, otherwise null."
+        ),
         "field_source_labels": (
             "Each root wait field has a matching *_wait_source value of official_wait, sample_wait, or null."
         ),
         "sample_reconciliation": (
-            "wait_sample_expected_count is the non-zombie waiting count. "
-            "wait_sample_complete requires an exact count match between the queue-native "
-            "metrics read and the fully paginated scheduled-job read. Equal counts do not "
-            "prove equal job membership, so sampled percentiles remain separately labeled."
+            "wait_sample_reconciliation compares scheduled-job counts only; native wait values "
+            "never participate. wait_sample_complete means count coverage reconciled, not that "
+            "independent reads had identical job membership. Reconstructed root wait fields are "
+            "promoted only when that count reconciliation succeeds. Detailed reconciliation is "
+            "stored only for a nonzero reference/sample or a mismatch."
+        ),
+    }
+
+
+def _metric_field_descriptions() -> dict:
+    return {
+        "provider": "Buildkite GraphQL ClusterQueue.metrics",
+        "observed_at_field": "metrics_ts",
+        "provider_fields": {
+            "waiting": "ClusterQueue.metrics.waitingJobsCount",
+            "running": "ClusterQueue.metrics.runningJobsCount",
+            "connected_agents": "ClusterQueue.metrics.connectedAgentsCount",
+            "jobs_passed": "ClusterQueue.metrics.jobsPassedCount",
+            "jobs_failed": "ClusterQueue.metrics.jobsFailedCount",
+            "official_wait.min": "ClusterQueue.metrics.waitTimeSec.min",
+            "official_wait.p50": "ClusterQueue.metrics.waitTimeSec.p50",
+            "official_wait.p95": "ClusterQueue.metrics.waitTimeSec.p95",
+            "official_wait.max": "ClusterQueue.metrics.waitTimeSec.max",
+        },
+        "source_fields": {
+            "waiting": "waiting_source",
+            "running": "running_source",
+            "connected_agents": "connected_agents_source",
+            "jobs_passed": "jobs_passed_source",
+            "jobs_failed": "jobs_failed_source",
+            "official_wait.*": "official_wait_source",
+        },
+        "notes": (
+            "waiting/running may instead use a fully paginated active-job scan, as named by "
+            "their source fields. Activity counts are the provider-defined latest metrics point, "
+            "not reconstructed lifecycle totals. Null values remain null rather than becoming zero."
         ),
     }
 
@@ -697,16 +916,18 @@ def normalize_history_snapshot(snapshot: dict) -> dict | None:
         return None
 
     original_sources = snapshot.get("sources") if isinstance(snapshot.get("sources"), dict) else {}
+    retain_metric_contract = isinstance(original_sources.get("metric_fields"), dict)
+    retain_target_contract = "target_queue_scope" in original_sources or isinstance(
+        snapshot.get("target_queue_scope"), dict
+    )
+    retain_native_activity_source = "native_activity" in original_sources
     history_provenance = (
         original_sources.get("history_provenance")
         if isinstance(original_sources.get("history_provenance"), dict)
         else {}
     )
     already_migrated = history_provenance.get("migration") == "legacy_queue_snapshot_v1_to_v2"
-    row_is_legacy = {
-        queue: not _queue_row_has_current_schema(row)
-        for queue, row in queues.items()
-    }
+    row_is_legacy = {queue: not _queue_row_has_current_schema(row) for queue, row in queues.items()}
     # A single sparse/archive-only queue must not downgrade every otherwise
     # typed row in the snapshot to the legacy migration path.
     legacy = bool(row_is_legacy) and all(row_is_legacy.values())
@@ -735,15 +956,34 @@ def normalize_history_snapshot(snapshot: dict) -> dict | None:
     normalized["total_zombie_running"] = sum(
         row["zombie_running"] for row in normalized_queues.values()
     )
-    normalized["scope_totals"] = {
+    scope_totals = {
         "all": _scope_totals(normalized_queues),
         "amd": _scope_totals(
             {queue: row for queue, row in normalized_queues.items() if is_amd_queue(queue)}
         ),
     }
+    if retain_target_contract:
+        scope_totals["target"] = _scope_totals(
+            {
+                queue: normalized_queues[queue]
+                for queue in AMD_METRIC_TARGET_QUEUES
+                if queue in normalized_queues
+            }
+        )
+        normalized["target_queue_scope"] = _target_queue_scope(normalized_queues)
+    else:
+        normalized.pop("target_queue_scope", None)
+    normalized["scope_totals"] = scope_totals
 
     sources = dict(original_sources)
     sources["wait_fields"] = _wait_field_descriptions()
+    if retain_metric_contract:
+        sources["metric_fields"] = _metric_field_descriptions()
+    if retain_target_contract:
+        sources["target_queue_scope"] = (
+            "Canonical MI250/MI300/MI355 queues at widths 1/2/4/8; annotations and target totals "
+            "do not remove the dashboard's general queue monitoring."
+        )
     sources["workload_split_fields"] = {
         "source": "Fetched active jobs, independent of queue-native metric timing.",
         "rule": (
@@ -784,6 +1024,8 @@ def normalize_history_snapshot(snapshot: dict) -> dict | None:
                 },
             }
         )
+        if retain_native_activity_source:
+            sources["native_activity"] = "unavailable"
     elif historical:
         has_samples = any(
             (row.get("sample_wait") or {}).get("count", 0) > 0 for row in normalized_queues.values()
@@ -799,11 +1041,21 @@ def normalize_history_snapshot(snapshot: dict) -> dict | None:
                 "waits": "sampled_historical_jobs" if has_samples else "none",
             }
         )
+        if retain_native_activity_source:
+            sources["native_activity"] = "unavailable"
     else:
         has_agents = any(row.get("connected_agents_source") for row in normalized_queues.values())
+        has_native_activity = any(
+            row.get("jobs_passed_source") or row.get("jobs_failed_source")
+            for row in normalized_queues.values()
+        )
         has_official = any(row.get("official_wait_source") for row in normalized_queues.values())
         has_sample_scan = any(row.get("sample_wait_source") for row in normalized_queues.values())
         sources["agents"] = "queue_native_metrics" if has_agents else "unavailable"
+        if retain_native_activity_source:
+            sources["native_activity"] = (
+                "queue_native_metrics" if has_native_activity else "unavailable"
+            )
         sources["official_wait"] = "queue_native_metrics" if has_official else "unavailable"
         sources["sampled_wait"] = (
             str(sources.get("active_jobs") or "active_job_scan")
@@ -857,12 +1109,13 @@ def normalize_history_rows(rows: list[dict]) -> list[dict]:
 def _merge_same_timestamp_snapshots(previous: dict, current: dict) -> dict:
     """Let current values win while retaining richer hourly peak evidence."""
     merged = deepcopy(current)
-    if previous.get("history_mode") == "hourly_queue_wait_peaks" or current.get(
-        "history_mode"
-    ) == "hourly_queue_wait_peaks":
+    if (
+        previous.get("history_mode") == "hourly_queue_wait_peaks"
+        or current.get("history_mode") == "hourly_queue_wait_peaks"
+    ):
         merged["history_mode"] = "hourly_queue_wait_peaks"
-        merged["archive_bucket_start"] = (
-            current.get("archive_bucket_start") or previous.get("archive_bucket_start")
+        merged["archive_bucket_start"] = current.get("archive_bucket_start") or previous.get(
+            "archive_bucket_start"
         )
 
     merged_queues = merged.setdefault("queues", {})
@@ -873,10 +1126,7 @@ def _merge_same_timestamp_snapshots(previous: dict, current: dict) -> dict:
             for snapshot in (previous, current):
                 row = (snapshot.get("queues") or {}).get(name)
                 for metric, peak in ((row or {}).get(peak_field) or {}).items():
-                    if (
-                        isinstance(peak, dict)
-                        and _as_optional_float(peak.get("value")) is not None
-                    ):
+                    if isinstance(peak, dict) and _as_optional_float(peak.get("value")) is not None:
                         peak_candidates.setdefault(metric, []).append(peak)
             if not peak_candidates:
                 continue
@@ -886,13 +1136,15 @@ def _merge_same_timestamp_snapshots(previous: dict, current: dict) -> dict:
                 merged_queues[name] = target
             peaks = dict(target.get(peak_field) or {})
             for metric, candidates in peak_candidates.items():
-                peaks[metric] = deepcopy(max(
-                    candidates,
-                    key=lambda peak: (
-                        _as_optional_float(peak.get("value")),
-                        str(peak.get("observed_at") or ""),
-                    ),
-                ))
+                peaks[metric] = deepcopy(
+                    max(
+                        candidates,
+                        key=lambda peak: (
+                            _as_optional_float(peak.get("value")),
+                            str(peak.get("observed_at") or ""),
+                        ),
+                    )
+                )
             target[peak_field] = peaks
 
     previous_resolution = (previous.get("sources") or {}).get("history_resolution")
@@ -924,13 +1176,16 @@ def _archive_bucket_snapshot(snapshots: list[dict]) -> dict:
     )
     archived = deepcopy(representative)
     archived["history_mode"] = "hourly_queue_wait_peaks"
-    archived["archive_bucket_start"] = parse_iso(representative["ts"]).replace(
-        minute=0, second=0, microsecond=0
-    ).isoformat().replace("+00:00", "Z")
+    archived["archive_bucket_start"] = (
+        parse_iso(representative["ts"])
+        .replace(minute=0, second=0, microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
-    queue_names = sorted({
-        name for snapshot in snapshots for name in (snapshot.get("queues") or {})
-    })
+    queue_names = sorted(
+        {name for snapshot in snapshots for name in (snapshot.get("queues") or {})}
+    )
     archived_queues = archived.setdefault("queues", {})
     for name in queue_names:
         peaks = {}
@@ -946,35 +1201,35 @@ def _archive_bucket_snapshot(snapshots: list[dict]) -> dict:
                 if isinstance(existing_peak, dict):
                     existing_value = _as_optional_float(existing_peak.get("value"))
                     if existing_value is not None:
-                        candidates.append((
-                            existing_value,
-                            str(existing_peak.get("observed_at") or snapshot["ts"]),
-                            existing_peak.get("source"),
-                            existing_peak.get("provider"),
-                            existing_peak.get("sample_count"),
-                            existing_peak.get("sample_expected"),
-                            existing_peak.get("sample_complete"),
-                        ))
+                        candidates.append(
+                            (
+                                existing_value,
+                                str(existing_peak.get("observed_at") or snapshot["ts"]),
+                                existing_peak.get("source"),
+                                existing_peak.get("provider"),
+                                existing_peak.get("sample_count"),
+                                existing_peak.get("sample_expected"),
+                                existing_peak.get("sample_complete"),
+                            )
+                        )
                         if existing_peak.get("source") == "sample_wait":
                             sample_candidates.append(candidates[-1])
-                existing_sample_peak = (row.get("archive_sample_wait_peaks") or {}).get(
-                    metric
-                )
+                existing_sample_peak = (row.get("archive_sample_wait_peaks") or {}).get(metric)
                 if isinstance(existing_sample_peak, dict):
-                    existing_sample_value = _as_optional_float(
-                        existing_sample_peak.get("value")
-                    )
+                    existing_sample_value = _as_optional_float(existing_sample_peak.get("value"))
                     if existing_sample_value is not None:
-                        sample_candidates.append((
-                            existing_sample_value,
-                            str(existing_sample_peak.get("observed_at") or snapshot["ts"]),
-                            "sample_wait",
-                            existing_sample_peak.get("provider")
-                            or existing_sample_peak.get("source"),
-                            existing_sample_peak.get("sample_count"),
-                            existing_sample_peak.get("sample_expected"),
-                            existing_sample_peak.get("sample_complete"),
-                        ))
+                        sample_candidates.append(
+                            (
+                                existing_sample_value,
+                                str(existing_sample_peak.get("observed_at") or snapshot["ts"]),
+                                "sample_wait",
+                                existing_sample_peak.get("provider")
+                                or existing_sample_peak.get("source"),
+                                existing_sample_peak.get("sample_count"),
+                                existing_sample_peak.get("sample_expected"),
+                                existing_sample_peak.get("sample_complete"),
+                            )
+                        )
                 value = _as_optional_float(row.get(f"{metric}_wait"))
                 if value is None:
                     source = None
@@ -987,28 +1242,32 @@ def _archive_bucket_snapshot(snapshots: list[dict]) -> dict:
                         if source == "sample_wait"
                         else None
                     )
-                    candidates.append((
-                        value,
-                        snapshot["ts"],
-                        source,
-                        provider,
-                        row.get("wait_sample_count") if source == "sample_wait" else None,
-                        row.get("wait_sample_expected_count")
-                        if source == "sample_wait"
-                        else None,
-                        row.get("wait_sample_complete") if source == "sample_wait" else None,
-                    ))
+                    candidates.append(
+                        (
+                            value,
+                            snapshot["ts"],
+                            source,
+                            provider,
+                            row.get("wait_sample_count") if source == "sample_wait" else None,
+                            row.get("wait_sample_expected_count")
+                            if source == "sample_wait"
+                            else None,
+                            row.get("wait_sample_complete") if source == "sample_wait" else None,
+                        )
+                    )
                 sample_value = _as_optional_float((row.get("sample_wait") or {}).get(metric))
                 if sample_value is not None:
-                    sample_candidates.append((
-                        sample_value,
-                        snapshot["ts"],
-                        "sample_wait",
-                        row.get("sample_wait_source"),
-                        row.get("wait_sample_count"),
-                        row.get("wait_sample_expected_count"),
-                        row.get("wait_sample_complete"),
-                    ))
+                    sample_candidates.append(
+                        (
+                            sample_value,
+                            snapshot["ts"],
+                            "sample_wait",
+                            row.get("sample_wait_source"),
+                            row.get("wait_sample_count"),
+                            row.get("wait_sample_expected_count"),
+                            row.get("wait_sample_complete"),
+                        )
+                    )
             if candidates:
                 (
                     value,
@@ -1195,13 +1454,15 @@ def _wait_summary_from_queue_metrics(wait_time_sec: dict | None) -> dict | None:
     """Return only wait statistics Buildkite reports natively."""
     if not isinstance(wait_time_sec, dict):
         return None
+    min_wait = _minutes_from_seconds(wait_time_sec.get("min"))
     p50 = _minutes_from_seconds(wait_time_sec.get("p50"))
     p95 = _minutes_from_seconds(wait_time_sec.get("p95"))
     max_wait = _minutes_from_seconds(wait_time_sec.get("max"))
-    if p50 is None and p95 is None and max_wait is None:
+    if min_wait is None and p50 is None and p95 is None and max_wait is None:
         return None
 
     return {
+        "min": min_wait,
         "p50": p50,
         "p95": p95,
         "max": max_wait,
@@ -1264,6 +1525,8 @@ def fetch_cluster_queue_metrics(token: str) -> dict[str, dict]:
             waiting_count = latest.get("waitingJobsCount")
             running_count = latest.get("runningJobsCount")
             connected_agents = latest.get("connectedAgentsCount")
+            jobs_passed = latest.get("jobsPassedCount")
+            jobs_failed = latest.get("jobsFailedCount")
             metrics[key] = {
                 "graphql_id": node.get("id") or "",
                 "counts_available": waiting_count is not None and running_count is not None,
@@ -1272,6 +1535,8 @@ def fetch_cluster_queue_metrics(token: str) -> dict[str, dict]:
                 "connected_agents": (
                     _as_count(connected_agents) if connected_agents is not None else None
                 ),
+                "jobs_passed": _as_optional_count(jobs_passed),
+                "jobs_failed": _as_optional_count(jobs_failed),
                 "official_wait": _wait_summary_from_queue_metrics(latest.get("waitTimeSec")),
                 "metrics_ts": latest.get("timestamp") or "",
                 "queue_url": _queue_web_url(node.get("uuid")),
@@ -1485,6 +1750,12 @@ def _seed_queue_metrics(queue_stats: dict, metrics_by_queue: dict[str, dict]) ->
         if meta.get("connected_agents") is not None:
             stats["connected_agents"] = _as_count(meta.get("connected_agents"))
             stats["connected_agents_source"] = "queue_native_metrics"
+        if meta.get("jobs_passed") is not None:
+            stats["jobs_passed"] = _as_count(meta.get("jobs_passed"))
+            stats["jobs_passed_source"] = "queue_native_metrics"
+        if meta.get("jobs_failed") is not None:
+            stats["jobs_failed"] = _as_count(meta.get("jobs_failed"))
+            stats["jobs_failed_source"] = "queue_native_metrics"
         if meta.get("queue_url"):
             stats["queue_url"] = meta["queue_url"]
         if meta.get("metrics_ts"):
@@ -1690,13 +1961,14 @@ def collect_snapshot(token: str) -> dict:
     has_official_wait = False
     has_sample_wait = False
     has_agent_metrics = False
+    has_native_activity = False
     for queue, stats in sorted(queue_stats.items()):
         if is_excluded_queue(queue):
             continue
         if queue not in TRACKED_QUEUES and not stats["waiting"] and not stats["running"]:
             continue
         row = {k: v for k, v in stats.items() if k not in {"wait_times", "official_wait"}}
-        official_wait = stats.get("official_wait") or {"p50": None, "p95": None, "max": None}
+        official_wait = stats.get("official_wait") or _empty_official_wait()
         sample_summary = _wait_summary(stats["wait_times"])
         sample_available = sampled_queues is None or queue in sampled_queues
         sample_wait = {
@@ -1711,11 +1983,15 @@ def collect_snapshot(token: str) -> dict:
         )
         row["sample_wait_source"] = active_jobs_source if sample_available else None
         _apply_wait_contract(row, official_wait, sample_wait)
+        _apply_metric_sources(row)
         has_official_wait = has_official_wait or any(
             value is not None for value in official_wait.values()
         )
         has_sample_wait = has_sample_wait or bool(sample_wait["count"])
         has_agent_metrics = has_agent_metrics or bool(row.get("connected_agents_source"))
+        has_native_activity = has_native_activity or bool(
+            row.get("jobs_passed_source") or row.get("jobs_failed_source")
+        )
         queues[queue] = row
 
     queue_count_sources = {row["count_source"] for row in queues.values()}
@@ -1736,6 +2012,7 @@ def collect_snapshot(token: str) -> dict:
             "waits": _selected_waits_source(queues),
             "active_jobs": active_jobs_source,
             "agents": "queue_native_metrics" if has_agent_metrics else "unavailable",
+            "native_activity": ("queue_native_metrics" if has_native_activity else "unavailable"),
             "official_wait": ("queue_native_metrics" if has_official_wait else "unavailable"),
             "sampled_wait": active_jobs_source if has_sample_wait else "unavailable",
             "count_fields": {
@@ -1748,6 +2025,11 @@ def collect_snapshot(token: str) -> dict:
                 ),
             },
             "wait_fields": _wait_field_descriptions(),
+            "metric_fields": _metric_field_descriptions(),
+            "target_queue_scope": (
+                "Canonical MI250/MI300/MI355 queues at widths 1/2/4/8; annotations and target "
+                "totals do not remove the dashboard's general queue monitoring."
+            ),
             "history_reset_ts": queue_history_reset_datetime().strftime("%Y-%m-%dT%H:%M:%SZ"),
             "zombie_threshold_min": QUEUE_ZOMBIE_THRESHOLD_MIN,
         },

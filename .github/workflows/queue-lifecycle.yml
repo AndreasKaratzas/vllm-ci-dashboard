@@ -1,0 +1,90 @@
+name: Queue Lifecycle Monitor (hourly)
+
+on:
+  schedule:
+    # Lifecycle queries are substantially heavier than point-in-time queue
+    # metrics. Keep them independent from both the 10-minute queue poll and
+    # the canonical Pages build so a transient API failure cannot stale either.
+    - cron: '47 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: queue-lifecycle-data-publish
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Restore durable lifecycle observations
+        run: |
+          # A missing branch is the expected first-run bootstrap. Every other
+          # lookup/fetch/read failure is fatal: publishing an empty orphan
+          # branch over established evidence would make the ledger unrecoverable.
+          set +e
+          git ls-remote --exit-code origin refs/heads/queue-lifecycle-data >/dev/null 2>&1
+          LIFECYCLE_DATA_STATUS=$?
+          set -e
+          if [ "$LIFECYCLE_DATA_STATUS" -eq 0 ]; then
+            git fetch origin \
+              +refs/heads/queue-lifecycle-data:refs/remotes/origin/queue-lifecycle-data \
+              --depth=1
+            python scripts/vllm/collect_queue_lifecycle.py \
+              --merge-jobs-git-ref origin/queue-lifecycle-data
+          elif [ "$LIFECYCLE_DATA_STATUS" -eq 2 ]; then
+            echo "No queue-lifecycle-data branch exists; starting the first bounded bootstrap."
+          else
+            echo "::error::Could not determine durable lifecycle branch state; refusing to publish."
+            exit "$LIFECYCLE_DATA_STATUS"
+          fi
+
+      - name: Collect canonical AMD queue lifecycle
+        env:
+          BUILDKITE_API_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
+        run: |
+          python scripts/vllm/collect_queue_lifecycle.py
+          python -m json.tool data/vllm/ci/queue_lifecycle.json >/dev/null
+          test -n "$(find data/vllm/ci/queue_lifecycle_jobs -type f -name '*.jsonl.gz' -print -quit)"
+          find data/vllm/ci/queue_lifecycle_jobs -type f -name '*.jsonl.gz' -print0 \
+            | xargs -0 gzip -t
+
+      - name: Publish durable lifecycle evidence
+        run: |
+          # Only the bounded public aggregate and privacy-minimized compressed
+          # observations are retained on this single-commit orphan branch.
+          LIVE_ROOT=$(mktemp -d)
+          cleanup() {
+            git worktree remove --force "$LIVE_ROOT" 2>/dev/null || true
+            rm -rf "$LIVE_ROOT"
+          }
+          trap cleanup EXIT
+          git worktree add --detach "$LIVE_ROOT" HEAD
+          git -C "$LIVE_ROOT" switch --orphan queue-lifecycle-data-publish
+          git -C "$LIVE_ROOT" rm -rf --ignore-unmatch .
+          install -D -m 0644 data/vllm/ci/queue_lifecycle.json \
+            "$LIVE_ROOT/data/vllm/ci/queue_lifecycle.json"
+          while IFS= read -r -d '' SEGMENT; do
+            install -D -m 0644 "$SEGMENT" "$LIVE_ROOT/$SEGMENT"
+          done < <(find data/vllm/ci/queue_lifecycle_jobs -type f -name '*.jsonl.gz' -print0)
+          git -C "$LIVE_ROOT" config user.name "github-actions[bot]"
+          git -C "$LIVE_ROOT" config user.email "github-actions[bot]@users.noreply.github.com"
+          git -C "$LIVE_ROOT" add \
+            data/vllm/ci/queue_lifecycle.json \
+            data/vllm/ci/queue_lifecycle_jobs
+          git -C "$LIVE_ROOT" commit -m "queue: lifecycle observations $(date -u +%Y-%m-%dT%H:%M)"
+          git -C "$LIVE_ROOT" push --force origin HEAD:queue-lifecycle-data

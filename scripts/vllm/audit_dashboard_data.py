@@ -264,6 +264,23 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         "Queue job overlays and admin triage",
     ),
     DataSpec(
+        "data/vllm/ci/queue_lifecycle.json",
+        ("scripts/vllm/collect_queue_lifecycle.py",),
+        ("docs/assets/js/ops-v2.js",),
+        (
+            "schema_version",
+            "generated_at",
+            "window",
+            "scope",
+            "totals",
+            "queues",
+            "hourly",
+            "coverage",
+            "provenance",
+        ),
+        "Direct observed event-time lifecycle metrics for the twelve canonical AMD queues",
+    ),
+    DataSpec(
         "data/vllm/ci/workload_mapping.json",
         ("scripts/vllm/collect_workload_mapping.py",),
         ("scripts/vllm/build_operations_snapshot.py",),
@@ -425,6 +442,7 @@ class DashboardAudit:
         self.audit_analytics()
         self.audit_amd_matrix()
         self.audit_queue_data()
+        self.audit_queue_lifecycle()
         self.audit_ready_tickets()
         self.audit_frontend_contracts()
         self.audit_workflows()
@@ -3239,6 +3257,222 @@ class DashboardAudit:
             "amd_workload_72h": amd_workload,
             "pending_jobs": len(pending) if isinstance(pending, list) else None,
             "running_jobs": len(running) if isinstance(running, list) else None,
+        }
+
+    def audit_queue_lifecycle(self) -> None:
+        path = "data/vllm/ci/queue_lifecycle.json"
+        payload = self.load_json(path, {})
+        if not isinstance(payload, dict) or not payload:
+            return
+
+        expected_queues = [
+            f"amd_mi{family}_{width}"
+            for family in (250, 300, 355)
+            for width in (1, 2, 4, 8)
+        ]
+        scope = _mapping(payload.get("scope"))
+        if scope.get("queues") != expected_queues:
+            self.error(
+                "queue-lifecycle-scope",
+                "queue lifecycle scope must be exactly the twelve canonical MI250/MI300/MI355 queues",
+                path,
+            )
+        if scope.get("families") != ["MI250", "MI300", "MI355"]:
+            self.error(
+                "queue-lifecycle-families",
+                f"queue lifecycle families are {scope.get('families')!r}",
+                path,
+            )
+
+        window = _mapping(payload.get("window"))
+        window_start = _parse_timestamp(window.get("start"))
+        window_end = _parse_timestamp(window.get("end_exclusive"))
+        if window.get("hours") != 2 or not window_start or not window_end:
+            self.error(
+                "queue-lifecycle-window",
+                "queue lifecycle must publish a parseable exact two-hour half-open window",
+                path,
+            )
+        elif abs((window_end - window_start).total_seconds() - 7200) > 1:
+            self.error(
+                "queue-lifecycle-window-duration",
+                f"queue lifecycle window spans {(window_end - window_start).total_seconds()} seconds",
+                path,
+            )
+
+        generated_at = _parse_timestamp(payload.get("generated_at"))
+        if not generated_at:
+            self.error("queue-lifecycle-generated-at", "invalid generated_at", path)
+        else:
+            age_hours = (datetime.now(timezone.utc) - generated_at).total_seconds() / 3600
+            if age_hours > 6:
+                self.warning(
+                    "queue-lifecycle-stale",
+                    f"queue lifecycle aggregate is {age_hours:.1f}h old",
+                    path,
+                )
+
+        coverage = _mapping(payload.get("coverage"))
+        if not isinstance(coverage.get("complete"), bool):
+            self.error(
+                "queue-lifecycle-coverage-shape",
+                "queue lifecycle coverage.complete must be boolean",
+                path,
+            )
+        elif coverage.get("complete") is False:
+            self.warning(
+                "queue-lifecycle-incomplete",
+                str(coverage.get("reason") or coverage.get("status") or "collection incomplete"),
+                path,
+            )
+
+        count_fields = (
+            "incoming",
+            "served",
+            "completed",
+            "passed",
+            "failed",
+            "soft_failed",
+            "canceled",
+            "timed_out",
+            "expired",
+            "broken",
+            "skipped",
+            "other_outcomes",
+            "retry_attempts_completed",
+            "retried_jobs_completed",
+        )
+        distribution_fields = ("queue_wait_seconds", "runtime_seconds")
+
+        def audit_metric_block(label: str, block: Any) -> dict[str, int] | None:
+            if not isinstance(block, dict):
+                self.error("queue-lifecycle-metric-block", f"{label} is not an object", path)
+                return None
+            counts: dict[str, int] = {}
+            for field in count_fields:
+                value = block.get(field)
+                if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                    self.error(
+                        "queue-lifecycle-count",
+                        f"{label}.{field} must be a non-negative integer, got {value!r}",
+                        path,
+                    )
+                    return None
+                counts[field] = value
+            outcomes = sum(
+                counts[field]
+                for field in (
+                    "passed",
+                    "failed",
+                    "soft_failed",
+                    "canceled",
+                    "timed_out",
+                    "expired",
+                    "broken",
+                    "skipped",
+                    "other_outcomes",
+                )
+            )
+            if outcomes != counts["completed"]:
+                self.error(
+                    "queue-lifecycle-outcomes",
+                    f"{label} completion outcomes sum to {outcomes}, completed={counts['completed']}",
+                    path,
+                )
+            if counts["retried_jobs_completed"] > counts["completed"]:
+                self.error(
+                    "queue-lifecycle-retried-jobs",
+                    f"{label}.retried_jobs_completed exceeds completed jobs",
+                    path,
+                )
+            for field in distribution_fields:
+                distribution = block.get(field)
+                if not isinstance(distribution, dict):
+                    self.error(
+                        "queue-lifecycle-distribution",
+                        f"{label}.{field} is not an object",
+                        path,
+                    )
+                    continue
+                sample_count = distribution.get("count")
+                if not isinstance(sample_count, int) or isinstance(sample_count, bool) or sample_count < 0:
+                    self.error(
+                        "queue-lifecycle-distribution-count",
+                        f"{label}.{field}.count must be a non-negative integer",
+                        path,
+                    )
+                for statistic in ("min", "p50", "p95", "max", "avg"):
+                    value = distribution.get(statistic)
+                    if value is not None and (
+                        isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0
+                    ):
+                        self.error(
+                            "queue-lifecycle-distribution-value",
+                            f"{label}.{field}.{statistic} must be null or non-negative",
+                            path,
+                        )
+            return counts
+
+        totals = audit_metric_block("totals", payload.get("totals"))
+        queues = payload.get("queues")
+        if not isinstance(queues, dict) or set(queues) != set(expected_queues):
+            self.error(
+                "queue-lifecycle-queue-map",
+                "queue lifecycle queue map must contain only the ordered canonical queue cohort",
+                path,
+            )
+            queues = queues if isinstance(queues, dict) else {}
+        queue_counts = {
+            queue: audit_metric_block(f"queues.{queue}", queues.get(queue))
+            for queue in expected_queues
+        }
+        if totals is not None and all(value is not None for value in queue_counts.values()):
+            for field in count_fields:
+                queue_sum = sum((value or {})[field] for value in queue_counts.values())
+                if queue_sum != totals[field]:
+                    self.error(
+                        "queue-lifecycle-total",
+                        f"totals.{field}={totals[field]} but queue rows sum to {queue_sum}",
+                        path,
+                    )
+
+        hourly = payload.get("hourly")
+        if not isinstance(hourly, list) or not hourly:
+            self.error("queue-lifecycle-hourly", "queue lifecycle hourly rows are missing", path)
+        else:
+            for index, bucket in enumerate(hourly):
+                if not isinstance(bucket, dict):
+                    self.error(
+                        "queue-lifecycle-hourly-row",
+                        f"hourly[{index}] is not an object",
+                        path,
+                    )
+                    continue
+                start = _parse_timestamp(bucket.get("start"))
+                end = _parse_timestamp(bucket.get("end_exclusive"))
+                if not start or not end or start >= end:
+                    self.error(
+                        "queue-lifecycle-hourly-window",
+                        f"hourly[{index}] has invalid half-open timestamps",
+                        path,
+                    )
+                audit_metric_block(f"hourly[{index}].totals", bucket.get("totals"))
+
+        retention = _mapping(payload.get("retention"))
+        if retention.get("days") != 7:
+            self.error(
+                "queue-lifecycle-retention",
+                f"queue lifecycle retention days must be 7, got {retention.get('days')!r}",
+                path,
+            )
+        if not isinstance(payload.get("provenance"), dict):
+            self.error("queue-lifecycle-provenance", "provenance must be an object", path)
+
+        self.report.metrics["queue_lifecycle"] = {
+            "generated_at": payload.get("generated_at"),
+            "coverage_complete": coverage.get("complete"),
+            "window": window,
+            "totals": payload.get("totals"),
         }
 
     def audit_ready_tickets(self) -> None:

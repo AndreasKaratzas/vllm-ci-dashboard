@@ -83,7 +83,9 @@ jobs:
       - name: Sync registry from gh-pages
         run: |
           mkdir -p data/vllm/ci/test_builds
-          git fetch origin gh-pages --depth=1 || true
+          git fetch origin \
+            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+            --depth=1 || true
           LIVE=$(git show origin/gh-pages:data/vllm/ci/test_builds/index.json 2>/dev/null || true)
           if [ -n "$LIVE" ]; then
             echo "$LIVE" > data/vllm/ci/test_builds/index.json

@@ -509,7 +509,12 @@ class TestNoOrphanedCronSchedules:
         # hourly-master.yml owns the frequent collection cadence, while the
         # ready-ticket sync is intentionally limited to the 3x/day master-
         # issue updater.
-        allowed = {"hourly-master.yml", "queue-monitor.yml", "ready-tickets-live.yml"}
+        allowed = {
+            "hourly-master.yml",
+            "queue-monitor.yml",
+            "queue-lifecycle.yml",
+            "ready-tickets-live.yml",
+        }
         for f in WORKFLOWS.glob("*.yml"):
             data = yaml.safe_load(f.read_text())
             triggers = data.get(True, data.get("on", {}))
@@ -772,6 +777,23 @@ class TestDeployDataFreshness:
             < names.index("Normalize and prune queue history")
             < names.index("Collect queue snapshot")
         )
+        lifecycle_step = next(
+            step for step in steps if step.get("name") == "Sync validated queue lifecycle aggregate"
+        )
+        lifecycle_run = lifecycle_step.get("run", "")
+        assert "origin/queue-lifecycle-data:data/vllm/ci/queue_lifecycle.json" in lifecycle_run
+        assert (
+            "+refs/heads/queue-lifecycle-data:refs/remotes/origin/queue-lifecycle-data"
+            in lifecycle_run
+        )
+        assert "retaining last validated main copy" in lifecycle_run
+
+    def test_lifecycle_collection_is_not_a_queue_or_pages_dependency(self):
+        queue_text = _load_workflow_text("queue-monitor.yml")
+        hourly_text = _load_workflow_text("hourly-master.yml")
+        assert "collect_queue_lifecycle.py" not in queue_text
+        assert "Collect canonical AMD queue lifecycle" not in hourly_text
+        assert "Sync validated queue lifecycle aggregate" in hourly_text
 
     def test_deploy_pages_does_not_sync_ci_json_from_ghpages(self):
         """deploy-pages.yml must NOT overwrite CI analysis JSON files from gh-pages.
@@ -961,6 +983,7 @@ class TestWorkflowPipInstallMatchesImports:
             "enum",
             "functools",
             "glob",
+            "gzip",
             "hashlib",
             "hmac",
             "html",

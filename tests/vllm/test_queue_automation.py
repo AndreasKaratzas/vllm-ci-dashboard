@@ -256,6 +256,7 @@ class TestQueueMonitorWorkflow:
         assert "data/vllm/ci/queue_jobs.json" in script
         assert "data/vllm/ci/queue_history_chart.json" in script
         assert "data/vllm/ci/operations_v2/queue.json" in script
+        assert "queue_lifecycle" not in script
         assert "data/vllm/ci/operations_v2_manifest.json" not in script
         assert "peaceiris/actions-gh-pages" not in script
 
@@ -291,6 +292,9 @@ class TestQueueMonitorWorkflow:
         assert "origin/queue-data" in content
         assert "--merge-history-git-ref origin/queue-data" in content
         assert "origin/gh-pages" in content  # first-run migration fallback
+        assert "git ls-remote --exit-code origin refs/heads/queue-data" in content
+        assert "+refs/heads/queue-data:refs/remotes/origin/queue-data" in content
+        assert "Could not determine durable queue-data branch state" in content
 
     def test_deploy_pages_syncs_queue_from_durable_branch(self):
         """A manual full deploy must retain independently collected history."""
@@ -300,6 +304,60 @@ class TestQueueMonitorWorkflow:
         content = path.read_text()
         assert "origin/queue-data" in content
         assert "--merge-history-git-ref origin/queue-data" in content
+        assert "queue_lifecycle.json" in content
+        assert (
+            "+refs/heads/queue-lifecycle-data:refs/remotes/origin/queue-lifecycle-data"
+            in content
+        )
+
+
+class TestQueueLifecycleWorkflow:
+    """Validate the heavier lifecycle collector is isolated and durable."""
+
+    @pytest.fixture
+    def workflow(self):
+        return yaml.safe_load((WORKFLOWS / "queue-lifecycle.yml").read_text())
+
+    def test_runs_hourly_on_an_independent_lock(self, workflow):
+        triggers = workflow.get(True, {})
+        crons = [row.get("cron") for row in triggers.get("schedule", [])]
+        assert "47 * * * *" in crons
+        assert workflow["concurrency"]["group"] == "queue-lifecycle-data-publish"
+        assert workflow["concurrency"]["cancel-in-progress"] is False
+
+    def test_restores_established_ledger_fail_closed(self, workflow):
+        steps = workflow["jobs"]["lifecycle"]["steps"]
+        restore = next(
+            step for step in steps if step.get("name") == "Restore durable lifecycle observations"
+        )["run"]
+        assert "git ls-remote --exit-code origin refs/heads/queue-lifecycle-data" in restore
+        assert (
+            "+refs/heads/queue-lifecycle-data:refs/remotes/origin/queue-lifecycle-data"
+            in restore
+        )
+        assert "--merge-jobs-git-ref origin/queue-lifecycle-data" in restore
+        assert "refusing to publish" in restore
+
+    def test_collects_only_with_secret_environment(self, workflow):
+        steps = workflow["jobs"]["lifecycle"]["steps"]
+        collect = next(
+            step for step in steps if step.get("name") == "Collect canonical AMD queue lifecycle"
+        )
+        assert "BUILDKITE_API_TOKEN" in collect.get("env", {})
+        assert "collect_queue_lifecycle.py" in collect.get("run", "")
+        assert "--full-backfill" not in collect.get("run", "")
+
+    def test_publishes_only_aggregate_and_privacy_minimized_ledger(self, workflow):
+        steps = workflow["jobs"]["lifecycle"]["steps"]
+        publish = next(
+            step for step in steps if step.get("name") == "Publish durable lifecycle evidence"
+        )["run"]
+        assert "HEAD:queue-lifecycle-data" in publish
+        assert "data/vllm/ci/queue_lifecycle.json" in publish
+        assert "data/vllm/ci/queue_lifecycle_jobs" in publish
+        assert "find data/vllm/ci/queue_lifecycle_jobs" in publish
+        assert "queue_lifecycle_events.jsonl" not in publish
+        assert "queue_timeseries.jsonl" not in publish
 
 
 class TestQueueDashboardControls:

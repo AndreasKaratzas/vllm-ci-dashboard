@@ -14,6 +14,7 @@
   const charts = new Map();
   const QUEUE_AUTO_REFRESH_MS = 5 * 60 * 1000;
   const QUEUE_LIVE_BASE = 'https://raw.githubusercontent.com/AndreasKaratzas/vllm-ci-dashboard/queue-data/data/vllm/ci/';
+  const QUEUE_LIFECYCLE_LIVE_BASE = 'https://raw.githubusercontent.com/AndreasKaratzas/vllm-ci-dashboard/queue-lifecycle-data/data/vllm/ci/';
   let operationsManifestPromise = null;
   let chartLibraryPromise = null;
   let lastQueueRefreshAt = 0;
@@ -25,6 +26,8 @@
     queueChartHistoryFallback: 'data/vllm/ci/queue_history_chart.json',
     queueHistory: QUEUE_LIVE_BASE + 'queue_timeseries.jsonl',
     queueHistoryFallback: 'data/vllm/ci/queue_timeseries.jsonl',
+    queueLifecycle: QUEUE_LIFECYCLE_LIVE_BASE + 'queue_lifecycle.json',
+    queueLifecycleFallback: 'data/vllm/ci/queue_lifecycle.json',
     workloadMapping: 'data/vllm/ci/workload_mapping.json',
     perf: 'data/vllm/perf_eval/perf_eval.json',
     amdPipeline: 'https://buildkite.com/vllm/amd-ci',
@@ -237,6 +240,27 @@
     return (name === 'amd-cpu' || name.startsWith('amd_')) && !isRetiredQueue(name);
   }
 
+  function isCanonicalAmdQueue(queue) {
+    const name = String(queue || '').trim().toLowerCase();
+    return /^amd_mi(?:250|300|355)_(?:1|2|4|8)$/.test(name);
+  }
+
+  function queueMatchesScope(queue, requestedScope) {
+    const scope = requestedScope || state.queueScope;
+    if (isRetiredQueue(queue)) return false;
+    if (scope === 'all') return true;
+    if (scope === 'canonical') return isCanonicalAmdQueue(queue);
+    return isAmdQueue(queue);
+  }
+
+  function queueScopeLabel(requestedScope, combined) {
+    const scope = requestedScope || state.queueScope;
+    const label = scope === 'canonical' ? 'Canonical AMD queues'
+      : scope === 'amd' ? 'All AMD queues'
+        : 'All queues';
+    return combined ? label + ' combined' : label;
+  }
+
   function hardwareDisplayLabel(hardware) {
     const id = String(hardware || 'unknown').toLowerCase();
     if (id === 'unknown') return 'Unknown';
@@ -377,9 +401,9 @@
         ['agentSignal', 'agent_signal', ['infra', 'hard', 'all']],
       ],
       'ci-queue': [
-        ['queueView', 'queue_view', ['current', 'history', 'jobs']],
+        ['queueView', 'queue_view', ['current', 'lifecycle', 'history', 'jobs']],
         ['queueRange', 'queue_range', ['24h', '7d', '30d']],
-        ['queueScope', 'queue_scope', ['amd', 'all']],
+        ['queueScope', 'queue_scope', ['canonical', 'amd', 'all']],
         ['queueHistoryQueue', 'queue_history_queue', null],
       ],
       'ci-hotness': [
@@ -2075,6 +2099,9 @@
 
   function openQueueDetail(name, row, jobs) {
     const related = (jobs || []).filter(function (job) { return job.queue === name; });
+    const nativeObservedAt = row.metrics_ts || null;
+    const nativeSources = [row.official_wait_source, row.jobs_passed_source, row.jobs_failed_source]
+      .filter(Boolean).filter(function (source, index, all) { return all.indexOf(source) === index; });
     const p50Source = waitSourceDetail(row, 'p50');
     const p95Source = waitSourceDetail(row, 'p95');
     const sampledP50 = sampleWaitValue(row, 'p50');
@@ -2099,8 +2126,14 @@
         {label: 'Running', value: integer(row.running)},
         {label: 'Waiting', value: integer(row.waiting)},
         {label: 'Connected agents', value: hasAgentMeasurement(row) ? integer(row.connected_agents !== undefined ? row.connected_agents : row.agents) : 'Unavailable'},
+        {label: 'Min wait - latest Buildkite metrics bucket', value: duration(officialWaitValue(row, 'min'))},
         {label: 'p50 Buildkite native', value: duration(officialWaitValue(row, 'p50'))},
         {label: 'p95 Buildkite native', value: duration(officialWaitValue(row, 'p95'))},
+        {label: 'Max wait - latest Buildkite metrics bucket', value: duration(officialWaitValue(row, 'max'))},
+        {label: 'Jobs passed - latest Buildkite metrics bucket', value: row.jobs_passed === null || row.jobs_passed === undefined ? '-' : integer(row.jobs_passed)},
+        {label: 'Jobs failed - latest Buildkite metrics bucket', value: row.jobs_failed === null || row.jobs_failed === undefined ? '-' : integer(row.jobs_failed)},
+        {label: 'Latest metrics bucket observed', value: value(nativeObservedAt)},
+        {label: 'Native metrics provenance', value: nativeSources.length ? nativeSources.join(', ') : '-'},
         {label: 'p50 primary / fallback', value: duration(waitValue(row, 'p50')) + (p50Source ? ' - ' + p50Source : '')},
         {label: 'p95 primary / fallback', value: duration(waitValue(row, 'p95')) + (p95Source ? ' - ' + p95Source : '')},
         {label: 'p50 reconstructed sample', value: sampledP50 === null ? 'Not measured' : duration(sampledP50)},
@@ -6694,8 +6727,7 @@
 
   function selectedQueues(snapshot, includeIdle) {
     return Object.entries(snapshot.queues || {}).filter(function (entry) {
-      if (isRetiredQueue(entry[0])) return false;
-      if (state.queueScope !== 'all' && !isAmdQueue(entry[0])) return false;
+      if (!queueMatchesScope(entry[0])) return false;
       return includeIdle || queueIsActiveProblem(entry[1] || {});
     });
   }
@@ -6796,7 +6828,7 @@
     const running = Number.isFinite(Number(resolved.running)) ? Number(resolved.running) : scopeEntries.reduce(function (sum, entry) { return sum + Number((entry[1] || {}).running || 0); }, 0);
     const waiting = Number.isFinite(Number(resolved.waiting)) ? Number(resolved.waiting) : scopeEntries.reduce(function (sum, entry) { return sum + Number((entry[1] || {}).waiting || 0); }, 0);
     const queueCount = Number.isFinite(Number(resolved.queues)) ? Number(resolved.queues) : scopeEntries.length;
-    const scopeLabel = selectedQueue || (state.queueScope === 'amd' ? 'All AMD queues combined' : 'All queues combined');
+    const scopeLabel = selectedQueue || queueScopeLabel(state.queueScope, true);
     const content = rows.length ? dataTable([
       {label: 'Queue', sticky: true, render: function (item) { return linkButton(item.name, function () { openQueueDetail(item.name, item.row, []); }); }},
       {label: 'Running', numeric: true, render: function (item) { return integer(item.row.running); }},
@@ -6963,9 +6995,337 @@
     return output;
   }
 
+  const QUEUE_LIFECYCLE_COUNT_FIELDS = [
+    'incoming', 'served', 'completed', 'passed', 'failed', 'soft_failed',
+    'canceled', 'timed_out', 'expired', 'broken', 'skipped', 'other_outcomes',
+    'retry_attempts_completed', 'retried_jobs_completed',
+  ];
+
+  function queueLifecycleNumber(raw) {
+    return raw !== null && raw !== undefined && raw !== '' && Number.isFinite(Number(raw))
+      ? Number(raw)
+      : null;
+  }
+
+  function queueLifecycleRows(payload, requestedScope) {
+    return Object.entries((payload || {}).queues || {}).filter(function (entry) {
+      return queueMatchesScope(entry[0], requestedScope);
+    }).map(function (entry) {
+      return {name: entry[0], metrics: entry[1] || {}};
+    }).sort(function (left, right) {
+      return Number((right.metrics || {}).incoming || 0) - Number((left.metrics || {}).incoming || 0)
+        || compareText(left.name, right.name);
+    });
+  }
+
+  function queueLifecycleTotals(payload, rows) {
+    const published = (payload || {}).totals || {};
+    const publishedQueues = Object.keys((payload || {}).queues || {});
+    if (!publishedQueues.length) return Object.assign({}, published);
+    const totals = Object.assign({}, published);
+    QUEUE_LIFECYCLE_COUNT_FIELDS.forEach(function (field) {
+      totals[field] = (rows || []).reduce(function (sum, row) {
+        return sum + Number((row.metrics || {})[field] || 0);
+      }, 0);
+    });
+    return totals;
+  }
+
+  function queueLifecycleNestedMetric(row, blockName, metric) {
+    return queueLifecycleNumber((((row || {})[blockName] || {})[metric]));
+  }
+
+  function queueLifecycleMinutes(row, blockName, metric) {
+    const seconds = queueLifecycleNestedMetric(row, blockName, metric);
+    return seconds === null ? null : seconds / 60;
+  }
+
+  function queueLifecycleDuration(row, blockName, metric) {
+    return duration(queueLifecycleMinutes(row, blockName, metric));
+  }
+
+  function queueLifecycleHourlyRows(payload) {
+    return ((payload || {}).hourly || []).map(function (row) {
+      const timestamp = row.ts || row.hour || row.start || row.window_start || null;
+      return Object.assign({}, row.totals || {}, row, {ts: timestamp});
+    }).filter(function (row) {
+      return queueTimestamp(row.ts) > -Infinity;
+    }).sort(function (left, right) {
+      return queueTimestamp(left.ts) - queueTimestamp(right.ts);
+    });
+  }
+
+  function queueLifecycleCoverage(payload) {
+    payload = payload || {};
+    const coverage = payload.coverage || {};
+    const windowBlock = payload.window || {};
+    const problems = [];
+    const status = String(coverage.status || '').trim().toLowerCase();
+    if (coverage.api_collection_performed === false) {
+      problems.push('Buildkite API collection has not run; zero-valued seed placeholders are not observations');
+    }
+    if (coverage.api_complete === false) {
+      problems.push('Buildkite API collection is incomplete');
+    }
+    if (coverage.complete === false) {
+      problems.push(coverage.reason || coverage.detail || 'overall lifecycle coverage is incomplete');
+    }
+    if (status && !['complete', 'full', 'ok', 'healthy'].includes(status)) {
+      problems.push('collector coverage status is ' + status);
+    }
+    const ratio = queueLifecycleNumber(coverage.ratio);
+    const percentValue = queueLifecycleNumber(coverage.percent !== undefined ? coverage.percent : coverage.coverage_percent);
+    if (ratio !== null && ratio < 1) problems.push((ratio * 100).toFixed(1) + '% of expected coverage was observed');
+    if (percentValue !== null && percentValue < 100) problems.push(percentValue.toFixed(1) + '% of expected coverage was observed');
+    const expected = queueLifecycleNumber(coverage.expected !== undefined ? coverage.expected : coverage.expected_count);
+    const observed = queueLifecycleNumber(coverage.observed !== undefined ? coverage.observed : coverage.observed_count);
+    if (expected !== null && observed !== null && observed < expected) {
+      problems.push(integer(observed) + ' of ' + integer(expected) + ' expected observations were retained');
+    }
+    const expectedHours = queueLifecycleNumber(coverage.expected_hours);
+    const observedHours = queueLifecycleNumber(coverage.observed_hours);
+    if (expectedHours !== null && observedHours !== null && observedHours < expectedHours) {
+      problems.push(observedHours.toFixed(1) + ' of ' + expectedHours.toFixed(1) + ' expected hours were covered');
+    }
+    Object.entries(coverage.metric_exhaustiveness || {}).forEach(function (entry) {
+      const metric = entry[0], detail = entry[1] || {};
+      if (detail.complete === false) {
+        problems.push(metric + ' exhaustiveness is limited' + (detail.limitation ? ': ' + detail.limitation : ''));
+      }
+    });
+    const hours = queueLifecycleNumber(windowBlock.hours);
+    if (hours === null) problems.push('rolling window duration is missing; expected an exact rolling 2h window');
+    else if (hours !== 2) problems.push('published window is ' + hours + 'h; expected an exact rolling 2h window');
+    if (!windowBlock.start || !(windowBlock.end_exclusive || windowBlock.end)) problems.push('rolling window boundaries are missing');
+    if (!queueLifecycleHourlyRows(payload).length) problems.push('no hourly lifecycle buckets were published');
+    const summaryParts = [];
+    if (coverage.api_complete === true) summaryParts.push('API collection complete');
+    if (coverage.complete === true) summaryParts.push('collection complete');
+    if (status) summaryParts.push(status);
+    if (observed !== null && expected !== null) summaryParts.push(integer(observed) + ' / ' + integer(expected) + ' observations');
+    else if (percentValue !== null) summaryParts.push(percentValue.toFixed(1) + '%');
+    else if (ratio !== null) summaryParts.push((ratio * 100).toFixed(1) + '%');
+    if (coverage.source) summaryParts.push(String(coverage.source));
+    return {
+      complete: problems.length === 0,
+      problems: Array.from(new Set(problems.map(String))),
+      summary: summaryParts.join(' - ') || 'collector did not publish a numeric coverage summary',
+    };
+  }
+
+  function queueLifecycleObservationsAvailable(payload) {
+    return (((payload || {}).coverage || {}).api_collection_performed) !== false;
+  }
+
+  function queueLifecycleDisplayCount(payload, raw) {
+    return queueLifecycleObservationsAvailable(payload) ? integer(raw) : '-';
+  }
+
+  function queueLifecyclePayloadValid(payload) {
+    return !!(
+      payload && typeof payload === 'object'
+      && payload.schema_version !== undefined
+      && payload.generated_at
+      && payload.window && typeof payload.window === 'object'
+      && payload.coverage && typeof payload.coverage === 'object'
+      && payload.totals && typeof payload.totals === 'object'
+      && payload.queues && typeof payload.queues === 'object'
+      && Array.isArray(payload.hourly)
+    );
+  }
+
+  function queueLifecycleCandidateQuality(payload) {
+    const coverage = (payload || {}).coverage || {};
+    if (coverage.api_collection_performed === true || coverage.api_complete === true) return 2;
+    if (coverage.api_collection_performed === false) return 0;
+    return 1;
+  }
+
+  function compareQueueLifecycleCandidates(left, right) {
+    const qualityOrder = queueLifecycleCandidateQuality(right.payload) - queueLifecycleCandidateQuality(left.payload);
+    if (qualityOrder) return qualityOrder;
+    const leftGeneratedAt = queueTimestamp(left.payload.generated_at);
+    const rightGeneratedAt = queueTimestamp(right.payload.generated_at);
+    if (leftGeneratedAt !== rightGeneratedAt) return rightGeneratedAt > leftGeneratedAt ? 1 : -1;
+    return left.priority - right.priority;
+  }
+
+  async function loadQueueLifecycle() {
+    const sources = [SOURCE_ASSETS.queueLifecycle, SOURCE_ASSETS.queueLifecycleFallback];
+    const results = await Promise.allSettled(sources.map(function (source) {
+      return fetchJSON(source);
+    }));
+    const candidates = results.map(function (result, index) {
+      return result.status === 'fulfilled' && queueLifecyclePayloadValid(result.value)
+        ? {payload: result.value, source: sources[index], priority: index}
+        : null;
+    }).filter(Boolean);
+    if (!candidates.length) throw new Error('No queue lifecycle aggregate is available');
+    candidates.sort(compareQueueLifecycleCandidates);
+    return Object.assign({}, candidates[0].payload, {__sourceAsset: candidates[0].source});
+  }
+
+  function renderQueueLifecycle(host, payload) {
+    payload = payload || {};
+    const windowBlock = payload.window || {};
+    const windowEnd = windowBlock.end_exclusive || windowBlock.end;
+    const rows = queueLifecycleRows(payload, 'canonical');
+    const totals = queueLifecycleTotals(payload, rows);
+    const coverage = queueLifecycleCoverage(payload);
+    const observationsAvailable = queueLifecycleObservationsAvailable(payload);
+    const lifecycleSource = payload.__sourceAsset || SOURCE_ASSETS.queueLifecycle;
+    const windowHours = queueLifecycleNumber(windowBlock.hours);
+    const windowLabel = windowHours === null ? 'rolling lifecycle window' : 'rolling ' + windowHours + 'h lifecycle window';
+    const windowNote = n('div', 'ops-evidence-note is-info');
+    add(windowNote, observationsAvailable ? [
+      n('strong', '', 'Exact observed direct events - rolling 2h. '),
+      n('span', '', 'Observed runnable_at, started_at, and finished_at events cover ' + shortDate(windowBlock.start) + ' through ' + shortDate(windowEnd)
+        + ' for the collector\'s fixed twelve canonical AMD queues. Buildkite REST does not filter these job event timestamps directly; the finished, created, and active organization-build cohorts retain exact observations, but the population is not presented as exhaustive. See the published coverage warning. Outcomes apply only to observed completed jobs.'),
+    ] : [
+      n('strong', '', 'Lifecycle observations unavailable. '),
+      n('span', '', 'This is a structural bootstrap aggregate; Buildkite API collection has not run. Its zero-valued seed placeholders are not observations and are rendered as unavailable.'),
+    ]);
+    host.append(windowNote);
+    if (coverage.problems.length) {
+      const warning = n('div', 'ops-evidence-note is-warning');
+      add(warning, [n('strong', '', 'Lifecycle coverage warning. '), n('span', '', coverage.problems.join('; ') + '. Missing observations are not rendered as zero.')]);
+      host.append(warning);
+    }
+    const completed = Number(totals.completed || 0);
+    const passed = Number(totals.passed || 0);
+    const failed = Number(totals.failed || 0);
+    const softFailed = Number(totals.soft_failed || 0);
+    const canceled = Number(totals.canceled || 0);
+    const timedOut = Number(totals.timed_out || 0);
+    const expired = Number(totals.expired || 0);
+    const broken = Number(totals.broken || 0);
+    const skipped = Number(totals.skipped || 0);
+    const otherOutcomes = Number(totals.other_outcomes || 0);
+    const retriedJobs = Number(totals.retried_jobs_completed || 0);
+    const cardMetaUnavailable = 'Buildkite API collection has not run';
+    host.append(statusStrip([
+      {id: 'queue-lifecycle-incoming', label: 'OBSERVED INCOMING - ROLLING 2H', value: queueLifecycleDisplayCount(payload, totals.incoming), meta: observationsAvailable ? 'direct runnable_at events - not exhaustive' : cardMetaUnavailable, observed: observationsAvailable ? windowEnd : null, provenance: lifecycleSource},
+      {id: 'queue-lifecycle-served', label: 'OBSERVED SERVED - ROLLING 2H', value: queueLifecycleDisplayCount(payload, totals.served), meta: observationsAvailable ? 'direct started_at events - not exhaustive' : cardMetaUnavailable, observed: observationsAvailable ? windowEnd : null, provenance: lifecycleSource},
+      {id: 'queue-lifecycle-completed', label: 'OBSERVED COMPLETED - ROLLING 2H', value: queueLifecycleDisplayCount(payload, totals.completed), meta: observationsAvailable ? (completed ? percent(passed, completed, 1) + ' passed - direct observed finished_at; not exhaustive' : 'no observed completed jobs; not exhaustive') : cardMetaUnavailable, observed: observationsAvailable ? windowEnd : null, provenance: lifecycleSource},
+      {id: 'queue-lifecycle-outcomes', label: 'OBSERVED PASSED - ROLLING 2H', value: queueLifecycleDisplayCount(payload, totals.passed), meta: observationsAvailable ? integer(failed) + ' failed - ' + integer(canceled) + ' canceled - ' + integer(timedOut) + ' timed out - ' + integer(expired) + ' expired - ' + integer(broken) + ' broken - ' + integer(skipped) + ' skipped - ' + integer(retriedJobs) + ' retried' : cardMetaUnavailable, tone: !observationsAvailable ? 'is-neutral' : failed || canceled || timedOut || expired || broken ? 'is-danger' : softFailed || skipped || otherOutcomes ? 'is-warning' : 'is-success', observed: observationsAvailable ? windowEnd : null, provenance: lifecycleSource},
+    ]));
+
+    if (!observationsAvailable) {
+      host.append(n('div', 'ops-empty', 'Per-queue lifecycle observations are unavailable until the first successful Buildkite API collection.'));
+    } else if (rows.length) {
+      const lifecycleColumns = [
+        {label: 'Queue', sticky: true, width: '180px', render: function (row) { return n('span', 'ops-mono', row.name); }},
+        {label: 'Incoming', numeric: true, width: '100px', render: function (row) { return integer(row.metrics.incoming); }},
+        {label: 'Served', numeric: true, width: '90px', render: function (row) { return integer(row.metrics.served); }},
+        {label: 'Completed', numeric: true, width: '110px', render: function (row) { return integer(row.metrics.completed); }},
+        {label: 'Passed', numeric: true, width: '90px', render: function (row) { return integer(row.metrics.passed); }},
+        {label: 'Soft fail', numeric: true, width: '100px', render: function (row) { return integer(row.metrics.soft_failed); }},
+        {label: 'Failed', numeric: true, width: '90px', render: function (row) { return integer(row.metrics.failed); }},
+        {label: 'Canceled', numeric: true, width: '100px', render: function (row) { return integer(row.metrics.canceled); }},
+        {label: 'Timed out', numeric: true, width: '110px', render: function (row) { return integer(row.metrics.timed_out); }},
+        {label: 'Expired', numeric: true, width: '90px', render: function (row) { return integer(row.metrics.expired); }},
+        {label: 'Broken', numeric: true, width: '90px', render: function (row) { return integer(row.metrics.broken); }},
+        {label: 'Skipped', numeric: true, width: '90px', render: function (row) { return integer(row.metrics.skipped); }},
+        {label: 'Other / unknown', numeric: true, width: '130px', render: function (row) { return integer(row.metrics.other_outcomes); }},
+        {label: 'Retry attempts', numeric: true, width: '120px', render: function (row) { return integer(row.metrics.retry_attempts_completed); }},
+        {label: 'Retried jobs', numeric: true, width: '110px', render: function (row) { return integer(row.metrics.retried_jobs_completed); }},
+        {label: 'Wait n', numeric: true, width: '90px', render: function (row) { return integer(queueLifecycleNestedMetric(row.metrics, 'queue_wait_seconds', 'count')); }},
+        {label: 'Wait avg', numeric: true, width: '100px', render: function (row) { return queueLifecycleDuration(row.metrics, 'queue_wait_seconds', 'avg'); }},
+        {label: 'Wait p50', numeric: true, width: '100px', render: function (row) { return queueLifecycleDuration(row.metrics, 'queue_wait_seconds', 'p50'); }},
+        {label: 'Wait p95', numeric: true, width: '100px', render: function (row) { return queueLifecycleDuration(row.metrics, 'queue_wait_seconds', 'p95'); }},
+        {label: 'Wait max', numeric: true, width: '100px', render: function (row) { return queueLifecycleDuration(row.metrics, 'queue_wait_seconds', 'max'); }},
+        {label: 'Runtime n', numeric: true, width: '100px', render: function (row) { return integer(queueLifecycleNestedMetric(row.metrics, 'runtime_seconds', 'count')); }},
+        {label: 'Runtime avg', numeric: true, width: '110px', render: function (row) { return queueLifecycleDuration(row.metrics, 'runtime_seconds', 'avg'); }},
+        {label: 'Runtime p50', numeric: true, width: '110px', render: function (row) { return queueLifecycleDuration(row.metrics, 'runtime_seconds', 'p50'); }},
+        {label: 'Runtime p95', numeric: true, width: '110px', render: function (row) { return queueLifecycleDuration(row.metrics, 'runtime_seconds', 'p95'); }},
+        {label: 'Runtime max', numeric: true, width: '110px', render: function (row) { return queueLifecycleDuration(row.metrics, 'runtime_seconds', 'max'); }},
+      ];
+      host.append(compactTablePanel('Per-queue observed direct lifecycle events', integer(rows.length) + ' canonical queues in the ' + windowLabel, lifecycleColumns, rows, {
+        id: 'queue-lifecycle-browser',
+        limit: 20,
+        browserSubtitle: 'Exact observed direct events, outcomes, queue waits, and runtimes for the twelve canonical AMD queues',
+        searchPlaceholder: 'Filter lifecycle queue',
+        searchText: function (row) { return row.name; },
+        geometry: {name: 'queue-lifecycle', minWidth: '2750px'},
+      }));
+    } else {
+      host.append(n('div', 'ops-empty', 'No canonical AMD queues are present in the lifecycle aggregate.'));
+    }
+
+    const hourly = observationsAvailable ? queueLifecycleHourlyRows(payload) : [];
+    if (hourly.length) {
+      const chartGrid = n('div', 'ops-grid ops-grid-2');
+      const flowChart = chartPanel('Hourly observed direct lifecycle flow', 'Observed runnable_at, started_at, and finished_at events in each published UTC bucket', 'queue-lifecycle-flow');
+      chartGrid.append(flowChart.root);
+      const hasLatency = hourly.some(function (row) {
+        return queueLifecycleNestedMetric(row, 'queue_wait_seconds', 'p95') !== null
+          || queueLifecycleNestedMetric(row, 'runtime_seconds', 'p95') !== null;
+      });
+      let latencyChart = null;
+      if (hasLatency) {
+        latencyChart = chartPanel('Hourly lifecycle latency', 'Published p95 queue wait and runtime in minutes', 'queue-lifecycle-latency');
+        chartGrid.append(latencyChart.root);
+      }
+      host.append(chartGrid);
+      requestAnimationFrame(function () {
+        drawChart('queue-lifecycle-flow', flowChart.canvas, {
+          type: 'bar',
+          data: {
+            labels: hourly.map(function (row) { return shortDate(row.ts); }),
+            datasets: [
+              {label: 'Incoming', data: hourly.map(function (row) { return queueLifecycleNumber(row.incoming); }), backgroundColor: '#cf8dd9'},
+              {label: 'Served', data: hourly.map(function (row) { return queueLifecycleNumber(row.served); }), backgroundColor: '#22b8ad'},
+              {label: 'Completed', data: hourly.map(function (row) { return queueLifecycleNumber(row.completed); }), backgroundColor: '#66717d'},
+            ],
+          },
+          options: {scales: {x: {grid: {display: false}}, y: {beginAtZero: true, title: {display: true, text: 'Jobs'}}}},
+          evidenceTitle: 'Hourly queue lifecycle flow',
+          evidenceAsset: lifecycleSource,
+          evidence: hourly.map(function (row) { return {label: shortDate(row.ts), timestamp: row.ts, valueSummary: integer(row.incoming) + ' incoming - ' + integer(row.served) + ' served - ' + integer(row.completed) + ' completed', details: {end_exclusive: row.end_exclusive, partial: row.partial, passed: row.passed, failed: row.failed, soft_failed: row.soft_failed, other_outcomes: row.other_outcomes}, sources: [{label: 'Open selected queue lifecycle source', url: lifecycleSource}]}; }),
+        });
+        if (latencyChart) {
+          drawChart('queue-lifecycle-latency', latencyChart.canvas, {
+            type: 'line',
+            data: {
+              labels: hourly.map(function (row) { return shortDate(row.ts); }),
+              datasets: [
+                {label: 'Queue wait p95', data: hourly.map(function (row) { return queueLifecycleMinutes(row, 'queue_wait_seconds', 'p95'); }), borderColor: '#e3a63a', backgroundColor: '#e3a63a', pointRadius: 3, borderWidth: 2, spanGaps: false},
+                {label: 'Runtime p95', data: hourly.map(function (row) { return queueLifecycleMinutes(row, 'runtime_seconds', 'p95'); }), borderColor: '#22b8ad', backgroundColor: '#22b8ad', pointRadius: 3, borderWidth: 2, spanGaps: false},
+              ],
+            },
+            options: {scales: {x: {grid: {display: false}}, y: {beginAtZero: true, title: {display: true, text: 'Minutes'}}}},
+            evidenceTitle: 'Hourly queue lifecycle latency',
+            evidenceAsset: lifecycleSource,
+            evidence: hourly.map(function (row) { return {label: shortDate(row.ts), timestamp: row.ts, valueSummary: 'wait p95 ' + queueLifecycleDuration(row, 'queue_wait_seconds', 'p95') + ' - runtime p95 ' + queueLifecycleDuration(row, 'runtime_seconds', 'p95'), details: {end_exclusive: row.end_exclusive, partial: row.partial, queue_wait_count: queueLifecycleNestedMetric(row, 'queue_wait_seconds', 'count'), runtime_count: queueLifecycleNestedMetric(row, 'runtime_seconds', 'count')}, sources: [{label: 'Open selected queue lifecycle source', url: lifecycleSource}]}; }),
+          });
+        }
+      });
+    }
+
+    const provenance = n('div', 'ops-evidence-note is-info');
+    add(provenance, [
+      n('strong', '', 'Lifecycle provenance. '),
+      n('span', '', 'Schema v' + value(payload.schema_version) + ' - generated ' + shortDate(payload.generated_at)
+        + ' - provider ' + value((payload.provenance || {}).provider) + ' - coverage ' + coverage.summary
+        + '. An API-collected aggregate wins over a structural seed; otherwise the freshest live or Pages copy is used, with live queue-lifecycle-data winning equal-timestamp ties.'),
+      externalLink('Open selected lifecycle data', lifecycleSource, 'ops-button'),
+      externalLink('Open Pages lifecycle fallback', SOURCE_ASSETS.queueLifecycleFallback, 'ops-button'),
+    ]);
+    host.append(provenance);
+  }
+
   async function renderQueue(host, ops) {
     const queueBlock = ops.queue || {};
     const snapshot = queueBlock.snapshot || {};
+    let lifecyclePayload = null;
+    let lifecycleError = null;
+    if (state.queueView === 'lifecycle') {
+      try {
+        lifecyclePayload = await loadQueueLifecycle();
+      } catch (error) {
+        lifecycleError = error;
+      }
+    }
     const allScopeEntries = selectedQueues(snapshot, true);
     const entries = selectedQueues(snapshot, state.queueIncludeIdle);
     const sums = allScopeEntries.reduce(function (a, item) {
@@ -6992,10 +7352,14 @@
     const p95 = highestNative('p95'), sampledP95 = highestSample('p95');
     const p95Coverage = allScopeEntries.filter(function (entry) { return officialWaitValue(entry[1] || {}, 'p95') !== null; }).length;
     const sampledP95Coverage = allScopeEntries.filter(function (entry) { return sampleWaitValue(entry[1] || {}, 'p95') !== null; }).length;
-    add(host, pageHeader('Queue Monitor', 'Current queue counts, named queue-level wait measurements, retained history, and exact active jobs.', snapshot.ts));
+    const queueObservedAt = lifecyclePayload
+      ? lifecyclePayload.generated_at || ((lifecyclePayload.window || {}).end_exclusive) || ((lifecyclePayload.window || {}).end)
+      : snapshot.ts;
+    add(host, pageHeader('Queue Monitor', 'Current queue counts, observed direct lifecycle outcomes, retained history, and active jobs.', queueObservedAt));
     const controls = n('div', 'ops-toolbar ops-queue-toolbar');
-    controls.append(segmented([{id: 'current', label: 'Current'}, {id: 'history', label: 'History'}, {id: 'jobs', label: 'Jobs'}], state.queueView, function (id) { setRouteState('ci-queue', 'queueView', id, 'queue_view'); }, 'Queue monitor mode'));
-    controls.append(segmented([{id: 'amd', label: 'AMD queues'}, {id: 'all', label: 'All queues'}], state.queueScope, function (id) { setRouteState('ci-queue', 'queueScope', id, 'queue_scope'); }, 'Queue hardware scope'));
+    controls.append(segmented([{id: 'current', label: 'Current'}, {id: 'lifecycle', label: 'Lifecycle'}, {id: 'history', label: 'History'}, {id: 'jobs', label: 'Jobs'}], state.queueView, function (id) { setRouteState('ci-queue', 'queueView', id, 'queue_view'); }, 'Queue monitor mode'));
+    if (state.queueView === 'lifecycle') controls.append(n('span', 'ops-badge is-info', 'Canonical AMD lifecycle scope'));
+    else controls.append(segmented([{id: 'canonical', label: 'Canonical AMD'}, {id: 'amd', label: 'All AMD'}, {id: 'all', label: 'All queues'}], state.queueScope, function (id) { setRouteState('ci-queue', 'queueScope', id, 'queue_scope'); }, 'Queue hardware scope'));
     if (state.queueView === 'history') controls.append(segmented([{id: '24h', label: '24h'}, {id: '7d', label: '7d'}, {id: '30d', label: '30d'}], state.queueRange, function (id) { setRouteState('ci-queue', 'queueRange', id, 'queue_range'); }, 'Queue history range'));
     if (state.queueView === 'current') {
       const idleLabel = n('label', 'ops-toggle');
@@ -7005,6 +7369,21 @@
       controls.append(idleLabel);
     }
     host.append(controls);
+    if (state.queueView === 'lifecycle') {
+      if (lifecycleError) {
+        const unavailable = n('div', 'ops-error');
+        add(unavailable, [
+          n('strong', '', 'Lifecycle data is unavailable. '),
+          n('span', '', (lifecycleError && lifecycleError.message) || String(lifecycleError)),
+          externalLink('Open live lifecycle asset', SOURCE_ASSETS.queueLifecycle, 'ops-button'),
+          externalLink('Open Pages lifecycle fallback', SOURCE_ASSETS.queueLifecycleFallback, 'ops-button'),
+        ]);
+        host.append(unavailable);
+      } else {
+        renderQueueLifecycle(host, lifecyclePayload);
+      }
+      return;
+    }
     host.append(statusStrip([
       {id: 'queue-running', label: 'RUNNING NOW', value: integer(sums.running), meta: allScopeEntries.length + ' queues in scope', onOpen: function () { setRouteState('ci-queue', 'queueView', 'jobs', 'queue_view'); }},
       {id: 'queue-waiting', label: 'WAITING NOW', value: integer(sums.waiting), meta: 'count source: ' + countProvenance, tone: sums.waiting ? 'is-warning' : 'is-success', provenance: countProvenance, onOpen: function () { setRouteState('ci-queue', 'queueView', 'jobs', 'queue_view'); }},
@@ -7014,8 +7393,7 @@
 
     const jobs = queueBlock.queue_jobs || {};
     const activeJobs = (jobs.pending || []).concat(jobs.running || []).filter(function (job) {
-      if (isRetiredQueue(job.queue)) return false;
-      return state.queueScope === 'all' || isAmdQueue(job.queue);
+      return queueMatchesScope(job.queue);
     });
 
     if (state.queueView === 'current') {
@@ -7050,6 +7428,7 @@
         {label: 'Agents', numeric: true, render: function (item) { return linkButton(hasAgentMeasurement(item[1]) ? integer(item[1].connected_agents) : '-', function () { openQueueDetail(item[0], item[1], activeJobs); }); }},
         {label: 'p50 Buildkite', numeric: true, render: function (item) { return linkButton(duration(officialWaitValue(item[1], 'p50')), function () { openQueueDetail(item[0], item[1], activeJobs); }); }},
         {label: 'p95 Buildkite', numeric: true, render: function (item) { return linkButton(duration(officialWaitValue(item[1], 'p95')), function () { openQueueDetail(item[0], item[1], activeJobs); }); }},
+        {label: 'Latest passed / failed', numeric: true, render: function (item) { const row = item[1]; const passed = row.jobs_passed === null || row.jobs_passed === undefined ? '-' : integer(row.jobs_passed); const failed = row.jobs_failed === null || row.jobs_failed === undefined ? '-' : integer(row.jobs_failed); return linkButton(passed + ' / ' + failed, function () { openQueueDetail(item[0], row, activeJobs); }); }},
         {label: 'p50 / p95 reconstructed', numeric: true, render: function (item) { const p50 = sampleWaitValue(item[1], 'p50'), p95 = sampleWaitValue(item[1], 'p95'); return linkButton((p50 === null ? '-' : duration(p50)) + ' / ' + (p95 === null ? '-' : duration(p95)), function () { openQueueDetail(item[0], item[1], activeJobs); }); }},
         {label: 'p99 scheduled sample', numeric: true, render: function (item) { const measured = waitValue(item[1], 'p99'); const count = waitSampleCount(item[1]); return linkButton(measured === null || measured === undefined ? '-' : duration(measured) + (count !== null ? ' - n=' + integer(count) : ''), function () { openQueueDetail(item[0], item[1], activeJobs); }); }},
         {label: 'Measurement source', render: function (item) { const row = item[1]; return linkButton([waitSourceDetail(row, 'p50'), waitSourceDetail(row, 'p95'), waitSourceDetail(row, 'p99')].filter(Boolean).filter(function (x, i, a) { return a.indexOf(x) === i; }).join(', ') || 'No wait measurement', function () { openQueueDetail(item[0], row, activeJobs); }); }},
@@ -7088,7 +7467,7 @@
     });
     const queueNames = Array.from(new Set(history.flatMap(function (snap) {
       return Object.keys(snap.queues || {}).filter(function (name) {
-        return !isRetiredQueue(name) && (state.queueScope === 'all' || isAmdQueue(name));
+        return queueMatchesScope(name);
       });
     }))).sort();
     if (state.queueHistoryQueue !== 'fleet' && !queueNames.includes(state.queueHistoryQueue)) {
@@ -7099,7 +7478,7 @@
     queueField.append(n('span', 'ops-field-label', 'History scope'));
     const queueSelect = n('select', 'ops-select');
     queueSelect.setAttribute('aria-label', 'Select queue for historical activity and wait time');
-    [['fleet', state.queueScope === 'amd' ? 'All AMD queues combined' : 'All queues combined']].concat(queueNames.map(function (name) { return [name, name]; })).forEach(function (pair) {
+    [['fleet', queueScopeLabel(state.queueScope, true)]].concat(queueNames.map(function (name) { return [name, name]; })).forEach(function (pair) {
       const option = n('option', '', pair[1]);
       option.value = pair[0];
       option.selected = pair[0] === state.queueHistoryQueue;
@@ -7117,7 +7496,7 @@
     const points = selectedHistory.map(function (snap) {
       let waiting = 0, running = 0, queues = 0;
       for (const [name, row] of Object.entries(snap.queues || {})) {
-        if (isRetiredQueue(name) || (state.queueScope !== 'all' && !isAmdQueue(name))) continue;
+        if (!queueMatchesScope(name)) continue;
         if (state.queueHistoryQueue !== 'fleet' && name !== state.queueHistoryQueue) continue;
         if (row.history_observation_only) continue;
         waiting += Number(row.waiting || 0);
@@ -7146,7 +7525,7 @@
     }
     const summary = queueBlock.history_summary || {};
     const selectedHistoryStart = selectedHistory.length ? selectedHistory[0].ts : summary.first_observed_at;
-    const historyLabel = state.queueHistoryQueue === 'fleet' ? (state.queueScope === 'amd' ? 'All AMD queues' : 'All queues') : state.queueHistoryQueue;
+    const historyLabel = state.queueHistoryQueue === 'fleet' ? queueScopeLabel(state.queueScope, false) : state.queueHistoryQueue;
     if (state.queueHistoryQueue === 'fleet') {
       const aggregationNote = n('div', 'ops-evidence-note is-info');
       add(aggregationNote, [n('strong', '', 'Combined scope has two different reducers. '), n('span', '', 'Running and waiting below are summed across queues. Wait charts show the worst named queue at each snapshot; they are not fleet percentiles and the leading queue can change.')]);
@@ -10528,6 +10907,8 @@
     cache.delete(SOURCE_ASSETS.queueSection);
     cache.delete(SOURCE_ASSETS.queueChartHistory);
     cache.delete(SOURCE_ASSETS.queueChartHistoryFallback);
+    cache.delete(SOURCE_ASSETS.queueLifecycle);
+    cache.delete(SOURCE_ASSETS.queueLifecycleFallback);
     cache.delete('jsonl:' + SOURCE_ASSETS.queueHistory);
     cache.delete('jsonl:' + SOURCE_ASSETS.queueHistoryFallback);
     operationsManifestPromise = null;
@@ -10581,6 +10962,19 @@
       omniAgeBand: omniAgeBand,
       omniDailyRows: omniDailyRows,
       trajectoryFrequencySignal: trajectoryFrequencySignal,
+      isCanonicalAmdQueue: isCanonicalAmdQueue,
+      queueMatchesScope: queueMatchesScope,
+      queueLifecycleRows: queueLifecycleRows,
+      queueLifecycleTotals: queueLifecycleTotals,
+      queueLifecycleHourlyRows: queueLifecycleHourlyRows,
+      queueLifecycleCoverage: queueLifecycleCoverage,
+      queueLifecycleObservationsAvailable: queueLifecycleObservationsAvailable,
+      queueLifecycleDisplayCount: queueLifecycleDisplayCount,
+      queueLifecyclePayloadValid: queueLifecyclePayloadValid,
+      queueLifecycleCandidateQuality: queueLifecycleCandidateQuality,
+      compareQueueLifecycleCandidates: compareQueueLifecycleCandidates,
+      queueLifecycleMinutes: queueLifecycleMinutes,
+      loadQueueLifecycle: loadQueueLifecycle,
     };
   }
 

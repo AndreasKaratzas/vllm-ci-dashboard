@@ -367,6 +367,96 @@ class TestQueueJobs:
             assert not missing, f"running job missing {sorted(missing)}: {j.get('name')}"
 
 
+class TestQueueLifecycle:
+    TARGET_QUEUES = [
+        f"amd_mi{family}_{width}"
+        for family in (250, 300, 355)
+        for width in (1, 2, 4, 8)
+    ]
+
+    def test_top_level_and_exact_scope(self):
+        d = _load_json_or_skip("queue_lifecycle.json")
+        _assert_has_keys(
+            d,
+            {
+                "schema_version",
+                "generated_at",
+                "window",
+                "scope",
+                "totals",
+                "queues",
+                "hourly",
+                "coverage",
+                "provenance",
+                "retention",
+            },
+            "queue_lifecycle.json",
+        )
+        assert d["schema_version"] == 1
+        assert d["scope"]["queues"] == self.TARGET_QUEUES
+        assert set(d["queues"]) == set(self.TARGET_QUEUES)
+        assert isinstance(d["coverage"].get("complete"), bool)
+
+    def test_event_counts_and_distributions_are_typed(self):
+        d = _load_json_or_skip("queue_lifecycle.json")
+        blocks = [d["totals"], *d["queues"].values()]
+        count_fields = {
+            "incoming",
+            "served",
+            "completed",
+            "passed",
+            "failed",
+            "soft_failed",
+            "canceled",
+            "timed_out",
+            "expired",
+            "broken",
+            "skipped",
+            "other_outcomes",
+            "retry_attempts_completed",
+            "retried_jobs_completed",
+        }
+        for index, block in enumerate(blocks):
+            _assert_has_keys(
+                block,
+                count_fields | {"queue_wait_seconds", "runtime_seconds"},
+                f"queue_lifecycle metric block {index}",
+            )
+            for field in count_fields:
+                assert isinstance(block[field], int) and block[field] >= 0
+            assert block["completed"] == sum(
+                block[field]
+                for field in (
+                    "passed",
+                    "failed",
+                    "soft_failed",
+                    "canceled",
+                    "timed_out",
+                    "expired",
+                    "broken",
+                    "skipped",
+                    "other_outcomes",
+                )
+            )
+            for field in ("queue_wait_seconds", "runtime_seconds"):
+                distribution = block[field]
+                _assert_has_keys(
+                    distribution,
+                    {"count", "min", "p50", "p95", "max", "avg"},
+                    f"queue_lifecycle metric block {index}.{field}",
+                )
+                assert isinstance(distribution["count"], int)
+                assert distribution["count"] >= 0
+
+    def test_two_hour_window_is_exact(self):
+        d = _load_json_or_skip("queue_lifecycle.json")
+        window = d["window"]
+        assert window["hours"] == 2
+        start = _parse_utc(window["start"])
+        end = _parse_utc(window["end_exclusive"])
+        assert end - start == timedelta(hours=2)
+
+
 class TestWorkloadMapping:
     INTEGER_FIELDS = (
         "mapped_jobs", "started_jobs", "finished_jobs", "mapped_gpu_slots",
