@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-11T05:00:23Z",
+  "generated_at": "2026-08-11T06:22:33Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -21,45 +21,30 @@
     "safety": "This artifact is review-only and does not rewrite the canonical target config."
   },
   "summary": {
-    "upstream_build": 83094,
+    "upstream_build": 83298,
     "amd_ci_build": 11876,
     "canonical_target_count": 125,
-    "row_count": 232,
-    "canonical_match_count": 114,
-    "likely_duplicate_count": 15,
-    "new_candidate_count": 52,
-    "excluded_count": 46,
-    "missing_from_upstream_count": 5,
+    "row_count": 137,
+    "canonical_match_count": 7,
+    "likely_duplicate_count": 1,
+    "new_candidate_count": 4,
+    "excluded_count": 8,
+    "missing_from_upstream_count": 117,
     "by_decision": {
-      "canonical": 114,
-      "excluded": 46,
-      "likely_duplicate": 15,
-      "missing_from_upstream": 5,
-      "new_candidate": 52
+      "canonical": 7,
+      "excluded": 8,
+      "likely_duplicate": 1,
+      "missing_from_upstream": 117,
+      "new_candidate": 4
     }
   },
   "rows": [
-    {
-      "label": "2 Node Test (4 GPUs)",
-      "canonical_key": "2 node test (4 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce1b-4a2d-b832-56885a7d7271&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 45,
-      "canonical_label": "2 Node Test (4 GPUs)",
-      "source_signal": "red",
-      "readiness_signal": "purple",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
     {
       "label": "Acceptance Length Test (Large Models)",
       "canonical_key": "acceptance length test (large models)",
       "state": "passed",
       "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cef3-4940-ba79-80c303afc51f&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-6080-4b15-a1b3-8263c8bd871e&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 71,
@@ -70,36 +55,11 @@
       "proposal_matches": []
     },
     {
-      "label": "Async Engine, Inputs, Utils, Worker",
-      "canonical_key": "async engine, inputs, utils, worker",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cef3-4510-89e0-f6d6b91c5ca9&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 69,
-      "canonical_label": "Async Engine, Inputs, Utils, Worker",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "Async Engine, Inputs, Utils, Worker",
-          "device": "mi300_1",
-          "yaml_file": ".buildkite/test_areas/misc.yaml"
-        }
-      ]
-    },
-    {
       "label": "Attention Benchmarks Smoke Test (B200)",
       "canonical_key": "attention benchmarks smoke test",
       "state": "passed",
       "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cddd-4020-9bb7-88889b7a6719&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5fb1-400e-a5d1-ee9738c558e7&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 47,
@@ -110,610 +70,11 @@
       "proposal_matches": []
     },
     {
-      "label": "Basic Correctness",
-      "canonical_key": "basic correctness",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdd5-4cc7-b5e3-db349e6a32e7&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 18,
-      "canonical_label": "Basic Correctness",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Basic Models Tests (Extra Initialization) %N",
-      "canonical_key": "basic models test (extra initialization) %N",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf08-4298-8fcd-88c1435494de&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 27,
-      "canonical_label": "Basic Models Tests (Extra Initialization) %N",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "green",
-      "proposal_matches": [],
-      "shard_count": 4,
-      "shard_states": {
-        "passed": 4
-      },
-      "runtime_shards": [
-        {
-          "label": "Basic Models Tests (Extra Initialization) 1",
-          "shard_index": 1,
-          "state": "passed",
-          "queue": "h200_35gb",
-          "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf08-4298-8fcd-88c1435494de&tab=output"
-        },
-        {
-          "label": "Basic Models Tests (Extra Initialization) 2",
-          "shard_index": 2,
-          "state": "passed",
-          "queue": "h200_35gb",
-          "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf08-4ffc-93a7-8b95f2ebda03&tab=output"
-        },
-        {
-          "label": "Basic Models Tests (Extra Initialization) 3",
-          "shard_index": 3,
-          "state": "passed",
-          "queue": "h200_35gb",
-          "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf08-4783-80b5-bb7caca5de94&tab=output"
-        },
-        {
-          "label": "Basic Models Tests (Extra Initialization) 4",
-          "shard_index": 4,
-          "state": "passed",
-          "queue": "h200_35gb",
-          "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf09-4826-9895-5795ad59eab5&tab=output"
-        }
-      ]
-    },
-    {
-      "label": "Basic Models Tests (Initialization)",
-      "canonical_key": "basic models test (initialization)",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf09-49be-a072-8462695f3b2c&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 10,
-      "canonical_label": "Basic Models Tests (Initialization)",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "red",
-      "proposal_matches": []
-    },
-    {
-      "label": "Basic Models Tests (Other)",
-      "canonical_key": "basic models test (other)",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf09-4591-bba2-8b8336c87846&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 11,
-      "canonical_label": "Basic Models Tests (Other)",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "red",
-      "proposal_matches": []
-    },
-    {
-      "label": "Batch Invariance (A100)",
-      "canonical_key": "batch invariance",
-      "state": "passed",
-      "queue": "a100_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cef4-4b07-97a5-41ec092ccfc3&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 70,
-      "canonical_label": "Batch Invariance (A100)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Benchmarks CLI Test",
-      "canonical_key": "benchmarks cli test",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdde-4f38-adc4-4d93b5d3a11e&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 46,
-      "canonical_label": "Benchmarks CLI Test",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
-      "canonical_key": "crosslayer kv layout distributed nixlconnector pd accuracy test (4 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce02-47e6-9966-1c95422741af&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 84,
-      "canonical_label": "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Cudagraph",
-      "canonical_key": "cudagraph",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdf1-4417-948e-bc966d6920b3&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 81,
-      "canonical_label": "Cudagraph",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "Cudagraph",
-          "device": "mi250_1",
-          "yaml_file": ".buildkite/test_areas/cuda.yaml"
-        }
-      ]
-    },
-    {
-      "label": "DeepSeek V2-Lite Prefetch Offload Accuracy (H100)",
-      "canonical_key": "deepseek v2-lite prefetch offload accuracy",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce2d-495e-a034-50df5b8d6d35&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 19,
-      "canonical_label": "DeepSeek V2-Lite Prefetch Offload Accuracy (H100)",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100)",
-      "canonical_key": "deepseek v2-lite sync eplb accuracy (4 gpus)",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce2e-4dfd-af5b-99cd271be321&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 58,
-      "canonical_label": "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Deepseek V4 Kernel Test (H100)",
-      "canonical_key": "deepseek v4 kernel test",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cecc-4829-a3b7-30f87c0bec87&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 36,
-      "canonical_label": "Deepseek V4 Kernel Test (H100)",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Distributed Comm Ops",
-      "canonical_key": "distributed comm ops",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce1c-4adc-957b-97f5689fea54&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 52,
-      "canonical_label": "Distributed Comm Ops",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Distributed Compile + Comm (4 GPUs)",
-      "canonical_key": "distributed compile + comm (4 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce1c-4a03-b453-1a2b4f0dfb2a&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 56,
-      "canonical_label": "Distributed Compile + Comm (4 GPUs)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Distributed Compile + RPC Tests (2 GPUs)",
-      "canonical_key": "distributed compile + rpc test (2 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce1c-4cf9-ac11-3f717367a4e9&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 54,
-      "canonical_label": "Distributed Compile + RPC Tests (2 GPUs)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Distributed Compile Unit Tests (2xH100)",
-      "canonical_key": "distributed compile unit test (2 gpus)",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdfa-4c6d-81a5-1a77c3331270&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 48,
-      "canonical_label": "Distributed Compile Unit Tests (2xH100)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Distributed DP Tests (2 GPUs)",
-      "canonical_key": "distributed dp test (2 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce1d-4caf-bdb9-79319322f6ba&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 53,
-      "canonical_label": "Distributed DP Tests (2 GPUs)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Distributed DP Tests (4 GPUs)",
-      "canonical_key": "distributed dp test (4 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce1d-470f-960c-a2dc301adbf3&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 55,
-      "canonical_label": "Distributed DP Tests (4 GPUs)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Distributed Model Tests (2 GPUs)",
-      "canonical_key": "distributed model test (2 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf0f-4dd9-a59f-30225c4332b4&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 12,
-      "canonical_label": "Distributed Model Tests (2 GPUs)",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "red",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "Distributed Model Tests (2 GPUs)",
-          "device": "mi300_2",
-          "yaml_file": ".buildkite/test_areas/models_distributed.yaml"
-        }
-      ]
-    },
-    {
-      "label": "Distributed NixlConnector PD accuracy (4 GPUs)",
-      "canonical_key": "distributed nixlconnector pd accuracy (4 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce0a-4f54-8637-12667998efa9&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 82,
-      "canonical_label": "Distributed NixlConnector PD accuracy (4 GPUs)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Distributed Torchrun + Examples (4 GPUs)",
-      "canonical_key": "distributed torchrun + examples (4 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce1f-494e-910e-7e6b78302c52&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 2,
-      "canonical_label": "Distributed Torchrun + Examples (4 GPUs)",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "red",
-      "proposal_matches": []
-    },
-    {
-      "label": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
-      "canonical_key": "distributed torchrun + shutdown test (2 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce1f-4d9d-8bef-aece420eaa3e&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 1,
-      "canonical_label": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "red",
-      "proposal_matches": []
-    },
-    {
-      "label": "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
-      "canonical_key": "dp ep distributed nixlconnector pd accuracy test (4 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce06-43ad-bb4c-01738dea6be1&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 83,
-      "canonical_label": "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "e2e Core (1 GPU)",
-      "canonical_key": "e2e core (1 gpu)",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce38-4439-a823-6863b0b1c883&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 20,
-      "canonical_label": "e2e Core (1 GPU)",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "e2e Scheduling (1 GPU)",
-      "canonical_key": "e2e scheduling (1 gpu)",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce39-474d-841f-6c51a807d5f5&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 105,
-      "canonical_label": "e2e Scheduling (1 GPU)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Elastic EP Scaling Test",
-      "canonical_key": "elastic ep scaling test",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce49-4e31-8c98-f1a99ccf704e&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 21,
-      "canonical_label": "Elastic EP Scaling Test",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Engine (1 GPU)",
-      "canonical_key": "engine (1 gpu)",
-      "state": "passed",
-      "queue": "gpu_1_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce34-4d35-b8f9-7afa82cecebc&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 104,
-      "canonical_label": "Engine (1 GPU)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Entrypoints Integration (API Server Generate)",
-      "canonical_key": "entrypoints integration (api server generate)",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce3d-4982-a255-e8a794b77316&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 110,
-      "canonical_label": "Entrypoints Integration (API Server Generate)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Entrypoints Integration (API Server OpenAI - Part 1)",
-      "canonical_key": "entrypoints integration (api server openai - part 1)",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce3e-4729-8080-5991c32c0efb&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 108,
-      "canonical_label": "Entrypoints Integration (API Server OpenAI - Part 1)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Entrypoints Integration (API Server OpenAI - Part 2)",
-      "canonical_key": "entrypoints integration (api server openai - part 2)",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce3e-443e-ae5a-5ad222fb2816&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 109,
-      "canonical_label": "Entrypoints Integration (API Server OpenAI - Part 2)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Entrypoints Integration (API Server)",
-      "canonical_key": "entrypoints integration (api server)",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce3f-4451-adf3-d1817f577cb5&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 107,
-      "canonical_label": "Entrypoints Integration (API Server)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Entrypoints Integration (LLM)",
-      "canonical_key": "entrypoints integration (llm)",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce3f-4f25-9ea6-9f82339237e0&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 106,
-      "canonical_label": "Entrypoints Integration (LLM)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Entrypoints Integration (Multimodal)",
-      "canonical_key": "entrypoints integration (multimodal)",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce40-49a7-8628-9dd07b5bc7b9&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 90,
-      "canonical_label": "Entrypoints Integration (Multimodal)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "Entrypoints Integration (Multimodal)",
-          "device": "mi300_1",
-          "yaml_file": ".buildkite/test_areas/entrypoints.yaml"
-        }
-      ]
-    },
-    {
-      "label": "Entrypoints Integration (Pooling)",
-      "canonical_key": "entrypoints integration (pooling)",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce40-41e5-a1bd-83a5c2d20c1b&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 16,
-      "canonical_label": "Entrypoints Integration (Pooling)",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "gray",
-      "proposal_matches": []
-    },
-    {
-      "label": "Entrypoints Integration (Responses API)",
-      "canonical_key": "entrypoints integration (responses api)",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce40-4940-a82c-a2c2c68b9702&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 89,
-      "canonical_label": "Entrypoints Integration (Responses API)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "Entrypoints Integration (Responses API)",
-          "device": "mi300_1",
-          "yaml_file": ".buildkite/test_areas/entrypoints.yaml"
-        }
-      ]
-    },
-    {
-      "label": "Entrypoints Integration (Speech to Text)",
-      "canonical_key": "entrypoints integration (speech to text)",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce40-4971-93e5-8ccb9c2980fe&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 15,
-      "canonical_label": "Entrypoints Integration (Speech to Text)",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "gray",
-      "proposal_matches": []
-    },
-    {
       "label": "Entrypoints Unit Tests",
       "canonical_key": "entrypoints unit test",
       "state": "passed",
       "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce41-410d-a712-e57c3d550888&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-6007-4652-8336-ff53de9fa8a7&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 88,
@@ -738,7 +99,7 @@
       "canonical_key": "eplb algorithm",
       "state": "passed",
       "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce46-46e9-b799-8fc38f2893dc&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-600a-4f8a-84b9-79a8b2909bd9&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 63,
@@ -749,41 +110,11 @@
       "proposal_matches": []
     },
     {
-      "label": "EPLB Execution",
-      "canonical_key": "eplb execution",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce47-4185-95f1-52153eea0882&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 6,
-      "canonical_label": "EPLB Execution",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "red",
-      "proposal_matches": []
-    },
-    {
-      "label": "Examples",
-      "canonical_key": "examples",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cef5-4f3d-be4c-b1b64dad3b66&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 67,
-      "canonical_label": "Examples",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
       "label": "Extract Hidden States Integration",
       "canonical_key": "extract hidden states integration",
       "state": "passed",
       "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cef5-4dba-b4a5-494aad2e3be7&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-6084-49bd-b6bd-7d3a6845c995&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 17,
@@ -794,901 +125,11 @@
       "proposal_matches": []
     },
     {
-      "label": "Extract Hidden States Integration (2 GPUs)",
-      "canonical_key": "extract hidden states integration (2 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cef5-4142-af24-0008ed29e818&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 42,
-      "canonical_label": "Extract Hidden States Integration (2 GPUs)",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Fusion E2E Config Sweep (H100)",
-      "canonical_key": "fusion e2e config sweep",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdfb-4507-951d-108fbbfed8ad&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 50,
-      "canonical_label": "Fusion E2E Config Sweep (H100)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Fusion E2E Quick (H100)",
-      "canonical_key": "fusion e2e quick",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdfb-4459-8f19-f2e3ac1fdbf0&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 49,
-      "canonical_label": "Fusion E2E Quick (H100)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "GGUF Plugin",
-      "canonical_key": "gguf plugin",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf27-4284-89b4-1d7e691f3631&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 43,
-      "canonical_label": "GGUF Plugin",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "GPQA Eval (GPT-OSS) (2xH100)",
-      "canonical_key": "gpqa eval (gpt-oss) (2 gpus)",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cedc-4132-8d18-3a54f27f438f&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 65,
-      "canonical_label": "GPQA Eval (GPT-OSS) (2xH100)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Hybrid SSM NixlConnector PD accuracy tests (4 GPUs)",
-      "canonical_key": "hybrid ssm nixlconnector pd accuracy test (4 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce0b-410e-8836-60653b018435&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 85,
-      "canonical_label": "Hybrid SSM NixlConnector PD accuracy tests (4 GPUs)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Hybrid SSM NixlConnector PD prefix cache test (2 GPUs)",
-      "canonical_key": "hybrid ssm nixlconnector pd prefix cache test (2 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce0b-4537-953e-7cace0e7be42&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 32,
-      "canonical_label": "Hybrid SSM NixlConnector PD prefix cache test (2 GPUs)",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Kernels Attention DiffKV Test (H100)",
-      "canonical_key": "kernels attention diffkv test",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cecc-431b-b237-a9eda9d4acba&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 37,
-      "canonical_label": "Kernels Attention DiffKV Test (H100)",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Kernels Attention Test %N",
-      "canonical_key": "kernels attention test %N",
-      "state": "passed",
-      "queue": "gpu_1_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cece-4e72-8999-24a2e6226985&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 22,
-      "canonical_label": "Kernels Attention Test %N",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "green",
-      "proposal_matches": [],
-      "shard_count": 2,
-      "shard_states": {
-        "passed": 2
-      },
-      "runtime_shards": [
-        {
-          "label": "Kernels Attention Test 1",
-          "shard_index": 1,
-          "state": "passed",
-          "queue": "gpu_1_queue",
-          "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cece-4e72-8999-24a2e6226985&tab=output"
-        },
-        {
-          "label": "Kernels Attention Test 2",
-          "shard_index": 2,
-          "state": "passed",
-          "queue": "gpu_1_queue",
-          "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cece-4a60-b260-ea10284a1d7c&tab=output"
-        }
-      ]
-    },
-    {
-      "label": "Kernels Core Operation Test",
-      "canonical_key": "kernels core operation test",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cecf-4242-a24d-e6cf81f62fb6&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 7,
-      "canonical_label": "Kernels Core Operation Test",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "red",
-      "proposal_matches": []
-    },
-    {
-      "label": "Kernels FusedMoE Layer Test (2 H100s)",
-      "canonical_key": "kernels fusedmoe layer test (2 gpus)",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ced2-43d7-9bac-15683f0baa69&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 39,
-      "canonical_label": "Kernels FusedMoE Layer Test (2 H100s)",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Kernels Helion Test",
-      "canonical_key": "kernels helion test",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ced2-4d63-bb7c-66ca30b81fa9&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 92,
-      "canonical_label": "Kernels Helion Test",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "Kernels Helion Test",
-          "device": "mi250_1",
-          "yaml_file": ".buildkite/test_areas/kernels.yaml"
-        }
-      ]
-    },
-    {
-      "label": "Kernels Mamba Test",
-      "canonical_key": "kernels mamba test",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ced3-445d-bd21-6719e723df6f&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 91,
-      "canonical_label": "Kernels Mamba Test",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "Kernels Mamba Test",
-          "device": "mi250_1",
-          "yaml_file": ".buildkite/test_areas/kernels.yaml"
-        }
-      ]
-    },
-    {
-      "label": "Kernels MoE Test %N",
-      "canonical_key": "kernels moe test %N",
-      "state": "passed",
-      "queue": "gpu_1_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ced4-459a-b855-30ae911499d6&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 23,
-      "canonical_label": "Kernels MoE Test %N",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "green",
-      "proposal_matches": [],
-      "shard_count": 5,
-      "shard_states": {
-        "passed": 5
-      },
-      "runtime_shards": [
-        {
-          "label": "Kernels MoE Test 1",
-          "shard_index": 1,
-          "state": "passed",
-          "queue": "gpu_1_queue",
-          "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ced4-459a-b855-30ae911499d6&tab=output"
-        },
-        {
-          "label": "Kernels MoE Test 2",
-          "shard_index": 2,
-          "state": "passed",
-          "queue": "gpu_1_queue",
-          "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ced4-4f97-a8bf-e618886c3171&tab=output"
-        },
-        {
-          "label": "Kernels MoE Test 3",
-          "shard_index": 3,
-          "state": "passed",
-          "queue": "gpu_1_queue",
-          "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ced4-4e40-8183-2ac2d68b8761&tab=output"
-        },
-        {
-          "label": "Kernels MoE Test 4",
-          "shard_index": 4,
-          "state": "passed",
-          "queue": "gpu_1_queue",
-          "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ced5-465f-acb7-7147c3cc78b8&tab=output"
-        },
-        {
-          "label": "Kernels MoE Test 5",
-          "shard_index": 5,
-          "state": "passed",
-          "queue": "gpu_1_queue",
-          "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ced5-4ebd-9dac-57f07b4ff302&tab=output"
-        }
-      ]
-    },
-    {
-      "label": "Kernels Quantization Test %N",
-      "canonical_key": "kernels quantization test %N",
-      "state": "passed",
-      "queue": "gpu_1_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ced5-4698-b406-b87b846210a8&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 112,
-      "canonical_label": "Kernels Quantization Test %N",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": [],
-      "shard_count": 2,
-      "shard_states": {
-        "passed": 2
-      },
-      "runtime_shards": [
-        {
-          "label": "Kernels Quantization Test 1",
-          "shard_index": 1,
-          "state": "passed",
-          "queue": "gpu_1_queue",
-          "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ced5-4698-b406-b87b846210a8&tab=output"
-        },
-        {
-          "label": "Kernels Quantization Test 2",
-          "shard_index": 2,
-          "state": "passed",
-          "queue": "gpu_1_queue",
-          "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ced5-4952-bfb9-84641ee39d43&tab=output"
-        }
-      ]
-    },
-    {
-      "label": "Language Models Test (Extended Generation)",
-      "canonical_key": "language models test (extended generation)",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf13-4ffe-946c-fbc9b721c807&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 73,
-      "canonical_label": "Language Models Test (Extended Generation)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "Language Models Test (Extended Generation)",
-          "device": "mi300_1",
-          "yaml_file": ".buildkite/test_areas/models_language.yaml"
-        }
-      ]
-    },
-    {
-      "label": "Language Models Test (Extended Pooling)",
-      "canonical_key": "language models test (extended pooling)",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf14-4b74-b1ed-f5cc7121624a&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 116,
-      "canonical_label": "Language Models Test (Extended Pooling)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Language Models Test (MTEB)",
-      "canonical_key": "language models test (mteb)",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf14-4145-bf5c-d4cb345cd32c&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 96,
-      "canonical_label": "Language Models Test (MTEB)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "Language Models Test (MTEB)",
-          "device": "mi250_1",
-          "yaml_file": ".buildkite/test_areas/models_language.yaml"
-        }
-      ]
-    },
-    {
-      "label": "Language Models Test (PPL)",
-      "canonical_key": "language models test (ppl)",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf14-4bea-8cc2-3acecf1ae40a&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 74,
-      "canonical_label": "Language Models Test (PPL)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "Language Models Test (PPL)",
-          "device": "mi250_1",
-          "yaml_file": ".buildkite/test_areas/models_language.yaml"
-        }
-      ]
-    },
-    {
-      "label": "Language Models Tests (Extra Standard) %N",
-      "canonical_key": "language models test (extra standard) %N",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf15-464a-b7f2-b930d69f2829&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 13,
-      "canonical_label": "Language Models Tests (Extra Standard) %N",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "red",
-      "proposal_matches": [],
-      "shard_count": 2,
-      "shard_states": {
-        "passed": 2
-      },
-      "runtime_shards": [
-        {
-          "label": "Language Models Tests (Extra Standard) 1",
-          "shard_index": 1,
-          "state": "passed",
-          "queue": "h200_35gb",
-          "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf15-464a-b7f2-b930d69f2829&tab=output"
-        },
-        {
-          "label": "Language Models Tests (Extra Standard) 2",
-          "shard_index": 2,
-          "state": "passed",
-          "queue": "h200_35gb",
-          "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf15-457d-a498-34c63cfa28f0&tab=output"
-        }
-      ]
-    },
-    {
-      "label": "Language Models Tests (Hybrid) %N",
-      "canonical_key": "language models test (hybrid) %N",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf16-4541-9d96-75cb182a0824&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 115,
-      "canonical_label": "Language Models Tests (Hybrid) %N",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": [],
-      "shard_count": 2,
-      "shard_states": {
-        "passed": 2
-      },
-      "runtime_shards": [
-        {
-          "label": "Language Models Tests (Hybrid) 1",
-          "shard_index": 1,
-          "state": "passed",
-          "queue": "h200_35gb",
-          "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf16-4541-9d96-75cb182a0824&tab=output"
-        },
-        {
-          "label": "Language Models Tests (Hybrid) 2",
-          "shard_index": 2,
-          "state": "passed",
-          "queue": "h200_35gb",
-          "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf16-48ae-a8ed-df21a16c9d99&tab=output"
-        }
-      ]
-    },
-    {
-      "label": "Language Models Tests (Standard)",
-      "canonical_key": "language models test (standard)",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf16-48ec-8560-af791e3ff9cd&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 95,
-      "canonical_label": "Language Models Tests (Standard)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "LM Eval Large Models (4xH100)",
-      "canonical_key": "lm eval large models (4 gpus)",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cee3-4075-9350-3cee67465e7c&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 64,
-      "canonical_label": "LM Eval Large Models (4xH100)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "LM Eval Small Models",
-      "canonical_key": "lm eval small models",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cee5-4be0-bb95-78cfaad87eaa&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 113,
-      "canonical_label": "LM Eval Small Models",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "LM Eval TurboQuant KV Cache",
-      "canonical_key": "lm eval turboquant kv cache",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cee5-4c59-95b0-1c8c390e5765&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 40,
-      "canonical_label": "LM Eval TurboQuant KV Cache",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "LoRA %N",
-      "canonical_key": "lora %N",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ceec-4986-b673-1b3e302a030f&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 25,
-      "canonical_label": "LoRA %N",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "green",
-      "proposal_matches": [],
-      "shard_count": 4,
-      "shard_states": {
-        "passed": 4
-      },
-      "runtime_shards": [
-        {
-          "label": "LoRA 1",
-          "shard_index": 1,
-          "state": "passed",
-          "queue": "h200_35gb",
-          "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ceec-4986-b673-1b3e302a030f&tab=output"
-        },
-        {
-          "label": "LoRA 2",
-          "shard_index": 2,
-          "state": "passed",
-          "queue": "h200_35gb",
-          "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ceec-42b2-b130-5717d655db6f&tab=output"
-        },
-        {
-          "label": "LoRA 3",
-          "shard_index": 3,
-          "state": "passed",
-          "queue": "h200_35gb",
-          "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ceed-4ee3-bd90-a761a533b6d7&tab=output"
-        },
-        {
-          "label": "LoRA 4",
-          "shard_index": 4,
-          "state": "passed",
-          "queue": "h200_35gb",
-          "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ceed-43ef-9a7d-49393ef910c4&tab=output"
-        }
-      ]
-    },
-    {
-      "label": "LoRA TP (Distributed)",
-      "canonical_key": "lora tp (distributed)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ceee-4f02-bb80-1bec7007eec9&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 9,
-      "canonical_label": "LoRA TP (Distributed)",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "red",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "LoRA TP (Distributed)",
-          "device": "mi300_4",
-          "yaml_file": ".buildkite/test_areas/lora.yaml"
-        }
-      ]
-    },
-    {
-      "label": "Metrics, Tracing (2 GPUs)",
-      "canonical_key": "metrics, tracing (2 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cef6-45ca-84e1-0d91d7d14bba&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 68,
-      "canonical_label": "Metrics, Tracing (2 GPUs)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Model Executor",
-      "canonical_key": "model executor",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cefc-468d-9707-e5e621adc554&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 72,
-      "canonical_label": "Model Executor",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "MRCR Eval Small Models",
-      "canonical_key": "mrcr eval small models",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cee6-4d3d-9d3b-9889f95c6467&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 41,
-      "canonical_label": "MRCR Eval Small Models",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Multi-Modal Accuracy Eval (Small Models)",
-      "canonical_key": "multi-modal accuracy eval (small models)",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf1b-453d-8af4-19849e538bf2&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 75,
-      "canonical_label": "Multi-Modal Accuracy Eval (Small Models)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Multi-Modal Models (Extended Generation 1)",
-      "canonical_key": "multi-modal models (extended generation 1)",
-      "state": "failed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fed56-7321-4006-a183-4ac5e8241918&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 120,
-      "canonical_label": "Multi-Modal Models (Extended Generation 1)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Multi-Modal Models (Extended Generation 2)",
-      "canonical_key": "multi-modal models (extended generation 2)",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf1b-4679-b576-e588d62d869b&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 98,
-      "canonical_label": "Multi-Modal Models (Extended Generation 2)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "Multi-Modal Models (Extended Generation 2)",
-          "device": "mi355_1",
-          "yaml_file": ".buildkite/test_areas/models_multimodal.yaml"
-        }
-      ]
-    },
-    {
-      "label": "Multi-Modal Models (Extended Generation 3)",
-      "canonical_key": "multi-modal models (extended generation 3)",
-      "state": "failed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fed56-7395-4b01-99c0-3e7dfc0327e4&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 99,
-      "canonical_label": "Multi-Modal Models (Extended Generation 3)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "Multi-Modal Models (Extended Generation 3)",
-          "device": "mi355_1",
-          "yaml_file": ".buildkite/test_areas/models_multimodal.yaml"
-        }
-      ]
-    },
-    {
-      "label": "Multi-Modal Models (Extended Pooling)",
-      "canonical_key": "multi-modal models (extended pooling)",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf1c-4d92-a596-e17fd491fa27&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 121,
-      "canonical_label": "Multi-Modal Models (Extended Pooling)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Multi-Modal Models (Standard) 1: qwen2",
-      "canonical_key": "multi-modal models (standard) 1: qwen2",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf1d-448d-94ab-551497a61149&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 117,
-      "canonical_label": "Multi-Modal Models (Standard) 1: qwen2",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Multi-Modal Models (Standard) 2: qwen3 + gemma",
-      "canonical_key": "multi-modal models (standard) 2: qwen3 + gemma",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf1d-4c36-8fe0-0c31c4e5d7a7&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 118,
-      "canonical_label": "Multi-Modal Models (Standard) 2: qwen3 + gemma",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Multi-Modal Models (Standard) 3: llava + qwen2_vl",
-      "canonical_key": "multi-modal models (standard) 3: llava + qwen2_vl",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf1d-4872-a4b7-5cf6235ccb07&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 119,
-      "canonical_label": "Multi-Modal Models (Standard) 3: llava + qwen2_vl",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Multi-Modal Models (Standard) 4: other + whisper",
-      "canonical_key": "multi-modal models (standard) 4: other + whisper",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf1d-427d-913e-62bcf4767b38&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 28,
-      "canonical_label": "Multi-Modal Models (Standard) 4: other + whisper",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Multi-Modal Processor",
-      "canonical_key": "multi-modal processor",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf1e-4057-b27c-3782d42d54c9&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 97,
-      "canonical_label": "Multi-Modal Processor",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "Multi-Modal Processor",
-          "device": "mi355_1",
-          "yaml_file": ".buildkite/test_areas/models_multimodal.yaml"
-        }
-      ]
-    },
-    {
-      "label": "MultiConnector (Nixl+Offloading) PD accuracy (2 GPUs)",
-      "canonical_key": "multiconnector (nixl+offloading) pd accuracy (2 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce0c-445b-9db0-db1d716352f2&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 33,
-      "canonical_label": "MultiConnector (Nixl+Offloading) PD accuracy (2 GPUs)",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "MultiConnector (Nixl+Offloading) PD edge cases (2 GPUs)",
-      "canonical_key": "multiconnector (nixl+offloading) pd edge cases (2 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce0c-4ea8-9d4b-4d0d6fd452b5&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 34,
-      "canonical_label": "MultiConnector (Nixl+Offloading) PD edge cases (2 GPUs)",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
-      "canonical_key": "nixlconnector pd + spec decode acceptance (2 gpus)",
-      "state": "passed",
-      "queue": "a100_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce0c-4e62-9c81-de2a77231ce7&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 86,
-      "canonical_label": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
       "label": "OpenAI API Correctness",
       "canonical_key": "openai api correctness",
       "state": "passed",
       "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce41-409e-9926-1368084f2c20&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-6007-4935-8930-a083f7033db8&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 111,
@@ -1699,196 +140,11 @@
       "proposal_matches": []
     },
     {
-      "label": "Pipeline + Context Parallelism (4 GPUs)",
-      "canonical_key": "pipeline + context parallelism (4 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce1f-4830-a100-da35e4b7c326&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 4,
-      "canonical_label": "Pipeline + Context Parallelism (4 GPUs)",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "red",
-      "proposal_matches": []
-    },
-    {
-      "label": "Plugin Tests (2 GPUs)",
-      "canonical_key": "plugin test (2 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf28-495c-b0f4-997cfdba9a4c&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 100,
-      "canonical_label": "Plugin Tests (2 GPUs)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "Plugin Tests (2 GPUs)",
-          "device": "mi250_2",
-          "yaml_file": ".buildkite/test_areas/plugins.yaml"
-        }
-      ]
-    },
-    {
-      "label": "Python-only Installation",
-      "canonical_key": "python-only installation",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cef6-4e69-a15a-3c6fb75f9216&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 94,
-      "canonical_label": "Python-only Installation",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "PyTorch Compilation Passes Unit Tests",
-      "canonical_key": "pytorch compilation passes unit test",
-      "state": "passed",
-      "queue": "gpu_1_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf2c-4ecc-878a-08a5d680f18c&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 29,
-      "canonical_label": "PyTorch Compilation Passes Unit Tests",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "PyTorch Compilation Unit Tests",
-      "canonical_key": "pytorch compilation unit test",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf2d-419b-93e4-bf27692d77a7&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 76,
-      "canonical_label": "PyTorch Compilation Unit Tests",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "PyTorch Compilation Unit Tests",
-          "device": "mi300_1",
-          "yaml_file": ".buildkite/test_areas/pytorch.yaml"
-        }
-      ]
-    },
-    {
-      "label": "Pytorch Nightly Dependency Override Check",
-      "canonical_key": "pytorch nightly dependency override check",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf2e-4fe1-b8ab-4b34a0d95b71&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 78,
-      "canonical_label": "Pytorch Nightly Dependency Override Check",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Quantization",
-      "canonical_key": "quantization",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf33-47a3-8013-54a065aa9a46&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 30,
-      "canonical_label": "Quantization",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Quantized Fusions",
-      "canonical_key": "quantized fusions",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf33-41ca-ab8d-317e8a510f31&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 44,
-      "canonical_label": "Quantized Fusions",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Quantized Models Test",
-      "canonical_key": "quantized models test",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf34-4d48-9fe9-bfa5189f01be&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 101,
-      "canonical_label": "Quantized Models Test",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy",
-      "canonical_key": "qwen3-30b-a3b-fp8 dp4 async eplb accuracy",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce2e-4e02-90b5-28decffd8eee&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 35,
-      "canonical_label": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100)",
-      "canonical_key": "qwen3-30b-a3b-fp8-block sync eplb accuracy (4 gpus)",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce2e-480a-aa99-96ff690c605d&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 59,
-      "canonical_label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
       "label": "Ray Dependency Compatibility Check",
       "canonical_key": "ray dependency compatibility check",
       "state": "passed",
       "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf38-48cf-b217-681d46b3fece&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-60c0-4e16-9abd-f35f60c7f370&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 79,
@@ -1899,534 +155,11 @@
       "proposal_matches": []
     },
     {
-      "label": "RayExecutorV2 (4 GPUs)",
-      "canonical_key": "rayexecutorv2 (4 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce20-4a00-b952-8ff7c1c13d42&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 5,
-      "canonical_label": "RayExecutorV2 (4 GPUs)",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "red",
-      "proposal_matches": []
-    },
-    {
-      "label": "Regression",
-      "canonical_key": "regression",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cef6-4640-b847-adc7230cdf2d&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 66,
-      "canonical_label": "Regression",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Samplers Test",
-      "canonical_key": "samplers test",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf49-41e4-afa9-d39889c4d29e&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 122,
-      "canonical_label": "Samplers Test",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Spec Decode Draft Model",
-      "canonical_key": "spec decode draft model",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf4f-4de4-aef6-1ad1d380d2d9&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 125,
-      "canonical_label": "Spec Decode Draft Model",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Spec Decode Eagle",
-      "canonical_key": "spec decode eagle",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf4f-4243-a274-e1741d8936ee&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 31,
-      "canonical_label": "Spec Decode Eagle",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Spec Decode Ngram + Suffix",
-      "canonical_key": "spec decode ngram + suffix",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf50-4bd9-a6dc-c49fe6a85bad&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 124,
-      "canonical_label": "Spec Decode Ngram + Suffix",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Spec Decode Speculators + MTP",
-      "canonical_key": "spec decode speculators + mtp",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf50-48a7-bca8-0e8db47eb626&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 123,
-      "canonical_label": "Spec Decode Speculators + MTP",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "V1 attention (H100-MI300)",
-      "canonical_key": "v1 attention",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdc3-4c42-a56f-225596557972&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 103,
-      "canonical_label": "V1 attention (H100-MI300)",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "V1 Core + KV + Metrics",
-      "canonical_key": "v1 core + kv + metrics",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cef7-45ce-8918-40ddc6954e23&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 26,
-      "canonical_label": "V1 Core + KV + Metrics",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "V1 e2e (2 GPUs)",
-      "canonical_key": "v1 e2e (2 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce37-4c58-84ba-5d30b63bb263&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 60,
-      "canonical_label": "V1 e2e (2 GPUs)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "V1 e2e (4xH100)",
-      "canonical_key": "v1 e2e (4 gpus)",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce38-4462-973b-b223a62da0d9&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 62,
-      "canonical_label": "V1 e2e (4xH100)",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "V1 e2e (4xH100-4xMI300)",
-          "device": "mi300_4",
-          "yaml_file": ".buildkite/test_areas/engine.yaml"
-        }
-      ]
-    },
-    {
-      "label": "V1 Sample + Logits",
-      "canonical_key": "v1 sample + logits",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cef8-4383-816d-8df7e1b4dd81&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 114,
-      "canonical_label": "V1 Sample + Logits",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "V1 Spec Decode",
-      "canonical_key": "v1 spec decode",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf51-4a1e-b82c-80773552fff6&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 93,
-      "canonical_label": "V1 Spec Decode",
-      "source_signal": "green",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "Weight Loading Multiple GPU",
-      "canonical_key": "weight loading multiple gpu",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf5a-46f3-b646-b4796c81e587&tab=output",
-      "exclusion_reasons": [],
-      "decision": "canonical",
-      "target_id": 80,
-      "canonical_label": "Weight Loading Multiple GPU",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "green",
-      "proposal_matches": []
-    },
-    {
-      "label": "AsyncTP Correctness Tests (2xB200)",
-      "canonical_key": "asynctp correctness test (2 gpus)",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdfa-4852-bfe1-9c39383798cc&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "BitsAndBytes Plugin",
-      "canonical_key": "bitsandbytes plugin",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf27-4f60-b414-a1e41d724384&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "BitsAndBytes Plugin (2 GPUs)",
-      "canonical_key": "bitsandbytes plugin (2 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf27-42a5-9ee9-1b299a64bce3&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Distributed FlashInfer NixlConnector PD accuracy (4 GPUs)",
-      "canonical_key": "distributed flashinfer nixlconnector pd accuracy (4 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce0a-41d0-a8b2-b9df8e2846f0&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
       "label": "Distributed MooncakeConnector PD accuracy (4 GPUs)",
       "canonical_key": "distributed mooncakeconnector pd accuracy (4 gpus)",
       "state": "passed",
       "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce16-4730-a6fb-67806a2da19e&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "DSv4-Flash Disaggregated DP EP",
-      "canonical_key": "dsv4-flash disaggregated dp ep",
-      "state": "failed",
-      "queue": "H200",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fed56-705b-4d45-9e7b-73762d5cf6f3&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Engine",
-      "canonical_key": "engine",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce33-49e7-83c6-143f139da888&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "passed",
-        "jobs": [
-          {
-            "label": "Engine",
-            "state": "passed",
-            "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?jid=019feae6-b0fa-4bce-bd8d-6943f85322e2&tab=output"
-          }
-        ]
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Fault Tolerance E2E (2xH100)",
-      "canonical_key": "fault tolerance e2e (2 gpus)",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce4f-4c48-a8ee-594314d8a679&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Fusion and Compile Unit Tests (2xB200)",
-      "canonical_key": "fusion and compile unit test (2 gpus)",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdfd-4737-8436-534e00022451&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Fusion E2E TP2 (B200)",
-      "canonical_key": "fusion e2e tp2",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdfc-483a-adef-5c73b123ae11&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Fusion E2E TP2 AR-RMS Config Sweep (H100)",
-      "canonical_key": "fusion e2e tp2 ar-rms config sweep",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdfc-4351-9f8e-51eafddb2a20&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Fusion E2E TP2 AsyncTP Config Sweep (H100)",
-      "canonical_key": "fusion e2e tp2 asynctp config sweep",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdfc-4fbb-8ec6-f18a732dd42a&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Fusion E2E TP2 Quick (H100)",
-      "canonical_key": "fusion e2e tp2 quick",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdfd-484a-a02a-c1b18e002add&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "GH200 Test",
-      "canonical_key": "gh200 test",
-      "state": "soft_fail",
-      "queue": "gh200_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fed56-71f5-4ed8-a404-8f24a88457e4&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Inkling Unit Tests (B200)",
-      "canonical_key": "inkling unit test",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf09-40dd-8c94-c9f06dabd98c&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Kernels (B200)",
-      "canonical_key": "kernels",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cecc-42a2-9cd5-2574ee74993f&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "passed",
-        "jobs": [
-          {
-            "label": "Kernels (B200-MI355)",
-            "state": "passed",
-            "queue": "amd_mi355_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?jid=019feae6-b126-4fda-b926-ddad19060779&tab=output"
-          }
-        ]
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Kernels DeepGEMM Test (H100)",
-      "canonical_key": "kernels deepgemm test",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cecf-4d6c-aa24-3e379272cf52&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Kernels FlashMLA Test (H100)",
-      "canonical_key": "kernels flashmla test",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ced1-4940-937b-2852f1e98243&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5fe6-4ef2-bc94-4657e9acd3f0&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -2443,292 +176,7 @@
       "canonical_key": "kernels fp4 moe test",
       "state": "passed",
       "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ced1-4502-a705-c8655efb48de&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Kernels MiniMax Reduce RMS Test (2 GPUs)",
-      "canonical_key": "kernels minimax reduce rms test (2 gpus)",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ced3-4792-8e26-ae76a104812e&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Kernels Root Misc Test (B200)",
-      "canonical_key": "kernels root misc test",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ced6-4c2f-92ef-b096687869ac&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Kimi K3 Unit Tests (B200)",
-      "canonical_key": "kimi k3 unit test",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf0a-4568-828f-adc492e3e94b&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Kimi-Linear-48B-A3B Disaggregated DP EP",
-      "canonical_key": "kimi-linear-48b-a3b disaggregated dp ep",
-      "state": "passed",
-      "queue": "H200",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fed56-7123-4fc6-839a-ddbd0e09303f&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Language Models Tests (Granite L4 Compatibility)",
-      "canonical_key": "language models test (granite l4 compatibility)",
-      "state": "passed",
-      "queue": "gpu_1_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf15-44c0-8b74-362938a08b40&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "LM Eval KV-Offload (1xH200)",
-      "canonical_key": "lm eval kv-offload (1 gpus)",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cee2-472e-92d1-04c4d1b46859&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "LM Eval KV-Offload (2xH100)",
-      "canonical_key": "lm eval kv-offload (2 gpus)",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cee2-49c6-aa4d-af50612fad3f&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "LM Eval KV-Offload (4xH100)",
-      "canonical_key": "lm eval kv-offload (4 gpus)",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cee2-47c1-9c63-58ea6402d1d2&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "LM Eval Large Models (8xH200)",
-      "canonical_key": "lm eval large models (8 gpus)",
-      "state": "passed",
-      "queue": "H200",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fed56-72cd-49c0-a649-f7c2381a3f57&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "red",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "soft_fail",
-        "jobs": [
-          {
-            "label": "LM Eval Large Models (8xH200-8xMI300)",
-            "state": "passed",
-            "queue": "amd_mi300_8",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?jid=019feae6-b100-48e2-b9ae-397a37ccef9e&tab=output"
-          },
-          {
-            "label": "LM Eval Large Models (8xB200-8xMI355)",
-            "state": "soft_fail",
-            "queue": "amd_mi355_8",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?jid=019feae6-b122-4dba-ba17-313c62ce69fc&tab=output"
-          }
-        ]
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "LM Eval Large Models EP (2xB200)",
-      "canonical_key": "lm eval large models ep (2 gpus)",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cee4-4227-a73f-a523ad91e8f8&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "LM Eval PCP (4xB200)",
-      "canonical_key": "lm eval pcp (4 gpus)",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cee4-4497-a68f-60763577a0a5&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "LM Eval Qwen3.5 Models (2xB200)",
-      "canonical_key": "lm eval qwen3.5 models (2 gpus)",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cee4-4df1-88f3-b68b09e0cb59&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "LM Eval Small Models (1xB200)",
-      "canonical_key": "lm eval small models (1 gpus)",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cee5-4fd2-8d31-8d8b4794f676&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "LM Eval Small Models Distributed (2xB200)",
-      "canonical_key": "lm eval small models distributed (2 gpus)",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cee5-4198-9c55-bb2367904834&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Multi-Modal Models (PPL)",
-      "canonical_key": "multi-modal models (ppl)",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf1c-4db8-bd98-779fce5413c8&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "NixlConnector PD edge case test (2 GPUs)",
-      "canonical_key": "nixlconnector pd edge case test (2 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce0f-4073-807e-197ff68cf14b&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-6053-40bf-ac29-2375cbbef85a&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -2745,75 +193,7 @@
       "canonical_key": "no runtime jits e2e test",
       "state": "passed",
       "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cec6-441b-a0d6-8133c4e8d29d&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Push NixlConnector PP prefill PD accuracy (4 GPUs)",
-      "canonical_key": "push nixlconnector pp prefill pd accuracy (4 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce11-44fb-b071-71904bf802d5&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "PyTorch Fullgraph CUDAGraph (L4 Compatibility)",
-      "canonical_key": "pytorch fullgraph cudagraph (l4 compatibility)",
-      "state": "passed",
-      "queue": "gpu_1_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf2e-467a-b72c-6c0ed93ba296&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "PyTorch Fullgraph Test",
-      "canonical_key": "pytorch fullgraph test",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf2e-4edc-b3ea-35158e47ea92&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Quantized MoE Test (B200)",
-      "canonical_key": "quantized moe test",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf34-4f33-b99f-4741abf066c5&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-604d-47e4-b5a3-4436ae203386&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -2830,7 +210,7 @@
       "canonical_key": "qwen3-30b-a3b-fp8-block sync eplb accuracy (2 gpus)",
       "state": "passed",
       "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce2e-459b-bf6e-080b8827d219&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5ff8-4d40-8bfe-d47406663cf7&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -2840,354 +220,6 @@
         "state": "not_observed",
         "jobs": []
       },
-      "proposal_matches": []
-    },
-    {
-      "label": "Sequence Parallel Correctness Tests (2xB200)",
-      "canonical_key": "sequence parallel correctness test (2 gpus)",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdfd-480e-aaa3-2c69ae3d6da3&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Spec Decode AL DFlash Nightly",
-      "canonical_key": "spec decode al dflash nightly",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf4d-4932-abf8-abf98f2d6513&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Spec Decode AL DSpark Nightly",
-      "canonical_key": "spec decode al dspark nightly",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf4d-45d1-bbfe-d56a7bad3adc&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Spec Decode AL MTP + Other Acceptance Nightly",
-      "canonical_key": "spec decode al mtp + other acceptance nightly",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf4e-47c5-96ad-3271b6da4547&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Spec Decode DeepSeek MTP Parallel Load (B200)",
-      "canonical_key": "spec decode deepseek mtp parallel load",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf4f-4e46-a545-2cff3bb8dec4&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Spec Decode Draft Model Nightly (B200)",
-      "canonical_key": "spec decode draft model nightly",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf4f-456d-a30f-fd5b7621f938&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Spec Decode Eagle Nightly (B200)",
-      "canonical_key": "spec decode eagle nightly",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf50-4374-904b-f483279cdc05&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Spec Decode Speculators + MTP Nightly (B200)",
-      "canonical_key": "spec decode speculators + mtp nightly",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf50-498b-8b0b-2a5f546d9924&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Speculators Correctness Nightly (H100)",
-      "canonical_key": "speculators correctness nightly",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf51-49d3-a3a0-27f83f70bba8&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "Speculators Correctness Nightly (H100)",
-          "device": "mi300_1",
-          "yaml_file": ".buildkite/test_areas/spec_decode.yaml"
-        }
-      ]
-    },
-    {
-      "label": "Torch Stable ABI Audit",
-      "canonical_key": "torch stable abi audit",
-      "state": "passed",
-      "queue": "gpu_1_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf56-49c2-80d4-861733fcf927&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "yellow",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "not_observed",
-        "jobs": []
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "vLLM IR Tests",
-      "canonical_key": "vllm ir test",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ced6-43f3-be4c-68fda203743b&tab=output",
-      "exclusion_reasons": [],
-      "decision": "new_candidate",
-      "source_signal": "red",
-      "readiness_signal": "green",
-      "target_signal": "unknown",
-      "internal_signal": {
-        "state": "passed",
-        "jobs": [
-          {
-            "label": "vLLM IR Tests",
-            "state": "passed",
-            "queue": "amd_mi300_1",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/11876/steps/canvas?jid=019feae6-b100-4607-8848-57aebeecb8f4&tab=output"
-          }
-        ]
-      },
-      "proposal_matches": []
-    },
-    {
-      "label": "Batch Invariance (B200)",
-      "canonical_key": "batch invariance",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cef4-4ba0-a187-52829884316b&tab=output",
-      "exclusion_reasons": [],
-      "decision": "likely_duplicate",
-      "duplicate_of": "Batch Invariance (A100)",
-      "target_id": 70,
-      "proposal_matches": []
-    },
-    {
-      "label": "Batch Invariance (H100)",
-      "canonical_key": "batch invariance",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cef5-4c89-b34d-fdbdd1df879a&tab=output",
-      "exclusion_reasons": [],
-      "decision": "likely_duplicate",
-      "duplicate_of": "Batch Invariance (A100)",
-      "target_id": 70,
-      "proposal_matches": []
-    },
-    {
-      "label": "Deepseek V4 Kernel Test (B200)",
-      "canonical_key": "deepseek v4 kernel test",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cecb-4fcc-8fcd-a928a3ecf009&tab=output",
-      "exclusion_reasons": [],
-      "decision": "likely_duplicate",
-      "duplicate_of": "Deepseek V4 Kernel Test (H100)",
-      "target_id": 36,
-      "proposal_matches": []
-    },
-    {
-      "label": "Distributed Tests (2xB200)",
-      "canonical_key": "distributed test (2 gpus)",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce1d-4ee2-bccc-7954897547a8&tab=output",
-      "exclusion_reasons": [],
-      "decision": "likely_duplicate",
-      "duplicate_of": "Distributed Tests (2 GPUs)(H100)",
-      "target_id": 87,
-      "proposal_matches": []
-    },
-    {
-      "label": "Distributed Tests (2xH100-2xMI300)",
-      "canonical_key": "distributed test (2 gpus)",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce1e-4a5b-a32f-93c82dbafb40&tab=output",
-      "exclusion_reasons": [],
-      "decision": "likely_duplicate",
-      "duplicate_of": "Distributed Tests (2 GPUs)(H100)",
-      "target_id": 87,
-      "proposal_matches": []
-    },
-    {
-      "label": "Distributed Tests (4xA100)",
-      "canonical_key": "distributed test (4 gpus)",
-      "state": "passed",
-      "queue": "a100_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce1e-4242-b2c8-06b17a857bba&tab=output",
-      "exclusion_reasons": [],
-      "decision": "likely_duplicate",
-      "duplicate_of": "Distributed Tests (4 GPUs)(A100)",
-      "target_id": 3,
-      "proposal_matches": []
-    },
-    {
-      "label": "Distributed Tests (8xH100)",
-      "canonical_key": "distributed test (8 gpus)",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce1e-449d-84b1-c5179850bce9&tab=output",
-      "exclusion_reasons": [],
-      "decision": "likely_duplicate",
-      "duplicate_of": "Distributed Tests (8 GPUs)(H100)",
-      "target_id": 57,
-      "proposal_matches": []
-    },
-    {
-      "label": "Fusion E2E Config Sweep (B200)",
-      "canonical_key": "fusion e2e config sweep",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdfb-4b97-b877-f4558c618265&tab=output",
-      "exclusion_reasons": [],
-      "decision": "likely_duplicate",
-      "duplicate_of": "Fusion E2E Config Sweep (H100)",
-      "target_id": 50,
-      "proposal_matches": []
-    },
-    {
-      "label": "GPQA Eval (GPT-OSS) (2xB200)",
-      "canonical_key": "gpqa eval (gpt-oss) (2 gpus)",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cedb-442f-a466-701eb09f4dd2&tab=output",
-      "exclusion_reasons": [],
-      "decision": "likely_duplicate",
-      "duplicate_of": "GPQA Eval (GPT-OSS) (2xH100)",
-      "target_id": 65,
-      "proposal_matches": []
-    },
-    {
-      "label": "Kernels FP8 MoE Test (1xH100)",
-      "canonical_key": "kernels fp8 moe test (1 gpus)",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cecf-4a34-9847-060de189bf96&tab=output",
-      "exclusion_reasons": [],
-      "decision": "likely_duplicate",
-      "duplicate_of": "Kernels FP8 MoE Test (1 H100)",
-      "target_id": 8,
-      "proposal_matches": []
-    },
-    {
-      "label": "Kernels FP8 MoE Test (2xH100)",
-      "canonical_key": "kernels fp8 moe test (2 gpus)",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea8c-65fd-473f-bbde-300e049108e1&tab=output",
-      "exclusion_reasons": [],
-      "decision": "likely_duplicate",
-      "duplicate_of": "Kernels FP8 MoE Test (2 H100s)",
-      "target_id": 24,
-      "proposal_matches": []
-    },
-    {
-      "label": "Kernels FusedMoE Layer Test (2 B200s)",
-      "canonical_key": "kernels fusedmoe layer test (2 gpus)",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ced2-488e-a0f2-09add416185a&tab=output",
-      "exclusion_reasons": [],
-      "decision": "likely_duplicate",
-      "duplicate_of": "Kernels FusedMoE Layer Test (2 H100s)",
-      "target_id": 39,
       "proposal_matches": []
     },
     {
@@ -3195,7 +227,7 @@
       "canonical_key": "platform test",
       "state": "passed",
       "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdf5-4f90-b358-ec1fabe0642f&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5fca-4a89-abe9-7755e76d5c7e&tab=output",
       "exclusion_reasons": [],
       "decision": "likely_duplicate",
       "duplicate_of": "Platform Tests (CUDA)",
@@ -3203,67 +235,11 @@
       "proposal_matches": []
     },
     {
-      "label": "PyTorch Compilation Unit Tests (H100)",
-      "canonical_key": "pytorch compilation unit test",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf2d-4286-aca7-9208c10a1e27&tab=output",
-      "exclusion_reasons": [],
-      "decision": "likely_duplicate",
-      "duplicate_of": "PyTorch Compilation Unit Tests",
-      "target_id": 76,
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "PyTorch Compilation Unit Tests",
-          "device": "mi300_1",
-          "yaml_file": ".buildkite/test_areas/pytorch.yaml"
-        }
-      ]
-    },
-    {
-      "label": "V1 attention (B200)",
-      "canonical_key": "v1 attention",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdbb-457c-ba1f-63f8e4fc2a19&tab=output",
-      "exclusion_reasons": [],
-      "decision": "likely_duplicate",
-      "duplicate_of": "V1 attention (H100-MI300)",
-      "target_id": 103,
-      "proposal_matches": []
-    },
-    {
-      "label": "Arm CPU Test",
-      "canonical_key": "arm cpu test",
-      "state": "passed",
-      "queue": "arm-cpu",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cde3-4f10-8a0a-aea44aed7014&tab=output",
-      "exclusion_reasons": [
-        "cpu_or_non_gpu"
-      ],
-      "decision": "excluded"
-    },
-    {
       "label": "Ascend NPU Test",
       "canonical_key": "ascend npu test",
       "state": "soft_fail",
       "queue": "ascend",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fed56-7182-421e-a07e-25d83a7c0252&tab=output",
-      "exclusion_reasons": [
-        "cpu_or_non_gpu"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "Async Engine, Inputs, Utils, Worker, Config (CPU)",
-      "canonical_key": "async engine, inputs, utils, worker, config (cpu)",
-      "state": "passed",
-      "queue": "small_cpu_queue_premerge",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cef3-481f-b6b5-0e3228ee38b1&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-6012-417e-9f3e-c7c5a0f4e04f&tab=output",
       "exclusion_reasons": [
         "cpu_or_non_gpu"
       ],
@@ -3274,7 +250,7 @@
       "canonical_key": "basic models test (other cpu)",
       "state": "passed",
       "queue": "small_cpu_queue_premerge",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf08-434a-b09c-6f99937301f9&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-6094-438f-ac9e-968616b0932a&tab=output",
       "exclusion_reasons": [
         "cpu_or_non_gpu"
       ],
@@ -3285,7 +261,7 @@
       "canonical_key": "cpu-distributed test (dp+tp)",
       "state": "passed",
       "queue": "intel-cpu",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cde6-470e-9032-2af5b04f9d4b&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5fb8-49d3-b505-2c3754f972ca&tab=output",
       "exclusion_reasons": [
         "cpu_or_non_gpu"
       ],
@@ -3296,106 +272,7 @@
       "canonical_key": "cpu-distributed test (pp+tp)",
       "state": "passed",
       "queue": "intel-cpu",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdea-43e3-bf99-26161ae42720&tab=output",
-      "exclusion_reasons": [
-        "cpu_or_non_gpu"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "CPU-Kernel Tests",
-      "canonical_key": "cpu-kernel test",
-      "state": "passed",
-      "queue": "intel-cpu",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdea-4cee-9c33-f6baffb5c283&tab=output",
-      "exclusion_reasons": [
-        "cpu_or_non_gpu"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "CPU-Language Generation and Pooling Model Tests",
-      "canonical_key": "cpu-language generation and pooling model test",
-      "state": "passed",
-      "queue": "intel-cpu",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdeb-495d-8290-5e17f26489ef&tab=output",
-      "exclusion_reasons": [
-        "cpu_or_non_gpu"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "CPU-ModelRunnerV2 Tests",
-      "canonical_key": "cpu-modelrunnerv2 test",
-      "state": "passed",
-      "queue": "intel-cpu",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdeb-4f80-bae7-6fea90f8f3b4&tab=output",
-      "exclusion_reasons": [
-        "cpu_or_non_gpu"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "CPU-Multi-Modal Model Tests 1",
-      "canonical_key": "cpu-multi-modal model test 1",
-      "state": "passed",
-      "queue": "intel-cpu",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdeb-4cf3-92ce-671ffd5e7685&tab=output",
-      "exclusion_reasons": [
-        "cpu_or_non_gpu"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "CPU-Multi-Modal Model Tests 2",
-      "canonical_key": "cpu-multi-modal model test 2",
-      "state": "passed",
-      "queue": "intel-cpu",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdec-4ba5-9263-f3277ddfc448&tab=output",
-      "exclusion_reasons": [
-        "cpu_or_non_gpu"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "CPU-Multi-Modal Model Tests 3",
-      "canonical_key": "cpu-multi-modal model test 3",
-      "state": "passed",
-      "queue": "intel-cpu",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdec-4391-9f26-dad6b29deb34&tab=output",
-      "exclusion_reasons": [
-        "cpu_or_non_gpu"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "CPU-Multi-Modal Model Tests 4",
-      "canonical_key": "cpu-multi-modal model test 4",
-      "state": "passed",
-      "queue": "intel-cpu",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdec-43d0-a4f3-1e4611481b8e&tab=output",
-      "exclusion_reasons": [
-        "cpu_or_non_gpu"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "CPU-Quantization Model Tests",
-      "canonical_key": "cpu-quantization model test",
-      "state": "passed",
-      "queue": "intel-cpu",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cdec-437b-b8ee-152f2d462c2c&tab=output",
-      "exclusion_reasons": [
-        "cpu_or_non_gpu"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "CPU-Qwen2.5-VL Multimodal Tests",
-      "canonical_key": "cpu-qwen2.5-vl multimodal test",
-      "state": "passed",
-      "queue": "intel-cpu",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cded-4f70-bf36-d67df013f734&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5fbc-4a41-ac0d-7fb61c48c49b&tab=output",
       "exclusion_reasons": [
         "cpu_or_non_gpu"
       ],
@@ -3406,222 +283,10 @@
       "canonical_key": "docker build metadata",
       "state": "passed",
       "queue": "small_cpu_queue_premerge",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-ce24-490c-85c3-884ac580eda5&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-5ff0-4e57-b41e-cdcd59066c67&tab=output",
       "exclusion_reasons": [
         "cpu_or_non_gpu",
         "docker_metadata_review"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "GPQA Eval (GPT-OSS) (DGX Spark)",
-      "canonical_key": "gpqa eval (gpt-oss) (dgx spark)",
-      "state": "passed",
-      "queue": "dgx-spark",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cedc-4c4e-ac7f-3fb28b17ec90&tab=output",
-      "exclusion_reasons": [
-        "not_gpu_like"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "LM Eval Humming Act fp8/int8 (B200 - TEMPORARY)",
-      "canonical_key": "lm eval humming act fp8/int8 (b200 - temporary)",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cee0-4845-9e1c-8f1421901305&tab=output",
-      "exclusion_reasons": [
-        "temporary"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "LM Eval Humming Act fp8/int8 (H100 - TEMPORARY)",
-      "canonical_key": "lm eval humming act fp8/int8 (h100 - temporary)",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cee0-4fa5-9137-723e9fc0135b&tab=output",
-      "exclusion_reasons": [
-        "temporary"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "LM Eval Humming Act int8 (A100 - TEMPORARY)",
-      "canonical_key": "lm eval humming act int8 (a100 - temporary)",
-      "state": "passed",
-      "queue": "a100_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cee1-49a5-92f5-8c0611445c67&tab=output",
-      "exclusion_reasons": [
-        "temporary"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "LM Eval Humming f16 (A100 - TEMPORARY)",
-      "canonical_key": "lm eval humming f16 (a100 - temporary)",
-      "state": "passed",
-      "queue": "a100_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cee1-48a4-b786-6c9ebd6a0b14&tab=output",
-      "exclusion_reasons": [
-        "temporary"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "LM Eval Humming f16 (B200 - TEMPORARY)",
-      "canonical_key": "lm eval humming f16 (b200 - temporary)",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cee1-46da-a85d-60b611129780&tab=output",
-      "exclusion_reasons": [
-        "temporary"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "LM Eval Humming f16 (H100 - TEMPORARY)",
-      "canonical_key": "lm eval humming f16 (h100 - temporary)",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cee2-4147-81de-30dafc2d195b&tab=output",
-      "exclusion_reasons": [
-        "temporary"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "Model Runner V2 Core Tests",
-      "canonical_key": "model runner v2 core test",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf02-48c0-8ab9-07e2067286c4&tab=output",
-      "exclusion_reasons": [
-        "experimental_model_runner_v2"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "Model Runner V2 Distributed (2 GPUs)",
-      "canonical_key": "model runner v2 distributed (2 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf02-4454-8568-226a2a216a81&tab=output",
-      "exclusion_reasons": [
-        "experimental_model_runner_v2"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "Model Runner V2 Examples",
-      "canonical_key": "model runner v2 examples",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf02-4e4a-b189-70d152e7c773&tab=output",
-      "exclusion_reasons": [
-        "experimental_model_runner_v2"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "Model Runner V2 Pipeline Parallelism (4 GPUs)",
-      "canonical_key": "model runner v2 pipeline parallelism (4 gpus)",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf02-4984-af08-039ddf5dc425&tab=output",
-      "exclusion_reasons": [
-        "experimental_model_runner_v2"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "Model Runner V2 Spec Decode",
-      "canonical_key": "model runner v2 spec decode",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf03-4319-8ae3-17ea0c8b98a0&tab=output",
-      "exclusion_reasons": [
-        "experimental_model_runner_v2"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "MoE Refactor Integration Test (B200 - TEMPORARY)",
-      "canonical_key": "moe refactor integration test (b200 - temporary)",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cee7-4d5d-b5cf-58fdad65fee1&tab=output",
-      "exclusion_reasons": [
-        "temporary",
-        "moe_refactor_temporary"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "MoE Refactor Integration Test (B200 DP - TEMPORARY)",
-      "canonical_key": "moe refactor integration test (b200 dp - temporary)",
-      "state": "passed",
-      "queue": "b200-k8s",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cee7-4154-ac8e-4212d57da1a1&tab=output",
-      "exclusion_reasons": [
-        "temporary",
-        "moe_refactor_temporary"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "MoE Refactor Integration Test (H100 - TEMPORARY)",
-      "canonical_key": "moe refactor integration test (h100 - temporary)",
-      "state": "passed",
-      "queue": "mithril-h100-pool",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cee7-4efc-a6d4-e1154a670c3f&tab=output",
-      "exclusion_reasons": [
-        "temporary",
-        "moe_refactor_temporary"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "Multi-Modal Processor (CPU) 1",
-      "canonical_key": "multi-modal processor (cpu) 1",
-      "state": "passed",
-      "queue": "medium_cpu_queue_premerge",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf1e-4383-aaff-a069e9a83e3c&tab=output",
-      "exclusion_reasons": [
-        "cpu_or_non_gpu"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "Multi-Modal Processor (CPU) 2",
-      "canonical_key": "multi-modal processor (cpu) 2",
-      "state": "passed",
-      "queue": "medium_cpu_queue_premerge",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf21-4558-96ed-a5a328eb573d&tab=output",
-      "exclusion_reasons": [
-        "cpu_or_non_gpu"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "Multi-Modal Processor (CPU) 3",
-      "canonical_key": "multi-modal processor (cpu) 3",
-      "state": "passed",
-      "queue": "medium_cpu_queue_premerge",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf22-4483-8906-a4eda9154d2b&tab=output",
-      "exclusion_reasons": [
-        "cpu_or_non_gpu"
-      ],
-      "decision": "excluded"
-    },
-    {
-      "label": "Multi-Modal Processor (CPU) 4",
-      "canonical_key": "multi-modal processor (cpu) 4",
-      "state": "passed",
-      "queue": "medium_cpu_queue_premerge",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf22-4995-8fee-10e168995cfa&tab=output",
-      "exclusion_reasons": [
-        "cpu_or_non_gpu"
       ],
       "decision": "excluded"
     },
@@ -3630,7 +295,7 @@
       "canonical_key": "rust frontend cargo style + clippy",
       "state": "passed",
       "queue": "medium_cpu_queue_premerge",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf3d-46fe-ba43-7fc09c588156&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-60c4-4bc5-8793-0b0b4b10355f&tab=output",
       "exclusion_reasons": [
         "cpu_or_non_gpu",
         "rust_frontend_long_term"
@@ -3642,7 +307,7 @@
       "canonical_key": "rust frontend cargo test",
       "state": "passed",
       "queue": "medium_cpu_queue_premerge",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf3e-4219-befa-c4af7b30bd56&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-60c4-4ba1-a080-b333108bbcd2&tab=output",
       "exclusion_reasons": [
         "cpu_or_non_gpu",
         "rust_frontend_long_term"
@@ -3654,99 +319,128 @@
       "canonical_key": "rust frontend core correctness",
       "state": "passed",
       "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf42-401c-add1-53a112c69913&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/83298/steps/canvas?jid=019fef69-60c8-4755-866e-359e62952def&tab=output",
       "exclusion_reasons": [
         "rust_frontend_long_term"
       ],
       "decision": "excluded"
     },
     {
-      "label": "Rust Frontend Distributed",
-      "canonical_key": "rust frontend distributed",
-      "state": "passed",
-      "queue": "gpu_4_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf43-4437-83c8-91d0328be358&tab=output",
-      "exclusion_reasons": [
-        "rust_frontend_long_term"
-      ],
-      "decision": "excluded"
+      "decision": "missing_from_upstream",
+      "target_id": 1,
+      "label": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
+      "canonical_key": "distributed torchrun + shutdown test (2 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red"
     },
     {
-      "label": "Rust Frontend OpenAI Coverage",
-      "canonical_key": "rust frontend openai coverage",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf43-433b-839c-ac8b327323b7&tab=output",
-      "exclusion_reasons": [
-        "rust_frontend_long_term"
-      ],
-      "decision": "excluded"
+      "decision": "missing_from_upstream",
+      "target_id": 2,
+      "label": "Distributed Torchrun + Examples (4 GPUs)",
+      "canonical_key": "distributed torchrun + examples (4 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red"
     },
     {
-      "label": "Rust Frontend Serve/Admin Coverage",
-      "canonical_key": "rust frontend serve/admin coverage",
-      "state": "passed",
-      "queue": "h200_18gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf43-43a5-8986-83395866379a&tab=output",
-      "exclusion_reasons": [
-        "rust_frontend_long_term"
-      ],
-      "decision": "excluded"
+      "decision": "missing_from_upstream",
+      "target_id": 3,
+      "label": "Distributed Tests (4 GPUs)(A100)",
+      "canonical_key": "distributed test (4 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red"
     },
     {
-      "label": "Rust Frontend Tool Use",
-      "canonical_key": "rust frontend tool use",
-      "state": "passed",
-      "queue": "h200_35gb",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cf44-44b1-ab7b-5bca4cc14457&tab=output",
-      "exclusion_reasons": [
-        "rust_frontend_long_term"
-      ],
-      "decision": "excluded"
+      "decision": "missing_from_upstream",
+      "target_id": 4,
+      "label": "Pipeline + Context Parallelism (4 GPUs)",
+      "canonical_key": "pipeline + context parallelism (4 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red"
     },
     {
-      "label": "V1 Others (CPU)",
-      "canonical_key": "v1 others (cpu)",
-      "state": "passed",
-      "queue": "small_cpu_queue_premerge",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cef7-4c75-bf00-a0542de00704&tab=output",
-      "exclusion_reasons": [
-        "cpu_or_non_gpu"
-      ],
-      "decision": "excluded"
+      "decision": "missing_from_upstream",
+      "target_id": 5,
+      "label": "RayExecutorV2 (4 GPUs)",
+      "canonical_key": "rayexecutorv2 (4 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red"
     },
     {
-      "label": "XPU example Test",
-      "canonical_key": "xpu example test",
-      "state": "passed",
-      "queue": "intel-gpu",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cebf-417a-a109-b469c4fff036&tab=output",
-      "exclusion_reasons": [
-        "cpu_or_non_gpu"
-      ],
-      "decision": "excluded"
+      "decision": "missing_from_upstream",
+      "target_id": 6,
+      "label": "EPLB Execution",
+      "canonical_key": "eplb execution",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red"
     },
     {
-      "label": "XPU server test",
-      "canonical_key": "xpu server test",
-      "state": "passed",
-      "queue": "intel-gpu",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cec0-4685-97b5-008d2f9baf10&tab=output",
-      "exclusion_reasons": [
-        "cpu_or_non_gpu"
-      ],
-      "decision": "excluded"
+      "decision": "missing_from_upstream",
+      "target_id": 7,
+      "label": "Kernels Core Operation Test",
+      "canonical_key": "kernels core operation test",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red"
     },
     {
-      "label": "XPU V1 test",
-      "canonical_key": "xpu v1 test",
-      "state": "passed",
-      "queue": "intel-gpu",
-      "url": "https://buildkite.com/vllm/ci/builds/83094/steps/canvas?jid=019fea42-cebb-4438-9c13-e5ecf1a91ae3&tab=output",
-      "exclusion_reasons": [
-        "cpu_or_non_gpu"
-      ],
-      "decision": "excluded"
+      "decision": "missing_from_upstream",
+      "target_id": 8,
+      "label": "Kernels FP8 MoE Test (1 H100)",
+      "canonical_key": "kernels fp8 moe test (1 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 9,
+      "label": "LoRA TP (Distributed)",
+      "canonical_key": "lora tp (distributed)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 10,
+      "label": "Basic Models Tests (Initialization)",
+      "canonical_key": "basic models test (initialization)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 11,
+      "label": "Basic Models Tests (Other)",
+      "canonical_key": "basic models test (other)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 12,
+      "label": "Distributed Model Tests (2 GPUs)",
+      "canonical_key": "distributed model test (2 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 13,
+      "label": "Language Models Tests (Extra Standard) %N",
+      "canonical_key": "language models test (extra standard) %N",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red"
     },
     {
       "decision": "missing_from_upstream",
@@ -3759,6 +453,204 @@
     },
     {
       "decision": "missing_from_upstream",
+      "target_id": 15,
+      "label": "Entrypoints Integration (Speech to Text)",
+      "canonical_key": "entrypoints integration (speech to text)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "gray"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 16,
+      "label": "Entrypoints Integration (Pooling)",
+      "canonical_key": "entrypoints integration (pooling)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "gray"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 18,
+      "label": "Basic Correctness",
+      "canonical_key": "basic correctness",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 19,
+      "label": "DeepSeek V2-Lite Prefetch Offload Accuracy (H100)",
+      "canonical_key": "deepseek v2-lite prefetch offload accuracy",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 20,
+      "label": "e2e Core (1 GPU)",
+      "canonical_key": "e2e core (1 gpu)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 21,
+      "label": "Elastic EP Scaling Test",
+      "canonical_key": "elastic ep scaling test",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 22,
+      "label": "Kernels Attention Test %N",
+      "canonical_key": "kernels attention test %N",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 23,
+      "label": "Kernels MoE Test %N",
+      "canonical_key": "kernels moe test %N",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 24,
+      "label": "Kernels FP8 MoE Test (2 H100s)",
+      "canonical_key": "kernels fp8 moe test (2 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 25,
+      "label": "LoRA %N",
+      "canonical_key": "lora %N",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 26,
+      "label": "V1 Core + KV + Metrics",
+      "canonical_key": "v1 core + kv + metrics",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 27,
+      "label": "Basic Models Tests (Extra Initialization) %N",
+      "canonical_key": "basic models test (extra initialization) %N",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 28,
+      "label": "Multi-Modal Models (Standard) 4: other + whisper",
+      "canonical_key": "multi-modal models (standard) 4: other + whisper",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 29,
+      "label": "PyTorch Compilation Passes Unit Tests",
+      "canonical_key": "pytorch compilation passes unit test",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 30,
+      "label": "Quantization",
+      "canonical_key": "quantization",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 31,
+      "label": "Spec Decode Eagle",
+      "canonical_key": "spec decode eagle",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 32,
+      "label": "Hybrid SSM NixlConnector PD prefix cache test (2 GPUs)",
+      "canonical_key": "hybrid ssm nixlconnector pd prefix cache test (2 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 33,
+      "label": "MultiConnector (Nixl+Offloading) PD accuracy (2 GPUs)",
+      "canonical_key": "multiconnector (nixl+offloading) pd accuracy (2 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 34,
+      "label": "MultiConnector (Nixl+Offloading) PD edge cases (2 GPUs)",
+      "canonical_key": "multiconnector (nixl+offloading) pd edge cases (2 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 35,
+      "label": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy",
+      "canonical_key": "qwen3-30b-a3b-fp8 dp4 async eplb accuracy",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 36,
+      "label": "Deepseek V4 Kernel Test (H100)",
+      "canonical_key": "deepseek v4 kernel test",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 37,
+      "label": "Kernels Attention DiffKV Test (H100)",
+      "canonical_key": "kernels attention diffkv test",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
       "target_id": 38,
       "label": "Kernels KDA Test",
       "canonical_key": "kernels kda test",
@@ -3768,9 +660,306 @@
     },
     {
       "decision": "missing_from_upstream",
+      "target_id": 39,
+      "label": "Kernels FusedMoE Layer Test (2 H100s)",
+      "canonical_key": "kernels fusedmoe layer test (2 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 40,
+      "label": "LM Eval TurboQuant KV Cache",
+      "canonical_key": "lm eval turboquant kv cache",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 41,
+      "label": "MRCR Eval Small Models",
+      "canonical_key": "mrcr eval small models",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 42,
+      "label": "Extract Hidden States Integration (2 GPUs)",
+      "canonical_key": "extract hidden states integration (2 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 43,
+      "label": "GGUF Plugin",
+      "canonical_key": "gguf plugin",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 44,
+      "label": "Quantized Fusions",
+      "canonical_key": "quantized fusions",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 45,
+      "label": "2 Node Test (4 GPUs)",
+      "canonical_key": "2 node test (4 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "purple",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 46,
+      "label": "Benchmarks CLI Test",
+      "canonical_key": "benchmarks cli test",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 48,
+      "label": "Distributed Compile Unit Tests (2xH100)",
+      "canonical_key": "distributed compile unit test (2 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 49,
+      "label": "Fusion E2E Quick (H100)",
+      "canonical_key": "fusion e2e quick",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 50,
+      "label": "Fusion E2E Config Sweep (H100)",
+      "canonical_key": "fusion e2e config sweep",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 52,
+      "label": "Distributed Comm Ops",
+      "canonical_key": "distributed comm ops",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 53,
+      "label": "Distributed DP Tests (2 GPUs)",
+      "canonical_key": "distributed dp test (2 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 54,
+      "label": "Distributed Compile + RPC Tests (2 GPUs)",
+      "canonical_key": "distributed compile + rpc test (2 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 55,
+      "label": "Distributed DP Tests (4 GPUs)",
+      "canonical_key": "distributed dp test (4 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 56,
+      "label": "Distributed Compile + Comm (4 GPUs)",
+      "canonical_key": "distributed compile + comm (4 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 57,
+      "label": "Distributed Tests (8 GPUs)(H100)",
+      "canonical_key": "distributed test (8 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 58,
+      "label": "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100)",
+      "canonical_key": "deepseek v2-lite sync eplb accuracy (4 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 59,
+      "label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100)",
+      "canonical_key": "qwen3-30b-a3b-fp8-block sync eplb accuracy (4 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 60,
+      "label": "V1 e2e (2 GPUs)",
+      "canonical_key": "v1 e2e (2 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
       "target_id": 61,
       "label": "V1 e2e (4 GPUs)",
       "canonical_key": "v1 e2e (4 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 62,
+      "label": "V1 e2e (4xH100)",
+      "canonical_key": "v1 e2e (4 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 64,
+      "label": "LM Eval Large Models (4xH100)",
+      "canonical_key": "lm eval large models (4 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 65,
+      "label": "GPQA Eval (GPT-OSS) (2xH100)",
+      "canonical_key": "gpqa eval (gpt-oss) (2 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 66,
+      "label": "Regression",
+      "canonical_key": "regression",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 67,
+      "label": "Examples",
+      "canonical_key": "examples",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 68,
+      "label": "Metrics, Tracing (2 GPUs)",
+      "canonical_key": "metrics, tracing (2 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 69,
+      "label": "Async Engine, Inputs, Utils, Worker",
+      "canonical_key": "async engine, inputs, utils, worker",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 70,
+      "label": "Batch Invariance (A100)",
+      "canonical_key": "batch invariance",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 72,
+      "label": "Model Executor",
+      "canonical_key": "model executor",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 73,
+      "label": "Language Models Test (Extended Generation)",
+      "canonical_key": "language models test (extended generation)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 74,
+      "label": "Language Models Test (PPL)",
+      "canonical_key": "language models test (ppl)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 75,
+      "label": "Multi-Modal Accuracy Eval (Small Models)",
+      "canonical_key": "multi-modal accuracy eval (small models)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 76,
+      "label": "PyTorch Compilation Unit Tests",
+      "canonical_key": "pytorch compilation unit test",
       "source_signal": "red",
       "readiness_signal": "green",
       "target_signal": "green"
@@ -3786,9 +975,405 @@
     },
     {
       "decision": "missing_from_upstream",
+      "target_id": 78,
+      "label": "Pytorch Nightly Dependency Override Check",
+      "canonical_key": "pytorch nightly dependency override check",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 80,
+      "label": "Weight Loading Multiple GPU",
+      "canonical_key": "weight loading multiple gpu",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 81,
+      "label": "Cudagraph",
+      "canonical_key": "cudagraph",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 82,
+      "label": "Distributed NixlConnector PD accuracy (4 GPUs)",
+      "canonical_key": "distributed nixlconnector pd accuracy (4 gpus)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 83,
+      "label": "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
+      "canonical_key": "dp ep distributed nixlconnector pd accuracy test (4 gpus)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 84,
+      "label": "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
+      "canonical_key": "crosslayer kv layout distributed nixlconnector pd accuracy test (4 gpus)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 85,
+      "label": "Hybrid SSM NixlConnector PD accuracy tests (4 GPUs)",
+      "canonical_key": "hybrid ssm nixlconnector pd accuracy test (4 gpus)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 86,
+      "label": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
+      "canonical_key": "nixlconnector pd + spec decode acceptance (2 gpus)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 87,
+      "label": "Distributed Tests (2 GPUs)(H100)",
+      "canonical_key": "distributed test (2 gpus)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 89,
+      "label": "Entrypoints Integration (Responses API)",
+      "canonical_key": "entrypoints integration (responses api)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 90,
+      "label": "Entrypoints Integration (Multimodal)",
+      "canonical_key": "entrypoints integration (multimodal)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 91,
+      "label": "Kernels Mamba Test",
+      "canonical_key": "kernels mamba test",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 92,
+      "label": "Kernels Helion Test",
+      "canonical_key": "kernels helion test",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 93,
+      "label": "V1 Spec Decode",
+      "canonical_key": "v1 spec decode",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 94,
+      "label": "Python-only Installation",
+      "canonical_key": "python-only installation",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 95,
+      "label": "Language Models Tests (Standard)",
+      "canonical_key": "language models test (standard)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 96,
+      "label": "Language Models Test (MTEB)",
+      "canonical_key": "language models test (mteb)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 97,
+      "label": "Multi-Modal Processor",
+      "canonical_key": "multi-modal processor",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 98,
+      "label": "Multi-Modal Models (Extended Generation 2)",
+      "canonical_key": "multi-modal models (extended generation 2)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 99,
+      "label": "Multi-Modal Models (Extended Generation 3)",
+      "canonical_key": "multi-modal models (extended generation 3)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 100,
+      "label": "Plugin Tests (2 GPUs)",
+      "canonical_key": "plugin test (2 gpus)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 101,
+      "label": "Quantized Models Test",
+      "canonical_key": "quantized models test",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
       "target_id": 102,
       "label": "Speculators Correctness",
       "canonical_key": "speculators correctness",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 103,
+      "label": "V1 attention (H100-MI300)",
+      "canonical_key": "v1 attention",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 104,
+      "label": "Engine (1 GPU)",
+      "canonical_key": "engine (1 gpu)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 105,
+      "label": "e2e Scheduling (1 GPU)",
+      "canonical_key": "e2e scheduling (1 gpu)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 106,
+      "label": "Entrypoints Integration (LLM)",
+      "canonical_key": "entrypoints integration (llm)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 107,
+      "label": "Entrypoints Integration (API Server)",
+      "canonical_key": "entrypoints integration (api server)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 108,
+      "label": "Entrypoints Integration (API Server OpenAI - Part 1)",
+      "canonical_key": "entrypoints integration (api server openai - part 1)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 109,
+      "label": "Entrypoints Integration (API Server OpenAI - Part 2)",
+      "canonical_key": "entrypoints integration (api server openai - part 2)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 110,
+      "label": "Entrypoints Integration (API Server Generate)",
+      "canonical_key": "entrypoints integration (api server generate)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 112,
+      "label": "Kernels Quantization Test %N",
+      "canonical_key": "kernels quantization test %N",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 113,
+      "label": "LM Eval Small Models",
+      "canonical_key": "lm eval small models",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 114,
+      "label": "V1 Sample + Logits",
+      "canonical_key": "v1 sample + logits",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 115,
+      "label": "Language Models Tests (Hybrid) %N",
+      "canonical_key": "language models test (hybrid) %N",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 116,
+      "label": "Language Models Test (Extended Pooling)",
+      "canonical_key": "language models test (extended pooling)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 117,
+      "label": "Multi-Modal Models (Standard) 1: qwen2",
+      "canonical_key": "multi-modal models (standard) 1: qwen2",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 118,
+      "label": "Multi-Modal Models (Standard) 2: qwen3 + gemma",
+      "canonical_key": "multi-modal models (standard) 2: qwen3 + gemma",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 119,
+      "label": "Multi-Modal Models (Standard) 3: llava + qwen2_vl",
+      "canonical_key": "multi-modal models (standard) 3: llava + qwen2_vl",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 120,
+      "label": "Multi-Modal Models (Extended Generation 1)",
+      "canonical_key": "multi-modal models (extended generation 1)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 121,
+      "label": "Multi-Modal Models (Extended Pooling)",
+      "canonical_key": "multi-modal models (extended pooling)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 122,
+      "label": "Samplers Test",
+      "canonical_key": "samplers test",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 123,
+      "label": "Spec Decode Speculators + MTP",
+      "canonical_key": "spec decode speculators + mtp",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 124,
+      "label": "Spec Decode Ngram + Suffix",
+      "canonical_key": "spec decode ngram + suffix",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 125,
+      "label": "Spec Decode Draft Model",
+      "canonical_key": "spec decode draft model",
       "source_signal": "green",
       "readiness_signal": "green",
       "target_signal": "green"
