@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -22,6 +23,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from vllm.publication_surfaces import SOURCE_SURFACES, SURFACE_SPECS  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -58,9 +63,37 @@ OPERATIONS_SOURCE_MAX_AGE_OVERRIDES = {
     "project_items": 36,
     "ready_tickets": 36,
 }
+PUBLICATION_FALLBACK_MAX_AGE_HOURS = 36
 PUBLIC_FILE_WARN_BYTES = 90 * 1024 * 1024
 PUBLIC_FILE_HARD_BYTES = 100 * 1024 * 1024
 PUBLIC_SITE_WARN_BYTES = 250 * 1024 * 1024
+PUBLICATION_STATE_RELATIVE = Path("data/vllm/ci/publication_state.json")
+PUBLICATION_SURFACE_REQUIRED_KEYS = {
+    "data/vllm/ci/failure_trends.json": {
+        "generated_at",
+        "new_failures",
+        "recently_fixed",
+        "top_offenders",
+        "pass_rate_trend",
+        "mttf",
+        "degrading_modules",
+    },
+    "data/vllm/ci/flaky_tests.json": {
+        "generated_at",
+        "tests",
+        "total_flaky",
+        "window_builds",
+    },
+    "data/vllm/ci/hotness.json": {
+        "generated_at",
+        "window_hours",
+        "builds_examined",
+        "test_groups",
+        "branches",
+        "queues",
+    },
+    "data/vllm/releases.json": {"collected_at", "releases"},
+}
 
 
 def _mapping(value: Any) -> dict:
@@ -360,11 +393,14 @@ class Finding:
     code: str
     message: str
     path: str = ""
+    context: dict[str, Any] = field(default_factory=dict)
 
-    def as_dict(self) -> dict[str, str]:
+    def as_dict(self) -> dict[str, Any]:
         out = {"severity": self.severity, "code": self.code, "message": self.message}
         if self.path:
             out["path"] = self.path
+        if self.context:
+            out["context"] = self.context
         return out
 
 
@@ -426,18 +462,36 @@ def same_repo(ref_repo: str | None, default_repo: str) -> bool:
 
 
 class DashboardAudit:
-    def __init__(self, root: Path = ROOT):
+    def __init__(
+        self,
+        root: Path = ROOT,
+        *,
+        allow_publication_fallback: bool = True,
+        publication_state_path: Path | None = None,
+    ):
         self.root = root
         self.report = AuditReport()
         self._json_cache: dict[Path, Any] = {}
+        self.allow_publication_fallback = allow_publication_fallback
+        self.publication_state_path = (
+            publication_state_path
+            if publication_state_path is not None
+            else self.root / PUBLICATION_STATE_RELATIVE
+        )
+        self._fallback_surfaces_cache: frozenset[str] | None = None
 
     def run(self) -> AuditReport:
+        # Validate persisted fallback attestation even when no Operations source
+        # happens to be stale enough to consult it during source-age checks.
+        self.fallback_surfaces()
+        self.audit_publication_surface_files()
         self.audit_data_inventory()
         self.audit_publication_size()
         self.audit_operations_v2()
         self.audit_operations_bundle()
         self.audit_home_pr_issue_data()
         self.audit_ci_health()
+        self.audit_shard_bases()
         self.audit_gating_target_candidates()
         self.audit_analytics()
         self.audit_amd_matrix()
@@ -454,14 +508,272 @@ class DashboardAudit:
         except ValueError:
             return str(path)
 
-    def add(self, severity: str, code: str, message: str, path: str | Path = "") -> None:
-        self.report.findings.append(Finding(severity, code, message, str(path)))
+    def add(
+        self,
+        severity: str,
+        code: str,
+        message: str,
+        path: str | Path = "",
+        *,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        self.report.findings.append(
+            Finding(severity, code, message, str(path), context or {})
+        )
 
-    def error(self, code: str, message: str, path: str | Path = "") -> None:
-        self.add("error", code, message, path)
+    def error(
+        self,
+        code: str,
+        message: str,
+        path: str | Path = "",
+        *,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        self.add("error", code, message, path, context=context)
 
-    def warning(self, code: str, message: str, path: str | Path = "") -> None:
-        self.add("warning", code, message, path)
+    def warning(
+        self,
+        code: str,
+        message: str,
+        path: str | Path = "",
+        *,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        self.add("warning", code, message, path, context=context)
+
+    def fallback_surfaces(self) -> frozenset[str]:
+        if self._fallback_surfaces_cache is not None:
+            return self._fallback_surfaces_cache
+        if not self.allow_publication_fallback:
+            self._fallback_surfaces_cache = frozenset()
+            return self._fallback_surfaces_cache
+        path = self.publication_state_path
+        if not path.exists():
+            self._fallback_surfaces_cache = frozenset()
+            return self._fallback_surfaces_cache
+        try:
+            state = json.loads(path.read_text())
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            self.error(
+                "publication-state-invalid",
+                f"publication fallback state is unreadable: {exc}",
+                self.rel(path),
+            )
+            self._fallback_surfaces_cache = frozenset()
+            return self._fallback_surfaces_cache
+        surfaces = state.get("degraded_surfaces") if isinstance(state, dict) else None
+        allowed_surfaces = set(SURFACE_SPECS)
+        if (
+            not isinstance(state, dict)
+            or state.get("schema_version") != 1
+            or state.get("mode") not in {"current", "fallback", "blocked"}
+            or not isinstance(surfaces, list)
+            or any(not isinstance(surface, str) for surface in surfaces)
+            or any(
+                surface not in allowed_surfaces
+                for surface in surfaces
+            )
+            or len(set(surfaces)) != len(surfaces)
+            or not re.fullmatch(r"[0-9a-f]{40}", str(state.get("baseline_ref") or ""))
+            or _parse_timestamp(state.get("generated_at")) is None
+            or state.get("fallback_max_age_hours") != PUBLICATION_FALLBACK_MAX_AGE_HOURS
+        ):
+            self.error(
+                "publication-state-invalid",
+                "publication fallback state has an invalid schema or surface list",
+                self.rel(path),
+            )
+            self._fallback_surfaces_cache = frozenset()
+            return self._fallback_surfaces_cache
+        if state.get("mode") == "blocked":
+            self.error(
+                "publication-state-blocked",
+                "publication selector state is blocked",
+                self.rel(path),
+            )
+            self._fallback_surfaces_cache = frozenset()
+            return self._fallback_surfaces_cache
+        degraded_since = state.get("degraded_since")
+        manifest = state.get("restored_manifest")
+        if state.get("mode") == "current":
+            if surfaces or degraded_since not in ({}, None) or manifest not in ({}, None):
+                self.error(
+                    "publication-state-invalid",
+                    "current publication state cannot declare restored surfaces",
+                    self.rel(path),
+                )
+            self._fallback_surfaces_cache = frozenset()
+            return self._fallback_surfaces_cache
+        if (
+            not isinstance(degraded_since, dict)
+            or set(degraded_since) != set(surfaces)
+            or any(_parse_timestamp(value) is None for value in degraded_since.values())
+            or not isinstance(manifest, dict)
+            or set(manifest) != set(surfaces)
+        ):
+            self.error(
+                "publication-state-invalid",
+                "fallback state lacks a complete age or restored-content manifest",
+                self.rel(path),
+            )
+            self._fallback_surfaces_cache = frozenset()
+            return self._fallback_surfaces_cache
+
+        now = datetime.now(timezone.utc)
+        valid = True
+        for surface in surfaces:
+            since = _parse_timestamp(degraded_since[surface])
+            age_hours = (now - since).total_seconds() / 3600 if since else float("inf")
+            if age_hours > PUBLICATION_FALLBACK_MAX_AGE_HOURS:
+                self.error(
+                    "publication-fallback-expired",
+                    (
+                        f"{surface} has used last-known-good data for {age_hours:.1f}h; "
+                        f"the hard limit is {PUBLICATION_FALLBACK_MAX_AGE_HOURS}h"
+                    ),
+                    self.rel(path),
+                    context={"surface": surface},
+                )
+                valid = False
+            entries = manifest.get(surface)
+            if not isinstance(entries, dict):
+                valid = False
+                continue
+            spec = SURFACE_SPECS[surface]
+            actual_paths = {
+                relative
+                for relative in (*spec.required_paths, *spec.optional_paths)
+                if (self.root / relative).is_file()
+            }
+            actual_paths.update(
+                candidate.relative_to(self.root).as_posix()
+                for pattern in spec.globs
+                for candidate in self.root.glob(pattern)
+                if candidate.is_file()
+            )
+            if set(entries) != actual_paths:
+                self.error(
+                    "publication-fallback-manifest-mismatch",
+                    f"{surface} restored path set no longer matches publication state",
+                    self.rel(path),
+                    context={"surface": surface},
+                )
+                valid = False
+                continue
+            for relative, descriptor in entries.items():
+                target = self.root / relative
+                expected_size = descriptor.get("bytes") if isinstance(descriptor, dict) else None
+                expected_sha = descriptor.get("sha256") if isinstance(descriptor, dict) else None
+                if (
+                    not isinstance(expected_size, int)
+                    or not re.fullmatch(r"[0-9a-f]{64}", str(expected_sha or ""))
+                    or target.stat().st_size != expected_size
+                    or hashlib.sha256(target.read_bytes()).hexdigest() != expected_sha
+                ):
+                    self.error(
+                        "publication-fallback-manifest-mismatch",
+                        f"{surface} restored content changed at {relative}",
+                        self.rel(path),
+                        context={"surface": surface, "path": relative},
+                    )
+                    valid = False
+        self._fallback_surfaces_cache = (
+            frozenset(surfaces) if valid else frozenset()
+        )
+        return self._fallback_surfaces_cache
+
+    def audit_publication_surface_files(self) -> None:
+        """Parse every atomic source input before it can be selected as current."""
+        inspected: set[str] = set()
+        for spec in SURFACE_SPECS.values():
+            paths: list[tuple[str, bool]] = [
+                *((relative, True) for relative in spec.required_paths),
+                *((relative, False) for relative in spec.optional_paths),
+            ]
+            paths.extend(
+                (candidate.relative_to(self.root).as_posix(), False)
+                for pattern in spec.globs
+                for candidate in self.root.glob(pattern)
+                if candidate.is_file()
+            )
+            for relative, required in paths:
+                if relative in inspected:
+                    continue
+                inspected.add(relative)
+                path = self.root / relative
+                if not path.is_file():
+                    if required:
+                        self.error(
+                            "publication-source-missing",
+                            f"atomic publication source {relative} is missing",
+                            relative,
+                        )
+                    continue
+                if relative.endswith(".json"):
+                    payload = self.load_json(relative, None)
+                    if payload is None:
+                        continue
+                    required_keys = PUBLICATION_SURFACE_REQUIRED_KEYS.get(relative)
+                    if relative == "data/vllm/ci/shard_bases.json" and (
+                        not isinstance(payload, list)
+                        or not payload
+                        or any(
+                            not isinstance(base, str) or not base.strip()
+                            for base in payload
+                        )
+                    ):
+                        self.error(
+                            "publication-source-shape",
+                            "shard_bases.json must be a non-empty list of labels",
+                            relative,
+                        )
+                    if required_keys:
+                        if not isinstance(payload, dict):
+                            self.error(
+                                "publication-source-shape",
+                                f"{relative} must be a JSON object",
+                                relative,
+                            )
+                        elif missing := required_keys - set(payload):
+                            self.error(
+                                "publication-source-shape",
+                                f"{relative} is missing required keys {sorted(missing)}",
+                                relative,
+                            )
+                elif relative.endswith(".jsonl"):
+                    self.load_jsonl(relative)
+
+    def audit_shard_bases(self) -> None:
+        """Keep YAML-derived shard normalization aligned with current AMD evidence."""
+        relpath = "data/vllm/ci/shard_bases.json"
+        bases = self.load_json(relpath, [])
+        latest = self.latest_result_file("amd")
+        if not isinstance(bases, list) or not bases or latest is None:
+            return
+        from vllm.ci import analyzer
+
+        previous = list(analyzer._SHARD_BASES)
+        try:
+            analyzer.set_shard_bases(bases)
+            normalized = set()
+            for row in self.load_jsonl(self.rel(latest)):
+                normalized.add(analyzer._normalize_job_name(str(row.get("job_name") or "")))
+        finally:
+            analyzer.set_shard_bases(previous)
+        unused = sorted(
+            str(base).casefold()
+            for base in bases
+            if not any(name.startswith(str(base).casefold()) for name in normalized)
+        )
+        if unused:
+            self.error(
+                "shard-bases-unused",
+                (
+                    f"{len(unused)} shard bases are absent from the latest AMD test "
+                    f"evidence: {unused}"
+                ),
+                relpath,
+            )
 
     def load_json(self, relpath: str, default: Any = None) -> Any:
         path = self.root / relpath
@@ -697,6 +1009,7 @@ class DashboardAudit:
                         "operations-source-timestamp",
                         f"operations source {source_name} has no valid timestamp",
                         relpath,
+                        context={"source": source_name},
                     )
                     continue
                 if source.get("timestamp_source") in {
@@ -713,6 +1026,7 @@ class DashboardAudit:
                             "a payload observation timestamp is required"
                         ),
                         relpath,
+                        context={"source": source_name},
                     )
                 age_hours = (generated_at - source_at).total_seconds() / 3600
                 source_ages[source_name] = round(age_hours, 2)
@@ -724,19 +1038,38 @@ class DashboardAudit:
                             "than the snapshot that embeds it"
                         ),
                         relpath,
+                        context={"source": source_name},
                     )
                 max_age_hours = OPERATIONS_SOURCE_MAX_AGE_OVERRIDES.get(
                     source_name, OPERATIONS_SOURCE_MAX_AGE_HOURS
                 )
                 if age_hours >= -1 and age_hours > max_age_hours:
-                    self.error(
-                        "operations-stale-source",
-                        (
-                            f"operations source {source_name} is {age_hours:.1f}h older "
-                            f"than the snapshot; maximum is {max_age_hours}h"
-                        ),
-                        relpath,
-                    )
+                    source_surface = SOURCE_SURFACES.get(source_name)
+                    context = {"source": source_name}
+                    if (
+                        source_surface in self.fallback_surfaces()
+                        and age_hours <= PUBLICATION_FALLBACK_MAX_AGE_HOURS
+                    ):
+                        self.warning(
+                            "operations-stale-source-fallback",
+                            (
+                                f"operations source {source_name} is {age_hours:.1f}h older "
+                                "than the snapshot because its source surface is using "
+                                "last-known-good data"
+                            ),
+                            relpath,
+                            context=context,
+                        )
+                    else:
+                        self.error(
+                            "operations-stale-source",
+                            (
+                                f"operations source {source_name} is {age_hours:.1f}h older "
+                                f"than the snapshot; maximum is {max_age_hours}h"
+                            ),
+                            relpath,
+                            context=context,
+                        )
 
         amd_test_health = _mapping(payload.get("amd_test_health"))
         amd_health_summary = _mapping(amd_test_health.get("summary"))

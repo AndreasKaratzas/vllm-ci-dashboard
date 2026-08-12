@@ -20,6 +20,7 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 | `ensure_ci_operations_labels.py` | Ensures managed and workstream labels exist before issue watchers run | Every canonical collection |
 | `sync_ci_operations_project.py` | Adds open managed dashboard issues to the linked AMD CI Operations Project, split by workstream labels | Hourly after issue reconciliation |
 | `audit_dashboard_data.py` | Cross-checks generated data, frontend assumptions, and deploy workflow ordering before publishing | Hourly via `hourly-master.yml` + local debugging |
+| `select_publication_surfaces.py` | Validates collected source transactions, restores only failed surfaces from the captured main baseline, then rebuilds and re-audits the combined snapshot | Every canonical `hourly-master.yml` run before tests |
 | `config_parity.py` | Compares AMD vs NVIDIA CI config (commands, test lists) | Part of `collect_ci.py` |
 | `pipelines.py` | Pipeline definitions (slug, name patterns, build filters) | Imported by other scripts |
 
@@ -86,6 +87,23 @@ raw operational inputs    --> build_operations_snapshot.py
                            --> docs/assets/js/ops-v2.js
 audit_dashboard_data.py   --> validates data/ + docs/assets/js + workflows
 ```
+
+## Bounded last-known-good publication
+
+The hourly workflow treats CI, queue, lifecycle, agent-health, GitHub-home,
+Ready Tickets, perf-eval, and test-build inputs as separate atomic publication
+surfaces. A collector failure or a routed audit error rejects that surface's
+entire candidate transaction. The selector restores the whole surface from the
+main commit captured before collection, rebuilds the derived Operations data,
+and runs the complete audit again. Unknown findings, code or workflow defects,
+an invalid baseline, and any post-restore error remain hard deployment stops.
+
+Fallback state is committed privately in
+`data/vllm/ci/publication_state.json`; the public manifest excludes it. The
+state binds restored paths to their byte size and SHA-256, retains the first
+degraded timestamp across runs, and expires after 36 hours. A degraded
+publication keeps its fingerprinted CI incident open even when pytest passes,
+while repeated runs of the same incident do not post duplicate comments.
 
 Ready Tickets and its CI ownership subview are guarded by a freshly verified
 GitHub PAT in the browser, and their renderers do not fetch protected-view data

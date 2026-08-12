@@ -63,6 +63,7 @@ AREA_PATTERNS = [
 ]
 
 MULTISPACE_RE = re.compile(r"\s+")
+SHARD_TEMPLATE_RE = re.compile(r"\s*%n\s*$", re.I)
 HW_ARCH_RE = re.compile(r"mi\d{3}", re.I)
 TRAILING_PARENS_RE = re.compile(r"\s*\(([^)]*)\)\s*$")
 SIMPLE_HARDWARE_PAYLOAD_RE = re.compile(r"[a-z0-9-]+", re.I)
@@ -94,10 +95,13 @@ def clean_label(label: str) -> str:
     return MULTISPACE_RE.sub(" ", text).strip()
 
 
+def _without_shard_template(label: str) -> str:
+    """Remove Buildkite's trailing ``%N`` parallelism marker."""
+    return SHARD_TEMPLATE_RE.sub("", clean_label(label)).strip()
+
+
 def link_label(label: str) -> str:
-    text = clean_label(label)
-    text = re.sub(r"\s*%N\s*$", "", text)
-    return MULTISPACE_RE.sub(" ", text).strip()
+    return _without_shard_template(label)
 
 
 def canonical_title(label: str) -> str:
@@ -637,8 +641,14 @@ def _normalize_job_name(name: str) -> str:
 
 
 def strip_shard_index(name: str, shard_bases: list[str]) -> str:
-    lower = _normalize_job_name(name)
-    for base in shard_bases:
+    # Buildkite normally expands ``%N`` to a numeric suffix, but its build
+    # detail API can also return the literal template marker. Normalize both
+    # representations through the same path used for YAML labels.
+    lower = _without_shard_template(_normalize_job_name(name)).casefold()
+    for raw_base in shard_bases:
+        base = _without_shard_template(_normalize_job_name(raw_base)).casefold()
+        if not base:
+            continue
         if lower.startswith(base) and lower != base:
             rest = lower[len(base):]
             if re.fullmatch(r"\s+\d+\s*", rest):

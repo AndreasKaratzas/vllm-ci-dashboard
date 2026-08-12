@@ -157,11 +157,11 @@ timestamps are present, and publishes exact observed rolling two-hour counts
 plus UTC hour buckets in `queue_lifecycle.json`. The supported organization
 Builds REST endpoint does not filter job event timestamps directly. The
 collector unions builds finished inside the source window, builds created
-inside it, and every active build state, then filters jobs by the twelve direct
-cluster-queue UUIDs. Every retained value is therefore an exact direct job
-observation, while the aggregate separately declares residual population
-limits such as page-number drift and terminal builds whose soft-failed jobs
-finish substantially later.
+inside it, and active-state builds created inside the bounded parent-build
+horizon, then filters jobs by the twelve direct cluster-queue UUIDs. Every
+retained value is therefore an exact direct job observation, while the
+aggregate separately declares residual population limits such as page-number
+drift and jobs attached to parent builds created before that horizon.
 
 The reconciled, deduplicated seven-day job-observation ledger lives only on the
 `queue-lifecycle-data` branch as daily files under `queue_lifecycle_jobs/`; it

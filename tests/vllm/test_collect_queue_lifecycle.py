@@ -150,11 +150,15 @@ def test_rest_org_cohort_union_is_paginated_deduplicated_and_documented():
 
     def fetch(path, token, params):
         calls.append((path, token, dict(params)))
-        if "created_from" in params and params["page"] == 1:
-            return [target_build, *empty_builds]
-        if "created_from" in params and params["page"] == 2:
+        if "state[]" in params:
             return [target_build]
-        return [target_build]
+        if "finished_from" in params:
+            return [target_build]
+        if params["page"] == 1:
+            return [target_build, *empty_builds]
+        if params["page"] == 2:
+            return [target_build]
+        raise AssertionError(f"unexpected cohort request: {params}")
 
     jobs, coverage = lifecycle.fetch_rest_lifecycle_jobs(
         "secret",
@@ -181,6 +185,8 @@ def test_rest_org_cohort_union_is_paginated_deduplicated_and_documented():
         "blocked",
         "canceling",
     ]
+    assert active["created_from"] == "2026-08-01T20:00:00Z"
+    assert active["created_to"] == "2026-08-11T20:00:00Z"
     finished = next(params for _, _, params in calls if "finished_from" in params)
     assert "finished_to" not in finished
     assert list(coverage["cohorts"])[-1] == "finished"
@@ -198,6 +204,36 @@ def test_rest_org_cohort_pagination_cap_fails_closed():
             max_pages=2,
             page_fetcher=lambda path, token, params: full_page,
         )
+
+
+def test_rest_active_cohort_is_time_bounded_and_fails_closed_at_cap():
+    calls = []
+    full_page = [{"jobs": []} for _ in range(lifecycle.REST_PAGE_SIZE)]
+
+    def fetch(path, token, params):
+        calls.append(dict(params))
+        if "state[]" in params:
+            return full_page
+        return []
+
+    with pytest.raises(RuntimeError, match="active reached the pagination safety cap"):
+        lifecycle.fetch_rest_lifecycle_jobs(
+            "secret",
+            query_start=NOW - timedelta(days=10),
+            query_end=NOW,
+            queue_by_id=_queue_by_id(),
+            max_pages=2,
+            page_fetcher=fetch,
+        )
+
+    active_calls = [params for params in calls if "state[]" in params]
+    assert len(active_calls) == 2
+    assert [params["page"] for params in active_calls] == [1, 2]
+    assert all(
+        params["created_from"] == "2026-08-01T20:00:00Z"
+        and params["created_to"] == "2026-08-11T20:00:00Z"
+        for params in active_calls
+    )
 
 
 def test_rest_projection_requires_direct_target_queue_id_and_rejects_conflict():

@@ -245,11 +245,11 @@ class TestHourlyMasterWorkflow:
 
         sync_index = names.index("Sync CI data from gh-pages")
         collect_index = names.index("Collect vLLM/Omni AMD workload mappings")
-        first_build = names.index("Build v2 operations snapshot")
+        selector = names.index("Select validated publication surfaces")
         second_build = names.index(
-            "Rebuild v2 operations snapshot with CI ownership"
+            "Rebuild v2 operations snapshot with selected issue state"
         )
-        assert sync_index < collect_index < first_build < second_build
+        assert sync_index < collect_index < selector < second_build
 
         sync_run = steps[sync_index].get("run", "")
         assert "workload_mapping.json" in sync_run
@@ -258,10 +258,9 @@ class TestHourlyMasterWorkflow:
         assert '"$REMOTE_SCHEMA" -gt "$LOCAL_SCHEMA"' in sync_run
         assert '"$REMOTE_GENERATED" > "$LOCAL_GENERATED"' in sync_run
         collect = steps[collect_index]
-        assert collect["run"] == (
-            "python scripts/vllm/collect_workload_mapping.py "
-            "--output data/vllm/ci/workload_mapping.json"
-        )
+        assert 'run_surface_collector queue "AMD workload mappings"' in collect["run"]
+        assert "python scripts/vllm/collect_workload_mapping.py" in collect["run"]
+        assert "--output data/vllm/ci/workload_mapping.json" in collect["run"]
         assert collect.get("env", {}).get("BUILDKITE_TOKEN") == (
             "${{ secrets.BUILDKITE_TOKEN }}"
         )
@@ -300,9 +299,12 @@ class TestHourlyMasterWorkflow:
         candidates = names.index("Collect AMD gating target candidate audit")
 
         assert sync < collect < candidates
-        assert steps[collect]["run"] == (
-            "python scripts/vllm/collect_gating_targets.py --output data/vllm/ci/"
+        assert 'run_surface_collector ci "AMD gating target list"' in (
+            steps[collect]["run"]
         )
+        assert "python scripts/vllm/collect_gating_targets.py" in steps[collect][
+            "run"
+        ]
 
     def test_calls_collect_gating_target_candidates(self):
         text = _load_workflow_text("hourly-master.yml")
@@ -359,6 +361,93 @@ class TestHourlyMasterWorkflow:
         # including config_parity inside collect_ci.
         assert "VLLM_CONFIG_SHA" not in (collect_ci.get("env") or {})
 
+    def test_publication_baseline_is_captured_before_collection(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        names = [step.get("name") for step in steps]
+        install = names.index("Install dependencies")
+        baseline = names.index("Capture immutable main baseline")
+        resolve = names.index("Resolve immutable vLLM config snapshot")
+
+        assert install < baseline < resolve
+        assert steps[baseline].get("id") == "publication-baseline"
+        script = steps[baseline]["run"]
+        assert "git rev-parse --verify 'HEAD^{commit}'" in script
+        assert "^[0-9a-f]{40}$" in script
+        assert "git diff --quiet" in script
+        assert "python scripts/vllm/audit_dashboard_data.py" not in script
+        assert "PUBLICATION_BASELINE_REF=$BASELINE_REF" in script
+        assert "PUBLICATION_FAILED_SURFACES_FILE=$FAILED_SURFACES_FILE" in script
+        assert 'FAILED_SURFACES_FILE="$RUNNER_TEMP/' in script
+
+    def test_external_collectors_force_atomic_surface_selection(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        names = [step.get("name") for step in steps]
+        baseline = steps[names.index("Capture immutable main baseline")]
+        selector = steps[names.index("Select validated publication surfaces")]
+
+        helper = baseline["run"]
+        assert "run_surface_collector()" in helper
+        assert 'record_surface_failure "$surface" "$label" "$status"' in helper
+        assert 'sort -u -o "$PUBLICATION_FAILED_SURFACES_FILE"' in helper
+        for name, surface in (
+            ("Sync queue data from durable live branch", "queue"),
+            ("Sync issue automation state from gh-pages", "queue"),
+            ("Normalize and prune queue history", "queue"),
+            ("Collect queue snapshot", "queue"),
+            ("Sync CI data from gh-pages", "ci"),
+            ("Collect CI data", "ci"),
+            ("Collect AMD agent health (all builds, all branches)", "agent_health"),
+            ("Sync perf-eval data from gh-pages", "perf_eval"),
+            ("Ingest perf-eval artifacts from Buildkite", "perf_eval"),
+            ("Sync test-build registry from gh-pages", "test_builds"),
+            ("Refresh test-build results and nightly comparisons", "test_builds"),
+            ("Collect GitHub data", "github_home"),
+        ):
+            assert f"run_surface_collector {surface}" in steps[names.index(name)]["run"]
+
+        selector_run = selector["run"]
+        assert selector.get("id") == "publication-selector"
+        assert "--baseline-ref \"$PUBLICATION_BASELINE_REF\"" in selector_run
+        assert "--force-degraded-surfaces \"$FORCED_SURFACES\"" in selector_run
+        assert 'sort -u "$PUBLICATION_FAILED_SURFACES_FILE"' in selector_run
+        assert selector.get("continue-on-error") is not True
+        assert "run_surface_collector ci" in steps[
+            names.index("Collect AMD gating target list")
+        ]["run"]
+        assert "Build v2 operations snapshot" not in names
+        assert "run_surface_collector queue" in steps[
+            names.index("Normalize and prune queue history")
+        ]["run"]
+
+    def test_selection_precedes_side_effects_render_and_tests(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        names = [step.get("name") for step in steps]
+        selector = names.index("Select validated publication surfaces")
+        watcher_surfaces = (
+            ("Watch queue latency (open/close issues)", "queue"),
+            ("Watch zombie queue jobs (open/close issues)", "queue"),
+            ("Watch Omni workload surge (open/close issues)", "queue"),
+            ("Watch AMD main test-group failures (open/close issue)", "ci"),
+            ("Watch upstream CI main test-group failures (open/close issue)", "ci"),
+            ("Watch AMD main duration regressions (open/close issue)", "ci"),
+            ("Watch AMD CI agent health (open/close issue)", "agent_health"),
+            ("Watch AMD CI test-area regressions (ranked owners)", "ci"),
+        )
+        for name, surface in watcher_surfaces:
+            watcher = steps[names.index(name)]
+            assert names.index(name) > selector
+            condition = watcher.get("if", "")
+            assert "publication-selector.outcome == 'success'" in condition
+            assert "degraded_surfaces" in condition
+            assert f",{surface}," in condition
+        assert selector < names.index("Render dashboards after publication selection")
+        assert names.index("Render dashboards after publication selection") < names.index(
+            "Run test suite"
+        )
+
     def test_github_freshness_watches_ready_ticket_snapshots(self):
         text = _load_workflow_text("hourly-master.yml")
         assert "data/vllm/ci/ready_tickets.json" in text
@@ -391,6 +480,8 @@ class TestHourlyMasterWorkflow:
         assert "success()" in condition
         assert "steps.run-tests.outcome == 'success'" in condition
         assert "steps.run-tests.outputs.exit_code == '0'" in condition
+        assert "steps.publication-selector.outcome == 'success'" in condition
+        assert "steps.publication-selector.outputs.degraded == 'false'" in condition
         assert "always()" not in condition
 
     def test_failure_issues_use_exact_fingerprints_and_migrate_legacy_issues(self):
@@ -400,16 +491,27 @@ class TestHourlyMasterWorkflow:
             step for step in steps if step.get("name") == "Create issue on test failure"
         )
         script = create["with"]["script"]
+        condition = create.get("if", "")
 
+        assert "steps.publication-selector.outcome == 'failure'" in condition
+        assert "steps.publication-selector.outputs.degraded == 'true'" in condition
         assert "createHash('sha256')" in script
         assert "Hourly CI failure [${fingerprint.slice(0, 8)}]" in script
         assert "<!-- ci-failure-owner:hourly-master -->" in script
         assert "<!-- hourly-ci-fingerprint:${fingerprint} -->" in script
         assert "normalizedFailures" in script
+        assert "normalizedDiagnostics" in script
+        assert "publicationState.candidate_errors" in script
+        assert "publicationState.final_errors" in script
+        assert "publicationDiagnostics" in script
+        assert "hourly-ci-v2\\n${fingerprintSource}" in script
+        assert ".replace(/\\b\\d+(?:\\.\\d+)?\\b/g, '<number>')" in script
         assert "github.paginate(github.rest.issues.listForRepo" in script
         assert "labels: 'ci-failure', state: 'all'" in script
         assert "allIssues.find" in script
-        assert "issue_number: existing.number, body: migratedBody, state: 'open'" in script
+        assert "legacyFingerprintMarker" in script
+        assert "const existing = exact || previousVersion || legacy" in script
+        assert "migratedBody.replace(fingerprintPattern, fingerprintMarker)" in script
         assert "issueBody.includes(ownershipMarker)" in script
         assert "issueBody.includes(fingerprintMarker)" in script
         assert "*Auto-created by hourly-master workflow.*" in script
@@ -417,6 +519,25 @@ class TestHourlyMasterWorkflow:
         assert "resetBody.replace(recoveryPattern, recoveryMarker)" in script
         assert "migratedBody.replace(recoveryPattern, recoveryMarker)" in script
         assert "existing.data[0]" not in script
+
+    def test_unchanged_hourly_failure_suppresses_duplicate_notification(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        create = next(
+            step for step in steps if step.get("name") == "Create issue on test failure"
+        )
+        script = create["with"]["script"]
+
+        transition = "const incidentTransition = existing.state === 'open' ? 'unchanged' : 'reopened'"
+        assert transition in script
+        assert "if (incidentTransition === 'reopened')" in script
+        assert "duplicate notification suppressed" in script
+        # The only comment in the failure handler must be guarded by the reopen
+        # transition. A new fingerprint takes the separate issue-creation path.
+        comment = "await github.rest.issues.createComment({"
+        assert script.count(comment) == 1
+        assert script.index("if (incidentTransition === 'reopened')") < script.index(comment)
+        assert script.index(comment) < script.index("duplicate notification suppressed")
 
     def test_hourly_issue_closure_is_owned_and_requires_two_green_runs(self):
         data = _load_workflow("hourly-master.yml")
@@ -441,6 +562,17 @@ class TestHourlyMasterWorkflow:
         script = publish.get("run", "")
         assert "for attempt in 1 2 3" in script
         assert "git pull --rebase origin main" in script
+        pull = script.index("git pull --rebase origin main")
+        rebuild = script.index("python scripts/vllm/build_operations_snapshot.py", pull)
+        render = script.index("python scripts/render.py", rebuild)
+        audit = script.index("python scripts/vllm/audit_dashboard_data.py", render)
+        amend = script.index("git commit --amend --no-edit", audit)
+        push = script.index("git push origin HEAD:main", amend)
+        assert pull < rebuild < render < audit < amend < push
+        assert "data/site/projects.json" in script
+        assert "data/vllm/ci/operations_v2_manifest.json" in script
+        assert "data/vllm/ci/operations_v2/" in script
+        assert "data/vllm/ci/queue_history_chart.json" in script
         assert "git push origin HEAD:main" in script
         assert "refusing to deploy unpublished output" in script
         assert "Failed to publish collected dashboard data" in script
@@ -786,7 +918,7 @@ class TestDeployDataFreshness:
             "+refs/heads/queue-lifecycle-data:refs/remotes/origin/queue-lifecycle-data"
             in lifecycle_run
         )
-        assert "retaining last validated main copy" in lifecycle_run
+        assert 'record_surface_failure queue_lifecycle' in lifecycle_run
 
     def test_lifecycle_collection_is_not_a_queue_or_pages_dependency(self):
         queue_text = _load_workflow_text("queue-monitor.yml")
@@ -1217,7 +1349,9 @@ class TestAlertAutomationWorkflow:
 
         persist = names.index("Persist managed alert issue state")
         assert persist > max(amd_watch, ci_watch, duration_watch, agent_watch)
-        assert steps[persist].get("if") == "always()"
+        assert steps[persist].get("if") == (
+            "steps.publication-selector.outcome == 'success'"
+        )
         persist_run = steps[persist].get("run", "")
         for state_file in (
             "open_amd_main_failure_issues.json",
@@ -1243,11 +1377,13 @@ class TestAlertAutomationWorkflow:
         first_issue_watcher = names.index("Watch queue latency (open/close issues)")
         matrix = names.index("Collect AMD test matrix")
         ownership_parity = names.index("Collect build-pinned CI ownership parity")
-        first_build = names.index("Build v2 operations snapshot")
+        selector = names.index("Select validated publication surfaces")
         watcher = names.index("Watch AMD CI test-area regressions (ranked owners)")
         project_sync = names.index("Sync managed issues to AMD CI Operations project")
         persist = names.index("Persist CI ownership issue state")
-        second_build = names.index("Rebuild v2 operations snapshot with CI ownership")
+        second_build = names.index(
+            "Rebuild v2 operations snapshot with selected issue state"
+        )
 
         assert (
             ensure_labels
@@ -1255,7 +1391,8 @@ class TestAlertAutomationWorkflow:
             and
             matrix
             < ownership_parity
-            < first_build
+            < selector
+            < ensure_labels
             < watcher
             < project_sync
             < persist
@@ -1267,9 +1404,11 @@ class TestAlertAutomationWorkflow:
         assert {"GITHUB_TOKEN", "GITHUB_REPOSITORY"} <= set(
             steps[ensure_labels].get("env") or {}
         )
-        assert steps[ownership_parity]["run"] == (
-            "python scripts/vllm/collect_ownership_parity.py "
-            "--input-dir data/vllm/ci --output data/vllm/ci"
+        assert 'run_surface_collector ci "CI ownership parity"' in (
+            steps[ownership_parity]["run"]
+        )
+        assert "python scripts/vllm/collect_ownership_parity.py" in (
+            steps[ownership_parity]["run"]
         )
         assert "GITHUB_TOKEN" in (steps[ownership_parity].get("env") or {})
         assert steps[watcher]["run"] == "python scripts/vllm/ci_area_regression_watcher.py"
@@ -1281,7 +1420,10 @@ class TestAlertAutomationWorkflow:
         assert "CI_OWNER_AVAILABILITY_JSON" not in (
             steps[watcher].get("env") or {}
         )
-        assert steps[persist].get("if") == "always()"
+        assert "publication-selector.outcome == 'success'" in steps[persist].get(
+            "if", ""
+        )
+        assert ",ci," in steps[persist].get("if", "")
         assert "open_ci_area_regression_issues.json" in steps[persist]["run"]
         assert "if ! git push origin HEAD:main; then" in steps[persist]["run"]
         assert "deferring it to the final data commit" in steps[persist]["run"]

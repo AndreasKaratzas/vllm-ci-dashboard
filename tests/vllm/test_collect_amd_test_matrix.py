@@ -187,12 +187,65 @@ def test_canonical_title_strips_hardware_suffix_only():
     assert canonical_title("Distributed Tests (2 GPUs)") == "Distributed Tests (2 GPUs)"
 
 
-def test_strip_shard_index_only_for_known_bases():
+def test_strip_shard_index_unifies_template_and_numeric_runtime_labels():
     shard_bases = ["kernels moe test"]
+    assert strip_shard_index("Kernels MoE Test %N", shard_bases) == "kernels moe test"
     assert strip_shard_index("Kernels MoE Test 2", shard_bases) == "kernels moe test"
     assert strip_shard_index("Entrypoints Integration (API Server 2)", shard_bases) == (
         "entrypoints integration (api server 2)"
     )
+
+
+def test_matrix_matches_literal_percent_n_jobs_for_mi300_and_mi355():
+    steps, architectures = parse_steps("""
+steps:
+  - label: Kernels Quantization Test %N
+    agent_pool: mi300_1
+    parallelism: 2
+  - label: Kernels Quantization Test %N
+    agent_pool: mi355_1
+    parallelism: 2
+""")
+    build = {
+        "number": 11962,
+        "web_url": "https://buildkite.com/vllm/amd-ci/builds/11962",
+        "jobs": [
+            {
+                "id": "mi300-quantization",
+                "type": "script",
+                "name": "mi300_1: Kernels Quantization Test %N",
+                "state": "passed",
+                "agent_query_rules": ["queue=amd_mi300_1"],
+            },
+            {
+                "id": "mi355-quantization",
+                "type": "script",
+                "name": "mi355_1: Kernels Quantization Test %N",
+                "state": "passed",
+                "agent_query_rules": ["queue=amd_mi355_1"],
+            },
+        ],
+    }
+    shard_bases = ["kernels quantization test"]
+    latest_job_index = build_buildkite_job_index(build, shard_bases)
+
+    matrix = build_matrix(
+        steps=steps,
+        architectures=architectures,
+        latest_job_index=latest_job_index,
+        latest_build=build,
+        parity_exact_index={},
+        parity_norm_index={},
+        shard_bases=shard_bases,
+        yaml_url="https://example.invalid/test-amd.yaml",
+    )
+
+    row = matrix["rows"][0]
+    assert row["cells"]["mi300"]["latest_matched"] is True
+    assert row["cells"]["mi355"]["latest_matched"] is True
+    assert matrix["summary"]["hardware_cells"] == 2
+    assert matrix["summary"]["latest_matched_cells"] == 2
+    assert matrix["summary"]["unknown_cells"] == 0
 
 
 def test_aggregate_state_prioritizes_failures():

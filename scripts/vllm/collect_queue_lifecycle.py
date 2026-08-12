@@ -320,8 +320,15 @@ def fetch_rest_lifecycle_jobs(
         (
             "active",
             # Requests encodes a list-valued parameter as repeated state[]
-            # values, matching the documented organization Builds API.
-            {"state[]": list(active_states), "created_to": _utc_iso(query_end)},
+            # values, matching the documented organization Builds API. Keep
+            # this cohort inside the same parent-build horizon as the created
+            # cohort: an unbounded active scan can exhaust the pagination cap
+            # on organizations with a large historical blocked-build backlog.
+            {
+                "state[]": list(active_states),
+                "created_from": _utc_iso(query_start),
+                "created_to": _utc_iso(query_end),
+            },
         ),
         (
             # Run the terminal sweep last so an active build that finishes
@@ -1144,16 +1151,18 @@ def build_summary(
     )
     # The REST cohort union covers every documented parent-build state, but
     # page-number pagination is not a transactional snapshot. Concurrent page
-    # drift and jobs dynamically added to an arbitrarily old terminal parent
-    # prevent an unconditional exhaustiveness claim.
+    # drift and jobs dynamically added to, or still running from, a parent
+    # created before the bounded parent-build horizon prevent an unconditional
+    # exhaustiveness claim.
     complete = False
     coverage = {
         "complete": complete,
         "status": "partial_observation",
         "reason": (
             "All organization-wide cohort pages and target queue IDs were collected, but "
-            "page-number drift and jobs added to arbitrarily old terminal parent builds "
-            "cannot be proven absent. Direct observed event timestamps remain exact."
+            "page-number drift and jobs belonging to parent builds created before the "
+            "bounded source horizon cannot be proven absent. Direct observed event "
+            "timestamps remain exact."
             if api_complete
             else "No complete current API collection covers the rolling window."
         ),
@@ -1170,11 +1179,12 @@ def build_summary(
                 "exact_for_observed_events": True,
                 "basis": (
                     "direct jobs[].finished_at from the exhaustively paginated organization-wide "
-                    "finished/active/created build cohort union"
+                    "bounded finished/active/created build cohort union"
                 ),
                 "limitation": (
                     "REST page-number pagination is not a transactional snapshot; a job dynamically "
-                    "added to an older terminal parent build can also escape all parent-build filters."
+                    "added to, or still running from, a parent build created before the bounded "
+                    "source horizon can also escape all parent-build filters."
                 ),
             },
             "incoming": {
@@ -1182,11 +1192,12 @@ def build_summary(
                 "exact_for_observed_events": True,
                 "basis": (
                     "direct jobs[].runnable_at from the exhaustively paginated organization-wide "
-                    "finished/active/created build cohort union"
+                    "bounded finished/active/created build cohort union"
                 ),
                 "limitation": (
                     "REST page-number pagination is not a transactional snapshot; a job dynamically "
-                    "added to an older terminal parent build can also escape all parent-build filters."
+                    "added to, or still running from, a parent build created before the bounded "
+                    "source horizon can also escape all parent-build filters."
                 ),
             },
             "served": {
@@ -1194,11 +1205,12 @@ def build_summary(
                 "exact_for_observed_events": True,
                 "basis": (
                     "direct jobs[].started_at from the exhaustively paginated organization-wide "
-                    "finished/active/created build cohort union"
+                    "bounded finished/active/created build cohort union"
                 ),
                 "limitation": (
                     "REST page-number pagination is not a transactional snapshot; a job dynamically "
-                    "added to an older terminal parent build can also escape all parent-build filters."
+                    "added to, or still running from, a parent build created before the bounded "
+                    "source horizon can also escape all parent-build filters."
                 ),
             },
         },

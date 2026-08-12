@@ -51,10 +51,75 @@ jobs:
       - name: Install dependencies
         run: pip install requests pyyaml pytest cryptography
 
+      - name: Capture immutable main baseline
+        id: publication-baseline
+        env:
+          MAX_DATA_AGE_HOURS: "36"
+        run: |
+          set -euo pipefail
+          BASELINE_REF=$(git rev-parse --verify 'HEAD^{commit}')
+          if ! [[ "$BASELINE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Initial main checkout did not resolve to one full commit SHA"
+            exit 1
+          fi
+          git cat-file -e "$BASELINE_REF^{commit}"
+          if ! git diff --quiet || ! git diff --cached --quiet; then
+            echo "::error::Initial main checkout is dirty; refusing an ambiguous fallback baseline"
+            exit 1
+          fi
+          FAILED_SURFACES_FILE="$RUNNER_TEMP/failed-publication-surfaces.txt"
+          COLLECTOR_HELPERS="$RUNNER_TEMP/publication-collector-helpers.sh"
+          : > "$FAILED_SURFACES_FILE"
+          cat > "$COLLECTOR_HELPERS" <<'BASH'
+          record_surface_failure() {
+            local surface="$1"
+            local label="$2"
+            local status="$3"
+            case "$surface" in
+              ci|queue|queue_lifecycle|agent_health|github_home|ready|perf_eval|test_builds) ;;
+              *) echo "::error::Unknown publication surface: $surface"; return 2 ;;
+            esac
+            printf '%s\n' "$surface" >> "$PUBLICATION_FAILED_SURFACES_FILE"
+            sort -u -o "$PUBLICATION_FAILED_SURFACES_FILE" "$PUBLICATION_FAILED_SURFACES_FILE"
+            echo "::warning title=$label unavailable::Collector exited $status; $surface will use its validated baseline."
+          }
+
+          surface_is_current() {
+            ! grep -Fqx "$1" "$PUBLICATION_FAILED_SURFACES_FILE"
+          }
+
+          run_surface_collector() {
+            local surface="$1"
+            local label="$2"
+            shift 2
+            if ! surface_is_current "$surface"; then
+              echo "Skipping $label because $surface is already marked for fallback."
+              return 0
+            fi
+            set +e
+            "$@"
+            local status=$?
+            set -e
+            if [ "$status" -ne 0 ]; then
+              record_surface_failure "$surface" "$label" "$status"
+            fi
+          }
+          BASH
+          chmod 0600 "$COLLECTOR_HELPERS"
+          {
+            echo "PUBLICATION_BASELINE_REF=$BASELINE_REF"
+            echo "PUBLICATION_FAILED_SURFACES_FILE=$FAILED_SURFACES_FILE"
+            echo "PUBLICATION_COLLECTOR_HELPERS=$COLLECTOR_HELPERS"
+          } >> "$GITHUB_ENV"
+          echo "baseline_ref=$BASELINE_REF" >> "$GITHUB_OUTPUT"
+          echo "Validated publication baseline: $BASELINE_REF"
+
       - name: Resolve immutable vLLM config snapshot
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          set +e
           python3 - <<'PY'
           import os
           import re
@@ -78,31 +143,38 @@ jobs:
               env_file.write(f"VLLM_CONFIG_SHA={sha}\n")
           print(f"Pinned current vLLM configuration to {sha}")
           PY
-
-      - name: Ensure CI Operations issue labels
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        run: python scripts/vllm/ensure_ci_operations_labels.py
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -ne 0 ]; then
+            record_surface_failure ci "vLLM config snapshot" "$STATUS"
+            record_surface_failure queue "vLLM config snapshot" "$STATUS"
+          fi
 
       # ── Phase 1: Queue snapshot (fast, ~15s) ──
       - name: Sync queue data from durable live branch
         run: |
-          git fetch origin \
-            +refs/heads/queue-data:refs/remotes/origin/queue-data \
-            --depth=1 || true
-          git fetch origin \
-            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
-            --depth=1 || true
-          if git rev-parse --verify --quiet origin/queue-data >/dev/null; then
-            python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/queue-data
-          fi
-          if git rev-parse --verify --quiet origin/gh-pages >/dev/null; then
-            python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/gh-pages
-          fi
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          sync_queue_history() {
+            git fetch origin \
+              +refs/heads/queue-data:refs/remotes/origin/queue-data \
+              --depth=1 || true
+            git fetch origin \
+              +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+              --depth=1 || true
+            if git rev-parse --verify --quiet origin/queue-data >/dev/null; then
+              python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/queue-data \
+                || return $?
+            fi
+            if git rev-parse --verify --quiet origin/gh-pages >/dev/null; then
+              python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/gh-pages \
+                || return $?
+            fi
+          }
+          run_surface_collector queue "durable queue history seed" sync_queue_history
 
       - name: Sync validated queue lifecycle aggregate
         run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
           # Lifecycle collection owns an independent branch. A missing or
           # temporarily unavailable branch must not block unrelated queue/CI
           # publication; retain the last validated aggregate already on main.
@@ -115,233 +187,185 @@ jobs:
             install -m 0644 "$LIVE_QUEUE_LIFECYCLE" data/vllm/ci/queue_lifecycle.json
             echo "Synced the independently collected lifecycle aggregate."
           else
-            echo "::warning::Lifecycle aggregate unavailable or invalid; retaining last validated main copy."
+            record_surface_failure queue_lifecycle "queue lifecycle aggregate" 1
           fi
 
       - name: Sync issue automation state from gh-pages
         run: |
-          git fetch origin \
-            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
-            --depth=1 || true
-          # Marker-owned AMD alert state is committed to main immediately after
-          # reconciliation. Keep gh-pages fallback only for legacy queue state.
-          for f in open_queue_issues.json open_queue_zombie_issues.json; do
-            LIVE=$(git show origin/gh-pages:data/vllm/ci/$f 2>/dev/null || true)
-            if [ -n "$LIVE" ]; then
-              echo "$LIVE" > data/vllm/ci/$f
-            fi
-          done
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          sync_queue_issue_state() {
+            git fetch origin \
+              +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+              --depth=1 || true
+            # Marker-owned AMD alert state is committed to main immediately after
+            # reconciliation. Keep gh-pages fallback only for legacy queue state.
+            for f in open_queue_issues.json open_queue_zombie_issues.json; do
+              LIVE=$(git show origin/gh-pages:data/vllm/ci/$f 2>/dev/null || true)
+              if [ -n "$LIVE" ]; then
+                printf '%s\n' "$LIVE" > "data/vllm/ci/$f" || return $?
+              fi
+            done
+          }
+          run_surface_collector queue "queue issue-state seed" sync_queue_issue_state
 
       - name: Normalize and prune queue history
-        run: python scripts/vllm/collect_queue_snapshot.py --prune-only
+        run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          run_surface_collector queue "queue history normalization" \
+            python scripts/vllm/collect_queue_snapshot.py --prune-only
 
       - name: Collect queue snapshot
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
           GITHUB_RUN_ID: ${{ github.run_id }}
-        run: python scripts/vllm/collect_queue_snapshot.py
+        run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          run_surface_collector queue "queue snapshot" \
+            python scripts/vllm/collect_queue_snapshot.py
 
       - name: Collect queue capacity monitor
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: >-
-          python scripts/vllm/collect_capacity_monitor.py
-          --output data/vllm/ci/ --ref "$VLLM_CONFIG_SHA"
-
-      - name: Watch queue latency (open/close issues)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-        run: python scripts/vllm/queue_issue_watcher.py
-
-      - name: Watch zombie queue jobs (open/close issues)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-        run: python scripts/vllm/queue_zombie_watcher.py
-
-      - name: Watch Omni workload surge (open/close issues)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-        run: python scripts/vllm/omni_surge_watcher.py
+        run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          if surface_is_current queue; then
+            run_surface_collector queue "queue capacity monitor" \
+              python scripts/vllm/collect_capacity_monitor.py \
+              --output data/vllm/ci/ --ref "$VLLM_CONFIG_SHA"
+          fi
 
       # ── Phase 2: CI data collection (Buildkite, ~3min) ──
       - name: Sync CI data from gh-pages
         run: |
-          for f in ci_health.json parity_report.json config_parity.json flaky_tests.json failure_trends.json quarantine.json analytics.json gating_nightlies.json gating_targets.json gating_target_candidates.json shard_bases.json group_changes.json amd_test_matrix.json gating_proposals.json hotness.json operations_v2.json; do
-            LIVE=$(git show origin/gh-pages:data/vllm/ci/$f 2>/dev/null || true)
-            if [ -n "$LIVE" ]; then
-              echo "$LIVE" > data/vllm/ci/$f
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          sync_ci_seed() {
+            for f in ci_health.json parity_report.json config_parity.json flaky_tests.json failure_trends.json quarantine.json analytics.json gating_nightlies.json gating_targets.json gating_target_candidates.json shard_bases.json group_changes.json amd_test_matrix.json gating_proposals.json hotness.json operations_v2.json; do
+              LIVE=$(git show origin/gh-pages:data/vllm/ci/$f 2>/dev/null || true)
+              if [ -n "$LIVE" ]; then
+                printf '%s\n' "$LIVE" > "data/vllm/ci/$f" || return $?
+              fi
+            done
+          }
+          sync_workload_mapping_seed() {
+            # Never replace a newer/schema-upgraded main aggregate with an older
+            # gh-pages copy. In particular, this keeps the v2 migration from
+            # restarting a full 90-day backfill while the first deployment is
+            # still publishing that schema to gh-pages.
+            REMOTE_MAPPING=$(mktemp) || return $?
+            if git show origin/gh-pages:data/vllm/ci/workload_mapping.json > "$REMOTE_MAPPING" 2>/dev/null; then
+              REMOTE_SCHEMA=$(jq -r '.schema_version // 0' "$REMOTE_MAPPING" 2>/dev/null || echo 0)
+              LOCAL_SCHEMA=$(jq -r '.schema_version // 0' data/vllm/ci/workload_mapping.json 2>/dev/null || echo 0)
+              REMOTE_GENERATED=$(jq -r '.generated_at // ""' "$REMOTE_MAPPING" 2>/dev/null || true)
+              LOCAL_GENERATED=$(jq -r '.generated_at // ""' data/vllm/ci/workload_mapping.json 2>/dev/null || true)
+              if [ "$REMOTE_SCHEMA" -gt "$LOCAL_SCHEMA" ] || \
+                 { [ "$REMOTE_SCHEMA" -eq "$LOCAL_SCHEMA" ] && [[ "$REMOTE_GENERATED" > "$LOCAL_GENERATED" || "$REMOTE_GENERATED" == "$LOCAL_GENERATED" ]]; }; then
+                cp "$REMOTE_MAPPING" data/vllm/ci/workload_mapping.json || return $?
+                echo "Synced workload_mapping.json schema $REMOTE_SCHEMA from gh-pages."
+              else
+                echo "Kept newer local workload_mapping.json schema $LOCAL_SCHEMA."
+              fi
             fi
-          done
-
-          # Never replace a newer/schema-upgraded main aggregate with an older
-          # gh-pages copy. In particular, this keeps the v2 migration from
-          # restarting a full 90-day backfill while the first deployment is
-          # still publishing that schema to gh-pages.
-          REMOTE_MAPPING=$(mktemp)
-          if git show origin/gh-pages:data/vllm/ci/workload_mapping.json > "$REMOTE_MAPPING" 2>/dev/null; then
-            REMOTE_SCHEMA=$(jq -r '.schema_version // 0' "$REMOTE_MAPPING" 2>/dev/null || echo 0)
-            LOCAL_SCHEMA=$(jq -r '.schema_version // 0' data/vllm/ci/workload_mapping.json 2>/dev/null || echo 0)
-            REMOTE_GENERATED=$(jq -r '.generated_at // ""' "$REMOTE_MAPPING" 2>/dev/null || true)
-            LOCAL_GENERATED=$(jq -r '.generated_at // ""' data/vllm/ci/workload_mapping.json 2>/dev/null || true)
-            if [ "$REMOTE_SCHEMA" -gt "$LOCAL_SCHEMA" ] || \
-               { [ "$REMOTE_SCHEMA" -eq "$LOCAL_SCHEMA" ] && [[ "$REMOTE_GENERATED" > "$LOCAL_GENERATED" || "$REMOTE_GENERATED" == "$LOCAL_GENERATED" ]]; }; then
-              cp "$REMOTE_MAPPING" data/vllm/ci/workload_mapping.json
-              echo "Synced workload_mapping.json schema $REMOTE_SCHEMA from gh-pages."
-            else
-              echo "Kept newer local workload_mapping.json schema $LOCAL_SCHEMA."
-            fi
-          fi
-          rm -f "$REMOTE_MAPPING"
+            rm -f "$REMOTE_MAPPING" || return $?
+          }
+          run_surface_collector ci "CI data seed" sync_ci_seed
+          run_surface_collector queue "workload mapping seed" sync_workload_mapping_seed
 
       # This deterministic snapshot must be rebuilt after the gh-pages sync.
       # Otherwise the live copy above can overwrite its fresh generated_at
       # timestamp with an older artifact.
       - name: Collect AMD gating target list
-        run: python scripts/vllm/collect_gating_targets.py --output data/vllm/ci/
+        run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          run_surface_collector ci "AMD gating target list" \
+            python scripts/vllm/collect_gating_targets.py --output data/vllm/ci/
 
       - name: Collect AMD hotness (3d window)
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
-        run: python scripts/vllm/collect_hotness.py
+        run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          run_surface_collector ci "AMD hotness" \
+            python scripts/vllm/collect_hotness.py
 
       - name: Collect vLLM/Omni AMD workload mappings
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
-        run: python scripts/vllm/collect_workload_mapping.py --output data/vllm/ci/workload_mapping.json
+        run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          run_surface_collector queue "AMD workload mappings" \
+            python scripts/vllm/collect_workload_mapping.py \
+            --output data/vllm/ci/workload_mapping.json
 
       - name: Collect CI data
         run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
           DAYS="${{ github.event.inputs.ci_days || '8' }}"
-          python scripts/collect_ci.py --days "$DAYS" --pipeline both --output data/vllm/ci/
+          run_surface_collector ci "CI data" \
+            python scripts/collect_ci.py --days "$DAYS" --pipeline both --output data/vllm/ci/
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Collect CI analytics
-        run: python scripts/vllm/collect_analytics.py --days 30 --output data/vllm/ci/
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
+        run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          run_surface_collector ci "CI analytics" \
+            python scripts/vllm/collect_analytics.py --days 30 --output data/vllm/ci/
 
       - name: Collect AMD agent health (all builds, all branches)
         # Walks every build on AMD GPU hardware (not just main nightlies) and
         # merges the last few days into the 60-day node_days / infra_failures
         # store, then reassembles agent_health.json.
-        run: python scripts/vllm/collect_agent_health.py --days 3 --pipeline both --output data/vllm/ci/
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
-
-      - name: Watch AMD main test-group failures (open/close issue)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-        run: python scripts/vllm/amd_main_failure_watcher.py
-
-      - name: Watch upstream CI main test-group failures (open/close issue)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-        run: python scripts/vllm/ci_main_failure_watcher.py
-
-      - name: Watch AMD main duration regressions (open/close issue)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-        run: python scripts/vllm/amd_duration_regression_watcher.py
-
-      - name: Watch AMD CI agent health (open/close issue)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-        run: python scripts/vllm/agent_health_issue_watcher.py
-
-      - name: Persist managed alert issue state
-        if: always()
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add \
-            data/vllm/ci/open_amd_main_failure_issues.json \
-            data/vllm/ci/open_ci_main_failure_issues.json \
-            data/vllm/ci/open_amd_duration_regression_issues.json \
-            data/vllm/ci/open_agent_health_issues.json
-          if ! git diff --cached --quiet; then
-            git commit -m "auto: update managed alert state [skip ci]"
-            if ! git push origin HEAD:main; then
-              echo "::warning::Managed alert state push raced with another main update; deferring it to the final data commit"
-            fi
-          fi
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          run_surface_collector agent_health "AMD agent health" \
+            python scripts/vllm/collect_agent_health.py \
+            --days 3 --pipeline both --output data/vllm/ci/
 
       - name: Collect test group changes
-        run: python scripts/vllm/collect_group_changes.py --days 30 --output data/vllm/ci/
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          run_surface_collector ci "test group changes" \
+            python scripts/vllm/collect_group_changes.py --days 30 --output data/vllm/ci/
 
       - name: Collect AMD test matrix
-        run: >-
-          python scripts/vllm/collect_amd_test_matrix.py --output data/vllm/ci/
-          --build-snapshot data/vllm/ci/.cache/amd_nightly_snapshot.json
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          run_surface_collector ci "AMD test matrix" \
+            python scripts/vllm/collect_amd_test_matrix.py --output data/vllm/ci/ \
+            --build-snapshot data/vllm/ci/.cache/amd_nightly_snapshot.json
 
       - name: Collect build-pinned CI ownership parity
-        run: python scripts/vllm/collect_ownership_parity.py --input-dir data/vllm/ci --output data/vllm/ci
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          run_surface_collector ci "CI ownership parity" \
+            python scripts/vllm/collect_ownership_parity.py \
+            --input-dir data/vllm/ci --output data/vllm/ci
 
       - name: Collect AMD gating proposals
-        run: python scripts/vllm/collect_gating_proposals.py --output data/vllm/ci/
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          run_surface_collector ci "AMD gating proposals" \
+            python scripts/vllm/collect_gating_proposals.py --output data/vllm/ci/
 
       - name: Collect AMD gating target candidate audit
-        run: python scripts/vllm/collect_gating_target_candidates.py --output data/vllm/ci/
-
-      - name: Build v2 operations snapshot
-        run: python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
-
-      - name: Watch AMD CI test-area regressions (ranked owners)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-        run: python scripts/vllm/ci_area_regression_watcher.py
-
-      - name: Sync managed issues to AMD CI Operations project
-        continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          # Prefer the least-privilege replacement. The legacy secret remains
-          # a temporary fallback so Project sync is operational during rotation.
-          PROJECTS_WRITE_TOKEN: ${{ secrets.PROJECTS_WRITE_TOKEN || secrets.PROJECTS_TOKEN }}
-        run: python scripts/vllm/sync_ci_operations_project.py
-
-      - name: Persist CI ownership issue state
-        if: always()
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/vllm/ci/open_ci_area_regression_issues.json
-          if ! git diff --cached --quiet; then
-            git commit -m "auto: update CI ownership issue state [skip ci]"
-            if ! git push origin HEAD:main; then
-              echo "::warning::CI ownership state push raced with another main update; deferring it to the final data commit"
-            fi
-          fi
-
-      - name: Rebuild v2 operations snapshot with CI ownership
-        run: python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          run_surface_collector ci "AMD gating target candidate audit" \
+            python scripts/vllm/collect_gating_target_candidates.py --output data/vllm/ci/
 
       # ── Perf Eval (AMD nightly perf + accuracy) ──
       # Perf-eval nightlies run once a day, so this data does NOT need the
@@ -355,19 +379,23 @@ jobs:
       - name: Sync perf-eval data from gh-pages
         if: github.event.inputs.reset_perf_eval != 'true'
         run: |
-          mkdir -p data/vllm/perf_eval
-          LIVE=$(git show origin/gh-pages:data/vllm/perf_eval/events.jsonl 2>/dev/null || true)
-          if [ -n "$LIVE" ]; then
-            LIVE_LINES=$(echo "$LIVE" | wc -l)
-            LOCAL_LINES=$(wc -l < data/vllm/perf_eval/events.jsonl 2>/dev/null || echo 0)
-            if [ "$LIVE_LINES" -ge "$LOCAL_LINES" ]; then
-              echo "$LIVE" > data/vllm/perf_eval/events.jsonl
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          sync_perf_eval_seed() {
+            mkdir -p data/vllm/perf_eval || return $?
+            LIVE=$(git show origin/gh-pages:data/vllm/perf_eval/events.jsonl 2>/dev/null || true)
+            if [ -n "$LIVE" ]; then
+              LIVE_LINES=$(printf '%s\n' "$LIVE" | wc -l)
+              LOCAL_LINES=$(wc -l < data/vllm/perf_eval/events.jsonl 2>/dev/null || echo 0)
+              if [ "$LIVE_LINES" -ge "$LOCAL_LINES" ]; then
+                printf '%s\n' "$LIVE" > data/vllm/perf_eval/events.jsonl || return $?
+              fi
             fi
-          fi
-          LIVE_JSON=$(git show origin/gh-pages:data/vllm/perf_eval/perf_eval.json 2>/dev/null || true)
-          if [ -n "$LIVE_JSON" ]; then
-            echo "$LIVE_JSON" > data/vllm/perf_eval/perf_eval.json
-          fi
+            LIVE_JSON=$(git show origin/gh-pages:data/vllm/perf_eval/perf_eval.json 2>/dev/null || true)
+            if [ -n "$LIVE_JSON" ]; then
+              printf '%s\n' "$LIVE_JSON" > data/vllm/perf_eval/perf_eval.json || return $?
+            fi
+          }
+          run_surface_collector perf_eval "perf-eval seed" sync_perf_eval_seed
 
       # One-time cutover: wipe the durable event log so the backfill below
       # replaces any seed/synthetic data with real Buildkite results. The
@@ -375,9 +403,13 @@ jobs:
       - name: Reset perf-eval event log (one-time backfill)
         if: github.event.inputs.reset_perf_eval == 'true'
         run: |
-          mkdir -p data/vllm/perf_eval
-          : > data/vllm/perf_eval/events.jsonl
-          echo "Wiped perf-eval event log for a clean backfill."
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          reset_perf_eval_seed() {
+            mkdir -p data/vllm/perf_eval || return $?
+            : > data/vllm/perf_eval/events.jsonl || return $?
+            echo "Wiped perf-eval event log for a clean backfill."
+          }
+          run_surface_collector perf_eval "perf-eval reset" reset_perf_eval_seed
 
       # Regenerate at most a few times a day. A non-scheduled run (manual
       # dispatch or the perf-eval build.finished dispatch) always regenerates;
@@ -405,26 +437,38 @@ jobs:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
           DAYS=14
           if [ "${{ github.event.inputs.reset_perf_eval }}" = "true" ]; then DAYS=30; fi
-          python scripts/vllm/collect_perf_eval_artifacts.py --days "$DAYS"
+          run_surface_collector perf_eval "perf-eval artifacts" \
+            python scripts/vllm/collect_perf_eval_artifacts.py --days "$DAYS"
 
       - name: Collect perf-eval (AMD nightly perf + accuracy)
         if: steps.perf_decide.outputs.run_perf == 'true'
-        run: python scripts/vllm/collect_perf_eval.py
+        run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          run_surface_collector perf_eval "perf-eval aggregation" \
+            python scripts/vllm/collect_perf_eval.py
 
       - name: Sync test-build registry from gh-pages
         run: |
-          mkdir -p data/vllm/ci/test_builds
-          LIVE=$(git show origin/gh-pages:data/vllm/ci/test_builds/index.json 2>/dev/null || true)
-          if [ -n "$LIVE" ]; then
-            echo "$LIVE" > data/vllm/ci/test_builds/index.json
-          fi
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          sync_test_build_seed() {
+            mkdir -p data/vllm/ci/test_builds || return $?
+            LIVE=$(git show origin/gh-pages:data/vllm/ci/test_builds/index.json 2>/dev/null || true)
+            if [ -n "$LIVE" ]; then
+              printf '%s\n' "$LIVE" > data/vllm/ci/test_builds/index.json || return $?
+            fi
+          }
+          run_surface_collector test_builds "test-build registry seed" sync_test_build_seed
 
       - name: Refresh test-build results and nightly comparisons
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
-        run: python scripts/vllm/collect_test_builds.py
+        run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          run_surface_collector test_builds "test-build registry" \
+            python scripts/vllm/collect_test_builds.py
 
       # Ready Tickets is refreshed by ready-tickets-live.yml under the shared
       # deploy lock. Keep the write out of this long-running collection job.
@@ -490,13 +534,173 @@ jobs:
 
       - name: Collect GitHub data
         if: steps.freshness.outputs.stale == 'true'
-        run: python scripts/collect.py
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PROJECTS_READ_TOKEN: ${{ secrets.PROJECTS_READ_TOKEN }}
+        run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          run_surface_collector github_home "GitHub home data" \
+            python scripts/collect.py
 
-      - name: Render dashboards
-        if: steps.freshness.outputs.stale == 'true'
+      # Reconcile every candidate data transaction before tests, rendering, or
+      # issue side effects. Collector failures force an atomic last-known-good
+      # restore; global/code/audit failures remain fatal in the selector.
+      - name: Select validated publication surfaces
+        id: publication-selector
+        env:
+          MAX_DATA_AGE_HOURS: "36"
+        run: |
+          set -euo pipefail
+          FORCED_SURFACES=$(sort -u "$PUBLICATION_FAILED_SURFACES_FILE" | paste -sd, -)
+          echo "forced_surfaces=$FORCED_SURFACES" >> "$GITHUB_OUTPUT"
+          SELECTOR_ARGS=()
+          if [ -n "$FORCED_SURFACES" ]; then
+            SELECTOR_ARGS+=(--force-degraded-surfaces "$FORCED_SURFACES")
+            echo "Collector fallback requested for: $FORCED_SURFACES"
+          fi
+          python scripts/vllm/select_publication_surfaces.py \
+            --baseline-ref "$PUBLICATION_BASELINE_REF" \
+            "${SELECTOR_ARGS[@]}"
+
+      # Side-effecting watchers run only after selection and only when their
+      # authoritative surface is current. They never mutate issues from a
+      # rejected candidate or a restored last-known-good transaction.
+      - name: Ensure CI Operations issue labels
+        if: steps.publication-selector.outcome == 'success'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python scripts/vllm/ensure_ci_operations_labels.py
+
+      - name: Watch queue latency (open/close issues)
+        if: >-
+          steps.publication-selector.outcome == 'success' &&
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',queue,')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: python scripts/vllm/queue_issue_watcher.py
+
+      - name: Watch zombie queue jobs (open/close issues)
+        if: >-
+          steps.publication-selector.outcome == 'success' &&
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',queue,')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: python scripts/vllm/queue_zombie_watcher.py
+
+      - name: Watch Omni workload surge (open/close issues)
+        if: >-
+          steps.publication-selector.outcome == 'success' &&
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',queue,')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: python scripts/vllm/omni_surge_watcher.py
+
+      - name: Watch AMD main test-group failures (open/close issue)
+        if: >-
+          steps.publication-selector.outcome == 'success' &&
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci,')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: python scripts/vllm/amd_main_failure_watcher.py
+
+      - name: Watch upstream CI main test-group failures (open/close issue)
+        if: >-
+          steps.publication-selector.outcome == 'success' &&
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci,')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: python scripts/vllm/ci_main_failure_watcher.py
+
+      - name: Watch AMD main duration regressions (open/close issue)
+        if: >-
+          steps.publication-selector.outcome == 'success' &&
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci,')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: python scripts/vllm/amd_duration_regression_watcher.py
+
+      - name: Watch AMD CI agent health (open/close issue)
+        if: >-
+          steps.publication-selector.outcome == 'success' &&
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',agent_health,')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: python scripts/vllm/agent_health_issue_watcher.py
+
+      - name: Persist managed alert issue state
+        if: steps.publication-selector.outcome == 'success'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add \
+            data/vllm/ci/open_amd_main_failure_issues.json \
+            data/vllm/ci/open_ci_main_failure_issues.json \
+            data/vllm/ci/open_amd_duration_regression_issues.json \
+            data/vllm/ci/open_agent_health_issues.json
+          if ! git diff --cached --quiet; then
+            git commit -m "auto: update managed alert state [skip ci]"
+            if ! git push origin HEAD:main; then
+              echo "::warning::Managed alert state push raced with another main update; deferring it to the final data commit"
+            fi
+          fi
+
+      - name: Watch AMD CI test-area regressions (ranked owners)
+        if: >-
+          steps.publication-selector.outcome == 'success' &&
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci,')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: python scripts/vllm/ci_area_regression_watcher.py
+
+      - name: Sync managed issues to AMD CI Operations project
+        if: >-
+          steps.publication-selector.outcome == 'success' &&
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci,')
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          # Prefer the least-privilege replacement. The legacy secret remains
+          # a temporary fallback so Project sync is operational during rotation.
+          PROJECTS_WRITE_TOKEN: ${{ secrets.PROJECTS_WRITE_TOKEN || secrets.PROJECTS_TOKEN }}
+        run: python scripts/vllm/sync_ci_operations_project.py
+
+      - name: Persist CI ownership issue state
+        if: >-
+          steps.publication-selector.outcome == 'success' &&
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci,')
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/vllm/ci/open_ci_area_regression_issues.json
+          if ! git diff --cached --quiet; then
+            git commit -m "auto: update CI ownership issue state [skip ci]"
+            if ! git push origin HEAD:main; then
+              echo "::warning::CI ownership state push raced with another main update; deferring it to the final data commit"
+            fi
+          fi
+
+      - name: Rebuild v2 operations snapshot with selected issue state
+        run: python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
+
+      - name: Render dashboards after publication selection
         run: python scripts/render.py
 
       # ── Phase 4: Tests ──
@@ -552,6 +756,25 @@ jobs:
               git rebase --abort || true
               echo "::error::Collected data conflicts with the latest main branch; refusing to deploy unpublished output"
               exit 1
+            fi
+            # A successful rebase can change source inputs underneath derived
+            # Operations/Markdown output. Rebuild and re-audit on every retry so
+            # the commit that is pushed—not merely the pre-race candidate—is the
+            # snapshot that passed validation.
+            python scripts/vllm/build_operations_snapshot.py \
+              --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
+            python scripts/render.py
+            python scripts/vllm/audit_dashboard_data.py
+            git add \
+              data/vllm/ci/operations_v2.json \
+              data/vllm/ci/operations_v2_manifest.json \
+              data/vllm/ci/operations_v2/ \
+              data/vllm/ci/queue_history_chart.json \
+              data/site/projects.json \
+              dashboards/ \
+              README.md
+            if ! git diff --cached --quiet; then
+              git commit --amend --no-edit
             fi
             if git push origin HEAD:main; then
               PUSHED=1
@@ -617,52 +840,168 @@ jobs:
 
       # ── Phase 6: Issue management (test failures) ──
       - name: Create issue on test failure
-        if: always() && steps.run-tests.outputs.exit_code != '0' && steps.run-tests.outputs.exit_code != ''
+        if: >-
+          always() && (
+            (steps.run-tests.outputs.exit_code != '0' && steps.run-tests.outputs.exit_code != '') ||
+            steps.publication-selector.outcome == 'failure' ||
+            steps.publication-selector.outputs.degraded == 'true'
+          )
         uses: actions/github-script@v7
         with:
           script: |
-            const summary = ${{ toJSON(steps.run-tests.outputs.summary) }} || 'Unknown';
+            const fs = require('fs');
+            const testExitCode = ${{ toJSON(steps.run-tests.outputs.exit_code) }} || '';
+            const hasTestFailure = testExitCode !== '' && testExitCode !== '0';
+            const testSummary = ${{ toJSON(steps.run-tests.outputs.summary) }} || 'Tests did not run';
             const failures = ${{ toJSON(steps.run-tests.outputs.failures) }} || 'No concise failure summary captured.';
             const output = ${{ toJSON(steps.run-tests.outputs.output) }} || 'No output captured';
+            const selectorOutcome = ${{ toJSON(steps.publication-selector.outcome) }} || 'unknown';
+            const selectorDegraded = (${{ toJSON(steps.publication-selector.outputs.degraded) }} || '') === 'true';
+            const forcedSurfaces = ${{ toJSON(steps.publication-selector.outputs.forced_surfaces) }} || '';
+            let publicationState = {};
+            try {
+              publicationState = JSON.parse(
+                fs.readFileSync('data/vllm/ci/publication_state.json', 'utf8'),
+              );
+            } catch (error) {
+              publicationState = {
+                mode: selectorOutcome === 'failure' ? 'blocked' : 'unknown',
+                degraded_surfaces: forcedSurfaces.split(',').filter(Boolean),
+                candidate_errors: [],
+                final_errors: [{
+                  code: 'publication-state-unreadable',
+                  message: String(error.message || error),
+                }],
+              };
+            }
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const date = new Date().toISOString().slice(0, 10);
             const ownershipMarker = '<!-- ci-failure-owner:hourly-master -->';
             const legacySignature = '*Auto-created by hourly-master workflow.*';
             const recoveryPattern = /<!-- hourly-ci-recovery-streak:\d+ -->/;
-            const normalizedFailures = [...new Set(
-              failures.split('\n').map(line => {
-                const match = line.match(/^(FAILED|ERROR)\s+(.+?)(?:\s+-\s+.*)?$/);
-                return match ? `${match[1]} ${match[2]}` : null;
-              }).filter(Boolean),
+            const fingerprintPattern = /<!-- hourly-ci-fingerprint:[0-9a-f]+ -->/;
+            const crypto = require('crypto');
+            const stripAnsi = value => value.replace(/\u001b\[[0-9;]*m/g, '');
+            const normalizeDiagnostic = value => stripAnsi(value)
+              .replace(/https?:\/\/\S+/g, '<url>')
+              .replace(/\b[0-9a-f]{12,40}\b/gi, '<sha>')
+              .replace(/0x[0-9a-f]+/gi, '<address>')
+              .replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\b/g, '<timestamp>')
+              .replace(/\b\d+(?:\.\d+)?(?:ms|s|m|h)\b/gi, '<duration>')
+              // Counts, build numbers, and observed values vary on each live-data
+              // run. Mask standalone values while retaining identifiers such as
+              // MI300 and the invariant/message that explains the failure.
+              .replace(/\b\d+(?:\.\d+)?\b/g, '<number>')
+              .replace(/\s+/g, ' ')
+              .trim();
+            const failureRecords = failures.split('\n').map(line => {
+              const clean = stripAnsi(line).trim();
+              const match = clean.match(/^(FAILED|ERROR)\s+(.+)$/);
+              if (!match) return null;
+              const separator = match[2].indexOf(' - ');
+              const node = separator === -1 ? match[2] : match[2].slice(0, separator);
+              const detail = separator === -1 ? '' : match[2].slice(separator + 3);
+              return detail
+                ? `${match[1]} ${node} - ${normalizeDiagnostic(detail)}`
+                : `${match[1]} ${node}`;
+            }).filter(Boolean);
+            const normalizedFailures = [...new Set(failureRecords)].sort();
+            const normalizedFailureNodes = [...new Set(failureRecords.map(record =>
+              record.replace(/\s+-\s+.*$/, ''),
+            ))].sort();
+            const normalizedDiagnostics = [...new Set(
+              output.split('\n')
+                .map(line => stripAnsi(line).trim())
+                .filter(line => /^E(?:\s|$)/.test(line))
+                .map(line => normalizeDiagnostic(line.replace(/^E\s*/, '')))
+                .filter(Boolean),
             )].sort();
-            const fingerprintSource = normalizedFailures.join('\n') ||
-              `pytest:${summary.replace(/\b\d+(?:\.\d+)?s\b/g, '<duration>')}`;
-            const fingerprint = require('crypto')
+            const publicationErrors = [
+              ...(Array.isArray(publicationState.candidate_errors)
+                ? publicationState.candidate_errors : []),
+              ...(Array.isArray(publicationState.final_errors)
+                ? publicationState.final_errors : []),
+            ];
+            const publicationDiagnostics = [...new Set(publicationErrors.map(error => {
+              const surfaces = Array.isArray(error.surfaces) && error.surfaces.length
+                ? ` [${error.surfaces.join(',')}]` : '';
+              const path = error.path ? ` ${error.path}` : '';
+              return normalizeDiagnostic(
+                `PUBLICATION ${error.code || 'unknown'}${surfaces}${path}: ${error.message || ''}`,
+              );
+            }))].sort();
+            if ((selectorOutcome === 'failure' || selectorDegraded) && !publicationDiagnostics.length) {
+              publicationDiagnostics.push(normalizeDiagnostic(
+                `PUBLICATION selector=${selectorOutcome} mode=${publicationState.mode || 'unknown'} ` +
+                `degraded=${(publicationState.degraded_surfaces || []).join(',') || forcedSurfaces || 'unknown'}`,
+              ));
+            }
+            const fingerprintEvidence = [...new Set([
+              ...normalizedFailures,
+              ...normalizedDiagnostics,
+              ...publicationDiagnostics,
+            ])].sort();
+            const summary = hasTestFailure
+              ? testSummary
+              : `publication ${publicationState.mode || selectorOutcome}`;
+            const fingerprintSource = fingerprintEvidence.join('\n') ||
+              `pytest:${normalizeDiagnostic(summary)}`;
+            const fingerprint = crypto
               .createHash('sha256')
-              .update(fingerprintSource)
+              .update(`hourly-ci-v2\n${fingerprintSource}`)
+              .digest('hex')
+              .slice(0, 16);
+            // Preserve discovery of issues opened by the former node-name-only
+            // fingerprint. The issue is migrated in place, without generating a
+            // duplicate notification merely because the algorithm was upgraded.
+            const legacyFingerprintSource = normalizedFailureNodes.join('\n') ||
+              `pytest:${summary.replace(/\b\d+(?:\.\d+)?s\b/g, '<duration>')}`;
+            const legacyFingerprint = crypto
+              .createHash('sha256')
+              .update(legacyFingerprintSource)
               .digest('hex')
               .slice(0, 16);
             const fingerprintMarker = `<!-- hourly-ci-fingerprint:${fingerprint} -->`;
+            const legacyFingerprintMarker = `<!-- hourly-ci-fingerprint:${legacyFingerprint} -->`;
             const recoveryMarker = '<!-- hourly-ci-recovery-streak:0 -->';
             const title = `Hourly CI failure [${fingerprint.slice(0, 8)}] — ${date}`;
+            const incidentKind = selectorOutcome === 'failure'
+              ? 'Publication Selection Failure'
+              : selectorDegraded ? 'Degraded Publication' : 'Test Failure';
+            const degradedSurfaces = Array.isArray(publicationState.degraded_surfaces)
+              ? publicationState.degraded_surfaces.join(', ') : '';
             const report = [
-              `## Test Failure — ${date}`,
+              `## ${incidentKind} — ${date}`,
               '',
               `**Summary:** \`${summary}\``,
               `**Run:** ${runUrl}`,
               '',
-              '**Failing tests:**',
-              '',
-              '```text',
-              failures.slice(0, 8000),
-              '```',
-              '',
-              '<details><summary>Full test output (last 200 lines)</summary>',
-              '',
-              '```',
-              output.slice(-4000),
-              '```',
-              '</details>',
+              `**Publication selector:** outcome=\`${selectorOutcome}\`, mode=\`${publicationState.mode || 'unknown'}\``,
+              `**Degraded surfaces:** ${degradedSurfaces || 'none'}`,
+              ...(hasTestFailure ? [
+                '',
+                '**Failing tests:**',
+                '',
+                '```text',
+                failures.slice(0, 8000),
+                '```',
+                '',
+                '<details><summary>Full test output (last 200 lines)</summary>',
+                '',
+                '```',
+                output.slice(-4000),
+                '```',
+                '</details>',
+              ] : []),
+              ...(publicationErrors.length ? [
+                '',
+                '<details><summary>Publication candidate errors</summary>',
+                '',
+                '```json',
+                JSON.stringify(publicationErrors, null, 2).slice(0, 8000),
+                '```',
+                '</details>',
+              ] : []),
               '',
               '*Auto-created by hourly-master workflow.*',
             ].join('\n');
@@ -707,19 +1046,29 @@ jobs:
               return issueBody.includes(ownershipMarker) &&
                 issueBody.includes(fingerprintMarker);
             });
-            const legacy = openIssues.find(issue => {
+            const previousVersion = hasTestFailure && !publicationDiagnostics.length
+              ? allIssues.find(issue => {
+              const issueBody = issue.body || '';
+              return issueBody.includes(ownershipMarker) &&
+                issueBody.includes(legacyFingerprintMarker);
+              }) : null;
+            const legacy = hasTestFailure && !publicationDiagnostics.length &&
+              normalizedFailureNodes.length ? openIssues.find(issue => {
               const issueBody = issue.body || '';
               return issueBody.includes(legacySignature) &&
                 !issueBody.includes('<!-- hourly-ci-fingerprint:') &&
-                normalizedFailures.every(failure => issueBody.includes(failure));
-            });
-            const existing = exact || legacy;
+                normalizedFailureNodes.every(failure => issueBody.includes(failure));
+              }) : null;
+            const existing = exact || previousVersion || legacy;
             if (existing) {
+              const incidentTransition = existing.state === 'open' ? 'unchanged' : 'reopened';
               let migratedBody = existing.body || '';
               if (!migratedBody.includes(ownershipMarker)) {
                 migratedBody = `${ownershipMarker}\n${migratedBody}`;
               }
-              if (!migratedBody.includes(fingerprintMarker)) {
+              if (fingerprintPattern.test(migratedBody)) {
+                migratedBody = migratedBody.replace(fingerprintPattern, fingerprintMarker);
+              } else {
                 migratedBody = `${fingerprintMarker}\n${migratedBody}`;
               }
               if (recoveryPattern.test(migratedBody)) {
@@ -730,26 +1079,34 @@ jobs:
               if (migratedBody !== (existing.body || '')) {
                 await github.rest.issues.update({
                   owner: context.repo.owner, repo: context.repo.repo,
-                  issue_number: existing.number, body: migratedBody, state: 'open',
+                  issue_number: existing.number, body: migratedBody,
+                  ...(incidentTransition === 'reopened' ? {state: 'open'} : {}),
                 });
-              } else if (existing.state !== 'open') {
+              } else if (incidentTransition === 'reopened') {
                 await github.rest.issues.update({
                   owner: context.repo.owner, repo: context.repo.repo,
                   issue_number: existing.number, state: 'open',
                 });
               }
-              try {
-                await github.rest.issues.addAssignees({
+              if (incidentTransition === 'reopened') {
+                try {
+                  await github.rest.issues.addAssignees({
+                    owner: context.repo.owner, repo: context.repo.repo,
+                    issue_number: existing.number, assignees: [context.repo.owner],
+                  });
+                } catch (error) {
+                  if (error.status !== 422) throw error;
+                }
+                await github.rest.issues.createComment({
                   owner: context.repo.owner, repo: context.repo.repo,
-                  issue_number: existing.number, assignees: [context.repo.owner],
+                  issue_number: existing.number, body: report,
                 });
-              } catch (error) {
-                if (error.status !== 422) throw error;
+                console.log(`Reopened hourly CI incident #${existing.number}.`);
+              } else {
+                console.log(
+                  `Hourly CI incident #${existing.number} is unchanged; duplicate notification suppressed.`,
+                );
               }
-              await github.rest.issues.createComment({
-                owner: context.repo.owner, repo: context.repo.repo,
-                issue_number: existing.number, body: report,
-              });
             } else {
               await github.rest.issues.create({
                 owner: context.repo.owner, repo: context.repo.repo,
@@ -761,7 +1118,12 @@ jobs:
             }
 
       - name: Close issue on test success
-        if: success() && steps.run-tests.outcome == 'success' && steps.run-tests.outputs.exit_code == '0'
+        if: >-
+          success() &&
+          steps.publication-selector.outcome == 'success' &&
+          steps.publication-selector.outputs.degraded == 'false' &&
+          steps.run-tests.outcome == 'success' &&
+          steps.run-tests.outputs.exit_code == '0'
         uses: actions/github-script@v7
         with:
           script: |
