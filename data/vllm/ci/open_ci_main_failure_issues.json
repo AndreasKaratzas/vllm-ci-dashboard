@@ -56,6 +56,76 @@
       "started_at": "",
       "step_key": ""
     },
+    "11f203a606a96dd5d3cd": {
+      "bad_build_number": 83594,
+      "bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "bisect_command": "git bisect start 19d61b1273a56e0ebd8a9160bffb2e75dccad82b 324f452f640015e9616b5ad5615fae6c25eb6353",
+      "build_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "build_message": "[Bugfix] Initialize DeepGemmQuantScaleFMT oracle lazily; bound QuantFP8 UE8M0 packed path to group_size 128 (#51359)\n\nSigned-off-by: BabyDrangoner <148877251+BabyDrangoner@users.noreply.github.com>\nSigned-off-by: kiroxu <148877251+BabyDrangoner@users.noreply.github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>\nCo-authored-by: Wentao Ye <44945378+yewentao256@users.noreply.github.com>\nCo-authored-by: mergify[bot] <37929162+mergify[bot]@users.noreply.github.com>",
+      "build_number": 83594,
+      "build_url": "https://buildkite.com/vllm/ci/builds/83594",
+      "commit_range_status": "candidate",
+      "compare_url": "https://github.com/vllm-project/vllm/compare/324f452f640015e9616b5ad5615fae6c25eb6353...19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "finished_at": "2026-08-12T18:37:17.056Z",
+      "good_build_number": 83576,
+      "good_commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
+      "group_id": "11f203a606a96dd5d3cd",
+      "hardware": "mi300",
+      "job_id": "019ff743-358a-466a-9900-155bd9975884",
+      "job_url": "https://buildkite.com/vllm/ci/builds/83594/steps/canvas?jid=019ff743-358a-466a-9900-155bd9975884&tab=output",
+      "latest_bad_build_number": 83594,
+      "latest_bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "name": "AMD: Kernels Quantization Test 2 (mi300_1)",
+      "observed_at": "2026-08-12T18:37:17.056Z",
+      "queue": "amd_mi300_1",
+      "raw_name": "AMD: Kernels Quantization Test 2 (mi300_1)",
+      "result": "failed",
+      "retry_evidence": {
+        "job_id": "019ff743-358a-466a-9900-155bd9975884",
+        "retries_count": 1,
+        "retry_source": {
+          "job_id": "019ff73c-69fb-4ad9-bfc3-d51e1f82fc05",
+          "retry_type": "automatic"
+        }
+      },
+      "started_at": "",
+      "step_key": "amd-kernels-quantization-test"
+    },
+    "1d04d849f0aa6713e42f": {
+      "bad_build_number": 83594,
+      "bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "bisect_command": "git bisect start 19d61b1273a56e0ebd8a9160bffb2e75dccad82b 324f452f640015e9616b5ad5615fae6c25eb6353",
+      "build_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "build_message": "[Bugfix] Initialize DeepGemmQuantScaleFMT oracle lazily; bound QuantFP8 UE8M0 packed path to group_size 128 (#51359)\n\nSigned-off-by: BabyDrangoner <148877251+BabyDrangoner@users.noreply.github.com>\nSigned-off-by: kiroxu <148877251+BabyDrangoner@users.noreply.github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>\nCo-authored-by: Wentao Ye <44945378+yewentao256@users.noreply.github.com>\nCo-authored-by: mergify[bot] <37929162+mergify[bot]@users.noreply.github.com>",
+      "build_number": 83594,
+      "build_url": "https://buildkite.com/vllm/ci/builds/83594",
+      "commit_range_status": "candidate",
+      "compare_url": "https://github.com/vllm-project/vllm/compare/324f452f640015e9616b5ad5615fae6c25eb6353...19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "finished_at": "2026-08-12T18:36:39.283Z",
+      "good_build_number": 83576,
+      "good_commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
+      "group_id": "1d04d849f0aa6713e42f",
+      "hardware": "mi300",
+      "job_id": "019ff742-93d8-4a07-bc27-ba9288cfc4d9",
+      "job_url": "https://buildkite.com/vllm/ci/builds/83594/steps/canvas?jid=019ff742-93d8-4a07-bc27-ba9288cfc4d9&tab=output",
+      "latest_bad_build_number": 83594,
+      "latest_bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "name": "AMD: Metrics, Tracing (2 GPUs) (mi300_2)",
+      "observed_at": "2026-08-12T18:36:39.283Z",
+      "queue": "amd_mi300_2",
+      "raw_name": "AMD: Metrics, Tracing (2 GPUs) (mi300_2)",
+      "result": "failed",
+      "retry_evidence": {
+        "job_id": "019ff742-93d8-4a07-bc27-ba9288cfc4d9",
+        "retries_count": 1,
+        "retry_source": {
+          "job_id": "019ff73c-6a01-4059-8cbe-3a904b3cc7d7",
+          "retry_type": "automatic"
+        }
+      },
+      "started_at": "",
+      "step_key": "amd-metrics-tracing-2-gpus"
+    },
     "260f4733de0b64a55359": {
       "bad_build_number": 83539,
       "bad_commit": "6accb779a361c723cded3f9422b48d3fe4da0901",
@@ -118,6 +188,76 @@
       "retry_evidence": {},
       "started_at": "2026-08-12T16:50:10.983Z",
       "step_key": "dsv4-flash-disaggregated"
+    },
+    "2b53d035e972888256d1": {
+      "bad_build_number": 83594,
+      "bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "bisect_command": "git bisect start 19d61b1273a56e0ebd8a9160bffb2e75dccad82b 324f452f640015e9616b5ad5615fae6c25eb6353",
+      "build_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "build_message": "[Bugfix] Initialize DeepGemmQuantScaleFMT oracle lazily; bound QuantFP8 UE8M0 packed path to group_size 128 (#51359)\n\nSigned-off-by: BabyDrangoner <148877251+BabyDrangoner@users.noreply.github.com>\nSigned-off-by: kiroxu <148877251+BabyDrangoner@users.noreply.github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>\nCo-authored-by: Wentao Ye <44945378+yewentao256@users.noreply.github.com>\nCo-authored-by: mergify[bot] <37929162+mergify[bot]@users.noreply.github.com>",
+      "build_number": 83594,
+      "build_url": "https://buildkite.com/vllm/ci/builds/83594",
+      "commit_range_status": "candidate",
+      "compare_url": "https://github.com/vllm-project/vllm/compare/324f452f640015e9616b5ad5615fae6c25eb6353...19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "finished_at": "2026-08-12T18:36:41.908Z",
+      "good_build_number": 83576,
+      "good_commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
+      "group_id": "2b53d035e972888256d1",
+      "hardware": "mi300",
+      "job_id": "019ff742-a43f-46e6-b3ff-79e075e3864a",
+      "job_url": "https://buildkite.com/vllm/ci/builds/83594/steps/canvas?jid=019ff742-a43f-46e6-b3ff-79e075e3864a&tab=output",
+      "latest_bad_build_number": 83594,
+      "latest_bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "name": "AMD: OpenAI API Correctness (mi300_1)",
+      "observed_at": "2026-08-12T18:36:41.908Z",
+      "queue": "amd_mi300_1",
+      "raw_name": "AMD: OpenAI API Correctness (mi300_1)",
+      "result": "failed",
+      "retry_evidence": {
+        "job_id": "019ff742-a43f-46e6-b3ff-79e075e3864a",
+        "retries_count": 1,
+        "retry_source": {
+          "job_id": "019ff73c-69f9-472f-b2a9-9feafa5317e0",
+          "retry_type": "automatic"
+        }
+      },
+      "started_at": "",
+      "step_key": "amd-openai-api-correctness"
+    },
+    "2e183f626aef004fa237": {
+      "bad_build_number": 83594,
+      "bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "bisect_command": "git bisect start 19d61b1273a56e0ebd8a9160bffb2e75dccad82b 324f452f640015e9616b5ad5615fae6c25eb6353",
+      "build_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "build_message": "[Bugfix] Initialize DeepGemmQuantScaleFMT oracle lazily; bound QuantFP8 UE8M0 packed path to group_size 128 (#51359)\n\nSigned-off-by: BabyDrangoner <148877251+BabyDrangoner@users.noreply.github.com>\nSigned-off-by: kiroxu <148877251+BabyDrangoner@users.noreply.github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>\nCo-authored-by: Wentao Ye <44945378+yewentao256@users.noreply.github.com>\nCo-authored-by: mergify[bot] <37929162+mergify[bot]@users.noreply.github.com>",
+      "build_number": 83594,
+      "build_url": "https://buildkite.com/vllm/ci/builds/83594",
+      "commit_range_status": "candidate",
+      "compare_url": "https://github.com/vllm-project/vllm/compare/324f452f640015e9616b5ad5615fae6c25eb6353...19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "finished_at": "2026-08-12T18:36:58.338Z",
+      "good_build_number": 83576,
+      "good_commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
+      "group_id": "2e183f626aef004fa237",
+      "hardware": "mi300",
+      "job_id": "019ff742-d3c3-41d7-bf86-6b90e0b9acc6",
+      "job_url": "https://buildkite.com/vllm/ci/builds/83594/steps/canvas?jid=019ff742-d3c3-41d7-bf86-6b90e0b9acc6&tab=output",
+      "latest_bad_build_number": 83594,
+      "latest_bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "name": "AMD: Spec Decode Ngram + Suffix (mi300_1)",
+      "observed_at": "2026-08-12T18:36:58.338Z",
+      "queue": "amd_mi300_1",
+      "raw_name": "AMD: Spec Decode Ngram + Suffix (mi300_1)",
+      "result": "failed",
+      "retry_evidence": {
+        "job_id": "019ff742-d3c3-41d7-bf86-6b90e0b9acc6",
+        "retries_count": 1,
+        "retry_source": {
+          "job_id": "019ff73c-6a10-49f3-a6f9-5436bb686f97",
+          "retry_type": "automatic"
+        }
+      },
+      "started_at": "",
+      "step_key": "amd-spec-decode-ngram-suffix"
     },
     "2ea6703c5fce0f999ae1": {
       "bad_build_number": 83595,
@@ -294,41 +434,6 @@
       "started_at": "2026-08-12T18:26:11.896Z",
       "step_key": "amd-python-only-installation"
     },
-    "395971a676ddc5ac8083": {
-      "bad_build_number": 83543,
-      "bad_commit": "e60f3c4c137f23bb870524b937719d24bde8715b",
-      "bisect_command": "git bisect start e60f3c4c137f23bb870524b937719d24bde8715b 8c011da6d0a45f2c9316ea3c658da754f770a178",
-      "build_commit": "e60f3c4c137f23bb870524b937719d24bde8715b",
-      "build_message": "[Bugfix] Fix MiniMax-M3 compressed-tensors FP8 MoE SwiGLU params (#46845)\n\nSigned-off-by: Tan Pin Siang <tanpinsiang@gmail.com>",
-      "build_number": 83543,
-      "build_url": "https://buildkite.com/vllm/ci/builds/83543",
-      "commit_range_status": "candidate",
-      "compare_url": "https://github.com/vllm-project/vllm/compare/8c011da6d0a45f2c9316ea3c658da754f770a178...e60f3c4c137f23bb870524b937719d24bde8715b",
-      "finished_at": "2026-08-12T11:01:40.725Z",
-      "good_build_number": 83533,
-      "good_commit": "8c011da6d0a45f2c9316ea3c658da754f770a178",
-      "group_id": "395971a676ddc5ac8083",
-      "hardware": "b200",
-      "job_id": "019ff5a2-1961-424d-bbd2-48cbd10b031b",
-      "job_url": "https://buildkite.com/vllm/ci/builds/83543/steps/canvas?jid=019ff5a2-1961-424d-bbd2-48cbd10b031b&tab=output",
-      "latest_bad_build_number": 83543,
-      "latest_bad_commit": "e60f3c4c137f23bb870524b937719d24bde8715b",
-      "name": "Fusion and Compile Unit Tests (2xB200)",
-      "observed_at": "2026-08-12T11:01:40.725Z",
-      "queue": "b200-k8s",
-      "raw_name": "Fusion and Compile Unit Tests (2xB200)",
-      "result": "failed",
-      "retry_evidence": {
-        "job_id": "019ff5a2-1961-424d-bbd2-48cbd10b031b",
-        "retries_count": 1,
-        "retry_source": {
-          "job_id": "019ff59b-5aa3-416d-b31b-f92029ed5e85",
-          "retry_type": "automatic"
-        }
-      },
-      "started_at": "",
-      "step_key": "fusion-and-compile-unit-tests-2xb200"
-    },
     "400481760f703f6586f0": {
       "bad_build_number": 83511,
       "bad_commit": "02ac17851dfb603c1ba788545200ae3e43a4f61b",
@@ -384,6 +489,41 @@
       "retry_evidence": {},
       "started_at": "2026-08-12T10:35:38.419Z",
       "step_key": "distributed-flashinfer-nixlconnector-pd-accuracy-4-gpus"
+    },
+    "48d8265676f6aacb4a50": {
+      "bad_build_number": 83594,
+      "bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "bisect_command": "git bisect start 19d61b1273a56e0ebd8a9160bffb2e75dccad82b 324f452f640015e9616b5ad5615fae6c25eb6353",
+      "build_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "build_message": "[Bugfix] Initialize DeepGemmQuantScaleFMT oracle lazily; bound QuantFP8 UE8M0 packed path to group_size 128 (#51359)\n\nSigned-off-by: BabyDrangoner <148877251+BabyDrangoner@users.noreply.github.com>\nSigned-off-by: kiroxu <148877251+BabyDrangoner@users.noreply.github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>\nCo-authored-by: Wentao Ye <44945378+yewentao256@users.noreply.github.com>\nCo-authored-by: mergify[bot] <37929162+mergify[bot]@users.noreply.github.com>",
+      "build_number": 83594,
+      "build_url": "https://buildkite.com/vllm/ci/builds/83594",
+      "commit_range_status": "candidate",
+      "compare_url": "https://github.com/vllm-project/vllm/compare/324f452f640015e9616b5ad5615fae6c25eb6353...19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "finished_at": "2026-08-12T18:37:18.706Z",
+      "good_build_number": 83576,
+      "good_commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
+      "group_id": "48d8265676f6aacb4a50",
+      "hardware": "mi300",
+      "job_id": "019ff742-ac24-42d9-ad35-7849c9f52c7f",
+      "job_url": "https://buildkite.com/vllm/ci/builds/83594/steps/canvas?jid=019ff742-ac24-42d9-ad35-7849c9f52c7f&tab=output",
+      "latest_bad_build_number": 83594,
+      "latest_bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "name": "AMD: Spec Decode Eagle 1: DeepSeek + Qwen (mi300_1)",
+      "observed_at": "2026-08-12T18:37:18.706Z",
+      "queue": "amd_mi300_1",
+      "raw_name": "AMD: Spec Decode Eagle 1: DeepSeek + Qwen (mi300_1)",
+      "result": "failed",
+      "retry_evidence": {
+        "job_id": "019ff742-ac24-42d9-ad35-7849c9f52c7f",
+        "retries_count": 1,
+        "retry_source": {
+          "job_id": "019ff73c-6a10-45e2-aecf-b9e76c239708",
+          "retry_type": "automatic"
+        }
+      },
+      "started_at": "",
+      "step_key": "amd-spec-decode-eagle-1-deepseek-qwen"
     },
     "491255c17c505836c50d": {
       "bad_build_number": 83539,
@@ -539,34 +679,6 @@
       "started_at": "2026-08-12T10:22:25.334Z",
       "step_key": "ascend-npu-test"
     },
-    "5adf80ea3b97cd67c0de": {
-      "bad_build_number": 83543,
-      "bad_commit": "e60f3c4c137f23bb870524b937719d24bde8715b",
-      "bisect_command": "git bisect start e60f3c4c137f23bb870524b937719d24bde8715b 8c011da6d0a45f2c9316ea3c658da754f770a178",
-      "build_commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "build_message": "[Model] Add native Dots3 NOTE multimodal support (#51255)\n\nSigned-off-by: KurodaKanbei <mistergalahad@gmail.com>\nSigned-off-by: Jee Jee Li <jeejeelee@inferact.ai>\nCo-authored-by: OpenAI Codex <codex@openai.com>\nCo-authored-by: Jee Jee Li <jeejeelee@inferact.ai>\nCo-authored-by: Jee Jee Li <pandaleefree@gmail.com>",
-      "build_number": 83569,
-      "build_url": "https://buildkite.com/vllm/ci/builds/83569",
-      "commit_range_status": "candidate",
-      "compare_url": "https://github.com/vllm-project/vllm/compare/8c011da6d0a45f2c9316ea3c658da754f770a178...e60f3c4c137f23bb870524b937719d24bde8715b",
-      "finished_at": "2026-08-12T15:33:54.297Z",
-      "good_build_number": 83533,
-      "good_commit": "8c011da6d0a45f2c9316ea3c658da754f770a178",
-      "group_id": "5adf80ea3b97cd67c0de",
-      "hardware": "b200",
-      "job_id": "019ff68a-2690-4d22-be71-08942e72c7f3",
-      "job_url": "https://buildkite.com/vllm/ci/builds/83569/steps/canvas?jid=019ff68a-2690-4d22-be71-08942e72c7f3&tab=output",
-      "latest_bad_build_number": 83569,
-      "latest_bad_commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "name": "Batch Invariance (B200)",
-      "observed_at": "2026-08-12T15:33:54.297Z",
-      "queue": "b200-k8s",
-      "raw_name": "Batch Invariance (B200)",
-      "result": "failed",
-      "retry_evidence": {},
-      "started_at": "2026-08-12T15:19:12.896Z",
-      "step_key": "batch-invariance-b200"
-    },
     "5b30ed1663cb79df343c": {
       "bad_build_number": 83539,
       "bad_commit": "6accb779a361c723cded3f9422b48d3fe4da0901",
@@ -658,6 +770,146 @@
       "started_at": "2026-08-12T10:39:56.823Z",
       "step_key": "moe-refactor-integration-test-b200-dp-temporary"
     },
+    "6316f2304d46bd269fa1": {
+      "bad_build_number": 83594,
+      "bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "bisect_command": "git bisect start 19d61b1273a56e0ebd8a9160bffb2e75dccad82b 324f452f640015e9616b5ad5615fae6c25eb6353",
+      "build_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "build_message": "[Bugfix] Initialize DeepGemmQuantScaleFMT oracle lazily; bound QuantFP8 UE8M0 packed path to group_size 128 (#51359)\n\nSigned-off-by: BabyDrangoner <148877251+BabyDrangoner@users.noreply.github.com>\nSigned-off-by: kiroxu <148877251+BabyDrangoner@users.noreply.github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>\nCo-authored-by: Wentao Ye <44945378+yewentao256@users.noreply.github.com>\nCo-authored-by: mergify[bot] <37929162+mergify[bot]@users.noreply.github.com>",
+      "build_number": 83594,
+      "build_url": "https://buildkite.com/vllm/ci/builds/83594",
+      "commit_range_status": "candidate",
+      "compare_url": "https://github.com/vllm-project/vllm/compare/324f452f640015e9616b5ad5615fae6c25eb6353...19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "finished_at": "2026-08-12T18:36:41.002Z",
+      "good_build_number": 83576,
+      "good_commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
+      "group_id": "6316f2304d46bd269fa1",
+      "hardware": "mi300",
+      "job_id": "019ff742-a552-4172-958a-4bad4a8f10bc",
+      "job_url": "https://buildkite.com/vllm/ci/builds/83594/steps/canvas?jid=019ff742-a552-4172-958a-4bad4a8f10bc&tab=output",
+      "latest_bad_build_number": 83594,
+      "latest_bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "name": "AMD: Language Models Tests (Extra Standard) 1 (mi300_1)",
+      "observed_at": "2026-08-12T18:36:41.002Z",
+      "queue": "amd_mi300_1",
+      "raw_name": "AMD: Language Models Tests (Extra Standard) 1 (mi300_1)",
+      "result": "failed",
+      "retry_evidence": {
+        "job_id": "019ff742-a552-4172-958a-4bad4a8f10bc",
+        "retries_count": 1,
+        "retry_source": {
+          "job_id": "019ff73c-6a03-479d-9fc9-d8492622759b",
+          "retry_type": "automatic"
+        }
+      },
+      "started_at": "",
+      "step_key": "amd-language-models-tests-extra-standard"
+    },
+    "6af2e7f367726f900423": {
+      "bad_build_number": 83594,
+      "bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "bisect_command": "git bisect start 19d61b1273a56e0ebd8a9160bffb2e75dccad82b 324f452f640015e9616b5ad5615fae6c25eb6353",
+      "build_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "build_message": "[Bugfix] Initialize DeepGemmQuantScaleFMT oracle lazily; bound QuantFP8 UE8M0 packed path to group_size 128 (#51359)\n\nSigned-off-by: BabyDrangoner <148877251+BabyDrangoner@users.noreply.github.com>\nSigned-off-by: kiroxu <148877251+BabyDrangoner@users.noreply.github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>\nCo-authored-by: Wentao Ye <44945378+yewentao256@users.noreply.github.com>\nCo-authored-by: mergify[bot] <37929162+mergify[bot]@users.noreply.github.com>",
+      "build_number": 83594,
+      "build_url": "https://buildkite.com/vllm/ci/builds/83594",
+      "commit_range_status": "candidate",
+      "compare_url": "https://github.com/vllm-project/vllm/compare/324f452f640015e9616b5ad5615fae6c25eb6353...19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "finished_at": "2026-08-12T18:37:38.718Z",
+      "good_build_number": 83576,
+      "good_commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
+      "group_id": "6af2e7f367726f900423",
+      "hardware": "mi300",
+      "job_id": "019ff742-d5ee-4edd-84e9-5a7d339d7cec",
+      "job_url": "https://buildkite.com/vllm/ci/builds/83594/steps/canvas?jid=019ff742-d5ee-4edd-84e9-5a7d339d7cec&tab=output",
+      "latest_bad_build_number": 83594,
+      "latest_bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "name": "AMD: Spec Decode Draft Model (mi300_1)",
+      "observed_at": "2026-08-12T18:37:38.718Z",
+      "queue": "amd_mi300_1",
+      "raw_name": "AMD: Spec Decode Draft Model (mi300_1)",
+      "result": "failed",
+      "retry_evidence": {
+        "job_id": "019ff742-d5ee-4edd-84e9-5a7d339d7cec",
+        "retries_count": 1,
+        "retry_source": {
+          "job_id": "019ff73c-6a0f-4b6c-9811-9b8d5a381ed0",
+          "retry_type": "automatic"
+        }
+      },
+      "started_at": "",
+      "step_key": "amd-spec-decode-draft-model"
+    },
+    "70739c76a07008487e26": {
+      "bad_build_number": 83594,
+      "bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "bisect_command": "git bisect start 19d61b1273a56e0ebd8a9160bffb2e75dccad82b 324f452f640015e9616b5ad5615fae6c25eb6353",
+      "build_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "build_message": "[Bugfix] Initialize DeepGemmQuantScaleFMT oracle lazily; bound QuantFP8 UE8M0 packed path to group_size 128 (#51359)\n\nSigned-off-by: BabyDrangoner <148877251+BabyDrangoner@users.noreply.github.com>\nSigned-off-by: kiroxu <148877251+BabyDrangoner@users.noreply.github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>\nCo-authored-by: Wentao Ye <44945378+yewentao256@users.noreply.github.com>\nCo-authored-by: mergify[bot] <37929162+mergify[bot]@users.noreply.github.com>",
+      "build_number": 83594,
+      "build_url": "https://buildkite.com/vllm/ci/builds/83594",
+      "commit_range_status": "candidate",
+      "compare_url": "https://github.com/vllm-project/vllm/compare/324f452f640015e9616b5ad5615fae6c25eb6353...19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "finished_at": "2026-08-12T18:37:16.722Z",
+      "good_build_number": 83576,
+      "good_commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
+      "group_id": "70739c76a07008487e26",
+      "hardware": "mi300",
+      "job_id": "019ff743-2259-4d4c-aad7-6fe866ef1d14",
+      "job_url": "https://buildkite.com/vllm/ci/builds/83594/steps/canvas?jid=019ff743-2259-4d4c-aad7-6fe866ef1d14&tab=output",
+      "latest_bad_build_number": 83594,
+      "latest_bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "name": "AMD: V1 Spec Decode (mi300_1)",
+      "observed_at": "2026-08-12T18:37:16.722Z",
+      "queue": "amd_mi300_1",
+      "raw_name": "AMD: V1 Spec Decode (mi300_1)",
+      "result": "failed",
+      "retry_evidence": {
+        "job_id": "019ff743-2259-4d4c-aad7-6fe866ef1d14",
+        "retries_count": 1,
+        "retry_source": {
+          "job_id": "019ff73c-6a11-4e03-8b13-43f83153eac6",
+          "retry_type": "automatic"
+        }
+      },
+      "started_at": "",
+      "step_key": "amd-v1-spec-decode"
+    },
+    "733a4255e8874114c829": {
+      "bad_build_number": 83594,
+      "bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "bisect_command": "git bisect start 19d61b1273a56e0ebd8a9160bffb2e75dccad82b 324f452f640015e9616b5ad5615fae6c25eb6353",
+      "build_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "build_message": "[Bugfix] Initialize DeepGemmQuantScaleFMT oracle lazily; bound QuantFP8 UE8M0 packed path to group_size 128 (#51359)\n\nSigned-off-by: BabyDrangoner <148877251+BabyDrangoner@users.noreply.github.com>\nSigned-off-by: kiroxu <148877251+BabyDrangoner@users.noreply.github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>\nCo-authored-by: Wentao Ye <44945378+yewentao256@users.noreply.github.com>\nCo-authored-by: mergify[bot] <37929162+mergify[bot]@users.noreply.github.com>",
+      "build_number": 83594,
+      "build_url": "https://buildkite.com/vllm/ci/builds/83594",
+      "commit_range_status": "candidate",
+      "compare_url": "https://github.com/vllm-project/vllm/compare/324f452f640015e9616b5ad5615fae6c25eb6353...19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "finished_at": "2026-08-12T18:36:57.825Z",
+      "good_build_number": 83576,
+      "good_commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
+      "group_id": "733a4255e8874114c829",
+      "hardware": "mi300",
+      "job_id": "019ff742-d24f-4b53-b093-3872e9b9ccc0",
+      "job_url": "https://buildkite.com/vllm/ci/builds/83594/steps/canvas?jid=019ff742-d24f-4b53-b093-3872e9b9ccc0&tab=output",
+      "latest_bad_build_number": 83594,
+      "latest_bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "name": "AMD: Spec Decode Speculators + MTP (mi300_1)",
+      "observed_at": "2026-08-12T18:36:57.825Z",
+      "queue": "amd_mi300_1",
+      "raw_name": "AMD: Spec Decode Speculators + MTP (mi300_1)",
+      "result": "failed",
+      "retry_evidence": {
+        "job_id": "019ff742-d24f-4b53-b093-3872e9b9ccc0",
+        "retries_count": 1,
+        "retry_source": {
+          "job_id": "019ff73c-6a10-4dc0-aa2e-7fab28d287a6",
+          "retry_type": "automatic"
+        }
+      },
+      "started_at": "",
+      "step_key": "amd-spec-decode-speculators-mtp"
+    },
     "7fab003f795206f5e9e2": {
       "bad_build_number": 83580,
       "bad_commit": "b745d08de14fddf0cbb843c686b5d335f7d658cc",
@@ -685,6 +937,41 @@
       "retry_evidence": {},
       "started_at": "2026-08-12T19:00:57.352Z",
       "step_key": "language-models-tests-hybrid"
+    },
+    "8048d8337093263ea49e": {
+      "bad_build_number": 83594,
+      "bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "bisect_command": "git bisect start 19d61b1273a56e0ebd8a9160bffb2e75dccad82b 324f452f640015e9616b5ad5615fae6c25eb6353",
+      "build_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "build_message": "[Bugfix] Initialize DeepGemmQuantScaleFMT oracle lazily; bound QuantFP8 UE8M0 packed path to group_size 128 (#51359)\n\nSigned-off-by: BabyDrangoner <148877251+BabyDrangoner@users.noreply.github.com>\nSigned-off-by: kiroxu <148877251+BabyDrangoner@users.noreply.github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>\nCo-authored-by: Wentao Ye <44945378+yewentao256@users.noreply.github.com>\nCo-authored-by: mergify[bot] <37929162+mergify[bot]@users.noreply.github.com>",
+      "build_number": 83594,
+      "build_url": "https://buildkite.com/vllm/ci/builds/83594",
+      "commit_range_status": "candidate",
+      "compare_url": "https://github.com/vllm-project/vllm/compare/324f452f640015e9616b5ad5615fae6c25eb6353...19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "finished_at": "2026-08-12T18:36:41.617Z",
+      "good_build_number": 83576,
+      "good_commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
+      "group_id": "8048d8337093263ea49e",
+      "hardware": "mi300",
+      "job_id": "019ff742-a671-40b6-b823-024c19c0ebe4",
+      "job_url": "https://buildkite.com/vllm/ci/builds/83594/steps/canvas?jid=019ff742-a671-40b6-b823-024c19c0ebe4&tab=output",
+      "latest_bad_build_number": 83594,
+      "latest_bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "name": "AMD: LM Eval Small Models (mi300_1)",
+      "observed_at": "2026-08-12T18:36:41.617Z",
+      "queue": "amd_mi300_1",
+      "raw_name": "AMD: LM Eval Small Models (mi300_1)",
+      "result": "failed",
+      "retry_evidence": {
+        "job_id": "019ff742-a671-40b6-b823-024c19c0ebe4",
+        "retries_count": 1,
+        "retry_source": {
+          "job_id": "019ff73c-69ff-4cfe-bf5c-9cc91a1e2ace",
+          "retry_type": "automatic"
+        }
+      },
+      "started_at": "",
+      "step_key": "amd-lm-eval-small-models"
     },
     "8189c25998e493f13bb9": {
       "bad_build_number": 83539,
@@ -714,6 +1001,41 @@
       "started_at": "2026-08-12T10:35:15.628Z",
       "step_key": "dp-ep-distributed-nixlconnector-pd-accuracy-tests-4-gpus"
     },
+    "824f9a50f174c144400d": {
+      "bad_build_number": 83594,
+      "bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "bisect_command": "git bisect start 19d61b1273a56e0ebd8a9160bffb2e75dccad82b 324f452f640015e9616b5ad5615fae6c25eb6353",
+      "build_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "build_message": "[Bugfix] Initialize DeepGemmQuantScaleFMT oracle lazily; bound QuantFP8 UE8M0 packed path to group_size 128 (#51359)\n\nSigned-off-by: BabyDrangoner <148877251+BabyDrangoner@users.noreply.github.com>\nSigned-off-by: kiroxu <148877251+BabyDrangoner@users.noreply.github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>\nCo-authored-by: Wentao Ye <44945378+yewentao256@users.noreply.github.com>\nCo-authored-by: mergify[bot] <37929162+mergify[bot]@users.noreply.github.com>",
+      "build_number": 83594,
+      "build_url": "https://buildkite.com/vllm/ci/builds/83594",
+      "commit_range_status": "candidate",
+      "compare_url": "https://github.com/vllm-project/vllm/compare/324f452f640015e9616b5ad5615fae6c25eb6353...19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "finished_at": "2026-08-12T18:36:38.835Z",
+      "good_build_number": 83576,
+      "good_commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
+      "group_id": "824f9a50f174c144400d",
+      "hardware": "mi300",
+      "job_id": "019ff742-9d8b-45d5-b42f-0f299a299635",
+      "job_url": "https://buildkite.com/vllm/ci/builds/83594/steps/canvas?jid=019ff742-9d8b-45d5-b42f-0f299a299635&tab=output",
+      "latest_bad_build_number": 83594,
+      "latest_bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "name": "AMD: Model Executor (mi300_1)",
+      "observed_at": "2026-08-12T18:36:38.835Z",
+      "queue": "amd_mi300_1",
+      "raw_name": "AMD: Model Executor (mi300_1)",
+      "result": "failed",
+      "retry_evidence": {
+        "job_id": "019ff742-9d8b-45d5-b42f-0f299a299635",
+        "retries_count": 1,
+        "retry_source": {
+          "job_id": "019ff73c-6a02-484a-8904-50eeeaef3732",
+          "retry_type": "automatic"
+        }
+      },
+      "started_at": "",
+      "step_key": "amd-model-executor"
+    },
     "86cbc2fc752e89147dbd": {
       "bad_build_number": 83211,
       "bad_commit": "635dd6aae656f3b47d174461f34d3de799f2dc94",
@@ -741,6 +1063,41 @@
       "retry_evidence": {},
       "started_at": "",
       "step_key": "intel-hpu-test"
+    },
+    "88165394ca4b1f8b4a7f": {
+      "bad_build_number": 83594,
+      "bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "bisect_command": "git bisect start 19d61b1273a56e0ebd8a9160bffb2e75dccad82b 324f452f640015e9616b5ad5615fae6c25eb6353",
+      "build_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "build_message": "[Bugfix] Initialize DeepGemmQuantScaleFMT oracle lazily; bound QuantFP8 UE8M0 packed path to group_size 128 (#51359)\n\nSigned-off-by: BabyDrangoner <148877251+BabyDrangoner@users.noreply.github.com>\nSigned-off-by: kiroxu <148877251+BabyDrangoner@users.noreply.github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>\nCo-authored-by: Wentao Ye <44945378+yewentao256@users.noreply.github.com>\nCo-authored-by: mergify[bot] <37929162+mergify[bot]@users.noreply.github.com>",
+      "build_number": 83594,
+      "build_url": "https://buildkite.com/vllm/ci/builds/83594",
+      "commit_range_status": "candidate",
+      "compare_url": "https://github.com/vllm-project/vllm/compare/324f452f640015e9616b5ad5615fae6c25eb6353...19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "finished_at": "2026-08-12T18:36:38.388Z",
+      "good_build_number": 83576,
+      "good_commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
+      "group_id": "88165394ca4b1f8b4a7f",
+      "hardware": "mi300",
+      "job_id": "019ff742-9aa1-4c93-ae98-d960f0183376",
+      "job_url": "https://buildkite.com/vllm/ci/builds/83594/steps/canvas?jid=019ff742-9aa1-4c93-ae98-d960f0183376&tab=output",
+      "latest_bad_build_number": 83594,
+      "latest_bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "name": "AMD: V1 Core + KV + Metrics (mi300_1)",
+      "observed_at": "2026-08-12T18:36:38.388Z",
+      "queue": "amd_mi300_1",
+      "raw_name": "AMD: V1 Core + KV + Metrics (mi300_1)",
+      "result": "failed",
+      "retry_evidence": {
+        "job_id": "019ff742-9aa1-4c93-ae98-d960f0183376",
+        "retries_count": 1,
+        "retry_source": {
+          "job_id": "019ff73c-6a02-48a7-be5f-a0c2d3ce84ce",
+          "retry_type": "automatic"
+        }
+      },
+      "started_at": "",
+      "step_key": "amd-v1-core-kv-metrics"
     },
     "88e24bf17d938c630f5e": {
       "bad_build_number": 81236,
@@ -797,6 +1154,111 @@
       "retry_evidence": {},
       "started_at": "2026-08-12T19:00:58.450Z",
       "step_key": "language-models-tests-hybrid"
+    },
+    "8bf835946dd1bba78dc4": {
+      "bad_build_number": 83594,
+      "bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "bisect_command": "git bisect start 19d61b1273a56e0ebd8a9160bffb2e75dccad82b 324f452f640015e9616b5ad5615fae6c25eb6353",
+      "build_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "build_message": "[Bugfix] Initialize DeepGemmQuantScaleFMT oracle lazily; bound QuantFP8 UE8M0 packed path to group_size 128 (#51359)\n\nSigned-off-by: BabyDrangoner <148877251+BabyDrangoner@users.noreply.github.com>\nSigned-off-by: kiroxu <148877251+BabyDrangoner@users.noreply.github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>\nCo-authored-by: Wentao Ye <44945378+yewentao256@users.noreply.github.com>\nCo-authored-by: mergify[bot] <37929162+mergify[bot]@users.noreply.github.com>",
+      "build_number": 83594,
+      "build_url": "https://buildkite.com/vllm/ci/builds/83594",
+      "commit_range_status": "candidate",
+      "compare_url": "https://github.com/vllm-project/vllm/compare/324f452f640015e9616b5ad5615fae6c25eb6353...19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "finished_at": "2026-08-12T18:36:56.775Z",
+      "good_build_number": 83576,
+      "good_commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
+      "group_id": "8bf835946dd1bba78dc4",
+      "hardware": "mi300",
+      "job_id": "019ff742-d0af-42ea-9b8f-268a46efbca8",
+      "job_url": "https://buildkite.com/vllm/ci/builds/83594/steps/canvas?jid=019ff742-d0af-42ea-9b8f-268a46efbca8&tab=output",
+      "latest_bad_build_number": 83594,
+      "latest_bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "name": "AMD: Engine (mi300_1)",
+      "observed_at": "2026-08-12T18:36:56.775Z",
+      "queue": "amd_mi300_1",
+      "raw_name": "AMD: Engine (mi300_1)",
+      "result": "failed",
+      "retry_evidence": {
+        "job_id": "019ff742-d0af-42ea-9b8f-268a46efbca8",
+        "retries_count": 1,
+        "retry_source": {
+          "job_id": "019ff73c-69f1-4d74-b6ac-7107298a4729",
+          "retry_type": "automatic"
+        }
+      },
+      "started_at": "",
+      "step_key": "amd-engine"
+    },
+    "8ca21c8d3f5577b2ebc4": {
+      "bad_build_number": 83594,
+      "bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "bisect_command": "git bisect start 19d61b1273a56e0ebd8a9160bffb2e75dccad82b 324f452f640015e9616b5ad5615fae6c25eb6353",
+      "build_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "build_message": "[Bugfix] Initialize DeepGemmQuantScaleFMT oracle lazily; bound QuantFP8 UE8M0 packed path to group_size 128 (#51359)\n\nSigned-off-by: BabyDrangoner <148877251+BabyDrangoner@users.noreply.github.com>\nSigned-off-by: kiroxu <148877251+BabyDrangoner@users.noreply.github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>\nCo-authored-by: Wentao Ye <44945378+yewentao256@users.noreply.github.com>\nCo-authored-by: mergify[bot] <37929162+mergify[bot]@users.noreply.github.com>",
+      "build_number": 83594,
+      "build_url": "https://buildkite.com/vllm/ci/builds/83594",
+      "commit_range_status": "candidate",
+      "compare_url": "https://github.com/vllm-project/vllm/compare/324f452f640015e9616b5ad5615fae6c25eb6353...19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "finished_at": "2026-08-12T18:36:42.221Z",
+      "good_build_number": 83576,
+      "good_commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
+      "group_id": "8ca21c8d3f5577b2ebc4",
+      "hardware": "mi300",
+      "job_id": "019ff742-a7d5-458f-bfac-c970328671ea",
+      "job_url": "https://buildkite.com/vllm/ci/builds/83594/steps/canvas?jid=019ff742-a7d5-458f-bfac-c970328671ea&tab=output",
+      "latest_bad_build_number": 83594,
+      "latest_bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "name": "AMD: V1 Sample + Logits (mi300_1)",
+      "observed_at": "2026-08-12T18:36:42.221Z",
+      "queue": "amd_mi300_1",
+      "raw_name": "AMD: V1 Sample + Logits (mi300_1)",
+      "result": "failed",
+      "retry_evidence": {
+        "job_id": "019ff742-a7d5-458f-bfac-c970328671ea",
+        "retries_count": 1,
+        "retry_source": {
+          "job_id": "019ff73c-6a02-4ac2-8528-8d1c40abf605",
+          "retry_type": "automatic"
+        }
+      },
+      "started_at": "",
+      "step_key": "amd-v1-sample-logits"
+    },
+    "8d77b3767fd088b183a5": {
+      "bad_build_number": 83594,
+      "bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "bisect_command": "git bisect start 19d61b1273a56e0ebd8a9160bffb2e75dccad82b 324f452f640015e9616b5ad5615fae6c25eb6353",
+      "build_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "build_message": "[Bugfix] Initialize DeepGemmQuantScaleFMT oracle lazily; bound QuantFP8 UE8M0 packed path to group_size 128 (#51359)\n\nSigned-off-by: BabyDrangoner <148877251+BabyDrangoner@users.noreply.github.com>\nSigned-off-by: kiroxu <148877251+BabyDrangoner@users.noreply.github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>\nCo-authored-by: Wentao Ye <44945378+yewentao256@users.noreply.github.com>\nCo-authored-by: mergify[bot] <37929162+mergify[bot]@users.noreply.github.com>",
+      "build_number": 83594,
+      "build_url": "https://buildkite.com/vllm/ci/builds/83594",
+      "commit_range_status": "candidate",
+      "compare_url": "https://github.com/vllm-project/vllm/compare/324f452f640015e9616b5ad5615fae6c25eb6353...19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "finished_at": "2026-08-12T18:36:58.627Z",
+      "good_build_number": 83576,
+      "good_commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
+      "group_id": "8d77b3767fd088b183a5",
+      "hardware": "mi300",
+      "job_id": "019ff742-cd5c-4735-b144-9be6a5ca4721",
+      "job_url": "https://buildkite.com/vllm/ci/builds/83594/steps/canvas?jid=019ff742-cd5c-4735-b144-9be6a5ca4721&tab=output",
+      "latest_bad_build_number": 83594,
+      "latest_bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "name": "AMD: Kernels Quantization Test 1 (mi300_1)",
+      "observed_at": "2026-08-12T18:36:58.627Z",
+      "queue": "amd_mi300_1",
+      "raw_name": "AMD: Kernels Quantization Test 1 (mi300_1)",
+      "result": "failed",
+      "retry_evidence": {
+        "job_id": "019ff742-cd5c-4735-b144-9be6a5ca4721",
+        "retries_count": 1,
+        "retry_source": {
+          "job_id": "019ff73c-69fb-437e-b048-b86096c059ce",
+          "retry_type": "automatic"
+        }
+      },
+      "started_at": "",
+      "step_key": "amd-kernels-quantization-test"
     },
     "98c8fe8bf8aca5f965a1": {
       "bad_build_number": 83539,
@@ -882,6 +1344,41 @@
       "started_at": "2026-08-12T19:00:57.390Z",
       "step_key": "entrypoints-integration-multimodal"
     },
+    "b1028e9754b3dd7bfedc": {
+      "bad_build_number": 83594,
+      "bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "bisect_command": "git bisect start 19d61b1273a56e0ebd8a9160bffb2e75dccad82b 324f452f640015e9616b5ad5615fae6c25eb6353",
+      "build_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "build_message": "[Bugfix] Initialize DeepGemmQuantScaleFMT oracle lazily; bound QuantFP8 UE8M0 packed path to group_size 128 (#51359)\n\nSigned-off-by: BabyDrangoner <148877251+BabyDrangoner@users.noreply.github.com>\nSigned-off-by: kiroxu <148877251+BabyDrangoner@users.noreply.github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>\nCo-authored-by: Wentao Ye <44945378+yewentao256@users.noreply.github.com>\nCo-authored-by: mergify[bot] <37929162+mergify[bot]@users.noreply.github.com>",
+      "build_number": 83594,
+      "build_url": "https://buildkite.com/vllm/ci/builds/83594",
+      "commit_range_status": "candidate",
+      "compare_url": "https://github.com/vllm-project/vllm/compare/324f452f640015e9616b5ad5615fae6c25eb6353...19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "finished_at": "2026-08-12T18:36:36.747Z",
+      "good_build_number": 83576,
+      "good_commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
+      "group_id": "b1028e9754b3dd7bfedc",
+      "hardware": "mi300",
+      "job_id": "019ff742-9950-4e3f-8126-c30f97f91288",
+      "job_url": "https://buildkite.com/vllm/ci/builds/83594/steps/canvas?jid=019ff742-9950-4e3f-8126-c30f97f91288&tab=output",
+      "latest_bad_build_number": 83594,
+      "latest_bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "name": "AMD: Language Models Tests (Extra Standard) 2 (mi300_1)",
+      "observed_at": "2026-08-12T18:36:36.747Z",
+      "queue": "amd_mi300_1",
+      "raw_name": "AMD: Language Models Tests (Extra Standard) 2 (mi300_1)",
+      "result": "failed",
+      "retry_evidence": {
+        "job_id": "019ff742-9950-4e3f-8126-c30f97f91288",
+        "retries_count": 1,
+        "retry_source": {
+          "job_id": "019ff73c-6a03-48fd-bc72-185bdd4ada14",
+          "retry_type": "automatic"
+        }
+      },
+      "started_at": "",
+      "step_key": "amd-language-models-tests-extra-standard"
+    },
     "d4c8574e1ad2b7cdf018": {
       "bad_build_number": 83539,
       "bad_commit": "6accb779a361c723cded3f9422b48d3fe4da0901",
@@ -909,14 +1406,49 @@
       "retry_evidence": {},
       "started_at": "2026-08-12T10:15:21.822Z",
       "step_key": "docker-build-metadata"
+    },
+    "e599b4fce1b26223d2de": {
+      "bad_build_number": 83594,
+      "bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "bisect_command": "git bisect start 19d61b1273a56e0ebd8a9160bffb2e75dccad82b 324f452f640015e9616b5ad5615fae6c25eb6353",
+      "build_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "build_message": "[Bugfix] Initialize DeepGemmQuantScaleFMT oracle lazily; bound QuantFP8 UE8M0 packed path to group_size 128 (#51359)\n\nSigned-off-by: BabyDrangoner <148877251+BabyDrangoner@users.noreply.github.com>\nSigned-off-by: kiroxu <148877251+BabyDrangoner@users.noreply.github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>\nCo-authored-by: Wentao Ye <44945378+yewentao256@users.noreply.github.com>\nCo-authored-by: mergify[bot] <37929162+mergify[bot]@users.noreply.github.com>",
+      "build_number": 83594,
+      "build_url": "https://buildkite.com/vllm/ci/builds/83594",
+      "commit_range_status": "candidate",
+      "compare_url": "https://github.com/vllm-project/vllm/compare/324f452f640015e9616b5ad5615fae6c25eb6353...19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "finished_at": "2026-08-12T18:36:43.710Z",
+      "good_build_number": 83576,
+      "good_commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
+      "group_id": "e599b4fce1b26223d2de",
+      "hardware": "mi300",
+      "job_id": "019ff742-aa86-4d1c-a751-2a5acfea33ea",
+      "job_url": "https://buildkite.com/vllm/ci/builds/83594/steps/canvas?jid=019ff742-aa86-4d1c-a751-2a5acfea33ea&tab=output",
+      "latest_bad_build_number": 83594,
+      "latest_bad_commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "name": "AMD: Spec Decode Eagle 2: Llama 3 + Qwen VL + Other (mi300_1)",
+      "observed_at": "2026-08-12T18:36:43.710Z",
+      "queue": "amd_mi300_1",
+      "raw_name": "AMD: Spec Decode Eagle 2: Llama 3 + Qwen VL + Other (mi300_1)",
+      "result": "failed",
+      "retry_evidence": {
+        "job_id": "019ff742-aa86-4d1c-a751-2a5acfea33ea",
+        "retries_count": 1,
+        "retry_source": {
+          "job_id": "019ff73c-6a10-42e5-8852-fa8d8689e576",
+          "retry_type": "automatic"
+        }
+      },
+      "started_at": "",
+      "step_key": "amd-spec-decode-eagle-2-llama3-qwen-vl-other"
     }
   },
   "group_watermarks": {
     "0004604eb558ff8820f8": {
-      "build_number": 83539,
-      "commit": "6accb779a361c723cded3f9422b48d3fe4da0901",
-      "created_at": "2026-08-12T10:00:08.427Z",
-      "finished_at": "2026-08-12T20:05:31.681Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "00d17b1851db4bd12f1d": {
@@ -1032,10 +1564,10 @@
       "result": "passed"
     },
     "09f0cd85bb32aefe7e2a": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "0ab6837068240e8c35e4": {
@@ -1046,10 +1578,10 @@
       "result": "passed"
     },
     "0abfcd06cdffdc8c5333": {
-      "build_number": 83539,
-      "commit": "6accb779a361c723cded3f9422b48d3fe4da0901",
-      "created_at": "2026-08-12T10:00:08.427Z",
-      "finished_at": "2026-08-12T20:05:31.681Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "0bbbe914a8f1e8c4044e": {
@@ -1193,11 +1725,11 @@
       "result": "passed"
     },
     "11f203a606a96dd5d3cd": {
-      "build_number": 83576,
-      "commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
-      "created_at": "2026-08-12T16:26:20.561Z",
-      "finished_at": "2026-08-12T20:19:53.735Z",
-      "result": "passed"
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
+      "result": "failed"
     },
     "1231c9575c06080ef3d2": {
       "build_number": 82821,
@@ -1298,10 +1830,10 @@
       "result": "passed"
     },
     "177a061cf0532973e88a": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "187178ef778a98f96816": {
@@ -1333,11 +1865,11 @@
       "result": "passed"
     },
     "1d04d849f0aa6713e42f": {
-      "build_number": 83576,
-      "commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
-      "created_at": "2026-08-12T16:26:20.561Z",
-      "finished_at": "2026-08-12T20:19:53.735Z",
-      "result": "passed"
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
+      "result": "failed"
     },
     "1d615f1d80bb963f50dc": {
       "build_number": 83595,
@@ -1515,11 +2047,11 @@
       "result": "passed"
     },
     "2b53d035e972888256d1": {
-      "build_number": 83576,
-      "commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
-      "created_at": "2026-08-12T16:26:20.561Z",
-      "finished_at": "2026-08-12T20:19:53.735Z",
-      "result": "passed"
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
+      "result": "failed"
     },
     "2b69d8dc31fd1c25b35e": {
       "build_number": 83539,
@@ -1571,11 +2103,11 @@
       "result": "passed"
     },
     "2e183f626aef004fa237": {
-      "build_number": 83576,
-      "commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
-      "created_at": "2026-08-12T16:26:20.561Z",
-      "finished_at": "2026-08-12T20:19:53.735Z",
-      "result": "passed"
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
+      "result": "failed"
     },
     "2ea207fb9157cfd5fe2a": {
       "build_number": 83595,
@@ -1599,10 +2131,10 @@
       "result": "passed"
     },
     "3026ed4c06614d3d0870": {
-      "build_number": 83543,
-      "commit": "e60f3c4c137f23bb870524b937719d24bde8715b",
-      "created_at": "2026-08-12T10:52:33.809Z",
-      "finished_at": "2026-08-12T12:06:16.689Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "3043e0f480048d842d34": {
@@ -1690,11 +2222,11 @@
       "result": "passed"
     },
     "395971a676ddc5ac8083": {
-      "build_number": 83543,
-      "commit": "e60f3c4c137f23bb870524b937719d24bde8715b",
-      "created_at": "2026-08-12T10:52:33.809Z",
-      "finished_at": "2026-08-12T12:06:16.689Z",
-      "result": "failed"
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
+      "result": "passed"
     },
     "3a43ef44f6a8c3648444": {
       "build_number": 79814,
@@ -1746,10 +2278,10 @@
       "result": "passed"
     },
     "3e29e6275df1148a87bd": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "3e53eb6b4939d3ac38a8": {
@@ -1879,11 +2411,11 @@
       "result": "passed"
     },
     "48d8265676f6aacb4a50": {
-      "build_number": 83576,
-      "commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
-      "created_at": "2026-08-12T16:26:20.561Z",
-      "finished_at": "2026-08-12T20:19:53.735Z",
-      "result": "passed"
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
+      "result": "failed"
     },
     "49072f4eccccbfa55e6d": {
       "build_number": 83595,
@@ -1907,10 +2439,10 @@
       "result": "passed"
     },
     "494fa173cdb04b280810": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "4adb2fd329c2141a3ec7": {
@@ -1998,10 +2530,10 @@
       "result": "passed"
     },
     "51cf2b64efbae867fb5d": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "52638c030c41ac53ff2b": {
@@ -2075,10 +2607,10 @@
       "result": "passed"
     },
     "563cb504d143a33cc800": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "5657ddeaac0cd9cd6022": {
@@ -2117,11 +2649,11 @@
       "result": "passed"
     },
     "5adf80ea3b97cd67c0de": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
-      "result": "failed"
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
+      "result": "passed"
     },
     "5af2a5f14371cab44cb8": {
       "build_number": 78781,
@@ -2138,10 +2670,10 @@
       "result": "passed"
     },
     "5b2d086b31d2ee83ffa1": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "5b30ed1663cb79df343c": {
@@ -2222,10 +2754,10 @@
       "result": "passed"
     },
     "607fa33ce7289df01dd3": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "60d757afc118ef41f772": {
@@ -2250,11 +2782,11 @@
       "result": "failed"
     },
     "6316f2304d46bd269fa1": {
-      "build_number": 83576,
-      "commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
-      "created_at": "2026-08-12T16:26:20.561Z",
-      "finished_at": "2026-08-12T20:19:53.735Z",
-      "result": "passed"
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
+      "result": "failed"
     },
     "634a0791fd207f6a14ea": {
       "build_number": 79814,
@@ -2299,17 +2831,17 @@
       "result": "passed"
     },
     "68af80c536ed1546c955": {
-      "build_number": 83587,
-      "commit": "d20a031d33fb8d56cfe090681872319544040da7",
-      "created_at": "2026-08-12T17:45:48.356Z",
-      "finished_at": "2026-08-12T18:34:02.048Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "68d4764212b3bd6be233": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "6a87e245656be1dfa20e": {
@@ -2327,10 +2859,10 @@
       "result": "passed"
     },
     "6abe56255d0002d65270": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "6aefb9a0d9d4baf32f1d": {
@@ -2341,11 +2873,11 @@
       "result": "passed"
     },
     "6af2e7f367726f900423": {
-      "build_number": 83576,
-      "commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
-      "created_at": "2026-08-12T16:26:20.561Z",
-      "finished_at": "2026-08-12T20:19:53.735Z",
-      "result": "passed"
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
+      "result": "failed"
     },
     "6b24754036ed69fdc555": {
       "build_number": 83539,
@@ -2369,10 +2901,10 @@
       "result": "passed"
     },
     "6de0ca0d2a244db1f9e7": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "6e0e0e3ba8595c19056b": {
@@ -2432,11 +2964,11 @@
       "result": "passed"
     },
     "70739c76a07008487e26": {
-      "build_number": 83576,
-      "commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
-      "created_at": "2026-08-12T16:26:20.561Z",
-      "finished_at": "2026-08-12T20:19:53.735Z",
-      "result": "passed"
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
+      "result": "failed"
     },
     "70e34285772d163aa0ee": {
       "build_number": 83539,
@@ -2467,10 +2999,10 @@
       "result": "passed"
     },
     "71acba22a4fdcd74c924": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "7218283dc57c93878dd7": {
@@ -2502,11 +3034,11 @@
       "result": "passed"
     },
     "733a4255e8874114c829": {
-      "build_number": 83576,
-      "commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
-      "created_at": "2026-08-12T16:26:20.561Z",
-      "finished_at": "2026-08-12T20:19:53.735Z",
-      "result": "passed"
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
+      "result": "failed"
     },
     "7385894dfb18a3dde423": {
       "build_number": 82823,
@@ -2516,10 +3048,10 @@
       "result": "passed"
     },
     "73af3d7df66623ab686d": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "750faaa07f4155aa04f0": {
@@ -2586,10 +3118,10 @@
       "result": "passed"
     },
     "79fb5fd846aa3c1ad1fa": {
-      "build_number": 83543,
-      "commit": "e60f3c4c137f23bb870524b937719d24bde8715b",
-      "created_at": "2026-08-12T10:52:33.809Z",
-      "finished_at": "2026-08-12T12:06:16.689Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "7a0a241661d7c988c068": {
@@ -2663,11 +3195,11 @@
       "result": "failed"
     },
     "8048d8337093263ea49e": {
-      "build_number": 83576,
-      "commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
-      "created_at": "2026-08-12T16:26:20.561Z",
-      "finished_at": "2026-08-12T20:19:53.735Z",
-      "result": "passed"
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
+      "result": "failed"
     },
     "80626244187805b6e6a5": {
       "build_number": 83539,
@@ -2705,11 +3237,11 @@
       "result": "passed"
     },
     "824f9a50f174c144400d": {
-      "build_number": 83576,
-      "commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
-      "created_at": "2026-08-12T16:26:20.561Z",
-      "finished_at": "2026-08-12T20:19:53.735Z",
-      "result": "passed"
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
+      "result": "failed"
     },
     "82e092b9e6f854d15c24": {
       "build_number": 83198,
@@ -2719,10 +3251,10 @@
       "result": "passed"
     },
     "82fa61abb2fc78d3d2cd": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "831d91c5219a69a0669e": {
@@ -2761,10 +3293,10 @@
       "result": "passed"
     },
     "86512336788e47ec9491": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "866f9210aff61903b4da": {
@@ -2796,11 +3328,11 @@
       "result": "passed"
     },
     "88165394ca4b1f8b4a7f": {
-      "build_number": 83576,
-      "commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
-      "created_at": "2026-08-12T16:26:20.561Z",
-      "finished_at": "2026-08-12T20:19:53.735Z",
-      "result": "passed"
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
+      "result": "failed"
     },
     "882c9cac3acc64eb0d7a": {
       "build_number": 83539,
@@ -2873,18 +3405,18 @@
       "result": "passed"
     },
     "8bf835946dd1bba78dc4": {
-      "build_number": 83576,
-      "commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
-      "created_at": "2026-08-12T16:26:20.561Z",
-      "finished_at": "2026-08-12T20:19:53.735Z",
-      "result": "passed"
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
+      "result": "failed"
     },
     "8ca21c8d3f5577b2ebc4": {
-      "build_number": 83576,
-      "commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
-      "created_at": "2026-08-12T16:26:20.561Z",
-      "finished_at": "2026-08-12T20:19:53.735Z",
-      "result": "passed"
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
+      "result": "failed"
     },
     "8cc968a6951e2540ffc1": {
       "build_number": 78781,
@@ -2894,11 +3426,11 @@
       "result": "passed"
     },
     "8d77b3767fd088b183a5": {
-      "build_number": 83576,
-      "commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
-      "created_at": "2026-08-12T16:26:20.561Z",
-      "finished_at": "2026-08-12T20:19:53.735Z",
-      "result": "passed"
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
+      "result": "failed"
     },
     "8d94abc4192013e71b78": {
       "build_number": 82821,
@@ -2978,10 +3510,10 @@
       "result": "passed"
     },
     "968350f9bd6eec0040c6": {
-      "build_number": 83539,
-      "commit": "6accb779a361c723cded3f9422b48d3fe4da0901",
-      "created_at": "2026-08-12T10:00:08.427Z",
-      "finished_at": "2026-08-12T20:05:31.681Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "969cc28e57330e8cd249": {
@@ -3237,10 +3769,10 @@
       "result": "passed"
     },
     "a6ecfc996f494eeb282e": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "a763628063c1cb171ecd": {
@@ -3272,10 +3804,10 @@
       "result": "passed"
     },
     "a7fda2f92dde3fbd896d": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "a828d771d00fa76ac7b0": {
@@ -3286,10 +3818,10 @@
       "result": "passed"
     },
     "a8ba57c21806d5335a3f": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "aa7c156d6a7d05f01afd": {
@@ -3321,10 +3853,10 @@
       "result": "passed"
     },
     "ac1dd1d5be94fa69073a": {
-      "build_number": 83576,
-      "commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
-      "created_at": "2026-08-12T16:26:20.561Z",
-      "finished_at": "2026-08-12T20:19:53.735Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "ac36d174063cbbea9ae3": {
@@ -3384,11 +3916,11 @@
       "result": "passed"
     },
     "b1028e9754b3dd7bfedc": {
-      "build_number": 83576,
-      "commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
-      "created_at": "2026-08-12T16:26:20.561Z",
-      "finished_at": "2026-08-12T20:19:53.735Z",
-      "result": "passed"
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
+      "result": "failed"
     },
     "b14efa8269889610804d": {
       "build_number": 82382,
@@ -3447,10 +3979,10 @@
       "result": "passed"
     },
     "b4dcd7170555ef2fc131": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "b6420f7cc46a0fae50bb": {
@@ -3594,10 +4126,10 @@
       "result": "passed"
     },
     "c26666015c669f5361b5": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "c2fa4ee0f250148905d5": {
@@ -3629,10 +4161,10 @@
       "result": "passed"
     },
     "c6330e63ab71ec0aedd0": {
-      "build_number": 83543,
-      "commit": "e60f3c4c137f23bb870524b937719d24bde8715b",
-      "created_at": "2026-08-12T10:52:33.809Z",
-      "finished_at": "2026-08-12T12:06:16.689Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "c68031d622798d19b56a": {
@@ -3643,10 +4175,10 @@
       "result": "passed"
     },
     "c6a461007ca821ce0d3d": {
-      "build_number": 83543,
-      "commit": "e60f3c4c137f23bb870524b937719d24bde8715b",
-      "created_at": "2026-08-12T10:52:33.809Z",
-      "finished_at": "2026-08-12T12:06:16.689Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "c8b379da084e0cb9f30c": {
@@ -3811,10 +4343,10 @@
       "result": "passed"
     },
     "d2e67dbd00f3f93019f6": {
-      "build_number": 83587,
-      "commit": "d20a031d33fb8d56cfe090681872319544040da7",
-      "created_at": "2026-08-12T17:45:48.356Z",
-      "finished_at": "2026-08-12T18:34:02.048Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "d305c4a0c4e74c84ded2": {
@@ -3846,10 +4378,10 @@
       "result": "passed"
     },
     "d46938e9f73d362f4e87": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "d4c8574e1ad2b7cdf018": {
@@ -3944,10 +4476,10 @@
       "result": "passed"
     },
     "dd5cab4a8a5127415e92": {
-      "build_number": 83569,
-      "commit": "9035151d6c9fb726181469f9e6aa9ccbf9a5dacb",
-      "created_at": "2026-08-12T15:13:23.822Z",
-      "finished_at": "2026-08-12T19:29:30.954Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "de26e42e45a845a9b762": {
@@ -4014,11 +4546,11 @@
       "result": "passed"
     },
     "e599b4fce1b26223d2de": {
-      "build_number": 83576,
-      "commit": "324f452f640015e9616b5ad5615fae6c25eb6353",
-      "created_at": "2026-08-12T16:26:20.561Z",
-      "finished_at": "2026-08-12T20:19:53.735Z",
-      "result": "passed"
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
+      "result": "failed"
     },
     "e5abc66fe8c4639afaaf": {
       "build_number": 83539,
@@ -4091,10 +4623,10 @@
       "result": "passed"
     },
     "ec9d26cc1b02ad111656": {
-      "build_number": 83543,
-      "commit": "e60f3c4c137f23bb870524b937719d24bde8715b",
-      "created_at": "2026-08-12T10:52:33.809Z",
-      "finished_at": "2026-08-12T12:06:16.689Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "ecabd159c1298ee69367": {
@@ -4119,10 +4651,10 @@
       "result": "passed"
     },
     "ee5bab52bf17f01a5ece": {
-      "build_number": 83543,
-      "commit": "e60f3c4c137f23bb870524b937719d24bde8715b",
-      "created_at": "2026-08-12T10:52:33.809Z",
-      "finished_at": "2026-08-12T12:06:16.689Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "ee7e2d40b26d8eaf7e87": {
@@ -4231,10 +4763,10 @@
       "result": "passed"
     },
     "f6cd91744800504d5174": {
-      "build_number": 83539,
-      "commit": "6accb779a361c723cded3f9422b48d3fe4da0901",
-      "created_at": "2026-08-12T10:00:08.427Z",
-      "finished_at": "2026-08-12T20:05:31.681Z",
+      "build_number": 83594,
+      "commit": "19d61b1273a56e0ebd8a9160bffb2e75dccad82b",
+      "created_at": "2026-08-12T18:27:53.620Z",
+      "finished_at": "2026-08-12T21:19:31.838Z",
       "result": "passed"
     },
     "f7271b5268ff4709d12b": {
@@ -4369,10 +4901,9 @@
     "number": 395,
     "opened_at": "2026-08-07T20:10:17Z"
   },
-  "last_fingerprint": "1c7ef808bcaf3f7faa21eb91bf6f2eb2614fcf39ba0cd2ae99f9901ec46b0202",
-  "last_run": "2026-08-12T21:08:51Z",
+  "last_fingerprint": "1b32bf9f6bfd1a6f80b7c1f597f70149f1bbe24f4f58353b325b9f2359229906",
+  "last_run": "2026-08-12T22:09:30Z",
   "processed_build_numbers": [
-    77904,
     77924,
     77925,
     77930,
@@ -5642,8 +6173,10 @@
     83580,
     83585,
     83587,
+    83594,
     83595,
-    83604
+    83604,
+    83612
   ],
   "schema_version": 1,
   "suppressed": false,
