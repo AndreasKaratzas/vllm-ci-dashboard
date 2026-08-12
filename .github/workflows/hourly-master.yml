@@ -296,6 +296,12 @@ jobs:
             python scripts/vllm/collect_workload_mapping.py \
             --output data/vllm/ci/workload_mapping.json
 
+      - name: Refresh Omni surge heuristic
+        run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          run_surface_collector queue "Omni surge heuristic" \
+            python scripts/vllm/omni_surge_watcher.py --heuristic-only
+
       - name: Collect CI data
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
@@ -600,7 +606,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_RUN_ID: ${{ github.run_id }}
-        run: python scripts/vllm/omni_surge_watcher.py
+        run: python scripts/vllm/omni_surge_watcher.py --issues-only
 
       - name: Watch AMD main test-group failures (open/close issue)
         if: >-
@@ -768,7 +774,6 @@ jobs:
             git add \
               data/vllm/ci/operations_v2.json \
               data/vllm/ci/operations_v2_manifest.json \
-              data/vllm/ci/operations_v2/ \
               data/vllm/ci/queue_history_chart.json \
               data/site/projects.json \
               dashboards/ \

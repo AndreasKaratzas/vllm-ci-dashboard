@@ -22,6 +22,7 @@ remembers which issue tracks the current surge across runs.
 
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import math
@@ -277,6 +278,90 @@ def _derive_heuristic(
     return trigger, healthy, info
 
 
+def _refresh_heuristic() -> tuple[int, int, dict]:
+    """Refresh and persist the heuristic without touching issue state.
+
+    This is deliberately independent from the queue snapshot and issue
+    automation so publication validation can refresh the heuristic before it
+    decides whether the queue surface is usable.
+    """
+    all_groups: list[dict] = []
+    fetched_paths: list[str] = []
+    for path in OMNI_YAML_PATHS:
+        text = _fetch_yaml(path)
+        if not text:
+            continue
+        groups = _parse_test_groups(text)
+        if not groups:
+            log.warning("YAML %s contained no discoverable test groups", path)
+            continue
+        fetched_paths.append(path)
+        all_groups.extend(groups)
+
+    trigger, healthy, info = _derive_heuristic(
+        all_groups,
+        fetched_paths,
+        _read_last_good_heuristic(),
+    )
+    checked_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    info["generated_at"] = checked_at
+    if info["source_status"] == "fresh":
+        info["last_successful_at"] = checked_at
+    else:
+        info.setdefault("last_successful_at", None)
+    HEURISTIC_PATH.parent.mkdir(parents=True, exist_ok=True)
+    HEURISTIC_PATH.write_text(json.dumps(info, indent=2, sort_keys=True))
+    return trigger, healthy, info
+
+
+def _heuristic_is_usable(info: dict) -> bool:
+    """Return whether a refreshed payload is current publication evidence.
+
+    A retained heuristic remains useful to suppress unsafe alert mutations,
+    but it must not make a collection run look current.  Returning nonzero for
+    every incomplete source refresh lets the publication selector quarantine
+    the whole queue transaction under its bounded fallback policy.
+    """
+    try:
+        total = int(info.get("total_groups") or 0)
+        trigger = int(info.get("trigger") or 0)
+        healthy = int(info.get("healthy") or 0)
+    except (TypeError, ValueError):
+        return False
+
+    if (
+        total <= 0
+        or trigger < OMNI_SURGE_FLOOR_TRIGGER
+        or healthy < 0
+        or healthy > trigger
+        or info.get("fallback_floor_used")
+    ):
+        return False
+
+    for field in ("generated_at", "last_successful_at"):
+        value = info.get(field)
+        if not isinstance(value, str) or not value.strip():
+            return False
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        if parsed.tzinfo is None:
+            return False
+
+    configured = info.get("yaml_paths_configured")
+    fetched = info.get("yaml_paths_fetched")
+    return (
+        info.get("source_status") == "fresh"
+        and not info.get("using_last_known_good")
+        and not info.get("mutations_suppressed")
+        and isinstance(configured, list)
+        and bool(configured)
+        and fetched == configured
+        and info.get("yaml_paths_failed") == []
+    )
+
+
 def _current_omni_waiting(snapshot: dict) -> tuple[int, dict]:
     queues = snapshot.get("queues") or {}
     total = 0
@@ -369,7 +454,26 @@ def _close(token: str, repo: str, number: int) -> None:
         log.warning("Close #%d failed: %d", number, resp.status_code)
 
 
-def run() -> int:
+def run(heuristic_only: bool = False, issues_only: bool = False) -> int:
+    if heuristic_only and issues_only:
+        raise ValueError("heuristic-only and issues-only modes are mutually exclusive")
+    if heuristic_only:
+        _, _, info = _refresh_heuristic()
+        if not _heuristic_is_usable(info):
+            log.error(
+                "Omni heuristic refresh produced no auditable usable result "
+                "(source status: %s)",
+                info.get("source_status") or "unknown",
+            )
+            return 1
+        log.info(
+            "Refreshed Omni heuristic only (status=%s, groups=%d, trigger=%d)",
+            info["source_status"],
+            info["total_groups"],
+            info["trigger"],
+        )
+        return 0
+
     token = os.getenv("GITHUB_TOKEN")
     repo = os.getenv("GITHUB_REPOSITORY") or DASHBOARD_REPO
     _validate_target_repo(repo)
@@ -381,34 +485,22 @@ def run() -> int:
         log.warning("No snapshot available; skipping")
         return 0
 
-    # Every configured YAML is part of the test population. Partial discovery
-    # can lower the dynamic threshold, so it is diagnostic-only for this run.
-    all_groups: list[dict] = []
-    fetched_paths: list[str] = []
-    for path in OMNI_YAML_PATHS:
-        text = _fetch_yaml(path)
-        if not text:
-            continue
-        groups = _parse_test_groups(text)
-        if not groups:
-            log.warning("YAML %s contained no discoverable test groups", path)
-            continue
-        fetched_paths.append(path)
-        all_groups.extend(groups)
-
-    trigger, healthy, info = _derive_heuristic(
-        all_groups,
-        fetched_paths,
-        _read_last_good_heuristic(),
-    )
-    checked_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    info["generated_at"] = checked_at
-    if info["source_status"] == "fresh":
-        info["last_successful_at"] = checked_at
+    # The hourly workflow refreshes and validates the heuristic before its
+    # publication boundary, then invokes issues-only mode afterward. Keeping
+    # this phase read-only with respect to the heuristic prevents issue
+    # automation from changing a source file after publication selection.
+    if issues_only:
+        info = _read_last_good_heuristic()
+        if not info or not _heuristic_is_usable(info):
+            log.error("Selected Omni heuristic is not current and usable")
+            return 1
+        trigger = int(info["trigger"])
+        healthy = int(info["healthy"])
     else:
-        info.setdefault("last_successful_at", None)
-    HEURISTIC_PATH.parent.mkdir(parents=True, exist_ok=True)
-    HEURISTIC_PATH.write_text(json.dumps(info, indent=2, sort_keys=True))
+        # Backward-compatible standalone mode refreshes the heuristic and then
+        # performs issue automation in one invocation.
+        trigger, healthy, info = _refresh_heuristic()
+    fetched_paths = info["yaml_paths_fetched"]
 
     waiting, by_queue = _current_omni_waiting(snapshot)
     log.info(
@@ -459,5 +551,22 @@ def run() -> int:
     return 0
 
 
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--heuristic-only",
+        action="store_true",
+        help="refresh only omni_surge_heuristic.json without issue automation",
+    )
+    mode.add_argument(
+        "--issues-only",
+        action="store_true",
+        help="apply issue automation using the already validated heuristic",
+    )
+    args = parser.parse_args(argv)
+    return run(heuristic_only=args.heuristic_only, issues_only=args.issues_only)
+
+
 if __name__ == "__main__":
-    sys.exit(run())
+    sys.exit(main())

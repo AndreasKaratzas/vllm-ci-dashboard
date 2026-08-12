@@ -396,3 +396,180 @@ class TestRun:
         rc = osw.run()
         assert rc == 0
         assert stub_api.opened == []  # only 5 jobs, below trigger
+
+
+class TestHeuristicOnly:
+    @staticmethod
+    def _forbidden(*args, **kwargs):
+        pytest.fail("heuristic-only mode touched issue automation")
+
+    def _forbid_issue_automation(self, monkeypatch):
+        for name in (
+            "_validate_target_repo",
+            "_read_last_snapshot",
+            "_read_state",
+            "_write_state",
+            "_open_issue",
+            "_close",
+            "_comment",
+            "_ensure_owner_assigned",
+        ):
+            monkeypatch.setattr(osw, name, self._forbidden)
+
+    def test_cli_refreshes_only_heuristic(self, isolated_paths, monkeypatch):
+        snapshots, state, heuristic_path = isolated_paths
+        self._forbid_issue_automation(monkeypatch)
+        monkeypatch.setattr(osw, "OMNI_YAML_PATHS", ("ready.yml",), raising=False)
+        monkeypatch.setattr(
+            osw,
+            "_fetch_yaml",
+            lambda path: "steps:\n  - label: ready-test\n",
+        )
+        # Heuristic refresh does not target a repository, so an unrelated repo
+        # value must not enter the issue-automation guard.
+        monkeypatch.setenv("GITHUB_REPOSITORY", "example/unrelated")
+
+        assert osw.main(["--heuristic-only"]) == 0
+
+        assert not snapshots.exists()
+        assert not state.exists()
+        payload = json.loads(heuristic_path.read_text())
+        assert payload["source_status"] == "fresh"
+        assert payload["yaml_paths_fetched"] == ["ready.yml"]
+        assert payload["last_successful_at"] == payload["generated_at"]
+
+    def test_missing_sources_fail_without_last_known_good(
+        self, isolated_paths, monkeypatch
+    ):
+        _, state, heuristic_path = isolated_paths
+        self._forbid_issue_automation(monkeypatch)
+        monkeypatch.setattr(osw, "OMNI_YAML_PATHS", ("ready.yml",), raising=False)
+        monkeypatch.setattr(osw, "_fetch_yaml", lambda path: None)
+
+        assert osw.run(heuristic_only=True) == 1
+
+        assert not state.exists()
+        payload = json.loads(heuristic_path.read_text())
+        assert payload["source_status"] == "unavailable"
+        assert payload["fallback_floor_used"] is True
+        assert payload["mutations_suppressed"] is True
+
+    def test_failed_refresh_retains_diagnostic_but_rejects_last_known_good(
+        self, isolated_paths, monkeypatch
+    ):
+        _, state, heuristic_path = isolated_paths
+        self._forbid_issue_automation(monkeypatch)
+        monkeypatch.setattr(osw, "OMNI_YAML_PATHS", ("ready.yml",), raising=False)
+        monkeypatch.setattr(osw, "_fetch_yaml", lambda path: None)
+        _, _, last_good = osw._compute_trigger(
+            [{"label": f"test-{index}", "agent_pool": "amd"} for index in range(40)]
+        )
+        last_good.update({
+            "generated_at": "2026-08-11T10:00:00Z",
+            "last_successful_at": "2026-08-11T10:00:00Z",
+            "yaml_paths_fetched": ["ready.yml"],
+            "source_status": "fresh",
+            "fallback_floor_used": False,
+            "using_last_known_good": False,
+            "mutations_suppressed": False,
+        })
+        heuristic_path.write_text(json.dumps(last_good))
+
+        assert osw.run(heuristic_only=True) == 1
+
+        assert not state.exists()
+        payload = json.loads(heuristic_path.read_text())
+        assert payload["source_status"] == "last_known_good"
+        assert payload["using_last_known_good"] is True
+        assert payload["mutations_suppressed"] is True
+        assert payload["last_successful_at"] == "2026-08-11T10:00:00Z"
+        assert payload["last_successful_yaml_paths"] == ["ready.yml"]
+
+    def test_failed_refresh_rejects_undated_last_known_good(
+        self, isolated_paths, monkeypatch
+    ):
+        _, _, heuristic_path = isolated_paths
+        self._forbid_issue_automation(monkeypatch)
+        monkeypatch.setattr(osw, "OMNI_YAML_PATHS", ("ready.yml",), raising=False)
+        monkeypatch.setattr(osw, "_fetch_yaml", lambda path: None)
+        _, _, last_good = osw._compute_trigger([{"label": "test", "agent_pool": "amd"}])
+        last_good.update({
+            "last_successful_at": "not-a-timestamp",
+            "yaml_paths_fetched": ["ready.yml"],
+            "fallback_floor_used": False,
+        })
+        heuristic_path.write_text(json.dumps(last_good))
+
+        assert osw.run(heuristic_only=True) == 1
+
+
+class TestIssuesOnly:
+    def test_uses_selected_heuristic_without_refreshing_it(
+        self, isolated_paths, stub_api, monkeypatch
+    ):
+        snapshots, state, heuristic_path = isolated_paths
+        _write_snapshot(
+            snapshots,
+            {"amd_mi250_1": {"waiting_by_workload": {"omni": 40}}},
+        )
+        _, _, heuristic = osw._compute_trigger(
+            [{"label": f"test-{index}", "agent_pool": "amd"} for index in range(10)]
+        )
+        now = osw.datetime.now(osw.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        heuristic.update({
+            "generated_at": now,
+            "last_successful_at": now,
+            "yaml_paths_configured": ["ready.yml"],
+            "yaml_paths_fetched": ["ready.yml"],
+            "yaml_paths_failed": [],
+            "source_status": "fresh",
+            "fallback_floor_used": False,
+            "using_last_known_good": False,
+            "mutations_suppressed": False,
+        })
+        heuristic_path.write_text(json.dumps(heuristic, sort_keys=True))
+        original = heuristic_path.read_bytes()
+        monkeypatch.setattr(
+            osw,
+            "_refresh_heuristic",
+            lambda: pytest.fail("issues-only mode refreshed heuristic evidence"),
+        )
+
+        assert osw.main(["--issues-only"]) == 0
+
+        assert heuristic_path.read_bytes() == original
+        assert len(stub_api.opened) == 1
+        assert stub_api.opened[0][0] == 40
+        assert json.loads(state.read_text())["open"] == stub_api.opened[0][2]
+
+    def test_rejects_unselected_last_known_good(
+        self, isolated_paths, stub_api, monkeypatch
+    ):
+        snapshots, state, heuristic_path = isolated_paths
+        _write_snapshot(snapshots, {})
+        _, _, heuristic = osw._compute_trigger([{"label": "test"}])
+        heuristic.update({
+            "generated_at": "2026-08-12T20:00:00Z",
+            "last_successful_at": "2026-08-11T20:00:00Z",
+            "yaml_paths_configured": ["ready.yml"],
+            "yaml_paths_fetched": [],
+            "yaml_paths_failed": ["ready.yml"],
+            "source_status": "last_known_good",
+            "fallback_floor_used": False,
+            "using_last_known_good": True,
+            "mutations_suppressed": True,
+        })
+        heuristic_path.write_text(json.dumps(heuristic))
+        monkeypatch.setattr(
+            osw,
+            "_refresh_heuristic",
+            lambda: pytest.fail("issues-only mode refreshed heuristic evidence"),
+        )
+
+        assert osw.run(issues_only=True) == 1
+        assert not state.exists()
+        assert stub_api.opened == []
+
+    def test_cli_modes_are_mutually_exclusive(self):
+        with pytest.raises(SystemExit):
+            osw.main(["--heuristic-only", "--issues-only"])

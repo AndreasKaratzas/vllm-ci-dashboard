@@ -245,11 +245,12 @@ class TestHourlyMasterWorkflow:
 
         sync_index = names.index("Sync CI data from gh-pages")
         collect_index = names.index("Collect vLLM/Omni AMD workload mappings")
+        heuristic_index = names.index("Refresh Omni surge heuristic")
         selector = names.index("Select validated publication surfaces")
         second_build = names.index(
             "Rebuild v2 operations snapshot with selected issue state"
         )
-        assert sync_index < collect_index < selector < second_build
+        assert sync_index < collect_index < heuristic_index < selector < second_build
 
         sync_run = steps[sync_index].get("run", "")
         assert "workload_mapping.json" in sync_run
@@ -260,6 +261,13 @@ class TestHourlyMasterWorkflow:
         collect = steps[collect_index]
         assert 'run_surface_collector queue "AMD workload mappings"' in collect["run"]
         assert "python scripts/vllm/collect_workload_mapping.py" in collect["run"]
+
+        heuristic = steps[heuristic_index]
+        assert 'run_surface_collector queue "Omni surge heuristic"' in heuristic["run"]
+        assert (
+            "python scripts/vllm/omni_surge_watcher.py --heuristic-only"
+            in heuristic["run"]
+        )
         assert "--output data/vllm/ci/workload_mapping.json" in collect["run"]
         assert collect.get("env", {}).get("BUILDKITE_TOKEN") == (
             "${{ secrets.BUILDKITE_TOKEN }}"
@@ -396,6 +404,7 @@ class TestHourlyMasterWorkflow:
             ("Sync issue automation state from gh-pages", "queue"),
             ("Normalize and prune queue history", "queue"),
             ("Collect queue snapshot", "queue"),
+            ("Refresh Omni surge heuristic", "queue"),
             ("Sync CI data from gh-pages", "ci"),
             ("Collect CI data", "ci"),
             ("Collect AMD agent health (all builds, all branches)", "agent_health"),
@@ -443,6 +452,9 @@ class TestHourlyMasterWorkflow:
             assert "publication-selector.outcome == 'success'" in condition
             assert "degraded_surfaces" in condition
             assert f",{surface}," in condition
+        assert steps[names.index("Watch Omni workload surge (open/close issues)")][
+            "run"
+        ] == "python scripts/vllm/omni_surge_watcher.py --issues-only"
         assert selector < names.index("Render dashboards after publication selection")
         assert names.index("Render dashboards after publication selection") < names.index(
             "Run test suite"
@@ -566,13 +578,16 @@ class TestHourlyMasterWorkflow:
         rebuild = script.index("python scripts/vllm/build_operations_snapshot.py", pull)
         render = script.index("python scripts/render.py", rebuild)
         audit = script.index("python scripts/vllm/audit_dashboard_data.py", render)
+        stage = script.index("git add", audit)
         amend = script.index("git commit --amend --no-edit", audit)
         push = script.index("git push origin HEAD:main", amend)
-        assert pull < rebuild < render < audit < amend < push
-        assert "data/site/projects.json" in script
-        assert "data/vllm/ci/operations_v2_manifest.json" in script
-        assert "data/vllm/ci/operations_v2/" in script
-        assert "data/vllm/ci/queue_history_chart.json" in script
+        assert pull < rebuild < render < audit < stage < amend < push
+        staged_outputs = script[stage:amend]
+        assert "data/site/projects.json" in staged_outputs
+        assert "data/vllm/ci/operations_v2.json" in staged_outputs
+        assert "data/vllm/ci/operations_v2_manifest.json" in staged_outputs
+        assert "data/vllm/ci/operations_v2/" not in staged_outputs
+        assert "data/vllm/ci/queue_history_chart.json" in staged_outputs
         assert "git push origin HEAD:main" in script
         assert "refusing to deploy unpublished output" in script
         assert "Failed to publish collected dashboard data" in script
