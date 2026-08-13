@@ -9,8 +9,7 @@ Week of 2026-08-06 to 2026-08-13
 
 ## PRs This Week
 
-### vllm
-- Merged: [#50907](https://github.com/vllm-project/vllm/pull/50907) [ROCm] Remove stale SDPA and skinny GEMM workarounds (@AndreasKaratzas)
+_No PR activity this week._
 
 ## New Issues This Week
 

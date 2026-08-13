@@ -1,42 +1,6 @@
 {
-  "collected_at": "2026-08-13T16:31:44Z",
+  "collected_at": "2026-08-13T17:32:46Z",
   "prs": [
-    {
-      "number": 50907,
-      "title": "[ROCm] Remove stale SDPA and skinny GEMM workarounds",
-      "author": "AndreasKaratzas",
-      "state": "closed",
-      "merged": true,
-      "created_at": "2026-08-03T19:16:40Z",
-      "updated_at": "2026-08-11T18:19:19Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/50907",
-      "labels": [
-        "documentation",
-        "rocm",
-        "ready",
-        "multi-modality",
-        "gpt-oss",
-        "kv-connector"
-      ],
-      "draft": false,
-      "body_head": "- Remove ROCm-wide Math SDPA forcing from Transformers multimodal execution and affected test conftests.\r\n- Remove blanket skinny GEMM disable overrides while retaining independent backend and determinism settings.\r\n- Make non-contiguous skinny GEMM activations contiguous and fall back safely for unsupported weight or bias layouts.\r\n- Use default speech attention on MI250 while retaining supported AITER routing on CDNA3+ hardware.\r\n- Keep embedding reference comparisons aligned with the server's per-request execution geometry.\r\n\r\nThis addresses [#37736](https://github.com/vllm-project/vllm/issues/37736), where stale ROCm Math SDPA forcing made the 32-image Gemma3 profiling forward OOM on MI250. With default SDPA selection, the same profile completes while preserving model behavior. Removing blanket skinny GEMM disables exposed a non-contiguous activation bug in the ROCm GEMM dispatcher, which is fixed by normalizing supported inputs and falling back for unsupported operand layouts. Broad multimodal and targeted ROCm validation passed, with unrelated model-access and optional-dependency failures classified separately.",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        37736
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "documentation",
-        "ready",
-        "multi-modality",
-        "gpt-oss",
-        "kv-connector"
-      ]
-    },
     {
       "number": 49937,
       "title": "[ROCm] Add AITER FP8 ViT encoder attention",
@@ -69,66 +33,6 @@
         "performance",
         "ready",
         "v1"
-      ]
-    },
-    {
-      "number": 37717,
-      "title": "[ROCm][CI] Add large_gpu_mark to test_max_tokens_none for ROCm",
-      "author": "AndreasKaratzas",
-      "state": "closed",
-      "merged": true,
-      "created_at": "2026-03-20T21:53:46Z",
-      "updated_at": "2026-03-22T04:29:03Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/37717",
-      "labels": [
-        "rocm",
-        "ready"
-      ],
-      "draft": false,
-      "body_head": "Follow-up for:\r\n- #34839 \r\n\r\nMarks `max_tokens` test with `distilbert/distilgpt2` as a large GPU test. Addresses failure in `mi250_1: Regression`\r\n\r\nMotivation: https://buildkite.com/vllm/amd-ci/builds/6721/steps/canvas?sid=019d09d4-708e-44b0-a0d0-ccf0e3c00a94&tab=output\r\n\r\ncc @kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        37736
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "ready"
-      ]
-    },
-    {
-      "number": 37610,
-      "title": "[ROCm][CI] Mark gemma3 as large GPU test to avoid OOM on MI250",
-      "author": "AndreasKaratzas",
-      "state": "closed",
-      "merged": true,
-      "created_at": "2026-03-19T22:50:38Z",
-      "updated_at": "2026-03-21T05:24:06Z",
-      "html_url": "https://github.com/vllm-project/vllm/pull/37610",
-      "labels": [
-        "rocm",
-        "ready",
-        "ci/build",
-        "multi-modality"
-      ],
-      "draft": false,
-      "body_head": "Follow-up for:\r\n- #34839 \r\n\r\nFixes OOM in `mi250_1: Multi-Modal Models (Standard) 2: qwen3 + gemma`\r\n\r\nMotivation: https://buildkite.com/vllm/amd-ci/builds/6701/steps/canvas?sid=019d07a7-1a19-4174-b4a1-c9bbfff0c164&tab=output\r\n\r\n@kenroche ",
-      "is_ci_pr": true,
-      "is_rocm_pr": true,
-      "ci_issue_numbers": [
-        37736
-      ],
-      "custom_tags": [
-        "CI",
-        "ROCm"
-      ],
-      "other_tags": [
-        "ready",
-        "ci/build",
-        "multi-modality"
       ]
     }
   ]
