@@ -1,33 +1,5 @@
 {
   "active": {
-    "0d13a630465f1b9386aa": {
-      "bad_build_number": 81236,
-      "bad_commit": "a7a204cc6ec99b375985e564f4f271e68ee8f5b8",
-      "bisect_command": "",
-      "build_commit": "63ac04a61e6272b746d82e180e7f6276b3ee1ede",
-      "build_message": "[Kimi-K3] DCP support (#50484)\n\nSigned-off-by: girasoley <girasoley@inferact.ai>\nSigned-off-by: Summer Yang <girasoleyang@gmail.com>\nSigned-off-by: \u4e91\u631a <ningyunxiao.nyx@antgroup.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>\nCo-authored-by: \u4e91\u631a <ningyunxiao.nyx@antgroup.com>\nCo-authored-by: foraxe <73625538+foraxe@users.noreply.github.com>\nCo-authored-by: Woosuk Kwon <woosuk@inferact.ai>",
-      "build_number": 83198,
-      "build_url": "https://buildkite.com/vllm/ci/builds/83198",
-      "commit_range_status": "missing_good",
-      "compare_url": "",
-      "finished_at": "2026-08-10T19:57:12.952Z",
-      "good_build_number": null,
-      "good_commit": "",
-      "group_id": "0d13a630465f1b9386aa",
-      "hardware": "npu",
-      "job_id": "019fed3e-f0b4-403c-80f2-fcd3d9636354",
-      "job_url": "https://buildkite.com/vllm/ci/builds/83198/steps/canvas?jid=019fed3e-f0b4-403c-80f2-fcd3d9636354&tab=output",
-      "latest_bad_build_number": 83198,
-      "latest_bad_commit": "63ac04a61e6272b746d82e180e7f6276b3ee1ede",
-      "name": "Ascend NPU Test",
-      "observed_at": "2026-08-10T19:57:12.952Z",
-      "queue": "ascend",
-      "raw_name": "Ascend NPU Test",
-      "result": "soft_fail",
-      "retry_evidence": {},
-      "started_at": "2026-08-10T19:56:07.465Z",
-      "step_key": ""
-    },
     "0de05cf685985b7af3ac": {
       "bad_build_number": 78743,
       "bad_commit": "df362b2d6d091771dbcc364b2fc96d17a78df274",
@@ -335,14 +307,42 @@
       "retry_evidence": {},
       "started_at": "2026-08-13T06:30:03.803Z",
       "step_key": "multi-modal-models-extended-generation-2"
+    },
+    "dbf6571b2932932d0905": {
+      "bad_build_number": 83758,
+      "bad_commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "bisect_command": "git bisect start 6014f9e67291ea96548e263b8784a33a3f055954 5fee0a872dc31dd3476d61bb72b782b2d9d47492",
+      "build_commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "build_message": "[Kimi-K3] Add GEMM-RS for sequence parallelism (#52079)\n\nSigned-off-by: Thien Tran <gau.nernst@yahoo.com.sg>",
+      "build_number": 83758,
+      "build_url": "https://buildkite.com/vllm/ci/builds/83758",
+      "commit_range_status": "candidate",
+      "compare_url": "https://github.com/vllm-project/vllm/compare/5fee0a872dc31dd3476d61bb72b782b2d9d47492...6014f9e67291ea96548e263b8784a33a3f055954",
+      "finished_at": "2026-08-13T20:10:53.302Z",
+      "good_build_number": 83730,
+      "good_commit": "5fee0a872dc31dd3476d61bb72b782b2d9d47492",
+      "group_id": "dbf6571b2932932d0905",
+      "hardware": "gpu",
+      "job_id": "019ffbdd-9df0-406e-aa5b-c09837b40bc4",
+      "job_url": "https://buildkite.com/vllm/ci/builds/83758/steps/canvas?jid=019ffbdd-9df0-406e-aa5b-c09837b40bc4&tab=output",
+      "latest_bad_build_number": 83758,
+      "latest_bad_commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "name": "Distributed Comm Ops",
+      "observed_at": "2026-08-13T20:10:53.302Z",
+      "queue": "gpu_4_queue",
+      "raw_name": "Distributed Comm Ops",
+      "result": "failed",
+      "retry_evidence": {},
+      "started_at": "2026-08-13T20:02:37.686Z",
+      "step_key": "distributed-comm-ops"
     }
   },
   "group_watermarks": {
     "0004604eb558ff8820f8": {
-      "build_number": 83747,
-      "commit": "7553aac77b678d58f6f8034b4f25300933f0bd84",
-      "created_at": "2026-08-13T15:09:02.888Z",
-      "finished_at": "2026-08-13T17:57:57.010Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "00d17b1851db4bd12f1d": {
@@ -416,10 +416,10 @@
       "result": "passed"
     },
     "07fcee9ea4a0f72361f8": {
-      "build_number": 83749,
-      "commit": "80d6d557f307448fdad46995b5e237817b31144e",
-      "created_at": "2026-08-13T15:10:12.132Z",
-      "finished_at": "2026-08-13T18:38:27.883Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "0840191bd682c4eca033": {
@@ -682,10 +682,10 @@
       "result": "passed"
     },
     "15cb230d1b21960343a9": {
-      "build_number": 83730,
-      "commit": "5fee0a872dc31dd3476d61bb72b782b2d9d47492",
-      "created_at": "2026-08-13T12:05:38.863Z",
-      "finished_at": "2026-08-13T15:58:21.213Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "168b6dc2531d9f3d4ded": {
@@ -759,10 +759,10 @@
       "result": "passed"
     },
     "1d04d849f0aa6713e42f": {
-      "build_number": 83751,
-      "commit": "64ca614fe49bfce92b0f5eb69625021297a7e003",
-      "created_at": "2026-08-13T15:12:29.291Z",
-      "finished_at": "2026-08-13T18:48:54.484Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "1d615f1d80bb963f50dc": {
@@ -787,17 +787,17 @@
       "result": "passed"
     },
     "1e0907c36da7a0a92cac": {
-      "build_number": 83749,
-      "commit": "80d6d557f307448fdad46995b5e237817b31144e",
-      "created_at": "2026-08-13T15:10:12.132Z",
-      "finished_at": "2026-08-13T18:38:27.883Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "1e88bb19be9bab090f6c": {
-      "build_number": 83730,
-      "commit": "5fee0a872dc31dd3476d61bb72b782b2d9d47492",
-      "created_at": "2026-08-13T12:05:38.863Z",
-      "finished_at": "2026-08-13T15:58:21.213Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "1f4d1e9945eb8db7d1e0": {
@@ -871,10 +871,10 @@
       "result": "passed"
     },
     "27cad7931f2ce830395c": {
-      "build_number": 83747,
-      "commit": "7553aac77b678d58f6f8034b4f25300933f0bd84",
-      "created_at": "2026-08-13T15:09:02.888Z",
-      "finished_at": "2026-08-13T17:57:57.010Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "28535c03e55b2119299c": {
@@ -941,10 +941,10 @@
       "result": "passed"
     },
     "2afa2165d8f102c08e83": {
-      "build_number": 83730,
-      "commit": "5fee0a872dc31dd3476d61bb72b782b2d9d47492",
-      "created_at": "2026-08-13T12:05:38.863Z",
-      "finished_at": "2026-08-13T15:58:21.213Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "2b2bfcf8c3e057c86cf4": {
@@ -1046,10 +1046,10 @@
       "result": "passed"
     },
     "3043e0f480048d842d34": {
-      "build_number": 83730,
-      "commit": "5fee0a872dc31dd3476d61bb72b782b2d9d47492",
-      "created_at": "2026-08-13T12:05:38.863Z",
-      "finished_at": "2026-08-13T15:58:21.213Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "3167dca09148887fd06b": {
@@ -1102,10 +1102,10 @@
       "result": "passed"
     },
     "37ecd13aa0b15fcfe56f": {
-      "build_number": 83730,
-      "commit": "5fee0a872dc31dd3476d61bb72b782b2d9d47492",
-      "created_at": "2026-08-13T12:05:38.863Z",
-      "finished_at": "2026-08-13T15:58:21.213Z",
+      "build_number": 83779,
+      "commit": "11c3fa4adc8105bd1dbad888d6df81617ee7c8fc",
+      "created_at": "2026-08-13T18:35:03.158Z",
+      "finished_at": "2026-08-13T19:56:51.081Z",
       "result": "passed"
     },
     "38051bb1b49d6790732f": {
@@ -1144,10 +1144,10 @@
       "result": "passed"
     },
     "3a697e47ba1380cb5ec0": {
-      "build_number": 83730,
-      "commit": "5fee0a872dc31dd3476d61bb72b782b2d9d47492",
-      "created_at": "2026-08-13T12:05:38.863Z",
-      "finished_at": "2026-08-13T15:58:21.213Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "3ab0f57b5e63aca564d1": {
@@ -1186,10 +1186,10 @@
       "result": "passed"
     },
     "3e29e6275df1148a87bd": {
-      "build_number": 83749,
-      "commit": "80d6d557f307448fdad46995b5e237817b31144e",
-      "created_at": "2026-08-13T15:10:12.132Z",
-      "finished_at": "2026-08-13T18:38:27.883Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "3e53eb6b4939d3ac38a8": {
@@ -1221,10 +1221,10 @@
       "result": "passed"
     },
     "414a2e8e3ff325897835": {
-      "build_number": 83730,
-      "commit": "5fee0a872dc31dd3476d61bb72b782b2d9d47492",
-      "created_at": "2026-08-13T12:05:38.863Z",
-      "finished_at": "2026-08-13T15:58:21.213Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "4164f4c6fbd033c1fa39": {
@@ -1347,10 +1347,10 @@
       "result": "passed"
     },
     "494fa173cdb04b280810": {
-      "build_number": 83749,
-      "commit": "80d6d557f307448fdad46995b5e237817b31144e",
-      "created_at": "2026-08-13T15:10:12.132Z",
-      "finished_at": "2026-08-13T18:38:27.883Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "4adb2fd329c2141a3ec7": {
@@ -1368,10 +1368,10 @@
       "result": "passed"
     },
     "4ceeabae7d9e1bd4be65": {
-      "build_number": 83747,
-      "commit": "7553aac77b678d58f6f8034b4f25300933f0bd84",
-      "created_at": "2026-08-13T15:09:02.888Z",
-      "finished_at": "2026-08-13T17:57:57.010Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "4e35835aef3c31a837b4": {
@@ -1438,10 +1438,10 @@
       "result": "passed"
     },
     "51cf2b64efbae867fb5d": {
-      "build_number": 83751,
-      "commit": "64ca614fe49bfce92b0f5eb69625021297a7e003",
-      "created_at": "2026-08-13T15:12:29.291Z",
-      "finished_at": "2026-08-13T18:48:54.484Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "52638c030c41ac53ff2b": {
@@ -1459,17 +1459,17 @@
       "result": "soft_fail"
     },
     "5410f16fc0c7fcaf4b00": {
-      "build_number": 83751,
-      "commit": "64ca614fe49bfce92b0f5eb69625021297a7e003",
-      "created_at": "2026-08-13T15:12:29.291Z",
-      "finished_at": "2026-08-13T18:48:54.484Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "547ae71e5787ab1629a0": {
-      "build_number": 83730,
-      "commit": "5fee0a872dc31dd3476d61bb72b782b2d9d47492",
-      "created_at": "2026-08-13T12:05:38.863Z",
-      "finished_at": "2026-08-13T15:58:21.213Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "547b9e9f0a9a391e8768": {
@@ -1515,10 +1515,10 @@
       "result": "passed"
     },
     "563cb504d143a33cc800": {
-      "build_number": 83751,
-      "commit": "64ca614fe49bfce92b0f5eb69625021297a7e003",
-      "created_at": "2026-08-13T15:12:29.291Z",
-      "finished_at": "2026-08-13T18:48:54.484Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "5657ddeaac0cd9cd6022": {
@@ -1578,10 +1578,10 @@
       "result": "passed"
     },
     "5b2d086b31d2ee83ffa1": {
-      "build_number": 83749,
-      "commit": "80d6d557f307448fdad46995b5e237817b31144e",
-      "created_at": "2026-08-13T15:10:12.132Z",
-      "finished_at": "2026-08-13T18:38:27.883Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "5b30ed1663cb79df343c": {
@@ -1592,10 +1592,10 @@
       "result": "passed"
     },
     "5bd99c698a54ce2b8e6b": {
-      "build_number": 83747,
-      "commit": "7553aac77b678d58f6f8034b4f25300933f0bd84",
-      "created_at": "2026-08-13T15:09:02.888Z",
-      "finished_at": "2026-08-13T17:57:57.010Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "5c64f959d80a6e17bdeb": {
@@ -1662,10 +1662,10 @@
       "result": "passed"
     },
     "607fa33ce7289df01dd3": {
-      "build_number": 83751,
-      "commit": "64ca614fe49bfce92b0f5eb69625021297a7e003",
-      "created_at": "2026-08-13T15:12:29.291Z",
-      "finished_at": "2026-08-13T18:48:54.484Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "60d757afc118ef41f772": {
@@ -1690,10 +1690,10 @@
       "result": "passed"
     },
     "6316f2304d46bd269fa1": {
-      "build_number": 83749,
-      "commit": "80d6d557f307448fdad46995b5e237817b31144e",
-      "created_at": "2026-08-13T15:10:12.132Z",
-      "finished_at": "2026-08-13T18:38:27.883Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "634a0791fd207f6a14ea": {
@@ -1704,10 +1704,10 @@
       "result": "passed"
     },
     "644597a3f5e37a9035bc": {
-      "build_number": 83749,
-      "commit": "80d6d557f307448fdad46995b5e237817b31144e",
-      "created_at": "2026-08-13T15:10:12.132Z",
-      "finished_at": "2026-08-13T18:38:27.883Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "64b377effb71a8f80940": {
@@ -1718,10 +1718,10 @@
       "result": "passed"
     },
     "651ae2e1477020e65844": {
-      "build_number": 83747,
-      "commit": "7553aac77b678d58f6f8034b4f25300933f0bd84",
-      "created_at": "2026-08-13T15:09:02.888Z",
-      "finished_at": "2026-08-13T17:57:57.010Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "65fdefcf09a6a003ddac": {
@@ -1746,10 +1746,10 @@
       "result": "passed"
     },
     "68d4764212b3bd6be233": {
-      "build_number": 83751,
-      "commit": "64ca614fe49bfce92b0f5eb69625021297a7e003",
-      "created_at": "2026-08-13T15:12:29.291Z",
-      "finished_at": "2026-08-13T18:48:54.484Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "6a87e245656be1dfa20e": {
@@ -1767,10 +1767,10 @@
       "result": "passed"
     },
     "6abe56255d0002d65270": {
-      "build_number": 83751,
-      "commit": "64ca614fe49bfce92b0f5eb69625021297a7e003",
-      "created_at": "2026-08-13T15:12:29.291Z",
-      "finished_at": "2026-08-13T18:48:54.484Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "6aefb9a0d9d4baf32f1d": {
@@ -1809,10 +1809,10 @@
       "result": "passed"
     },
     "6de0ca0d2a244db1f9e7": {
-      "build_number": 83751,
-      "commit": "64ca614fe49bfce92b0f5eb69625021297a7e003",
-      "created_at": "2026-08-13T15:12:29.291Z",
-      "finished_at": "2026-08-13T18:48:54.484Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "6e0e0e3ba8595c19056b": {
@@ -1837,10 +1837,10 @@
       "result": "passed"
     },
     "6ef6ba5dd195d4c2df34": {
-      "build_number": 83747,
-      "commit": "7553aac77b678d58f6f8034b4f25300933f0bd84",
-      "created_at": "2026-08-13T15:09:02.888Z",
-      "finished_at": "2026-08-13T17:57:57.010Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "6f09e647c93ddc886972": {
@@ -1872,10 +1872,10 @@
       "result": "passed"
     },
     "70739c76a07008487e26": {
-      "build_number": 83749,
-      "commit": "80d6d557f307448fdad46995b5e237817b31144e",
-      "created_at": "2026-08-13T15:10:12.132Z",
-      "finished_at": "2026-08-13T18:38:27.883Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "70e34285772d163aa0ee": {
@@ -1886,10 +1886,10 @@
       "result": "passed"
     },
     "70f41f15d41bcfca03d3": {
-      "build_number": 83749,
-      "commit": "80d6d557f307448fdad46995b5e237817b31144e",
-      "created_at": "2026-08-13T15:10:12.132Z",
-      "finished_at": "2026-08-13T18:38:27.883Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "71791c20df5d0c0c7efd": {
@@ -1907,10 +1907,10 @@
       "result": "passed"
     },
     "71acba22a4fdcd74c924": {
-      "build_number": 83751,
-      "commit": "64ca614fe49bfce92b0f5eb69625021297a7e003",
-      "created_at": "2026-08-13T15:12:29.291Z",
-      "finished_at": "2026-08-13T18:48:54.484Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "7218283dc57c93878dd7": {
@@ -1956,17 +1956,17 @@
       "result": "passed"
     },
     "73af3d7df66623ab686d": {
-      "build_number": 83749,
-      "commit": "80d6d557f307448fdad46995b5e237817b31144e",
-      "created_at": "2026-08-13T15:10:12.132Z",
-      "finished_at": "2026-08-13T18:38:27.883Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "750faaa07f4155aa04f0": {
-      "build_number": 83773,
-      "commit": "e6b2a8ad5eb1757b211475cdd57fdf1f37e94331",
-      "created_at": "2026-08-13T18:08:02.267Z",
-      "finished_at": "2026-08-13T19:17:27.418Z",
+      "build_number": 83779,
+      "commit": "11c3fa4adc8105bd1dbad888d6df81617ee7c8fc",
+      "created_at": "2026-08-13T18:35:03.158Z",
+      "finished_at": "2026-08-13T19:56:51.081Z",
       "result": "passed"
     },
     "753fca8c2f906f9d1e2e": {
@@ -2103,10 +2103,10 @@
       "result": "passed"
     },
     "8048d8337093263ea49e": {
-      "build_number": 83749,
-      "commit": "80d6d557f307448fdad46995b5e237817b31144e",
-      "created_at": "2026-08-13T15:10:12.132Z",
-      "finished_at": "2026-08-13T18:38:27.883Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "80626244187805b6e6a5": {
@@ -2138,17 +2138,17 @@
       "result": "passed"
     },
     "821f462f585d6d81f32c": {
-      "build_number": 83747,
-      "commit": "7553aac77b678d58f6f8034b4f25300933f0bd84",
-      "created_at": "2026-08-13T15:09:02.888Z",
-      "finished_at": "2026-08-13T17:57:57.010Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "824f9a50f174c144400d": {
-      "build_number": 83751,
-      "commit": "64ca614fe49bfce92b0f5eb69625021297a7e003",
-      "created_at": "2026-08-13T15:12:29.291Z",
-      "finished_at": "2026-08-13T18:48:54.484Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "82e092b9e6f854d15c24": {
@@ -2201,10 +2201,10 @@
       "result": "passed"
     },
     "86512336788e47ec9491": {
-      "build_number": 83751,
-      "commit": "64ca614fe49bfce92b0f5eb69625021297a7e003",
-      "created_at": "2026-08-13T15:12:29.291Z",
-      "finished_at": "2026-08-13T18:48:54.484Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "866f9210aff61903b4da": {
@@ -2236,10 +2236,10 @@
       "result": "passed"
     },
     "88165394ca4b1f8b4a7f": {
-      "build_number": 83751,
-      "commit": "64ca614fe49bfce92b0f5eb69625021297a7e003",
-      "created_at": "2026-08-13T15:12:29.291Z",
-      "finished_at": "2026-08-13T18:48:54.484Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "882c9cac3acc64eb0d7a": {
@@ -2299,10 +2299,10 @@
       "result": "passed"
     },
     "8b2d6c47b658ac8016ce": {
-      "build_number": 83730,
-      "commit": "5fee0a872dc31dd3476d61bb72b782b2d9d47492",
-      "created_at": "2026-08-13T12:05:38.863Z",
-      "finished_at": "2026-08-13T15:58:21.213Z",
+      "build_number": 83779,
+      "commit": "11c3fa4adc8105bd1dbad888d6df81617ee7c8fc",
+      "created_at": "2026-08-13T18:35:03.158Z",
+      "finished_at": "2026-08-13T19:56:51.081Z",
       "result": "passed"
     },
     "8b55b8954ec3f16016d9": {
@@ -2313,17 +2313,17 @@
       "result": "passed"
     },
     "8bf835946dd1bba78dc4": {
-      "build_number": 83751,
-      "commit": "64ca614fe49bfce92b0f5eb69625021297a7e003",
-      "created_at": "2026-08-13T15:12:29.291Z",
-      "finished_at": "2026-08-13T18:48:54.484Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "8ca21c8d3f5577b2ebc4": {
-      "build_number": 83751,
-      "commit": "64ca614fe49bfce92b0f5eb69625021297a7e003",
-      "created_at": "2026-08-13T15:12:29.291Z",
-      "finished_at": "2026-08-13T18:48:54.484Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "8cc968a6951e2540ffc1": {
@@ -2502,10 +2502,10 @@
       "result": "passed"
     },
     "9b86d43c408db036ddb6": {
-      "build_number": 83751,
-      "commit": "64ca614fe49bfce92b0f5eb69625021297a7e003",
-      "created_at": "2026-08-13T15:12:29.291Z",
-      "finished_at": "2026-08-13T18:48:54.484Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "9bf78f2258905dc8408b": {
@@ -2537,17 +2537,17 @@
       "result": "failed"
     },
     "9cf841db2bb2d4768e11": {
-      "build_number": 83730,
-      "commit": "5fee0a872dc31dd3476d61bb72b782b2d9d47492",
-      "created_at": "2026-08-13T12:05:38.863Z",
-      "finished_at": "2026-08-13T15:58:21.213Z",
+      "build_number": 83779,
+      "commit": "11c3fa4adc8105bd1dbad888d6df81617ee7c8fc",
+      "created_at": "2026-08-13T18:35:03.158Z",
+      "finished_at": "2026-08-13T19:56:51.081Z",
       "result": "passed"
     },
     "9d1cb7fea743a544d53c": {
-      "build_number": 83747,
-      "commit": "7553aac77b678d58f6f8034b4f25300933f0bd84",
-      "created_at": "2026-08-13T15:09:02.888Z",
-      "finished_at": "2026-08-13T17:57:57.010Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "9db5682781e64636c164": {
@@ -2614,10 +2614,10 @@
       "result": "passed"
     },
     "a2019108210ae10e08ed": {
-      "build_number": 83751,
-      "commit": "64ca614fe49bfce92b0f5eb69625021297a7e003",
-      "created_at": "2026-08-13T15:12:29.291Z",
-      "finished_at": "2026-08-13T18:48:54.484Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "a3190e977619117a6d8b": {
@@ -2705,17 +2705,17 @@
       "result": "passed"
     },
     "a7c29203d9c2442d7b51": {
-      "build_number": 83751,
-      "commit": "64ca614fe49bfce92b0f5eb69625021297a7e003",
-      "created_at": "2026-08-13T15:12:29.291Z",
-      "finished_at": "2026-08-13T18:48:54.484Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "a7fda2f92dde3fbd896d": {
-      "build_number": 83751,
-      "commit": "64ca614fe49bfce92b0f5eb69625021297a7e003",
-      "created_at": "2026-08-13T15:12:29.291Z",
-      "finished_at": "2026-08-13T18:48:54.484Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "a828d771d00fa76ac7b0": {
@@ -2824,10 +2824,10 @@
       "result": "passed"
     },
     "b1028e9754b3dd7bfedc": {
-      "build_number": 83749,
-      "commit": "80d6d557f307448fdad46995b5e237817b31144e",
-      "created_at": "2026-08-13T15:10:12.132Z",
-      "finished_at": "2026-08-13T18:38:27.883Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "b14efa8269889610804d": {
@@ -2873,10 +2873,10 @@
       "result": "passed"
     },
     "b3e96dbd69b04ef3d570": {
-      "build_number": 83747,
-      "commit": "7553aac77b678d58f6f8034b4f25300933f0bd84",
-      "created_at": "2026-08-13T15:09:02.888Z",
-      "finished_at": "2026-08-13T17:57:57.010Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "b4dc4e8ae616553026f3": {
@@ -3034,10 +3034,10 @@
       "result": "passed"
     },
     "c26666015c669f5361b5": {
-      "build_number": 83751,
-      "commit": "64ca614fe49bfce92b0f5eb69625021297a7e003",
-      "created_at": "2026-08-13T15:12:29.291Z",
-      "finished_at": "2026-08-13T18:48:54.484Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "c2fa4ee0f250148905d5": {
@@ -3055,10 +3055,10 @@
       "result": "passed"
     },
     "c499ac5eb617fb13f761": {
-      "build_number": 83747,
-      "commit": "7553aac77b678d58f6f8034b4f25300933f0bd84",
-      "created_at": "2026-08-13T15:09:02.888Z",
-      "finished_at": "2026-08-13T17:57:57.010Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "c5084c7d64d3a53fd72b": {
@@ -3076,10 +3076,10 @@
       "result": "passed"
     },
     "c68031d622798d19b56a": {
-      "build_number": 83730,
-      "commit": "5fee0a872dc31dd3476d61bb72b782b2d9d47492",
-      "created_at": "2026-08-13T12:05:38.863Z",
-      "finished_at": "2026-08-13T15:58:21.213Z",
+      "build_number": 83779,
+      "commit": "11c3fa4adc8105bd1dbad888d6df81617ee7c8fc",
+      "created_at": "2026-08-13T18:35:03.158Z",
+      "finished_at": "2026-08-13T19:56:51.081Z",
       "result": "passed"
     },
     "c6a461007ca821ce0d3d": {
@@ -3146,10 +3146,10 @@
       "result": "failed"
     },
     "cb8d7fec0ae31908852e": {
-      "build_number": 83747,
-      "commit": "7553aac77b678d58f6f8034b4f25300933f0bd84",
-      "created_at": "2026-08-13T15:09:02.888Z",
-      "finished_at": "2026-08-13T17:57:57.010Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "cbaa2cd9ea7ca0b82d8e": {
@@ -3167,17 +3167,17 @@
       "result": "passed"
     },
     "ccd30c1c181bb97cfa87": {
-      "build_number": 83730,
-      "commit": "5fee0a872dc31dd3476d61bb72b782b2d9d47492",
-      "created_at": "2026-08-13T12:05:38.863Z",
-      "finished_at": "2026-08-13T15:58:21.213Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "ce53cec2a6e13c42fc63": {
-      "build_number": 83730,
-      "commit": "5fee0a872dc31dd3476d61bb72b782b2d9d47492",
-      "created_at": "2026-08-13T12:05:38.863Z",
-      "finished_at": "2026-08-13T15:58:21.213Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "cec1906932cfc0a59f7b": {
@@ -3216,10 +3216,10 @@
       "result": "passed"
     },
     "d03b5c4366c8cfcb55bc": {
-      "build_number": 83749,
-      "commit": "80d6d557f307448fdad46995b5e237817b31144e",
-      "created_at": "2026-08-13T15:10:12.132Z",
-      "finished_at": "2026-08-13T18:38:27.883Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "d133137c3edcd86f185a": {
@@ -3286,10 +3286,10 @@
       "result": "passed"
     },
     "d46938e9f73d362f4e87": {
-      "build_number": 83751,
-      "commit": "64ca614fe49bfce92b0f5eb69625021297a7e003",
-      "created_at": "2026-08-13T15:12:29.291Z",
-      "finished_at": "2026-08-13T18:48:54.484Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "d4c8574e1ad2b7cdf018": {
@@ -3349,10 +3349,10 @@
       "result": "passed"
     },
     "da8dd5f386a5e2676bc1": {
-      "build_number": 83749,
-      "commit": "80d6d557f307448fdad46995b5e237817b31144e",
-      "created_at": "2026-08-13T15:10:12.132Z",
-      "finished_at": "2026-08-13T18:38:27.883Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "dac94d74eeef1d073ac6": {
@@ -3370,11 +3370,11 @@
       "result": "passed"
     },
     "dbf6571b2932932d0905": {
-      "build_number": 83730,
-      "commit": "5fee0a872dc31dd3476d61bb72b782b2d9d47492",
-      "created_at": "2026-08-13T12:05:38.863Z",
-      "finished_at": "2026-08-13T15:58:21.213Z",
-      "result": "passed"
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
+      "result": "failed"
     },
     "dc172fbb58064b0dd2c5": {
       "build_number": 79814,
@@ -3384,10 +3384,10 @@
       "result": "passed"
     },
     "dd5cab4a8a5127415e92": {
-      "build_number": 83751,
-      "commit": "64ca614fe49bfce92b0f5eb69625021297a7e003",
-      "created_at": "2026-08-13T15:12:29.291Z",
-      "finished_at": "2026-08-13T18:48:54.484Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "de26e42e45a845a9b762": {
@@ -3426,10 +3426,10 @@
       "result": "passed"
     },
     "e1151ff5b5d5869eb555": {
-      "build_number": 83749,
-      "commit": "80d6d557f307448fdad46995b5e237817b31144e",
-      "created_at": "2026-08-13T15:10:12.132Z",
-      "finished_at": "2026-08-13T18:38:27.883Z",
+      "build_number": 83757,
+      "commit": "96acd473a7f1b4dd5a8e09752183617d3b82089e",
+      "created_at": "2026-08-13T15:44:06.642Z",
+      "finished_at": "2026-08-13T20:00:33.784Z",
       "result": "passed"
     },
     "e189a0933a90a4ecde7d": {
@@ -3496,10 +3496,10 @@
       "result": "passed"
     },
     "e940c6697ebd3734e877": {
-      "build_number": 83751,
-      "commit": "64ca614fe49bfce92b0f5eb69625021297a7e003",
-      "created_at": "2026-08-13T15:12:29.291Z",
-      "finished_at": "2026-08-13T18:48:54.484Z",
+      "build_number": 83758,
+      "commit": "6014f9e67291ea96548e263b8784a33a3f055954",
+      "created_at": "2026-08-13T16:02:31.191Z",
+      "finished_at": "2026-08-13T21:08:34.234Z",
       "result": "passed"
     },
     "eac83af24807a5c454f0": {
@@ -3809,13 +3809,9 @@
     "number": 395,
     "opened_at": "2026-08-07T20:10:17Z"
   },
-  "last_fingerprint": "8f41ffd74fb41ddfff516c6443743bdcc6599d1fb650eff5378af0e38062d489",
-  "last_run": "2026-08-13T19:25:30Z",
+  "last_fingerprint": "6c56390bdd601e56bb4af7857592770cd246a92518d3cc8d00a32eed52d9254a",
+  "last_run": "2026-08-13T21:09:59Z",
   "processed_build_numbers": [
-    78072,
-    78075,
-    78084,
-    78086,
     78092,
     78097,
     78101,
@@ -5103,8 +5099,11 @@
     83747,
     83749,
     83751,
+    83757,
+    83758,
     83763,
-    83773
+    83773,
+    83779
   ],
   "schema_version": 1,
   "suppressed": false,
