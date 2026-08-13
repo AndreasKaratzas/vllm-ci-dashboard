@@ -1,6 +1,6 @@
 # Weekly Digest
 
-Week of 2026-08-05 to 2026-08-12
+Week of 2026-08-06 to 2026-08-13
 
 ## New Releases
 
@@ -16,4 +16,3 @@ Week of 2026-08-05 to 2026-08-12
 
 ### vllm
 - [#51644](https://github.com/vllm-project/vllm/issues/51644) [CI Failure]: tests/kernels/moe/test_deepep_moe.py SIGSEGV o (@stefankoncarevic)
-- [#51115](https://github.com/vllm-project/vllm/issues/51115) [CI Failure]: test_mha_attn_varlen_forward_aiter_fp8 — "inva (@vhagor)
