@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-08-13T00:03:36Z",
+  "generated_at": "2026-08-13T02:51:59Z",
   "window_builds": 10,
-  "total_flaky": 12,
+  "total_flaky": 7,
   "tests": [
     {
       "test_id": "mi355_1: Multi-Modal Models (Extended Generation 3)::__job_level__",
@@ -38,6 +38,23 @@
       "mean_duration": 0.0
     },
     {
+      "test_id": "mi355_1: Quantization::__job_level__",
+      "label": "flaky",
+      "pass_rate": 0.25,
+      "appearances": 4,
+      "last_seen": "2026-07-31",
+      "first_failure": null,
+      "failure_streak": 0,
+      "history": [
+        "F",
+        "F",
+        "F",
+        "P"
+      ],
+      "module": "mi355_1: Quantization",
+      "mean_duration": 0.0
+    },
+    {
       "test_id": "mi355_1: V1 Core + KV + Metrics::__job_level__",
       "label": "flaky",
       "pass_rate": 0.25,
@@ -52,102 +69,6 @@
         "P"
       ],
       "module": "mi355_1: V1 Core + KV + Metrics",
-      "mean_duration": 0.0
-    },
-    {
-      "test_id": "mi300_1: EPLB Algorithm::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.3333,
-      "appearances": 3,
-      "last_seen": "2026-07-21",
-      "first_failure": null,
-      "failure_streak": 0,
-      "history": [
-        "F",
-        "F",
-        "P"
-      ],
-      "module": "mi300_1: EPLB Algorithm",
-      "mean_duration": 0.0
-    },
-    {
-      "test_id": "mi300_1: Platform Tests::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.3333,
-      "appearances": 3,
-      "last_seen": "2026-07-21",
-      "first_failure": null,
-      "failure_streak": 0,
-      "history": [
-        "F",
-        "F",
-        "P"
-      ],
-      "module": "mi300_1: Platform Tests",
-      "mean_duration": 0.0
-    },
-    {
-      "test_id": "mi300_2: Distributed Comm Ops::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.3333,
-      "appearances": 3,
-      "last_seen": "2026-07-21",
-      "first_failure": null,
-      "failure_streak": 0,
-      "history": [
-        "F",
-        "F",
-        "P"
-      ],
-      "module": "mi300_2: Distributed Comm Ops",
-      "mean_duration": 0.0
-    },
-    {
-      "test_id": "mi300_4: Distributed Tests (4xA100-4xMI300)::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.3333,
-      "appearances": 3,
-      "last_seen": "2026-07-21",
-      "first_failure": null,
-      "failure_streak": 0,
-      "history": [
-        "F",
-        "F",
-        "P"
-      ],
-      "module": "mi300_4: Distributed Tests (4xA100-4xMI300)",
-      "mean_duration": 0.0
-    },
-    {
-      "test_id": "mi300_4: EPLB Execution::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.3333,
-      "appearances": 3,
-      "last_seen": "2026-07-21",
-      "first_failure": null,
-      "failure_streak": 0,
-      "history": [
-        "F",
-        "F",
-        "P"
-      ],
-      "module": "mi300_4: EPLB Execution",
-      "mean_duration": 0.0
-    },
-    {
-      "test_id": "mi300_4: RayExecutorV2 (4 GPUs)::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.3333,
-      "appearances": 3,
-      "last_seen": "2026-07-21",
-      "first_failure": null,
-      "failure_streak": 0,
-      "history": [
-        "F",
-        "F",
-        "P"
-      ],
-      "module": "mi300_4: RayExecutorV2 (4 GPUs)",
       "mean_duration": 0.0
     },
     {
