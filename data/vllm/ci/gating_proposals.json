@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-14T16:25:17Z",
+  "generated_at": "2026-08-14T17:28:03Z",
   "source_repo": "vllm-project/vllm",
   "tracked_authors": [
     "AndreasKaratzas",
@@ -44,7 +44,7 @@
     "since_date": "2026-07-10",
     "fresh_candidate_count": 0,
     "candidate_cache": {
-      "generated_at": "2026-08-14T16:25:17Z",
+      "generated_at": "2026-08-14T17:28:03Z",
       "pr_count": 1,
       "proposal_pr_numbers": [
         44969
@@ -58,11 +58,11 @@
           "author": "AndreasKaratzas",
           "state": "open",
           "created_at": "2026-06-09T06:56:07Z",
-          "updated_at": "2026-08-14T05:02:52Z",
-          "checked_at": "2026-08-14T16:25:17Z",
+          "updated_at": "2026-08-14T16:53:23Z",
+          "checked_at": "2026-08-14T17:28:03Z",
           "has_new_mirrors": true,
           "new_mirror_count": 15,
-          "head_sha": "d890de32801f4efdafd7b81505c87b56123d26b2",
+          "head_sha": "4298ee3f8ed2bcf371a3af8d4098593ba0e27075",
           "new_mirror_labels": [
             "V1 e2e (4xH100-4xMI300)",
             "Entrypoints Unit Tests",
@@ -94,10 +94,10 @@
       "api_url": "https://api.github.com/repos/vllm-project/vllm/pulls/44969",
       "author": "AndreasKaratzas",
       "head_ref": "akaratza_stage_d_gating",
-      "head_sha": "d890de32801f4efdafd7b81505c87b56123d26b2",
+      "head_sha": "4298ee3f8ed2bcf371a3af8d4098593ba0e27075",
       "base_ref": "main",
-      "base_sha": "ac7509e2b1db40fec2f03dde1ed4e9dfdc2338c9",
-      "updated_at": "2026-08-14T05:02:52Z",
+      "base_sha": "e078a2238a1e4b53d49a7cc15e09716ed61abf3b",
+      "updated_at": "2026-08-14T16:53:23Z",
       "created_at": "2026-06-09T06:56:07Z",
       "new_mirror_count": 15,
       "new_mirrors": [
@@ -109,7 +109,7 @@
           "yaml_file": ".buildkite/test_areas/engine.yaml",
           "yaml_index": 5,
           "device": "mi300_4",
-          "timeout_in_minutes": 32,
+          "timeout_in_minutes": 35,
           "source_file_dependencies": [
             "vllm/v1/attention/backends/utils.py",
             "vllm/v1/worker/gpu_model_runner.py",
@@ -124,7 +124,7 @@
           "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
           "yaml_index": 0,
           "device": "mi355_1",
-          "timeout_in_minutes": 32,
+          "timeout_in_minutes": 35,
           "source_file_dependencies": [
             "vllm/entrypoints",
             "tests/entrypoints/unit_tests",
@@ -139,7 +139,7 @@
           "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
           "yaml_index": 6,
           "device": "mi355_1",
-          "timeout_in_minutes": 47,
+          "timeout_in_minutes": 50,
           "source_file_dependencies": [
             "vllm/",
             "!vllm/distributed/kv_transfer/",
@@ -169,7 +169,7 @@
           "yaml_file": ".buildkite/test_areas/lora.yaml",
           "yaml_index": 1,
           "device": "mi300_4",
-          "timeout_in_minutes": 52,
+          "timeout_in_minutes": 55,
           "source_file_dependencies": [
             "vllm/lora",
             "vllm/model_executor/layers/fused_moe/",
@@ -185,7 +185,7 @@
           "yaml_file": ".buildkite/test_areas/misc.yaml",
           "yaml_index": 9,
           "device": "mi355_1",
-          "timeout_in_minutes": 36,
+          "timeout_in_minutes": 40,
           "source_file_dependencies": [
             "vllm/assets/",
             "vllm/config/",
@@ -214,7 +214,7 @@
           "yaml_file": ".buildkite/test_areas/model_runner_v2.yaml",
           "yaml_index": 2,
           "device": "mi300_2",
-          "timeout_in_minutes": 43,
+          "timeout_in_minutes": 45,
           "source_file_dependencies": [
             "vllm/v1/worker/gpu/",
             "vllm/v1/worker/gpu_worker.py",
@@ -232,7 +232,7 @@
           "yaml_file": ".buildkite/test_areas/models_distributed.yaml",
           "yaml_index": 0,
           "device": "mi300_2",
-          "timeout_in_minutes": 72,
+          "timeout_in_minutes": 75,
           "source_file_dependencies": [
             "vllm/model_executor/model_loader/sharded_state_loader.py",
             "vllm/model_executor/models/",
@@ -254,7 +254,7 @@
           "yaml_file": ".buildkite/test_areas/models_language.yaml",
           "yaml_index": 4,
           "device": "mi355_1",
-          "timeout_in_minutes": 69,
+          "timeout_in_minutes": 70,
           "source_file_dependencies": [
             "vllm/",
             "!vllm/distributed/kv_transfer/",
@@ -285,7 +285,7 @@
           "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
           "yaml_index": 9,
           "device": "mi355_1",
-          "timeout_in_minutes": 98,
+          "timeout_in_minutes": 100,
           "source_file_dependencies": [
             "vllm/",
             "!vllm/distributed/kv_transfer/",
@@ -300,7 +300,7 @@
           "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
           "yaml_index": 10,
           "device": "mi355_1",
-          "timeout_in_minutes": 86,
+          "timeout_in_minutes": 90,
           "source_file_dependencies": [
             "vllm/",
             "!vllm/distributed/kv_transfer/",
@@ -315,7 +315,7 @@
           "yaml_file": ".buildkite/test_areas/plugins.yaml",
           "yaml_index": 0,
           "device": "mi250_2",
-          "timeout_in_minutes": 49,
+          "timeout_in_minutes": 50,
           "source_file_dependencies": [
             "vllm/plugins/",
             "tests/plugins/",
@@ -330,7 +330,7 @@
           "yaml_file": ".buildkite/test_areas/pytorch.yaml",
           "yaml_index": 0,
           "device": "mi300_1",
-          "timeout_in_minutes": 89,
+          "timeout_in_minutes": 90,
           "source_file_dependencies": [
             "csrc/",
             "vllm/platforms/rocm.py"
@@ -344,7 +344,7 @@
           "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
           "yaml_index": 9,
           "device": "mi300_1",
-          "timeout_in_minutes": 36,
+          "timeout_in_minutes": 40,
           "source_file_dependencies": [
             "vllm/v1/spec_decode/",
             "vllm/v1/worker/gpu/spec_decode/dflash/",
