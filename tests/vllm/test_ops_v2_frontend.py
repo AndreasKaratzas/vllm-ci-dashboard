@@ -466,9 +466,9 @@ def test_definition_parity_is_source_scoped_and_not_presented_as_runtime_health(
     for visible_label in (
         "Definition parity",
         "AMD IDENTITY FAMILIES",
-        "AMD FAMILY COVERAGE",
-        "INLINE MIRRORS",
-        "UNLINKED DEFINITIONS",
+        "LINKED / SOURCE-COVERED",
+        "AMD-ONLY FAMILIES",
+        "UPSTREAM-ONLY CANDIDATES",
         "Definition coverage, not passing test groups.",
         "Source-definition comparison",
         "Direct command twin",
@@ -487,13 +487,13 @@ def test_definition_parity_is_source_scoped_and_not_presented_as_runtime_health(
     assert "summary.amd_identity_families" in OPS_JS
     assert "summary.covered_identity_families" in OPS_JS
     assert "summary.amd_only_identity_families" in OPS_JS
-    assert "summary.identity_family_coverage_rate_pct" in OPS_JS
+    assert "identity_family_coverage_rate_pct" not in OPS_JS
     assert "summary.covered" in OPS_JS
     assert "summary.direct_matches" in OPS_JS
     assert "summary.inline_mirror_variants" in OPS_JS
     assert "summary.additional_variants" in OPS_JS
-    assert "parity nodes source-covered" in OPS_JS
-    assert "YAML-derived identity families" in OPS_JS
+    assert "collision-safe parity nodes" in OPS_JS
+    assert "supporting inventory does not alter the gated-group pass percentage" in OPS_JS
     assert (
         "label: 'AMD DEFINITIONS', value: "
         "integer(definitionSummary.total_amd_steps)"
@@ -1613,23 +1613,52 @@ def test_ops_render_marks_boot_state_and_records_handled_errors():
 
 def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
     for contract in (
-        "healthReduceDuplicates: true",
-        "healthIgnoreMi355Only: true",
         "function matrixHealthPolicy",
+        "policies.best_hardware",
+        "function bestHardwareMatrixContract",
+        "groups.length === Number(policy.included_groups || 0)",
         "function matrixHealthCollection",
         "function openMatrixHealthBrowser",
         "function openMatrixGroupEvidence",
-        "UNIQUE AMD TEST GROUPS",
-        "Unique AMD test-group health",
-        "Reduce duplicates",
-        "Ignore MI355-only",
-        "Shared title substring",
-        "MI355 evidence is shown",
+        "BEST-HARDWARE GATED GROUPS",
+        "Best-hardware gated-group health",
+        "gated groups passing",
+        "generic best-of-hardware families",
+        "explicit MI355-sensitive obligations",
+        "health_groups",
+        "classification_reason",
+        "Filter best-hardware gate status",
+        "Filter best-hardware gate classification",
+        "Search group, reason, command, hardware, or queue",
+        "filters: [",
+        "Executed commands",
+        "Command identity",
+        "Open AMD test definitions",
+        "Open latest AMD build",
+        "This hardware-sensitive obligation uses its exact MI355 route",
+        "This generic family passes when at least one configured AMD route passes",
+        "AMD-ONLY FAMILIES",
+        "classification inventory · not runtime failures",
+        "UPSTREAM-ONLY CANDIDATES",
     ):
         assert contract in OPS_JS
+    for retired_contract in (
+        "healthReduceDuplicates",
+        "healthIgnoreMi355Only",
+        "Reduce duplicates",
+        "Ignore MI355-only",
+        "resolved groups passing",
+    ):
+        assert retired_contract not in OPS_JS
+    assert 'assets/js/ops-v2.js?v=15' in INDEX
+    assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
+    assert "policy.passing_groups) + ' / ' + integer(policy.included_groups)" in OPS_JS
+    assert "openMatrixHealthBrowser('all')" in OPS_JS
+    assert "shell.setAttribute('role', 'dialog')" in OPS_JS
+    assert "shell.setAttribute('aria-modal', 'true')" in OPS_JS
+    assert "requestAnimationFrame(function () { search.focus(); })" in OPS_JS
     for selector in (
         ".ops-page .ops-unique-health",
-        ".ops-page .ops-unique-health-controls",
         ".ops-page .ops-unique-health-bar",
         ".ops-page .ops-unique-health-segment.is-mixed",
     ):
@@ -2373,7 +2402,7 @@ def test_release_layout_scroll_accessibility_and_home_reconciliation():
     assert "Search workload trajectory test groups" in OPS_JS
     assert "ALL-FLEET QUEUE ACTIVITY" in OPS_JS
     assert "queueScope: 'all'" in OPS_JS
-    assert "UNIQUE AMD TEST GROUPS" in OPS_JS
+    assert "BEST-HARDWARE GATED GROUPS" in OPS_JS
     assert "uniqueHealth.passing_groups" in OPS_JS
     assert "uniqueHealth.failing_groups" in OPS_JS
 

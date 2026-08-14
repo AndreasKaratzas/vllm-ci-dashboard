@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Build an AMD test-group coverage matrix from upstream ``test-amd.yaml``.
+"""Build AMD test-group coverage and gated-health data from ``test-amd.yaml``.
 
-The output powers the CI Analytics "AMD HW Matrix" view:
+The output powers the CI Analytics hardware matrix and CI Health gate inspector:
 
 - one definition row per canonical test-group title and execution identity
 - duplicate clusters for exact command lists whose titles share >= 2 characters
 - one dynamic column per AMD architecture found in the YAML
 - per-cell metadata about the exact YAML label(s) and the latest AMD nightly
   match, so the frontend can link each symbol to Buildkite
+- one domain-aware gated-health inventory that collapses generic architecture
+  replicas with best-hardware status while keeping reviewed MI355-sensitive
+  workloads as separate obligations
 
 Usage:
     python scripts/vllm/collect_amd_test_matrix.py --output data/vllm/ci/
@@ -69,8 +72,44 @@ TRAILING_PARENS_RE = re.compile(r"\s*\(([^)]*)\)\s*$")
 SIMPLE_HARDWARE_PAYLOAD_RE = re.compile(r"[a-z0-9-]+", re.I)
 AMD_VARIANT_TOKEN_RE = re.compile(r"mi(?:250|300|325|355)\b", re.I)
 CORE_AMD_ARCHITECTURES = frozenset({"mi250", "mi300", "mi325"})
-INCIDENT_STATES = frozenset({"failed", "timed_out", "broken", "soft_fail"})
+INCIDENT_STATES = frozenset({
+    "failed", "timed_out", "broken", "soft_fail", "soft_failed"
+})
 WAITING_STATES = frozenset({"running", "scheduled", "assigned"})
+
+# These are deliberately policy, not a fuzzy inference.  Each rule identifies
+# an MI355 execution that exercises hardware-specific models, topology, or
+# kernels and must therefore remain a separate health gate.  Every other MI355
+# definition is folded into its logical family and uses best-hardware status.
+MI355_SENSITIVE_RULES = (
+    ("Attention Benchmarks Smoke Test", "MI355-only ROCm/AITER attention backend benchmark"),
+    ("Distributed Tests (2xH100-2xMI)", "MI355-only AITER custom all-reduce and quick-reduce coverage"),
+    ("GPQA Eval (GPT-OSS) (2xB200-2xMI)", "gfx950-specific model configuration"),
+    ("LM Eval Qwen3-5 Models", "MI355-specific Qwen3.5 model configuration"),
+    ("Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy", "MI355-specific two-GPU EPLB topology"),
+    ("LM Eval Large Models (8xB200-8xMI)", "gfx950-specific large-model configuration"),
+    ("Kernels", "MI355-only attention selector and ROCm AITER MLA smoke coverage"),
+    ("Kernels MLA", "architecture-sensitive ROCm AITER MLA gate"),
+    ("Kernels Attention Test", "architecture-sensitive attention-kernel gate"),
+    ("Kernels MoE Test", "architecture-sensitive MoE-kernel gate"),
+    ("Kernels Quantization Test", "architecture-sensitive quantization-kernel gate"),
+    ("Kernels FP8 MoE Test (2xH100-2xMI)", "architecture-sensitive FP8 MoE-kernel gate"),
+    ("Quantized Models Test", "architecture-sensitive quantized-model gate"),
+    ("Quantization", "architecture-sensitive quantization integration gate"),
+    ("V1 attention", "architecture-sensitive V1 attention gate"),
+)
+
+# These command differences are semantically immaterial for health identity.
+# Keeping the aliases explicit prevents harmless spelling/dependency churn from
+# inflating the denominator while retaining both definitions as evidence.
+GENERIC_MI355_ALIAS_REASONS = {
+    "Entrypoints Integration (API Server OpenAI - Part 1)": (
+        "same test selection; only a trailing slash differs"
+    ),
+    "Language Models Test (Extended Generation)": (
+        "same test-family target; dependency revision is not a separate gate"
+    ),
+}
 
 
 def _github_headers() -> dict[str, str]:
@@ -400,6 +439,236 @@ def matrix_health_policies(rows: list[dict[str, Any]]) -> dict[str, dict[str, An
     }
 
 
+def _mi355_sensitive_reason(row: dict[str, Any]) -> str | None:
+    """Return the explicit reason an MI355 cell owns a separate health gate."""
+    title = clean_label(row.get("canonical_title") or row.get("title", ""))
+    for rule_title, reason in MI355_SENSITIVE_RULES:
+        if title == rule_title:
+            return reason
+    return None
+
+
+def _best_hardware_status(cells: list[dict[str, Any]]) -> str:
+    """Resolve a logical gate, preferring a pass on any owned architecture."""
+    states = [clean_label(cell.get("latest_state", "")).casefold() for cell in cells]
+    if "passed" in states:
+        return "passing"
+    if any(state in INCIDENT_STATES for state in states):
+        return "failed"
+    if any(state in WAITING_STATES for state in states):
+        return "waiting"
+    return "unknown"
+
+
+def _health_member(
+    row: dict[str, Any], arch: str, source_url: str
+) -> dict[str, Any]:
+    cell = row["cells"][arch]
+    variants = []
+    for variant in cell.get("variants", []):
+        entries = variant.get("entries") or [variant]
+        for entry in entries:
+            variants.append({
+                "label": entry.get("label"),
+                "agent_pool": entry.get("agent_pool"),
+                "optional": bool(entry.get("optional")),
+                "parallelism": entry.get("parallelism", 1),
+                "state": entry.get("latest_state"),
+                "url": entry.get("latest_url"),
+            })
+    agent_pools = sorted({
+        str(variant.get("agent_pool"))
+        for variant in variants
+        if variant.get("agent_pool")
+    })
+    return {
+        "row_id": row["id"],
+        "title": row["title"],
+        "architecture": arch,
+        "label": cell.get("primary_label"),
+        "state": cell.get("latest_state"),
+        "optional": bool(cell.get("optional")),
+        "agent_pool": ", ".join(agent_pools),
+        "agent_pools": agent_pools,
+        "command_fingerprint": row["command_fingerprint"],
+        "commands": list(row.get("commands") or []),
+        "source_url": source_url,
+        "url": cell.get("latest_url"),
+        "latest_url": cell.get("latest_url"),
+        "latest_matched": bool(cell.get("latest_matched")),
+        "build_number": cell.get("latest_build_number"),
+        "variants": variants,
+    }
+
+
+def build_best_hardware_health_groups(
+    rows: list[dict[str, Any]], source_url: str
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    """Build the auditable best-hardware logical gate model.
+
+    Every source matrix cell belongs to exactly one output group.  Generic
+    replicas share a group and pass when any owned architecture passes.  The
+    explicit MI355-sensitive cells own separate gates and are never also used
+    by their generic/base gate.
+    """
+    generic_components: dict[str, list[tuple[dict[str, Any], str]]] = defaultdict(list)
+    sensitive_cells: list[tuple[dict[str, Any], str, str]] = []
+
+    for row in rows:
+        for arch, cell in row.get("cells", {}).items():
+            if not cell.get("exists"):
+                continue
+            reason = _mi355_sensitive_reason(row) if arch == "mi355" else None
+            if reason:
+                sensitive_cells.append((row, arch, reason))
+            else:
+                generic_components[row["duplicate_group_id"]].append((row, arch))
+
+    # Two intentionally generic definitions differ enough to evade the exact
+    # command duplicate cluster. Merge each MI355 row with its core title peer.
+    for alias_title in GENERIC_MI355_ALIAS_REASONS:
+        matching = [
+            (row, arch)
+            for members in generic_components.values()
+            for row, arch in members
+            if row.get("canonical_title") == alias_title
+        ]
+        core_group_id = next(
+            (row["duplicate_group_id"] for row, arch in matching if arch in CORE_AMD_ARCHITECTURES),
+            None,
+        )
+        if not core_group_id:
+            continue
+        for old_group_id in {
+            row["duplicate_group_id"] for row, _ in matching
+        }:
+            if old_group_id == core_group_id:
+                continue
+            generic_components[core_group_id].extend(
+                generic_components.pop(old_group_id, [])
+            )
+
+    health_groups: list[dict[str, Any]] = []
+    for group_id, owned in generic_components.items():
+        owned.sort(key=lambda item: (item[0]["yaml_order"], _arch_sort_key(item[1])))
+        members = [_health_member(row, arch, source_url) for row, arch in owned]
+        alias_reason = next(
+            (
+                GENERIC_MI355_ALIAS_REASONS[title]
+                for title in GENERIC_MI355_ALIAS_REASONS
+                if any(row.get("canonical_title") == title for row, _ in owned)
+            ),
+            None,
+        )
+        status = _best_hardware_status([
+            row["cells"][arch] for row, arch in owned
+        ])
+        title = owned[0][0]["canonical_title"]
+        health_groups.append({
+            "id": _stable_id("health-group", "generic", group_id),
+            "title": title,
+            "status": status,
+            "is_passing": status == "passing",
+            "gate_kind": "generic_best_hardware",
+            "classification_reason": alias_reason or (
+                "generic logical family; passes when any represented AMD architecture passes"
+            ),
+            "architectures": sorted({arch for _, arch in owned}, key=_arch_sort_key),
+            "member_row_ids": sorted({row["id"] for row, _ in owned}),
+            "members": members,
+        })
+
+    for row, arch, reason in sensitive_cells:
+        member = _health_member(row, arch, source_url)
+        status = _best_hardware_status([row["cells"][arch]])
+        health_groups.append({
+            "id": _stable_id("health-group", "mi355-sensitive", row["id"]),
+            "title": member["label"] or f"{row['canonical_title']} — MI355",
+            "status": status,
+            "is_passing": status == "passing",
+            "gate_kind": "mi355_sensitive",
+            "classification_reason": reason,
+            "architectures": [arch],
+            "member_row_ids": [row["id"]],
+            "members": [member],
+        })
+
+    health_groups.sort(key=lambda group: (
+        min(
+            row["yaml_order"]
+            for row in rows
+            if row["id"] in group["member_row_ids"]
+        ),
+        group["gate_kind"] == "mi355_sensitive",
+        group["title"].casefold(),
+    ))
+    for group in health_groups:
+        for member in group["members"]:
+            row = next(row for row in rows if row["id"] == member["row_id"])
+            row.setdefault("health_memberships", {})[member["architecture"]] = group["id"]
+
+    counts = {
+        "passing_groups": sum(group["status"] == "passing" for group in health_groups),
+        "failed_only_groups": sum(group["status"] == "failed" for group in health_groups),
+        "mixed_groups": 0,
+        "waiting_groups": sum(group["status"] == "waiting" for group in health_groups),
+        "unknown_groups": sum(group["status"] == "unknown" for group in health_groups),
+    }
+    counts["failing_groups"] = counts["failed_only_groups"]
+    counts["resolved_groups"] = counts["passing_groups"] + counts["failing_groups"]
+    counts["included_groups"] = len(health_groups)
+    counts["health_group_count"] = len(health_groups)
+    counts["pass_percentage"] = round(
+        counts["passing_groups"] / counts["included_groups"] * 100, 1
+    ) if counts["included_groups"] else None
+    generic_count = sum(group["gate_kind"] == "generic_best_hardware" for group in health_groups)
+    sensitive_count = len(health_groups) - generic_count
+    counts.update({
+        "generic_groups": generic_count,
+        "generic_group_count": generic_count,
+        "mi355_sensitive_groups": sensitive_count,
+        "mi355_sensitive_group_count": sensitive_count,
+        "status_rule": "pass when any owned hardware cell passes",
+        "denominator_rule": "all expected health groups, including waiting and unknown",
+        "group_ids": [group["id"] for group in health_groups],
+    })
+
+    mi355_classification = []
+    for group in health_groups:
+        for member in group["members"]:
+            if member["architecture"] != "mi355":
+                continue
+            mi355_classification.append({
+                "row_id": member["row_id"],
+                "title": member["title"],
+                "label": member["label"],
+                "classification": (
+                    "separate_gate" if group["gate_kind"] == "mi355_sensitive" else "generic_replica"
+                ),
+                "reason": group["classification_reason"],
+                "health_group_id": group["id"],
+            })
+    policy = {
+        "status_rule": counts["status_rule"],
+        "denominator_rule": counts["denominator_rule"],
+        "generic_replica_rule": "collapse equivalent cross-architecture definitions",
+        "mi355_sensitive_rule": "keep the explicit hardware-sensitive allowlist as separate gates",
+        "incident_states": sorted(INCIDENT_STATES),
+        "waiting_states": sorted(WAITING_STATES),
+        "no_signal_states": ["canceled", "expired", "skipped", "unknown", "missing"],
+        "mi355_sensitive_rules": [
+            {"title": title, "reason": reason}
+            for title, reason in MI355_SENSITIVE_RULES
+        ],
+        "generic_alias_rules": [
+            {"title": title, "reason": reason}
+            for title, reason in GENERIC_MI355_ALIAS_REASONS.items()
+        ],
+        "mi355_classification": mi355_classification,
+    }
+    return health_groups, counts, policy
+
+
 def _variant_preference(label: str, arch: str, row_title: str) -> tuple[int, str]:
     normalized = clean_label(label)
     lowered = normalized.lower()
@@ -665,6 +934,7 @@ def aggregate_state(states: list[str]) -> str | None:
         "timed_out": 6,
         "broken": 6,
         "soft_fail": 5,
+        "soft_failed": 5,
         "running": 4,
         "scheduled": 3,
         "assigned": 3,
@@ -715,6 +985,11 @@ def parse_steps(yaml_text: str) -> tuple[list[dict[str, Any]], list[str]]:
                 "title": canonical_title(label),
                 "definition_key": definition_fingerprint(step),
                 "command_key": command_fingerprint(step),
+                "commands": [
+                    _normalize_fingerprint_value(command)
+                    for command in (step.get("commands") or [])
+                    if _normalize_fingerprint_value(command)
+                ],
                 "area": classify_area(canonical_title(label)),
                 "arch": arch,
                 "yaml_order": idx,
@@ -1002,6 +1277,7 @@ def build_matrix(
                 "command_fingerprint": _stable_id(
                     "commands", step["command_key"]
                 ),
+                "commands": step["commands"],
                 "_command_key": step["command_key"],
                 "area": step["area"],
                 "yaml_order": step["yaml_order"],
@@ -1128,6 +1404,10 @@ def build_matrix(
     rows.sort(key=lambda row: (row["yaml_order"], row["title"].lower()))
     duplicate_groups = annotate_duplicate_groups(rows)
     health_policies = matrix_health_policies(rows)
+    health_groups, best_hardware, best_hardware_policy = (
+        build_best_hardware_health_groups(rows, yaml_url)
+    )
+    health_policies["best_hardware"] = best_hardware
 
     fully_shared = sum(1 for row in rows if row["coverage_count"] == len(architectures))
     single_arch = sum(1 for row in rows if row["coverage_count"] == 1)
@@ -1194,6 +1474,7 @@ def build_matrix(
                 len(group["member_ids"]) for group in duplicate_groups
             ),
             "health_policies": health_policies,
+            "health_group_count": len(health_groups),
             "architecture_count": len(architectures),
             "hardware_cells": hardware_cells,
             "latest_matched_cells": latest_matched_cells,
@@ -1216,6 +1497,8 @@ def build_matrix(
             "default_ignore_mi355_only": True,
             "mi355_with_core_status": "inherit MI250, MI300, or MI325 signal",
         },
+        "best_hardware_policy": best_hardware_policy,
+        "health_groups": health_groups,
         "duplicate_groups": duplicate_groups,
         "rows": rows,
     }

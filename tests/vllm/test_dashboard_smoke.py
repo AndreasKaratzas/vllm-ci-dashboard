@@ -114,7 +114,7 @@ class TestIndexHtml:
 
     def test_queue_lifecycle_renderer_has_a_cache_busted_release(self):
         html = (DOCS / "index.html").read_text()
-        assert 'assets/js/ops-v2.js?v=14' in html
+        assert 'assets/js/ops-v2.js?v=15' in html
         source = (JS / "ops-v2.js").read_text()
         assert "queueLifecycle: QUEUE_LIFECYCLE_LIVE_BASE + 'queue_lifecycle.json'" in source
         assert "/queue-lifecycle-data/data/vllm/ci/" in source

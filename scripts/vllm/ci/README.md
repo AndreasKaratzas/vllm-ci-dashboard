@@ -101,6 +101,22 @@ Each line in a `.jsonl` file is a JSON object:
 | `quarantined` | Listed in quarantine.yaml | Excluded from metrics |
 | `allowlisted` | Listed in allowlist | Known acceptable failure |
 
+## CI Health gated-group percentage
+
+The CI Health headline is one domain-aware gated-group percentage from
+`amd_test_matrix.json`, not a percentage of raw YAML jobs. Generic
+cross-architecture replicas share one gate and pass when any represented AMD
+architecture passes. A reviewed set of MI355-sensitive model, topology, and
+kernel routes remains separate because another architecture cannot prove that
+gfx950-specific obligation healthy. The exact rules, reasons, membership, and
+commands are published in `best_hardware_policy` and `health_groups`.
+
+The denominator contains every expected gate, including waiting or unobserved
+groups; missing signal cannot improve the percentage. Raw hardware cells remain
+available as drill-down evidence but do not create a second headline metric.
+Commit-pinned AMD/upstream definition parity is a separate source-coverage
+inventory and does not affect runtime gate health.
+
 ## Managing Quarantine
 
 Edit `config/quarantine.yaml` to quarantine or allowlist tests:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import subprocess
 import sys
@@ -17,11 +18,245 @@ from vllm.audit_dashboard_data import (
 )
 
 
+def _best_hardware_audit_fixture():
+    source_url = "https://example.invalid/test-amd.yaml"
+
+    def cell(label, state, arch):
+        return {
+            "exists": True,
+            "latest_matched": True,
+            "latest_state": state,
+            "latest_url": None,
+            "latest_build_number": 123,
+            "primary_label": label,
+            "variants": [{
+                "label": label,
+                "agent_pool": f"{arch}_1",
+                "entries": [],
+            }],
+        }
+
+    generic_row = {
+        "id": "row-generic",
+        "title": "Generic Test",
+        "canonical_title": "Generic Test",
+        "command_fingerprint": "commands-generic",
+        "commands": ["pytest tests/generic"],
+        "health_memberships": {
+            "mi300": "gate-generic",
+            "mi355": "gate-generic",
+        },
+        "cells": {
+            "mi300": cell("Generic Test", "failed", "mi300"),
+            "mi355": cell("Generic Test", "passed", "mi355"),
+        },
+    }
+    kernel_row = {
+        "id": "row-kernel",
+        "title": "Kernels Attention Test",
+        "canonical_title": "Kernels Attention Test",
+        "command_fingerprint": "commands-kernel",
+        "commands": ["pytest kernels/attention"],
+        "health_memberships": {
+            "mi300": "gate-kernel-base",
+            "mi355": "gate-kernel-mi355",
+        },
+        "cells": {
+            "mi300": cell("Kernels Attention Test", "passed", "mi300"),
+            "mi355": cell("Kernels Attention Test", "soft_fail", "mi355"),
+        },
+    }
+    rows = [generic_row, kernel_row]
+
+    def member(row, arch):
+        source = row["cells"][arch]
+        return {
+            "row_id": row["id"],
+            "title": row["title"],
+            "architecture": arch,
+            "label": source["primary_label"],
+            "state": source["latest_state"],
+            "optional": False,
+            "agent_pool": f"{arch}_1",
+            "agent_pools": [f"{arch}_1"],
+            "command_fingerprint": row["command_fingerprint"],
+            "commands": row["commands"],
+            "source_url": source_url,
+            "url": source["latest_url"],
+            "latest_url": source["latest_url"],
+            "latest_matched": True,
+            "build_number": 123,
+            "variants": [{
+                "label": source["primary_label"],
+                "agent_pool": f"{arch}_1",
+                "optional": False,
+                "parallelism": 1,
+                "state": source["latest_state"],
+                "url": source["latest_url"],
+            }],
+        }
+
+    health_groups = [
+        {
+            "id": "gate-generic",
+            "title": "Generic Test",
+            "status": "passing",
+            "is_passing": True,
+            "gate_kind": "generic_best_hardware",
+            "classification_reason": "generic family; best route passes",
+            "architectures": ["mi300", "mi355"],
+            "member_row_ids": ["row-generic"],
+            "members": [
+                member(generic_row, "mi300"),
+                member(generic_row, "mi355"),
+            ],
+        },
+        {
+            "id": "gate-kernel-base",
+            "title": "Kernels Attention Test",
+            "status": "passing",
+            "is_passing": True,
+            "gate_kind": "generic_best_hardware",
+            "classification_reason": "generic base gate",
+            "architectures": ["mi300"],
+            "member_row_ids": ["row-kernel"],
+            "members": [member(kernel_row, "mi300")],
+        },
+        {
+            "id": "gate-kernel-mi355",
+            "title": "Kernels Attention Test — MI355",
+            "status": "failed",
+            "is_passing": False,
+            "gate_kind": "mi355_sensitive",
+            "classification_reason": "architecture-sensitive kernel gate",
+            "architectures": ["mi355"],
+            "member_row_ids": ["row-kernel"],
+            "members": [member(kernel_row, "mi355")],
+        },
+    ]
+    best_summary = {
+        "health_group_count": 3,
+        "included_groups": 3,
+        "passing_groups": 2,
+        "failed_only_groups": 1,
+        "mixed_groups": 0,
+        "failing_groups": 1,
+        "waiting_groups": 0,
+        "unknown_groups": 0,
+        "resolved_groups": 3,
+        "generic_groups": 2,
+        "generic_group_count": 2,
+        "mi355_sensitive_groups": 1,
+        "mi355_sensitive_group_count": 1,
+        "pass_percentage": 66.7,
+        "group_ids": [group["id"] for group in health_groups],
+    }
+    matrix = {
+        "source": {"yaml_url": source_url},
+        "summary": {
+            "health_group_count": 3,
+            "health_policies": {"best_hardware": best_summary},
+        },
+        "health_groups": health_groups,
+        "best_hardware_policy": {
+            "mi355_sensitive_rules": [{
+                "title": "Kernels Attention Test",
+                "reason": "architecture-sensitive kernel gate",
+            }],
+            "generic_alias_rules": [],
+            "mi355_classification": [
+                {
+                    "row_id": "row-generic",
+                    "title": "Generic Test",
+                    "label": "Generic Test",
+                    "classification": "generic_replica",
+                    "reason": "generic family; best route passes",
+                    "health_group_id": "gate-generic",
+                },
+                {
+                    "row_id": "row-kernel",
+                    "title": "Kernels Attention Test",
+                    "label": "Kernels Attention Test",
+                    "classification": "separate_gate",
+                    "reason": "architecture-sensitive kernel gate",
+                    "health_group_id": "gate-kernel-mi355",
+                },
+            ],
+        },
+        "rows": rows,
+    }
+    return matrix
+
+
 def test_dashboard_audit_current_data_has_no_errors():
     report = run_audit(ROOT)
     assert not report.errors, "\n".join(
         f"{finding.code}: {finding.message}" for finding in report.errors
     )
+
+
+def test_best_hardware_audit_reconciles_best_of_and_sensitive_gates(tmp_path):
+    matrix = _best_hardware_audit_fixture()
+    audit = DashboardAudit(tmp_path)
+
+    metrics = audit.audit_best_hardware_health_groups(
+        matrix,
+        matrix["rows"],
+        matrix["summary"],
+    )
+
+    assert not audit.report.errors
+    assert metrics == {
+        "available": True,
+        "health_groups": 3,
+        "passing_groups": 2,
+        "failing_groups": 1,
+        "waiting_groups": 0,
+        "unknown_groups": 0,
+        "generic_groups": 2,
+        "mi355_sensitive_groups": 1,
+        "classified_mi355_cells": 2,
+        "owned_hardware_cells": 4,
+        "pass_percentage": 66.7,
+    }
+
+
+def test_best_hardware_audit_rejects_duplicate_or_missing_cell_ownership(tmp_path):
+    matrix = _best_hardware_audit_fixture()
+    duplicate = copy.deepcopy(matrix["health_groups"][0]["members"][0])
+    matrix["health_groups"][1]["members"].append(duplicate)
+    audit = DashboardAudit(tmp_path)
+
+    audit.audit_best_hardware_health_groups(
+        matrix,
+        matrix["rows"],
+        matrix["summary"],
+    )
+
+    assert "matrix-best-hardware-cell-ownership" in {
+        finding.code for finding in audit.report.errors
+    }
+
+
+def test_best_hardware_audit_rejects_summary_source_and_classifier_drift(tmp_path):
+    matrix = _best_hardware_audit_fixture()
+    matrix["summary"]["health_policies"]["best_hardware"]["passing_groups"] = 3
+    matrix["health_groups"][0]["members"][0]["commands"] = ["pytest wrong"]
+    matrix["best_hardware_policy"]["mi355_classification"].pop()
+    audit = DashboardAudit(tmp_path)
+
+    audit.audit_best_hardware_health_groups(
+        matrix,
+        matrix["rows"],
+        matrix["summary"],
+    )
+
+    codes = {finding.code for finding in audit.report.errors}
+    assert {
+        "matrix-best-hardware-summary",
+        "matrix-best-hardware-member-source",
+        "matrix-best-hardware-classification",
+    } <= codes
 
 
 def test_dashboard_audit_covers_core_user_facing_data_files():

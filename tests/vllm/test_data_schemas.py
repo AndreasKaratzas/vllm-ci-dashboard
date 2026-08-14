@@ -199,7 +199,16 @@ class TestAmdTestMatrix:
         d = _load_json_or_skip("amd_test_matrix.json")
         _assert_has_keys(
             d,
-            {"generated_at", "source", "summary", "architectures", "areas", "rows"},
+            {
+                "generated_at",
+                "source",
+                "summary",
+                "architectures",
+                "areas",
+                "best_hardware_policy",
+                "health_groups",
+                "rows",
+            },
             "amd_test_matrix.json",
         )
 
@@ -237,6 +246,137 @@ class TestAmdTestMatrix:
             {"title", "area", "yaml_order", "coverage_count", "nightly_coverage_count", "cells"},
             "amd_test_matrix.json.rows[0]",
         )
+
+    def test_best_hardware_health_group_contract(self):
+        d = _load_json_or_skip("amd_test_matrix.json")
+        summary = d["summary"]
+        policy = summary["health_policies"]["best_hardware"]
+        groups = d["health_groups"]
+        _assert_has_keys(
+            policy,
+            {
+                "health_group_count",
+                "included_groups",
+                "passing_groups",
+                "failing_groups",
+                "waiting_groups",
+                "unknown_groups",
+                "generic_group_count",
+                "mi355_sensitive_group_count",
+                "pass_percentage",
+                "group_ids",
+                "status_rule",
+                "denominator_rule",
+            },
+            "amd_test_matrix.json.summary.health_policies.best_hardware",
+        )
+        assert summary["health_group_count"] == len(groups)
+        assert policy["health_group_count"] == len(groups)
+        assert policy["included_groups"] == len(groups)
+        assert policy["group_ids"] == [group["id"] for group in groups]
+        assert len(set(policy["group_ids"])) == len(groups)
+
+        status_counts = {
+            status: sum(group["status"] == status for group in groups)
+            for status in ("passing", "failed", "waiting", "unknown")
+        }
+        assert policy["passing_groups"] == status_counts["passing"]
+        assert policy["failing_groups"] == status_counts["failed"]
+        assert policy["waiting_groups"] == status_counts["waiting"]
+        assert policy["unknown_groups"] == status_counts["unknown"]
+        assert policy["generic_group_count"] == sum(
+            group["gate_kind"] == "generic_best_hardware" for group in groups
+        )
+        assert policy["mi355_sensitive_group_count"] == sum(
+            group["gate_kind"] == "mi355_sensitive" for group in groups
+        )
+
+        for index, group in enumerate(groups):
+            _assert_has_keys(
+                group,
+                {
+                    "id",
+                    "title",
+                    "status",
+                    "is_passing",
+                    "gate_kind",
+                    "classification_reason",
+                    "architectures",
+                    "member_row_ids",
+                    "members",
+                },
+                f"amd_test_matrix.json.health_groups[{index}]",
+            )
+            assert group["members"]
+            for member_index, member in enumerate(group["members"]):
+                _assert_has_keys(
+                    member,
+                    {
+                        "row_id",
+                        "title",
+                        "architecture",
+                        "label",
+                        "state",
+                        "optional",
+                        "agent_pool",
+                        "agent_pools",
+                        "command_fingerprint",
+                        "commands",
+                        "source_url",
+                        "url",
+                        "latest_url",
+                        "latest_matched",
+                        "build_number",
+                        "variants",
+                    },
+                    (
+                        "amd_test_matrix.json.health_groups"
+                        f"[{index}].members[{member_index}]"
+                    ),
+                )
+
+    def test_mi355_gate_classification_covers_the_source_inventory(self):
+        d = _load_json_or_skip("amd_test_matrix.json")
+        policy = d["best_hardware_policy"]
+        classifications = policy["mi355_classification"]
+        mi355 = next(
+            architecture
+            for architecture in d["architectures"]
+            if architecture["id"] == "mi355"
+        )
+        assert len(classifications) == mi355["group_count"]
+        assert len({row["row_id"] for row in classifications}) == len(
+            classifications
+        )
+        counts = {
+            kind: sum(row["classification"] == kind for row in classifications)
+            for kind in ("separate_gate", "generic_replica")
+        }
+        best = d["summary"]["health_policies"]["best_hardware"]
+        assert counts["separate_gate"] == best["mi355_sensitive_group_count"]
+        assert sum(counts.values()) == len(classifications)
+
+        if d["source"].get("latest_build_number") == 11994:
+            assert (best["passing_groups"], best["included_groups"]) == (156, 161)
+            assert counts == {"separate_gate": 15, "generic_replica": 25}
+            by_label = {row["label"]: row["classification"] for row in classifications}
+            for label in (
+                "Quantized Models Test",
+                "Quantization",
+                "Kernels MLA (MI355)",
+                "Kernels Attention Test",
+                "Kernels MoE Test",
+                "Kernels Quantization Test",
+                "Kernels FP8 MoE Test (2xH100-2xMI355)",
+                "V1 attention (B200-MI355)",
+            ):
+                assert by_label[label] == "separate_gate"
+            for label in (
+                "Entrypoints Integration (API Server OpenAI - Part 1)",
+                "LM Eval Small Models (2xB200-2xMI355)",
+                "Language Models Test (Extended Generation)",
+            ):
+                assert by_label[label] == "generic_replica"
 
 
 class TestGatingProposals:

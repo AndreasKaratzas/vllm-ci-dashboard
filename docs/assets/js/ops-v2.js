@@ -36,8 +36,6 @@
   const state = {
     healthView: 'overview',
     healthCoverageSort: 'platform',
-    healthReduceDuplicates: true,
-    healthIgnoreMi355Only: true,
     analyticsView: 'groups',
     analyticsPipeline: 'amd-ci',
     homeWork: 'issues',
@@ -839,7 +837,18 @@
     search.setAttribute('aria-label', config.searchLabel || search.placeholder);
     search.value = config.initialQuery || '';
     const count = n('span', 'ops-browser-count');
-    add(toolbar, [search, n('div', 'ops-toolbar-spacer'), count]);
+    const filters = (config.filters || []).map(function (filter) {
+      const select = n('select', 'ops-select');
+      select.setAttribute('aria-label', filter.label || 'Filter evidence');
+      (filter.options || []).forEach(function (option) {
+        const control = n('option', '', option.label);
+        control.value = option.value;
+        control.selected = option.value === (filter.initialValue || 'all');
+        select.append(control);
+      });
+      return {config: filter, control: select};
+    });
+    add(toolbar, [search].concat(filters.map(function (filter) { return filter.control; }), [n('div', 'ops-toolbar-spacer'), count]));
     const tableHost = n('div', 'ops-evidence-table-host');
     const pager = n('div', 'ops-browser-pagination');
     const previous = button('Previous', function () { page -= 1; renderRows(); });
@@ -852,9 +861,16 @@
     function renderRows() {
       const query = normalizeLabel(search.value);
       const searchable = config.searchText || defaultTableSearchText;
-      const filtered = query ? rows.filter(function (row) {
+      let filtered = query ? rows.filter(function (row) {
         return normalizeLabel(searchable(row)).includes(query);
       }) : rows;
+      filters.forEach(function (filter) {
+        const selected = filter.control.value;
+        if (selected === 'all') return;
+        filtered = filtered.filter(function (row) {
+          return filter.config.predicate(row, selected);
+        });
+      });
       const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
       page = Math.max(0, Math.min(page, pageCount - 1));
       const start = page * pageSize;
@@ -874,6 +890,9 @@
     }
 
     search.addEventListener('input', function () { page = 0; renderRows(); });
+    filters.forEach(function (filter) {
+      filter.control.addEventListener('change', function () { page = 0; renderRows(); });
+    });
     renderRows();
     openOverlay(config.title, config.subtitle || integer(rows.length) + ' evidence rows', content, true, config.id || 'table-browser');
     requestAnimationFrame(function () { search.focus(); });
@@ -2861,7 +2880,7 @@
     add(host, pageHeader('Command Center', 'Current AMD operations with retained nightly movement and direct paths to source evidence.', ops.generated_at));
     add(host, statusStrip([
       {id: 'home-amd-nightly', label: 'LATEST AMD NIGHTLY', value: nightlyState.label, meta: nightlyState.meta, tone: nightlyState.tone, url: exactPipelineBuildUrl(build, 'amd-ci'), observed: build.created_at},
-      {id: 'home-hardware-coverage', label: 'UNIQUE AMD TEST GROUPS', value: uniqueHealth.pass_percentage === null || uniqueHealth.pass_percentage === undefined ? 'No resolved signal' : Number(uniqueHealth.pass_percentage).toFixed(1) + '% resolved pass', meta: integer(uniqueHealth.passing_groups) + ' passing - ' + integer(uniqueHealth.failing_groups) + ' failing', tone: Number(uniqueHealth.failing_groups) ? 'is-warning' : 'is-success', onOpen: function () { navigateTo('ci-health', {healthView: 'overview'}); }},
+      {id: 'home-hardware-coverage', label: 'BEST-HARDWARE GATED GROUPS', value: uniqueHealth.pass_percentage === null || uniqueHealth.pass_percentage === undefined ? 'Unavailable' : Number(uniqueHealth.pass_percentage).toFixed(1) + '% passing', meta: uniqueHealth.best_hardware_unavailable ? 'Refresh for the complete policy and gate inventory' : integer(uniqueHealth.passing_groups) + ' / ' + integer(uniqueHealth.included_groups) + ' gates', tone: uniqueHealth.best_hardware_unavailable ? 'is-warning' : Number(uniqueHealth.failing_groups) ? 'is-warning' : Number(uniqueHealth.waiting_groups || 0) + Number(uniqueHealth.unknown_groups || 0) ? 'is-warning' : 'is-success', onOpen: function () { openMatrixHealthBrowser('all'); }},
       {id: 'home-failure-lifecycle', label: 'NIGHTLY VARIANT MOVEMENT', value: nightlyState.movementLabel, meta: nightlyState.movementMeta, tone: nightlyState.movementTone, onOpen: function () { openBuildDetail(build); }},
       {id: 'home-queue-snapshot', label: 'ALL-FLEET QUEUE ACTIVITY', value: integer(allFleetWaiting) + ' waiting', meta: integer(allFleetRunning) + ' running across ' + integer(allFleetQueues.length) + ' queues', tone: allFleetWaiting ? 'is-warning' : 'is-success', observed: queue.ts, provenance: 'Same all-queue scope as destination', onOpen: function () { navigateTo('ci-queue', {queueView: 'current', queueScope: 'all'}); }},
     ]));
@@ -2912,64 +2931,57 @@
     host.append(workPanel);
   }
 
-  const MATRIX_CORE_ARCHITECTURES = new Set(['mi250', 'mi300', 'mi325']);
   const MATRIX_INCIDENT_STATES = new Set(['failed', 'timed_out', 'broken', 'soft_fail', 'soft_failed']);
   const MATRIX_WAITING_STATES = new Set(['running', 'scheduled', 'assigned']);
 
-  function matrixHealthPolicyKey() {
-    const prefix = state.healthReduceDuplicates ? 'reduced' : 'definitions';
-    return prefix + (state.healthIgnoreMi355Only ? '_ignore_mi355' : '_include_mi355');
-  }
-
   function matrixHealthPolicy(matrixSummary) {
     const summary = matrixSummary || {};
-    const policy = ((summary.health_policies || {})[matrixHealthPolicyKey()]);
-    if (policy) return policy;
-
-    const passing = Number(summary.passing_cells || 0);
-    const failed = Number(summary.failing_cells || 0);
-    const resolved = passing + failed;
+    const policies = summary.health_policies || {};
+    const policy = policies.best_hardware;
+    if (policy) {
+      const included = Number(policy.included_groups || 0);
+      const publishedCount = Number(summary.health_group_count || 0);
+      if (!included || !publishedCount || publishedCount !== included) {
+        return {
+          passing_groups: 0,
+          failing_groups: 0,
+          waiting_groups: 0,
+          unknown_groups: 0,
+          included_groups: 0,
+          pass_percentage: null,
+          best_hardware_unavailable: true,
+        };
+      }
+      return Object.assign({}, policy, {
+        pass_percentage: included ? Number(policy.passing_groups || 0) / included * 100 : null,
+      });
+    }
     return {
-      passing_groups: passing,
-      failed_only_groups: failed,
+      passing_groups: 0,
+      failed_only_groups: 0,
       mixed_groups: 0,
-      failing_groups: failed,
-      waiting_groups: Number(summary.waiting_cells || 0),
-      unknown_groups: Number(summary.unknown_cells || 0),
+      failing_groups: 0,
+      waiting_groups: 0,
+      unknown_groups: 0,
       ignored_mi355_only_groups: 0,
       inherited_mi355_groups: 0,
-      resolved_groups: resolved,
-      included_groups: resolved + Number(summary.waiting_cells || 0) + Number(summary.unknown_cells || 0),
-      pass_percentage: resolved ? passing / resolved * 100 : null,
-      reduce_duplicates: state.healthReduceDuplicates,
-      ignore_mi355_only: state.healthIgnoreMi355Only,
-      legacy_cell_fallback: true,
+      resolved_groups: 0,
+      included_groups: 0,
+      pass_percentage: null,
+      generic_groups: 0,
+      mi355_sensitive_groups: 0,
+      best_hardware_unavailable: true,
     };
   }
 
-  function matrixCells(rows, architectureFilter) {
-    const cells = [];
-    (rows || []).forEach(function (row) {
-      Object.entries(row.cells || {}).forEach(function (entry) {
-        if (!entry[1] || !entry[1].exists) return;
-        if (architectureFilter && !architectureFilter.has(entry[0])) return;
-        cells.push({architecture: entry[0], row: row, cell: entry[1]});
-      });
-    });
-    return cells;
-  }
-
-  function matrixHealthStatus(cells) {
-    const states = (cells || []).map(function (entry) {
-      return String(entry.cell.latest_state || '').toLowerCase();
-    });
-    const hasPass = states.includes('passed');
-    const hasIncident = states.some(function (result) { return MATRIX_INCIDENT_STATES.has(result); });
-    if (hasPass && hasIncident) return 'mixed';
-    if (hasPass) return 'passing';
-    if (hasIncident) return 'failed';
-    if (states.some(function (result) { return MATRIX_WAITING_STATES.has(result); })) return 'waiting';
-    return 'unknown';
+  function bestHardwareMatrixContract(matrixData) {
+    const matrix = matrixData || {};
+    const policy = matrixHealthPolicy(matrix.summary || {});
+    const groups = Array.from(matrix.health_groups || []);
+    const valid = !policy.best_hardware_unavailable
+      && Number(policy.included_groups || 0) > 0
+      && groups.length === Number(policy.included_groups || 0);
+    return {policy: policy, groups: groups, valid: valid};
   }
 
   function matrixHealthStatusLabel(status) {
@@ -2994,129 +3006,88 @@
     }[status] || 'is-neutral';
   }
 
+  function matrixGateKindLabel(group) {
+    return group.classification === 'mi355-sensitive' ? 'MI355-sensitive' : 'Generic family';
+  }
+
   function matrixHealthCollection(matrixData) {
     const rows = Array.from((matrixData || {}).rows || []);
-    const components = new Map();
-    rows.forEach(function (row) {
-      const componentId = row.duplicate_group_id || row.id || ('row-' + row.yaml_order + '-' + row.title);
-      if (!components.has(componentId)) components.set(componentId, []);
-      components.get(componentId).push(row);
-    });
-    const duplicateMeta = new Map(((matrixData || {}).duplicate_groups || []).map(function (group) {
-      return [group.id, group];
-    }));
-    const candidates = [];
-    if (state.healthReduceDuplicates) {
-      components.forEach(function (members, componentId) {
-        candidates.push({id: componentId, rows: members, componentRows: members});
-      });
-    } else {
-      rows.forEach(function (row) {
-        const componentId = row.duplicate_group_id || row.id || ('row-' + row.yaml_order + '-' + row.title);
-        candidates.push({
-          id: row.id || componentId,
-          rows: [row],
-          componentRows: components.get(componentId) || [row],
-          componentId: componentId,
+    const publishedGroups = Array.from((matrixData || {}).health_groups || []);
+    const rowsById = new Map(rows.map(function (row) { return [row.id, row]; }));
+    return publishedGroups.map(function (published) {
+        const members = Array.from(published.members || []);
+        const memberRows = Array.from(new Set((published.member_row_ids || []).concat(
+          members.map(function (member) { return member.row_id; })
+        ))).map(function (id) { return rowsById.get(id); }).filter(Boolean);
+        const states = members.map(function (member) {
+          return String(member.state || '').toLowerCase();
         });
-      });
-    }
-
-    const groups = candidates.map(function (candidate) {
-      const candidateCore = matrixCells(candidate.rows, MATRIX_CORE_ARCHITECTURES);
-      const candidateMi355 = matrixCells(candidate.rows, new Set(['mi355']));
-      const componentCore = matrixCells(candidate.componentRows, MATRIX_CORE_ARCHITECTURES);
-      let signalCells = [];
-      let inherited = false;
-      let status;
-      if (candidateCore.length) {
-        signalCells = candidateCore;
-        inherited = candidateMi355.length > 0;
-      } else if (componentCore.length) {
-        signalCells = componentCore;
-        inherited = true;
-      } else if (state.healthIgnoreMi355Only) {
-        signalCells = candidateMi355;
-        status = 'ignored';
-      } else {
-        signalCells = candidateMi355;
-      }
-      if (!status) status = matrixHealthStatus(signalCells);
-
-      const componentId = candidate.componentId
-        || ((candidate.rows[0] || {}).duplicate_group_id)
-        || candidate.id;
-      const meta = duplicateMeta.get(componentId) || duplicateMeta.get(candidate.id) || {};
-      const allCells = matrixCells(candidate.rows);
-      const states = signalCells.map(function (entry) {
-        return String(entry.cell.latest_state || '').toLowerCase();
-      });
-      const architectures = Array.from(new Set(allCells.map(function (entry) {
-        return entry.architecture;
-      }))).sort();
-      return {
-        id: candidate.id,
-        title: state.healthReduceDuplicates ? (meta.title || (candidate.rows[0] || {}).title) : (candidate.rows[0] || {}).title,
-        status: status,
-        inherited: inherited,
-        rows: candidate.rows,
-        componentRows: candidate.componentRows,
-        duplicateSize: candidate.componentRows.length,
-        definitionCount: allCells.reduce(function (total, entry) {
-          return total + Number(entry.cell.raw_variant_count || entry.cell.variant_count || 1);
-        }, 0),
-        architectures: architectures,
-        passedCells: states.filter(function (result) { return result === 'passed'; }).length,
-        incidentCells: states.filter(function (result) { return MATRIX_INCIDENT_STATES.has(result); }).length,
-        waitingCells: states.filter(function (result) { return MATRIX_WAITING_STATES.has(result); }).length,
-        unknownCells: states.filter(function (result) {
-          return result !== 'passed' && !MATRIX_INCIDENT_STATES.has(result) && !MATRIX_WAITING_STATES.has(result);
-        }).length,
-        pairMatches: meta.pair_matches || [],
-      };
-    });
-    return groups.sort(function (left, right) {
-      const priority = {mixed: 0, failed: 1, unknown: 2, waiting: 3, passing: 4, ignored: 5};
+        const rawStatus = String(published.status || '').toLowerCase();
+        const status = published.is_passing === true || ['pass', 'passed', 'passing'].includes(rawStatus)
+          ? 'passing'
+          : ['fail', 'failed', 'failing', 'incident', 'soft', 'soft_fail', 'soft_failed', 'hard'].includes(rawStatus)
+            ? 'failed'
+            : MATRIX_WAITING_STATES.has(rawStatus) ? 'waiting' : 'unknown';
+        const gateKind = String(published.gate_kind || 'generic').toLowerCase();
+        return {
+          id: published.id,
+          title: published.title,
+          status: status,
+          gateKind: gateKind,
+          classification: gateKind.includes('mi355') ? 'mi355-sensitive' : 'generic',
+          classificationReason: published.classification_reason || '',
+          members: members,
+          rows: memberRows,
+          componentRows: memberRows,
+          duplicateSize: memberRows.length,
+          definitionCount: members.reduce(function (count, member) {
+            const variants = member.definitions && member.definitions.length
+              ? member.definitions : member.variants || [];
+            return count + Math.max(1, variants.length);
+          }, 0),
+          architectures: Array.from(new Set((published.architectures || []).concat(
+            members.map(function (member) { return member.architecture; })
+          ).filter(Boolean))).sort(),
+          passedCells: states.filter(function (result) { return result === 'passed'; }).length,
+          incidentCells: states.filter(function (result) { return MATRIX_INCIDENT_STATES.has(result); }).length,
+          waitingCells: states.filter(function (result) { return MATRIX_WAITING_STATES.has(result); }).length,
+          unknownCells: states.filter(function (result) {
+            return result !== 'passed' && !MATRIX_INCIDENT_STATES.has(result) && !MATRIX_WAITING_STATES.has(result);
+          }).length,
+          pairMatches: [],
+        };
+      }).sort(function (left, right) {
+      const priority = {failed: 0, unknown: 1, waiting: 2, passing: 3};
       return priority[left.status] - priority[right.status] || String(left.title).localeCompare(String(right.title));
     });
   }
 
   function matrixGroupEvidence(group) {
-    const rows = [];
-    const seen = new Set();
-    const evidenceRows = group.inherited ? group.componentRows : group.rows;
-    matrixCells(evidenceRows).forEach(function (entry) {
-      const variants = entry.cell.variants && entry.cell.variants.length
-        ? entry.cell.variants : [{
-          label: entry.cell.primary_label || entry.row.title,
-          agent_pool: '',
-          latest_state: entry.cell.latest_state,
-          latest_url: entry.cell.latest_url,
-          entries: [],
-        }];
-      variants.forEach(function (variant) {
-        const definitions = variant.entries && variant.entries.length ? variant.entries : [variant];
+    if ((group.members || []).length) {
+      const memberRows = new Map((group.rows || []).map(function (row) { return [row.id, row]; }));
+      const publishedEvidence = [];
+      group.members.forEach(function (member) {
+        const sourceRow = memberRows.get(member.row_id) || {};
+        const nestedDefinitions = member.definitions && member.definitions.length
+          ? member.definitions : member.variants || [];
+        const definitions = nestedDefinitions.length ? nestedDefinitions : [member];
         definitions.forEach(function (definition) {
-          const result = definition.latest_state || variant.latest_state || entry.cell.latest_state;
-          const url = exactPipelineEvidenceUrl({
-            latest_url: definition.latest_url || variant.latest_url || entry.cell.latest_url,
-            build_number: entry.cell.latest_build_number,
-          }, 'amd-ci');
-          const key = [entry.row.id, entry.architecture, definition.label, definition.agent_pool, url].join('|');
-          if (seen.has(key)) return;
-          seen.add(key);
-          rows.push({
-            definition: definition.label || variant.label || entry.row.title,
-            architecture: entry.architecture,
-            queue: definition.agent_pool || variant.agent_pool || '',
-            result: result || 'unknown',
-            url: url,
-            buildNumber: entry.cell.latest_build_number,
+          publishedEvidence.push({
+            definition: definition.label || member.label || member.title || group.title,
+            architecture: definition.architecture || member.architecture || '',
+            queue: definition.agent_pool || definition.queue || member.agent_pool || member.queue || (member.agent_pools || []).join(', ') || '',
+            result: definition.state || member.state || 'unknown',
+            url: exactPipelineEvidenceUrl({latest_url: definition.url || definition.latest_url || member.url || member.latest_url}, 'amd-ci'),
+            buildNumber: definition.build_number || member.build_number,
+            commands: definition.commands || member.commands || [],
+            commandIdentity: definition.command_fingerprint || member.command_fingerprint || sourceRow.command_fingerprint || '',
+            sourceUrl: definition.source_url || member.source_url || '',
           });
         });
       });
-    });
-    return rows;
+      return publishedEvidence;
+    }
+    return [];
   }
 
   function openMatrixGroupEvidence(group, matrixData) {
@@ -3125,28 +3096,42 @@
     const note = n('div', 'ops-evidence-note ' + matrixHealthTone(group.status));
     add(note, [
       n('strong', '', matrixHealthStatusLabel(group.status) + '. '),
-      n('span', '', group.inherited
-        ? 'MI355 evidence is shown, while the status comes from MI250, MI300, or MI325.'
-        : 'The status uses the latest exact AMD job evidence shown below.'),
+      n('span', '', group.classification === 'mi355-sensitive'
+        ? 'This hardware-sensitive obligation uses its exact MI355 route; another architecture cannot satisfy it.'
+        : 'This generic family passes when at least one configured AMD route passes. Architecture disagreements remain visible below.'),
     ]);
     content.append(note);
+    if (group.classificationReason) {
+      content.append(n('p', 'ops-detail-description', group.classificationReason));
+    }
     content.append(dataTable([
       {label: 'Definition', sticky: true, width: '390px', render: function (row) { return row.url ? externalLink(row.definition, row.url, 'ops-cell-primary') : row.definition; }},
       {label: 'Hardware', width: '110px', render: function (row) { return badge(row.architecture.toUpperCase(), 'is-neutral'); }},
       {label: 'Agent pool', width: '150px', render: function (row) { return value(row.queue); }},
       {label: 'Latest result', width: '130px', render: function (row) { return linkedBadge(row.result, row.url, null, toneForState(row.result)); }},
-      {label: 'Evidence', width: '130px', render: function (row) { return row.url ? externalLink('Open job', row.url) : n('span', 'ops-cell-muted', '-'); }},
-    ], evidenceRows, integer(evidenceRows.length) + ' exact AMD definitions', {name: 'matrix-unique-evidence', minWidth: '980px'}));
+      {label: 'Command identity', width: '190px', render: function (row) { return row.commandIdentity ? n('span', 'ops-mono', row.commandIdentity) : n('span', 'ops-cell-muted', '-'); }},
+      {label: 'Evidence', width: '170px', render: function (row) { const actions = n('div', 'ops-inline-actions'); if (row.url) actions.append(externalLink('Job', row.url)); if (row.sourceUrl) actions.append(externalLink('Source', row.sourceUrl)); return actions.childNodes.length ? actions : n('span', 'ops-cell-muted', '-'); }},
+    ], evidenceRows, integer(evidenceRows.length) + ' exact AMD definitions', {name: 'matrix-unique-evidence', minWidth: '1190px'}));
+    const commands = evidenceRows.filter(function (row) { return (row.commands || []).length; });
+    if (commands.length) {
+      const pre = n('pre', 'ops-code-block');
+      pre.textContent = commands.map(function (row) {
+        return '# ' + row.architecture.toUpperCase() + ' - ' + row.definition + '\n' + row.commands.join('\n');
+      }).join('\n\n');
+      content.append(panel('Executed commands', integer(commands.length) + ' architecture definitions with published commands', pre));
+    }
     openDetailDrawer({
       id: 'matrix-health-' + group.id,
       title: group.title,
-      subtitle: 'Unique AMD test-group signal and exact Buildkite evidence',
+      subtitle: 'Gate status and exact AMD route evidence',
       fields: [
         {label: 'Status', value: matrixHealthStatusLabel(group.status)},
+        {label: 'Gate classification', value: matrixGateKindLabel(group)},
+        {label: 'Classification reason', value: group.classificationReason},
         {label: 'Source definitions', value: integer(group.definitionCount)},
         {label: 'Hardware', value: group.architectures.map(function (arch) { return arch.toUpperCase(); }).join(', ')},
         {label: 'Signal', value: integer(group.passedCells) + ' passing - ' + integer(group.incidentCells) + ' incident'},
-        {label: 'Duplicate rows', value: group.duplicateSize > 1 ? integer(group.duplicateSize) : null},
+        {label: 'Matrix rows', value: group.duplicateSize > 1 ? integer(group.duplicateSize) : null},
         {label: 'Shared title substring', value: Array.from(new Set(group.pairMatches.map(function (match) { return match.shared_substring; }))).join(', ') || null},
       ],
       sources: [
@@ -3157,63 +3142,70 @@
     });
   }
 
-  function matrixHealthFilter(groups, mode) {
-    if (mode === 'failing') return groups.filter(function (group) { return ['failed', 'mixed'].includes(group.status); });
-    if (mode === 'no-signal') return groups.filter(function (group) { return ['waiting', 'unknown'].includes(group.status); });
-    if (mode === 'all') return groups.filter(function (group) { return group.status !== 'ignored'; });
-    return groups.filter(function (group) { return group.status === mode; });
-  }
-
   async function openMatrixHealthBrowser(mode) {
     let matrixData;
     try {
       matrixData = await fetchJSON('data/vllm/ci/amd_test_matrix.json');
     } catch (error) {
       openMetricDetail({
-        label: 'Unique AMD test groups',
+        label: 'Best-hardware gated groups',
         value: 'Unavailable',
         description: 'The AMD matrix payload could not be loaded.',
       });
       return;
     }
-    const groups = matrixHealthFilter(matrixHealthCollection(matrixData), mode || 'all');
+    const contract = bestHardwareMatrixContract(matrixData);
+    if (!contract.valid) {
+      openMetricDetail({
+        label: 'Best-hardware gated groups',
+        value: 'Unavailable',
+        description: 'This snapshot does not contain a complete best-hardware policy and matching gate inventory. Refresh the dashboard after the matrix collector publishes both together.',
+        sources: [{label: 'Open published matrix', url: 'data/vllm/ci/amd_test_matrix.json'}],
+      });
+      return;
+    }
+    const allGroups = matrixHealthCollection(matrixData).filter(function (group) { return group.status !== 'ignored'; });
     const titles = {
-      all: 'Unique AMD test-group health',
+      all: 'Best-hardware gated groups',
       passing: 'Passing AMD test groups',
       failing: 'Failing AMD test groups',
-      failed: 'Fully failing AMD test groups',
-      mixed: 'Mixed AMD test groups',
       'no-signal': 'AMD groups without a terminal signal',
-      ignored: 'Ignored MI355-only test groups',
+      'mi355-sensitive': 'MI355-sensitive AMD gates',
+      generic: 'Generic AMD test families',
+      ignored: 'Legacy ignored MI355-only test groups',
     };
     openTableBrowser({
       id: 'unique-amd-health-' + (mode || 'all'),
       title: titles[mode || 'all'],
-      subtitle: integer(groups.length) + ' groups under the active duplicate and MI355 policy',
-      rows: groups,
+      subtitle: integer(allGroups.length) + ' best-hardware gates; generic families use best-of AMD while hardware-sensitive obligations use their exact route',
+      rows: allGroups,
       columns: [
-        {label: 'Unique test group', sticky: true, width: '390px', render: function (group) { return linkButton(group.title, function () { openMatrixGroupEvidence(group, matrixData); }); }},
+        {label: 'Gated test group', sticky: true, width: '390px', render: function (group) { return linkButton(group.title, function () { openMatrixGroupEvidence(group, matrixData); }); }},
         {label: 'Status', width: '130px', render: function (group) { return linkedBadge(matrixHealthStatusLabel(group.status), null, function () { openMatrixGroupEvidence(group, matrixData); }, matrixHealthTone(group.status)); }},
-        {label: 'Definitions', numeric: true, width: '110px', render: function (group) { return linkButton(integer(group.definitionCount), function () { openMatrixGroupEvidence(group, matrixData); }); }},
+        {label: 'Classification', width: '180px', render: function (group) { return linkedBadge(matrixGateKindLabel(group), null, function () { openMatrixGroupEvidence(group, matrixData); }, group.classification === 'mi355-sensitive' ? 'is-info' : 'is-neutral'); }},
         {label: 'Hardware', width: '180px', render: function (group) { return group.architectures.map(function (arch) { return arch.toUpperCase(); }).join(', ') || '-'; }},
-        {label: 'Core signal', width: '190px', render: function (group) { return integer(group.passedCells) + ' pass - ' + integer(group.incidentCells) + ' incident'; }},
+        {label: 'Classification reason', width: '420px', render: function (group) { return linkButton(group.classificationReason || '-', function () { openMatrixGroupEvidence(group, matrixData); }); }},
+        {label: 'Route signal', width: '190px', render: function (group) { return integer(group.passedCells) + ' pass - ' + integer(group.incidentCells) + ' incident'; }},
         {label: 'Evidence', width: '140px', render: function (group) { return linkButton(integer(matrixGroupEvidence(group).filter(function (row) { return row.url; }).length) + ' jobs', function () { openMatrixGroupEvidence(group, matrixData); }); }},
       ],
-      searchText: function (group) { return [group.title, group.status, group.architectures.join(' ')].join(' '); },
-      searchPlaceholder: 'Filter test group, status, or hardware',
-      geometry: {name: 'unique-amd-health', minWidth: '1160px'},
+      searchText: function (group) { return [group.title, group.status, group.classification, group.classificationReason, group.architectures.join(' '), matrixGroupEvidence(group).map(function (row) { return [row.definition, row.queue, row.commandIdentity, (row.commands || []).join(' ')].join(' '); }).join(' ')].join(' '); },
+      searchPlaceholder: 'Search group, reason, command, hardware, or queue',
+      filters: [
+        {
+          label: 'Filter best-hardware gate status',
+          initialValue: mode === 'passing' || mode === 'failing' || mode === 'no-signal' ? mode : 'all',
+          options: [{value: 'all', label: 'All statuses'}, {value: 'passing', label: 'Passing'}, {value: 'failing', label: 'Failing'}, {value: 'no-signal', label: 'No signal'}],
+          predicate: function (group, selected) { return selected === 'no-signal' ? ['waiting', 'unknown'].includes(group.status) : selected === 'failing' ? group.status === 'failed' : group.status === selected; },
+        },
+        {
+          label: 'Filter best-hardware gate classification',
+          initialValue: mode === 'mi355-sensitive' || mode === 'generic' ? mode : 'all',
+          options: [{value: 'all', label: 'All classifications'}, {value: 'generic', label: 'Generic families'}, {value: 'mi355-sensitive', label: 'MI355-sensitive'}],
+          predicate: function (group, selected) { return group.classification === selected; },
+        },
+      ],
+      geometry: {name: 'unique-amd-health', minWidth: '1620px'},
     });
-  }
-
-  function matrixHealthToggle(label, checked, title, onChange) {
-    const control = n('label', 'ops-health-policy-toggle');
-    control.title = title;
-    const input = n('input');
-    input.type = 'checkbox';
-    input.checked = checked;
-    input.addEventListener('change', function () { onChange(input.checked); });
-    add(control, [input, n('span', '', label)]);
-    return control;
   }
 
   function matrixHealthOverview(matrixSummary, policy, latestBuildNumber) {
@@ -3221,41 +3213,36 @@
     const head = n('header', 'ops-panel-header ops-unique-health-header');
     const heading = n('div', 'ops-unique-health-heading');
     add(heading, [
-      n('h2', 'ops-panel-title', 'Unique AMD test-group health'),
-      n('div', 'ops-panel-meta', latestBuildNumber ? 'Latest observed matrix build #' + latestBuildNumber : 'Latest observed AMD matrix signal'),
+      n('h2', 'ops-panel-title', 'Best-hardware gated-group health'),
+      n('div', 'ops-panel-meta', (latestBuildNumber ? 'Latest observed matrix build #' + latestBuildNumber + ' - ' : '') + 'one fixed domain-aware gate policy'),
     ]);
-    const controls = n('div', 'ops-unique-health-controls');
-    add(controls, [
-      matrixHealthToggle(
-        'Reduce duplicates',
-        state.healthReduceDuplicates,
-        'Equal command lists plus a shared title substring of at least two characters',
-        function (checked) { state.healthReduceDuplicates = checked; render('ci-health', true); }
-      ),
-      matrixHealthToggle(
-        'Ignore MI355-only',
-        state.healthIgnoreMi355Only,
-        'Exclude groups that have no MI250, MI300, or MI325 definition',
-        function (checked) { state.healthIgnoreMi355Only = checked; render('ci-health', true); }
-      ),
-    ]);
-    add(head, [heading, controls]);
+    add(head, heading);
     root.append(head);
 
     const body = n('div', 'ops-unique-health-body');
+    if (policy.best_hardware_unavailable) {
+      const unavailable = n('div', 'ops-evidence-note is-warning');
+      add(unavailable, [
+        n('strong', '', 'Best-hardware metric unavailable. '),
+        n('span', '', 'This compatibility snapshot predates the fixed domain-aware gate policy. Refresh after the matrix collector publishes the policy and complete gate inventory together.'),
+      ]);
+      body.append(unavailable);
+      root.append(body);
+      return root;
+    }
     const rate = n('button', 'ops-unique-health-rate');
     rate.type = 'button';
     rate.addEventListener('click', function () { openMatrixHealthBrowser('all'); });
     add(rate, [
       n('strong', '', policy.pass_percentage === null || policy.pass_percentage === undefined ? '-' : Number(policy.pass_percentage).toFixed(1) + '%'),
-      n('span', '', 'of resolved groups passing'),
+      n('span', '', integer(policy.passing_groups) + ' / ' + integer(policy.included_groups) + ' gated groups passing'),
     ]);
     const stats = n('div', 'ops-unique-health-stats');
     [
       {mode: 'passing', label: 'Passing', count: policy.passing_groups, tone: 'is-passing'},
       {mode: 'failing', label: 'Failing', count: policy.failing_groups, tone: 'is-failing'},
-      {mode: 'mixed', label: 'Mixed subset', count: policy.mixed_groups, tone: 'is-mixed'},
       {mode: 'no-signal', label: 'No signal', count: Number(policy.waiting_groups || 0) + Number(policy.unknown_groups || 0), tone: 'is-unknown'},
+      {mode: 'mi355-sensitive', label: 'MI355-sensitive', count: policy.mi355_sensitive_group_count !== undefined ? policy.mi355_sensitive_group_count : policy.mi355_sensitive_groups, tone: 'is-mixed'},
     ].forEach(function (item) {
       const stat = n('button', 'ops-unique-health-stat ' + item.tone);
       stat.type = 'button';
@@ -3269,8 +3256,7 @@
     const bar = n('div', 'ops-unique-health-bar');
     [
       {mode: 'passing', label: 'Passing', count: Number(policy.passing_groups || 0), tone: 'is-passing'},
-      {mode: 'failed', label: 'Failing', count: Number(policy.failed_only_groups || 0), tone: 'is-failing'},
-      {mode: 'mixed', label: 'Mixed', count: Number(policy.mixed_groups || 0), tone: 'is-mixed'},
+      {mode: 'failing', label: 'Failing', count: Number(policy.failing_groups || 0), tone: 'is-failing'},
       {mode: 'no-signal', label: 'No signal', count: Number(policy.waiting_groups || 0) + Number(policy.unknown_groups || 0), tone: 'is-unknown'},
     ].forEach(function (item) {
       if (!item.count) return;
@@ -3285,19 +3271,14 @@
     body.append(bar);
 
     const footer = n('footer', 'ops-unique-health-footer');
-    const definitionRows = Number(matrixSummary.definition_rows || matrixSummary.unique_groups || 0);
-    const reducedRows = Math.max(0, definitionRows - Number(matrixSummary.reduced_unique_groups || definitionRows));
     const facts = [
-      integer(policy.resolved_groups) + ' resolved of ' + integer(policy.included_groups) + ' included',
-      state.healthReduceDuplicates ? integer(reducedRows) + ' duplicate definitions reduced' : 'Definition rows shown separately',
-      integer(policy.inherited_mi355_groups || 0) + ' MI355 signals inherited',
+      integer(policy.generic_group_count !== undefined ? policy.generic_group_count : policy.generic_groups || 0) + ' generic best-of-hardware families',
+      integer(policy.mi355_sensitive_group_count !== undefined ? policy.mi355_sensitive_group_count : policy.mi355_sensitive_groups || 0) + ' explicit MI355-sensitive obligations',
+      'no-signal groups remain in the denominator',
     ];
     add(footer, [
       n('span', '', facts.join(' - ')),
-      Number(policy.ignored_mi355_only_groups || 0)
-        ? linkButton(integer(policy.ignored_mi355_only_groups) + ' MI355-only ignored', function () { openMatrixHealthBrowser('ignored'); })
-        : null,
-      button('Browse groups', function () { openMatrixHealthBrowser('all'); }),
+      button('Browse all ' + integer(policy.included_groups) + ' gates', function () { openMatrixHealthBrowser('all'); }),
     ]);
     body.append(footer);
     root.append(body);
@@ -3530,12 +3511,12 @@
     const amdSoft = Number(amdLatestStates.soft || 0);
     const amdHard = Number(amdLatestStates.hard || 0);
     const nightlyState = amdNightlyPresentation(build, amdHealthSummary);
-    add(host, pageHeader('CI Health', 'AMD nightly outcomes, hardware coverage, and source-definition parity with each evidence type kept distinct.', ops.generated_at));
+    add(host, pageHeader('CI Health', 'One best-hardware gated-group percentage, with exact AMD route evidence and definition parity as a separate supporting inventory.', ops.generated_at));
     healthTabs(host);
     host.append(statusStrip([
       {id: 'health-build', label: 'LATEST AMD NIGHTLY', value: nightlyState.label, meta: build.number ? nightlyState.meta : 'No completed build', tone: nightlyState.tone, url: exactPipelineBuildUrl(build, 'amd-ci')},
-      {id: 'health-hardware', label: 'UNIQUE AMD TEST GROUPS', value: uniqueHealth.pass_percentage === null || uniqueHealth.pass_percentage === undefined ? 'No resolved signal' : Number(uniqueHealth.pass_percentage).toFixed(1) + '% resolved pass', meta: integer(uniqueHealth.passing_groups) + ' passing - ' + integer(uniqueHealth.failing_groups) + ' failing - ' + integer(Number(uniqueHealth.waiting_groups || 0) + Number(uniqueHealth.unknown_groups || 0)) + ' no signal', tone: Number(uniqueHealth.failing_groups) ? 'is-warning' : Number(uniqueHealth.unknown_groups || 0) ? 'is-warning' : 'is-success', onOpen: function () { openMatrixHealthBrowser('all'); }},
-      {id: 'health-definitions', label: 'AMD IDENTITY FAMILIES', value: integer(definitionSummary.amd_identity_families), meta: integer(definitionSummary.covered_identity_families) + ' source-covered · ' + integer(definitionSummary.amd_only_identity_families) + ' AMD-only', tone: Number(definitionSummary.amd_only_identity_families) ? 'is-warning' : 'is-success', onOpen: function () { setRouteState('ci-health', 'healthView', 'gating', 'health_view'); }},
+      {id: 'health-hardware', label: 'BEST-HARDWARE GATED GROUPS', value: uniqueHealth.pass_percentage === null || uniqueHealth.pass_percentage === undefined ? 'Unavailable' : Number(uniqueHealth.pass_percentage).toFixed(1) + '% passing', meta: uniqueHealth.best_hardware_unavailable ? 'Refresh for the complete policy and gate inventory' : integer(uniqueHealth.passing_groups) + ' / ' + integer(uniqueHealth.included_groups) + ' gates · ' + integer(uniqueHealth.failing_groups) + ' failing · ' + integer(Number(uniqueHealth.waiting_groups || 0) + Number(uniqueHealth.unknown_groups || 0)) + ' no signal', tone: uniqueHealth.best_hardware_unavailable ? 'is-warning' : Number(uniqueHealth.failing_groups) ? 'is-warning' : Number(uniqueHealth.waiting_groups || 0) + Number(uniqueHealth.unknown_groups || 0) ? 'is-warning' : 'is-success', onOpen: function () { openMatrixHealthBrowser('all'); }},
+      {id: 'health-definitions', label: 'DEFINITION PARITY', value: integer(definitionSummary.covered_identity_families) + ' / ' + integer(definitionSummary.amd_identity_families) + ' linked', meta: 'supporting source inventory · not runtime health', tone: Number(definitionSummary.amd_only_identity_families) ? 'is-warning' : 'is-success', onOpen: function () { setRouteState('ci-health', 'healthView', 'gating', 'health_view'); }},
       {id: 'health-nightly-transition', label: 'NIGHTLY VARIANT MOVEMENT', value: nightlyState.movementLabel, meta: nightlyState.movementMeta, tone: nightlyState.movementTone, onOpen: function () { openBuildDetail(build); }},
     ]));
 
@@ -3556,6 +3537,14 @@
         uniqueHealth,
         matrix.latest_build_number || amdHealthSummary.latest_build_number
       ));
+      if (!uniqueHealth.best_hardware_unavailable) {
+        const gatePolicyNote = n('div', 'ops-evidence-note is-info');
+        add(gatePolicyNote, [
+          n('strong', '', 'One domain-aware runtime gate policy. '),
+          n('span', '', 'Generic test families pass when any configured AMD architecture passes. The explicitly classified MI355-sensitive obligations use their exact MI355 route instead, so a pass on another architecture cannot hide an MI355 regression.'),
+        ]);
+        host.append(gatePolicyNote);
+      }
       const grid = n('div', 'ops-grid ops-grid-main-aside ops-health-grid');
       const trend = chartPanel('Observed test-result movement', 'Nightlies with test execution only; latest signal #' + value(amdHealthSummary.latest_build_number), 'health-nightly');
       trend.root.classList.add('ops-health-primary');
@@ -3679,15 +3668,15 @@
       if (state.healthPlan === 'unmatched') state.healthPlan = 'unlinked';
       if (state.healthPlan === 'upstream') state.healthPlan = 'all';
       host.append(statusStrip([
-        {id: 'definition-amd', label: 'AMD IDENTITY FAMILIES', value: integer(summary.amd_identity_families), meta: integer(summary.total_amd_steps) + ' parity nodes · ' + integer(summary.total_nvidia_steps) + ' upstream definitions at the same commit', onOpen: function () { state.healthPlan = 'amd'; render('ci-health', true); }},
-        {id: 'definition-covered', label: 'AMD FAMILY COVERAGE', value: integer(summary.covered_identity_families) + ' / ' + integer(summary.amd_identity_families), meta: Number(summary.identity_family_coverage_rate_pct || 0).toFixed(1) + '% family coverage · ' + integer(summary.covered) + ' / ' + integer(summary.total_amd_steps) + ' parity nodes source-covered', tone: Number(summary.amd_only_identity_families) ? 'is-warning' : 'is-success', onOpen: function () { state.healthPlan = 'covered'; render('ci-health', true); }},
-        {id: 'definition-mirrors', label: 'INLINE MIRRORS', value: integer(summary.mirrors), meta: integer(Number(summary.mirrors || 0) - mirrorOverrides) + ' inherit commands · ' + integer(mirrorOverrides) + ' override', tone: 'is-info', onOpen: function () { state.healthPlan = 'mirror_inventory'; render('ci-health', true); }},
-        {id: 'definition-unlinked', label: 'UNLINKED DEFINITIONS', value: integer(summary.amd_only) + ' AMD · ' + integer(summary.nvidia_only) + ' upstream', meta: 'Mirror-linked and additional variants excluded', tone: Number(summary.amd_only) || Number(summary.nvidia_only) ? 'is-warning' : 'is-success', onOpen: function () { state.healthPlan = 'unlinked'; render('ci-health', true); }},
+        {id: 'definition-amd', label: 'AMD IDENTITY FAMILIES', value: integer(summary.amd_identity_families), meta: 'commit-pinned source identities', onOpen: function () { state.healthPlan = 'amd'; render('ci-health', true); }},
+        {id: 'definition-covered', label: 'LINKED / SOURCE-COVERED', value: integer(summary.covered_identity_families), meta: 'direct, mirror-linked, or additional variant', tone: 'is-success', onOpen: function () { state.healthPlan = 'covered'; render('ci-health', true); }},
+        {id: 'definition-amd-only', label: 'AMD-ONLY FAMILIES', value: integer(summary.amd_only_identity_families), meta: 'classification inventory · not runtime failures', tone: Number(summary.amd_only_identity_families) ? 'is-info' : 'is-success', onOpen: function () { state.healthPlan = 'amd_only'; render('ci-health', true); }},
+        {id: 'definition-upstream-only', label: 'UPSTREAM-ONLY CANDIDATES', value: integer(summary.nvidia_only), meta: 'review for portable matches or intentional exclusions', tone: Number(summary.nvidia_only) ? 'is-warning' : 'is-success', onOpen: function () { state.healthPlan = 'upstream_only'; render('ci-health', true); }},
       ]));
       const note = n('div', 'ops-evidence-note is-info');
       add(note, [
         n('strong', '', 'Definition coverage, not passing test groups. '),
-        n('span', '', 'The AMD denominator is YAML-derived identity families. Cross-architecture replicas collapse only when they share a normalized identity and either their canonical YAML titles or executed test targets agree; definitions that coexist on one AMD architecture stay separate, including the two distinct V1 E2E 4-GPU targets. The source-comparison table preserves all ' + integer(summary.total_amd_steps) + ' collision-safe parity nodes; ' + integer(summary.covered) + ' are source-covered (' + integer(summary.direct_matches) + ' direct, ' + integer(summary.inline_mirror_variants) + ' mirror-linked, and ' + integer(summary.additional_variants) + ' additional). Inline mirrors remain a separate AMD route declared in test_areas. Every count comes from one commit-pinned vLLM main snapshot.'),
+        n('span', '', 'This supporting inventory does not alter the gated-group pass percentage. AMD-only families are classifications, not runtime failures or an automatic backlog. The source-comparison table preserves all ' + integer(summary.total_amd_steps) + ' collision-safe parity nodes; ' + integer(summary.covered) + ' are source-covered (' + integer(summary.direct_matches) + ' direct, ' + integer(summary.inline_mirror_variants) + ' mirror-linked, and ' + integer(summary.additional_variants) + ' additional). Its ' + integer(summary.mirrors) + ' inline mirrors include ' + integer(mirrorOverrides) + ' command overrides. Every count comes from one commit-pinned vLLM main snapshot.'),
         source.commit_url ? externalLink(' Open vLLM ' + String(source.commit_sha || '').slice(0, 12), source.commit_url) : null,
       ]);
       host.append(note);
@@ -10933,6 +10922,10 @@
   };
   if (window.__OPS_V2_TEST__) {
     window.OpsV2Test = {
+      matrixHealthPolicy: matrixHealthPolicy,
+      bestHardwareMatrixContract: bestHardwareMatrixContract,
+      matrixHealthCollection: matrixHealthCollection,
+      matrixGroupEvidence: matrixGroupEvidence,
       sortRuntimeTargetRows: sortRuntimeTargetRows,
       targetResolutionPresentation: targetResolutionPresentation,
       targetAssessmentText: targetAssessmentText,

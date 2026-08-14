@@ -264,9 +264,21 @@ DATA_SPECS: tuple[DataSpec, ...] = (
     DataSpec(
         "data/vllm/ci/amd_test_matrix.json",
         ("scripts/vllm/collect_amd_test_matrix.py",),
-        ("docs/assets/js/dashboard.js", "docs/assets/js/ci-analytics.js"),
-        ("generated_at", "source", "summary", "architectures", "rows"),
-        "AMD hardware matrix and cross-view hardware-group counts",
+        (
+            "docs/assets/js/dashboard.js",
+            "docs/assets/js/ci-analytics.js",
+            "docs/assets/js/ops-v2.js",
+        ),
+        (
+            "generated_at",
+            "source",
+            "summary",
+            "architectures",
+            "best_hardware_policy",
+            "health_groups",
+            "rows",
+        ),
+        "AMD hardware matrix, gated-group health, and cross-view counts",
     ),
     DataSpec(
         "data/vllm/ci/gating_proposals.json",
@@ -3214,6 +3226,616 @@ class DashboardAudit:
         counts["ignore_mi355_only"] = ignore_mi355_only
         return counts
 
+    def audit_best_hardware_health_groups(
+        self,
+        matrix: dict[str, Any],
+        rows: list[dict[str, Any]],
+        summary: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Reconcile the domain-aware gate inventory with every matrix cell."""
+        relpath = "data/vllm/ci/amd_test_matrix.json"
+        health_policies = _mapping(summary.get("health_policies"))
+        raw_groups = matrix.get("health_groups")
+        raw_policy = matrix.get("best_hardware_policy")
+        raw_summary = health_policies.get("best_hardware")
+        contract_present = any(
+            value is not None for value in (raw_groups, raw_policy, raw_summary)
+        )
+        if not contract_present:
+            return {"available": False}
+        if not isinstance(raw_groups, list):
+            self.error(
+                "matrix-best-hardware-schema",
+                "health_groups must be an array",
+                relpath,
+            )
+        if not isinstance(raw_policy, dict):
+            self.error(
+                "matrix-best-hardware-schema",
+                "best_hardware_policy must be an object",
+                relpath,
+            )
+        if not isinstance(raw_summary, dict):
+            self.error(
+                "matrix-best-hardware-schema",
+                "summary.health_policies.best_hardware must be an object",
+                relpath,
+            )
+        if not all(
+            isinstance(value, expected)
+            for value, expected in (
+                (raw_groups, list),
+                (raw_policy, dict),
+                (raw_summary, dict),
+            )
+        ):
+            return {"available": False}
+
+        groups: list[Any] = raw_groups
+        policy: dict[str, Any] = raw_policy
+        best_summary: dict[str, Any] = raw_summary
+        row_by_id: dict[str, dict[str, Any]] = {}
+        expected_cells: dict[tuple[str, str], tuple[dict[str, Any], dict[str, Any]]] = {}
+        for raw_row in rows:
+            row = _mapping(raw_row)
+            row_id = row.get("id")
+            if not isinstance(row_id, str) or not row_id:
+                self.error(
+                    "matrix-best-hardware-row-id",
+                    "every matrix row must have a non-empty ID",
+                    relpath,
+                )
+                continue
+            if row_id in row_by_id:
+                self.error(
+                    "matrix-best-hardware-row-id",
+                    f"duplicate matrix row ID {row_id}",
+                    relpath,
+                )
+            row_by_id[row_id] = row
+            for arch, raw_cell in _mapping(row.get("cells")).items():
+                cell = _mapping(raw_cell)
+                if cell.get("exists"):
+                    expected_cells[(row_id, str(arch))] = (row, cell)
+
+        allowed_statuses = {"passing", "failed", "waiting", "unknown"}
+        allowed_kinds = {"generic_best_hardware", "mi355_sensitive"}
+        group_by_id: dict[str, dict[str, Any]] = {}
+        ownership: dict[tuple[str, str], list[str]] = {}
+        observed_statuses = {status: 0 for status in allowed_statuses}
+        observed_kinds = {kind: 0 for kind in allowed_kinds}
+
+        def expected_status(states: list[str]) -> str:
+            normalized = {str(state or "").casefold() for state in states}
+            if "passed" in normalized:
+                return "passing"
+            if normalized & AMD_FAILURE_STATES:
+                return "failed"
+            if normalized & AMD_WAITING_STATES:
+                return "waiting"
+            return "unknown"
+
+        for index, raw_group in enumerate(groups):
+            if not isinstance(raw_group, dict):
+                self.error(
+                    "matrix-best-hardware-group-shape",
+                    f"health_groups[{index}] must be an object",
+                    relpath,
+                )
+                continue
+            group = raw_group
+            group_id = group.get("id")
+            title = group.get("title")
+            status = group.get("status")
+            gate_kind = group.get("gate_kind")
+            reason = group.get("classification_reason")
+            members = group.get("members")
+            if not isinstance(group_id, str) or not group_id:
+                self.error(
+                    "matrix-best-hardware-group-shape",
+                    f"health_groups[{index}] has no non-empty ID",
+                    relpath,
+                )
+                continue
+            if group_id in group_by_id:
+                self.error(
+                    "matrix-best-hardware-group-id",
+                    f"duplicate health-group ID {group_id}",
+                    relpath,
+                )
+            group_by_id[group_id] = group
+            if not isinstance(title, str) or not title.strip():
+                self.error(
+                    "matrix-best-hardware-group-shape",
+                    f"health group {group_id} has no title",
+                    relpath,
+                )
+            if status not in allowed_statuses:
+                self.error(
+                    "matrix-best-hardware-status",
+                    f"health group {group_id} has invalid status {status!r}",
+                    relpath,
+                )
+            else:
+                observed_statuses[status] += 1
+            if gate_kind not in allowed_kinds:
+                self.error(
+                    "matrix-best-hardware-gate-kind",
+                    f"health group {group_id} has invalid gate_kind {gate_kind!r}",
+                    relpath,
+                )
+            else:
+                observed_kinds[gate_kind] += 1
+            if not isinstance(reason, str) or not reason.strip():
+                self.error(
+                    "matrix-best-hardware-reason",
+                    f"health group {group_id} has no classification reason",
+                    relpath,
+                )
+            if not isinstance(members, list) or not members:
+                self.error(
+                    "matrix-best-hardware-member-shape",
+                    f"health group {group_id} must own at least one member",
+                    relpath,
+                )
+                continue
+
+            member_keys: list[tuple[str, str]] = []
+            member_states: list[str] = []
+            for member_index, raw_member in enumerate(members):
+                if not isinstance(raw_member, dict):
+                    self.error(
+                        "matrix-best-hardware-member-shape",
+                        f"health group {group_id} member {member_index} is not an object",
+                        relpath,
+                    )
+                    continue
+                member = raw_member
+                row_id = member.get("row_id")
+                arch = member.get("architecture")
+                if not isinstance(row_id, str) or not isinstance(arch, str):
+                    self.error(
+                        "matrix-best-hardware-member-shape",
+                        f"health group {group_id} member {member_index} lacks row_id or architecture",
+                        relpath,
+                    )
+                    continue
+                key = (row_id, arch)
+                member_keys.append(key)
+                ownership.setdefault(key, []).append(group_id)
+                source = expected_cells.get(key)
+                if source is None:
+                    self.error(
+                        "matrix-best-hardware-cell-ownership",
+                        f"health group {group_id} owns nonexistent cell {row_id}/{arch}",
+                        relpath,
+                    )
+                    continue
+                row, cell = source
+                member_state = member.get("state")
+                member_states.append(str(member_state or ""))
+                if member_state != cell.get("latest_state"):
+                    self.error(
+                        "matrix-best-hardware-member-source",
+                        f"member {row_id}/{arch} state does not match its matrix cell",
+                        relpath,
+                    )
+                if member.get("latest_matched") is not bool(cell.get("latest_matched")):
+                    self.error(
+                        "matrix-best-hardware-member-source",
+                        f"member {row_id}/{arch} latest_matched does not match its matrix cell",
+                        relpath,
+                    )
+                if member.get("url") != cell.get("latest_url"):
+                    self.error(
+                        "matrix-best-hardware-member-source",
+                        f"member {row_id}/{arch} URL does not match its matrix cell",
+                        relpath,
+                    )
+                if member.get("latest_url") != cell.get("latest_url"):
+                    self.error(
+                        "matrix-best-hardware-member-source",
+                        f"member {row_id}/{arch} latest_url does not match its matrix cell",
+                        relpath,
+                    )
+                if member.get("build_number") != cell.get("latest_build_number"):
+                    self.error(
+                        "matrix-best-hardware-member-source",
+                        f"member {row_id}/{arch} build number does not match its matrix cell",
+                        relpath,
+                    )
+                if member.get("label") != cell.get("primary_label"):
+                    self.error(
+                        "matrix-best-hardware-member-source",
+                        f"member {row_id}/{arch} label does not match its matrix cell",
+                        relpath,
+                    )
+                if member.get("title") != row.get("title"):
+                    self.error(
+                        "matrix-best-hardware-member-source",
+                        f"member {row_id}/{arch} title does not match its matrix row",
+                        relpath,
+                    )
+                if member.get("command_fingerprint") != row.get("command_fingerprint"):
+                    self.error(
+                        "matrix-best-hardware-member-source",
+                        f"member {row_id}/{arch} command fingerprint does not match its row",
+                        relpath,
+                    )
+                commands = member.get("commands")
+                if not isinstance(commands, list) or commands != (row.get("commands") or []):
+                    self.error(
+                        "matrix-best-hardware-member-source",
+                        f"member {row_id}/{arch} commands do not match its row",
+                        relpath,
+                    )
+                if (
+                    not isinstance(member.get("source_url"), str)
+                    or member.get("source_url") != _mapping(matrix.get("source")).get("yaml_url")
+                ):
+                    self.error(
+                        "matrix-best-hardware-member-source",
+                        f"member {row_id}/{arch} lacks the exact matrix YAML source",
+                        relpath,
+                    )
+                agent_pools = member.get("agent_pools")
+                if (
+                    not isinstance(agent_pools, list)
+                    or not agent_pools
+                    or any(not isinstance(pool, str) or not pool for pool in agent_pools)
+                ):
+                    self.error(
+                        "matrix-best-hardware-member-shape",
+                        f"member {row_id}/{arch} has invalid agent_pools",
+                        relpath,
+                    )
+                elif member.get("agent_pool") != ", ".join(agent_pools):
+                    self.error(
+                        "matrix-best-hardware-member-shape",
+                        f"member {row_id}/{arch} agent_pool does not reconcile with agent_pools",
+                        relpath,
+                    )
+                variants = member.get("variants")
+                if not isinstance(variants, list) or not variants:
+                    self.error(
+                        "matrix-best-hardware-member-shape",
+                        f"member {row_id}/{arch} variants must be a non-empty array",
+                        relpath,
+                    )
+                else:
+                    required_variant_keys = {
+                        "label",
+                        "agent_pool",
+                        "optional",
+                        "parallelism",
+                        "state",
+                        "url",
+                    }
+                    for variant_index, variant in enumerate(variants):
+                        if (
+                            not isinstance(variant, dict)
+                            or not required_variant_keys <= set(variant)
+                        ):
+                            self.error(
+                                "matrix-best-hardware-member-shape",
+                                f"member {row_id}/{arch} variant {variant_index} has an invalid shape",
+                                relpath,
+                            )
+
+            expected_member_rows = sorted({row_id for row_id, _ in member_keys})
+            if sorted(group.get("member_row_ids") or []) != expected_member_rows:
+                self.error(
+                    "matrix-best-hardware-group-source",
+                    f"health group {group_id} member_row_ids do not reconcile",
+                    relpath,
+                )
+            expected_arches = sorted({arch for _, arch in member_keys})
+            if sorted(group.get("architectures") or []) != expected_arches:
+                self.error(
+                    "matrix-best-hardware-group-source",
+                    f"health group {group_id} architectures do not reconcile",
+                    relpath,
+                )
+            calculated_status = expected_status(member_states)
+            if status in allowed_statuses and status != calculated_status:
+                self.error(
+                    "matrix-best-hardware-status",
+                    f"health group {group_id} status={status} but members imply {calculated_status}",
+                    relpath,
+                )
+            if group.get("is_passing") is not (calculated_status == "passing"):
+                self.error(
+                    "matrix-best-hardware-status",
+                    f"health group {group_id} is_passing disagrees with its members",
+                    relpath,
+                )
+            if gate_kind == "mi355_sensitive" and (
+                len(member_keys) != 1 or member_keys[0][1] != "mi355"
+            ):
+                self.error(
+                    "matrix-best-hardware-sensitive-scope",
+                    f"MI355-sensitive group {group_id} must own exactly one MI355 cell",
+                    relpath,
+                )
+
+        missing_cells = sorted(set(expected_cells) - set(ownership))
+        extra_cells = sorted(set(ownership) - set(expected_cells))
+        duplicate_cells = sorted(
+            key for key, owners in ownership.items() if len(owners) != 1
+        )
+        if missing_cells or extra_cells or duplicate_cells:
+            self.error(
+                "matrix-best-hardware-cell-ownership",
+                (
+                    "health groups must own every matrix cell exactly once; "
+                    f"missing={len(missing_cells)}, extra={len(extra_cells)}, "
+                    f"duplicate={len(duplicate_cells)}"
+                ),
+                relpath,
+                context={
+                    "missing": missing_cells,
+                    "extra": extra_cells,
+                    "duplicate": duplicate_cells,
+                },
+            )
+
+        for key, (row, _) in expected_cells.items():
+            group_ids = ownership.get(key) or []
+            expected_group_id = group_ids[0] if len(group_ids) == 1 else None
+            memberships = _mapping(row.get("health_memberships"))
+            if memberships.get(key[1]) != expected_group_id:
+                self.error(
+                    "matrix-best-hardware-backref",
+                    f"matrix row {key[0]} has an invalid {key[1]} health membership",
+                    relpath,
+                )
+
+        expected_counts = {
+            "health_group_count": len(group_by_id),
+            "included_groups": len(group_by_id),
+            "passing_groups": observed_statuses["passing"],
+            "failed_only_groups": observed_statuses["failed"],
+            "mixed_groups": 0,
+            "failing_groups": observed_statuses["failed"],
+            "waiting_groups": observed_statuses["waiting"],
+            "unknown_groups": observed_statuses["unknown"],
+            "resolved_groups": (
+                observed_statuses["passing"] + observed_statuses["failed"]
+            ),
+            "generic_groups": observed_kinds["generic_best_hardware"],
+            "generic_group_count": observed_kinds["generic_best_hardware"],
+            "mi355_sensitive_groups": observed_kinds["mi355_sensitive"],
+            "mi355_sensitive_group_count": observed_kinds["mi355_sensitive"],
+        }
+        for field_name, expected in expected_counts.items():
+            if best_summary.get(field_name) != expected:
+                self.error(
+                    "matrix-best-hardware-summary",
+                    f"best_hardware.{field_name}={best_summary.get(field_name)} but groups imply {expected}",
+                    relpath,
+                )
+        if summary.get("health_group_count") != len(group_by_id):
+            self.error(
+                "matrix-best-hardware-summary",
+                f"summary.health_group_count={summary.get('health_group_count')} but {len(group_by_id)} groups are published",
+                relpath,
+            )
+        expected_percentage = (
+            round(observed_statuses["passing"] / len(group_by_id) * 100, 1)
+            if group_by_id
+            else None
+        )
+        if best_summary.get("pass_percentage") != expected_percentage:
+            self.error(
+                "matrix-best-hardware-summary",
+                f"best_hardware.pass_percentage={best_summary.get('pass_percentage')} but groups imply {expected_percentage}",
+                relpath,
+            )
+        published_group_ids = [
+            group.get("id") for group in groups if isinstance(group, dict)
+        ]
+        if best_summary.get("group_ids") != published_group_ids:
+            self.error(
+                "matrix-best-hardware-summary",
+                "best_hardware.group_ids do not match the published group order",
+                relpath,
+            )
+
+        classifications = policy.get("mi355_classification")
+        if not isinstance(classifications, list):
+            self.error(
+                "matrix-best-hardware-classification",
+                "best_hardware_policy.mi355_classification must be an array",
+                relpath,
+            )
+            classifications = []
+        classification_by_cell: dict[tuple[str, str], dict[str, Any]] = {}
+        allowed_classifications = {"separate_gate", "generic_replica"}
+        for index, raw_classification in enumerate(classifications):
+            if not isinstance(raw_classification, dict):
+                self.error(
+                    "matrix-best-hardware-classification",
+                    f"MI355 classification {index} is not an object",
+                    relpath,
+                )
+                continue
+            classification = raw_classification
+            key = (str(classification.get("row_id") or ""), "mi355")
+            if key in classification_by_cell:
+                self.error(
+                    "matrix-best-hardware-classification",
+                    f"duplicate MI355 classification for {key[0]}",
+                    relpath,
+                )
+            classification_by_cell[key] = classification
+            classification_kind = classification.get("classification")
+            if classification_kind not in allowed_classifications:
+                self.error(
+                    "matrix-best-hardware-classification",
+                    f"MI355 classification {index} has invalid kind {classification_kind!r}",
+                    relpath,
+                )
+            group_id = classification.get("health_group_id")
+            group = group_by_id.get(group_id)
+            if group is None or group_id not in ownership.get(key, []):
+                self.error(
+                    "matrix-best-hardware-classification",
+                    f"MI355 classification {index} does not reference its owning gate",
+                    relpath,
+                )
+                continue
+            expected_kind = (
+                "separate_gate"
+                if group.get("gate_kind") == "mi355_sensitive"
+                else "generic_replica"
+            )
+            if classification_kind != expected_kind:
+                self.error(
+                    "matrix-best-hardware-classification",
+                    f"MI355 classification {index} disagrees with gate {group_id}",
+                    relpath,
+                )
+            source = expected_cells.get(key)
+            if source:
+                row, cell = source
+                if classification.get("title") != row.get("title"):
+                    self.error(
+                        "matrix-best-hardware-classification",
+                        f"MI355 classification {index} title does not match its row",
+                        relpath,
+                    )
+                if classification.get("label") != cell.get("primary_label"):
+                    self.error(
+                        "matrix-best-hardware-classification",
+                        f"MI355 classification {index} label does not match its cell",
+                        relpath,
+                    )
+            if classification.get("reason") != group.get("classification_reason"):
+                self.error(
+                    "matrix-best-hardware-classification",
+                    f"MI355 classification {index} reason does not match its gate",
+                    relpath,
+                )
+
+        expected_mi355_cells = {
+            key for key in expected_cells if key[1] == "mi355"
+        }
+        if set(classification_by_cell) != expected_mi355_cells:
+            self.error(
+                "matrix-best-hardware-classification",
+                (
+                    "MI355 classification must cover every MI355 matrix cell exactly "
+                    f"once; expected={len(expected_mi355_cells)}, "
+                    f"published={len(classification_by_cell)}"
+                ),
+                relpath,
+            )
+        separate_count = sum(
+            row.get("classification") == "separate_gate"
+            for row in classification_by_cell.values()
+        )
+        if separate_count != observed_kinds["mi355_sensitive"]:
+            self.error(
+                "matrix-best-hardware-classification",
+                f"{separate_count} separate MI355 classifications do not reconcile with {observed_kinds['mi355_sensitive']} sensitive gates",
+                relpath,
+            )
+
+        raw_sensitive_rules = policy.get("mi355_sensitive_rules")
+        raw_alias_rules = policy.get("generic_alias_rules")
+        if not isinstance(raw_sensitive_rules, list) or not isinstance(
+            raw_alias_rules, list
+        ):
+            self.error(
+                "matrix-best-hardware-policy-rules",
+                "best-hardware policy must publish sensitive and generic-alias rule arrays",
+                relpath,
+            )
+        else:
+            sensitive_rules = {
+                str(rule.get("title") or ""): str(rule.get("reason") or "")
+                for rule in raw_sensitive_rules
+                if isinstance(rule, dict)
+            }
+            if (
+                len(sensitive_rules) != len(raw_sensitive_rules)
+                or any(not title or not reason for title, reason in sensitive_rules.items())
+            ):
+                self.error(
+                    "matrix-best-hardware-policy-rules",
+                    "MI355-sensitive rules must have unique non-empty titles and reasons",
+                    relpath,
+                )
+            materialized_sensitive_titles = {
+                str(expected_cells[key][0].get("canonical_title") or "")
+                for key, classification in classification_by_cell.items()
+                if classification.get("classification") == "separate_gate"
+                and key in expected_cells
+            }
+            if set(sensitive_rules) != materialized_sensitive_titles:
+                self.error(
+                    "matrix-best-hardware-policy-rules",
+                    "published MI355-sensitive rules do not exactly match the separate gates",
+                    relpath,
+                    context={
+                        "rules": sorted(sensitive_rules),
+                        "materialized": sorted(materialized_sensitive_titles),
+                    },
+                )
+
+            alias_rules = {
+                str(rule.get("title") or ""): str(rule.get("reason") or "")
+                for rule in raw_alias_rules
+                if isinstance(rule, dict)
+            }
+            if (
+                len(alias_rules) != len(raw_alias_rules)
+                or any(not title or not reason for title, reason in alias_rules.items())
+            ):
+                self.error(
+                    "matrix-best-hardware-policy-rules",
+                    "generic alias rules must have unique non-empty titles and reasons",
+                    relpath,
+                )
+            for alias_title, alias_reason in alias_rules.items():
+                matches = [
+                    (key, classification)
+                    for key, classification in classification_by_cell.items()
+                    if key in expected_cells
+                    and expected_cells[key][0].get("canonical_title") == alias_title
+                ]
+                valid = len(matches) == 1
+                if valid:
+                    _, classification = matches[0]
+                    group = group_by_id.get(classification.get("health_group_id"), {})
+                    architectures = set(group.get("architectures") or [])
+                    valid = (
+                        classification.get("classification") == "generic_replica"
+                        and "mi355" in architectures
+                        and bool(architectures & {"mi250", "mi300", "mi325"})
+                        and group.get("classification_reason") == alias_reason
+                    )
+                if not valid:
+                    self.error(
+                        "matrix-best-hardware-policy-rules",
+                        f"generic alias {alias_title!r} did not collapse into a core best-hardware family",
+                        relpath,
+                    )
+
+        return {
+            "available": True,
+            "health_groups": len(group_by_id),
+            "passing_groups": observed_statuses["passing"],
+            "failing_groups": observed_statuses["failed"],
+            "waiting_groups": observed_statuses["waiting"],
+            "unknown_groups": observed_statuses["unknown"],
+            "generic_groups": observed_kinds["generic_best_hardware"],
+            "mi355_sensitive_groups": observed_kinds["mi355_sensitive"],
+            "classified_mi355_cells": len(classification_by_cell),
+            "owned_hardware_cells": len(ownership),
+            "pass_percentage": expected_percentage,
+        }
+
     def audit_amd_matrix(self) -> None:
         matrix = self.load_json("data/vllm/ci/amd_test_matrix.json", {})
         if not isinstance(matrix, dict):
@@ -3320,6 +3942,12 @@ class DashboardAudit:
                         "data/vllm/ci/amd_test_matrix.json",
                     )
 
+        best_hardware_metrics = self.audit_best_hardware_health_groups(
+            matrix,
+            rows,
+            summary,
+        )
+
         source = matrix.get("source") or {}
         source_build = source.get("latest_build_number")
         analytics = self.load_json("data/vllm/ci/analytics.json", {})
@@ -3411,6 +4039,7 @@ class DashboardAudit:
             **{k: v for k, v in stats.items() if k != "by_arch"},
             "by_arch": stats["by_arch"],
             "latest_build": source_build,
+            "best_hardware": best_hardware_metrics,
         }
 
     def audit_parity_hardware_matches_matrix(

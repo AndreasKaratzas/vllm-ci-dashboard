@@ -251,6 +251,7 @@ steps:
 def test_aggregate_state_prioritizes_failures():
     assert aggregate_state(["passed", "failed"]) == "failed"
     assert aggregate_state(["passed", "soft_fail"]) == "soft_fail"
+    assert aggregate_state(["running", "soft_failed"]) == "soft_failed"
     assert aggregate_state(["scheduled", "passed"]) == "scheduled"
 
 
@@ -789,3 +790,135 @@ steps:
     )
     assert matrix["duplicate_groups"] == []
     assert matrix["summary"]["reduced_unique_groups"] == 5
+
+
+def test_best_hardware_policy_splits_sensitive_mi355_and_uses_best_generic_status():
+    steps, architectures = parse_steps("""
+steps:
+  - label: Kernels Attention Test %N
+    agent_pool: mi300_1
+    commands: [pytest -v -s kernels/attention]
+  - label: Kernels Attention Test %N
+    agent_pool: mi355_1
+    commands: [pytest -v -s kernels/attention]
+  - label: Generic Test
+    agent_pool: mi300_1
+    commands: [pytest -v -s tests/generic]
+  - label: Generic Test
+    agent_pool: mi355_1
+    commands: [pytest -v -s tests/generic]
+""")
+    analytics = {
+        "amd-ci": {
+            "builds": [{
+                "number": 11994,
+                "jobs": [
+                    {"name": "Kernels Attention Test", "state": "passed", "q": "amd_mi300_1"},
+                    {"name": "Kernels Attention Test", "state": "failed", "q": "amd_mi355_1"},
+                    {"name": "Generic Test", "state": "failed", "q": "amd_mi300_1"},
+                    {"name": "Generic Test", "state": "passed", "q": "amd_mi355_1"},
+                ],
+            }]
+        }
+    }
+    index, latest = build_latest_job_index(analytics, ["kernels attention test"])
+    matrix = build_matrix(
+        steps, architectures, index, latest, {}, {},
+        ["kernels attention test"], "https://example.invalid/test-amd.yaml",
+    )
+
+    groups = matrix["health_groups"]
+    assert len(groups) == 3
+    assert matrix["summary"]["health_group_count"] == 3
+    policy = matrix["summary"]["health_policies"]["best_hardware"]
+    assert policy["passing_groups"] == 2
+    assert policy["failing_groups"] == 1
+    assert policy["pass_percentage"] == 66.7
+    sensitive = next(group for group in groups if group["gate_kind"] == "mi355_sensitive")
+    assert sensitive["status"] == "failed"
+    assert sensitive["architectures"] == ["mi355"]
+    generic_attention = next(
+        group for group in groups
+        if group["title"] == "Kernels Attention Test"
+        and group["gate_kind"] == "generic_best_hardware"
+    )
+    assert generic_attention["status"] == "passing"
+    generic = next(group for group in groups if group["title"] == "Generic Test")
+    assert generic["status"] == "passing"
+    assert generic["architectures"] == ["mi300", "mi355"]
+
+    owned = [
+        (member["row_id"], member["architecture"])
+        for group in groups
+        for member in group["members"]
+    ]
+    source_cells = [
+        (row["id"], arch)
+        for row in matrix["rows"]
+        for arch, cell in row["cells"].items()
+        if cell.get("exists")
+    ]
+    assert sorted(owned) == sorted(source_cells)
+    assert len(owned) == len(set(owned))
+
+
+def test_best_hardware_policy_semantically_collapses_explicit_generic_aliases():
+    steps, architectures = parse_steps("""
+steps:
+  - label: Entrypoints Integration (API Server OpenAI - Part 1)
+    agent_pool: mi300_1
+    commands: [pytest entrypoints/openai/]
+  - label: Entrypoints Integration (API Server OpenAI - Part 1)
+    agent_pool: mi355_1
+    commands: [pytest entrypoints/openai]
+  - label: Language Models Test (Extended Generation)
+    agent_pool: mi300_1
+    commands: [install mamba-old, pytest models/language/generation]
+  - label: Language Models Test (Extended Generation)
+    agent_pool: mi355_1
+    commands: [install mamba-new, pytest models/language/generation]
+""")
+    matrix = build_matrix(
+        steps, architectures, {}, None, {}, {}, [],
+        "https://example.invalid/test-amd.yaml",
+    )
+
+    assert len(matrix["rows"]) == 4
+    assert len(matrix["health_groups"]) == 2
+    assert all(len(group["members"]) == 2 for group in matrix["health_groups"])
+    assert all(group["gate_kind"] == "generic_best_hardware" for group in matrix["health_groups"])
+    assert all("same test" in group["classification_reason"] for group in matrix["health_groups"])
+    classification = matrix["best_hardware_policy"]["mi355_classification"]
+    assert len(classification) == 2
+    assert {item["classification"] for item in classification} == {"generic_replica"}
+    assert all(member["commands"] for group in matrix["health_groups"] for member in group["members"])
+    assert all(
+        member["source_url"] == "https://example.invalid/test-amd.yaml"
+        for group in matrix["health_groups"]
+        for member in group["members"]
+    )
+
+
+def test_best_hardware_policy_declares_exactly_fifteen_mi355_sensitive_rules():
+    from vllm.collect_amd_test_matrix import MI355_SENSITIVE_RULES
+
+    expected_titles = {
+        "Attention Benchmarks Smoke Test",
+        "Distributed Tests (2xH100-2xMI)",
+        "GPQA Eval (GPT-OSS) (2xB200-2xMI)",
+        "LM Eval Qwen3-5 Models",
+        "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy",
+        "LM Eval Large Models (8xB200-8xMI)",
+        "Kernels",
+        "Kernels MLA",
+        "Kernels Attention Test",
+        "Kernels MoE Test",
+        "Kernels Quantization Test",
+        "Kernels FP8 MoE Test (2xH100-2xMI)",
+        "Quantized Models Test",
+        "Quantization",
+        "V1 attention",
+    }
+    assert len(MI355_SENSITIVE_RULES) == 15
+    assert {title for title, _ in MI355_SENSITIVE_RULES} == expected_titles
+    assert all(reason for _, reason in MI355_SENSITIVE_RULES)
