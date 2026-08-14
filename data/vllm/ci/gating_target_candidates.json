@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-14T03:04:51Z",
+  "generated_at": "2026-08-14T05:24:19Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -89,7 +89,7 @@
           "title": "[ROCm][CI] Gating more ROCm tests",
           "author": "AndreasKaratzas",
           "label": "Async Engine, Inputs, Utils, Worker",
-          "device": "mi300_1",
+          "device": "mi355_1",
           "yaml_file": ".buildkite/test_areas/misc.yaml"
         }
       ]
@@ -261,17 +261,7 @@
       "source_signal": "green",
       "readiness_signal": "green",
       "target_signal": "green",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "Cudagraph",
-          "device": "mi250_1",
-          "yaml_file": ".buildkite/test_areas/cuda.yaml"
-        }
-      ]
+      "proposal_matches": []
     },
     {
       "label": "DeepSeek V2-Lite Prefetch Offload Accuracy (H100)",
@@ -648,7 +638,7 @@
           "title": "[ROCm][CI] Gating more ROCm tests",
           "author": "AndreasKaratzas",
           "label": "Entrypoints Integration (Multimodal)",
-          "device": "mi300_1",
+          "device": "mi355_1",
           "yaml_file": ".buildkite/test_areas/entrypoints.yaml"
         }
       ]
@@ -688,7 +678,7 @@
           "title": "[ROCm][CI] Gating more ROCm tests",
           "author": "AndreasKaratzas",
           "label": "Entrypoints Integration (Responses API)",
-          "device": "mi300_1",
+          "device": "mi355_1",
           "yaml_file": ".buildkite/test_areas/entrypoints.yaml"
         }
       ]
@@ -991,17 +981,7 @@
       "source_signal": "green",
       "readiness_signal": "green",
       "target_signal": "green",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "Kernels Helion Test",
-          "device": "mi250_1",
-          "yaml_file": ".buildkite/test_areas/kernels.yaml"
-        }
-      ]
+      "proposal_matches": []
     },
     {
       "label": "Kernels Mamba Test",
@@ -1016,17 +996,7 @@
       "source_signal": "green",
       "readiness_signal": "green",
       "target_signal": "green",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "Kernels Mamba Test",
-          "device": "mi250_1",
-          "yaml_file": ".buildkite/test_areas/kernels.yaml"
-        }
-      ]
+      "proposal_matches": []
     },
     {
       "label": "Kernels MoE Test %N",
@@ -1139,7 +1109,7 @@
           "title": "[ROCm][CI] Gating more ROCm tests",
           "author": "AndreasKaratzas",
           "label": "Language Models Test (Extended Generation)",
-          "device": "mi300_1",
+          "device": "mi355_1",
           "yaml_file": ".buildkite/test_areas/models_language.yaml"
         }
       ]
@@ -1172,17 +1142,7 @@
       "source_signal": "green",
       "readiness_signal": "green",
       "target_signal": "green",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "Language Models Test (MTEB)",
-          "device": "mi250_1",
-          "yaml_file": ".buildkite/test_areas/models_language.yaml"
-        }
-      ]
+      "proposal_matches": []
     },
     {
       "label": "Language Models Test (PPL)",
@@ -1197,17 +1157,7 @@
       "source_signal": "red",
       "readiness_signal": "green",
       "target_signal": "green",
-      "proposal_matches": [
-        {
-          "pr": 44969,
-          "url": "https://github.com/vllm-project/vllm/pull/44969",
-          "title": "[ROCm][CI] Gating more ROCm tests",
-          "author": "AndreasKaratzas",
-          "label": "Language Models Test (PPL)",
-          "device": "mi250_1",
-          "yaml_file": ".buildkite/test_areas/models_language.yaml"
-        }
-      ]
+      "proposal_matches": []
     },
     {
       "label": "Language Models Tests (Extra Standard) %N",
