@@ -1,9 +1,9 @@
 {
-  "baseline_ref": "2c4710961be3a550fadcec3ffb4f24892f54d602",
+  "baseline_ref": "fef8fca6c9e399208a96e90458460c95a27f3c90",
   "candidate_errors": [
     {
       "code": "shard-bases-unused",
-      "message": "7 shard bases are absent from the latest AMD test evidence: ['kernels attention test', 'language models test (extended pooling)', 'lm eval humming f16 (h100 - temporary)', 'moe refactor integration test (b200 - temporary)', 'multi-modal models (extended generation 2)', 'quantization', 'transformers nightly models (processing)']",
+      "message": "3 shard bases are absent from the latest AMD test evidence: ['lm eval humming f16 (h100 - temporary)', 'moe refactor integration test (b200 - temporary)', 'multi-modal models (extended generation 2)']",
       "path": "data/vllm/ci/shard_bases.json",
       "severity": "error",
       "surfaces": [
@@ -19,7 +19,7 @@
   ],
   "fallback_max_age_hours": 36,
   "final_errors": [],
-  "generated_at": "2026-08-15T09:57:56Z",
+  "generated_at": "2026-08-15T10:54:10Z",
   "mode": "fallback",
   "restored_manifest": {
     "ci": {
