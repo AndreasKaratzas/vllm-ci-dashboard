@@ -21,7 +21,7 @@ from vllm.audit_dashboard_data import (
     format_text,
     run_audit,
 )
-from vllm.publication_surfaces import SurfaceSpec
+from vllm.publication_surfaces import LEGACY_CI_SURFACE_SPEC, SurfaceSpec
 
 
 def _best_hardware_audit_fixture():
@@ -404,6 +404,16 @@ def _manifest_descriptor(path: Path) -> dict[str, object]:
     }
 
 
+def _write_legacy_ci_manifest(root: Path) -> dict[str, dict[str, object]]:
+    manifest = {}
+    for relative in LEGACY_CI_SURFACE_SPEC.required_paths:
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"selection": "legacy", "path": relative}) + "\n")
+        manifest[relative] = _manifest_descriptor(path)
+    return manifest
+
+
 def _write_publication_state(root: Path, payload: dict) -> Path:
     path = root / "data/vllm/ci/publication_state.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -578,6 +588,112 @@ def test_schema_v2_stale_source_waiver_applies_only_to_fallback(
     assert "operations-stale-source-fallback" in {
         finding.code for finding in fallback.report.warnings
     }
+
+
+def test_schema_v1_legacy_ci_manifest_returns_split_child_fallbacks(tmp_path):
+    manifest = _write_legacy_ci_manifest(tmp_path)
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path = _write_publication_state(
+        tmp_path,
+        {
+            "schema_version": 1,
+            "generated_at": now,
+            "baseline_ref": "0" * 40,
+            "mode": "fallback",
+            "degraded_surfaces": ["ci"],
+            "degraded_since": {"ci": now},
+            "fallback_max_age_hours": 36,
+            "restored_manifest": {"ci": manifest},
+        },
+    )
+
+    audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+
+    assert audit.fallback_surfaces() == frozenset(
+        {"ci_core", "ci_gating", "ci_changes", "ci_hotness"}
+    )
+    assert audit.report.errors == []
+
+
+def test_schema_v1_legacy_ci_manifest_is_verified_before_partition(tmp_path):
+    manifest = _write_legacy_ci_manifest(tmp_path)
+    changed = tmp_path / LEGACY_CI_SURFACE_SPEC.required_paths[0]
+    changed.write_text('{"selection":"tampered"}\n')
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path = _write_publication_state(
+        tmp_path,
+        {
+            "schema_version": 1,
+            "generated_at": now,
+            "baseline_ref": "0" * 40,
+            "mode": "fallback",
+            "degraded_surfaces": ["ci"],
+            "degraded_since": {"ci": now},
+            "fallback_max_age_hours": 36,
+            "restored_manifest": {"ci": manifest},
+        },
+    )
+
+    audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+
+    assert audit.fallback_surfaces() == frozenset()
+    assert "publication-fallback-manifest-mismatch" in {
+        finding.code for finding in audit.report.errors
+    }
+
+
+def test_schema_v2_rejects_legacy_ci_alias(tmp_path):
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path = _write_publication_state(
+        tmp_path,
+        {
+            "schema_version": 2,
+            "generated_at": now,
+            "baseline_ref": "0" * 40,
+            "mode": "fallback",
+            "degraded_surfaces": ["ci"],
+            "fresh_degraded_surfaces": [],
+            "fallback_surfaces": ["ci"],
+            "degraded_since": {"ci": now},
+            "fallback_since": {"ci": now},
+            "fallback_max_age_hours": 36,
+            "restored_manifest": {"ci": {}},
+        },
+    )
+
+    audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+
+    assert audit.fallback_surfaces() == frozenset()
+    assert [finding.code for finding in audit.report.errors] == [
+        "publication-state-invalid"
+    ]
+
+
+def test_schema_v2_rejects_unclosed_core_fallback_dependency(tmp_path):
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path = _write_publication_state(
+        tmp_path,
+        {
+            "schema_version": 2,
+            "generated_at": now,
+            "baseline_ref": "0" * 40,
+            "mode": "fallback",
+            "degraded_surfaces": ["ci_core"],
+            "fresh_degraded_surfaces": [],
+            "fallback_surfaces": ["ci_core"],
+            "degraded_since": {"ci_core": now},
+            "fallback_since": {"ci_core": now},
+            "fallback_max_age_hours": 36,
+            "restored_manifest": {"ci_core": {}},
+        },
+    )
+
+    audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+
+    assert audit.fallback_surfaces() == frozenset()
+    assert [finding.code for finding in audit.report.errors] == [
+        "publication-state-invalid"
+    ]
 
 
 def test_schema_v1_fallback_state_remains_supported(tmp_path, monkeypatch):

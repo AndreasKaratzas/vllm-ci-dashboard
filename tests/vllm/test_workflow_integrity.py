@@ -3,7 +3,7 @@ framework isolation, and cron schedule safety.
 
 These tests ensure:
 - All workflow files are valid YAML with required fields
-- ci-collect.yml calls all necessary collection scripts
+- ci-collect.yml exercises its collectors without writing main
 - Deploying workflows sync vLLM CI data from gh-pages (prevents clobbering)
 - No cron schedule conflicts between hourly workflows
 """
@@ -307,7 +307,7 @@ class TestHourlyMasterWorkflow:
         candidates = names.index("Collect AMD gating target candidate audit")
 
         assert sync < collect < candidates
-        assert 'run_surface_collector ci "AMD gating target list"' in (
+        assert 'run_surface_collector ci_gating "AMD gating target list"' in (
             steps[collect]["run"]
         )
         assert "python scripts/vllm/collect_gating_targets.py" in steps[collect][
@@ -405,8 +405,7 @@ class TestHourlyMasterWorkflow:
             ("Normalize and prune queue history", "queue"),
             ("Collect queue snapshot", "queue"),
             ("Refresh Omni surge heuristic", "queue"),
-            ("Sync CI data from gh-pages", "ci"),
-            ("Collect CI data", "ci"),
+            ("Collect CI data", "ci_core"),
             ("Collect AMD agent health (all builds, all branches)", "agent_health"),
             ("Sync perf-eval data from gh-pages", "perf_eval"),
             ("Ingest perf-eval artifacts from Buildkite", "perf_eval"),
@@ -422,13 +421,90 @@ class TestHourlyMasterWorkflow:
         assert "--force-degraded-surfaces \"$FORCED_SURFACES\"" in selector_run
         assert 'sort -u "$PUBLICATION_FAILED_SURFACES_FILE"' in selector_run
         assert selector.get("continue-on-error") is not True
-        assert "run_surface_collector ci" in steps[
+        sync_ci = steps[names.index("Sync CI data from gh-pages")]["run"]
+        for surface in ("ci_core", "ci_gating", "ci_changes", "ci_hotness"):
+            assert f"run_surface_collector {surface}" in sync_ci
+        assert "run_surface_collector ci_gating" in steps[
             names.index("Collect AMD gating target list")
         ]["run"]
         assert "Build v2 operations snapshot" not in names
         assert "run_surface_collector queue" in steps[
             names.index("Normalize and prune queue history")
         ]["run"]
+
+    def test_ci_collectors_and_seeds_use_split_publication_surfaces(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        names = [step.get("name") for step in steps]
+        baseline = steps[names.index("Capture immutable main baseline")]["run"]
+        assert (
+            "ci_core|ci_gating|ci_changes|ci_hotness|queue|queue_lifecycle|"
+            "agent_health|github_home|ready|perf_eval|test_builds"
+        ) in baseline
+
+        expected_collectors = {
+            "Collect CI data": "ci_core",
+            "Collect CI analytics": "ci_core",
+            "Collect AMD test matrix": "ci_core",
+            "Collect build-pinned CI ownership parity": "ci_core",
+            "Collect AMD gating target list": "ci_gating",
+            "Collect AMD gating proposals": "ci_gating",
+            "Collect AMD gating target candidate audit": "ci_gating",
+            "Collect test group changes": "ci_changes",
+            "Collect AMD hotness (3d window)": "ci_hotness",
+        }
+        for name, surface in expected_collectors.items():
+            assert f"run_surface_collector {surface}" in steps[names.index(name)][
+                "run"
+            ]
+
+        sync = steps[names.index("Sync CI data from gh-pages")]["run"]
+        seed_sections = {
+            "ci_core": sync[
+                sync.index("sync_ci_core_seed()") : sync.index(
+                    "sync_ci_gating_seed()"
+                )
+            ],
+            "ci_gating": sync[
+                sync.index("sync_ci_gating_seed()") : sync.index(
+                    "sync_ci_changes_seed()"
+                )
+            ],
+            "ci_changes": sync[
+                sync.index("sync_ci_changes_seed()") : sync.index(
+                    "sync_ci_hotness_seed()"
+                )
+            ],
+            "ci_hotness": sync[
+                sync.index("sync_ci_hotness_seed()") : sync.index(
+                    "sync_workload_mapping_seed()"
+                )
+            ],
+        }
+        for filename in (
+            "ci_health.json",
+            "analytics.json",
+            "amd_test_matrix.json",
+            "ownership_config_parity.json",
+            "gating_nightlies.json",
+        ):
+            assert filename in seed_sections["ci_core"]
+        for filename in (
+            "gating_targets.json",
+            "gating_proposals.json",
+            "gating_target_candidates.json",
+        ):
+            assert filename in seed_sections["ci_gating"]
+        assert "group_changes.json" in seed_sections["ci_changes"]
+        assert "hotness.json" in seed_sections["ci_hotness"]
+        assert "operations_v2.json" not in sync
+
+        workflow_text = _load_workflow_text("hourly-master.yml")
+        assert not re.search(
+            r"(?:run_surface_collector|record_surface_failure)\s+ci(?:\s|\")",
+            workflow_text,
+        )
+        assert "',ci,'" not in workflow_text
 
     def test_selection_precedes_side_effects_render_and_tests(self):
         data = _load_workflow("hourly-master.yml")
@@ -439,11 +515,11 @@ class TestHourlyMasterWorkflow:
             ("Watch queue latency (open/close issues)", "queue"),
             ("Watch zombie queue jobs (open/close issues)", "queue"),
             ("Watch Omni workload surge (open/close issues)", "queue"),
-            ("Watch AMD main test-group failures (open/close issue)", "ci"),
-            ("Watch upstream CI main test-group failures (open/close issue)", "ci"),
-            ("Watch AMD main duration regressions (open/close issue)", "ci"),
+            ("Watch AMD main test-group failures (open/close issue)", "ci_core"),
+            ("Watch upstream CI main test-group failures (open/close issue)", "ci_core"),
+            ("Watch AMD main duration regressions (open/close issue)", "ci_core"),
             ("Watch AMD CI agent health (open/close issue)", "agent_health"),
-            ("Watch AMD CI test-area regressions (ranked owners)", "ci"),
+            ("Watch AMD CI test-area regressions (ranked owners)", "ci_core"),
         )
         for name, surface in watcher_surfaces:
             watcher = steps[names.index(name)]
@@ -759,15 +835,20 @@ class TestFrameworkIsolation:
             "hourly-master should generate and commit it."
         )
 
-    def test_ci_collect_only_writes_vllm_ci_data(self):
-        """ci-collect.yml should only write to data/vllm/ci/."""
+    def test_ci_collect_is_validation_only_and_cannot_write_main(self):
         text = _load_workflow_text("ci-collect.yml")
-        # Find all 'git add' targets
-        git_adds = re.findall(r"git add\s+(\S+)", text)
-        for target in git_adds:
-            assert "data/vllm/ci" in target, (
-                f"ci-collect.yml has 'git add {target}' — expected only data/vllm/ci/"
-            )
+        workflow = _load_workflow("ci-collect.yml")
+        assert workflow.get("name") == "CI Data Collection (Validation Only)"
+        assert workflow.get("permissions", {}).get("contents") == "read"
+        assert workflow.get("concurrency", {}).get("group") == (
+            "ci-collect-validation"
+        )
+        assert "Report validation-only collection" in text
+        assert "select publication surfaces and update main" in text
+        assert "git add" not in text
+        assert "git commit" not in text
+        assert "git push" not in text
+        assert "peaceiris/actions-gh-pages" not in text
 
     def test_queue_monitor_only_writes_queue_data(self):
         """queue-monitor.yml should only write queue-monitor datasets/state."""
@@ -1422,7 +1503,7 @@ class TestAlertAutomationWorkflow:
         assert {"GITHUB_TOKEN", "GITHUB_REPOSITORY"} <= set(
             steps[ensure_labels].get("env") or {}
         )
-        assert 'run_surface_collector ci "CI ownership parity"' in (
+        assert 'run_surface_collector ci_core "CI ownership parity"' in (
             steps[ownership_parity]["run"]
         )
         assert "python scripts/vllm/collect_ownership_parity.py" in (
@@ -1441,7 +1522,7 @@ class TestAlertAutomationWorkflow:
         assert "publication-selector.outcome == 'success'" in steps[persist].get(
             "if", ""
         )
-        assert ",ci," in steps[persist].get("if", "")
+        assert ",ci_core," in steps[persist].get("if", "")
         assert "open_ci_area_regression_issues.json" in steps[persist]["run"]
         assert "if ! git push origin HEAD:main; then" in steps[persist]["run"]
         assert "deferring it to the final data commit" in steps[persist]["run"]

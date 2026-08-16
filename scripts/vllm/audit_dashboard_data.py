@@ -26,7 +26,15 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vllm.publication_surfaces import SOURCE_SURFACES, SURFACE_SPECS  # noqa: E402
+from vllm.publication_surfaces import (  # noqa: E402
+    LEGACY_CI_SURFACE,
+    LEGACY_CI_SURFACE_SPEC,
+    LEGACY_SURFACE_ALIASES,
+    SOURCE_SURFACES,
+    SURFACE_SPECS,
+    SurfaceSpec,
+    fallback_dependency_closure,
+)
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -69,6 +77,7 @@ PUBLIC_FILE_WARN_BYTES = 90 * 1024 * 1024
 PUBLIC_FILE_HARD_BYTES = 100 * 1024 * 1024
 PUBLIC_SITE_WARN_BYTES = 250 * 1024 * 1024
 PUBLICATION_STATE_RELATIVE = Path("data/vllm/ci/publication_state.json")
+DECLARED_PUBLICATION_SURFACE_NAMES = frozenset(SURFACE_SPECS)
 PUBLICATION_SURFACE_REQUIRED_KEYS = {
     "data/vllm/ci/shard_base_catalog.json": {
         "schema_version",
@@ -103,6 +112,96 @@ PUBLICATION_SURFACE_REQUIRED_KEYS = {
     },
     "data/vllm/releases.json": {"collected_at", "releases"},
 }
+
+
+def _uses_declared_publication_domain() -> bool:
+    """Avoid applying production aliases to monkeypatched test-local specs."""
+    return set(SURFACE_SPECS) == DECLARED_PUBLICATION_SURFACE_NAMES
+
+
+def _publication_legacy_aliases() -> dict[str, frozenset[str]]:
+    if not _uses_declared_publication_domain():
+        return {}
+    return LEGACY_SURFACE_ALIASES
+
+
+def _publication_fallback_closure(surfaces: set[str]) -> set[str]:
+    if not _uses_declared_publication_domain():
+        return set(surfaces)
+    return set(fallback_dependency_closure(surfaces))
+
+
+def _publication_spec_owns_path(spec: SurfaceSpec, relative: str) -> bool:
+    return relative in {*spec.required_paths, *spec.optional_paths} or any(
+        Path(relative).match(pattern) for pattern in spec.globs
+    )
+
+
+def _publication_expected_paths(root: Path, spec: SurfaceSpec) -> set[str]:
+    expected = set(spec.required_paths)
+    expected.update(
+        relative
+        for relative in spec.optional_paths
+        if (root / relative).is_file()
+    )
+    expected.update(
+        candidate.relative_to(root).as_posix()
+        for pattern in spec.globs
+        for candidate in root.glob(pattern)
+        if candidate.is_file()
+    )
+    return expected
+
+
+def _publication_surface_expansions(
+    surfaces: list[str],
+    aliases: dict[str, frozenset[str]],
+) -> dict[str, frozenset[str]]:
+    expansions: dict[str, frozenset[str]] = {}
+    expanded: set[str] = set()
+    for surface in surfaces:
+        targets = aliases.get(surface, frozenset({surface}))
+        if not targets or not set(targets) <= set(SURFACE_SPECS):
+            raise ValueError(f"publication surface {surface!r} cannot be migrated")
+        if expanded & set(targets):
+            raise ValueError("publication surface aliases overlap active surfaces")
+        expansions[surface] = targets
+        expanded.update(targets)
+    return expansions
+
+
+def _partition_publication_manifest(
+    root: Path,
+    manifest: dict[str, dict],
+    expansions: dict[str, frozenset[str]],
+) -> dict[str, dict]:
+    partitioned: dict[str, dict] = {}
+    for surface, targets in expansions.items():
+        entries = manifest[surface]
+        if targets == frozenset({surface}):
+            partitioned[surface] = dict(entries)
+            continue
+        child_entries = {target: {} for target in targets}
+        for relative, descriptor in entries.items():
+            owners = [
+                target
+                for target in targets
+                if _publication_spec_owns_path(SURFACE_SPECS[target], relative)
+            ]
+            if len(owners) != 1:
+                raise ValueError(
+                    "legacy fallback manifest path lacks one active owner"
+                )
+            child_entries[owners[0]][relative] = descriptor
+        for target, entries_for_target in child_entries.items():
+            if set(entries_for_target) != _publication_expected_paths(
+                root, SURFACE_SPECS[target]
+            ):
+                raise ValueError(
+                    f"legacy fallback manifest partition for {target} is incomplete"
+                )
+            partitioned[target] = entries_for_target
+    return partitioned
 
 
 def _mapping(value: Any) -> dict:
@@ -608,15 +707,59 @@ class DashboardAudit:
             self._fallback_surfaces_cache = frozenset()
             return self._fallback_surfaces_cache
 
-        allowed_surfaces = set(SURFACE_SPECS)
+        def reject(message: str, *, code: str = "publication-state-invalid"):
+            self.error(code, message, self.rel(path))
+            self._fallback_surfaces_cache = frozenset()
+            return self._fallback_surfaces_cache
 
-        def valid_surface_list(value: object) -> bool:
+        def valid_surface_list(value: object, allowed: set[str]) -> bool:
             return (
                 isinstance(value, list)
                 and all(isinstance(surface, str) for surface in value)
-                and all(surface in allowed_surfaces for surface in value)
+                and all(surface in allowed for surface in value)
                 and len(set(value)) == len(value)
             )
+
+        def verify_manifest(
+            surface: str,
+            spec: SurfaceSpec,
+            entries: object,
+        ) -> bool:
+            expected_paths = _publication_expected_paths(self.root, spec)
+            if not isinstance(entries, dict) or set(entries) != expected_paths:
+                self.error(
+                    "publication-fallback-manifest-mismatch",
+                    f"{surface} restored path set no longer matches publication state",
+                    self.rel(path),
+                    context={"surface": surface},
+                )
+                return False
+            valid = True
+            for relative, descriptor in entries.items():
+                target = self.root / relative
+                expected_size = (
+                    descriptor.get("bytes") if isinstance(descriptor, dict) else None
+                )
+                expected_sha = (
+                    descriptor.get("sha256")
+                    if isinstance(descriptor, dict)
+                    else None
+                )
+                if (
+                    not target.is_file()
+                    or not isinstance(expected_size, int)
+                    or not re.fullmatch(r"[0-9a-f]{64}", str(expected_sha or ""))
+                    or target.stat().st_size != expected_size
+                    or hashlib.sha256(target.read_bytes()).hexdigest() != expected_sha
+                ):
+                    self.error(
+                        "publication-fallback-manifest-mismatch",
+                        f"{surface} restored content changed at {relative}",
+                        self.rel(path),
+                        context={"surface": surface, "path": relative},
+                    )
+                    valid = False
+            return valid
 
         schema_version = state.get("schema_version")
         mode = state.get("mode")
@@ -626,53 +769,104 @@ class DashboardAudit:
             or _parse_timestamp(state.get("generated_at")) is None
             or state.get("fallback_max_age_hours") != PUBLICATION_FALLBACK_MAX_AGE_HOURS
         ):
-            self.error(
-                "publication-state-invalid",
-                "publication state has an invalid schema or common metadata",
-                self.rel(path),
+            return reject(
+                "publication state has an invalid schema or common metadata"
             )
-            self._fallback_surfaces_cache = frozenset()
-            return self._fallback_surfaces_cache
 
         degraded_raw = state.get("degraded_surfaces")
-        fresh_raw: object
-        fallback_raw: object
         degraded_since = state.get("degraded_since")
-        fallback_since: object
         manifest = state.get("restored_manifest")
 
         if schema_version == 1:
-            if mode not in {"current", "fallback", "blocked"} or not valid_surface_list(
-                degraded_raw
+            aliases = _publication_legacy_aliases()
+            allowed_v1 = set(SURFACE_SPECS) | set(aliases)
+            if (
+                mode not in {"current", "fallback", "blocked"}
+                or not valid_surface_list(degraded_raw, allowed_v1)
             ):
-                self.error(
-                    "publication-state-invalid",
+                return reject(
                     "schema-v1 publication state has an invalid mode or surface list",
-                    self.rel(path),
                 )
+            if mode == "blocked":
+                return reject(
+                    "publication selector state is blocked",
+                    code="publication-state-blocked",
+                )
+            if mode == "current":
+                if (
+                    degraded_raw
+                    or degraded_since not in ({}, None)
+                    or manifest not in ({}, None)
+                ):
+                    return reject(
+                        "current publication state cannot declare degraded or "
+                        "restored surfaces"
+                    )
                 self._fallback_surfaces_cache = frozenset()
                 return self._fallback_surfaces_cache
-            fresh_raw = []
-            fallback_raw = degraded_raw if mode == "fallback" else []
-            # Schema v1 used degraded_since as the fallback-age clock.
-            fallback_since = degraded_since
+            if (
+                not degraded_raw
+                or not isinstance(degraded_since, dict)
+                or set(degraded_since) != set(degraded_raw)
+                or any(
+                    _parse_timestamp(value) is None
+                    for value in degraded_since.values()
+                )
+                or not isinstance(manifest, dict)
+                or set(manifest) != set(degraded_raw)
+            ):
+                return reject(
+                    "publication state lacks complete degradation or fallback "
+                    "attestations"
+                )
+
+            # Verify the committed schema-v1 transaction as one monolith
+            # before translating its proof and clock to active child surfaces.
+            raw_valid = True
+            for surface in degraded_raw:
+                spec = (
+                    LEGACY_CI_SURFACE_SPEC
+                    if surface == LEGACY_CI_SURFACE and surface in aliases
+                    else SURFACE_SPECS[surface]
+                )
+                raw_valid = verify_manifest(surface, spec, manifest[surface]) and raw_valid
+            if not raw_valid:
+                self._fallback_surfaces_cache = frozenset()
+                return self._fallback_surfaces_cache
+            try:
+                expansions = _publication_surface_expansions(degraded_raw, aliases)
+                partitioned_manifest = _partition_publication_manifest(
+                    self.root, manifest, expansions
+                )
+            except ValueError as exc:
+                return reject(str(exc))
+            fallback_surfaces = {
+                target for targets in expansions.values() for target in targets
+            }
+            if _publication_fallback_closure(fallback_surfaces) != fallback_surfaces:
+                return reject(
+                    "schema-v1 fallback omits a required dependent surface"
+                )
+            fallback_since = {
+                target: degraded_since[surface]
+                for surface, targets in expansions.items()
+                for target in targets
+            }
+            manifest = partitioned_manifest
         else:
             fresh_raw = state.get("fresh_degraded_surfaces")
             fallback_raw = state.get("fallback_surfaces")
             fallback_since = state.get("fallback_since")
+            allowed_v2 = set(SURFACE_SPECS)
             if (
                 mode not in {"current", "degraded", "fallback", "mixed", "blocked"}
-                or not valid_surface_list(degraded_raw)
-                or not valid_surface_list(fresh_raw)
-                or not valid_surface_list(fallback_raw)
+                or not valid_surface_list(degraded_raw, allowed_v2)
+                or not valid_surface_list(fresh_raw, allowed_v2)
+                or not valid_surface_list(fallback_raw, allowed_v2)
             ):
-                self.error(
-                    "publication-state-invalid",
+                return reject(
                     "schema-v2 publication state has an invalid mode or surface list",
-                    self.rel(path),
                 )
-                self._fallback_surfaces_cache = frozenset()
-                return self._fallback_surfaces_cache
 
             degraded_set = set(degraded_raw)
             fresh_set = set(fresh_raw)
@@ -692,60 +886,66 @@ class DashboardAudit:
                 or degraded_set != fresh_set | fallback_set
                 or not mode_sets_are_valid[mode]
             ):
-                self.error(
-                    "publication-state-invalid",
+                return reject(
                     "schema-v2 degraded surfaces do not match their selection modes",
-                    self.rel(path),
                 )
+            if mode == "blocked":
+                return reject(
+                    "publication selector state is blocked",
+                    code="publication-state-blocked",
+                )
+            if (
+                mode == "current"
+                and (
+                    degraded_set
+                    or degraded_since not in ({}, None)
+                    or fallback_since not in ({}, None)
+                    or manifest not in ({}, None)
+                )
+            ):
+                return reject(
+                    "current publication state cannot declare degraded or restored "
+                    "surfaces"
+                )
+            if (
+                not isinstance(degraded_since, dict)
+                or set(degraded_since) != degraded_set
+                or any(
+                    _parse_timestamp(value) is None
+                    for value in degraded_since.values()
+                )
+                or not isinstance(fallback_since, dict)
+                or set(fallback_since) != fallback_set
+                or any(
+                    _parse_timestamp(value) is None
+                    for value in fallback_since.values()
+                )
+                or (
+                    fallback_set
+                    and (not isinstance(manifest, dict) or set(manifest) != fallback_set)
+                )
+                or (not fallback_set and manifest not in ({}, None))
+            ):
+                return reject(
+                    "publication state lacks complete degradation or fallback "
+                    "attestations"
+                )
+            fallback_surfaces = fallback_set
+            if _publication_fallback_closure(fallback_surfaces) != fallback_surfaces:
+                return reject(
+                    "schema-v2 fallback omits a required dependent surface"
+                )
+            if not fallback_surfaces:
                 self._fallback_surfaces_cache = frozenset()
                 return self._fallback_surfaces_cache
-
-        degraded_surfaces = set(degraded_raw)
-        fallback_surfaces = set(fallback_raw)
-        if mode == "blocked":
-            self.error(
-                "publication-state-blocked",
-                "publication selector state is blocked",
-                self.rel(path),
-            )
-            self._fallback_surfaces_cache = frozenset()
-            return self._fallback_surfaces_cache
-
-        if mode == "current":
-            if (
-                degraded_surfaces
-                or degraded_since not in ({}, None)
-                or fallback_since not in ({}, None)
-                or manifest not in ({}, None)
-            ):
-                self.error(
-                    "publication-state-invalid",
-                    "current publication state cannot declare degraded or restored surfaces",
-                    self.rel(path),
-                )
-            self._fallback_surfaces_cache = frozenset()
-            return self._fallback_surfaces_cache
-
-        if (
-            not isinstance(degraded_since, dict)
-            or set(degraded_since) != degraded_surfaces
-            or any(_parse_timestamp(value) is None for value in degraded_since.values())
-            or not isinstance(fallback_since, dict)
-            or set(fallback_since) != fallback_surfaces
-            or any(_parse_timestamp(value) is None for value in fallback_since.values())
-            or (
-                fallback_surfaces
-                and (not isinstance(manifest, dict) or set(manifest) != fallback_surfaces)
-            )
-            or (not fallback_surfaces and manifest not in ({}, None))
-        ):
-            self.error(
-                "publication-state-invalid",
-                "publication state lacks complete degradation or fallback attestations",
-                self.rel(path),
-            )
-            self._fallback_surfaces_cache = frozenset()
-            return self._fallback_surfaces_cache
+            valid = True
+            for surface in sorted(fallback_surfaces):
+                valid = verify_manifest(
+                    surface, SURFACE_SPECS[surface], manifest[surface]
+                ) and valid
+            if not valid:
+                self._fallback_surfaces_cache = frozenset()
+                return self._fallback_surfaces_cache
 
         now = datetime.now(timezone.utc)
         valid = True
@@ -763,48 +963,6 @@ class DashboardAudit:
                     context={"surface": surface},
                 )
                 valid = False
-            entries = manifest.get(surface)
-            if not isinstance(entries, dict):
-                valid = False
-                continue
-            spec = SURFACE_SPECS[surface]
-            actual_paths = {
-                relative
-                for relative in (*spec.required_paths, *spec.optional_paths)
-                if (self.root / relative).is_file()
-            }
-            actual_paths.update(
-                candidate.relative_to(self.root).as_posix()
-                for pattern in spec.globs
-                for candidate in self.root.glob(pattern)
-                if candidate.is_file()
-            )
-            if set(entries) != actual_paths:
-                self.error(
-                    "publication-fallback-manifest-mismatch",
-                    f"{surface} restored path set no longer matches publication state",
-                    self.rel(path),
-                    context={"surface": surface},
-                )
-                valid = False
-                continue
-            for relative, descriptor in entries.items():
-                target = self.root / relative
-                expected_size = descriptor.get("bytes") if isinstance(descriptor, dict) else None
-                expected_sha = descriptor.get("sha256") if isinstance(descriptor, dict) else None
-                if (
-                    not isinstance(expected_size, int)
-                    or not re.fullmatch(r"[0-9a-f]{64}", str(expected_sha or ""))
-                    or target.stat().st_size != expected_size
-                    or hashlib.sha256(target.read_bytes()).hexdigest() != expected_sha
-                ):
-                    self.error(
-                        "publication-fallback-manifest-mismatch",
-                        f"{surface} restored content changed at {relative}",
-                        self.rel(path),
-                        context={"surface": surface, "path": relative},
-                    )
-                    valid = False
         self._fallback_surfaces_cache = (
             frozenset(fallback_surfaces) if valid else frozenset()
         )

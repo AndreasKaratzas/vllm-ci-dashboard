@@ -76,7 +76,7 @@ jobs:
             local label="$2"
             local status="$3"
             case "$surface" in
-              ci|queue|queue_lifecycle|agent_health|github_home|ready|perf_eval|test_builds) ;;
+              ci_core|ci_gating|ci_changes|ci_hotness|queue|queue_lifecycle|agent_health|github_home|ready|perf_eval|test_builds) ;;
               *) echo "::error::Unknown publication surface: $surface"; return 2 ;;
             esac
             printf '%s\n' "$surface" >> "$PUBLICATION_FAILED_SURFACES_FILE"
@@ -146,7 +146,7 @@ jobs:
           STATUS=$?
           set -e
           if [ "$STATUS" -ne 0 ]; then
-            record_surface_failure ci "vLLM config snapshot" "$STATUS"
+            record_surface_failure ci_core "vLLM config snapshot" "$STATUS"
             record_surface_failure queue "vLLM config snapshot" "$STATUS"
           fi
 
@@ -238,13 +238,33 @@ jobs:
       - name: Sync CI data from gh-pages
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          sync_ci_seed() {
-            for f in ci_health.json parity_report.json config_parity.json flaky_tests.json failure_trends.json quarantine.json analytics.json gating_nightlies.json gating_targets.json gating_target_candidates.json shard_bases.json shard_base_catalog.json group_changes.json amd_test_matrix.json gating_proposals.json hotness.json operations_v2.json; do
+          sync_ci_files() {
+            for f in "$@"; do
               LIVE=$(git show origin/gh-pages:data/vllm/ci/$f 2>/dev/null || true)
               if [ -n "$LIVE" ]; then
                 printf '%s\n' "$LIVE" > "data/vllm/ci/$f" || return $?
               fi
             done
+          }
+          sync_ci_core_seed() {
+            sync_ci_files \
+              ci_health.json parity_report.json config_parity.json \
+              flaky_tests.json failure_trends.json quarantine.json \
+              analytics.json gating_nightlies.json shard_bases.json \
+              shard_base_catalog.json amd_test_matrix.json \
+              ownership_config_parity.json ci_ownership.json \
+              parity_key_overrides.json
+          }
+          sync_ci_gating_seed() {
+            sync_ci_files \
+              gating_targets.json gating_proposals.json \
+              gating_target_candidates.json
+          }
+          sync_ci_changes_seed() {
+            sync_ci_files group_changes.json
+          }
+          sync_ci_hotness_seed() {
+            sync_ci_files hotness.json
           }
           sync_workload_mapping_seed() {
             # Never replace a newer/schema-upgraded main aggregate with an older
@@ -267,7 +287,10 @@ jobs:
             fi
             rm -f "$REMOTE_MAPPING" || return $?
           }
-          run_surface_collector ci "CI data seed" sync_ci_seed
+          run_surface_collector ci_core "CI core data seed" sync_ci_core_seed
+          run_surface_collector ci_gating "CI gating data seed" sync_ci_gating_seed
+          run_surface_collector ci_changes "CI changes data seed" sync_ci_changes_seed
+          run_surface_collector ci_hotness "CI hotness data seed" sync_ci_hotness_seed
           run_surface_collector queue "workload mapping seed" sync_workload_mapping_seed
 
       # This deterministic snapshot must be rebuilt after the gh-pages sync.
@@ -276,7 +299,7 @@ jobs:
       - name: Collect AMD gating target list
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci "AMD gating target list" \
+          run_surface_collector ci_gating "AMD gating target list" \
             python scripts/vllm/collect_gating_targets.py --output data/vllm/ci/
 
       - name: Collect AMD hotness (3d window)
@@ -284,7 +307,7 @@ jobs:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci "AMD hotness" \
+          run_surface_collector ci_hotness "AMD hotness" \
             python scripts/vllm/collect_hotness.py
 
       - name: Collect vLLM/Omni AMD workload mappings
@@ -306,7 +329,7 @@ jobs:
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           DAYS="${{ github.event.inputs.ci_days || '8' }}"
-          run_surface_collector ci "CI data" \
+          run_surface_collector ci_core "CI data" \
             python scripts/collect_ci.py --days "$DAYS" --pipeline both --output data/vllm/ci/
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
@@ -317,7 +340,7 @@ jobs:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci "CI analytics" \
+          run_surface_collector ci_core "CI analytics" \
             python scripts/vllm/collect_analytics.py --days 30 --output data/vllm/ci/
 
       - name: Collect AMD agent health (all builds, all branches)
@@ -337,7 +360,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci "test group changes" \
+          run_surface_collector ci_changes "test group changes" \
             python scripts/vllm/collect_group_changes.py --days 30 --output data/vllm/ci/
 
       - name: Collect AMD test matrix
@@ -346,7 +369,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci "AMD test matrix" \
+          run_surface_collector ci_core "AMD test matrix" \
             python scripts/vllm/collect_amd_test_matrix.py --output data/vllm/ci/ \
             --build-snapshot data/vllm/ci/.cache/amd_nightly_snapshot.json
 
@@ -355,7 +378,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci "CI ownership parity" \
+          run_surface_collector ci_core "CI ownership parity" \
             python scripts/vllm/collect_ownership_parity.py \
             --input-dir data/vllm/ci --output data/vllm/ci
 
@@ -364,13 +387,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci "AMD gating proposals" \
+          run_surface_collector ci_gating "AMD gating proposals" \
             python scripts/vllm/collect_gating_proposals.py --output data/vllm/ci/
 
       - name: Collect AMD gating target candidate audit
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci "AMD gating target candidate audit" \
+          run_surface_collector ci_gating "AMD gating target candidate audit" \
             python scripts/vllm/collect_gating_target_candidates.py --output data/vllm/ci/
 
       # ── Perf Eval (AMD nightly perf + accuracy) ──
@@ -611,7 +634,7 @@ jobs:
       - name: Watch AMD main test-group failures (open/close issue)
         if: >-
           steps.publication-selector.outcome == 'success' &&
-          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci,')
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -621,7 +644,7 @@ jobs:
       - name: Watch upstream CI main test-group failures (open/close issue)
         if: >-
           steps.publication-selector.outcome == 'success' &&
-          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci,')
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -631,7 +654,7 @@ jobs:
       - name: Watch AMD main duration regressions (open/close issue)
         if: >-
           steps.publication-selector.outcome == 'success' &&
-          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci,')
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -668,7 +691,7 @@ jobs:
       - name: Watch AMD CI test-area regressions (ranked owners)
         if: >-
           steps.publication-selector.outcome == 'success' &&
-          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci,')
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -678,7 +701,7 @@ jobs:
       - name: Sync managed issues to AMD CI Operations project
         if: >-
           steps.publication-selector.outcome == 'success' &&
-          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci,')
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -691,7 +714,7 @@ jobs:
       - name: Persist CI ownership issue state
         if: >-
           steps.publication-selector.outcome == 'success' &&
-          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci,')
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

@@ -90,15 +90,19 @@ audit_dashboard_data.py   --> validates data/ + docs/assets/js + workflows
 
 ## Bounded last-known-good publication
 
-The hourly workflow treats CI, queue, lifecycle, agent-health, GitHub-home,
-Ready Tickets, perf-eval, and test-build inputs as separate atomic publication
-surfaces. A routed degradation keeps fresh candidate bytes and publishes an
-explicit warning. A collector failure or hard routed audit error instead
-rejects that surface's entire candidate transaction. The selector restores the
-whole failed surface from the main commit captured before collection, rebuilds
-the derived Operations data, and runs the complete audit again. Unknown
-findings, code or workflow defects, an invalid baseline, and any post-restore
-error remain hard deployment stops.
+The hourly workflow splits CI into four atomic publication surfaces: core
+health (collection, analytics, matrix, ownership, and nightly evidence),
+gating configuration, test-group changes, and workload hotness. Queue,
+lifecycle, agent-health, GitHub-home, Ready Tickets, perf-eval, and test-build
+inputs remain separate surfaces. Gating depends on CI core evidence, so a core
+fallback also invalidates gating; changes and hotness can remain current. A
+routed degradation keeps fresh candidate bytes and publishes an explicit
+warning. A collector failure or hard routed audit error instead rejects that
+surface's entire candidate transaction. The selector restores the whole failed
+surface from the main commit captured before collection, rebuilds the derived
+Operations data, and runs the complete audit again. Unknown findings, code or
+workflow defects, an invalid baseline, and any post-restore error remain hard
+deployment stops.
 
 Attested fallback state is committed privately in
 `data/vllm/ci/publication_state.json`; restore paths and hashes never enter the
@@ -109,6 +113,11 @@ degradation remains publishable and keeps its fingerprinted CI incident open.
 can identify fresh degradation, fallback, mixed, and blocked states without
 exposing private restore metadata. Repeated runs of the same incident do not
 post duplicate comments.
+
+The legacy manual `ci-collect.yml` workflow is validation-only. It can exercise
+the focused collectors and show the resulting workspace changes, but its token
+is read-only and it cannot commit, push, or publish around the selector and its
+private attestation state.
 
 Ready Tickets and its CI ownership subview are guarded by a freshly verified
 GitHub PAT in the browser, and their renderers do not fetch protected-view data

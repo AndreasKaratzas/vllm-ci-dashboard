@@ -16,6 +16,7 @@ from vllm import select_publication_surfaces as selector_module
 from vllm.audit_dashboard_data import DashboardAudit, Finding
 from vllm.publication_surfaces import (
     GLOBAL_DATA_PATHS,
+    LEGACY_CI_SURFACE_SPEC,
     SOURCE_SURFACES,
     SURFACE_SPECS,
     SurfaceSpec,
@@ -90,7 +91,7 @@ def test_findings_route_to_source_transactions_or_global_stop() -> None:
         "docs/assets/js/ci-hotness.js",
     )
 
-    assert finding_surfaces(matrix) == frozenset({"ci"})
+    assert finding_surfaces(matrix) == frozenset({"ci_core"})
     assert finding_surfaces(queue_source) == frozenset({"queue"})
     assert finding_surfaces(stale_queue_source) == frozenset({"queue"})
     assert finding_surfaces(docs) == frozenset()
@@ -105,6 +106,40 @@ def _git(repo: Path, *args: str) -> str:
         text=True,
     )
     return result.stdout.strip()
+
+
+def _write_legacy_ci_baseline(repo: Path, since: str) -> tuple[Path, dict[str, bytes]]:
+    baseline_bytes: dict[str, bytes] = {}
+    for relative in LEGACY_CI_SURFACE_SPEC.required_paths:
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = (json.dumps({"selection": "baseline", "path": relative}) + "\n").encode()
+        path.write_bytes(payload)
+        baseline_bytes[relative] = payload
+    state_path = repo / "data/vllm/ci/publication_state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "generated_at": since,
+                "baseline_ref": "0" * 40,
+                "mode": "fallback",
+                "degraded_surfaces": ["ci"],
+                "degraded_since": {"ci": since},
+                "fallback_max_age_hours": 36,
+                "restored_manifest": {
+                    "ci": {
+                        relative: {
+                            "bytes": len(payload),
+                            "sha256": hashlib.sha256(payload).hexdigest(),
+                        }
+                        for relative, payload in baseline_bytes.items()
+                    }
+                },
+            }
+        )
+    )
+    return state_path, baseline_bytes
 
 
 def test_restore_surface_restores_exact_and_globbed_files_atomically(
@@ -245,6 +280,105 @@ def test_forced_degraded_surface_restores_a_clean_candidate(
     assert set(state["restored_manifest"]) == {"ci"}
     assert state["candidate_errors"][0]["code"] == "publication-collector-failed"
     assert audit_runs == [False, False, True]
+
+
+def test_legacy_ci_state_migrates_clocks_and_closes_core_dependency(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    original_since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path, baseline_bytes = _write_legacy_ci_baseline(repo, original_since)
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "legacy monolithic fallback")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    child_paths = {
+        surface: SURFACE_SPECS[surface].required_paths[0]
+        for surface in ("ci_core", "ci_gating", "ci_changes", "ci_hotness")
+    }
+    for surface, relative in child_paths.items():
+        (repo / relative).write_text(
+            json.dumps({"selection": "candidate", "surface": surface}) + "\n"
+        )
+
+    class CleanAudit:
+        def __init__(self, *args, **kwargs):
+            self.report = SimpleNamespace(errors=[])
+
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def run(self) -> SimpleNamespace:
+            return SimpleNamespace(errors=[])
+
+    monkeypatch.setattr(selector_module, "DashboardAudit", CleanAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    state = selector_module.select_publication(
+        repo,
+        baseline,
+        state_path,
+        forced_degraded=("ci_core",),
+    )
+
+    fallback = {"ci_core", "ci_gating"}
+    assert set(state["fallback_surfaces"]) == fallback
+    assert "ci" not in state["degraded_surfaces"]
+    assert state["degraded_since"] == {
+        surface: original_since for surface in fallback
+    }
+    assert state["fallback_since"] == {
+        surface: original_since for surface in fallback
+    }
+    assert set(state["restored_paths"]) == fallback
+    assert set(state["restored_manifest"]) == fallback
+    for surface in fallback:
+        relative = child_paths[surface]
+        assert (repo / relative).read_bytes() == baseline_bytes[relative]
+    for surface in {"ci_changes", "ci_hotness"}:
+        relative = child_paths[surface]
+        assert json.loads((repo / relative).read_text()) == {
+            "selection": "candidate",
+            "surface": surface,
+        }
+
+
+def test_schema_v2_baseline_rejects_legacy_ci_alias(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    state_path = repo / "data/vllm/ci/publication_state.json"
+    state_path.parent.mkdir(parents=True)
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "generated_at": now,
+                "baseline_ref": "0" * 40,
+                "mode": "fallback",
+                "degraded_surfaces": ["ci"],
+                "fresh_degraded_surfaces": [],
+                "fallback_surfaces": ["ci"],
+                "degraded_since": {"ci": now},
+                "fallback_since": {"ci": now},
+                "fallback_max_age_hours": 36,
+                "restored_manifest": {"ci": {}},
+            }
+        )
+    )
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "invalid v2 legacy alias")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    with pytest.raises(RuntimeError, match="publication state is inconsistent"):
+        selector_module._baseline_publication_state(repo, baseline, state_path)
 
 
 def test_clean_candidate_writes_schema_v2_current_state(
@@ -802,6 +936,7 @@ def test_stale_source_fallback_is_bounded_at_36_hours(
         "SURFACE_SPECS",
         {"ci": SurfaceSpec(required_paths=("data/vllm/ci/analytics.json",))},
     )
+    monkeypatch.setattr(audit_module, "SOURCE_SURFACES", {"analytics": "ci"})
 
     audit = DashboardAudit(tmp_path)
     audit.audit_operations_v2()
@@ -896,7 +1031,7 @@ def test_stale_shard_bases_are_a_routable_ci_surface_error(tmp_path: Path) -> No
         if finding.code == "shard-bases-unused"
     )
     assert finding.path == "data/vllm/ci/shard_bases.json"
-    assert finding_surfaces(finding) == frozenset({"ci"})
+    assert finding_surfaces(finding) == frozenset({"ci_core"})
     assert "removed sharded group" in finding.message
 
 

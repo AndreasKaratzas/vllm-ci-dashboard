@@ -25,8 +25,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vllm.audit_dashboard_data import DashboardAudit  # noqa: E402
 from vllm.publication_surfaces import (  # noqa: E402
+    LEGACY_CI_SURFACE,
+    LEGACY_CI_SURFACE_SPEC,
+    LEGACY_SURFACE_ALIASES,
     SURFACE_SPECS,
     SurfaceSpec,
+    fallback_dependency_closure,
     finding_surfaces,
 )
 
@@ -35,6 +39,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_STATE = Path("data/vllm/ci/publication_state.json")
 FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
 FALLBACK_MAX_AGE_HOURS = 36
+DECLARED_SURFACE_NAMES = frozenset(SURFACE_SPECS)
 
 
 class FallbackExpiredError(RuntimeError):
@@ -82,6 +87,146 @@ def _run_git(root: Path, *args: str) -> bytes:
     return result.stdout
 
 
+def _uses_declared_surface_domain() -> bool:
+    """Distinguish production surface rules from isolated test-local specs."""
+    return set(SURFACE_SPECS) == DECLARED_SURFACE_NAMES
+
+
+def _legacy_aliases() -> dict[str, frozenset[str]]:
+    if not _uses_declared_surface_domain():
+        return {}
+    return LEGACY_SURFACE_ALIASES
+
+
+def _closed_fallback_surfaces(surfaces: Iterable[str]) -> set[str]:
+    requested = set(surfaces)
+    if not _uses_declared_surface_domain():
+        return requested
+    return set(fallback_dependency_closure(requested))
+
+
+def _surface_expansions(
+    surfaces: Iterable[str],
+    aliases: dict[str, frozenset[str]],
+) -> dict[str, frozenset[str]]:
+    expansions: dict[str, frozenset[str]] = {}
+    expanded: set[str] = set()
+    for surface in surfaces:
+        targets = aliases.get(surface, frozenset({surface}))
+        if not targets or not set(targets) <= set(SURFACE_SPECS):
+            raise RuntimeError(
+                f"validated baseline publication surface {surface!r} cannot be migrated"
+            )
+        overlap = expanded & set(targets)
+        if overlap:
+            raise RuntimeError(
+                "validated baseline publication aliases overlap active surfaces: "
+                f"{sorted(overlap)}"
+            )
+        expansions[surface] = targets
+        expanded.update(targets)
+    return expansions
+
+
+def _spec_owns_path(spec: SurfaceSpec, relative: str) -> bool:
+    return relative in {*spec.required_paths, *spec.optional_paths} or any(
+        Path(relative).match(pattern) for pattern in spec.globs
+    )
+
+
+def _baseline_expected_paths(root: Path, ref: str, spec: SurfaceSpec) -> set[str]:
+    expected = set(spec.required_paths)
+    for relative in spec.optional_paths:
+        exists = subprocess.run(
+            ["git", "cat-file", "-e", f"{ref}:{relative}"],
+            cwd=root,
+            capture_output=True,
+        )
+        if exists.returncode == 0:
+            expected.add(relative)
+    expected.update(_baseline_paths(root, ref, spec))
+    return expected
+
+
+def _validate_baseline_manifest(
+    root: Path,
+    ref: str,
+    surface: str,
+    spec: SurfaceSpec,
+    entries: object,
+) -> dict[str, dict]:
+    if not isinstance(entries, dict):
+        raise RuntimeError(f"fallback baseline manifest for {surface} is invalid")
+    expected = _baseline_expected_paths(root, ref, spec)
+    if set(entries) != expected:
+        raise RuntimeError(
+            f"fallback baseline manifest path set for {surface} is inconsistent"
+        )
+    for relative, descriptor in entries.items():
+        if not isinstance(descriptor, dict):
+            raise RuntimeError(
+                f"fallback baseline descriptor for {relative} is invalid"
+            )
+        payload_bytes = _run_git(root, "show", f"{ref}:{relative}")
+        expected_sha = str(descriptor.get("sha256") or "")
+        if (
+            descriptor.get("bytes") != len(payload_bytes)
+            or not re.fullmatch(r"[0-9a-f]{64}", expected_sha)
+            or hashlib.sha256(payload_bytes).hexdigest() != expected_sha
+        ):
+            raise RuntimeError(
+                f"fallback baseline content for {relative} does not match its manifest"
+            )
+    return entries
+
+
+def _partition_baseline_manifest(
+    root: Path,
+    ref: str,
+    manifest: dict[str, dict],
+    expansions: dict[str, frozenset[str]],
+) -> dict[str, dict]:
+    """Partition only after each legacy transaction was validated in full."""
+    partitioned: dict[str, dict] = {}
+    for surface, targets in expansions.items():
+        entries = manifest[surface]
+        if targets == frozenset({surface}):
+            partitioned[surface] = dict(entries)
+            continue
+        child_entries = {target: {} for target in targets}
+        for relative, descriptor in entries.items():
+            owners = [
+                target
+                for target in targets
+                if _spec_owns_path(SURFACE_SPECS[target], relative)
+            ]
+            if len(owners) != 1:
+                raise RuntimeError(
+                    "legacy fallback manifest path does not have one active owner: "
+                    f"{relative}"
+                )
+            child_entries[owners[0]][relative] = descriptor
+        for target, target_entries in child_entries.items():
+            expected = _baseline_expected_paths(root, ref, SURFACE_SPECS[target])
+            if set(target_entries) != expected:
+                raise RuntimeError(
+                    f"legacy fallback manifest partition for {target} is inconsistent"
+                )
+            partitioned[target] = target_entries
+    return partitioned
+
+
+def _expand_clock(
+    raw_since: dict[str, str],
+    expansions: dict[str, frozenset[str]],
+) -> dict[str, str]:
+    return {
+        target: raw_since[surface]
+        for surface, targets in expansions.items()
+        for target in targets
+    }
+
+
 def _baseline_publication_state(
     root: Path,
     ref: str,
@@ -110,10 +255,12 @@ def _baseline_publication_state(
     mode = payload.get("mode")
     degraded = payload.get("degraded_surfaces")
     degraded_since = payload.get("degraded_since")
+    aliases = _legacy_aliases() if schema_version == 1 else {}
+    allowed = set(SURFACE_SPECS) | set(aliases)
     if (
         not isinstance(degraded, list)
         or any(
-            not isinstance(surface, str) or surface not in SURFACE_SPECS
+            not isinstance(surface, str) or surface not in allowed
             for surface in degraded
         )
         or len(set(degraded)) != len(degraded)
@@ -124,107 +271,138 @@ def _baseline_publication_state(
     ):
         raise RuntimeError("validated baseline publication state is inconsistent")
 
+    manifest = payload.get("restored_manifest")
+    restored_paths = payload.get("restored_paths")
     if schema_version == 1:
         if (
             mode not in {"current", "fallback"}
             or (mode == "current" and degraded)
+            or (mode == "fallback") != bool(degraded)
             or set(degraded_since) != set(degraded)
             or any(_parse_utc(value) is None for value in degraded_since.values())
         ):
             raise RuntimeError("validated baseline publication state is inconsistent")
-        fresh_degraded: list[str] = []
-        fallback = list(degraded)
-        fallback_since = dict(degraded_since)
-        normalized = {
+        if not degraded:
+            if manifest not in (None, {}) or restored_paths not in (None, {}):
+                raise RuntimeError(
+                    "non-fallback baseline state declares restored content"
+                )
+            return {
+                **payload,
+                "schema_version": 2,
+                "mode": "current",
+                "degraded_surfaces": [],
+                "fresh_degraded_surfaces": [],
+                "fallback_surfaces": [],
+                "degraded_since": {},
+                "fallback_since": {},
+                "restored_paths": {},
+                "restored_manifest": {},
+            }
+        if not isinstance(manifest, dict) or set(manifest) != set(degraded):
+            raise RuntimeError(
+                "fallback baseline state has an incomplete restore manifest"
+            )
+        if restored_paths is not None and (
+            not isinstance(restored_paths, dict)
+            or set(restored_paths) != set(degraded)
+        ):
+            raise RuntimeError("fallback baseline state has incomplete restored paths")
+
+        expansions = _surface_expansions(degraded, aliases)
+        validated_manifest: dict[str, dict] = {}
+        for surface in degraded:
+            spec = (
+                LEGACY_CI_SURFACE_SPEC
+                if surface == LEGACY_CI_SURFACE and surface in aliases
+                else SURFACE_SPECS[surface]
+            )
+            entries = _validate_baseline_manifest(
+                root, ref, surface, spec, manifest[surface]
+            )
+            if restored_paths is not None and restored_paths.get(surface) != sorted(
+                entries
+            ):
+                raise RuntimeError(
+                    f"fallback baseline restored paths for {surface} are inconsistent"
+                )
+            validated_manifest[surface] = entries
+
+        # Validate the old monolithic transaction before splitting its proof
+        # among the active child surfaces.
+        partitioned = _partition_baseline_manifest(
+            root, ref, validated_manifest, expansions
+        )
+        fallback = {
+            target for targets in expansions.values() for target in targets
+        }
+        if _closed_fallback_surfaces(fallback) != fallback:
+            raise RuntimeError(
+                "validated baseline fallback omits a required dependent surface"
+            )
+        expanded_since = _expand_clock(degraded_since, expansions)
+        return {
             **payload,
             "schema_version": 2,
-            "mode": "fallback" if fallback else "current",
+            "mode": "fallback",
             "degraded_surfaces": sorted(fallback),
             "fresh_degraded_surfaces": [],
             "fallback_surfaces": sorted(fallback),
-            "degraded_since": dict(degraded_since),
-            "fallback_since": fallback_since,
+            "degraded_since": expanded_since,
+            "fallback_since": dict(expanded_since),
+            "restored_paths": {
+                surface: sorted(entries)
+                for surface, entries in partitioned.items()
+            },
+            "restored_manifest": partitioned,
         }
-    else:
-        fresh_degraded = payload.get("fresh_degraded_surfaces")
-        fallback = payload.get("fallback_surfaces")
-        fallback_since = payload.get("fallback_since")
-        if (
-            mode not in {"current", "degraded", "fallback", "mixed"}
-            or not isinstance(fresh_degraded, list)
-            or not isinstance(fallback, list)
-            or any(
-                not isinstance(surface, str) or surface not in SURFACE_SPECS
-                for surface in [*fresh_degraded, *fallback]
-            )
-            or len(set(fresh_degraded)) != len(fresh_degraded)
-            or len(set(fallback)) != len(fallback)
-            or set(fresh_degraded) & set(fallback)
-            or set(degraded) != set(fresh_degraded) | set(fallback)
-            or set(degraded_since) != set(degraded)
-            or any(_parse_utc(value) is None for value in degraded_since.values())
-            or not isinstance(fallback_since, dict)
-            or set(fallback_since) != set(fallback)
-            or any(_parse_utc(value) is None for value in fallback_since.values())
-            or mode != _publication_mode(set(fresh_degraded), set(fallback))
-        ):
-            raise RuntimeError("validated baseline publication state is inconsistent")
-        normalized = payload
 
-    manifest = payload.get("restored_manifest")
-    restored_paths = payload.get("restored_paths")
+    fresh_degraded = payload.get("fresh_degraded_surfaces")
+    fallback = payload.get("fallback_surfaces")
+    fallback_since = payload.get("fallback_since")
+    if (
+        mode not in {"current", "degraded", "fallback", "mixed"}
+        or not isinstance(fresh_degraded, list)
+        or not isinstance(fallback, list)
+        or any(
+            not isinstance(surface, str) or surface not in SURFACE_SPECS
+            for surface in [*fresh_degraded, *fallback]
+        )
+        or len(set(fresh_degraded)) != len(fresh_degraded)
+        or len(set(fallback)) != len(fallback)
+        or set(fresh_degraded) & set(fallback)
+        or set(degraded) != set(fresh_degraded) | set(fallback)
+        or set(degraded_since) != set(degraded)
+        or any(_parse_utc(value) is None for value in degraded_since.values())
+        or not isinstance(fallback_since, dict)
+        or set(fallback_since) != set(fallback)
+        or any(_parse_utc(value) is None for value in fallback_since.values())
+        or mode != _publication_mode(set(fresh_degraded), set(fallback))
+        or _closed_fallback_surfaces(fallback) != set(fallback)
+    ):
+        raise RuntimeError("validated baseline publication state is inconsistent")
+
     if not fallback:
         if manifest not in (None, {}):
             raise RuntimeError("non-fallback baseline state declares restored content")
         if restored_paths not in (None, {}):
             raise RuntimeError("non-fallback baseline state declares restored paths")
-        return normalized
+        return payload
     if not isinstance(manifest, dict) or set(manifest) != set(fallback):
         raise RuntimeError("fallback baseline state has an incomplete restore manifest")
     if restored_paths is not None and (
-        not isinstance(restored_paths, dict)
-        or set(restored_paths) != set(fallback)
+        not isinstance(restored_paths, dict) or set(restored_paths) != set(fallback)
     ):
         raise RuntimeError("fallback baseline state has incomplete restored paths")
     for surface in fallback:
-        entries = manifest.get(surface)
-        if not isinstance(entries, dict):
-            raise RuntimeError(f"fallback baseline manifest for {surface} is invalid")
-        spec = SURFACE_SPECS[surface]
-        expected = set(spec.required_paths)
-        for relative in spec.optional_paths:
-            exists = subprocess.run(
-                ["git", "cat-file", "-e", f"{ref}:{relative}"],
-                cwd=root,
-                capture_output=True,
-            )
-            if exists.returncode == 0:
-                expected.add(relative)
-        expected.update(_baseline_paths(root, ref, spec))
-        if set(entries) != expected:
-            raise RuntimeError(
-                f"fallback baseline manifest path set for {surface} is inconsistent"
-            )
-        for relative, descriptor in entries.items():
-            if not isinstance(descriptor, dict):
-                raise RuntimeError(
-                    f"fallback baseline descriptor for {relative} is invalid"
-                )
-            payload_bytes = _run_git(root, "show", f"{ref}:{relative}")
-            expected_sha = str(descriptor.get("sha256") or "")
-            if (
-                descriptor.get("bytes") != len(payload_bytes)
-                or not re.fullmatch(r"[0-9a-f]{64}", expected_sha)
-                or hashlib.sha256(payload_bytes).hexdigest() != expected_sha
-            ):
-                raise RuntimeError(
-                    f"fallback baseline content for {relative} does not match its manifest"
-                )
+        entries = _validate_baseline_manifest(
+            root, ref, surface, SURFACE_SPECS[surface], manifest[surface]
+        )
         if restored_paths is not None and restored_paths.get(surface) != sorted(entries):
             raise RuntimeError(
                 f"fallback baseline restored paths for {surface} are inconsistent"
             )
-    return normalized
+    return payload
 
 
 def _start_times(
@@ -486,7 +664,7 @@ def select_publication(
     candidate_errors: list[dict] = []
     candidate_degradations: list[dict] = []
     fresh_degraded: set[str] = set()
-    fallback: set[str] = set(forced)
+    fallback: set[str] = _closed_fallback_surfaces(forced)
     restored: dict[str, list[str]] = {}
     for surface in sorted(forced):
         candidate_errors.append({
@@ -543,6 +721,7 @@ def select_publication(
                 fresh_degraded.update(surfaces)
             else:
                 unrouted.append(record)
+        fallback = _closed_fallback_surfaces(fallback)
         fresh_degraded.difference_update(fallback)
         state["candidate_errors"] = candidate_errors
         state["candidate_degradations"] = candidate_degradations
@@ -599,6 +778,7 @@ def select_publication(
                 fresh_degraded.update(surfaces)
             else:
                 unrouted.append(record)
+        fallback = _closed_fallback_surfaces(fallback)
         fresh_degraded.difference_update(fallback)
         state["candidate_errors"] = candidate_errors
         state["candidate_degradations"] = candidate_degradations

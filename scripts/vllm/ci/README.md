@@ -139,13 +139,13 @@ Quarantined tests are still collected and tracked, but excluded from failure cou
 
 ## GitHub Actions Integration
 
-Four workflows divide canonical publication from focused manual/event collectors:
+Five workflows divide canonical publication from focused manual/event collectors:
 
 | Workflow | Schedule | Purpose |
 |----------|----------|---------|
 | `hourly-master.yml` | Hourly + Buildkite nightly-completion webhooks | Full collection, validation, and the only scheduled root-site deployment |
 | `daily-update.yml` | Manual | Focused GitHub-data refresh committed to `main` |
-| `ci-collect.yml` | Manual | Focused Buildkite CI refresh committed to `main` |
+| `ci-collect.yml` | Manual | Validation-only focused Buildkite CI refresh; never commits or publishes |
 | `queue-monitor.yml` | Queue webhooks + manual | Queue snapshots and bounded queue issue automation; canonical publication follows via `hourly-master.yml` |
 | `queue-lifecycle.yml` | Hourly + manual | Organization-wide direct job lifecycle observations for the twelve canonical MI250/MI300/MI355 queues |
 

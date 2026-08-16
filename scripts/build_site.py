@@ -25,6 +25,10 @@ PUBLICATION_MODES = frozenset({"current", "degraded", "fallback", "mixed", "bloc
 PUBLICATION_SURFACE_LABELS = {
     "agent_health": "Agent health",
     "ci": "CI health",
+    "ci_changes": "CI test changes",
+    "ci_core": "CI core health",
+    "ci_gating": "CI gating",
+    "ci_hotness": "CI workload hotness",
     "github_home": "Project activity",
     "perf_eval": "Performance evaluation",
     "queue": "Queue health",

@@ -59,6 +59,8 @@ def test_operational_documentation_matches_the_canonical_publication_path() -> N
     assert "regional working-hour profiles" in scripts_readme
     assert "Hourly via `hourly-master.yml`" in scripts_readme
     assert "operations_v2_manifest.json + operations_v2/*.json" in scripts_readme
+    assert "four atomic publication surfaces" in scripts_readme
+    assert "`ci-collect.yml` workflow is validation-only" in scripts_readme
     assert "exact active-job ledger counts remain separate" in audit
     assert "hard failures, soft failures, and" in audit
 
@@ -335,6 +337,28 @@ def test_publication_status_projection_canonicalizes_safe_timestamps() -> None:
 
     assert payload["generated_at"] == "2026-01-01T00:00:00Z"
     assert payload["degraded_since"] is None
+
+
+def test_publication_status_projection_labels_split_and_legacy_ci_surfaces() -> None:
+    payload = BUILD_SITE.project_publication_status({
+        "mode": "degraded",
+        "generated_at": "2026-01-01T00:00:00Z",
+        "degraded_surfaces": [
+            "ci",
+            "ci_core",
+            "ci_gating",
+            "ci_changes",
+            "ci_hotness",
+        ],
+    })
+
+    assert payload["affected_surfaces"] == [
+        "CI core health",
+        "CI gating",
+        "CI health",
+        "CI test changes",
+        "CI workload hotness",
+    ]
 
 
 def test_docs_cannot_smuggle_an_unlisted_data_file_into_site(

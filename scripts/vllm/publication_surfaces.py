@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, Iterable
 
 
 @dataclass(frozen=True)
@@ -20,39 +20,56 @@ class SurfaceSpec:
     globs: tuple[str, ...] = ()
 
 
-SURFACE_SPECS: dict[str, SurfaceSpec] = {
-    "ci": SurfaceSpec(
-        required_paths=(
-            "data/vllm/ci/amd_test_matrix.json",
-            "data/vllm/ci/analytics.json",
-            "data/vllm/ci/ci_health.json",
-            "data/vllm/ci/config_parity.json",
-            "data/vllm/ci/failure_trends.json",
-            "data/vllm/ci/flaky_tests.json",
-            "data/vllm/ci/gating_nightlies.json",
-            "data/vllm/ci/gating_proposals.json",
-            "data/vllm/ci/gating_target_candidates.json",
-            "data/vllm/ci/gating_targets.json",
-            "data/vllm/ci/group_changes.json",
-            "data/vllm/ci/hotness.json",
-            "data/vllm/ci/ownership_config_parity.json",
-            "data/vllm/ci/parity_report.json",
-            "data/vllm/ci/shard_bases.json",
-            "data/vllm/parity_report.json",
-            "data/vllm/test_results.json",
-        ),
-        optional_paths=(
-            "data/vllm/ci/ci_ownership.json",
-            "data/vllm/ci/open_amd_duration_regression_issues.json",
-            "data/vllm/ci/open_amd_main_failure_issues.json",
-            "data/vllm/ci/open_ci_area_regression_issues.json",
-            "data/vllm/ci/open_ci_main_failure_issues.json",
-            "data/vllm/ci/parity_key_overrides.json",
-            "data/vllm/ci/quarantine.json",
-            "data/vllm/ci/shard_base_catalog.json",
-        ),
-        globs=("data/vllm/ci/test_results/*.jsonl",),
+CI_CORE_SURFACE_SPEC = SurfaceSpec(
+    required_paths=(
+        "data/vllm/ci/amd_test_matrix.json",
+        "data/vllm/ci/analytics.json",
+        "data/vllm/ci/ci_health.json",
+        "data/vllm/ci/config_parity.json",
+        "data/vllm/ci/failure_trends.json",
+        "data/vllm/ci/flaky_tests.json",
+        "data/vllm/ci/gating_nightlies.json",
+        "data/vllm/ci/ownership_config_parity.json",
+        "data/vllm/ci/parity_report.json",
+        "data/vllm/ci/shard_bases.json",
+        "data/vllm/parity_report.json",
+        "data/vllm/test_results.json",
     ),
+    optional_paths=(
+        "data/vllm/ci/ci_ownership.json",
+        "data/vllm/ci/open_amd_duration_regression_issues.json",
+        "data/vllm/ci/open_amd_main_failure_issues.json",
+        "data/vllm/ci/open_ci_area_regression_issues.json",
+        "data/vllm/ci/open_ci_main_failure_issues.json",
+        "data/vllm/ci/parity_key_overrides.json",
+        "data/vllm/ci/quarantine.json",
+        "data/vllm/ci/shard_base_catalog.json",
+    ),
+    globs=("data/vllm/ci/test_results/*.jsonl",),
+)
+
+CI_GATING_SURFACE_SPEC = SurfaceSpec(
+    required_paths=(
+        "data/vllm/ci/gating_proposals.json",
+        "data/vllm/ci/gating_target_candidates.json",
+        "data/vllm/ci/gating_targets.json",
+    ),
+)
+
+CI_CHANGES_SURFACE_SPEC = SurfaceSpec(
+    required_paths=("data/vllm/ci/group_changes.json",),
+)
+
+CI_HOTNESS_SURFACE_SPEC = SurfaceSpec(
+    required_paths=("data/vllm/ci/hotness.json",),
+)
+
+
+SURFACE_SPECS: dict[str, SurfaceSpec] = {
+    "ci_core": CI_CORE_SURFACE_SPEC,
+    "ci_gating": CI_GATING_SURFACE_SPEC,
+    "ci_changes": CI_CHANGES_SURFACE_SPEC,
+    "ci_hotness": CI_HOTNESS_SURFACE_SPEC,
     "queue": SurfaceSpec(
         required_paths=(
             "data/vllm/ci/capacity_monitor.json",
@@ -102,6 +119,69 @@ SURFACE_SPECS: dict[str, SurfaceSpec] = {
 }
 
 
+# Schema-v1 publication state used one monolithic ``ci`` transaction.  Keep
+# that contract out of the active ownership map while exposing enough metadata
+# for state readers to partition and validate an already-committed manifest.
+LEGACY_CI_SURFACE = "ci"
+LEGACY_CI_SURFACE_SPEC = SurfaceSpec(
+    required_paths=tuple(
+        path
+        for spec in (
+            CI_CORE_SURFACE_SPEC,
+            CI_GATING_SURFACE_SPEC,
+            CI_CHANGES_SURFACE_SPEC,
+            CI_HOTNESS_SURFACE_SPEC,
+        )
+        for path in spec.required_paths
+    ),
+    optional_paths=CI_CORE_SURFACE_SPEC.optional_paths,
+    globs=CI_CORE_SURFACE_SPEC.globs,
+)
+LEGACY_SURFACE_SPECS = {LEGACY_CI_SURFACE: LEGACY_CI_SURFACE_SPEC}
+LEGACY_SURFACE_ALIASES = {
+    LEGACY_CI_SURFACE: frozenset(
+        {"ci_core", "ci_gating", "ci_changes", "ci_hotness"}
+    ),
+}
+
+
+# These are invalidation edges, not data-flow dependencies: if a source surface
+# falls back, each listed dependent must fall back too.  Candidate gating
+# targets consume core-owned gating_nightlies.json, so retaining current gating
+# output beside a restored core would mix source cohorts.
+FALLBACK_DEPENDENCIES: dict[str, frozenset[str]] = {
+    "ci_core": frozenset({"ci_gating"}),
+}
+
+
+def fallback_dependency_closure(surfaces: Iterable[str]) -> frozenset[str]:
+    """Return the transitive active-surface fallback closure.
+
+    Unknown inputs and dangling dependency edges fail closed instead of being
+    silently omitted from an atomic restore.
+    """
+    requested = (surfaces,) if isinstance(surfaces, str) else surfaces
+    closure = {str(surface).strip() for surface in requested if str(surface).strip()}
+    unknown = closure - set(SURFACE_SPECS)
+    if unknown:
+        raise ValueError(f"unknown publication surfaces: {sorted(unknown)}")
+
+    pending = list(closure)
+    while pending:
+        surface = pending.pop()
+        dependents = set(FALLBACK_DEPENDENCIES.get(surface, ()))
+        dangling = dependents - set(SURFACE_SPECS)
+        if dangling:
+            raise ValueError(
+                f"fallback dependencies for {surface} reference unknown surfaces: "
+                f"{sorted(dangling)}"
+            )
+        for dependent in dependents - closure:
+            closure.add(dependent)
+            pending.append(dependent)
+    return frozenset(closure)
+
+
 # Static/publication-contract files that are deliberately not eligible for a
 # data fallback.  A defect in one of these remains a global hard failure.
 GLOBAL_DATA_PATHS = frozenset({
@@ -115,24 +195,24 @@ GLOBAL_DATA_PATHS = frozenset({
 
 
 SOURCE_SURFACES = {
-    "analytics": "ci",
+    "analytics": "ci_core",
     "agent_health": "agent_health",
-    "amd_test_signal": "ci",
-    "ci_health": "ci",
-    "config_parity": "ci",
-    "gating_targets": "ci",
-    "gating_target_candidates": "ci",
-    "amd_test_matrix": "ci",
+    "amd_test_signal": "ci_core",
+    "ci_health": "ci_core",
+    "config_parity": "ci_core",
+    "gating_targets": "ci_gating",
+    "gating_target_candidates": "ci_gating",
+    "amd_test_matrix": "ci_core",
     "capacity_monitor": "queue",
     "queue_timeseries": "queue",
     "queue_jobs": "queue",
     "workload_mapping": "queue",
-    "group_changes": "ci",
+    "group_changes": "ci_changes",
     "omni_heuristic": "queue",
     "omni_issue_state": "queue",
     "project_items": "ready",
     "ready_tickets": "ready",
-    "ci_ownership": "ci",
+    "ci_ownership": "ci_core",
 }
 
 
@@ -185,8 +265,6 @@ def finding_surfaces(finding: Any) -> frozenset[str]:
         return frozenset({"agent_health"})
     if code.startswith("operations-queue-") or code == "operations-retired-mi355b":
         return frozenset({"queue"})
-    if code.startswith("operations-trajectory-"):
-        return frozenset({"ci"})
     if code.startswith("operations-"):
         global_operations = (
             "operations-schema",
@@ -199,10 +277,28 @@ def finding_surfaces(finding: Any) -> frozenset[str]:
             code.startswith(prefix) for prefix in global_operations[1:]
         ):
             return frozenset()
-        return frozenset({"ci"})
+        contextual_owner = SOURCE_SURFACES.get(str(context.get("source") or ""))
+        if contextual_owner:
+            return frozenset({contextual_owner})
+        if code.startswith("operations-gating-"):
+            return frozenset({"ci_core", "ci_gating"})
+        if code.startswith("operations-trajectory-"):
+            return frozenset({"ci_core", "ci_changes"})
+        return frozenset({"ci_core"})
 
     prefix_routes = (
-        (("ci-health-", "analytics-", "matrix-", "parity-matrix-", "definition-parity-", "gating-target-"), "ci"),
+        (
+            (
+                "ci-health-",
+                "analytics-",
+                "matrix-",
+                "parity-matrix-",
+                "definition-parity-",
+                "shard-",
+            ),
+            "ci_core",
+        ),
+        (("gating-target-",), "ci_gating"),
         (("queue-lifecycle-",), "queue_lifecycle"),
         (("queue-",), "queue"),
         (("ready-ticket-",), "ready"),
