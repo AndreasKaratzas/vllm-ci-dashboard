@@ -638,6 +638,7 @@ class TestSiteBuildAssembly:
             )
 
 
+@pytest.mark.live_data
 class TestDataFetchContract:
     """Every ``fetch('data/...')`` URL must resolve to a committed file.
 

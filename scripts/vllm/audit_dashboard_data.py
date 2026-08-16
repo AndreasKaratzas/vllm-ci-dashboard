@@ -4950,7 +4950,9 @@ class DashboardAudit:
             "name: Collect test group changes",
             "name: Collect AMD test matrix",
             "name: Collect AMD gating proposals",
-            "name: Run dashboard data audit",
+            "name: Live publication audit",
+            "name: Run test suite",
+            "name: Enforce publication validation results",
             "python scripts/build_site.py --cache-bust-index",
         ]
         last = -1

@@ -256,6 +256,7 @@ class TestGroupRenderContract:
 # Live data validation (runs against actual parity_report.json)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+@pytest.mark.live_data
 class TestLiveDataRenderSafety:
     """Validate the actual parity_report.json won't crash the JS dashboard."""
 

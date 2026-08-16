@@ -14,6 +14,7 @@ DATA = ROOT / "data"
 DOCS = ROOT / "docs"
 
 
+@pytest.mark.live_data
 class TestCIHealthData:
     @pytest.fixture
     def health(self):
@@ -53,6 +54,7 @@ class TestCIHealthData:
             assert 0 <= d["pass_rate"] <= 1, f"{hw} pass_rate={d['pass_rate']}"
 
 
+@pytest.mark.live_data
 class TestParityReport:
     @pytest.fixture
     def parity(self):
@@ -304,6 +306,7 @@ class TestParityReport:
         assert not bad, "Missing links for failing hardware:\n" + "\n".join(bad[:10])
 
 
+@pytest.mark.live_data
 class TestAnalyticsData:
     @pytest.fixture
     def analytics(self):
@@ -565,6 +568,7 @@ class TestFrontendFiles:
         assert "return closestLabelMatches(label, matches)" in js
         assert "return closestLabelMatches(label, filtered)" in js
 
+    @pytest.mark.live_data
     def test_queue_stats_computable_from_builds(self):
         """Queue stats must be recomputable from per-build job data and duration_ranking.
 
@@ -623,6 +627,7 @@ class TestFrontendPendingGroups:
             "Groups with backfilled=true should be shown as PENDING, not hidden."
         )
 
+    @pytest.mark.live_data
     def test_parity_report_pending_groups_have_correct_count(self):
         """The number of groups per HW in parity_report (including backfilled)
         must match what the frontend would display."""
@@ -662,6 +667,7 @@ class TestShardMerging:
         assert self._base("distributed tests (2 gpus)") == "distributed tests (2 gpus)"
         assert self._base("basic correctness") == "basic correctness"
 
+    @pytest.mark.live_data
     def test_reduces_real_data(self):
         """Frontend merge should produce <= groups (backend may already merge)."""
         path = DATA / "vllm" / "ci" / "parity_report.json"
@@ -672,6 +678,7 @@ class TestShardMerging:
         assert len(merged) <= len(groups)
 
 
+@pytest.mark.live_data
 class TestSiteAssembly:
     def test_data_dir_exists(self):
         assert (ROOT / "data").exists()
@@ -690,6 +697,7 @@ class TestSiteAssembly:
 CONFLICT_MARKERS = re.compile(r'^(<{7}|={7}|>{7})\s', re.MULTILINE)
 
 
+@pytest.mark.live_data
 class TestNoConflictMarkers:
     """Ensure no data files contain git merge conflict markers.
 

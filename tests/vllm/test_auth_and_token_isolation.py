@@ -769,6 +769,7 @@ class TestAuthEntryGate:
             "auth.js should explain that access is handled manually now"
         )
 
+    @pytest.mark.live_data
     def test_users_json_has_expected_shape(self):
         import json
         db = json.loads(_read(ROOT / "data" / "users.json"))
@@ -789,6 +790,7 @@ class TestAuthEntryGate:
             for forbidden in ("password_hash", "password", "salt", "iterations", "pat"):
                 assert forbidden not in u
 
+    @pytest.mark.live_data
     def test_ci_ownership_engineers_are_registered_by_github_id(self):
         import json
         db = json.loads(_read(ROOT / "data" / "users.json"))

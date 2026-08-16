@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.live_data
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 DATA = ROOT / "data"

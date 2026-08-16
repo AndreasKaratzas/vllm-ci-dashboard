@@ -128,6 +128,7 @@ class TestBuildkiteTokenScope:
                     "Redirecting API calls could expose the token."
                 )
 
+    @pytest.mark.live_data
     def test_skip_patterns_dont_match_test_groups(self):
         """SKIP_JOB_PATTERNS must not accidentally match real test group names
         from the parity report."""

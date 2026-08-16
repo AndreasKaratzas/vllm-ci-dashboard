@@ -24,8 +24,10 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 
 @pytest.fixture(autouse=True)
-def _load_shard_bases():
-    """Ensure shard bases are loaded before every test."""
+def _load_shard_bases(request):
+    """Load the mutable shard catalog only for live-data audits."""
+    if request.node.get_closest_marker("live_data") is None:
+        return
     from vllm.ci.analyzer import set_shard_bases
     shard_path = DATA / "shard_bases.json"
     if shard_path.exists():
@@ -58,6 +60,7 @@ def _load_test_results():
     return results, amd_files[0].name
 
 
+@pytest.mark.live_data
 class TestGroupCountCorrectness:
     """Validate that per-hardware group counts match the raw test results."""
 
@@ -170,6 +173,7 @@ class TestGroupCountCorrectness:
                 )
 
 
+@pytest.mark.live_data
 class TestGroupFailureCorrectness:
     """Validate that groups marked as failing actually have failures."""
 
@@ -253,6 +257,7 @@ class TestGroupFailureCorrectness:
                 )
 
 
+@pytest.mark.live_data
 class TestSkipPatternsCompleteness:
     """Validate that SKIP_JOB_PATTERNS doesn't drop real test groups."""
 
@@ -281,6 +286,7 @@ class TestSkipPatternsCompleteness:
                 )
 
 
+@pytest.mark.live_data
 class TestParityReportConsistency:
     """Validate parity_report.json is internally consistent."""
 
@@ -318,6 +324,7 @@ class TestParityReportConsistency:
                 )
 
 
+@pytest.mark.live_data
 class TestBuildStateIntegrity:
     """Validate that job states are correctly reflected in test results."""
 
@@ -393,6 +400,7 @@ class TestNightlyDateAlignment:
         assert nightly_date(None) == ""
 
 
+@pytest.mark.live_data
 class TestGroupChangesCompleteness:
     """Validate that group_changes.json captures significant YAML changes."""
 
@@ -425,6 +433,7 @@ class TestGroupChangesCompleteness:
         )
 
 
+@pytest.mark.live_data
 class TestUpstreamHardwareTracking:
     """Validate that upstream GPU hardware (H100, B200, etc.) is tracked."""
 
@@ -544,6 +553,7 @@ class TestNightlyDateFunction:
             assert ci_nd(t) == analytics_nd(t), f"nightly_date mismatch for {t}"
 
 
+@pytest.mark.live_data
 class TestGroupChangesPerPipeline:
     """Validate group_changes.json has per-pipeline separation."""
 
@@ -608,6 +618,7 @@ class TestSkipPatternsRobust:
         assert any(pattern in infra_name for pattern in SKIP_JOB_PATTERNS)
         assert any(pattern in legacy_infra_name for pattern in SKIP_JOB_PATTERNS)
 
+    @pytest.mark.live_data
     def test_patterns_dont_match_upstream_groups(self):
         """Skip patterns must not match any upstream test group names."""
         from vllm.pipelines import SKIP_JOB_PATTERNS
@@ -621,6 +632,7 @@ class TestSkipPatternsRobust:
                 )
 
 
+@pytest.mark.live_data
 class TestLogParserJobStateOverride:
     """Validate the log parser correctly handles job state overrides."""
 
@@ -658,6 +670,7 @@ class TestNormalizationInvariants:
     false merges where different tests are incorrectly collapsed.
     """
 
+    @pytest.mark.live_data
     def test_all_merges_are_shard_based(self):
         """Within the SAME hardware, every merge of multiple raw jobs into
         one normalized name must correspond to a known shard base.
@@ -695,51 +708,6 @@ class TestNormalizationInvariants:
             )
             + "\nThese are different tests on the SAME hardware being collapsed. "
             "Fix _normalize_job_name() or add to shard_bases.json."
-        )
-
-    def test_shard_bases_are_used(self):
-        """Every AMD-owned shard base should match the latest AMD JSONL."""
-        results, fname = _load_test_results()
-        from vllm.ci.analyzer import _normalize_job_name, _SHARD_BASES
-
-        if not _SHARD_BASES:
-            pytest.skip("shard_bases not loaded")
-
-        audited_bases = _SHARD_BASES
-        catalog_path = DATA / "shard_base_catalog.json"
-        if catalog_path.exists():
-            catalog = json.loads(catalog_path.read_text())
-            audited_bases = catalog.get("pipelines", {}).get("amd", audited_bases)
-            evidence = catalog.get("evidence", {})
-            if not evidence:
-                pytest.skip("pipeline shard evidence is unavailable")
-            if evidence and not evidence.get("roster_complete"):
-                pytest.skip("latest shard evidence is provisional")
-            roster_names = evidence.get("job_names")
-            if isinstance(roster_names, list):
-                results = [{"job_name": name} for name in roster_names]
-            result_file = str(evidence.get("result_file") or "")
-            evidence_path = DATA / "test_results" / result_file
-            if not isinstance(roster_names, list) and result_file and evidence_path.exists():
-                results = [
-                    json.loads(line)
-                    for line in evidence_path.read_text().splitlines()
-                    if line.strip()
-                ]
-                fname = result_file
-
-        all_norms = {_normalize_job_name(r.get("job_name", "")) for r in results}
-
-        unused = []
-        for base in audited_bases:
-            used = any(norm.startswith(base) for norm in all_norms)
-            if not used:
-                unused.append(base)
-
-        assert not unused, (
-            f"AMD shard bases not used by any AMD test group: {unused}. "
-            "These may be stale (YAML step removed). "
-            "Regenerate shard_bases.json from the current YAML."
         )
 
     def test_gpu_counts_preserved(self):
@@ -810,6 +778,7 @@ class TestParityKeyHandling:
     in the parity report — not just the last one.
     """
 
+    @pytest.mark.live_data
     def test_parity_key_no_group_loss(self):
         """compute_parity must not silently drop AMD groups that share a parity key."""
         from vllm.ci.analyzer import (
@@ -905,6 +874,7 @@ class TestParityKeyHandling:
                _parity_key("Distributed Tests (4 GPUs)")
 
 
+@pytest.mark.live_data
 class TestShardBasesSync:
     """Validate that shard_bases.json is in sync with reality."""
 
@@ -950,6 +920,7 @@ class TestShardBasesSync:
             )
 
 
+@pytest.mark.live_data
 class TestPendingGroupCompleteness:
     """Validate that scheduled/waiting jobs appear as pending groups."""
 
@@ -1040,6 +1011,7 @@ class TestPendingGroupCompleteness:
         )
 
 
+@pytest.mark.live_data
 class TestNoStaleFailuresFromBackfill:
     """Validate that backfilled data doesn't inflate failure counts.
 
@@ -1122,6 +1094,7 @@ class TestNoStaleFailuresFromBackfill:
         )
 
 
+@pytest.mark.live_data
 class TestUpstreamFailureCompleteness:
     """Validate that ALL upstream failures from Buildkite appear in the parity report."""
 

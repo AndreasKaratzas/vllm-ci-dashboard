@@ -178,8 +178,9 @@ class TestPrimaryCIWorkflow:
         run_tests = next(step for step in steps if step.get("name") == "Run tests")
         assert run_tests.get("id") == "run-tests"
         assert "set -o pipefail" in run_tests.get("run", "")
-        assert "pytest tests/ -v --tb=short 2>&1 | tee test-output.txt" in run_tests.get(
-            "run", ""
+        assert (
+            "pytest tests/ -m 'not live_data' -v --tb=short 2>&1 | tee test-output.txt"
+            in run_tests.get("run", "")
         )
 
     def test_pr_comment_uses_the_terminal_pytest_summary(self):
@@ -213,6 +214,14 @@ class TestPrimaryCIWorkflow:
         assert "browserErrors" in smoke
         assert ".ops-error" in smoke
         assert "12_500" in smoke
+
+
+@pytest.mark.parametrize("workflow", ["ci.yml", "nightly-ci.yml"])
+def test_nonpublication_ci_excludes_live_snapshot_contracts(workflow: str) -> None:
+    text = _load_workflow_text(workflow)
+    assert "pytest tests/ -m 'not live_data'" in text
+    assert "pytest tests/ -m 'live_data'" not in text
+    assert "live-data-audit" not in text
 
 
 # ---------------------------------------------------------------------------
@@ -511,6 +520,7 @@ class TestHourlyMasterWorkflow:
         steps = next(iter(data["jobs"].values())).get("steps", [])
         names = [step.get("name") for step in steps]
         selector = names.index("Select validated publication surfaces")
+        live_audit = names.index("Live publication audit")
         watcher_surfaces = (
             ("Watch queue latency (open/close issues)", "queue"),
             ("Watch zombie queue jobs (open/close issues)", "queue"),
@@ -524,6 +534,7 @@ class TestHourlyMasterWorkflow:
         for name, surface in watcher_surfaces:
             watcher = steps[names.index(name)]
             assert names.index(name) > selector
+            assert names.index(name) < live_audit
             condition = watcher.get("if", "")
             assert "publication-selector.outcome == 'success'" in condition
             assert "degraded_surfaces" in condition
@@ -532,7 +543,13 @@ class TestHourlyMasterWorkflow:
             "run"
         ] == "python scripts/vllm/omni_surge_watcher.py --issues-only"
         assert selector < names.index("Render dashboards after publication selection")
+        assert names.index(
+            "Rebuild v2 operations snapshot with selected issue state"
+        ) < live_audit
         assert names.index("Render dashboards after publication selection") < names.index(
+            "Live publication audit"
+        )
+        assert names.index("Live publication audit") < names.index(
             "Run test suite"
         )
 
@@ -543,16 +560,51 @@ class TestHourlyMasterWorkflow:
 
     def test_runs_pytest(self):
         text = _load_workflow_text("hourly-master.yml")
-        assert "pytest" in text
+        assert "pytest tests/ -m 'not live_data'" in text
+        assert "pytest tests/ -m 'live_data'" in text
 
-    def test_failed_tests_block_publication(self):
+    def test_live_publication_audit_is_independent_and_captures_diagnostics(self):
         data = _load_workflow("hourly-master.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])
         names = [step.get("name") for step in steps]
-        enforce = steps[names.index("Enforce test suite result")]
+        audit = steps[names.index("Live publication audit")]
+        script = audit.get("run", "")
+
+        assert audit.get("id") == "live-data-audit"
+        assert audit.get("continue-on-error") is True
+        assert "always()" in audit.get("if", "")
+        assert "steps.publication-selector.outcome == 'success'" in audit.get("if", "")
+        assert "skip_tests" not in audit.get("if", "")
+        assert "python scripts/vllm/audit_dashboard_data.py --format json" in script
+        assert "pytest tests/ -m 'live_data'" in script
+        assert "live-publication-audit.json" in script
+        for output in ("exit_code", "summary", "findings", "output"):
+            assert f'"{output}"' in script or f"{output}=" in script
+
+        artifact = steps[names.index("Upload live publication audit artifact")]
+        assert artifact.get("uses") == "actions/upload-artifact@v4"
+        assert "live-publication-audit.json" in artifact["with"]["path"]
+        assert names.index("Live publication audit") < names.index(
+            "Enforce publication validation results"
+        )
+
+    def test_failed_validation_blocks_publication(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        names = [step.get("name") for step in steps]
+        enforce = steps[names.index("Enforce publication validation results")]
         assert "steps.run-tests.outputs.exit_code != '0'" in enforce["if"]
-        assert names.index("Enforce test suite result") < names.index("Assemble site")
-        assert names.index("Enforce test suite result") < names.index(
+        assert "steps.live-data-audit.outcome != 'success'" in enforce["if"]
+        assert "steps.live-data-audit.outputs.exit_code != '0'" in enforce["if"]
+        assert "Live publication audit failed" in enforce["run"]
+        assert "Deterministic dashboard tests failed" in enforce["run"]
+        assert names.index("Enforce publication validation results") < names.index(
+            "Commit and push"
+        )
+        assert names.index("Enforce publication validation results") < names.index(
+            "Assemble site"
+        )
+        assert names.index("Enforce publication validation results") < names.index(
             "Deploy to GitHub Pages"
         )
 
@@ -562,12 +614,14 @@ class TestHourlyMasterWorkflow:
         close = next(
             step
             for step in steps
-            if step.get("name") == "Close issue on test success"
+            if step.get("name") == "Close issue after healthy publication"
         )
         condition = close.get("if", "")
         assert "success()" in condition
         assert "steps.run-tests.outcome == 'success'" in condition
         assert "steps.run-tests.outputs.exit_code == '0'" in condition
+        assert "steps.live-data-audit.outcome == 'success'" in condition
+        assert "steps.live-data-audit.outputs.exit_code == '0'" in condition
         assert "steps.publication-selector.outcome == 'success'" in condition
         assert "steps.publication-selector.outputs.degraded == 'false'" in condition
         assert "always()" not in condition
@@ -576,15 +630,19 @@ class TestHourlyMasterWorkflow:
         data = _load_workflow("hourly-master.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])
         create = next(
-            step for step in steps if step.get("name") == "Create issue on test failure"
+            step
+            for step in steps
+            if step.get("name") == "Create hourly validation incident"
         )
         script = create["with"]["script"]
         condition = create.get("if", "")
 
         assert "steps.publication-selector.outcome == 'failure'" in condition
         assert "steps.publication-selector.outputs.degraded == 'true'" in condition
+        assert "steps.live-data-audit.outcome != 'success'" in condition
+        assert "steps.live-data-audit.outputs.exit_code != '0'" in condition
         assert "createHash('sha256')" in script
-        assert "Hourly CI failure [${fingerprint.slice(0, 8)}]" in script
+        assert "Hourly validation failure [${fingerprint.slice(0, 8)}]" in script
         assert "<!-- ci-failure-owner:hourly-master -->" in script
         assert "<!-- hourly-ci-fingerprint:${fingerprint} -->" in script
         assert "normalizedFailures" in script
@@ -595,6 +653,12 @@ class TestHourlyMasterWorkflow:
         assert "publicationState.final_degradations" in script
         assert "Publication findings" in script
         assert "publicationDiagnostics" in script
+        assert "Live Publication Audit Failure" in script
+        assert "liveAuditFindings" in script
+        assert "liveAuditDiagnostics" in script
+        assert "Live publication audit findings" in script
+        assert "Failing deterministic tests" in script
+        assert "validation:${normalizeDiagnostic(summary)}" in script
         assert "hourly-ci-v2\\n${fingerprintSource}" in script
         assert ".replace(/\\b\\d+(?:\\.\\d+)?\\b/g, '<number>')" in script
         assert "github.paginate(github.rest.issues.listForRepo" in script
@@ -615,7 +679,9 @@ class TestHourlyMasterWorkflow:
         data = _load_workflow("hourly-master.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])
         create = next(
-            step for step in steps if step.get("name") == "Create issue on test failure"
+            step
+            for step in steps
+            if step.get("name") == "Create hourly validation incident"
         )
         script = create["with"]["script"]
 
@@ -634,7 +700,9 @@ class TestHourlyMasterWorkflow:
         data = _load_workflow("hourly-master.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])
         close = next(
-            step for step in steps if step.get("name") == "Close issue on test success"
+            step
+            for step in steps
+            if step.get("name") == "Close issue after healthy publication"
         )
         script = close["with"]["script"]
 
@@ -721,11 +789,11 @@ class TestHourlyMasterWorkflow:
         assert "GitHub assignee: ${context.repo.owner}." in text
         assert "cc @${context.repo.owner}" not in text
 
-    def test_test_failure_issue_leads_with_concise_failed_test_names(self):
+    def test_deterministic_failure_report_leads_with_concise_test_names(self):
         text = _load_workflow_text("hourly-master.yml")
         assert "grep -E '^(FAILED|ERROR) ' test-output.txt" in text
         assert "steps.run-tests.outputs.failures" in text
-        assert "**Failing tests:**" in text
+        assert "**Failing deterministic tests:**" in text
 
 
 class TestNoOrphanedCronSchedules:

@@ -6,6 +6,8 @@ import subprocess
 
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 INDEX = (ROOT / "docs" / "index.html").read_text()
@@ -16,9 +18,18 @@ LEGACY_HEALTH_JS = (
 OPS_CSS = (ROOT / "docs" / "assets" / "css" / "ops-v2.css").read_text()
 DASHBOARD_CSS = (ROOT / "docs" / "assets" / "css" / "dashboard.css").read_text()
 DASHBOARD_JS = (ROOT / "docs" / "assets" / "js" / "dashboard.js").read_text()
-OPS_DATA = json.loads((ROOT / "data" / "vllm" / "ci" / "operations_v2.json").read_text())
+OPS_DATA_PATH = ROOT / "data" / "vllm" / "ci" / "operations_v2.json"
 OPS_MANIFEST_PATH = ROOT / "data" / "vllm" / "ci" / "operations_v2_manifest.json"
-OPS_MANIFEST = json.loads(OPS_MANIFEST_PATH.read_text())
+
+
+@pytest.fixture(scope="module")
+def ops_data():
+    return json.loads(OPS_DATA_PATH.read_text())
+
+
+@pytest.fixture(scope="module")
+def ops_manifest():
+    return json.loads(OPS_MANIFEST_PATH.read_text())
 
 
 def test_v2_assets_and_mobile_shell_are_loaded():
@@ -44,13 +55,19 @@ def test_operations_data_is_lazy_loaded_with_bounded_first_render_payloads():
     assert "const ops = await loadOperations(tabId)" in OPS_JS
     assert "fetchJSON('data/vllm/ci/operations_v2.json')" not in OPS_JS
     assert "using compatibility snapshot" not in OPS_JS
+    site_builder = (ROOT / "scripts" / "build_site.py").read_text()
+    assert "materialize_operations_bundle(DATA, output_dir / \"data\", manifest)" in site_builder
+    assert "write_snapshot_bundle(output, payload, write_monolith=False" in site_builder
 
-    assert OPS_MANIFEST["schema_version"] == 2
-    assert OPS_MANIFEST["bundle_version"] == 1
-    assert OPS_MANIFEST["generated_at"] == OPS_DATA["generated_at"]
-    assert "reliability" not in OPS_MANIFEST["shell"]
-    assert "amd_agent_health" not in OPS_MANIFEST["shell"]
-    assert set(OPS_MANIFEST["sections"]) >= {
+
+@pytest.mark.live_data
+def test_current_operations_payloads_are_bounded(ops_data, ops_manifest):
+    assert ops_manifest["schema_version"] == 2
+    assert ops_manifest["bundle_version"] == 1
+    assert ops_manifest["generated_at"] == ops_data["generated_at"]
+    assert "reliability" not in ops_manifest["shell"]
+    assert "amd_agent_health" not in ops_manifest["shell"]
+    assert set(ops_manifest["sections"]) >= {
         "nightly",
         "amd_test_health",
         "amd_agent_health",
@@ -65,7 +82,7 @@ def test_operations_data_is_lazy_loaded_with_bounded_first_render_payloads():
     manifest_bytes = OPS_MANIFEST_PATH.stat().st_size
     section_bytes = {
         name: descriptor["bytes"]
-        for name, descriptor in OPS_MANIFEST["sections"].items()
+        for name, descriptor in ops_manifest["sections"].items()
     }
     assert manifest_bytes < 2_000_000
     assert (
@@ -74,10 +91,7 @@ def test_operations_data_is_lazy_loaded_with_bounded_first_render_payloads():
         + section_bytes["amd_test_health"]
     ) < 12_000_000
     assert section_bytes["queue"] < 6_000_000
-    assert manifest_bytes < (ROOT / "data" / "vllm" / "ci" / "operations_v2.json").stat().st_size * 0.05
-    site_builder = (ROOT / "scripts" / "build_site.py").read_text()
-    assert "materialize_operations_bundle(DATA, output_dir / \"data\", manifest)" in site_builder
-    assert "write_snapshot_bundle(output, payload, write_monolith=False" in site_builder
+    assert manifest_bytes < OPS_DATA_PATH.stat().st_size * 0.05
 
 
 def test_chart_library_does_not_block_dashboard_boot():
@@ -209,7 +223,10 @@ def test_test_group_history_switches_cohorts_with_clickable_outcome_evidence():
     assert "body > footer {" in DASHBOARD_CSS
     assert "\nfooter {" not in DASHBOARD_CSS
 
-    groups = OPS_DATA["reliability"]["group_catalog"]
+
+@pytest.mark.live_data
+def test_current_group_history_has_main_and_nightly_evidence(ops_data):
+    groups = ops_data["reliability"]["group_catalog"]
     assert any(
         {row.get("build_kind") for row in group.get("observations", [])}
         >= {"nightly", "main"}
@@ -253,7 +270,10 @@ def test_amd_health_and_platform_comparison_are_distinct_first_visit_surfaces():
     assert "if (seenGroupSets.has(identity)) return" in OPS_JS
     assert "renderGroupOverviewCharts(host, catalog" not in OPS_JS
 
-    health = OPS_DATA["amd_test_health"]
+
+@pytest.mark.live_data
+def test_current_amd_health_and_platform_comparison_reconcile(ops_data):
+    health = ops_data["amd_test_health"]
     summary = health["summary"]
     latest = summary["latest_state_counts"]
     assert health["source_pipeline"] == "amd-ci"
@@ -269,7 +289,7 @@ def test_amd_health_and_platform_comparison_are_distinct_first_visit_surfaces():
         for observation in row["observations"]
     )
 
-    comparison = OPS_DATA["reliability"]["platform_comparison"]
+    comparison = ops_data["reliability"]["platform_comparison"]
     assert comparison["available"] is True
     assert comparison["source_pipeline"] == "ci"
     comparison_keys = {row["comparison_key"] for row in comparison["rows"]}
@@ -317,10 +337,13 @@ def test_amd_health_keeps_latest_and_historical_job_variant_counts_distinct():
     assert "currentIncidents.length + missing.length" not in segment
     assert "!['soft', 'hard', 'missing'].includes(latest)" not in OPS_JS
 
-    summary = OPS_DATA["amd_test_health"]["summary"]
+
+@pytest.mark.live_data
+def test_current_amd_health_keeps_latest_and_retained_counts_distinct(ops_data):
+    summary = ops_data["amd_test_health"]["summary"]
     retained = summary.get("retained_group_count", summary["union_group_count"])
     assert retained == summary["group_count"] == len(
-        OPS_DATA["amd_test_health"]["group_catalog"]
+        ops_data["amd_test_health"]["group_catalog"]
     )
     assert summary["latest_group_count"] < retained
 
@@ -524,8 +547,9 @@ def test_definition_parity_is_source_scoped_and_not_presented_as_runtime_health(
     assert "matrixData.rows || []).slice" not in OPS_JS
 
 
-def test_published_definition_parity_reconciles_coverage_and_mirror_evidence():
-    parity = OPS_DATA["definition_parity"]
+@pytest.mark.live_data
+def test_published_definition_parity_reconciles_coverage_and_mirror_evidence(ops_data):
+    parity = ops_data["definition_parity"]
     summary = parity["summary"]
 
     assert len(parity["matches"]) == summary["direct_matches"]
@@ -741,6 +765,9 @@ def test_architecture_signal_drilldown_sorts_nonpassing_results_before_passes_an
     ):
         assert contract in OPS_JS
 
+
+@pytest.mark.live_data
+def test_current_architecture_signal_rows_sort_nonpassing_before_passes():
     matrix = json.loads(
         (ROOT / "data" / "vllm" / "ci" / "amd_test_matrix.json").read_text()
     )
@@ -1237,9 +1264,12 @@ def test_gating_drilldown_combines_every_strict_group_id_and_observation():
     assert "Inspect all variants and observations" in OPS_JS
     assert "Strict reliability variants" in OPS_JS
 
+
+@pytest.mark.live_data
+def test_current_gating_has_a_multi_variant_target(ops_data):
     multi_variant = [
         row
-        for row in OPS_DATA["gating"]["active_target_groups"]
+        for row in ops_data["gating"]["active_target_groups"]
         if len(row.get("main_reliability", {}).get("group_ids", [])) > 1
     ]
     assert multi_variant
@@ -1533,7 +1563,10 @@ def test_queue_history_has_selectable_wait_and_pressure_visualizations():
     assert ".ops-page .ops-wait-leader-grid" in OPS_CSS
     assert ".ops-page .ops-wait-leader" in OPS_CSS
 
-    history = OPS_DATA["queue"]["history"]
+
+@pytest.mark.live_data
+def test_current_queue_history_has_wait_observations(ops_data):
+    history = ops_data["queue"]["history"]
     assert len(history) >= 2
     assert any(
         row.get("p50_wait_source") or row.get("p95_wait_source")
@@ -1728,7 +1761,13 @@ def test_retry_attempts_recoveries_and_latency_use_exact_evidence():
     assert "Confirmed retry recoveries" in OPS_JS
     assert "Open failed log" in OPS_JS
     assert "Open passing log" in OPS_JS
-    retry = OPS_DATA["reliability"]["retry_analysis"]
+    assert "comparisonGroupById(reliability, variant.group_id)" in OPS_JS
+    assert "exactPipelineEvidenceUrl(attempt, 'ci')" in OPS_JS
+
+
+@pytest.mark.live_data
+def test_current_retry_evidence_reconciles_with_catalog(ops_data):
+    retry = ops_data["reliability"]["retry_analysis"]
     assert len(retry["retry_attempts"]) == retry["summary"]["retry_attempt_count"]
     assert len(retry["failed_then_passed_recoveries"]) == retry["summary"][
         "failed_then_passed_recovery_count"
@@ -1739,16 +1778,14 @@ def test_retry_attempts_recoveries_and_latency_use_exact_evidence():
         for row in retry["failed_then_passed_recoveries"]
     )
 
-    comparison = OPS_DATA["reliability"]["platform_comparison"]
-    catalog_ids = {row["id"] for row in OPS_DATA["reliability"]["group_catalog"]}
+    comparison = ops_data["reliability"]["platform_comparison"]
+    catalog_ids = {row["id"] for row in ops_data["reliability"]["group_catalog"]}
     assert all(
         group_id in catalog_ids
         for row in comparison["rows"]
         for side in (row["amd"], row["cuda"])
         for group_id in side["group_ids"]
     )
-    assert "comparisonGroupById(reliability, variant.group_id)" in OPS_JS
-    assert "exactPipelineEvidenceUrl(attempt, 'ci')" in OPS_JS
 
 
 def test_history_surfaces_have_exact_or_published_source_assets():
@@ -2351,8 +2388,12 @@ def test_omni_is_exact_pipeline_and_amd_queue_scoped_with_mapping_histogram():
     assert "function omniDailyRows" in OPS_JS
     assert "const OMNI_AGE_BANDS" in OPS_JS
     assert "'ops_omni_range'" in OPS_JS  # compact live-occupancy control
-    jobs = OPS_DATA["omni"]["current_jobs"]
-    current = OPS_DATA["omni"]["current"]
+
+
+@pytest.mark.live_data
+def test_current_omni_counts_and_history_reconcile(ops_data):
+    jobs = ops_data["omni"]["current_jobs"]
+    current = ops_data["omni"]["current"]
     active_pending = [job for job in jobs["pending"] if not job.get("analysis_excluded")]
     active_running = [job for job in jobs["running"] if not job.get("analysis_excluded")]
     excluded = [
@@ -2377,7 +2418,7 @@ def test_omni_is_exact_pipeline_and_amd_queue_scoped_with_mapping_histogram():
         for state in ("pending", "running")
         for job in jobs[state]
     )
-    history = OPS_DATA["omni"]["history"]
+    history = ops_data["omni"]["history"]
     assert history["summary"]["snapshot_count"] > 0
     assert history["points"]
     for point in history["points"]:

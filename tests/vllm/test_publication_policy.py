@@ -416,41 +416,7 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
         "vllm/ci/operations_v2.json",
         PUBLICATION_STATE_INPUT,
     ]
-    assert all(
-        (ROOT / "data" / relative).is_file()
-        for relative in manifest["build_inputs"]
-    )
-    assert all((ROOT / "data" / relative).is_file() for relative in required)
-
-    operation_manifest = json.loads(
-        (ROOT / "data/vllm/ci/operations_v2_manifest.json").read_text()
-    )
-    operation_sections = {
-        f"vllm/ci/{descriptor['path']}"
-        for descriptor in operation_manifest["sections"].values()
-    }
-    operation_outputs = operation_sections | {
-        "vllm/ci/operations_v2_manifest.json",
-        "vllm/ci/queue_history_chart.json",
-    }
-    assert operation_outputs == (
-        set(manifest["generated_files"]) - {PUBLICATION_STATUS_OUTPUT}
-    )
     assert PUBLICATION_STATUS_OUTPUT in manifest["generated_files"]
-    published_diagnostic_sources = {
-        f"vllm/ci/{record['path']}"
-        for record in operation_manifest["shell"]["sources"].values()
-        if record.get("published") is not False
-    }
-    private_diagnostic_sources = {
-        f"vllm/ci/{record['path']}"
-        for record in operation_manifest["shell"]["sources"].values()
-        if record.get("published") is False
-    }
-    mutation_checkpoints = {"vllm/ci/open_omni_surge_issues.json"}
-    assert published_diagnostic_sources <= required
-    assert private_diagnostic_sources.isdisjoint(allowed_exact)
-    assert mutation_checkpoints <= private_diagnostic_sources
 
     forbidden = {
         "vllm/ci/.cache/builds_amd.json",
@@ -471,6 +437,49 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
         )
 
 
+@pytest.mark.live_data
+def test_production_manifest_matches_current_operation_sections() -> None:
+    manifest = BUILD_SITE.load_public_data_manifest(MANIFEST_PATH)
+    required = set(manifest["required_files"])
+    allowed_exact = required | set(manifest["optional_files"])
+
+    assert all(
+        (ROOT / "data" / relative).is_file()
+        for relative in manifest["build_inputs"]
+    )
+    assert all((ROOT / "data" / relative).is_file() for relative in required)
+
+    operation_manifest = json.loads(
+        (ROOT / "data/vllm/ci/operations_v2_manifest.json").read_text()
+    )
+    operation_sections = {
+        f"vllm/ci/{descriptor['path']}"
+        for descriptor in operation_manifest["sections"].values()
+    }
+    operation_outputs = operation_sections | {
+        "vllm/ci/operations_v2_manifest.json",
+        "vllm/ci/queue_history_chart.json",
+    }
+    assert operation_outputs == (
+        set(manifest["generated_files"]) - {PUBLICATION_STATUS_OUTPUT}
+    )
+    published_diagnostic_sources = {
+        f"vllm/ci/{record['path']}"
+        for record in operation_manifest["shell"]["sources"].values()
+        if record.get("published") is not False
+    }
+    private_diagnostic_sources = {
+        f"vllm/ci/{record['path']}"
+        for record in operation_manifest["shell"]["sources"].values()
+        if record.get("published") is False
+    }
+    mutation_checkpoints = {"vllm/ci/open_omni_surge_issues.json"}
+    assert published_diagnostic_sources <= required
+    assert private_diagnostic_sources.isdisjoint(allowed_exact)
+    assert mutation_checkpoints <= private_diagnostic_sources
+
+
+@pytest.mark.live_data
 def test_every_committed_frontend_data_asset_is_publicly_allowlisted() -> None:
     manifest = BUILD_SITE.load_public_data_manifest(MANIFEST_PATH)
     allowed = (

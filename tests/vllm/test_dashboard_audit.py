@@ -10,6 +10,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from vllm import audit_dashboard_data as audit_module
 from vllm.audit_dashboard_data import (
     DATA_SPECS,
@@ -194,6 +196,7 @@ def _best_hardware_audit_fixture():
     return matrix
 
 
+@pytest.mark.live_data
 def test_dashboard_audit_current_data_has_no_errors():
     report = run_audit(ROOT)
     assert not report.errors, "\n".join(
@@ -304,6 +307,7 @@ def test_dashboard_audit_requires_workload_mapping_v2_ranges():
     assert "scripts/vllm/collect_workload_mapping.py" in spec.producers
 
 
+@pytest.mark.live_data
 def test_dashboard_audit_validates_v2_evidence_and_targets():
     report = run_audit(ROOT)
     metrics = report.metrics["operations_v2"]
@@ -316,6 +320,7 @@ def test_dashboard_audit_validates_v2_evidence_and_targets():
     assert metrics["reliability_observations"] == metrics["linked_reliability_observations"]
 
 
+@pytest.mark.live_data
 def test_dashboard_audit_json_cli_is_parseable():
     result = subprocess.run(
         [sys.executable, "scripts/vllm/audit_dashboard_data.py", "--format", "json"],
@@ -1446,8 +1451,46 @@ def test_dashboard_audit_compares_health_with_observed_matrix_cells(tmp_path):
     }
 
 
-def test_hourly_workflow_runs_dashboard_audit_before_deploy():
-    workflow = (ROOT / ".github/workflows/hourly-master.yml").read_text()
-    audit_idx = workflow.index("name: Run dashboard data audit")
-    deploy_idx = workflow.index("name: Assemble site")
-    assert audit_idx < deploy_idx
+def test_hourly_workflow_orders_live_audit_tests_and_enforcement(tmp_path):
+    workflows = tmp_path / ".github/workflows"
+    workflows.mkdir(parents=True)
+    ordered_steps = [
+        "name: Sync CI data from gh-pages",
+        "name: Collect AMD gating target list",
+        "name: Collect CI data",
+        "name: Collect CI analytics",
+        "name: Collect test group changes",
+        "name: Collect AMD test matrix",
+        "name: Collect AMD gating proposals",
+        "name: Live publication audit",
+        "name: Run test suite",
+        "name: Enforce publication validation results",
+        "python scripts/build_site.py --cache-bust-index",
+    ]
+    hourly = workflows / "hourly-master.yml"
+    hourly.write_text("\n".join(ordered_steps))
+
+    valid = DashboardAudit(tmp_path)
+    valid.audit_workflows()
+
+    assert not {
+        finding.code
+        for finding in valid.report.errors
+        if finding.code.startswith("workflow-hourly-step-")
+    }
+
+    reordered = ordered_steps.copy()
+    test_idx = reordered.index("name: Run test suite")
+    enforce_idx = reordered.index("name: Enforce publication validation results")
+    reordered[test_idx], reordered[enforce_idx] = (
+        reordered[enforce_idx],
+        reordered[test_idx],
+    )
+    hourly.write_text("\n".join(reordered))
+
+    invalid = DashboardAudit(tmp_path)
+    invalid.audit_workflows()
+
+    assert "workflow-hourly-step-order" in {
+        finding.code for finding in invalid.report.errors
+    }

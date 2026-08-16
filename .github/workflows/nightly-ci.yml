@@ -41,7 +41,7 @@ jobs:
           MAX_DATA_AGE_HOURS: ${{ github.event.inputs.max_data_age_hours || '36' }}
         run: |
           set +e
-          pytest tests/ -v --tb=short 2>&1 | tee test-output.txt
+          pytest tests/ -m 'not live_data' -v --tb=short 2>&1 | tee test-output.txt
           EXIT_CODE=${PIPESTATUS[0]}
           set -e
 

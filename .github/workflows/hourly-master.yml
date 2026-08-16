@@ -19,7 +19,7 @@ on:
         required: false
         default: '1'
       skip_tests:
-        description: 'Skip pytest run'
+        description: 'Skip deterministic pytest run (live publication audit still runs)'
         required: false
         default: 'false'
       reset_perf_eval:
@@ -732,7 +732,123 @@ jobs:
       - name: Render dashboards after publication selection
         run: python scripts/render.py
 
-      # ── Phase 4: Tests ──
+      # Live-data validation remains in the publication lane. It runs after all
+      # selected-data watchers and rendering, independently of deterministic
+      # pytest, and is enforced before any commit or deployment.
+      - name: Live publication audit
+        id: live-data-audit
+        if: always() && steps.publication-selector.outcome == 'success'
+        continue-on-error: true
+        env:
+          CI: "1"
+          MAX_DATA_AGE_HOURS: "36"
+        run: |
+          set +e
+          python scripts/vllm/audit_dashboard_data.py --format json \
+            > live-publication-audit.json \
+            2> live-publication-audit.stderr
+          AUDIT_EXIT_CODE=$?
+          pytest tests/ -m 'live_data' -v --tb=short 2>&1 \
+            | tee live-data-test-output.txt
+          LIVE_TEST_EXIT_CODE=${PIPESTATUS[0]}
+          set -e
+
+          {
+            echo "=== Dashboard publication audit ==="
+            cat live-publication-audit.json
+            if [ -s live-publication-audit.stderr ]; then
+              echo
+              echo "=== Dashboard publication audit stderr ==="
+              cat live-publication-audit.stderr
+            fi
+            echo
+            echo "=== Live snapshot contracts ==="
+            cat live-data-test-output.txt
+          } > live-publication-audit-output.txt
+          cat live-publication-audit-output.txt
+
+          if [ "$AUDIT_EXIT_CODE" -ne 0 ] || [ "$LIVE_TEST_EXIT_CODE" -ne 0 ]; then
+            EXIT_CODE=1
+          else
+            EXIT_CODE=0
+          fi
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+          LIVE_TEST_EXIT_CODE="$LIVE_TEST_EXIT_CODE" \
+          python - <<'PY'
+          import json
+          import os
+          import uuid
+          from pathlib import Path
+
+          audit_path = Path("live-publication-audit.json")
+          live_test_path = Path("live-data-test-output.txt")
+          try:
+              audit = json.loads(audit_path.read_text())
+          except (OSError, json.JSONDecodeError) as exc:
+              audit = {
+                  "errors": [{
+                      "severity": "error",
+                      "code": "live-audit-output-unreadable",
+                      "message": str(exc),
+                  }],
+                  "degradations": [],
+                  "warnings": [],
+              }
+
+          errors = audit.get("errors") if isinstance(audit.get("errors"), list) else []
+          degradations = (
+              audit.get("degradations")
+              if isinstance(audit.get("degradations"), list)
+              else []
+          )
+          warnings = (
+              audit.get("warnings") if isinstance(audit.get("warnings"), list) else []
+          )
+          findings = [*errors, *degradations, *warnings]
+          live_output = live_test_path.read_text(errors="replace")
+          live_lines = [line for line in live_output.splitlines() if line.strip()]
+          live_summary = live_lines[-1] if live_lines else "No live contract summary captured"
+          live_exit = int(os.environ["LIVE_TEST_EXIT_CODE"])
+          if live_exit:
+              findings.append({
+                  "severity": "error",
+                  "code": "live-data-contract-failure",
+                  "message": live_summary,
+              })
+
+          summary = (
+              f"audit: {len(errors)} errors, {len(degradations)} degradations, "
+              f"{len(warnings)} warnings; live contracts: {live_summary}"
+          )
+          combined_output = Path("live-publication-audit-output.txt").read_text(
+              errors="replace"
+          )[-60000:]
+          values = {
+              "summary": summary,
+              "findings": json.dumps(findings, sort_keys=True),
+              "output": combined_output,
+          }
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as handle:
+              for key, value in values.items():
+                  delimiter = f"LIVE_AUDIT_{uuid.uuid4().hex}"
+                  handle.write(f"{key}<<{delimiter}\n{value}\n{delimiter}\n")
+          PY
+
+          exit "$EXIT_CODE"
+
+      - name: Upload live publication audit artifact
+        if: always() && steps.publication-selector.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-publication-audit
+          path: |
+            live-publication-audit.json
+            live-publication-audit-output.txt
+          if-no-files-found: warn
+
+      # ── Phase 4: Deterministic tests ──
       - name: Run test suite
         if: github.event.inputs.skip_tests != 'true'
         id: run-tests
@@ -741,7 +857,7 @@ jobs:
           MAX_DATA_AGE_HOURS: "36"
         run: |
           set +e
-          pytest tests/ -v --tb=short 2>&1 | tee test-output.txt
+          pytest tests/ -m 'not live_data' -v --tb=short 2>&1 | tee test-output.txt
           EXIT_CODE=${PIPESTATUS[0]}
           set -e
           SUMMARY=$(tail -1 test-output.txt)
@@ -761,14 +877,30 @@ jobs:
             echo "TESTEOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Run dashboard data audit
-        run: python scripts/vllm/audit_dashboard_data.py
-
-      - name: Enforce test suite result
-        if: github.event.inputs.skip_tests != 'true' && steps.run-tests.outputs.exit_code != '0'
+      - name: Enforce publication validation results
+        if: >-
+          always() &&
+          steps.publication-selector.outcome == 'success' && (
+            steps.live-data-audit.outcome != 'success' ||
+            steps.live-data-audit.outputs.exit_code != '0' ||
+            (
+              github.event.inputs.skip_tests != 'true' &&
+              steps.run-tests.outputs.exit_code != '0'
+            )
+          )
         run: |
-          echo "::error::Dashboard tests failed; refusing to publish a site that has not passed validation."
-          exit 1
+          FAILED=0
+          if [ "${{ steps.live-data-audit.outcome }}" != "success" ] || \
+             [ "${{ steps.live-data-audit.outputs.exit_code }}" != "0" ]; then
+            echo "::error::Live publication audit failed; refusing to publish an invalid data snapshot."
+            FAILED=1
+          fi
+          if [ "${{ github.event.inputs.skip_tests }}" != "true" ] && \
+             [ "${{ steps.run-tests.outputs.exit_code }}" != "0" ]; then
+            echo "::error::Deterministic dashboard tests failed; refusing to publish an unvalidated site."
+            FAILED=1
+          fi
+          exit "$FAILED"
 
       # ── Phase 5: Commit + Deploy ──
       - name: Commit and push
@@ -866,11 +998,16 @@ jobs:
           keep_files: false
           force_orphan: true
 
-      # ── Phase 6: Issue management (test failures) ──
-      - name: Create issue on test failure
+      # ── Phase 6: Hourly publication incident management ──
+      - name: Create hourly validation incident
         if: >-
           always() && (
             (steps.run-tests.outputs.exit_code != '0' && steps.run-tests.outputs.exit_code != '') ||
+            (
+              steps.publication-selector.outcome == 'success' &&
+              steps.live-data-audit.outcome != 'success'
+            ) ||
+            steps.live-data-audit.outputs.exit_code != '0' ||
             steps.publication-selector.outcome == 'failure' ||
             steps.publication-selector.outputs.degraded == 'true'
           )
@@ -886,6 +1023,25 @@ jobs:
             const selectorOutcome = ${{ toJSON(steps.publication-selector.outcome) }} || 'unknown';
             const selectorDegraded = (${{ toJSON(steps.publication-selector.outputs.degraded) }} || '') === 'true';
             const forcedSurfaces = ${{ toJSON(steps.publication-selector.outputs.forced_surfaces) }} || '';
+            const liveAuditOutcome = ${{ toJSON(steps.live-data-audit.outcome) }} || 'unavailable';
+            const liveAuditExitCode = ${{ toJSON(steps.live-data-audit.outputs.exit_code) }} || '';
+            const liveAuditSummary = ${{ toJSON(steps.live-data-audit.outputs.summary) }} || 'Live publication audit did not produce a summary';
+            const liveAuditOutput = ${{ toJSON(steps.live-data-audit.outputs.output) }} || 'No live publication audit output captured';
+            const hasLiveAuditFailure = selectorOutcome === 'success' &&
+              (liveAuditOutcome !== 'success' || liveAuditExitCode !== '0');
+            let liveAuditFindings = [];
+            try {
+              const parsedFindings = JSON.parse(
+                ${{ toJSON(steps.live-data-audit.outputs.findings) }} || '[]',
+              );
+              liveAuditFindings = Array.isArray(parsedFindings) ? parsedFindings : [];
+            } catch (error) {
+              liveAuditFindings = [{
+                severity: 'error',
+                code: 'live-audit-findings-unreadable',
+                message: String(error.message || error),
+              }];
+            }
             let publicationState = {};
             try {
               publicationState = JSON.parse(
@@ -971,16 +1127,46 @@ jobs:
                 `degraded=${(publicationState.degraded_surfaces || []).join(',') || forcedSurfaces || 'unknown'}`,
               ));
             }
+            const liveAuditDiagnostics = hasLiveAuditFailure
+              ? [...new Set([
+                ...liveAuditFindings.map(finding => {
+                  const path = finding.path ? ` ${finding.path}` : '';
+                  return normalizeDiagnostic(
+                    `LIVE AUDIT ${finding.severity || 'unknown'} ${finding.code || 'unknown'}` +
+                    `${path}: ${finding.message || ''}`,
+                  );
+                }),
+                ...liveAuditOutput.split('\n')
+                  .map(line => stripAnsi(line).trim())
+                  .filter(line => /^(FAILED|ERROR)\s+/.test(line))
+                  .map(line => normalizeDiagnostic(`LIVE SNAPSHOT ${line}`)),
+              ])].filter(Boolean).sort()
+              : [];
+            if (hasLiveAuditFailure && !liveAuditDiagnostics.length) {
+              liveAuditDiagnostics.push(normalizeDiagnostic(
+                `LIVE AUDIT outcome=${liveAuditOutcome} exit=${liveAuditExitCode || 'unknown'} ` +
+                `summary=${liveAuditSummary}`,
+              ));
+            }
             const fingerprintEvidence = [...new Set([
               ...normalizedFailures,
               ...normalizedDiagnostics,
               ...publicationDiagnostics,
+              ...liveAuditDiagnostics,
             ])].sort();
-            const summary = hasTestFailure
-              ? testSummary
-              : `publication ${publicationState.mode || selectorOutcome}`;
+            const summaryParts = [];
+            if (selectorOutcome === 'failure' || selectorDegraded) {
+              summaryParts.push(`publication ${publicationState.mode || selectorOutcome}`);
+            }
+            if (hasLiveAuditFailure) {
+              summaryParts.push(`live audit: ${liveAuditSummary}`);
+            }
+            if (hasTestFailure) {
+              summaryParts.push(`deterministic tests: ${testSummary}`);
+            }
+            const summary = summaryParts.join('; ') || 'hourly publication validation failed';
             const fingerprintSource = fingerprintEvidence.join('\n') ||
-              `pytest:${normalizeDiagnostic(summary)}`;
+              `validation:${normalizeDiagnostic(summary)}`;
             const fingerprint = crypto
               .createHash('sha256')
               .update(`hourly-ci-v2\n${fingerprintSource}`)
@@ -999,10 +1185,14 @@ jobs:
             const fingerprintMarker = `<!-- hourly-ci-fingerprint:${fingerprint} -->`;
             const legacyFingerprintMarker = `<!-- hourly-ci-fingerprint:${legacyFingerprint} -->`;
             const recoveryMarker = '<!-- hourly-ci-recovery-streak:0 -->';
-            const title = `Hourly CI failure [${fingerprint.slice(0, 8)}] — ${date}`;
+            const title = `Hourly validation failure [${fingerprint.slice(0, 8)}] — ${date}`;
             const incidentKind = selectorOutcome === 'failure'
               ? 'Publication Selection Failure'
-              : selectorDegraded ? 'Degraded Publication' : 'Test Failure';
+              : selectorDegraded
+                ? 'Degraded Publication'
+                : hasLiveAuditFailure
+                  ? 'Live Publication Audit Failure'
+                  : 'Deterministic Test Failure';
             const degradedSurfaces = Array.isArray(publicationState.degraded_surfaces)
               ? publicationState.degraded_surfaces.join(', ') : '';
             const report = [
@@ -1013,9 +1203,26 @@ jobs:
               '',
               `**Publication selector:** outcome=\`${selectorOutcome}\`, mode=\`${publicationState.mode || 'unknown'}\``,
               `**Degraded surfaces:** ${degradedSurfaces || 'none'}`,
+              `**Live publication audit:** outcome=\`${liveAuditOutcome}\`, summary=\`${liveAuditSummary}\``,
+              ...(hasLiveAuditFailure ? [
+                '',
+                '<details><summary>Live publication audit findings</summary>',
+                '',
+                '```json',
+                JSON.stringify(liveAuditFindings, null, 2).slice(0, 8000),
+                '```',
+                '</details>',
+                '',
+                '<details><summary>Live publication audit output</summary>',
+                '',
+                '```text',
+                liveAuditOutput.slice(-4000),
+                '```',
+                '</details>',
+              ] : []),
               ...(hasTestFailure ? [
                 '',
-                '**Failing tests:**',
+                '**Failing deterministic tests:**',
                 '',
                 '```text',
                 failures.slice(0, 8000),
@@ -1058,7 +1265,7 @@ jobs:
               return issueBody.includes(ownershipMarker) ||
                 issueBody.includes(legacySignature);
             });
-            // A failed suite breaks the global recovery streak for every hourly
+            // A failed validation breaks the global recovery streak for every hourly
             // incident, even when this run has a different failure fingerprint.
             for (const issue of ownedOpenIssues) {
               let resetBody = issue.body || '';
@@ -1081,13 +1288,15 @@ jobs:
               return issueBody.includes(ownershipMarker) &&
                 issueBody.includes(fingerprintMarker);
             });
-            const previousVersion = hasTestFailure && !publicationDiagnostics.length
+            const previousVersion = hasTestFailure && !publicationDiagnostics.length &&
+              !liveAuditDiagnostics.length
               ? allIssues.find(issue => {
               const issueBody = issue.body || '';
               return issueBody.includes(ownershipMarker) &&
                 issueBody.includes(legacyFingerprintMarker);
               }) : null;
             const legacy = hasTestFailure && !publicationDiagnostics.length &&
+              !liveAuditDiagnostics.length &&
               normalizedFailureNodes.length ? openIssues.find(issue => {
               const issueBody = issue.body || '';
               return issueBody.includes(legacySignature) &&
@@ -1152,11 +1361,13 @@ jobs:
               });
             }
 
-      - name: Close issue on test success
+      - name: Close issue after healthy publication
         if: >-
           success() &&
           steps.publication-selector.outcome == 'success' &&
           steps.publication-selector.outputs.degraded == 'false' &&
+          steps.live-data-audit.outcome == 'success' &&
+          steps.live-data-audit.outputs.exit_code == '0' &&
           steps.run-tests.outcome == 'success' &&
           steps.run-tests.outputs.exit_code == '0'
         uses: actions/github-script@v7
@@ -1197,7 +1408,7 @@ jobs:
               await github.rest.issues.createComment({
                 owner: context.repo.owner, repo: context.repo.repo,
                 issue_number: issue.number,
-                body: `Tests passed in ${requiredRecoveryRuns} consecutive published runs. Closing.\n\n**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                body: `Publication validation passed in ${requiredRecoveryRuns} consecutive published runs. Closing.\n\n**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
               });
               await github.rest.issues.update({
                 owner: context.repo.owner, repo: context.repo.repo,

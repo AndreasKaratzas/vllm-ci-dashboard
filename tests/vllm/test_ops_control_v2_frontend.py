@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 JS = ROOT / "docs" / "assets" / "js"
@@ -12,7 +14,12 @@ TESTBUILD = (JS / "ci-testbuild.js").read_text()
 READY = (JS / "ci-ready.js").read_text()
 ADMIN = (JS / "ci-admin.js").read_text()
 REGISTRY = ROOT / "data" / "vllm" / "ci" / "test_builds" / "index.json"
-READY_DATA = json.loads((ROOT / "data" / "vllm" / "ci" / "ready_tickets.json").read_text())
+READY_DATA_PATH = ROOT / "data" / "vllm" / "ci" / "ready_tickets.json"
+
+
+@pytest.fixture(scope="module")
+def ready_data():
+    return json.loads(READY_DATA_PATH.read_text())
 
 
 def _active(source: str, marker: str) -> str:
@@ -168,20 +175,24 @@ def test_ready_dialog_deep_links_to_canonical_all_main_group_history():
     assert "replace(/^(?:amd_)?mi" not in READY_V2
 
 
-def test_ready_separates_latest_failures_from_stale_last_known_state():
+@pytest.mark.live_data
+def test_ready_snapshot_separates_latest_failures_from_stale_last_known_state(ready_data):
     ticket_groups = {
-        ticket["summary"]["group"] for ticket in READY_DATA.get("tickets", [])
+        ticket["summary"]["group"] for ticket in ready_data.get("tickets", [])
     }
     stale = [
         summary
-        for summary in READY_DATA.get("groups_all", [])
+        for summary in ready_data.get("groups_all", [])
         if summary.get("currently_failing") and summary.get("group") not in ticket_groups
     ]
-    assert READY_DATA["failing_groups_total"] == len(ticket_groups)
+    assert ready_data["failing_groups_total"] == len(ticket_groups)
+    assert stale, "the retained snapshot should keep stale last-known evidence separately"
+
+
+def test_ready_separates_latest_failures_from_stale_last_known_state():
     assert "cohort: ticket ? 'current' : summary.currently_failing ? 'stale'" in READY_V2
     assert "value: stale" in READY_V2
     assert "Stale last-known failures" in READY_V2
-    assert stale, "the retained snapshot should keep stale last-known evidence separately"
 
 
 def test_ready_ignores_closed_project_items():
@@ -221,9 +232,13 @@ def test_testbuild_retains_launch_and_links_every_available_source():
         assert contract in TESTBUILD_V2
 
 
-def test_testbuild_registry_and_launch_credentials_are_release_safe():
+@pytest.mark.live_data
+def test_testbuild_registry_is_release_safe():
     assert REGISTRY.exists()
     assert json.loads(REGISTRY.read_text()) == []
+
+
+def test_testbuild_launch_credentials_are_release_safe():
     assert "async function credentialReadiness()" in TESTBUILD_V2
     assert "submit.disabled = !state.credentials.ready" in TESTBUILD_V2
     assert "Launch unavailable: the GitHub credential is not in memory" in TESTBUILD_V2
