@@ -698,8 +698,7 @@ class TestNormalizationInvariants:
         )
 
     def test_shard_bases_are_used(self):
-        """Every shard base should match at least one job in the JSONL.
-        Stale shard bases (from removed YAML steps) should be cleaned up."""
+        """Every AMD-owned shard base should match the latest AMD JSONL."""
         results, fname = _load_test_results()
         from vllm.ci.analyzer import _normalize_job_name, _SHARD_BASES
 
@@ -708,14 +707,20 @@ class TestNormalizationInvariants:
 
         all_norms = {_normalize_job_name(r.get("job_name", "")) for r in results}
 
+        audited_bases = _SHARD_BASES
+        catalog_path = DATA / "shard_base_catalog.json"
+        if catalog_path.exists():
+            catalog = json.loads(catalog_path.read_text())
+            audited_bases = catalog.get("pipelines", {}).get("amd", audited_bases)
+
         unused = []
-        for base in _SHARD_BASES:
+        for base in audited_bases:
             used = any(norm.startswith(base) for norm in all_norms)
             if not used:
                 unused.append(base)
 
         assert not unused, (
-            f"Shard bases not used by any test group: {unused}. "
+            f"AMD shard bases not used by any AMD test group: {unused}. "
             "These may be stale (YAML step removed). "
             "Regenerate shard_bases.json from the current YAML."
         )

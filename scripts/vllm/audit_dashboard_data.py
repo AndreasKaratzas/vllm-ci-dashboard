@@ -69,6 +69,13 @@ PUBLIC_FILE_HARD_BYTES = 100 * 1024 * 1024
 PUBLIC_SITE_WARN_BYTES = 250 * 1024 * 1024
 PUBLICATION_STATE_RELATIVE = Path("data/vllm/ci/publication_state.json")
 PUBLICATION_SURFACE_REQUIRED_KEYS = {
+    "data/vllm/ci/shard_base_catalog.json": {
+        "schema_version",
+        "source",
+        "normalization_bases",
+        "pipelines",
+        "definitions",
+    },
     "data/vllm/ci/failure_trends.json": {
         "generated_at",
         "new_failures",
@@ -756,12 +763,23 @@ class DashboardAudit:
                     self.load_jsonl(relative)
 
     def audit_shard_bases(self) -> None:
-        """Keep YAML-derived shard normalization aligned with current AMD evidence."""
+        """Keep AMD-owned shard normalization aligned with AMD evidence."""
         relpath = "data/vllm/ci/shard_bases.json"
         bases = self.load_json(relpath, [])
+        catalog_path = "data/vllm/ci/shard_base_catalog.json"
+        catalog = (
+            self.load_json(catalog_path, {})
+            if (self.root / catalog_path).exists()
+            else {}
+        )
         latest = self.latest_result_file("amd")
         if not isinstance(bases, list) or not bases or latest is None:
             return
+        audited_bases = bases
+        if isinstance(catalog, dict):
+            pipelines = catalog.get("pipelines")
+            if isinstance(pipelines, dict) and isinstance(pipelines.get("amd"), list):
+                audited_bases = pipelines["amd"]
         from vllm.ci import analyzer
 
         previous = list(analyzer._SHARD_BASES)
@@ -774,14 +792,14 @@ class DashboardAudit:
             analyzer.set_shard_bases(previous)
         unused = sorted(
             str(base).casefold()
-            for base in bases
+            for base in audited_bases
             if not any(name.startswith(str(base).casefold()) for name in normalized)
         )
         if unused:
             self.error(
                 "shard-bases-unused",
                 (
-                    f"{len(unused)} shard bases are absent from the latest AMD test "
+                    f"{len(unused)} AMD shard bases are absent from the latest AMD test "
                     f"evidence: {unused}"
                 ),
                 relpath,

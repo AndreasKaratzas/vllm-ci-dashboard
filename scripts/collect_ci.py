@@ -640,11 +640,21 @@ def main():
     # Extract shard bases from upstream YAML (needed for correct group normalization)
     if not args.skip_config_parity:
         log.info("Extracting shard bases from upstream YAML...")
-        from vllm.config_parity import extract_parity_key_overrides, extract_shard_bases
-        shard_bases = extract_shard_bases()
+        from vllm.config_parity import (
+            extract_parity_key_overrides,
+            extract_shard_base_catalog,
+        )
+        shard_catalog = extract_shard_base_catalog()
+        shard_bases = shard_catalog.get("normalization_bases", [])
         shard_path = output_dir / "shard_bases.json"
         shard_path.write_text(json.dumps(shard_bases, indent=2))
         log.info("Wrote shard_bases.json (%d bases: %s)", len(shard_bases), shard_bases)
+        shard_catalog_path = output_dir / "shard_base_catalog.json"
+        shard_catalog_path.write_text(json.dumps(shard_catalog, indent=2))
+        log.info(
+            "Wrote shard_base_catalog.json (%d definitions)",
+            len(shard_catalog.get("definitions", [])),
+        )
         parity_key_overrides = extract_parity_key_overrides()
         override_path = output_dir / "parity_key_overrides.json"
         override_path.write_text(json.dumps(parity_key_overrides, indent=2))

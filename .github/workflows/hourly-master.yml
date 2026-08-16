@@ -239,7 +239,7 @@ jobs:
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           sync_ci_seed() {
-            for f in ci_health.json parity_report.json config_parity.json flaky_tests.json failure_trends.json quarantine.json analytics.json gating_nightlies.json gating_targets.json gating_target_candidates.json shard_bases.json group_changes.json amd_test_matrix.json gating_proposals.json hotness.json operations_v2.json; do
+            for f in ci_health.json parity_report.json config_parity.json flaky_tests.json failure_trends.json quarantine.json analytics.json gating_nightlies.json gating_targets.json gating_target_candidates.json shard_bases.json shard_base_catalog.json group_changes.json amd_test_matrix.json gating_proposals.json hotness.json operations_v2.json; do
               LIVE=$(git show origin/gh-pages:data/vllm/ci/$f 2>/dev/null || true)
               if [ -n "$LIVE" ]; then
                 printf '%s\n' "$LIVE" > "data/vllm/ci/$f" || return $?

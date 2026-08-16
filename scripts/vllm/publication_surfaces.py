@@ -49,6 +49,7 @@ SURFACE_SPECS: dict[str, SurfaceSpec] = {
             "data/vllm/ci/open_ci_main_failure_issues.json",
             "data/vllm/ci/parity_key_overrides.json",
             "data/vllm/ci/quarantine.json",
+            "data/vllm/ci/shard_base_catalog.json",
         ),
         globs=("data/vllm/ci/test_results/*.jsonl",),
     ),

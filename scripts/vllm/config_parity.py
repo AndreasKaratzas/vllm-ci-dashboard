@@ -409,21 +409,63 @@ def _parse_step(
     )
 
 
-def extract_shard_bases() -> list[str]:
-    """Fetch test-amd.yaml and upstream test_areas YAMLs from GitHub,
-    return lowercased label prefixes for steps that use %N parallelism.
+def extract_shard_base_catalog() -> dict:
+    """Return shard-normalization bases with their owning CI pipeline.
 
-    These are the ONLY groups whose trailing shard index should be stripped
-    during normalization.
+    Normalization needs the union of AMD and upstream ``%N`` definitions, but
+    runtime completeness checks must compare each base only with evidence from
+    its owning pipeline.  Keeping both views in one generated catalog prevents
+    an upstream-only H100/B200 definition from being required in AMD results.
     """
     amd_steps, nvidia_steps, _ = _load_config_steps()
     if amd_steps is None or nvidia_steps is None:
-        return []
-    return sorted({
-        step.label.replace("%N", "").strip().lower()
-        for step in [*amd_steps, *nvidia_steps]
-        if step.parallelism and step.parallelism > 1 and "%N" in step.label
-    })
+        return {}
+
+    definitions = []
+    pipeline_bases: dict[str, set[str]] = {"amd": set(), "upstream": set()}
+    for pipeline, steps in (("amd", amd_steps), ("upstream", nvidia_steps)):
+        for step in steps:
+            if not step.parallelism or step.parallelism <= 1 or "%N" not in step.label:
+                continue
+            base = step.label.replace("%N", "").strip().lower()
+            pipeline_bases[pipeline].add(base)
+            definitions.append(
+                {
+                    "base": base,
+                    "pipeline": pipeline,
+                    "label": step.label,
+                    "source_file": step.source_file,
+                    "definition_id": step.definition_id,
+                    "parallelism": step.parallelism,
+                    "optional": step.optional,
+                }
+            )
+
+    normalized_pipelines = {
+        pipeline: sorted(bases) for pipeline, bases in pipeline_bases.items()
+    }
+    return {
+        "schema_version": 1,
+        "source": _source_provenance(),
+        "normalization_bases": sorted(set().union(*pipeline_bases.values())),
+        "pipelines": normalized_pipelines,
+        "definitions": sorted(
+            definitions,
+            key=lambda row: (
+                row["pipeline"],
+                row["base"],
+                row["source_file"],
+                row["definition_id"],
+            ),
+        ),
+    }
+
+
+def extract_shard_bases() -> list[str]:
+    """Return the union of YAML-derived shard bases for normalization."""
+    catalog = extract_shard_base_catalog()
+    bases = catalog.get("normalization_bases", []) if isinstance(catalog, dict) else []
+    return list(bases) if isinstance(bases, list) else []
 
 
 def _parse_amd_data(data: dict) -> list[ConfigStep]:

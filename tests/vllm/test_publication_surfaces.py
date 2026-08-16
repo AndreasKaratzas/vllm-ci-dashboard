@@ -509,3 +509,39 @@ def test_stale_shard_bases_are_a_routable_ci_surface_error(tmp_path: Path) -> No
     assert finding.path == "data/vllm/ci/shard_bases.json"
     assert finding_surfaces(finding) == frozenset({"ci"})
     assert "removed sharded group" in finding.message
+
+
+def test_upstream_only_shard_base_is_not_required_in_amd_evidence(tmp_path: Path) -> None:
+    ci = tmp_path / "data/vllm/ci"
+    results = ci / "test_results"
+    results.mkdir(parents=True)
+    (ci / "shard_bases.json").write_text(
+        json.dumps(["amd sharded group", "humming eval (h100)"])
+    )
+    (ci / "shard_base_catalog.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source": {"commit_sha": "a" * 40},
+                "normalization_bases": [
+                    "amd sharded group",
+                    "humming eval (h100)",
+                ],
+                "pipelines": {
+                    "amd": ["amd sharded group"],
+                    "upstream": ["humming eval (h100)"],
+                },
+                "definitions": [],
+            }
+        )
+    )
+    (results / "2026-08-12_amd.jsonl").write_text(
+        json.dumps({"job_name": "mi300_1: AMD Sharded Group 1"}) + "\n"
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_shard_bases()
+
+    assert "shard-bases-unused" not in {
+        finding.code for finding in audit.report.errors
+    }
