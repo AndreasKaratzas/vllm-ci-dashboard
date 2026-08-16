@@ -830,6 +830,7 @@ def test_latest_infrastructure_blocked_nightly_is_not_dropped_or_given_stale_res
         "build_number": 104,
         "build_url": "https://buildkite.com/vllm/amd-ci/builds/104",
         "created_at": "2026-04-23T09:00:00Z",
+        "finished_at": "2026-04-23T10:00:00Z",
         "state": "failed",
         "job_count": 7,
         "test_job_count": 6,
@@ -975,23 +976,35 @@ def test_v2_snapshot_transition_math_links_and_queue_provenance(tmp_path):
     assert payload["schema_version"] == 2
     assert payload["generated_at"] == GENERATED_AT
     assert payload["nightly"]["pipeline_order"] == ["amd-ci", "ci"]
+    assert payload["nightly"]["transition_policy_id"] == "confirmed-incidents-v1"
     assert payload["nightly"]["pipelines"][0]["pipeline"] == "amd-ci"
+    assert (
+        payload["nightly"]["pipelines"][0]["transition_policy_id"]
+        == "confirmed-incidents-v1"
+    )
 
     latest = payload["nightly"]["pipelines"][0]["builds"][0]
-    assert [row["name"] for row in latest["failed_groups"]] == ["New hard", "Recurring", "mi300_1: Mixed hard"]
+    assert latest["transitions"]["policy_id"] == "confirmed-incidents-v1"
+    assert [row["name"] for row in latest["failed_groups"]] == ["New hard", "Recurring"]
     assert [row["name"] for row in latest["soft_failed_groups"]] == ["Mixed soft", "New soft"]
     assert [row["name"] for row in latest["transitions"]["new"]] == [
-        "Mixed soft",
         "New hard",
-        "New soft",
-        "mi300_1: Mixed hard",
+        "Recurring",
     ]
-    assert [row["name"] for row in latest["transitions"]["recurring"]] == ["Recurring"]
+    assert latest["transitions"]["recurring"] == []
+    assert [row["name"] for row in latest["transitions"]["pending_soft"]] == [
+        "Mixed soft",
+        "New soft",
+    ]
+    assert all(row["soft_streak"] == 1 for row in latest["transitions"]["pending_soft"])
     assert [row["name"] for row in latest["transitions"]["fixed"]] == ["Fixed"]
     assert latest["transitions"]["preceding_build_number"] == 102
     new_hard = next(row for row in latest["transitions"]["new"] if row["name"] == "New hard")
     assert new_hard["url"].endswith("/steps/new-hard")
     assert latest["transitions"]["fixed"][0]["url"].endswith("/builds/102/steps/fixed")
+    assert "soft failures confirm after two distinct eligible completed builds" in (
+        payload["nightly"]["transition_basis"]
+    )
 
     assert payload["queue"]["snapshot"]["run_id"] == "current-run"
     assert payload["queue"]["snapshot"]["total_waiting"] == 2
@@ -3299,15 +3312,199 @@ def test_nightly_fixed_requires_an_observed_pass():
     previous = _build(10, "2026-04-20", [
         _job("Missing now", "failed", "https://buildkite.com/vllm/amd-ci/builds/10/steps/missing"),
         _job("Actually fixed", "failed", "https://buildkite.com/vllm/amd-ci/builds/10/steps/fixed"),
+        _job("Held evidence", "failed", "https://buildkite.com/vllm/amd-ci/builds/10/steps/held"),
     ])
     current = _build(11, "2026-04-21", [
         _job("Actually fixed", "passed", "https://buildkite.com/vllm/amd-ci/builds/11/steps/fixed"),
+        _job("Held evidence", "skipped", "https://buildkite.com/vllm/amd-ci/builds/11/steps/held"),
     ])
 
     row = ops._nightly_pipeline("amd-ci", {"builds": [current, previous]})["builds"][0]
 
     assert [item["name"] for item in row["transitions"]["fixed"]] == ["Actually fixed"]
     assert [item["name"] for item in row["transitions"]["not_observed"]] == ["Missing now"]
+    held = row["transitions"]["indeterminate"][0]
+    assert held["name"] == "Held evidence"
+    assert held["state"] == "failed"
+    assert held["build_number"] == 10
+    assert held["url"].endswith("/builds/10/steps/held")
+    assert held["current_indeterminate_evidence"]["state"] == "skipped"
+    assert held["current_indeterminate_evidence"]["build_number"] == 11
+    assert held["current_indeterminate_evidence"]["url"].endswith(
+        "/builds/11/steps/held"
+    )
+
+
+def test_nightly_retry_collapse_is_order_independent_with_original_only_linkage():
+    original = _job(
+        "mi300_1: Linked retry",
+        "failed",
+        "https://buildkite.com/vllm/amd-ci/builds/15/steps/original",
+        job_id="retry-original",
+        step_key="linked-retry",
+        retried_in_job_id="retry-final",
+    )
+    final = _job(
+        "mi300_1: Linked retry",
+        "passed",
+        "https://buildkite.com/vllm/amd-ci/builds/15/steps/final",
+        job_id="retry-final",
+        step_key="linked-retry",
+    )
+
+    for attempts in ([original, final], [final, original]):
+        build = _build(15, "2026-04-20", attempts)
+        observations = ops._nightly_group_observations("amd-ci", build)
+        assert len(observations) == 1
+        outcome, evidence = next(iter(observations.values()))
+        assert outcome == "passed"
+        assert evidence["url"].endswith("?jid=retry-final&tab=output")
+
+        latest = ops._nightly_pipeline(
+            "amd-ci", {"builds": [build]}
+        )["builds"][0]
+        assert latest["transitions"]["new"] == []
+        assert latest["transitions"]["pending_soft"] == []
+
+
+def test_operations_and_analytics_share_strict_nightly_signal_ids():
+    jobs = [
+        _job(
+            "mi300_1: Strict signal",
+            "failed",
+            "https://buildkite.com/vllm/amd-ci/builds/16/steps/base",
+            job_id="strict-base",
+            step_key="strict-step",
+        ),
+        _job(
+            "mi300_1: Strict signal 2/2",
+            "failed",
+            "https://buildkite.com/vllm/amd-ci/builds/16/steps/raw",
+            job_id="strict-raw",
+            step_key="strict-step",
+        ),
+        _job(
+            "mi300_1: Strict signal",
+            "failed",
+            "https://buildkite.com/vllm/amd-ci/builds/16/steps/step",
+            job_id="strict-step",
+            step_key="other-step",
+        ),
+        _job(
+            "mi300_1: Strict signal",
+            "failed",
+            "https://buildkite.com/vllm/amd-ci/builds/16/steps/queue",
+            job_id="strict-queue",
+            step_key="strict-step",
+            q="amd_mi300_2",
+        ),
+        _job(
+            "mi355_1: Strict signal",
+            "failed",
+            "https://buildkite.com/vllm/amd-ci/builds/16/steps/hardware",
+            job_id="strict-hardware",
+            step_key="strict-step",
+            q="amd_mi355_1",
+        ),
+    ]
+    build = _build(16, "2026-04-20", jobs)
+
+    operations_ids = set(ops._nightly_group_observations("amd-ci", build))
+    analytics_ids = {
+        row["group_id"]
+        for row in analytics.compute_nightly_change_history([build])[0]["new"]
+    }
+
+    assert len(operations_ids) == 5
+    assert analytics_ids == operations_ids
+
+
+def test_nightly_nonterminal_builds_hold_state_without_advancing_streak():
+    name = "mi300_1: Eligibility hold"
+
+    def soft_build(number: int, date: str) -> dict:
+        return _build(number, date, [
+            _job(
+                name,
+                "soft_fail",
+                f"https://buildkite.com/vllm/amd-ci/builds/{number}/steps/hold",
+                job_id=f"hold-{number}",
+                step_key="eligibility-hold",
+                soft_failed=True,
+            )
+        ])
+
+    first = soft_build(17, "2026-04-20")
+    running = soft_build(18, "2026-04-21")
+    running["state"] = "running"
+    unfinished = soft_build(19, "2026-04-22")
+    unfinished["finished_at"] = ""
+    final = soft_build(20, "2026-04-23")
+
+    pipeline = ops._nightly_pipeline(
+        "amd-ci", {"builds": [final, unfinished, running, first]}
+    )
+    rows = {row["number"]: row for row in pipeline["builds"]}
+
+    running_row = rows[18]
+    assert running_row["transition_eligible"] is False
+    assert running_row["transition_ineligible_reason"] == "build_state_not_completed"
+    assert running_row["transitions"]["preceding_build_number"] == 17
+    running_pending = running_row["transitions"]["pending_soft"][0]
+    assert running_pending["soft_streak"] == 1
+    assert running_pending["build_number"] == 17
+    assert running_pending["state"] == "soft_failed"
+    assert running_pending["current_indeterminate_evidence"]["build_number"] == 18
+
+    unfinished_row = rows[19]
+    assert unfinished_row["transition_eligible"] is False
+    assert unfinished_row["transition_ineligible_reason"] == "finished_at_missing"
+    assert unfinished_row["transitions"]["preceding_build_number"] == 17
+    assert unfinished_row["transitions"]["pending_soft"][0]["soft_streak"] == 1
+    assert unfinished_row["transitions"]["pending_soft"][0]["build_number"] == 17
+    assert (
+        unfinished_row["transitions"]["pending_soft"][0][
+            "current_indeterminate_evidence"
+        ]["build_number"]
+        == 19
+    )
+
+    assert rows[20]["transitions"]["new"][0]["soft_streak"] == 2
+    assert rows[20]["transitions"]["new"][0]["transition_change"] == "confirmed"
+    assert rows[20]["transitions"]["preceding_build_number"] == 17
+
+
+def test_nightly_pipeline_replays_soft_hysteresis_and_severity_changes():
+    name = "mi300_1: Transition policy"
+
+    def build(number: int, date: str, state: str | None) -> dict:
+        jobs = [] if state is None else [
+            _job(
+                name,
+                state,
+                f"https://buildkite.com/vllm/amd-ci/builds/{number}/steps/policy",
+                soft_failed=state == "soft_fail",
+            )
+        ]
+        return _build(number, date, jobs)
+
+    pipeline = ops._nightly_pipeline("amd-ci", {"builds": [
+        build(26, "2026-04-26", "passed"),
+        build(25, "2026-04-25", "soft_fail"),
+        build(24, "2026-04-24", "failed"),
+        build(23, "2026-04-23", "soft_fail"),
+        build(22, "2026-04-22", None),
+        build(21, "2026-04-21", "soft_fail"),
+    ]})
+    rows = {row["number"]: row["transitions"] for row in pipeline["builds"]}
+
+    assert rows[21]["pending_soft"][0]["soft_streak"] == 1
+    assert rows[22]["pending_soft"][0]["observed_in_current_build"] is False
+    assert rows[23]["new"][0]["transition_change"] == "confirmed"
+    assert rows[24]["recurring"][0]["transition_change"] == "escalated"
+    assert rows[25]["recurring"][0]["transition_change"] == "deescalated"
+    assert rows[25]["recurring"][0]["peak_severity"] == "hard"
+    assert rows[26]["fixed"][0]["current_state"] == "passed"
 
 
 def test_gating_keeps_four_gpu_and_h100_mirror_evidence_distinct():

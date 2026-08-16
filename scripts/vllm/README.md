@@ -16,7 +16,7 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 | `build_operations_snapshot.py` | Builds the private v2 operations input plus its public manifest and lazy section shards; runtime targets resolve through exact matrix aliases and definition parity with explicit unresolved reasons | Every canonical collection and Pages assembly |
 | `build_queue_section.py` | Builds only the compact public Queue shard from queue-owned inputs | Every independent queue-monitor run |
 | `ci_main_failure_watcher.py` | Reconciles one upstream `ci`/`main` failure issue and retains bisect candidate bounds per strict group | Hourly after analytics collection |
-| `ci_area_regression_watcher.py` | Maps every exact AMD matrix definition to its owned test-area rotation and reconciles one state-owned dashboard issue per regressing area | Hourly after matrix collection |
+| `ci_area_regression_watcher.py` | Maps every exact AMD matrix definition to its owned test-area rotation and reconciles one state-owned dashboard issue per area with confirmed incidents | Hourly after matrix collection |
 | `ensure_ci_operations_labels.py` | Ensures managed and workstream labels exist before issue watchers run | Every canonical collection |
 | `sync_ci_operations_project.py` | Adds open managed dashboard issues to the linked AMD CI Operations Project, split by workstream labels | Hourly after issue reconciliation |
 | `audit_dashboard_data.py` | Cross-checks generated data, frontend assumptions, and deploy workflow ordering before publishing | Hourly via `hourly-master.yml` + local debugging |
@@ -134,12 +134,14 @@ resolution status (`no_amd_definition`, `stale_target_alias`, `ambiguous`, or
 `not_observed`) instead of presenting every identity failure as missing runtime
 signal.
 
-The area regression watcher uses all exact matrix definition rows, not the
+The area incident watcher uses all exact matrix definition rows, not the
 smaller reviewed runtime-target plan. Area attribution prefers commit-pinned
 definition-parity source files, then reviewed aliases/overrides. Ambiguous or
 unmapped rows remain unassigned and visible; they are never routed through a
-lossy category guess. Issue assignment walks ranks 1→2→3, verifies repository
-assignability, and falls back to the CI lead. Every regression issue tags the
+lossy category guess. A hard result confirms immediately, while the same soft
+result must recur on two distinct completed builds; pending soft evidence stays
+visible without opening an issue. Issue assignment walks ranks 1→2→3, verifies repository
+assignability, and falls back to the CI lead. Every confirmed-incident issue tags the
 selected owner and verified assignee, then CCs each remaining ranked area owner
 once. The shared issue client rejects any repository other than the dashboard.
 

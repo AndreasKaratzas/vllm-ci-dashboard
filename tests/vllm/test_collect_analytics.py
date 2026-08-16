@@ -373,6 +373,11 @@ class TestWindowedAnalytics:
 
         payload = json.loads((tmp_path / "analytics.json").read_text())
         amd_block = payload["amd-ci"]
+        assert amd_block["transition_policy_id"] == "confirmed-incidents-v1"
+        assert (
+            amd_block["nightly_change_history"][0]["policy_id"]
+            == "confirmed-incidents-v1"
+        )
         assert amd_block["all_main_reliability"]["cohort"]["id"] == "amd-ci-main-completed-pass-fail"
         assert (
             amd_block["all_main_reliability"]["provenance"]["observation_limit_per_group"]
@@ -380,6 +385,8 @@ class TestWindowedAnalytics:
         )
         assert "main_retry_analysis" not in amd_block
         block = payload["ci"]
+        assert block["transition_policy_id"] == "confirmed-incidents-v1"
+        assert block["nightly_change_history"][0]["policy_id"] == "confirmed-incidents-v1"
         reliability = block["all_main_reliability"]
         assert reliability["cohort"]["id"] == "ci-main-completed-pass-fail"
         assert reliability["cohort"]["pipeline"] == "ci"
@@ -794,6 +801,8 @@ class TestParsedResultFallback:
         buildkite_builds = [
             {
                 "number": 72843,
+                "state": "passed",
+                "finished_at": "2026-08-01T10:00:00Z",
                 "jobs": [
                     {
                         "name": "Passing Group",
@@ -811,6 +820,8 @@ class TestParsedResultFallback:
         builds = ca.load_test_result_builds(tmp_path, "ci", 14, buildkite_builds=buildkite_builds, previous_builds=[])
 
         job = builds[0]["jobs"][0]
+        assert builds[0]["state"] == "passed"
+        assert builds[0]["finished_at"] == "2026-08-01T10:00:00Z"
         assert job["job_id"] == "019ed951-af8e-4dc8-9590-72a47f9fed96"
         assert job["step_id"] == "019ed951-ad41-4cc1-8942-051077910be7"
         assert job["url"] == (

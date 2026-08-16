@@ -208,8 +208,10 @@ umbrella issues in this repository:
 
 - AMD main test-group failures use the exhaustive amd-ci branch=main reliability
   cohort. The latest retry attempt in a build wins; a later pass resolves the
-  same strict label + step + hardware + queue identity. Soft failures remain
-  incidents because the test command failed even when Buildkite continued.
+  same strict label + step + hardware + queue identity. Hard failures confirm
+  immediately. Soft failures remain visible as pending observations and require
+  two distinct eligible completed builds before becoming incidents. Missing or
+  indeterminate observations neither advance nor resolve the signal.
 - Upstream CI main test-group failures use the exhaustive ci branch=main
   reliability cohort and the same strict retry-aware identity. Each active
   incident retains the last known passing commit and first failing commit as a

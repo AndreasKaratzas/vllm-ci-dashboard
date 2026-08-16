@@ -130,12 +130,22 @@ def test_ci_ownership_renderer_is_reusable_and_removed_from_ci_health():
         "America/Chicago",
         "UNMAPPED TARGETS",
         "GitHub assignability is checked before mutation",
-        "Regression issues tag the selected owner and verified assignee",
+        "Confirmed-incident issues tag the selected owner and verified assignee",
         "CC each remaining ranked area owner once",
+        "AREAS WITH CONFIRMED INCIDENTS",
+        "PENDING SOFT OBSERVATIONS",
+        "requires 2 distinct completed builds",
+        "Confirmed AMD incidents",
+        "Pending soft observations",
+        "Incident response, escalation, runtime signal, and parity obligations",
+        "incident_observation_eligible === false",
+        "function ownershipObservationLabel",
+        "ignored older build",
     ):
         assert contract in OPS_JS
     assert "private PTO" not in OPS_JS
     assert "Private availability" not in OPS_JS
+    assert "Regression response, escalation, runtime signal" not in OPS_JS
     assert "availability.fresh === true" in OPS_JS
     assert (
         "['healthView', 'health_view', "
@@ -171,7 +181,7 @@ def test_reliability_evidence_is_drillable_and_honestly_named():
     assert "mixed-outcome candidate" in OPS_JS
     assert "not a test-case flake probability" in OPS_JS
     assert "Open log" in OPS_JS
-    assert "Incidents only" in OPS_JS
+    assert "Failures only" in OPS_JS
 
 
 def test_test_group_history_switches_cohorts_with_clickable_outcome_evidence():
@@ -187,10 +197,10 @@ def test_test_group_history_switches_cohorts_with_clickable_outcome_evidence():
         "Test-group reliability",
         "Select test group for historical analysis",
         "Outcome timeline",
-        "Incidents to inspect",
+        "Failures to inspect",
         "RETAINED PASS RATE",
         "CURRENT SIGNAL",
-        "LAST INCIDENT",
+        "LAST FAILURE",
         "TYPICAL COMPLETION",
         "Outcome trend",
         "function trailingPassStats",
@@ -327,15 +337,36 @@ def test_amd_health_keeps_latest_and_historical_job_variant_counts_distinct():
         "older variants retained only for history",
         "const currentVariants = currentPassing.concat(currentIncidents, currentUnknown)",
         "openAmdCatalog('Latest AMD job variants'",
-        "older names remain available as history and are not treated as missing incidents",
+        "older names remain available as history and are not treated as missing failures",
+        "Soft results are raw warning observations, not confirmed incidents",
         "'Historical only'",
-        "Not classified as current incidents",
+        "Not classified as current failures",
     ):
         assert contract in segment
 
     assert "integer(summary.latest_group_count) + ' / ' + integer(summary.group_count)" not in segment
     assert "currentIncidents.length + missing.length" not in segment
     assert "!['soft', 'hard', 'missing'].includes(latest)" not in OPS_JS
+
+
+def test_raw_soft_results_are_presented_as_observations_not_incidents():
+    for contract in (
+        "Soft observations",
+        "Latest AMD failure observations",
+        "NON-PASSING OBSERVATIONS",
+        "FAILURE OBSERVATIONS",
+        "Soft results are raw warning observations, not confirmed incidents",
+        "Current AMD failures to inspect",
+    ):
+        assert contract in OPS_JS
+    for misleading in (
+        "Running with incidents",
+        "Latest available AMD incidents",
+        "label: 'INCIDENTS NOW'",
+        "Current AMD incidents to inspect",
+        "Soft incident latest",
+    ):
+        assert misleading not in OPS_JS
 
 
 @pytest.mark.live_data
@@ -699,28 +730,44 @@ def test_blocked_nightly_is_separate_from_the_latest_test_signal():
 
 def test_nightly_assessment_uses_explicit_movement_rules():
     for contract in (
+        "const CONFIRMED_INCIDENT_POLICY_ID = 'confirmed-incidents-v1'",
+        "function confirmedNightlyTransitions",
         "function amdNightlyMovement",
-        "previousIncidents: recurring + fixed",
+        "previousIncidents: recurring + held + fixed",
         "delta: newlyIncident - fixed",
-        "movement.currentIncidents === incidentCount",
-        "Running with incidents",
-        "Regressed",
+        "heldCount: held",
+        "pendingSoftCount: pendingSoft",
+        "Running with failures",
+        "Confirmed incidents held",
+        "Soft observations pending",
+        "More confirmed incidents",
         "Improved",
         "Changed, net even",
-        "Stable incidents",
+        "Stable failure count",
         "Recovered",
         "No net change",
-        "NIGHTLY VARIANT MOVEMENT",
-        "fewer job variants",
+        "CONFIRMED INCIDENT MOVEMENT",
+        "fewer confirmed incidents",
         "provisional while Buildkite is running",
+        "prior incident state is held",
+        "Snapshot predates the confirmed-incidents-v1 policy",
     ):
         assert contract in OPS_JS
+    assert "movement.currentIncidents === incidentCount" not in OPS_JS
     assert "soft ? 'Degraded'" not in OPS_JS
 
 
 def test_nightly_counts_are_labeled_as_exact_job_variants():
     assert "JOB VARIANTS OBSERVED" in OPS_JS
-    assert "NEW INCIDENT VARIANTS" in OPS_JS
+    assert "NEW CONFIRMED INCIDENTS" in OPS_JS
+    assert "PENDING SOFT OBSERVATIONS" in OPS_JS
+    assert "RESOLVED INCIDENTS" in OPS_JS
+    assert "confirmed incident transitions" in OPS_JS
+    assert "Confirmed held" in OPS_JS
+    assert "Raw soft observation" in OPS_JS
+    assert "pairwise legacy movement is not relabeled as confirmed incident state" in OPS_JS
+    assert "policyBuilds = builds.filter" in OPS_JS
+    assert "nightly regressions" not in OPS_JS
     assert "label: 'GROUPS OBSERVED'" not in OPS_JS
 
 

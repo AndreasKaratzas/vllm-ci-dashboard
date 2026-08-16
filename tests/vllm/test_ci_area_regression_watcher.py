@@ -75,6 +75,10 @@ def _area():
                 "id": 1,
                 "label": "Hard group",
                 "result": "hard",
+                "raw_result": "hard",
+                "incident_severity": "hard",
+                "incident_peak_severity": "hard",
+                "incident_start_build_id": 11301,
                 "build_number": 11301,
                 "observed_at": "2026-07-27T23:00:00Z",
                 "url": "https://example.invalid/hard",
@@ -83,6 +87,10 @@ def _area():
                 "id": 2,
                 "label": "Soft group",
                 "result": "soft",
+                "raw_result": "soft",
+                "incident_severity": "soft",
+                "incident_peak_severity": "soft",
+                "incident_start_build_id": 11301,
                 "build_number": 11301,
                 "observed_at": "2026-07-27T23:00:00Z",
                 "url": "https://example.invalid/soft",
@@ -107,7 +115,8 @@ def test_issue_body_tags_owner_and_assignee_and_ccs_ranked_owners_once():
 
     assert "Hard group" in body
     assert "Soft group" in body
-    assert "Fix the active regression" in body
+    assert "confirmed incidents" in body
+    assert "Fix the confirmed incident" in body
     assert "Reduce test-group time to completion" in body
     assert "Restore parity with upstream definitions" in body
     assert "Primary" in body
@@ -172,23 +181,65 @@ def test_no_assignable_account_leaves_issue_unassigned():
     assert watcher._can_mutate_area(False, actual) is True
 
 
-def test_fingerprint_changes_with_assignment_owner_chain_or_runtime_result():
+def test_signal_fingerprint_ignores_routing_and_build_evidence():
     area = _area()
     baseline = watcher._fingerprint(area)
+    baseline_content = watcher._content_fingerprint(area)
 
     area["owners"][1]["github_login"] = "new-secondary"
-    assert watcher._fingerprint(area) != baseline
+    assert watcher._fingerprint(area) == baseline
+    assert watcher._content_fingerprint(area) != baseline_content
     area = _area()
 
     area["actual_assignee"] = {
         "display_name": "CI Lead",
         "github_login": "ci-lead",
     }
+    assert watcher._fingerprint(area) == baseline
+
+    changed_content = watcher._content_fingerprint(area)
+    area["regressions"][0]["build_number"] = 11302
+    assert watcher._fingerprint(area) == baseline
+    assert watcher._content_fingerprint(area) != changed_content
+
+
+def test_held_issue_body_and_content_hash_use_the_same_retained_evidence():
+    area = _area()
+    row = area["regressions"][0]
+    row["raw_result"] = "unobserved"
+    row["last_failure_evidence"] = {
+        "build_number": 11299,
+        "observed_at": "2026-07-26T23:00:00Z",
+        "url": "https://example.invalid/retained-hard",
+    }
+    baseline_body = watcher._issue_body(area, "https://example.invalid/run")
+    baseline_content = watcher._content_fingerprint(area)
+
+    row.update(
+        {
+            "build_number": 11302,
+            "observed_at": "2026-07-28T23:00:00Z",
+            "url": "https://example.invalid/current-unobserved",
+        }
+    )
+    assert watcher._issue_body(area, "https://example.invalid/run") == baseline_body
+    assert watcher._content_fingerprint(area) == baseline_content
+
+    row["last_failure_evidence"]["build_number"] = 11300
+    assert watcher._issue_body(area, "https://example.invalid/run") != baseline_body
+    assert watcher._content_fingerprint(area) != baseline_content
+
+
+def test_signal_fingerprint_changes_on_membership_or_peak_escalation():
+    area = _area()
+    baseline = watcher._fingerprint(area)
+
+    area["regressions"][1]["incident_peak_severity"] = "hard"
     assert watcher._fingerprint(area) != baseline
 
-    changed_assignment = watcher._fingerprint(area)
-    area["regressions"][0]["build_number"] = 11302
-    assert watcher._fingerprint(area) != changed_assignment
+    area = _area()
+    area["regressions"].pop()
+    assert watcher._fingerprint(area) != baseline
 
 
 def test_notification_revision_preserves_unchanged_manual_close_suppression():
@@ -212,7 +263,7 @@ def test_notification_revision_preserves_unchanged_manual_close_suppression():
     assert migrated["body_schema_version"] == watcher.ISSUE_BODY_SCHEMA_VERSION
 
 
-def test_notification_revision_does_not_mask_changed_suppressed_signal():
+def test_fingerprint_migration_keeps_manual_close_suppressed_across_new_build():
     prior_area = _area()
     prior_fingerprint = watcher._legacy_fingerprint(prior_area)
     current_area = _area()
@@ -228,15 +279,15 @@ def test_notification_revision_does_not_mask_changed_suppressed_signal():
         legacy_fingerprint=watcher._legacy_fingerprint(current_area),
     )
 
-    assert migrated["suppressed_fingerprint"] == prior_fingerprint
-    assert migrated["suppressed_fingerprint"] != current_fingerprint
+    assert migrated["suppressed_fingerprint"] == current_fingerprint
+    assert migrated["signal_fingerprint_version"] == watcher.SIGNAL_FINGERPRINT_VERSION
 
-    class ReopenClient:
+    class NoMutationClient:
         def find_open_issue(self, _marker):
-            return None
+            raise AssertionError("suppressed signal must not search for an issue")
 
         def open_issue(self, _title, _body, _labels, _assignees):
-            return 456
+            raise AssertionError("suppressed signal must not reopen an issue")
 
     reconciled = watcher.reconcile_managed_issue(
         migrated,
@@ -248,9 +299,80 @@ def test_notification_revision_does_not_mask_changed_suppressed_signal():
         recovery_body="recovered",
         observed_at="2026-07-28T00:00:00Z",
         label_specs=[],
+        client=NoMutationClient(),
+        assignees=["primary"],
+    )
+    assert reconciled["suppressed"] is True
+    assert reconciled["issue"] is None
+
+
+def test_area_state_round_trip_preserves_transition_and_schema_extensions(
+    tmp_path, monkeypatch
+):
+    state_path = tmp_path / "area-state.json"
+    monkeypatch.setattr(watcher, "STATE", state_path)
+    signal = {
+        "status": "pending_soft",
+        "severity": "soft",
+        "peak_severity": "soft",
+        "soft_streak": 1,
+        "last_eligible_build_id": 11301,
+        "incident_start_build_id": 11301,
+        "confirmed_build_id": None,
+        "build_watermark": 11301,
+        "evidence": {"build_number": 11301},
+        "identity": {"id": "target-1", "label": "Kernels target"},
+    }
+    area = watcher._state_with_signals(
+        {
+            "last_fingerprint": "stable-signal",
+            "body_schema_version": watcher.ISSUE_BODY_SCHEMA_VERSION,
+            "signal_fingerprint_version": watcher.SIGNAL_FINGERPRINT_VERSION,
+        },
+        {"target-1": signal},
+    )
+
+    watcher._checkpoint_state({"kernels": area}, "2026-07-28T12:00:00Z")
+    loaded = watcher._read_state()["areas"]["kernels"]
+
+    assert loaded["signals"] == {"target-1": signal}
+    assert loaded["body_schema_version"] == watcher.ISSUE_BODY_SCHEMA_VERSION
+    assert loaded["signal_fingerprint_version"] == watcher.SIGNAL_FINGERPRINT_VERSION
+
+
+def test_peak_escalation_clears_manual_close_suppression():
+    prior_area = _area()
+    prior_fingerprint = watcher._fingerprint(prior_area)
+    escalated_area = _area()
+    escalated_area["regressions"][1]["incident_peak_severity"] = "hard"
+    escalated_fingerprint = watcher._fingerprint(escalated_area)
+
+    class ReopenClient:
+        def find_open_issue(self, _marker):
+            return None
+
+        def open_issue(self, _title, _body, _labels, _assignees):
+            return 456
+
+    reconciled = watcher.reconcile_managed_issue(
+        {
+            "suppressed": True,
+            "suppressed_fingerprint": prior_fingerprint,
+            "last_fingerprint": prior_fingerprint,
+        },
+        active=True,
+        fingerprint=escalated_fingerprint,
+        content_fingerprint=watcher._content_fingerprint(escalated_area),
+        title="escalated incident",
+        body="escalated evidence",
+        ownership_marker="<!-- escalated-signal-test:v1 -->",
+        recovery_body="recovered",
+        observed_at="2026-07-28T00:00:00Z",
+        label_specs=[],
         client=ReopenClient(),
         assignees=["primary"],
     )
+
     assert reconciled["suppressed"] is False
     assert reconciled["issue"]["number"] == 456
 
@@ -267,14 +389,278 @@ def test_notification_revision_forces_exactly_one_open_issue_body_update():
         legacy_fingerprint=watcher._legacy_fingerprint(area),
     )
 
-    assert legacy["last_fingerprint"] == ""
-    legacy["last_fingerprint"] = fingerprint
+    assert legacy["last_fingerprint"] == fingerprint
+    assert legacy["last_content_fingerprint"] == ""
+    legacy["last_content_fingerprint"] = "refreshed-content"
     current = watcher._migrate_body_schema_state(
         legacy,
         fingerprint=fingerprint,
         legacy_fingerprint=watcher._legacy_fingerprint(area),
     )
     assert current["last_fingerprint"] == fingerprint
+    assert current["last_content_fingerprint"] == "refreshed-content"
+
+
+def _raw_status(result: str, build_number: int) -> dict:
+    target = {
+        "id": "target-1",
+        "label": "Kernels target",
+        "result": result,
+        "build_number": build_number,
+        "observed_at": "2026-07-28T00:00:00Z",
+        "url": "https://example.invalid/job",
+    }
+    return {
+        "policy": {},
+        "summary": {},
+        "areas": [
+            {
+                "area": "kernels",
+                "counts": {
+                    "targets": 1,
+                    "hard": int(result == "hard"),
+                    "soft": int(result == "soft"),
+                    "passed": int(result == "passed"),
+                    "unobserved": int(result == "unobserved"),
+                },
+                "targets": [target],
+                "regressions": [target] if result in {"hard", "soft"} else [],
+            }
+        ],
+    }
+
+
+def _prior_with_signals(signals: dict[str, dict]) -> dict:
+    return {"kernels": {"signals": signals["kernels"]}}
+
+
+def test_soft_observation_requires_two_distinct_completed_builds():
+    first = _raw_status("soft", 11301)
+    first_signals = watcher.apply_incident_hysteresis(first, {})
+    first_area = first["areas"][0]
+
+    assert first_area["counts"]["incidents"] == 0
+    assert first_area["counts"]["pending_soft"] == 1
+    assert first_area["counts"]["raw_results"]["soft"] == 1
+    assert sum(
+        first_area["counts"][key]
+        for key in ("confirmed_hard", "confirmed_soft", "pending_soft")
+    ) == first_area["counts"]["targets"]
+    assert first_area["targets"][0]["raw_result"] == "soft"
+    assert first_area["pending_soft_observations"][0]["soft_streak"] == 1
+
+    duplicate = _raw_status("soft", 11301)
+    duplicate_signals = watcher.apply_incident_hysteresis(
+        duplicate,
+        _prior_with_signals(first_signals),
+    )
+    assert duplicate["areas"][0]["counts"]["pending_soft"] == 1
+    assert duplicate["areas"][0]["pending_soft_observations"][0]["soft_streak"] == 1
+
+    second = _raw_status("soft", 11302)
+    watcher.apply_incident_hysteresis(
+        second,
+        _prior_with_signals(duplicate_signals),
+    )
+    second_area = second["areas"][0]
+    assert second_area["counts"]["incidents"] == 1
+    assert second_area["counts"]["confirmed_soft"] == 1
+    assert second_area["counts"]["pending_soft"] == 0
+    assert second_area["regressions"][0]["incident_classification"] == "new"
+
+
+def test_older_soft_and_pass_observations_cannot_advance_or_resolve_state():
+    first = _raw_status("soft", 11302)
+    first_signals = watcher.apply_incident_hysteresis(first, {})
+
+    older_soft = _raw_status("soft", 11301)
+    held_pending = watcher.apply_incident_hysteresis(
+        older_soft,
+        _prior_with_signals(first_signals),
+    )
+    pending_row = older_soft["areas"][0]["pending_soft_observations"][0]
+    assert pending_row["soft_streak"] == 1
+    assert pending_row["incident_observation_eligible"] is False
+    assert held_pending["kernels"]["target-1"]["build_watermark"] == 11302
+
+    confirmed = _raw_status("soft", 11303)
+    confirmed_signals = watcher.apply_incident_hysteresis(
+        confirmed,
+        _prior_with_signals(held_pending),
+    )
+    assert confirmed["areas"][0]["counts"]["incidents"] == 1
+
+    older_pass = _raw_status("passed", 11302)
+    held_confirmed = watcher.apply_incident_hysteresis(
+        older_pass,
+        _prior_with_signals(confirmed_signals),
+    )
+    held_row = older_pass["areas"][0]["regressions"][0]
+    assert held_row["raw_result"] == "passed"
+    assert held_row["incident_observation_eligible"] is False
+    assert held_row["incident_status"] == "confirmed"
+    assert watcher._displayed_failure_evidence(held_row)["build_number"] == 11303
+    assert "passed (ignored older build)" in watcher._issue_body(
+        older_pass["areas"][0] | {
+            "source_file": "kernels.yaml",
+            "owners": _area()["owners"],
+            "selected_owner": _area()["selected_owner"],
+            "actual_assignee": _area()["actual_assignee"],
+            "assignment_reason": "test",
+            "upstream_parity_gaps": [],
+        },
+        "https://example.invalid/run",
+    )
+    assert held_confirmed["kernels"]["target-1"]["build_watermark"] == 11303
+
+
+def test_hard_confirms_immediately_then_soft_recurs_and_pass_resolves():
+    hard = _raw_status("hard", 11301)
+    hard_signals = watcher.apply_incident_hysteresis(hard, {})
+    hard_row = hard["areas"][0]["regressions"][0]
+    assert hard_row["incident_severity"] == "hard"
+    assert hard_row["incident_peak_severity"] == "hard"
+
+    soft = _raw_status("soft", 11302)
+    soft_signals = watcher.apply_incident_hysteresis(
+        soft,
+        _prior_with_signals(hard_signals),
+    )
+    soft_row = soft["areas"][0]["regressions"][0]
+    assert soft_row["incident_classification"] == "recurring"
+    assert soft_row["incident_change"] == "deescalated"
+    assert soft_row["incident_severity"] == "soft"
+    assert soft_row["incident_peak_severity"] == "hard"
+
+    absent = _raw_status("unobserved", 11303)
+    absent_signals = watcher.apply_incident_hysteresis(
+        absent,
+        _prior_with_signals(soft_signals),
+    )
+    assert absent["areas"][0]["counts"]["incidents"] == 1
+    assert absent["areas"][0]["counts"]["unobserved"] == 1
+    assert absent["areas"][0]["counts"]["raw_results"]["unobserved"] == 1
+    held_row = absent["areas"][0]["regressions"][0]
+    assert held_row["raw_result"] == "unobserved"
+    assert held_row["last_failure_evidence"] == {
+        "build_number": 11302,
+        "observed_at": "2026-07-28T00:00:00Z",
+        "url": "https://example.invalid/job",
+    }
+    assert absent_signals["kernels"]["target-1"]["evidence"] == (
+        held_row["last_failure_evidence"]
+    )
+
+    passed = _raw_status("passed", 11304)
+    watcher.apply_incident_hysteresis(
+        passed,
+        _prior_with_signals(absent_signals),
+    )
+    assert passed["areas"][0]["counts"]["incidents"] == 0
+    assert passed["areas"][0]["regressions"] == []
+
+
+def test_missing_targets_hold_pending_and_confirmed_identity_and_evidence():
+    pending = _raw_status("soft", 11301)
+    pending_signals = watcher.apply_incident_hysteresis(pending, {})
+    pending_missing = _raw_status("unobserved", 11302)
+    pending_missing["areas"][0]["targets"] = []
+    watcher.apply_incident_hysteresis(
+        pending_missing,
+        _prior_with_signals(pending_signals),
+    )
+    pending_row = pending_missing["areas"][0]["pending_soft_observations"][0]
+    assert pending_row["id"] == "target-1"
+    assert pending_row["label"] == "Kernels target"
+    assert pending_row["target_disappeared"] is True
+    assert pending_row["last_failure_evidence"]["build_number"] == 11301
+
+    confirmed = _raw_status("hard", 11301)
+    confirmed_signals = watcher.apply_incident_hysteresis(confirmed, {})
+    confirmed_missing = _raw_status("unobserved", 11302)
+    confirmed_missing["areas"][0]["targets"] = []
+    next_signals = watcher.apply_incident_hysteresis(
+        confirmed_missing,
+        _prior_with_signals(confirmed_signals),
+    )
+    area = confirmed_missing["areas"][0]
+    held_row = area["regressions"][0]
+    assert area["counts"]["incidents"] == 1
+    assert area["counts"]["unobserved"] == 1
+    assert area["counts"]["targets"] == 1
+    assert held_row["id"] == "target-1"
+    assert held_row["label"] == "Kernels target"
+    assert held_row["last_failure_evidence"]["url"] == "https://example.invalid/job"
+    assert next_signals["kernels"]["target-1"]["identity"] == {
+        "id": "target-1",
+        "label": "Kernels target",
+    }
+
+
+def test_prior_area_missing_from_current_status_keeps_all_signal_state():
+    confirmed = _raw_status("hard", 11301)
+    confirmed_signals = watcher.apply_incident_hysteresis(confirmed, {})
+    prior = {
+        "retired-area": {
+            "issue": {"number": 123},
+            "signals": confirmed_signals["kernels"],
+        }
+    }
+    status = {"policy": {}, "summary": {}, "areas": []}
+
+    next_signals = watcher.apply_incident_hysteresis(status, prior)
+
+    assert next_signals["retired-area"] == prior["retired-area"]["signals"]
+    preserved = watcher._preserved_missing_area_states(
+        prior,
+        set(),
+        next_signals,
+    )
+    assert preserved["retired-area"]["issue"]["number"] == 123
+    assert preserved["retired-area"]["signals"] == prior["retired-area"]["signals"]
+
+
+def test_legacy_soft_area_issue_is_grandfathered_as_confirmed():
+    status = _raw_status("soft", 11301)
+    next_signals = watcher.apply_incident_hysteresis(
+        status,
+        {"kernels": {"issue": {"number": 123}}},
+    )
+
+    area = status["areas"][0]
+    assert area["counts"]["incidents"] == 1
+    assert area["counts"]["pending_soft"] == 0
+    assert area["regressions"][0]["incident_classification"] == "recurring"
+    assert next_signals["kernels"]["target-1"]["status"] == "confirmed"
+
+
+def test_matrix_projection_uses_stable_build_timestamp_across_collector_refreshes():
+    matrix = {
+        "generated_at": "2026-07-28T12:00:00Z",
+        "source": {"latest_build_created_at": "2026-07-28T00:00:00Z"},
+        "summary": {"latest_build_number": 11301},
+        "rows": [
+            {
+                "id": "target-1",
+                "title": "Kernels target",
+                "area": "kernels",
+                "cells": {
+                    "mi300": {
+                        "exists": True,
+                        "latest_state": "failed",
+                        "latest_url": "https://example.invalid/job",
+                    }
+                },
+            }
+        ],
+    }
+    first = watcher.matrix_runtime_targets(matrix)[0]["latest_amd_result"]
+    matrix["generated_at"] = "2026-07-28T13:00:00Z"
+    second = watcher.matrix_runtime_targets(matrix)[0]["latest_amd_result"]
+
+    assert first["observed_at"] == "2026-07-28T00:00:00Z"
+    assert second["observed_at"] == first["observed_at"]
+    assert second == first
 
 
 def _source_documents(now):

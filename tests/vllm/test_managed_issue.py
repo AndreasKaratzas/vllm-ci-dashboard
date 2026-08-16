@@ -25,11 +25,19 @@ class _Response:
         return self._payload
 
 
-def _reconcile(state, client, *, active=True, fingerprint="fingerprint"):
+def _reconcile(
+    state,
+    client,
+    *,
+    active=True,
+    fingerprint="fingerprint",
+    content_fingerprint=None,
+):
     return reconcile_managed_issue(
         state,
         active=active,
         fingerprint=fingerprint,
+        content_fingerprint=content_fingerprint,
         title="Managed alert",
         body="Current evidence",
         ownership_marker=MARKER,
@@ -141,6 +149,22 @@ class _TrackedClient:
         return True
 
 
+class _RetryingUpdateClient(_TrackedClient):
+    def __init__(self, *, recovered_number=None):
+        super().__init__()
+        self.recovered_number = recovered_number
+        self.update_results = [False, True]
+        self.finds = 0
+
+    def find_open_issue(self, ownership_marker):
+        self.finds += 1
+        return self.recovered_number
+
+    def update_issue(self, number, title, body):
+        self.updated.append(number)
+        return self.update_results.pop(0)
+
+
 def test_reconcile_adds_label_specs_to_unchanged_tracked_issue():
     client = _TrackedClient()
     state = {
@@ -153,6 +177,99 @@ def test_reconcile_adds_label_specs_to_unchanged_tracked_issue():
     assert reconciled["issue"]["number"] == 7
     assert client.labels == [(7, LABEL_SPECS)]
     assert client.updated == []
+
+
+def test_reconcile_refreshes_evidence_without_changing_signal_identity():
+    client = _TrackedClient()
+    state = {
+        "issue": {"number": 7, "opened_at": "2026-07-28T10:00:00Z"},
+        "last_fingerprint": "stable-signal",
+        "last_content_fingerprint": "old-evidence",
+    }
+
+    reconciled = _reconcile(
+        state,
+        client,
+        fingerprint="stable-signal",
+        content_fingerprint="new-evidence",
+    )
+
+    assert client.updated == [7]
+    assert reconciled["last_fingerprint"] == "stable-signal"
+    assert reconciled["last_content_fingerprint"] == "new-evidence"
+
+
+def test_reconcile_refreshes_open_issue_when_signal_changes_with_same_content():
+    client = _TrackedClient()
+    state = {
+        "issue": {"number": 7, "opened_at": "2026-07-28T10:00:00Z"},
+        "last_fingerprint": "old-generation",
+        "last_content_fingerprint": "same-evidence",
+    }
+
+    reconciled = _reconcile(
+        state,
+        client,
+        fingerprint="new-generation",
+        content_fingerprint="same-evidence",
+    )
+
+    assert client.updated == [7]
+    assert reconciled["last_fingerprint"] == "new-generation"
+    assert reconciled["last_content_fingerprint"] == "same-evidence"
+
+
+def test_failed_signal_refresh_keeps_fingerprints_dirty_for_retry():
+    client = _RetryingUpdateClient()
+    state = {
+        "issue": {"number": 7, "opened_at": "2026-07-28T10:00:00Z"},
+        "last_fingerprint": "old-generation",
+        "last_content_fingerprint": "same-evidence",
+    }
+
+    failed = _reconcile(
+        state,
+        client,
+        fingerprint="new-generation",
+        content_fingerprint="same-evidence",
+    )
+    retried = _reconcile(
+        failed,
+        client,
+        fingerprint="new-generation",
+        content_fingerprint="same-evidence",
+    )
+
+    assert client.updated == [7, 7]
+    assert failed["last_fingerprint"] == "old-generation"
+    assert failed["last_content_fingerprint"] == "same-evidence"
+    assert retried["last_fingerprint"] == "new-generation"
+
+
+def test_failed_recovered_issue_refresh_retries_marker_lookup():
+    client = _RetryingUpdateClient(recovered_number=42)
+    state = {
+        "last_fingerprint": "stable-signal",
+        "last_content_fingerprint": "same-evidence",
+    }
+
+    failed = _reconcile(
+        state,
+        client,
+        fingerprint="stable-signal",
+        content_fingerprint="same-evidence",
+    )
+    retried = _reconcile(
+        failed,
+        client,
+        fingerprint="stable-signal",
+        content_fingerprint="same-evidence",
+    )
+
+    assert failed["issue"] is None
+    assert retried["issue"]["number"] == 42
+    assert client.finds == 2
+    assert client.updated == [42, 42]
 
 
 def test_reconcile_recovers_marker_owned_issue_before_opening_duplicate():
@@ -247,6 +364,34 @@ def test_same_fingerprint_stays_suppressed_until_signal_recovery():
 
     reopened = _reconcile(recovered, client, fingerprint="same")
     assert reopened["issue"]["number"] == 11
+
+
+def test_new_evidence_does_not_reopen_a_manually_closed_signal():
+    client = _SuppressionClient()
+    state = {
+        "issue": {"number": 7, "opened_at": "2026-07-28T10:00:00Z"},
+        "last_fingerprint": "stable-signal",
+        "last_content_fingerprint": "old-evidence",
+    }
+    client.state = "closed"
+
+    suppressed = _reconcile(
+        state,
+        client,
+        fingerprint="stable-signal",
+        content_fingerprint="new-evidence",
+    )
+    still_suppressed = _reconcile(
+        suppressed,
+        client,
+        fingerprint="stable-signal",
+        content_fingerprint="newer-evidence",
+    )
+
+    assert still_suppressed["issue"] is None
+    assert still_suppressed["suppressed"] is True
+    assert still_suppressed["suppressed_fingerprint"] == "stable-signal"
+    assert client.opened == []
 
 
 def test_changed_fingerprint_automatically_clears_suppression():

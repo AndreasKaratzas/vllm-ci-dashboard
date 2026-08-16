@@ -1102,11 +1102,14 @@ jobs:
                 .map(line => normalizeDiagnostic(line.replace(/^E\s*/, '')))
                 .filter(Boolean),
             )].sort();
-            const publicationFindings = [
+            const candidatePublicationFindings = [
               ...(Array.isArray(publicationState.candidate_errors)
                 ? publicationState.candidate_errors : []),
               ...(Array.isArray(publicationState.candidate_degradations)
                 ? publicationState.candidate_degradations : []),
+            ];
+            const publicationFindings = [
+              ...candidatePublicationFindings,
               ...(Array.isArray(publicationState.final_errors)
                 ? publicationState.final_errors : []),
               ...(Array.isArray(publicationState.final_degradations)
@@ -1148,11 +1151,54 @@ jobs:
                 `summary=${liveAuditSummary}`,
               ));
             }
-            const fingerprintEvidence = [...new Set([
+            const detailedFingerprintEvidence = [...new Set([
               ...normalizedFailures,
               ...normalizedDiagnostics,
               ...publicationDiagnostics,
               ...liveAuditDiagnostics,
+            ])].sort();
+            const candidatePublicationSurfaces = [...new Set(
+              candidatePublicationFindings.flatMap(finding => {
+                if (Array.isArray(finding.surfaces)) return finding.surfaces;
+                return finding.surface ? [finding.surface] : [];
+              }).map(surface => String(surface || '').trim()).filter(Boolean),
+            )].sort();
+            const selectedPublicationSurfaces = [...new Set([
+              ...(Array.isArray(publicationState.degraded_surfaces)
+                ? publicationState.degraded_surfaces : []),
+              ...forcedSurfaces.split(',').filter(Boolean),
+            ].map(surface => String(surface || '').trim()).filter(Boolean))].sort();
+            const publicationSurfaceSignals = [...new Set([
+              ...candidatePublicationSurfaces,
+              ...selectedPublicationSurfaces,
+            ])].sort();
+            const liveFailureNodes = [...new Set(
+              liveAuditOutput.split('\n').map(line => {
+                const clean = stripAnsi(line).trim();
+                const match = clean.match(/^(FAILED|ERROR)\s+(.+)$/);
+                if (!match) return null;
+                return match[2].replace(/\s+-\s+.*$/, '');
+              }).filter(Boolean),
+            )].sort();
+            const liveErrorCodes = [...new Set(
+              liveAuditFindings
+                .filter(finding => String(finding.severity || '').toLowerCase() === 'error')
+                .map(finding => String(finding.code || 'unknown')),
+            )].sort();
+            const signalEvidence = [...new Set([
+              ...(hasTestFailure
+                ? normalizedFailureNodes.map(node => `deterministic:${node}`) : []),
+              ...((selectorOutcome === 'failure' || selectorDegraded)
+                ? (publicationSurfaceSignals.length
+                  ? publicationSurfaceSignals.map(surface => `publication:${surface}`)
+                  : ['publication:unknown'])
+                : []),
+              ...(hasLiveAuditFailure
+                ? [
+                  ...liveErrorCodes.map(code => `live-audit:${code}`),
+                  ...liveFailureNodes.map(node => `live-contract:${node}`),
+                ]
+                : []),
             ])].sort();
             const summaryParts = [];
             if (selectorOutcome === 'failure' || selectorDegraded) {
@@ -1165,11 +1211,18 @@ jobs:
               summaryParts.push(`deterministic tests: ${testSummary}`);
             }
             const summary = summaryParts.join('; ') || 'hourly publication validation failed';
-            const fingerprintSource = fingerprintEvidence.join('\n') ||
+            const fingerprintSource = signalEvidence.join('\n') ||
               `validation:${normalizeDiagnostic(summary)}`;
             const fingerprint = crypto
               .createHash('sha256')
-              .update(`hourly-ci-v2\n${fingerprintSource}`)
+              .update(`hourly-ci-v3\n${fingerprintSource}`)
+              .digest('hex')
+              .slice(0, 16);
+            const previousFingerprintSource = detailedFingerprintEvidence.join('\n') ||
+              `validation:${normalizeDiagnostic(summary)}`;
+            const previousFingerprint = crypto
+              .createHash('sha256')
+              .update(`hourly-ci-v2\n${previousFingerprintSource}`)
               .digest('hex')
               .slice(0, 16);
             // Preserve discovery of issues opened by the former node-name-only
@@ -1183,8 +1236,11 @@ jobs:
               .digest('hex')
               .slice(0, 16);
             const fingerprintMarker = `<!-- hourly-ci-fingerprint:${fingerprint} -->`;
+            const previousFingerprintMarker = `<!-- hourly-ci-fingerprint:${previousFingerprint} -->`;
             const legacyFingerprintMarker = `<!-- hourly-ci-fingerprint:${legacyFingerprint} -->`;
+            const fingerprintVersionMarker = '<!-- hourly-ci-fingerprint-version:3 -->';
             const recoveryMarker = '<!-- hourly-ci-recovery-streak:0 -->';
+            const recoveredMarker = '<!-- hourly-ci-recovered -->';
             const title = `Hourly validation failure [${fingerprint.slice(0, 8)}] — ${date}`;
             const incidentKind = selectorOutcome === 'failure'
               ? 'Publication Selection Failure'
@@ -1247,34 +1303,152 @@ jobs:
               '',
               '*Auto-created by hourly-master workflow.*',
             ].join('\n');
+            const contentFingerprint = crypto
+              .createHash('sha256')
+              .update(`hourly-ci-content-v1\n${report}`)
+              .digest('hex')
+              .slice(0, 16);
+            const contentMarker = `<!-- hourly-ci-content:${contentFingerprint} -->`;
             const body = [
               ownershipMarker,
+              fingerprintVersionMarker,
               fingerprintMarker,
+              contentMarker,
               recoveryMarker,
               '',
               report,
             ].join('\n');
+            const desiredIssueBody = `${body}\n\nGitHub assignee: ${context.repo.owner}.`;
+
+            // v2 fingerprints included mutable diagnostic prose. Recover their
+            // stable signal from the structured issue report so a wording/value
+            // change can migrate the same incident without broadly matching an
+            // unrelated manually closed issue.
+            const fencedSection = (issueBody, heading, language) => {
+              const headingIndex = issueBody.indexOf(heading);
+              if (headingIndex === -1) return '';
+              const tail = issueBody.slice(headingIndex + heading.length);
+              const fence = '```' + language;
+              const fenceIndex = tail.indexOf(fence);
+              if (fenceIndex === -1) return '';
+              const contentStart = tail.indexOf('\n', fenceIndex + fence.length);
+              if (contentStart === -1) return '';
+              const contentEnd = tail.indexOf('\n```', contentStart + 1);
+              return contentEnd === -1 ? '' : tail.slice(contentStart + 1, contentEnd);
+            };
+            const jsonSection = (issueBody, heading) => {
+              const section = fencedSection(issueBody, heading, 'json');
+              if (!section) return [];
+              try {
+                const parsed = JSON.parse(section);
+                return Array.isArray(parsed) ? parsed : null;
+              } catch (error) {
+                return null;
+              }
+            };
+            const failureNodesFromOutput = (value, includeStatus) => [...new Set(
+              value.split('\n').map(line => {
+                const clean = stripAnsi(line).trim();
+                const match = clean.match(/^(FAILED|ERROR)\s+(.+)$/);
+                if (!match) return null;
+                const separator = match[2].indexOf(' - ');
+                const node = separator === -1 ? match[2] : match[2].slice(0, separator);
+                return includeStatus ? `${match[1]} ${node}` : node;
+              }).filter(Boolean),
+            )].sort();
+            const legacyStableSignalEvidence = issueBody => {
+              const evidence = [];
+              const deterministic = fencedSection(
+                issueBody, '**Failing deterministic tests:**', 'text',
+              );
+              evidence.push(...failureNodesFromOutput(deterministic, true).map(
+                node => `deterministic:${node}`,
+              ));
+
+              const degradedMatch = issueBody.match(
+                /\*\*Degraded surfaces:\*\*\s*([^\n]+)/,
+              );
+              const degraded = degradedMatch
+                ? degradedMatch[1].replace(/`/g, '').split(',')
+                  .map(surface => surface.trim())
+                  .filter(surface => surface && surface !== 'none')
+                : [];
+              const publicationRows = jsonSection(
+                issueBody, '<details><summary>Publication findings</summary>',
+              );
+              if (publicationRows === null) return null;
+              const publicationSurfaces = [...new Set([
+                ...degraded,
+                ...publicationRows.flatMap(finding => {
+                  if (!finding || typeof finding !== 'object') return [];
+                  if (Array.isArray(finding.surfaces)) return finding.surfaces;
+                  return finding.surface ? [finding.surface] : [];
+                }),
+              ].map(surface => String(surface || '').trim()).filter(Boolean))].sort();
+              const hasPublicationSignal =
+                /## (?:Publication Selection Failure|Degraded Publication)/.test(issueBody) ||
+                /\*\*Publication selector:\*\* outcome=`failure`/.test(issueBody) ||
+                publicationSurfaces.length > 0;
+              if (hasPublicationSignal) {
+                evidence.push(...(
+                  publicationSurfaces.length ? publicationSurfaces : ['unknown']
+                ).map(surface => `publication:${surface}`));
+              }
+
+              const liveRows = jsonSection(
+                issueBody,
+                '<details><summary>Live publication audit findings</summary>',
+              );
+              if (liveRows === null) return null;
+              evidence.push(...liveRows
+                .filter(finding => finding && typeof finding === 'object' &&
+                  String(finding.severity || '').toLowerCase() === 'error')
+                .map(finding => `live-audit:${String(finding.code || 'unknown')}`));
+              const liveOutput = fencedSection(
+                issueBody,
+                '<details><summary>Live publication audit output</summary>',
+                'text',
+              );
+              evidence.push(...failureNodesFromOutput(liveOutput, false).map(
+                node => `live-contract:${node}`,
+              ));
+              const stable = [...new Set(evidence)].sort();
+              return stable.length ? stable : null;
+            };
+            const sameSignalEvidence = (left, right) => left !== null &&
+              left.length === right.length &&
+              left.every((value, index) => value === right[index]);
 
             const allIssues = await github.paginate(github.rest.issues.listForRepo, {
               owner: context.repo.owner, repo: context.repo.repo,
               labels: 'ci-failure', state: 'all', per_page: 100,
             });
             const openIssues = allIssues.filter(issue => issue.state === 'open');
-            const ownedOpenIssues = openIssues.filter(issue => {
+            const ownedIssues = allIssues.filter(issue => {
               const issueBody = issue.body || '';
               return issueBody.includes(ownershipMarker) ||
                 issueBody.includes(legacySignature);
             });
             // A failed validation breaks the global recovery streak for every hourly
             // incident, even when this run has a different failure fingerprint.
-            for (const issue of ownedOpenIssues) {
+            // Closed, automatically recovered issues remain armed; closed manual
+            // suppressions only reset a partial healthy streak.
+            for (const issue of ownedIssues) {
               let resetBody = issue.body || '';
+              const closedAlreadyRecovered = issue.state === 'closed' &&
+                resetBody.includes(recoveredMarker);
+              if (closedAlreadyRecovered) continue;
+              const priorRecovery = resetBody.match(recoveryPattern);
+              const closedWithPartialRecovery = issue.state === 'closed' &&
+                priorRecovery && Number(priorRecovery[1]) > 0;
+              if (issue.state !== 'open' && !closedWithPartialRecovery) continue;
               if (!resetBody.includes(ownershipMarker)) {
                 resetBody = `${ownershipMarker}\n${resetBody}`;
               }
               resetBody = recoveryPattern.test(resetBody)
                 ? resetBody.replace(recoveryPattern, recoveryMarker)
                 : `${recoveryMarker}\n${resetBody}`;
+              resetBody = resetBody.replace(`${recoveredMarker}\n`, '');
               if (resetBody !== (issue.body || '')) {
                 await github.rest.issues.update({
                   owner: context.repo.owner, repo: context.repo.repo,
@@ -1283,18 +1457,39 @@ jobs:
                 issue.body = resetBody;
               }
             }
-            const exact = allIssues.find(issue => {
+            const suppressionRank = issue => issue.state === 'closed' &&
+              !(issue.body || '').includes(recoveredMarker) ? 0 :
+              issue.state === 'open' ? 1 : 2;
+            const incidentPreference = (left, right) =>
+              suppressionRank(left) - suppressionRank(right) ||
+              left.number - right.number;
+            const exact = allIssues.filter(issue => {
               const issueBody = issue.body || '';
               return issueBody.includes(ownershipMarker) &&
                 issueBody.includes(fingerprintMarker);
-            });
-            const previousVersion = hasTestFailure && !publicationDiagnostics.length &&
-              !liveAuditDiagnostics.length
-              ? allIssues.find(issue => {
+            }).sort(incidentPreference)[0] || null;
+            const previousVersion = allIssues.filter(issue => {
               const issueBody = issue.body || '';
               return issueBody.includes(ownershipMarker) &&
-                issueBody.includes(legacyFingerprintMarker);
-              }) : null;
+                issueBody.includes(previousFingerprintMarker);
+            }).sort(incidentPreference)[0] || null;
+            const stablePreviousVersions = allIssues.filter(issue => {
+              const issueBody = issue.body || '';
+              return issueBody.includes(ownershipMarker) &&
+                fingerprintPattern.test(issueBody) &&
+                !issueBody.includes(fingerprintVersionMarker) &&
+                sameSignalEvidence(
+                  legacyStableSignalEvidence(issueBody), signalEvidence,
+                );
+            }).sort(incidentPreference);
+            const stablePreviousVersion = stablePreviousVersions[0] || null;
+            const legacyVersion = hasTestFailure && !publicationDiagnostics.length &&
+              !liveAuditDiagnostics.length
+              ? allIssues.filter(issue => {
+                const issueBody = issue.body || '';
+                return issueBody.includes(ownershipMarker) &&
+                  issueBody.includes(legacyFingerprintMarker);
+              }).sort(incidentPreference)[0] || null : null;
             const legacy = hasTestFailure && !publicationDiagnostics.length &&
               !liveAuditDiagnostics.length &&
               normalizedFailureNodes.length ? openIssues.find(issue => {
@@ -1303,33 +1498,28 @@ jobs:
                 !issueBody.includes('<!-- hourly-ci-fingerprint:') &&
                 normalizedFailureNodes.every(failure => issueBody.includes(failure));
               }) : null;
-            const existing = exact || previousVersion || legacy;
+            const existing = exact || previousVersion || stablePreviousVersion ||
+              legacyVersion || legacy;
             if (existing) {
+              const manuallySuppressed = existing.state === 'closed' &&
+                !(existing.body || '').includes(recoveredMarker);
+              if (manuallySuppressed) {
+                console.log(
+                  `Hourly validation incident #${existing.number} was manually closed; ` +
+                  'leaving it suppressed until the signal recovers.',
+                );
+                return;
+              }
               const incidentTransition = existing.state === 'open' ? 'unchanged' : 'reopened';
-              let migratedBody = existing.body || '';
-              if (!migratedBody.includes(ownershipMarker)) {
-                migratedBody = `${ownershipMarker}\n${migratedBody}`;
-              }
-              if (fingerprintPattern.test(migratedBody)) {
-                migratedBody = migratedBody.replace(fingerprintPattern, fingerprintMarker);
-              } else {
-                migratedBody = `${fingerprintMarker}\n${migratedBody}`;
-              }
-              if (recoveryPattern.test(migratedBody)) {
-                migratedBody = migratedBody.replace(recoveryPattern, recoveryMarker);
-              } else {
-                migratedBody = `${recoveryMarker}\n${migratedBody}`;
-              }
-              if (migratedBody !== (existing.body || '')) {
+              const evidenceChanged = !(existing.body || '').includes(contentMarker) ||
+                (existing.body || '') !== desiredIssueBody || existing.title !== title;
+              if (evidenceChanged || incidentTransition === 'reopened') {
                 await github.rest.issues.update({
                   owner: context.repo.owner, repo: context.repo.repo,
-                  issue_number: existing.number, body: migratedBody,
+                  issue_number: existing.number,
+                  title,
+                  body: desiredIssueBody,
                   ...(incidentTransition === 'reopened' ? {state: 'open'} : {}),
-                });
-              } else if (incidentTransition === 'reopened') {
-                await github.rest.issues.update({
-                  owner: context.repo.owner, repo: context.repo.repo,
-                  issue_number: existing.number, state: 'open',
                 });
               }
               if (incidentTransition === 'reopened') {
@@ -1355,7 +1545,7 @@ jobs:
               await github.rest.issues.create({
                 owner: context.repo.owner, repo: context.repo.repo,
                 title,
-                body: `${body}\n\nGitHub assignee: ${context.repo.owner}.`,
+                body: desiredIssueBody,
                 labels: ['ci-failure', 'automated', 'workstream:dashboard-ci'],
                 assignees: [context.repo.owner],
               });
@@ -1376,10 +1566,11 @@ jobs:
             const ownershipMarker = '<!-- ci-failure-owner:hourly-master -->';
             const legacySignature = '*Auto-created by hourly-master workflow.*';
             const recoveryPattern = /<!-- hourly-ci-recovery-streak:(\d+) -->/;
+            const recoveredMarker = '<!-- hourly-ci-recovered -->';
             const requiredRecoveryRuns = 2;
             const issues = await github.paginate(github.rest.issues.listForRepo, {
               owner: context.repo.owner, repo: context.repo.repo,
-              labels: 'ci-failure', state: 'open', per_page: 100,
+              labels: 'ci-failure', state: 'all', per_page: 100,
             });
             const ownedIssues = issues.filter(issue => {
               const body = issue.body || '';
@@ -1387,6 +1578,7 @@ jobs:
             });
             for (const issue of ownedIssues) {
               const body = issue.body || '';
+              if (issue.state === 'closed' && body.includes(recoveredMarker)) continue;
               const match = body.match(recoveryPattern);
               const recoveryStreak = match ? Number(match[1]) : 0;
               const nextRecoveryStreak = recoveryStreak + 1;
@@ -1402,7 +1594,24 @@ jobs:
                   owner: context.repo.owner, repo: context.repo.repo,
                   issue_number: issue.number, body: nextBody,
                 });
-                console.log(`Issue #${issue.number} has one successful recovery run; leaving it open.`);
+                console.log(
+                  `Issue #${issue.number} has one successful recovery run; ` +
+                  'leaving its current state unchanged.',
+                );
+                continue;
+              }
+              const recoveredBody = nextBody.includes(recoveredMarker)
+                ? nextBody
+                : `${recoveredMarker}\n${nextBody}`;
+              if (issue.state === 'closed') {
+                await github.rest.issues.update({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: issue.number, body: recoveredBody,
+                });
+                console.log(
+                  `Manually closed issue #${issue.number} recovered in ` +
+                  `${requiredRecoveryRuns} consecutive runs; recurrence is rearmed.`,
+                );
                 continue;
               }
               await github.rest.issues.createComment({
@@ -1412,7 +1621,7 @@ jobs:
               });
               await github.rest.issues.update({
                 owner: context.repo.owner, repo: context.repo.repo,
-                issue_number: issue.number, body: nextBody, state: 'closed',
+                issue_number: issue.number, body: recoveredBody, state: 'closed',
               });
             }
 

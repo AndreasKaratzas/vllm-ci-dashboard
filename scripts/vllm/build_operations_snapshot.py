@@ -18,6 +18,13 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vllm.constants import is_excluded_queue  # noqa: E402
+from vllm.ci.incident_transitions import (  # noqa: E402
+    INCIDENT_TRANSITION_POLICY_ID,
+    SOFT_CONFIRMATION_BUILDS,
+    advance_incident,
+    completed_build_eligibility,
+)
+from vllm.ci.reliability_history import collapse_nightly_attempts  # noqa: E402
 from vllm.collect_gating_target_candidates import hardware_fold_key  # noqa: E402
 
 
@@ -258,51 +265,60 @@ def _group_identity(job: dict) -> str:
     return str(job.get("raw_name") or job.get("name") or "unknown")
 
 
-def _group_row(pipeline: str, build: dict, job: dict, state: str) -> dict:
+def _group_row(
+    pipeline: str,
+    build: dict,
+    job: dict,
+    state: str,
+    identity: dict[str, str],
+    group_id: str,
+) -> dict:
     raw_name = _group_identity(job)
     row = {
+        "group_id": group_id,
         "name": raw_name,
         "state": state,
         "url": _job_url(pipeline, build, job),
         "source_pipeline": pipeline,
         "build_number": build.get("number") or build.get("build_number"),
+        "step_key": identity["step_key"],
+        "hardware": identity["hardware"],
+        "queue": identity["queue"],
     }
     display_name = str(job.get("name") or "")
     if display_name and display_name != raw_name:
         row["display_name"] = display_name
-    if job.get("q"):
-        row["queue"] = job["q"]
     return row
 
 
-def _failed_group_maps(pipeline: str, build: dict) -> tuple[dict[str, dict], dict[str, dict]]:
-    hard: dict[str, dict] = {}
-    soft: dict[str, dict] = {}
-    for job in build.get("jobs") or []:
-        state = str(job.get("state") or "").lower()
-        key = _group_identity(job)
-        if state in SOFT_FAILED_STATES or job.get("soft_failed"):
-            soft[key] = _group_row(pipeline, build, job, "soft_failed")
-        elif state in FAILED_STATES:
-            hard[key] = _group_row(pipeline, build, job, "failed")
-    return hard, soft
-
-
-def _terminal_group_states(build: dict) -> dict[str, str]:
-    """Return observed terminal outcomes without treating absence as success."""
-    states: dict[str, str] = {}
-    for job in build.get("jobs") or []:
-        state = _historical_state(job)
-        if state == "unknown":
-            continue
-        key = _group_identity(job)
-        previous = states.get(key)
-        if previous in {"hard", "soft"} and state == "passed":
-            retry = _retry_evidence(job)
-            states[key] = "passed" if retry else previous
-        elif previous != "hard" or state == "hard":
-            states[key] = state
-    return states
+def _nightly_group_observations(
+    pipeline: str,
+    build: dict,
+) -> dict[str, tuple[str, dict]]:
+    """Collapse terminal attempts to one eligible outcome per strict group."""
+    observations: dict[str, tuple[str, dict]] = {}
+    for group_id, selected in collapse_nightly_attempts(
+        build.get("jobs") or [], pipeline
+    ).items():
+        outcome = selected["outcome"]
+        display_state = {
+            "hard": "failed",
+            "soft": "soft_failed",
+            "passed": "passed",
+            "indeterminate": str(selected["job"].get("state") or "indeterminate"),
+        }[outcome]
+        observations[group_id] = (
+            outcome,
+            _group_row(
+                pipeline,
+                build,
+                selected["job"],
+                display_state,
+                selected["identity"],
+                group_id,
+            ),
+        )
+    return observations
 
 
 def _nightly_pipeline(pipeline: str, analytics: dict, health: dict | None = None) -> dict:
@@ -325,6 +341,7 @@ def _nightly_pipeline(pipeline: str, analytics: dict, health: dict | None = None
         source_builds_by_number[latest_pipeline_number] = {
             "number": latest_pipeline_number,
             "created_at": latest_pipeline.get("created_at") or "",
+            "finished_at": latest_pipeline.get("finished_at") or "",
             "state": latest_pipeline.get("state") or "unknown",
             "commit": latest_pipeline.get("commit") or "",
             "message": latest_pipeline.get("message") or "",
@@ -333,37 +350,107 @@ def _nightly_pipeline(pipeline: str, analytics: dict, health: dict | None = None
         }
     source_builds = sorted(
         source_builds_by_number.values(),
-        key=lambda build: str(build.get("created_at") or build.get("date") or ""),
+        key=lambda build: (
+            str(build.get("created_at") or build.get("date") or ""),
+            int(build.get("number") or build.get("build_number") or 0),
+        ),
         reverse=True,
     )
-    rows = []
-    for index, build in enumerate(source_builds[:NIGHTLY_BUILD_LIMIT]):
+    rows: list[dict] = []
+    incident_states: dict[str, dict] = {}
+    incident_refs: dict[str, dict] = {}
+    previous_eligible_build: dict | None = None
+    for build in reversed(source_builds):
         build_number = _strict_int(build.get("number") or build.get("build_number"))
+        transition_eligible, ineligible_reason = completed_build_eligibility(build)
         health_build = health_builds.get(build_number) or {}
         has_test_results = bool(
             health_build.get("has_test_results")
             if "has_test_results" in health_build
             else build.get("jobs")
         )
-        hard, soft = _failed_group_maps(pipeline, build)
-        current = {**hard, **soft}
-        current_states = _terminal_group_states(build)
-        previous_build = source_builds[index + 1] if index + 1 < len(source_builds) else None
-        previous: dict[str, dict] = {}
-        if previous_build:
-            previous_hard, previous_soft = _failed_group_maps(pipeline, previous_build)
-            previous = {**previous_hard, **previous_soft}
+        observations = _nightly_group_observations(pipeline, build)
+        hard = {
+            key: ref for key, (outcome, ref) in observations.items()
+            if outcome == "hard"
+        }
+        soft = {
+            key: ref for key, (outcome, ref) in observations.items()
+            if outcome == "soft"
+        }
+        buckets: dict[str, list[dict]] = {
+            "new": [],
+            "recurring": [],
+            "fixed": [],
+            "pending_soft": [],
+            "not_observed": [],
+            "indeterminate": [],
+        }
+        active_keys = {
+            key for key, state in incident_states.items()
+            if state.get("status") in {"pending_soft", "confirmed"}
+        }
+        for key in sorted(set(observations) | active_keys):
+            observed_outcome, current_ref = observations.get(key, ("absent", {}))
+            outcome = observed_outcome if transition_eligible else "indeterminate"
+            previous_ref = incident_refs.get(key) or {}
+            decision = advance_incident(
+                incident_states.get(key), outcome, build_number
+            )
+            next_state = decision["state"]
+            classification = decision["classification"]
 
-        new_keys = sorted(current.keys() - previous.keys()) if previous_build else []
-        recurring_keys = sorted(current.keys() & previous.keys()) if previous_build else []
-        fixed_keys = sorted(
-            key for key in previous
-            if current_states.get(key) == "passed"
-        ) if previous_build else []
-        unobserved_keys = sorted(
-            key for key in previous
-            if key not in current and key not in fixed_keys
-        ) if previous_build else []
+            if classification == "none":
+                pass
+            elif classification == "fixed":
+                buckets[classification].append({
+                    **previous_ref,
+                    "current_state": "passed",
+                    "current_url": current_ref.get("url") or "",
+                    "transition_change": decision["change"],
+                    "transition_eligible": transition_eligible,
+                })
+            else:
+                held_indeterminate = (
+                    decision["change"] == "held"
+                    and decision["outcome"] == "indeterminate"
+                )
+                ref = previous_ref if held_indeterminate else (
+                    current_ref if current_ref else previous_ref
+                )
+                row = {
+                    **ref,
+                    "incident_status": next_state["status"],
+                    "current_severity": next_state["severity"],
+                    "peak_severity": next_state["peak_severity"],
+                    "soft_streak": next_state["soft_streak"],
+                    "confirmation_threshold": SOFT_CONFIRMATION_BUILDS,
+                    "transition_change": decision["change"],
+                    "transition_eligible": transition_eligible,
+                }
+                if held_indeterminate and current_ref:
+                    row["current_indeterminate_evidence"] = dict(current_ref)
+                if not current_ref:
+                    row["observed_in_current_build"] = False
+                if ineligible_reason:
+                    row["transition_ineligible_reason"] = ineligible_reason
+                buckets[classification].append(row)
+
+            if next_state["status"] == "clear":
+                incident_states.pop(key, None)
+                incident_refs.pop(key, None)
+            else:
+                incident_states[key] = next_state
+                if transition_eligible and observed_outcome in {"hard", "soft"}:
+                    incident_refs[key] = current_ref
+
+        for transition_rows in buckets.values():
+            transition_rows.sort(key=lambda row: (
+                str(row.get("name") or "").casefold(),
+                str(row.get("hardware") or ""),
+                str(row.get("queue") or ""),
+                str(row.get("group_id") or ""),
+            ))
         rows.append({
             "number": build_number,
             "source_pipeline": pipeline,
@@ -377,29 +464,51 @@ def _nightly_pipeline(pipeline: str, analytics: dict, health: dict | None = None
                 if has_test_results else 0
             ),
             "has_test_results": has_test_results,
+            "transition_eligible": transition_eligible,
+            "transition_ineligible_reason": ineligible_reason or None,
             "test_job_count": int(health_build.get("test_job_count") or 0),
             "test_jobs_blocked": int(health_build.get("test_jobs_blocked") or 0),
-            "failed_groups": [hard[key] for key in sorted(hard)],
-            "soft_failed_groups": [soft[key] for key in sorted(soft)],
-            "transitions": {
-                "preceding_build_number": (
-                    previous_build.get("number") or previous_build.get("build_number")
-                    if previous_build else None
+            "failed_groups": sorted(
+                hard.values(),
+                key=lambda row: (
+                    str(row.get("name") or "").casefold(),
+                    str(row.get("hardware") or ""),
+                    str(row.get("queue") or ""),
+                    str(row.get("group_id") or ""),
                 ),
-                "new": [current[key] for key in new_keys],
-                "recurring": [current[key] for key in recurring_keys],
-                "fixed": [previous[key] for key in fixed_keys],
-                "not_observed": [previous[key] for key in unobserved_keys],
+            ),
+            "soft_failed_groups": sorted(
+                soft.values(),
+                key=lambda row: (
+                    str(row.get("name") or "").casefold(),
+                    str(row.get("hardware") or ""),
+                    str(row.get("queue") or ""),
+                    str(row.get("group_id") or ""),
+                ),
+            ),
+            "transitions": {
+                "policy_id": INCIDENT_TRANSITION_POLICY_ID,
+                "preceding_build_number": (
+                    previous_eligible_build.get("number")
+                    or previous_eligible_build.get("build_number")
+                    if previous_eligible_build
+                    else None
+                ),
+                **buckets,
             },
         })
+        if transition_eligible:
+            previous_eligible_build = build
+    rows.reverse()
     return {
         "pipeline": pipeline,
+        "transition_policy_id": INCIDENT_TRANSITION_POLICY_ID,
         "display_name": analytics.get("display_name") or pipeline,
         "role": "canonical_nightly_comparison" if pipeline == "amd-ci" else "upstream_parity",
         "history_window_days": min(int(analytics.get("days") or NIGHTLY_BUILD_LIMIT), NIGHTLY_BUILD_LIMIT),
         "history_limit": NIGHTLY_BUILD_LIMIT,
         "builds_available": len(source_builds),
-        "builds": rows,
+        "builds": rows[:NIGHTLY_BUILD_LIMIT],
     }
 
 
@@ -6262,10 +6371,13 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
     pipeline_blocks = [amd_nightly, upstream_parity]
     nightly = {
         "primary_pipeline": "amd-ci",
+        "transition_policy_id": INCIDENT_TRANSITION_POLICY_ID,
         "pipeline_order": ["amd-ci", "ci"],
         "history_window_days": NIGHTLY_BUILD_LIMIT,
         "transition_basis": (
-            "exact failed and soft-failed job variants versus the preceding nightly"
+            "oldest-to-newest confirmed-incident replay: hard failures confirm "
+            "immediately; soft failures confirm after two distinct eligible completed "
+            "builds; passes resolve; absent and indeterminate observations hold state"
         ),
         "canonical_history": amd_nightly,
         "upstream_parity": upstream_parity,

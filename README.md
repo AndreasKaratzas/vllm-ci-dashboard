@@ -66,7 +66,7 @@ Buildkite-native p50/p95 remain the site-comparable queue series. Percentiles re
 | `scripts/vllm/collect_capacity_monitor.py` | AMD queue capacity limits plus mirror test-group dependency projections |
 | `scripts/vllm/build_operations_snapshot.py` | Build the versioned operations manifest and lazy CI Health, Queue, and Omni read-model shards |
 | `scripts/vllm/build_queue_section.py` | Build only the live Queue read-model shard for the independent queue publisher |
-| `scripts/vllm/ci_area_regression_watcher.py` | Reconcile one dashboard-repository issue per regressing test area using the ranked owner chain, regional working hours, and exact AMD evidence |
+| `scripts/vllm/ci_area_regression_watcher.py` | Reconcile one dashboard-repository issue per test area with confirmed incidents using the ranked owner chain, regional working hours, and exact AMD evidence |
 | `scripts/vllm/sync_ci_operations_project.py` | Add open managed dashboard issues to the single AMD CI Operations Project by workstream |
 | `scripts/vllm/ensure_ci_operations_labels.py` | Ensure the managed-issue and Project workstream labels exist before any watcher runs |
 | `scripts/vllm/audit_dashboard_data.py` | Cross-surface audit for data totals, frontend assumptions, links, and deploy safety |
@@ -110,21 +110,25 @@ Runtime target results follow a fail-closed identity chain: exact build-pinned
 AMD matrix labels first, then current upstream-to-AMD definition-parity aliases.
 Only reviewed labels ending in `%N` may absorb numbered runtime shards; unrelated
 numeric suffixes and GPU counts remain distinct. Colliding matrix rows are merged
-with hard/soft incidents taking precedence over passes, while retaining every
+with hard/soft failure observations taking precedence over passes, while retaining every
 exact Buildkite link. A target with no selected result is classified separately
 as lacking a one-to-one AMD definition, mapping review, ambiguous, or defined but not observed;
 the CI Health drawer shows that reason, the matched AMD labels, and source-commit
 alignment.
 
-### CI ownership and regression issues
+### CI ownership and confirmed incident issues
 
 [`config/vllm_ci_ownership.json`](config/vllm_ci_ownership.json) is the
 authoritative 31-area primary/secondary/tertiary rotation. The hourly workflow
 evaluates every exact AMD matrix definition, attributes each definition through
 a parity snapshot pinned to that nightly's exact vLLM commit, and reconciles one state-owned issue
-per area in `AndreasKaratzas/vllm-ci-dashboard`. Current regressions, exact
-Buildkite evidence, upstream parity gaps, the ranked chain, and the actual
-GitHub assignees are shown in **Ready Tickets → CI ownership**.
+per area in `AndreasKaratzas/vllm-ci-dashboard`. Hard failures confirm
+immediately. A soft failure stays visible as a pending observation and becomes
+a confirmed incident only after the same strict target soft-fails on two
+distinct completed builds. An explicit pass resolves the state; an absent or
+indeterminate observation holds it. Confirmed incidents, pending soft evidence,
+upstream parity gaps, the ranked chain, and the actual GitHub assignees are
+shown in **Ready Tickets → CI ownership**.
 
 The ownership config carries two shared, DST-aware working-hours profiles.
 They are operational shifts, not claims about an engineer's home location. EU
@@ -142,7 +146,7 @@ hours. If every ranked owner is outside working hours, or a schedule cannot be
 evaluated safely, assignment falls back to the CI lead. The watcher also verifies
 that the selected login can be assigned in this repository; otherwise it
 assigns the CI lead. If neither account is verifiably assignable, the watcher
-refuses to open an unassigned issue. Each regression issue tags the selected
+refuses to open an unassigned issue. Each confirmed-incident issue tags the selected
 owner and verified assignee, then CCs every remaining ranked area owner exactly
 once. No issue can be opened outside the dashboard repository.
 

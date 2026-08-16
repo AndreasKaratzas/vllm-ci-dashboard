@@ -625,6 +625,10 @@ class TestHourlyMasterWorkflow:
         assert "steps.publication-selector.outcome == 'success'" in condition
         assert "steps.publication-selector.outputs.degraded == 'false'" in condition
         assert "always()" not in condition
+        assert "<!-- hourly-ci-recovered -->" in close["with"]["script"]
+        assert "body: recoveredBody" in close["with"]["script"]
+        assert "labels: 'ci-failure', state: 'all'" in close["with"]["script"]
+        assert "if (issue.state === 'closed')" in close["with"]["script"]
 
     def test_failure_issues_use_exact_fingerprints_and_migrate_legacy_issues(self):
         data = _load_workflow("hourly-master.yml")
@@ -658,22 +662,77 @@ class TestHourlyMasterWorkflow:
         assert "liveAuditDiagnostics" in script
         assert "Live publication audit findings" in script
         assert "Failing deterministic tests" in script
-        assert "validation:${normalizeDiagnostic(summary)}" in script
-        assert "hourly-ci-v2\\n${fingerprintSource}" in script
+        assert "deterministic:${node}" in script
+        assert "publication:${surface}" in script
+        assert "live-audit:${code}" in script
+        assert "live-contract:${node}" in script
+        assert "hourly-ci-v3\\n${fingerprintSource}" in script
+        assert "hourly-ci-v2\\n${previousFingerprintSource}" in script
+        assert "<!-- hourly-ci-fingerprint-version:3 -->" in script
+        assert "was manually closed" in script
+        assert "leaving it suppressed until the signal recovers" in script
         assert ".replace(/\\b\\d+(?:\\.\\d+)?\\b/g, '<number>')" in script
         assert "github.paginate(github.rest.issues.listForRepo" in script
         assert "labels: 'ci-failure', state: 'all'" in script
-        assert "allIssues.find" in script
+        assert "allIssues.filter" in script
+        assert ".sort(incidentPreference)[0] || null" in script
+        assert "previousFingerprintMarker" in script
         assert "legacyFingerprintMarker" in script
-        assert "const existing = exact || previousVersion || legacy" in script
-        assert "migratedBody.replace(fingerprintPattern, fingerprintMarker)" in script
+        assert "stablePreviousVersion" in script
+        assert "legacyVersion || legacy" in script
         assert "issueBody.includes(ownershipMarker)" in script
         assert "issueBody.includes(fingerprintMarker)" in script
         assert "*Auto-created by hourly-master workflow.*" in script
-        assert "for (const issue of ownedOpenIssues)" in script
+        assert "for (const issue of ownedIssues)" in script
+        assert "const closedAlreadyRecovered" in script
+        assert "const closedWithPartialRecovery" in script
+        assert "Number(priorRecovery[1]) > 0" in script
+        assert "issue.state !== 'open' && !closedWithPartialRecovery" in script
         assert "resetBody.replace(recoveryPattern, recoveryMarker)" in script
-        assert "migratedBody.replace(recoveryPattern, recoveryMarker)" in script
         assert "existing.data[0]" not in script
+
+    def test_hourly_v2_migration_requires_exact_stable_report_evidence(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        create = next(
+            step
+            for step in steps
+            if step.get("name") == "Create hourly validation incident"
+        )
+        script = create["with"]["script"]
+
+        assert "const legacyStableSignalEvidence = issueBody =>" in script
+        assert "**Failing deterministic tests:**" in script
+        assert "<details><summary>Publication findings</summary>" in script
+        assert "<details><summary>Live publication audit findings</summary>" in script
+        assert "<details><summary>Live publication audit output</summary>" in script
+        assert "const sameSignalEvidence = (left, right) => left !== null" in script
+        assert "left.length === right.length" in script
+        assert "left.every((value, index) => value === right[index])" in script
+        assert "!issueBody.includes(fingerprintVersionMarker)" in script
+        assert "legacyStableSignalEvidence(issueBody), signalEvidence" in script
+        # If duplicate legacy issues exist, a manual close wins the migration
+        # choice so an unrelated open/recovered duplicate cannot bypass it.
+        assert "const suppressionRank = issue => issue.state === 'closed'" in script
+
+    def test_hourly_open_issue_refreshes_evidence_without_notification_churn(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        create = next(
+            step
+            for step in steps
+            if step.get("name") == "Create hourly validation incident"
+        )
+        script = create["with"]["script"]
+
+        assert "hourly-ci-content-v1\\n${report}" in script
+        assert "<!-- hourly-ci-content:${contentFingerprint} -->" in script
+        assert "const evidenceChanged =" in script
+        assert "body: desiredIssueBody" in script
+        assert "title," in script
+        assert script.index("if (manuallySuppressed)") < script.index(
+            "const evidenceChanged ="
+        )
 
     def test_unchanged_hourly_failure_suppresses_duplicate_notification(self):
         data = _load_workflow("hourly-master.yml")
@@ -711,7 +770,17 @@ class TestHourlyMasterWorkflow:
         assert "issues.filter" in script
         assert "body.includes(ownershipMarker) || body.includes(legacySignature)" in script
         assert "nextRecoveryStreak < requiredRecoveryRuns" in script
-        assert "issue_number: issue.number, body: nextBody, state: 'closed'" in script
+        assert "const recoveredBody = nextBody.includes(recoveredMarker)" in script
+        assert "issue_number: issue.number, body: recoveredBody, state: 'closed'" in script
+        closed_recovered = (
+            "if (issue.state === 'closed' && body.includes(recoveredMarker)) continue"
+        )
+        closed_rearm = "if (issue.state === 'closed')"
+        assert closed_recovered in script
+        assert script.index(closed_recovered) < script.index(
+            "nextRecoveryStreak < requiredRecoveryRuns"
+        ) < script.index(closed_rearm)
+        assert "recurrence is rearmed" in script
         assert "for (const issue of issues.data)" not in script
 
     def test_final_main_publication_retries_push_races_and_fails_closed(self):

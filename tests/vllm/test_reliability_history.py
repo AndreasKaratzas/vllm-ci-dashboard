@@ -6,8 +6,13 @@ import copy
 from datetime import datetime, timedelta, timezone
 
 from vllm import collect_analytics as ca
+from vllm.ci.incident_transitions import (
+    INCIDENT_TRANSITION_POLICY_ID,
+    advance_incident,
+)
 from vllm.ci.reliability_history import (
     build_all_main_reliability,
+    collapse_nightly_attempts,
     compact_main_builds,
     compute_nightly_change_history,
     validate_all_main_reliability,
@@ -489,7 +494,9 @@ def test_nightly_fixed_requires_current_pass_and_preserves_both_links():
 
     previous = {
         "number": 901,
+        "state": "failed",
         "created_at": "2026-04-20T09:00:00Z",
+        "finished_at": "2026-04-20T10:00:00Z",
         "web_url": "https://buildkite.com/vllm/amd-ci/builds/901",
         "jobs": [
             nightly_job("Actually Fixed", "failed", "901/steps/failure"),
@@ -499,7 +506,9 @@ def test_nightly_fixed_requires_current_pass_and_preserves_both_links():
     }
     current = {
         "number": 902,
+        "state": "passed",
         "created_at": "2026-04-21T09:00:00Z",
+        "finished_at": "2026-04-21T10:00:00Z",
         "web_url": "https://buildkite.com/vllm/amd-ci/builds/902",
         "jobs": [
             nightly_job("Actually Fixed", "passed", "902/steps/pass"),
@@ -514,6 +523,231 @@ def test_nightly_fixed_requires_current_pass_and_preserves_both_links():
     assert row["fixed"][0]["previous_url"].endswith("901/steps/failure")
     assert [item["name"] for item in row["not_observed"]] == ["Missing Now"]
     assert [item["name"] for item in row["indeterminate"]] == ["Indeterminate Now"]
+    held = row["indeterminate"][0]
+    assert held["state"] == "failed"
+    assert held["build_number"] == 901
+    assert held["url"].endswith("901/steps/unknown")
+    assert held["current_indeterminate_evidence"]["state"] == "skipped"
+    assert held["current_indeterminate_evidence"]["build_number"] == 902
+    assert held["current_indeterminate_evidence"]["url"].endswith(
+        "902/steps/unknown"
+    )
+    assert row["policy_id"] == INCIDENT_TRANSITION_POLICY_ID
+
+
+def test_soft_confirmation_requires_two_verifiable_distinct_builds():
+    decision = advance_incident(None, "soft", None)
+    assert decision["classification"] == "pending_soft"
+    assert decision["state"]["soft_streak"] == 0
+
+    decision = advance_incident(decision["state"], "soft", None)
+    assert decision["state"]["soft_streak"] == 0
+
+    decision = advance_incident(decision["state"], "soft", 1001)
+    assert decision["classification"] == "pending_soft"
+    assert decision["state"]["soft_streak"] == 1
+
+    decision = advance_incident(decision["state"], "soft", "1001")
+    assert decision["classification"] == "pending_soft"
+    assert decision["state"]["soft_streak"] == 1
+
+    decision = advance_incident(decision["state"], "soft", 1002)
+    assert decision["classification"] == "new"
+    assert decision["change"] == "confirmed"
+    assert decision["state"]["status"] == "confirmed"
+
+
+def test_missing_id_pending_soft_uses_hard_build_as_incident_generation():
+    pending = advance_incident(None, "soft", None)
+
+    hard = advance_incident(pending["state"], "hard", 1001)
+
+    assert hard["classification"] == "new"
+    assert hard["state"]["status"] == "confirmed"
+    assert hard["state"]["incident_start_build_id"] == 1001
+    assert hard["state"]["confirmed_build_id"] == 1001
+
+
+def test_retry_final_attempt_is_order_independent_with_original_only_linkage():
+    original = _job(
+        "retry-original",
+        "mi300_1: Linked Retry",
+        "failed",
+        retried_in_job_id="retry-final",
+    )
+    final = _job(
+        "retry-final",
+        "mi300_1: Linked Retry",
+        "passed",
+        minute=30,
+    )
+
+    for attempts in ([original, final], [final, original]):
+        selected = next(iter(collapse_nightly_attempts(attempts).values()))
+        assert selected["outcome"] == "passed"
+        assert selected["job"]["id"] == "retry-final"
+
+        row = compute_nightly_change_history([_build(1150, attempts)])[0]
+        assert row["new"] == []
+        assert row["pending_soft"] == []
+
+
+def test_nightly_hysteresis_does_not_merge_queue_or_step_variants():
+    name = "mi300_1: Strict signal"
+    builds = [
+        _build(1161, [
+            _job(
+                "variant-queue-one",
+                name,
+                "soft_fail",
+                queue="amd_mi300_1",
+                step_key="strict-step",
+                soft_failed=True,
+            )
+        ], hour_offset=1),
+        _build(1162, [
+            _job(
+                "variant-queue-two",
+                name,
+                "soft_fail",
+                queue="amd_mi300_2",
+                step_key="strict-step",
+                soft_failed=True,
+            )
+        ], hour_offset=2),
+        _build(1163, [
+            _job(
+                "variant-step",
+                name,
+                "soft_fail",
+                queue="amd_mi300_2",
+                step_key="other-step",
+                soft_failed=True,
+            )
+        ], hour_offset=3),
+    ]
+
+    newest = compute_nightly_change_history(builds)[0]
+
+    assert newest["new"] == []
+    assert len(newest["pending_soft"]) == 3
+    assert {row["soft_streak"] for row in newest["pending_soft"]} == {1}
+    assert len({row["group_id"] for row in newest["pending_soft"]}) == 3
+
+
+def test_nonterminal_and_unfinished_builds_hold_soft_state_and_evidence():
+    name = "mi300_1: Eligibility hold"
+
+    def soft_build(number: int, hour: int) -> dict:
+        return _build(number, [
+            _job(
+                f"eligibility-{number}",
+                name,
+                "soft_fail",
+                soft_failed=True,
+            )
+        ], hour_offset=hour)
+
+    first = soft_build(1171, 1)
+    running = soft_build(1172, 2)
+    running["state"] = "running"
+    unfinished = soft_build(1173, 3)
+    unfinished["finished_at"] = None
+    final = soft_build(1174, 4)
+
+    history = compute_nightly_change_history([final, unfinished, running, first])
+    rows = {row["build_number"]: row for row in history}
+
+    running_row = rows[1172]
+    assert running_row["transition_eligible"] is False
+    assert running_row["transition_ineligible_reason"] == "build_state_not_completed"
+    assert running_row["preceding_build_number"] == 1171
+    running_pending = running_row["pending_soft"][0]
+    assert running_pending["soft_streak"] == 1
+    assert running_pending["build_number"] == 1171
+    assert running_pending["state"] == "soft_fail"
+    assert running_pending["current_indeterminate_evidence"]["build_number"] == 1172
+
+    unfinished_row = rows[1173]
+    assert unfinished_row["transition_eligible"] is False
+    assert unfinished_row["transition_ineligible_reason"] == "finished_at_missing"
+    assert unfinished_row["preceding_build_number"] == 1171
+    assert unfinished_row["pending_soft"][0]["soft_streak"] == 1
+    assert unfinished_row["pending_soft"][0]["build_number"] == 1171
+    assert (
+        unfinished_row["pending_soft"][0]["current_indeterminate_evidence"][
+            "build_number"
+        ]
+        == 1173
+    )
+
+    assert rows[1174]["new"][0]["soft_streak"] == 2
+    assert rows[1174]["new"][0]["transition_change"] == "confirmed"
+    assert rows[1174]["preceding_build_number"] == 1171
+
+
+def test_incident_policy_holds_unobserved_state_and_tracks_severity_changes():
+    pending = advance_incident(None, "soft_fail", 1101)
+    held = advance_incident(pending["state"], "absent", 1102)
+    assert held["classification"] == "pending_soft"
+    assert held["state"] == pending["state"]
+
+    cleared = advance_incident(held["state"], "passed", 1103)
+    assert cleared["classification"] == "none"
+    assert cleared["change"] == "pending_cleared"
+    assert cleared["state"]["status"] == "clear"
+
+    hard = advance_incident(cleared["state"], "failed", 1104)
+    assert hard["classification"] == "new"
+    assert hard["state"]["peak_severity"] == "hard"
+
+    indeterminate = advance_incident(hard["state"], "skipped", 1105)
+    assert indeterminate["classification"] == "indeterminate"
+    assert indeterminate["state"] == hard["state"]
+
+    softened = advance_incident(indeterminate["state"], "soft", 1106)
+    assert softened["classification"] == "recurring"
+    assert softened["change"] == "deescalated"
+    assert softened["state"]["severity"] == "soft"
+    assert softened["state"]["peak_severity"] == "hard"
+
+    escalated = advance_incident(softened["state"], "hard", 1107)
+    assert escalated["classification"] == "recurring"
+    assert escalated["change"] == "escalated"
+
+    fixed = advance_incident(escalated["state"], "passed", 1108)
+    assert fixed["classification"] == "fixed"
+    assert fixed["state"]["status"] == "clear"
+
+
+def test_nightly_history_replays_oldest_first_with_soft_hysteresis():
+    def nightly(number: int, hour: int, state: str | None) -> dict:
+        jobs = [] if state is None else [
+            _job(
+                f"nightly-{number}",
+                "mi300_1: Hysteresis",
+                state,
+                soft_failed=state == "soft_fail",
+            )
+        ]
+        return _build(number, jobs, hour_offset=hour)
+
+    rows = compute_nightly_change_history([
+        nightly(1205, 5, "passed"),
+        nightly(1203, 3, "soft_fail"),
+        nightly(1201, 1, "soft_fail"),
+        nightly(1204, 4, "failed"),
+        nightly(1202, 2, None),
+    ])
+    by_number = {row["build_number"]: row for row in rows}
+
+    assert by_number[1201]["new"] == []
+    assert by_number[1201]["pending_soft"][0]["soft_streak"] == 1
+    assert by_number[1202]["pending_soft"][0]["observed_in_current_build"] is False
+    assert by_number[1203]["new"][0]["transition_change"] == "confirmed"
+    assert by_number[1203]["new"][0]["soft_streak"] == 2
+    assert by_number[1204]["recurring"][0]["transition_change"] == "escalated"
+    assert by_number[1205]["fixed"][0]["previous_state"] == "failed"
 
 
 def test_schema_reports_cohort_window_denominator_source_and_deterministic_order():

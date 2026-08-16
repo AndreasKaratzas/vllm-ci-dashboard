@@ -28,6 +28,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vllm.constants import BK_API_BASE, BK_ORG  # noqa: E402
+from vllm.ci.incident_transitions import INCIDENT_TRANSITION_POLICY_ID  # noqa: E402
 from vllm.ci.utils import (  # noqa: E402
     duration_mins,
     parse_iso as parse_ts,
@@ -517,6 +518,7 @@ def load_test_result_builds(output: Path, pipeline_slug: str, days: int, buildki
             "number": build_number,
             "state": build_state,
             "created_at": created,
+            "finished_at": meta.get("finished_at") or "",
             "date": bucket["date"] or nightly_date(created),
             "message": meta.get("message") or "nightly",
             "branch": meta.get("branch") or "main",
@@ -1339,12 +1341,16 @@ def main():
         failure_ranking = sorted(job_rankings, key=lambda x: x["fail_rate"], reverse=True)
         duration_ranking = sorted(job_rankings, key=lambda x: x.get("median_dur") or 0, reverse=True)
 
-        nightly_change_history = compute_nightly_change_history(builds)
+        nightly_change_history = compute_nightly_change_history(
+            builds,
+            pipeline_slug=slug,
+        )
         all_data[slug] = {
             "pipeline": slug,
             "display_name": PIPELINES.get(slug, slug),
             "days": args.days,
             "generated_at": generated_at,
+            "transition_policy_id": INCIDENT_TRANSITION_POLICY_ID,
             "cohort": {
                 "name": "canonical message-matched nightlies",
                 "pipeline": slug,
@@ -1354,8 +1360,10 @@ def main():
                 "name_pattern": NIGHTLY_NAME_PATTERNS_BY_SLUG.get(slug) or "",
             },
             "transition_basis": (
-                "canonical nightly job variants; fixed requires a current observed pass, "
-                "and absence is reported as not_observed"
+                "oldest-to-newest confirmed-incident replay: hard failures confirm "
+                "immediately; soft failures require two distinct eligible completed "
+                "builds; a current observed pass resolves; absence and indeterminate "
+                "observations hold state"
             ),
             "nightly_change_history": nightly_change_history,
             "summary": compute_summary(builds, job_rankings),
