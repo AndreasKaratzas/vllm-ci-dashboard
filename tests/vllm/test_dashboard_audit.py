@@ -3,19 +3,25 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from vllm import audit_dashboard_data as audit_module
 from vllm.audit_dashboard_data import (
     DATA_SPECS,
     ROOT,
+    AuditReport,
     DashboardAudit,
+    Finding,
     _buildkite_url_matches,
+    format_text,
     run_audit,
 )
+from vllm.publication_surfaces import SurfaceSpec
 
 
 def _best_hardware_audit_fixture():
@@ -320,7 +326,290 @@ def test_dashboard_audit_json_cli_is_parseable():
     )
     payload = json.loads(result.stdout)
     assert payload["errors"] == []
+    assert "degradations" in payload
     assert "amd_matrix" in payload["metrics"]
+
+
+def test_degradation_is_reported_but_does_not_fail_the_cli(monkeypatch, capsys):
+    finding = Finding(
+        "degradation",
+        "fresh-data-incomplete",
+        "fresh data remains useful but needs attention",
+        "data/example.json",
+    )
+    report = AuditReport(findings=[finding])
+
+    assert report.errors == []
+    assert report.warnings == []
+    assert report.degradations == [finding]
+    assert report.as_dict()["degradations"] == [finding.as_dict()]
+    rendered = format_text(report)
+    assert "Degradations: 1" in rendered
+    assert "DEGRADATION" in rendered
+    assert "fresh-data-incomplete" in rendered
+
+    monkeypatch.setattr(audit_module, "run_audit", lambda _root: report)
+    assert audit_module.main([]) == 0
+    assert audit_module.main(["--strict-warnings"]) == 0
+    assert "Degradations: 1" in capsys.readouterr().out
+
+
+def test_complete_same_commit_unused_shard_base_is_a_degradation(tmp_path):
+    ci = tmp_path / "data/vllm/ci"
+    results = ci / "test_results"
+    results.mkdir(parents=True)
+    result_name = "2026-08-12_amd.jsonl"
+    (results / result_name).write_text(
+        json.dumps({"job_name": "mi300_1: Observed Group"}) + "\n"
+    )
+    (ci / "shard_bases.json").write_text(json.dumps(["required sharded group"]))
+    (ci / "shard_base_catalog.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source": {"commit_sha": "a" * 40},
+                "normalization_bases": ["required sharded group"],
+                "pipelines": {"amd": ["required sharded group"], "upstream": []},
+                "evidence": {
+                    "build_commit": "a" * 40,
+                    "result_file": result_name,
+                    "roster_complete": True,
+                    "job_names": ["mi300_1: Observed Group"],
+                },
+                "definitions": [
+                    {
+                        "base": "required sharded group",
+                        "pipeline": "amd",
+                        "optional": False,
+                    }
+                ],
+            }
+        )
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_shard_bases()
+
+    assert audit.report.errors == []
+    assert [finding.code for finding in audit.report.degradations] == [
+        "shard-bases-unused"
+    ]
+
+
+def _manifest_descriptor(path: Path) -> dict[str, object]:
+    payload = path.read_bytes()
+    return {
+        "bytes": len(payload),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
+
+
+def _write_publication_state(root: Path, payload: dict) -> Path:
+    path = root / "data/vllm/ci/publication_state.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload))
+    return path
+
+
+def test_schema_v2_mixed_state_expires_only_fallback_surfaces(
+    tmp_path, monkeypatch
+):
+    fresh_path = tmp_path / "data/fresh.json"
+    fallback_path = tmp_path / "data/fallback.json"
+    fresh_path.parent.mkdir(parents=True)
+    fresh_path.write_text('{"selection":"fresh"}\n')
+    fallback_path.write_text('{"selection":"fallback"}\n')
+    monkeypatch.setattr(
+        audit_module,
+        "SURFACE_SPECS",
+        {
+            "fresh": SurfaceSpec(required_paths=("data/fresh.json",)),
+            "fallback": SurfaceSpec(required_paths=("data/fallback.json",)),
+        },
+    )
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path = _write_publication_state(
+        tmp_path,
+        {
+            "schema_version": 2,
+            "generated_at": now,
+            "baseline_ref": "0" * 40,
+            "mode": "mixed",
+            "degraded_surfaces": ["fallback", "fresh"],
+            "fresh_degraded_surfaces": ["fresh"],
+            "fallback_surfaces": ["fallback"],
+            # A long-running fresh degradation remains visible but does not
+            # consume the bounded last-known-good fallback budget.
+            "degraded_since": {
+                "fallback": now,
+                "fresh": "2000-01-01T00:00:00Z",
+            },
+            "fallback_since": {"fallback": now},
+            "fallback_max_age_hours": 36,
+            "restored_manifest": {
+                "fallback": {
+                    "data/fallback.json": _manifest_descriptor(fallback_path),
+                }
+            },
+        },
+    )
+
+    audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+
+    assert audit.fallback_surfaces() == frozenset({"fallback"})
+    assert "publication-fallback-expired" not in {
+        finding.code for finding in audit.report.errors
+    }
+
+
+def test_schema_v2_rejects_an_inconsistent_degraded_surface_union(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        audit_module,
+        "SURFACE_SPECS",
+        {"ci": SurfaceSpec(required_paths=("data/source.json",))},
+    )
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path = _write_publication_state(
+        tmp_path,
+        {
+            "schema_version": 2,
+            "generated_at": now,
+            "baseline_ref": "0" * 40,
+            "mode": "degraded",
+            "degraded_surfaces": ["ci"],
+            "fresh_degraded_surfaces": [],
+            "fallback_surfaces": [],
+            "degraded_since": {"ci": now},
+            "fallback_since": {},
+            "fallback_max_age_hours": 36,
+            "restored_manifest": {},
+        },
+    )
+
+    audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+
+    assert audit.fallback_surfaces() == frozenset()
+    assert [finding.code for finding in audit.report.errors] == [
+        "publication-state-invalid"
+    ]
+
+
+def test_schema_v2_stale_source_waiver_applies_only_to_fallback(
+    tmp_path, monkeypatch
+):
+    ci = tmp_path / "data/vllm/ci"
+    ci.mkdir(parents=True)
+    analytics = ci / "analytics.json"
+    analytics.write_text("{}\n")
+    (ci / "operations_v2.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "generated_at": "2026-08-12T12:00:00Z",
+                "sources": {
+                    "analytics": {
+                        "path": "analytics.json",
+                        "timestamp": "2026-08-11T12:00:00Z",
+                        "timestamp_source": "generated_at",
+                    }
+                },
+            }
+        )
+    )
+    monkeypatch.setattr(
+        audit_module,
+        "SURFACE_SPECS",
+        {"ci": SurfaceSpec(required_paths=("data/vllm/ci/analytics.json",))},
+    )
+    monkeypatch.setattr(audit_module, "SOURCE_SURFACES", {"analytics": "ci"})
+    monkeypatch.setattr(
+        audit_module,
+        "OPERATIONS_FRESH_SOURCE_KEYS",
+        frozenset({"analytics"}),
+    )
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def audit_with_selection(selection: str) -> DashboardAudit:
+        is_fallback = selection == "fallback"
+        state_path = _write_publication_state(
+            tmp_path,
+            {
+                "schema_version": 2,
+                "generated_at": now,
+                "baseline_ref": "0" * 40,
+                "mode": selection,
+                "degraded_surfaces": ["ci"],
+                "fresh_degraded_surfaces": [] if is_fallback else ["ci"],
+                "fallback_surfaces": ["ci"] if is_fallback else [],
+                "degraded_since": {"ci": now},
+                "fallback_since": {"ci": now} if is_fallback else {},
+                "fallback_max_age_hours": 36,
+                "restored_manifest": (
+                    {
+                        "ci": {
+                            "data/vllm/ci/analytics.json": _manifest_descriptor(
+                                analytics
+                            )
+                        }
+                    }
+                    if is_fallback
+                    else {}
+                ),
+            },
+        )
+        audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+        audit.audit_operations_v2()
+        return audit
+
+    fresh = audit_with_selection("degraded")
+    fallback = audit_with_selection("fallback")
+
+    assert "operations-stale-source" in {
+        finding.code for finding in fresh.report.errors
+    }
+    assert "operations-stale-source-fallback" not in {
+        finding.code for finding in fresh.report.warnings
+    }
+    assert "operations-stale-source" not in {
+        finding.code for finding in fallback.report.errors
+    }
+    assert "operations-stale-source-fallback" in {
+        finding.code for finding in fallback.report.warnings
+    }
+
+
+def test_schema_v1_fallback_state_remains_supported(tmp_path, monkeypatch):
+    source = tmp_path / "data/source.json"
+    source.parent.mkdir(parents=True)
+    source.write_text("{}\n")
+    monkeypatch.setattr(
+        audit_module,
+        "SURFACE_SPECS",
+        {"ci": SurfaceSpec(required_paths=("data/source.json",))},
+    )
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path = _write_publication_state(
+        tmp_path,
+        {
+            "schema_version": 1,
+            "generated_at": now,
+            "baseline_ref": "0" * 40,
+            "mode": "fallback",
+            "degraded_surfaces": ["ci"],
+            "degraded_since": {"ci": now},
+            "fallback_max_age_hours": 36,
+            "restored_manifest": {
+                "ci": {"data/source.json": _manifest_descriptor(source)}
+            },
+        },
+    )
+
+    audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+
+    assert audit.fallback_surfaces() == frozenset({"ci"})
+    assert audit.report.errors == []
 
 
 def test_publication_budget_rejects_an_oversized_file(tmp_path, monkeypatch):

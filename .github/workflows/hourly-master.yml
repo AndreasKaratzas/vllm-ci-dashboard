@@ -873,6 +873,8 @@ jobs:
                 mode: selectorOutcome === 'failure' ? 'blocked' : 'unknown',
                 degraded_surfaces: forcedSurfaces.split(',').filter(Boolean),
                 candidate_errors: [],
+                candidate_degradations: [],
+                final_degradations: [],
                 final_errors: [{
                   code: 'publication-state-unreadable',
                   message: String(error.message || error),
@@ -921,18 +923,23 @@ jobs:
                 .map(line => normalizeDiagnostic(line.replace(/^E\s*/, '')))
                 .filter(Boolean),
             )].sort();
-            const publicationErrors = [
+            const publicationFindings = [
               ...(Array.isArray(publicationState.candidate_errors)
                 ? publicationState.candidate_errors : []),
+              ...(Array.isArray(publicationState.candidate_degradations)
+                ? publicationState.candidate_degradations : []),
               ...(Array.isArray(publicationState.final_errors)
                 ? publicationState.final_errors : []),
+              ...(Array.isArray(publicationState.final_degradations)
+                ? publicationState.final_degradations : []),
             ];
-            const publicationDiagnostics = [...new Set(publicationErrors.map(error => {
-              const surfaces = Array.isArray(error.surfaces) && error.surfaces.length
-                ? ` [${error.surfaces.join(',')}]` : '';
-              const path = error.path ? ` ${error.path}` : '';
+            const publicationDiagnostics = [...new Set(publicationFindings.map(finding => {
+              const surfaces = Array.isArray(finding.surfaces) && finding.surfaces.length
+                ? ` [${finding.surfaces.join(',')}]` : '';
+              const path = finding.path ? ` ${finding.path}` : '';
               return normalizeDiagnostic(
-                `PUBLICATION ${error.code || 'unknown'}${surfaces}${path}: ${error.message || ''}`,
+                `PUBLICATION ${finding.severity || 'unknown'} ${finding.code || 'unknown'}` +
+                `${surfaces}${path}: ${finding.message || ''}`,
               );
             }))].sort();
             if ((selectorOutcome === 'failure' || selectorDegraded) && !publicationDiagnostics.length) {
@@ -998,12 +1005,12 @@ jobs:
                 '```',
                 '</details>',
               ] : []),
-              ...(publicationErrors.length ? [
+              ...(publicationFindings.length ? [
                 '',
-                '<details><summary>Publication candidate errors</summary>',
+                '<details><summary>Publication findings</summary>',
                 '',
                 '```json',
-                JSON.stringify(publicationErrors, null, 2).slice(0, 8000),
+                JSON.stringify(publicationFindings, null, 2).slice(0, 8000),
                 '```',
                 '</details>',
               ] : []),

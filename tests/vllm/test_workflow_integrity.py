@@ -514,7 +514,10 @@ class TestHourlyMasterWorkflow:
         assert "normalizedFailures" in script
         assert "normalizedDiagnostics" in script
         assert "publicationState.candidate_errors" in script
+        assert "publicationState.candidate_degradations" in script
         assert "publicationState.final_errors" in script
+        assert "publicationState.final_degradations" in script
+        assert "Publication findings" in script
         assert "publicationDiagnostics" in script
         assert "hourly-ci-v2\\n${fingerprintSource}" in script
         assert ".replace(/\\b\\d+(?:\\.\\d+)?\\b/g, '<number>')" in script

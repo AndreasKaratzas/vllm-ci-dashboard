@@ -110,6 +110,7 @@ GLOBAL_DATA_PATHS = frozenset({
     "data/vllm/ci/engineers.enc.json",
     "data/vllm/ci/kill_auth.enc.json",
     "data/vllm/ci/operations_v2.json",
+    "data/vllm/ci/publication_state.json",
 })
 
 

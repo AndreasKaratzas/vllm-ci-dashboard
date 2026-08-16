@@ -36,7 +36,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com https://github.com; font-src 'self' data:; connect-src 'self' https://api.github.com https://api.buildkite.com https://raw.githubusercontent.com; base-uri 'self'; form-action 'self'">
   <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
 
-  <link rel="stylesheet" href="assets/css/dashboard.css?v=56">
+  <link rel="stylesheet" href="assets/css/dashboard.css?v=57">
   <link rel="stylesheet" href="assets/css/ops-v2.css?v=8">
   <link rel="stylesheet" href="assets/css/ops-control-v2.css?v=4">
   <script>
@@ -148,6 +148,14 @@
 
   <!-- Main Content -->
   <main id="main-content">
+    <section id="publication-status-banner" class="publication-status-banner" role="status" aria-live="polite" aria-atomic="true" hidden>
+      <span class="publication-status-icon" aria-hidden="true">!</span>
+      <div class="publication-status-copy">
+        <strong class="publication-status-title" data-publication-status-title></strong>
+        <p data-publication-status-message></p>
+        <p class="publication-status-meta" data-publication-status-meta hidden></p>
+      </div>
+    </section>
     <div id="tab-projects" class="tab-panel active">
       <section id="weekly-summary"></section>
       <main id="dashboard"></main>
@@ -165,6 +173,7 @@
   <script src="assets/js/token-vault.js?v=1"></script>
   <script src="assets/js/utils.js?v=58"></script>
   <script src="assets/js/auth.js?v=4"></script>
+  <script src="assets/js/publication-status.js?v=1"></script>
   <script>window.__DASHBOARD_V2__ = true;</script>
   <script src="assets/js/ci-health.js?v=64"></script>
   <script src="assets/js/ci-analytics.js?v=54"></script>

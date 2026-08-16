@@ -435,12 +435,18 @@ class AuditReport:
         return [f for f in self.findings if f.severity == "error"]
 
     @property
+    def degradations(self) -> list[Finding]:
+        """Fresh, publishable defects that still require operator attention."""
+        return [f for f in self.findings if f.severity == "degradation"]
+
+    @property
     def warnings(self) -> list[Finding]:
         return [f for f in self.findings if f.severity == "warning"]
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "errors": [f.as_dict() for f in self.errors],
+            "degradations": [f.as_dict() for f in self.degradations],
             "warnings": [f.as_dict() for f in self.warnings],
             "metrics": self.metrics,
         }
@@ -562,6 +568,17 @@ class DashboardAudit:
     ) -> None:
         self.add("warning", code, message, path, context=context)
 
+    def degradation(
+        self,
+        code: str,
+        message: str,
+        path: str | Path = "",
+        *,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        """Record a fresh, publishable defect without making the audit fail."""
+        self.add("degradation", code, message, path, context=context)
+
     def fallback_surfaces(self) -> frozenset[str]:
         if self._fallback_surfaces_cache is not None:
             return self._fallback_surfaces_cache
@@ -582,31 +599,110 @@ class DashboardAudit:
             )
             self._fallback_surfaces_cache = frozenset()
             return self._fallback_surfaces_cache
-        surfaces = state.get("degraded_surfaces") if isinstance(state, dict) else None
-        allowed_surfaces = set(SURFACE_SPECS)
-        if (
-            not isinstance(state, dict)
-            or state.get("schema_version") != 1
-            or state.get("mode") not in {"current", "fallback", "blocked"}
-            or not isinstance(surfaces, list)
-            or any(not isinstance(surface, str) for surface in surfaces)
-            or any(
-                surface not in allowed_surfaces
-                for surface in surfaces
+        if not isinstance(state, dict):
+            self.error(
+                "publication-state-invalid",
+                "publication state must be a JSON object",
+                self.rel(path),
             )
-            or len(set(surfaces)) != len(surfaces)
+            self._fallback_surfaces_cache = frozenset()
+            return self._fallback_surfaces_cache
+
+        allowed_surfaces = set(SURFACE_SPECS)
+
+        def valid_surface_list(value: object) -> bool:
+            return (
+                isinstance(value, list)
+                and all(isinstance(surface, str) for surface in value)
+                and all(surface in allowed_surfaces for surface in value)
+                and len(set(value)) == len(value)
+            )
+
+        schema_version = state.get("schema_version")
+        mode = state.get("mode")
+        if (
+            schema_version not in {1, 2}
             or not re.fullmatch(r"[0-9a-f]{40}", str(state.get("baseline_ref") or ""))
             or _parse_timestamp(state.get("generated_at")) is None
             or state.get("fallback_max_age_hours") != PUBLICATION_FALLBACK_MAX_AGE_HOURS
         ):
             self.error(
                 "publication-state-invalid",
-                "publication fallback state has an invalid schema or surface list",
+                "publication state has an invalid schema or common metadata",
                 self.rel(path),
             )
             self._fallback_surfaces_cache = frozenset()
             return self._fallback_surfaces_cache
-        if state.get("mode") == "blocked":
+
+        degraded_raw = state.get("degraded_surfaces")
+        fresh_raw: object
+        fallback_raw: object
+        degraded_since = state.get("degraded_since")
+        fallback_since: object
+        manifest = state.get("restored_manifest")
+
+        if schema_version == 1:
+            if mode not in {"current", "fallback", "blocked"} or not valid_surface_list(
+                degraded_raw
+            ):
+                self.error(
+                    "publication-state-invalid",
+                    "schema-v1 publication state has an invalid mode or surface list",
+                    self.rel(path),
+                )
+                self._fallback_surfaces_cache = frozenset()
+                return self._fallback_surfaces_cache
+            fresh_raw = []
+            fallback_raw = degraded_raw if mode == "fallback" else []
+            # Schema v1 used degraded_since as the fallback-age clock.
+            fallback_since = degraded_since
+        else:
+            fresh_raw = state.get("fresh_degraded_surfaces")
+            fallback_raw = state.get("fallback_surfaces")
+            fallback_since = state.get("fallback_since")
+            if (
+                mode not in {"current", "degraded", "fallback", "mixed", "blocked"}
+                or not valid_surface_list(degraded_raw)
+                or not valid_surface_list(fresh_raw)
+                or not valid_surface_list(fallback_raw)
+            ):
+                self.error(
+                    "publication-state-invalid",
+                    "schema-v2 publication state has an invalid mode or surface list",
+                    self.rel(path),
+                )
+                self._fallback_surfaces_cache = frozenset()
+                return self._fallback_surfaces_cache
+
+            degraded_set = set(degraded_raw)
+            fresh_set = set(fresh_raw)
+            fallback_set = set(fallback_raw)
+            mode_sets_are_valid = {
+                "current": not fresh_set and not fallback_set,
+                "degraded": bool(fresh_set) and not fallback_set,
+                "fallback": not fresh_set and bool(fallback_set),
+                "mixed": bool(fresh_set) and bool(fallback_set),
+                # A blocked selector may have stopped before producing complete
+                # timing or manifest attestations, but its surface union must
+                # still be internally consistent.
+                "blocked": True,
+            }
+            if (
+                fresh_set & fallback_set
+                or degraded_set != fresh_set | fallback_set
+                or not mode_sets_are_valid[mode]
+            ):
+                self.error(
+                    "publication-state-invalid",
+                    "schema-v2 degraded surfaces do not match their selection modes",
+                    self.rel(path),
+                )
+                self._fallback_surfaces_cache = frozenset()
+                return self._fallback_surfaces_cache
+
+        degraded_surfaces = set(degraded_raw)
+        fallback_surfaces = set(fallback_raw)
+        if mode == "blocked":
             self.error(
                 "publication-state-blocked",
                 "publication selector state is blocked",
@@ -614,27 +710,38 @@ class DashboardAudit:
             )
             self._fallback_surfaces_cache = frozenset()
             return self._fallback_surfaces_cache
-        degraded_since = state.get("degraded_since")
-        manifest = state.get("restored_manifest")
-        if state.get("mode") == "current":
-            if surfaces or degraded_since not in ({}, None) or manifest not in ({}, None):
+
+        if mode == "current":
+            if (
+                degraded_surfaces
+                or degraded_since not in ({}, None)
+                or fallback_since not in ({}, None)
+                or manifest not in ({}, None)
+            ):
                 self.error(
                     "publication-state-invalid",
-                    "current publication state cannot declare restored surfaces",
+                    "current publication state cannot declare degraded or restored surfaces",
                     self.rel(path),
                 )
             self._fallback_surfaces_cache = frozenset()
             return self._fallback_surfaces_cache
+
         if (
             not isinstance(degraded_since, dict)
-            or set(degraded_since) != set(surfaces)
+            or set(degraded_since) != degraded_surfaces
             or any(_parse_timestamp(value) is None for value in degraded_since.values())
-            or not isinstance(manifest, dict)
-            or set(manifest) != set(surfaces)
+            or not isinstance(fallback_since, dict)
+            or set(fallback_since) != fallback_surfaces
+            or any(_parse_timestamp(value) is None for value in fallback_since.values())
+            or (
+                fallback_surfaces
+                and (not isinstance(manifest, dict) or set(manifest) != fallback_surfaces)
+            )
+            or (not fallback_surfaces and manifest not in ({}, None))
         ):
             self.error(
                 "publication-state-invalid",
-                "fallback state lacks a complete age or restored-content manifest",
+                "publication state lacks complete degradation or fallback attestations",
                 self.rel(path),
             )
             self._fallback_surfaces_cache = frozenset()
@@ -642,8 +749,8 @@ class DashboardAudit:
 
         now = datetime.now(timezone.utc)
         valid = True
-        for surface in surfaces:
-            since = _parse_timestamp(degraded_since[surface])
+        for surface in sorted(fallback_surfaces):
+            since = _parse_timestamp(fallback_since[surface])
             age_hours = (now - since).total_seconds() / 3600 if since else float("inf")
             if age_hours > PUBLICATION_FALLBACK_MAX_AGE_HOURS:
                 self.error(
@@ -699,7 +806,7 @@ class DashboardAudit:
                     )
                     valid = False
         self._fallback_surfaces_cache = (
-            frozenset(surfaces) if valid else frozenset()
+            frozenset(fallback_surfaces) if valid else frozenset()
         )
         return self._fallback_surfaces_cache
 
@@ -825,6 +932,7 @@ class DashboardAudit:
                     ),
                     catalog_path,
                 )
+                return
         from vllm.ci import analyzer
 
         previous = list(analyzer._SHARD_BASES)
@@ -876,7 +984,7 @@ class DashboardAudit:
                 relpath,
             )
         if unused:
-            self.error(
+            self.degradation(
                 "shard-bases-unused",
                 (
                     f"{len(unused)} AMD shard bases are absent from the latest AMD test "
@@ -4736,9 +4844,14 @@ def format_text(report: AuditReport) -> str:
     lines = [
         "Dashboard data audit",
         f"Errors: {len(report.errors)}",
+        f"Degradations: {len(report.degradations)}",
         f"Warnings: {len(report.warnings)}",
     ]
-    for severity, findings in (("ERROR", report.errors), ("WARN", report.warnings)):
+    for severity, findings in (
+        ("ERROR", report.errors),
+        ("DEGRADATION", report.degradations),
+        ("WARN", report.warnings),
+    ):
         if not findings:
             continue
         lines.append("")

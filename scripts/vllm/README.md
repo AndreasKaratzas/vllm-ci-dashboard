@@ -92,18 +92,23 @@ audit_dashboard_data.py   --> validates data/ + docs/assets/js + workflows
 
 The hourly workflow treats CI, queue, lifecycle, agent-health, GitHub-home,
 Ready Tickets, perf-eval, and test-build inputs as separate atomic publication
-surfaces. A collector failure or a routed audit error rejects that surface's
-entire candidate transaction. The selector restores the whole surface from the
-main commit captured before collection, rebuilds the derived Operations data,
-and runs the complete audit again. Unknown findings, code or workflow defects,
-an invalid baseline, and any post-restore error remain hard deployment stops.
+surfaces. A routed degradation keeps fresh candidate bytes and publishes an
+explicit warning. A collector failure or hard routed audit error instead
+rejects that surface's entire candidate transaction. The selector restores the
+whole failed surface from the main commit captured before collection, rebuilds
+the derived Operations data, and runs the complete audit again. Unknown
+findings, code or workflow defects, an invalid baseline, and any post-restore
+error remain hard deployment stops.
 
-Fallback state is committed privately in
-`data/vllm/ci/publication_state.json`; the public manifest excludes it. The
-state binds restored paths to their byte size and SHA-256, retains the first
-degraded timestamp across runs, and expires after 36 hours. A degraded
-publication keeps its fingerprinted CI incident open even when pytest passes,
-while repeated runs of the same incident do not post duplicate comments.
+Attested fallback state is committed privately in
+`data/vllm/ci/publication_state.json`; restore paths and hashes never enter the
+public site. The state distinguishes fresh degraded surfaces from restored
+fallback surfaces. Only restored data has a 36-hour hard limit; a fresh
+degradation remains publishable and keeps its fingerprinted CI incident open.
+`build_site.py` emits a sanitized `publication_status.json` so the dashboard
+can identify fresh degradation, fallback, mixed, and blocked states without
+exposing private restore metadata. Repeated runs of the same incident do not
+post duplicate comments.
 
 Ready Tickets and its CI ownership subview are guarded by a freshly verified
 GitHub PAT in the browser, and their renderers do not fetch protected-view data

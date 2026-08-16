@@ -8,6 +8,7 @@ import json
 import re
 import shutil
 import time
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 from vllm.build_operations_snapshot import write_snapshot_bundle
@@ -18,6 +19,19 @@ DOCS = ROOT / "docs"
 DATA = ROOT / "data"
 PUBLIC_DATA_MANIFEST = ROOT / "config" / "public_data_manifest.json"
 CACHE_BUST_RE = re.compile(r"\?v=\d+")
+PUBLICATION_STATE_INPUT = "vllm/ci/publication_state.json"
+PUBLICATION_STATUS_OUTPUT = "vllm/ci/publication_status.json"
+PUBLICATION_MODES = frozenset({"current", "degraded", "fallback", "mixed", "blocked"})
+PUBLICATION_SURFACE_LABELS = {
+    "agent_health": "Agent health",
+    "ci": "CI health",
+    "github_home": "Project activity",
+    "perf_eval": "Performance evaluation",
+    "queue": "Queue health",
+    "queue_lifecycle": "Queue lifecycle",
+    "ready": "Ready tickets",
+    "test_builds": "Test builds",
+}
 
 
 def copy_tree_contents(src: Path, dest: Path) -> None:
@@ -167,6 +181,129 @@ def materialize_operations_bundle(
     write_snapshot_bundle(output, payload, write_monolith=False, log=False)
 
 
+def _validated_public_timestamp(value: object) -> tuple[str | None, datetime | None]:
+    """Return an innocuous, timezone-aware ISO timestamp or no public value."""
+    if not isinstance(value, str) or not value or len(value) > 64:
+        return None, None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None, None
+    if parsed.tzinfo is None:
+        return None, None
+    canonical = parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return canonical, parsed
+
+
+def _safe_surface_labels(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return sorted({
+        PUBLICATION_SURFACE_LABELS[surface]
+        for surface in value
+        if isinstance(surface, str) and surface in PUBLICATION_SURFACE_LABELS
+    })
+
+
+def project_publication_status(publication_state: object) -> dict:
+    """Create the small public status projection from private selector state.
+
+    Selector findings, repository refs, restored-file manifests, hashes, and
+    paths are intentionally ignored. Only fixed enums, validated timestamps,
+    and labels from the local surface allowlist can cross this boundary.
+    """
+    if not isinstance(publication_state, dict):
+        raise ValueError("Publication state must be a JSON object")
+    mode = publication_state.get("mode")
+    if mode not in PUBLICATION_MODES:
+        raise ValueError(f"Unsupported publication mode: {mode!r}")
+
+    affected_labels = sorted(set(
+        _safe_surface_labels(publication_state.get("degraded_surfaces"))
+        + _safe_surface_labels(publication_state.get("fresh_degraded_surfaces"))
+        + _safe_surface_labels(publication_state.get("fallback_surfaces"))
+    ))
+    fallback_labels = _safe_surface_labels(publication_state.get("fallback_surfaces"))
+    if mode == "fallback" and not fallback_labels:
+        fallback_labels = affected_labels
+    fresh_labels = _safe_surface_labels(
+        publication_state.get("fresh_degraded_surfaces")
+    )
+    if mode == "degraded" and not fresh_labels:
+        fresh_labels = affected_labels
+
+    generated_at, _ = _validated_public_timestamp(
+        publication_state.get("generated_at")
+    )
+    degraded_candidates: list[tuple[datetime, str]] = []
+    degraded_since = publication_state.get("degraded_since")
+    if isinstance(degraded_since, dict):
+        for surface, value in degraded_since.items():
+            if surface not in PUBLICATION_SURFACE_LABELS:
+                continue
+            public_value, parsed = _validated_public_timestamp(value)
+            if public_value is not None and parsed is not None:
+                degraded_candidates.append((parsed, public_value))
+
+    status = "healthy"
+    if mode == "blocked":
+        status = "blocked"
+    elif mode != "current" or affected_labels:
+        status = "degraded"
+
+    return {
+        "schema_version": 1,
+        "status": status,
+        "mode": mode,
+        "generated_at": generated_at,
+        "degraded_since": (
+            min(degraded_candidates, key=lambda item: item[0])[1]
+            if degraded_candidates
+            else None
+        ),
+        "uses_fallback": mode in {"fallback", "mixed"},
+        "publication_blocked": mode == "blocked",
+        "affected_surfaces": affected_labels,
+        "affected_surface_count": len(affected_labels),
+        "fallback_surface_count": len(fallback_labels),
+        "fresh_degraded_surface_count": len(fresh_labels),
+    }
+
+
+def materialize_publication_status(
+    source_data: Path,
+    site_data: Path,
+    manifest: dict,
+) -> None:
+    if PUBLICATION_STATE_INPUT not in manifest["build_inputs"]:
+        raise RuntimeError(
+            "Publication state is not declared as a build input: "
+            f"{PUBLICATION_STATE_INPUT}"
+        )
+    if PUBLICATION_STATUS_OUTPUT not in manifest["generated_files"]:
+        raise RuntimeError(
+            "Public publication status is not declared as a generated file: "
+            f"{PUBLICATION_STATUS_OUTPUT}"
+        )
+
+    source = source_data / PUBLICATION_STATE_INPUT
+    if not source.is_file() or source.is_symlink():
+        raise FileNotFoundError(
+            f"Publication-state build input is missing or unsafe: {source}"
+        )
+    try:
+        source.resolve().relative_to(source_data.resolve())
+    except ValueError as exc:
+        raise ValueError(
+            f"Publication-state build input escapes data/: {source}"
+        ) from exc
+
+    payload = project_publication_status(json.loads(source.read_text()))
+    output = site_data / PUBLICATION_STATUS_OUTPUT
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
 def validate_public_data(
     site_data: Path,
     copied: set[str],
@@ -182,7 +319,7 @@ def validate_public_data(
     missing_generated = sorted(generated - published)
     if missing_generated:
         raise RuntimeError(
-            f"Operations bundle did not generate declared public files: {missing_generated}"
+            f"Site assembly did not generate declared public files: {missing_generated}"
         )
 
     unexpected = sorted(published - copied - generated)
@@ -209,6 +346,7 @@ def build_site(output_dir: Path, cache_bust: bool) -> None:
     manifest = load_public_data_manifest(PUBLIC_DATA_MANIFEST)
     copied = copy_public_data(DATA, output_dir / "data", manifest)
     materialize_operations_bundle(DATA, output_dir / "data", manifest)
+    materialize_publication_status(DATA, output_dir / "data", manifest)
     validate_public_data(output_dir / "data", copied, manifest)
     (output_dir / ".nojekyll").write_text("")
     if cache_bust:

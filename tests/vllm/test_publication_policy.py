@@ -90,6 +90,10 @@ def _operation_generated_files() -> list[str]:
     ]
 
 
+PUBLICATION_STATE_INPUT = "vllm/ci/publication_state.json"
+PUBLICATION_STATUS_OUTPUT = "vllm/ci/publication_status.json"
+
+
 def _fixture_manifest() -> dict:
     return {
         "schema_version": 1,
@@ -98,9 +102,14 @@ def _fixture_manifest() -> dict:
             "public.json",
         ],
         "optional_files": ["optional.json"],
-        "build_inputs": ["vllm/ci/operations_v2.json"],
+        "build_inputs": [
+            "vllm/ci/operations_v2.json",
+            PUBLICATION_STATE_INPUT,
+        ],
         "optional_globs": ["vllm/ci/test_builds/*/comparison.json"],
-        "generated_files": _operation_generated_files(),
+        "generated_files": _operation_generated_files() + [
+            PUBLICATION_STATUS_OUTPUT,
+        ],
         "never_publish_patterns": [
             "*/.cache/*",
             "vllm/ci/agent_health/*",
@@ -132,6 +141,26 @@ def _assemble_fixture(
             {
                 "schema_version": 2,
                 "generated_at": "2026-01-01T00:00:00Z",
+            }
+        ),
+    )
+    _write(
+        data / PUBLICATION_STATE_INPUT,
+        json.dumps(
+            {
+                "mode": "fallback",
+                "generated_at": "2026-01-01T01:00:00Z",
+                "degraded_since": {"ci": "2026-01-01T00:00:00Z"},
+                "degraded_surfaces": ["ci"],
+                "fallback_surfaces": ["ci"],
+                "candidate_errors": [
+                    {
+                        "path": "data/private.json",
+                        "message": "private diagnostic",
+                    }
+                ],
+                "baseline_ref": "private-ref",
+                "restored_manifest": {"ci": {"private/path": {"sha256": "secret"}}},
             }
         ),
     )
@@ -172,6 +201,23 @@ def test_site_assembly_copies_allowlist_and_generated_sections(
     assert (output / "data/vllm/ci/test_builds/example/comparison.json").exists()
     assert (output / "data/vllm/ci/operations_v2_manifest.json").exists()
     assert not (output / "data/vllm/ci/operations_v2.json").exists()
+    assert not (output / "data" / PUBLICATION_STATE_INPUT).exists()
+    public_status = json.loads(
+        (output / "data" / PUBLICATION_STATUS_OUTPUT).read_text()
+    )
+    assert public_status == {
+        "schema_version": 1,
+        "status": "degraded",
+        "mode": "fallback",
+        "generated_at": "2026-01-01T01:00:00Z",
+        "degraded_since": "2026-01-01T00:00:00Z",
+        "uses_fallback": True,
+        "publication_blocked": False,
+        "affected_surfaces": ["CI health"],
+        "affected_surface_count": 1,
+        "fallback_surface_count": 1,
+        "fresh_degraded_surface_count": 0,
+    }
     assert json.loads(
         (output / "data/vllm/ci/operations_v2_manifest.json").read_text()
     )["monolith"] is None
@@ -193,6 +239,102 @@ def test_site_assembly_excludes_private_raw_state_and_retired_artifacts(
     assert private_sources
     for relative in private_sources:
         assert not (output / "data" / relative).exists(), relative
+    assert not (output / "data" / PUBLICATION_STATE_INPUT).exists()
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected_status", "uses_fallback", "blocked"),
+    [
+        ("current", "healthy", False, False),
+        ("degraded", "degraded", False, False),
+        ("fallback", "degraded", True, False),
+        ("mixed", "degraded", True, False),
+        ("blocked", "blocked", False, True),
+    ],
+)
+def test_publication_status_projection_supports_every_public_mode(
+    mode: str,
+    expected_status: str,
+    uses_fallback: bool,
+    blocked: bool,
+) -> None:
+    payload = BUILD_SITE.project_publication_status({
+        "mode": mode,
+        "generated_at": "2026-01-01T00:00:00Z",
+    })
+
+    assert payload["status"] == expected_status
+    assert payload["uses_fallback"] is uses_fallback
+    assert payload["publication_blocked"] is blocked
+
+
+def test_publication_status_projection_never_exposes_private_diagnostics() -> None:
+    payload = BUILD_SITE.project_publication_status({
+        "mode": "mixed",
+        "generated_at": "2026-01-01T01:00:00Z",
+        "degraded_since": {
+            "ci": "2026-01-01T00:00:00Z",
+            "private/path": "leaked timestamp",
+        },
+        "degraded_surfaces": ["ci", "queue", "private/path"],
+        "fresh_degraded_surfaces": ["queue"],
+        "fallback_surfaces": ["ci"],
+        "candidate_errors": [{
+            "message": "do not publish this secret",
+            "path": "data/private.json",
+        }],
+        "final_errors": [{"message": "another secret"}],
+        "baseline_ref": "private-git-ref",
+        "restored_manifest": {
+            "ci": {"data/private.json": {"sha256": "private-hash"}},
+        },
+    })
+
+    assert set(payload) == {
+        "schema_version",
+        "status",
+        "mode",
+        "generated_at",
+        "degraded_since",
+        "uses_fallback",
+        "publication_blocked",
+        "affected_surfaces",
+        "affected_surface_count",
+        "fallback_surface_count",
+        "fresh_degraded_surface_count",
+    }
+    assert payload["affected_surfaces"] == ["CI health", "Queue health"]
+    assert payload["affected_surface_count"] == 2
+    assert payload["fallback_surface_count"] == 1
+    assert payload["fresh_degraded_surface_count"] == 1
+    serialized = json.dumps(payload)
+    for private_value in (
+        "do not publish this secret",
+        "data/private.json",
+        "private-git-ref",
+        "private-hash",
+        "private/path",
+    ):
+        assert private_value not in serialized
+
+
+def test_publication_status_projection_rejects_an_unknown_mode() -> None:
+    with pytest.raises(ValueError, match="Unsupported publication mode"):
+        BUILD_SITE.project_publication_status({"mode": "secret/path"})
+
+
+def test_publication_status_projection_canonicalizes_safe_timestamps() -> None:
+    payload = BUILD_SITE.project_publication_status({
+        "mode": "degraded",
+        "generated_at": "2026-01-01T01:00:00+01:00",
+        "degraded_since": {
+            "ci": "not-a-timestamp/data/private.json",
+        },
+        "degraded_surfaces": ["ci"],
+    })
+
+    assert payload["generated_at"] == "2026-01-01T00:00:00Z"
+    assert payload["degraded_since"] is None
 
 
 def test_docs_cannot_smuggle_an_unlisted_data_file_into_site(
@@ -208,6 +350,10 @@ def test_docs_cannot_smuggle_an_unlisted_data_file_into_site(
     _write(
         data / "vllm/ci/operations_v2.json",
         '{"schema_version":2,"generated_at":"2026-01-01T00:00:00Z"}',
+    )
+    _write(
+        data / PUBLICATION_STATE_INPUT,
+        '{"mode":"current","generated_at":"2026-01-01T00:00:00Z"}',
     )
     manifest_path.write_text(json.dumps(_fixture_manifest()))
     monkeypatch.setattr(BUILD_SITE, "DOCS", docs)
@@ -242,7 +388,14 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
         "vllm/perf_eval/perf_eval.json",
         "vllm/prs.json",
     } <= allowed_exact
-    assert manifest["build_inputs"] == ["vllm/ci/operations_v2.json"]
+    assert manifest["build_inputs"] == [
+        "vllm/ci/operations_v2.json",
+        PUBLICATION_STATE_INPUT,
+    ]
+    assert all(
+        (ROOT / "data" / relative).is_file()
+        for relative in manifest["build_inputs"]
+    )
     assert all((ROOT / "data" / relative).is_file() for relative in required)
 
     operation_manifest = json.loads(
@@ -252,12 +405,14 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
         f"vllm/ci/{descriptor['path']}"
         for descriptor in operation_manifest["sections"].values()
     }
-    assert operation_sections | {
+    operation_outputs = operation_sections | {
         "vllm/ci/operations_v2_manifest.json",
         "vllm/ci/queue_history_chart.json",
-    } == set(
-        manifest["generated_files"]
+    }
+    assert operation_outputs == (
+        set(manifest["generated_files"]) - {PUBLICATION_STATUS_OUTPUT}
     )
+    assert PUBLICATION_STATUS_OUTPUT in manifest["generated_files"]
     published_diagnostic_sources = {
         f"vllm/ci/{record['path']}"
         for record in operation_manifest["shell"]["sources"].values()
@@ -279,6 +434,7 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
         "vllm/ci/open_queue_issues.json",
         "vllm/ci/ready_tickets_state.json",
         "vllm/ci/operations_v2.json",
+        PUBLICATION_STATE_INPUT,
         "vllm/ci/test_results/2026-07-27_amd.jsonl",
         "vllm/perf_eval/events.jsonl",
         "vllm/ci/queue_lifecycle_jobs/2026-08-11.jsonl.gz",

@@ -332,6 +332,70 @@ a:hover {
   width: clamp(140px, 12vw, 220px);
 }
 
+.publication-status-banner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  margin: 0 0 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--accent-orange);
+  border-left-width: 5px;
+  border-radius: 10px;
+  background: rgba(210, 153, 34, 0.12);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.publication-status-banner[hidden] {
+  display: none;
+}
+
+.publication-status-banner.is-critical {
+  border-color: var(--badge-closed);
+  background: rgba(218, 54, 51, 0.12);
+}
+
+.publication-status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent-orange);
+  color: #0d1117;
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.publication-status-banner.is-critical .publication-status-icon {
+  background: var(--badge-closed);
+  color: #fff;
+}
+
+.publication-status-title {
+  display: block;
+  margin-bottom: 2px;
+  font-size: clamp(16px, 1.15vw, 21px);
+}
+
+.publication-status-copy p {
+  margin: 0;
+}
+
+.publication-status-copy .publication-status-meta {
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 0.88em;
+}
+
+@media (max-width: 768px) {
+  .publication-status-banner {
+    padding: 12px;
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════
    OVERLAY / MODAL
    ═══════════════════════════════════════════════════════════ */

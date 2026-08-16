@@ -39,7 +39,8 @@
     "vllm/ci/kill_auth.enc.json"
   ],
   "build_inputs": [
-    "vllm/ci/operations_v2.json"
+    "vllm/ci/operations_v2.json",
+    "vllm/ci/publication_state.json"
   ],
   "optional_globs": [
     "vllm/ci/test_builds/*/comparison.json"
@@ -57,7 +58,8 @@
     "vllm/ci/operations_v2/ownership.json",
     "vllm/ci/operations_v2/queue.json",
     "vllm/ci/operations_v2/reliability.json",
-    "vllm/ci/operations_v2/trajectory.json"
+    "vllm/ci/operations_v2/trajectory.json",
+    "vllm/ci/publication_status.json"
   ],
   "never_publish_patterns": [
     "*/.cache/*",

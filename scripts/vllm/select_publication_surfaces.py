@@ -2,9 +2,9 @@
 """Select validated current data or atomic last-known-good surfaces.
 
 This is the reconciliation boundary between collection and publication.  It
-never makes an invalid candidate look healthy: rejected surfaces are recorded
-as degraded, restored as coherent transactions from a previously audited main
-commit, rebuilt, and subjected to the complete audit again.
+publishes usable-but-degraded candidate surfaces in place while restoring hard
+failures as coherent transactions from a previously audited main commit. Any
+restored result is rebuilt and subjected to the complete audit again.
 """
 
 from __future__ import annotations
@@ -59,6 +59,19 @@ def _parse_utc(value: object) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _publication_mode(
+    fresh_degraded: set[str],
+    fallback: set[str],
+) -> str:
+    if fresh_degraded and fallback:
+        return "mixed"
+    if fresh_degraded:
+        return "degraded"
+    if fallback:
+        return "fallback"
+    return "current"
+
+
 def _run_git(root: Path, *args: str) -> bytes:
     result = subprocess.run(
         ["git", *args],
@@ -90,33 +103,90 @@ def _baseline_publication_state(
         payload = json.loads(_run_git(root, "show", f"{ref}:{relative}"))
     except (subprocess.CalledProcessError, json.JSONDecodeError, UnicodeError) as exc:
         raise RuntimeError("validated baseline publication state is unreadable") from exc
-    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+    if not isinstance(payload, dict) or payload.get("schema_version") not in {1, 2}:
         raise RuntimeError("validated baseline publication state has an invalid schema")
+
+    schema_version = payload["schema_version"]
     mode = payload.get("mode")
-    surfaces = payload.get("degraded_surfaces")
-    since = payload.get("degraded_since")
+    degraded = payload.get("degraded_surfaces")
+    degraded_since = payload.get("degraded_since")
     if (
-        mode not in {"current", "fallback"}
-        or not isinstance(surfaces, list)
-        or any(not isinstance(surface, str) or surface not in SURFACE_SPECS for surface in surfaces)
-        or len(set(surfaces)) != len(surfaces)
+        not isinstance(degraded, list)
+        or any(
+            not isinstance(surface, str) or surface not in SURFACE_SPECS
+            for surface in degraded
+        )
+        or len(set(degraded)) != len(degraded)
         or not FULL_SHA_RE.fullmatch(str(payload.get("baseline_ref") or ""))
         or _parse_utc(payload.get("generated_at")) is None
         or payload.get("fallback_max_age_hours") != FALLBACK_MAX_AGE_HOURS
-        or not isinstance(since, dict)
-        or (mode == "current" and surfaces)
-        or (mode == "fallback" and set(since) != set(surfaces))
-        or any(_parse_utc(value) is None for value in since.values())
+        or not isinstance(degraded_since, dict)
     ):
         raise RuntimeError("validated baseline publication state is inconsistent")
+
+    if schema_version == 1:
+        if (
+            mode not in {"current", "fallback"}
+            or (mode == "current" and degraded)
+            or set(degraded_since) != set(degraded)
+            or any(_parse_utc(value) is None for value in degraded_since.values())
+        ):
+            raise RuntimeError("validated baseline publication state is inconsistent")
+        fresh_degraded: list[str] = []
+        fallback = list(degraded)
+        fallback_since = dict(degraded_since)
+        normalized = {
+            **payload,
+            "schema_version": 2,
+            "mode": "fallback" if fallback else "current",
+            "degraded_surfaces": sorted(fallback),
+            "fresh_degraded_surfaces": [],
+            "fallback_surfaces": sorted(fallback),
+            "degraded_since": dict(degraded_since),
+            "fallback_since": fallback_since,
+        }
+    else:
+        fresh_degraded = payload.get("fresh_degraded_surfaces")
+        fallback = payload.get("fallback_surfaces")
+        fallback_since = payload.get("fallback_since")
+        if (
+            mode not in {"current", "degraded", "fallback", "mixed"}
+            or not isinstance(fresh_degraded, list)
+            or not isinstance(fallback, list)
+            or any(
+                not isinstance(surface, str) or surface not in SURFACE_SPECS
+                for surface in [*fresh_degraded, *fallback]
+            )
+            or len(set(fresh_degraded)) != len(fresh_degraded)
+            or len(set(fallback)) != len(fallback)
+            or set(fresh_degraded) & set(fallback)
+            or set(degraded) != set(fresh_degraded) | set(fallback)
+            or set(degraded_since) != set(degraded)
+            or any(_parse_utc(value) is None for value in degraded_since.values())
+            or not isinstance(fallback_since, dict)
+            or set(fallback_since) != set(fallback)
+            or any(_parse_utc(value) is None for value in fallback_since.values())
+            or mode != _publication_mode(set(fresh_degraded), set(fallback))
+        ):
+            raise RuntimeError("validated baseline publication state is inconsistent")
+        normalized = payload
+
     manifest = payload.get("restored_manifest")
-    if mode == "current":
+    restored_paths = payload.get("restored_paths")
+    if not fallback:
         if manifest not in (None, {}):
-            raise RuntimeError("current baseline state declares restored content")
-        return payload
-    if not isinstance(manifest, dict) or set(manifest) != set(surfaces):
+            raise RuntimeError("non-fallback baseline state declares restored content")
+        if restored_paths not in (None, {}):
+            raise RuntimeError("non-fallback baseline state declares restored paths")
+        return normalized
+    if not isinstance(manifest, dict) or set(manifest) != set(fallback):
         raise RuntimeError("fallback baseline state has an incomplete restore manifest")
-    for surface in surfaces:
+    if restored_paths is not None and (
+        not isinstance(restored_paths, dict)
+        or set(restored_paths) != set(fallback)
+    ):
+        raise RuntimeError("fallback baseline state has incomplete restored paths")
+    for surface in fallback:
         entries = manifest.get(surface)
         if not isinstance(entries, dict):
             raise RuntimeError(f"fallback baseline manifest for {surface} is invalid")
@@ -150,31 +220,66 @@ def _baseline_publication_state(
                 raise RuntimeError(
                     f"fallback baseline content for {relative} does not match its manifest"
                 )
-    return payload
+        if restored_paths is not None and restored_paths.get(surface) != sorted(entries):
+            raise RuntimeError(
+                f"fallback baseline restored paths for {surface} are inconsistent"
+            )
+    return normalized
 
 
-def _fallback_start_times(
-    degraded: set[str],
+def _start_times(
+    surfaces: set[str],
     previous: dict | None,
+    *,
+    previous_surfaces_key: str,
+    previous_since_key: str,
     now: datetime,
 ) -> dict[str, str]:
-    previous_surfaces = set((previous or {}).get("degraded_surfaces") or [])
-    previous_since = (previous or {}).get("degraded_since") or {}
+    previous_surfaces = set((previous or {}).get(previous_surfaces_key) or [])
+    previous_since = (previous or {}).get(previous_since_key) or {}
     current = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     return {
         surface: str(previous_since[surface])
         if surface in previous_surfaces
         else current
-        for surface in sorted(degraded)
+        for surface in sorted(surfaces)
     }
 
 
+def _degraded_start_times(
+    degraded: set[str],
+    previous: dict | None,
+    now: datetime,
+) -> dict[str, str]:
+    return _start_times(
+        degraded,
+        previous,
+        previous_surfaces_key="degraded_surfaces",
+        previous_since_key="degraded_since",
+        now=now,
+    )
+
+
+def _fallback_start_times(
+    fallback: set[str],
+    previous: dict | None,
+    now: datetime,
+) -> dict[str, str]:
+    return _start_times(
+        fallback,
+        previous,
+        previous_surfaces_key="fallback_surfaces",
+        previous_since_key="fallback_since",
+        now=now,
+    )
+
+
 def _raise_if_fallback_expired(
-    degraded_since: dict[str, str],
+    fallback_since: dict[str, str],
     now: datetime,
 ) -> None:
     expired = []
-    for surface, raw_since in degraded_since.items():
+    for surface, raw_since in fallback_since.items():
         since = _parse_utc(raw_since)
         age_hours = (now - since).total_seconds() / 3600 if since else float("inf")
         if age_hours > FALLBACK_MAX_AGE_HOURS or age_hours < -1:
@@ -290,6 +395,27 @@ def _finding_record(finding, surfaces: Iterable[str]) -> dict:
     }
 
 
+def _apply_surface_state(
+    state: dict,
+    fresh_degraded: set[str],
+    fallback: set[str],
+    previous: dict | None,
+    now: datetime,
+) -> None:
+    """Record disjoint fresh/fallback lanes and their independent clocks."""
+    fallback = set(fallback)
+    fresh_degraded = set(fresh_degraded) - fallback
+    degraded = fresh_degraded | fallback
+    state.update({
+        "mode": _publication_mode(fresh_degraded, fallback),
+        "degraded_surfaces": sorted(degraded),
+        "fresh_degraded_surfaces": sorted(fresh_degraded),
+        "fallback_surfaces": sorted(fallback),
+        "degraded_since": _degraded_start_times(degraded, previous, now),
+        "fallback_since": _fallback_start_times(fallback, previous, now),
+    })
+
+
 def _write_state(path: Path, state: dict) -> None:
     _atomic_write(path, (json.dumps(state, indent=2, sort_keys=True) + "\n").encode())
 
@@ -302,6 +428,11 @@ def _emit_outputs(state: dict) -> None:
         f"degraded={'true' if degraded else 'false'}",
         f"blocked={'true' if blocked else 'false'}",
         f"degraded_surfaces={','.join(state.get('degraded_surfaces') or [])}",
+        (
+            "fresh_degraded_surfaces="
+            + ",".join(state.get("fresh_degraded_surfaces") or [])
+        ),
+        f"fallback_surfaces={','.join(state.get('fallback_surfaces') or [])}",
     ]
     if output_path:
         with open(output_path, "a", encoding="utf-8") as handle:
@@ -352,8 +483,10 @@ def select_publication(
         raise ValueError(f"unknown forced publication surfaces: {sorted(unknown_forced)}")
 
     now = datetime.now(timezone.utc)
-    candidate_errors = []
-    degraded: set[str] = set(forced)
+    candidate_errors: list[dict] = []
+    candidate_degradations: list[dict] = []
+    fresh_degraded: set[str] = set()
+    fallback: set[str] = set(forced)
     restored: dict[str, list[str]] = {}
     for surface in sorted(forced):
         candidate_errors.append({
@@ -365,15 +498,22 @@ def select_publication(
             "surfaces": [surface],
         })
     state = {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "baseline_ref": baseline_ref,
         "mode": "current",
         "degraded_surfaces": [],
+        "fresh_degraded_surfaces": [],
+        "fallback_surfaces": [],
         "degraded_since": {},
+        "fallback_since": {},
         "fallback_max_age_hours": FALLBACK_MAX_AGE_HOURS,
         "candidate_errors": candidate_errors,
+        "candidate_degradations": candidate_degradations,
         "final_errors": [],
+        "final_degradations": [],
+        "restored_paths": {},
+        "restored_manifest": {},
     }
 
     try:
@@ -386,24 +526,46 @@ def select_publication(
             publication_state_path=state_path,
         )
         source_audit.audit_publication_surface_files()
+        unrouted = []
         for finding in source_audit.report.errors:
             surfaces = finding_surfaces(finding)
             record = _finding_record(finding, surfaces)
             candidate_errors.append(record)
-            if not surfaces:
-                raise RuntimeError(
-                    "source preflight produced a global or unrouted audit finding"
-                )
-            degraded.update(surfaces)
+            if surfaces:
+                fallback.update(surfaces)
+            else:
+                unrouted.append(record)
+        for finding in getattr(source_audit.report, "degradations", []):
+            surfaces = finding_surfaces(finding)
+            record = _finding_record(finding, surfaces)
+            candidate_degradations.append(record)
+            if surfaces:
+                fresh_degraded.update(surfaces)
+            else:
+                unrouted.append(record)
+        fresh_degraded.difference_update(fallback)
+        state["candidate_errors"] = candidate_errors
+        state["candidate_degradations"] = candidate_degradations
+        if unrouted:
+            previous = prior_state() if fresh_degraded or fallback else None
+            _apply_surface_state(state, fresh_degraded, fallback, previous, now)
+            state["mode"] = "blocked"
+            state["final_errors"] = unrouted
+            _write_state(state_path, state)
+            _emit_outputs(state)
+            raise RuntimeError(
+                "source preflight produced a global or unrouted audit finding"
+            )
 
-        if degraded:
-            degraded_since = _fallback_start_times(degraded, prior_state(), now)
-            _raise_if_fallback_expired(degraded_since, now)
+        if fallback:
+            previous = prior_state()
+            _apply_surface_state(state, fresh_degraded, fallback, previous, now)
+            _raise_if_fallback_expired(state["fallback_since"], now)
             preflight = {
                 surface: _baseline_payloads(root, baseline_ref, SURFACE_SPECS[surface])
-                for surface in sorted(degraded)
+                for surface in sorted(fallback)
             }
-            for surface in sorted(degraded):
+            for surface in sorted(fallback):
                 restored[surface] = restore_surface(
                     root,
                     baseline_ref,
@@ -426,28 +588,44 @@ def select_publication(
             record = _finding_record(finding, surfaces)
             candidate_errors.append(record)
             if surfaces:
-                degraded.update(surfaces)
+                fallback.update(surfaces)
             else:
                 unrouted.append(record)
+        for finding in getattr(candidate, "degradations", []):
+            surfaces = finding_surfaces(finding)
+            record = _finding_record(finding, surfaces)
+            candidate_degradations.append(record)
+            if surfaces:
+                fresh_degraded.update(surfaces)
+            else:
+                unrouted.append(record)
+        fresh_degraded.difference_update(fallback)
         state["candidate_errors"] = candidate_errors
+        state["candidate_degradations"] = candidate_degradations
+        previous = prior_state() if fresh_degraded or fallback else None
+        _apply_surface_state(state, fresh_degraded, fallback, previous, now)
         if unrouted:
             state["mode"] = "blocked"
-            state["degraded_surfaces"] = sorted(degraded)
             state["final_errors"] = unrouted
             _write_state(state_path, state)
             _emit_outputs(state)
             raise RuntimeError(
                 "candidate audit has global or unrouted errors; refusing fallback"
             )
-        if not degraded:
+        if not fallback:
             _write_state(state_path, state)
             _emit_outputs(state)
-            print("Publication selection: all candidate surfaces are valid and current.")
+            if fresh_degraded:
+                print(
+                    "Publication selection: published fresh degraded surface(s): "
+                    + ", ".join(sorted(fresh_degraded))
+                )
+            else:
+                print("Publication selection: all candidate surfaces are valid and current.")
             return state
 
-        degraded_since = _fallback_start_times(degraded, prior_state(), now)
-        _raise_if_fallback_expired(degraded_since, now)
-        additional = degraded - set(restored)
+        _raise_if_fallback_expired(state["fallback_since"], now)
+        additional = fallback - set(restored)
         preflight = {
             surface: _baseline_payloads(root, baseline_ref, SURFACE_SPECS[surface])
             for surface in sorted(additional)
@@ -459,13 +637,8 @@ def select_publication(
                 SURFACE_SPECS[surface],
                 preflight=preflight[surface],
             )
-        state.update({
-            "mode": "fallback",
-            "degraded_surfaces": sorted(degraded),
-            "degraded_since": degraded_since,
-            "restored_paths": restored,
-            "restored_manifest": _surface_manifest(root, restored),
-        })
+        state["restored_paths"] = restored
+        state["restored_manifest"] = _surface_manifest(root, restored)
         # State must exist before the final audit so bounded stale-source
         # handling applies only to the explicitly quarantined transactions.
         _write_state(state_path, state)
@@ -479,7 +652,25 @@ def select_publication(
             _finding_record(finding, finding_surfaces(finding))
             for finding in final.errors
         ]
-        if final.errors:
+        final_degradations = [
+            _finding_record(finding, finding_surfaces(finding))
+            for finding in getattr(final, "degradations", [])
+        ]
+        state["final_degradations"] = final_degradations
+        unrouted_final_degradations = [
+            record for record in final_degradations if not record["surfaces"]
+        ]
+        for record in final_degradations:
+            fresh_degraded.update(record["surfaces"])
+        final_error_surfaces = {
+            surface
+            for record in state["final_errors"]
+            for surface in record["surfaces"]
+        }
+        # Hard errors are never represented as publishable fresh degradation.
+        fresh_degraded.difference_update(fallback | final_error_surfaces)
+        _apply_surface_state(state, fresh_degraded, fallback, previous, now)
+        if final.errors or unrouted_final_degradations:
             state["mode"] = "blocked"
             _write_state(state_path, state)
             _emit_outputs(state)
@@ -488,10 +679,12 @@ def select_publication(
             )
     except Exception as exc:
         if state.get("mode") != "blocked":
+            previous = previous_state if previous_state_loaded else None
+            _apply_surface_state(state, fresh_degraded, fallback, previous, now)
             state["mode"] = "blocked"
-            state["degraded_surfaces"] = sorted(degraded)
-            state["degraded_since"] = _fallback_start_times(
-                degraded, previous_state if previous_state_loaded else None, now
+            state["restored_paths"] = restored
+            state["restored_manifest"] = (
+                _surface_manifest(root, restored) if restored else {}
             )
             state["final_errors"] = (
                 exc.findings
@@ -510,10 +703,17 @@ def select_publication(
 
     _write_state(state_path, state)
     _emit_outputs(state)
-    print(
-        "Publication selection: retained last-known-good surface(s): "
-        + ", ".join(sorted(degraded))
-    )
+    if fresh_degraded:
+        print(
+            "Publication selection: retained last-known-good surface(s) "
+            f"{', '.join(sorted(fallback))}; published fresh degraded surface(s) "
+            + ", ".join(sorted(fresh_degraded))
+        )
+    else:
+        print(
+            "Publication selection: retained last-known-good surface(s): "
+            + ", ".join(sorted(fallback))
+        )
     return state
 
 
