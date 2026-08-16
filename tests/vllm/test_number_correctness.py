@@ -705,13 +705,30 @@ class TestNormalizationInvariants:
         if not _SHARD_BASES:
             pytest.skip("shard_bases not loaded")
 
-        all_norms = {_normalize_job_name(r.get("job_name", "")) for r in results}
-
         audited_bases = _SHARD_BASES
         catalog_path = DATA / "shard_base_catalog.json"
         if catalog_path.exists():
             catalog = json.loads(catalog_path.read_text())
             audited_bases = catalog.get("pipelines", {}).get("amd", audited_bases)
+            evidence = catalog.get("evidence", {})
+            if not evidence:
+                pytest.skip("pipeline shard evidence is unavailable")
+            if evidence and not evidence.get("roster_complete"):
+                pytest.skip("latest shard evidence is provisional")
+            roster_names = evidence.get("job_names")
+            if isinstance(roster_names, list):
+                results = [{"job_name": name} for name in roster_names]
+            result_file = str(evidence.get("result_file") or "")
+            evidence_path = DATA / "test_results" / result_file
+            if not isinstance(roster_names, list) and result_file and evidence_path.exists():
+                results = [
+                    json.loads(line)
+                    for line in evidence_path.read_text().splitlines()
+                    if line.strip()
+                ]
+                fname = result_file
+
+        all_norms = {_normalize_job_name(r.get("job_name", "")) for r in results}
 
         unused = []
         for base in audited_bases:

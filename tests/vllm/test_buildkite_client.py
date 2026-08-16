@@ -310,23 +310,28 @@ class TestFetchNightlyBuilds:
         assert out[0]["number"] == 2
         assert out[1]["number"] == 1
 
-    def test_cache_hit_for_terminal_builds(self, monkeypatch, fake_cfg, tmp_path):
-        """Terminal builds should be served from the cache instead of being re-fetched."""
+    def test_terminal_cache_keeps_jobs_but_live_metadata_wins(
+        self, monkeypatch, fake_cfg, tmp_path
+    ):
         cache_file = tmp_path / "builds_amd.json"
         cached_build = {
-            "number": 42, "message": "nightly cached", "state": "passed",
-            "created_at": "2026-04-18T00:00:00Z", "cached": True,
+            "number": 42, "message": "nightly cached", "state": "running",
+            "created_at": "2026-04-18T00:00:00Z",
+            "jobs": [{"type": "script", "name": "late job", "state": "running"}],
         }
         cache_file.write_text(json.dumps([cached_build]))
 
         api_build = {
             "number": 42, "message": "nightly api", "state": "passed",
-            "created_at": "2026-04-18T00:00:00Z", "cached": False,
+            "created_at": "2026-04-18T00:00:00Z", "finished_at": "2026-04-18T08:00:00Z",
         }
         monkeypatch.setattr(bk, "_paginate", lambda url, params=None: [api_build])
         out = bk.fetch_nightly_builds("amd", cache_dir=tmp_path)
         assert len(out) == 1
-        assert out[0]["cached"] is True  # served from disk, not API
+        assert out[0]["state"] == "passed"
+        assert out[0]["message"] == "nightly api"
+        assert out[0]["finished_at"] == "2026-04-18T08:00:00Z"
+        assert out[0]["jobs"] == cached_build["jobs"]
 
     def test_cache_miss_for_non_terminal(self, monkeypatch, fake_cfg, tmp_path):
         """Builds that are still running must NOT be served from cache."""

@@ -64,6 +64,7 @@ OPERATIONS_SOURCE_MAX_AGE_OVERRIDES = {
     "ready_tickets": 36,
 }
 PUBLICATION_FALLBACK_MAX_AGE_HOURS = 36
+FULL_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 PUBLIC_FILE_WARN_BYTES = 90 * 1024 * 1024
 PUBLIC_FILE_HARD_BYTES = 100 * 1024 * 1024
 PUBLIC_SITE_WARN_BYTES = 250 * 1024 * 1024
@@ -75,6 +76,7 @@ PUBLICATION_SURFACE_REQUIRED_KEYS = {
         "normalization_bases",
         "pipelines",
         "definitions",
+        "evidence",
     },
     "data/vllm/ci/failure_trends.json": {
         "generated_at",
@@ -772,6 +774,13 @@ class DashboardAudit:
             if (self.root / catalog_path).exists()
             else {}
         )
+        if not isinstance(catalog, dict) or not catalog:
+            self.warning(
+                "shard-base-catalog-missing",
+                "pipeline shard provenance is unavailable; skipping runtime absence audit",
+                catalog_path,
+            )
+            return
         latest = self.latest_result_file("amd")
         if not isinstance(bases, list) or not bases or latest is None:
             return
@@ -780,14 +789,58 @@ class DashboardAudit:
             pipelines = catalog.get("pipelines")
             if isinstance(pipelines, dict) and isinstance(pipelines.get("amd"), list):
                 audited_bases = pipelines["amd"]
+            evidence = catalog.get("evidence")
+            if not isinstance(evidence, dict):
+                self.warning(
+                    "shard-evidence-missing",
+                    "pipeline shard evidence is unavailable; skipping runtime absence audit",
+                    catalog_path,
+                )
+                return
+            if not evidence.get("roster_complete"):
+                self.warning(
+                    "shard-evidence-provisional",
+                    "AMD shard evidence is nonterminal; absence checks are provisional",
+                    catalog_path,
+                )
+                return
+            result_file = str(evidence.get("result_file") or "")
+            if result_file and Path(result_file).name == result_file:
+                latest = self.root / "data/vllm/ci/test_results" / result_file
+            source = catalog.get("source")
+            source_commit = str(
+                source.get("commit_sha") if isinstance(source, dict) else ""
+            ).casefold()
+            evidence_commit = str(evidence.get("build_commit") or "").casefold()
+            if (
+                not FULL_COMMIT_SHA_RE.fullmatch(source_commit)
+                or source_commit != evidence_commit
+            ):
+                self.error(
+                    "shard-config-evidence-mismatch",
+                    (
+                        "shard definitions are not pinned to the AMD evidence "
+                        f"commit ({source_commit or 'missing'} != "
+                        f"{evidence_commit or 'missing'})"
+                    ),
+                    catalog_path,
+                )
         from vllm.ci import analyzer
 
         previous = list(analyzer._SHARD_BASES)
         try:
             analyzer.set_shard_bases(bases)
-            normalized = set()
-            for row in self.load_jsonl(self.rel(latest)):
-                normalized.add(analyzer._normalize_job_name(str(row.get("job_name") or "")))
+            roster_names = evidence.get("job_names")
+            if isinstance(roster_names, list):
+                normalized = {
+                    analyzer._normalize_job_name(str(name or ""))
+                    for name in roster_names
+                }
+            else:
+                normalized = {
+                    analyzer._normalize_job_name(str(row.get("job_name") or ""))
+                    for row in self.load_jsonl(self.rel(latest))
+                }
         finally:
             analyzer.set_shard_bases(previous)
         unused = sorted(
@@ -795,6 +848,33 @@ class DashboardAudit:
             for base in audited_bases
             if not any(name.startswith(str(base).casefold()) for name in normalized)
         )
+        definitions = catalog.get("definitions") if isinstance(catalog, dict) else []
+        optional_bases = {
+            str(row.get("base") or "").casefold()
+            for row in definitions or []
+            if isinstance(row, dict)
+            and row.get("pipeline") == "amd"
+            and row.get("optional") is True
+        }
+        required_bases = {
+            str(row.get("base") or "").casefold()
+            for row in definitions or []
+            if isinstance(row, dict)
+            and row.get("pipeline") == "amd"
+            and row.get("optional") is not True
+        }
+        optional_bases -= required_bases
+        optional_unused = sorted(set(unused) & optional_bases)
+        unused = sorted(set(unused) - optional_bases)
+        if optional_unused:
+            self.warning(
+                "shard-bases-optional-unobserved",
+                (
+                    f"{len(optional_unused)} optional AMD shard bases are absent "
+                    f"from completed AMD evidence: {optional_unused}"
+                ),
+                relpath,
+            )
         if unused:
             self.error(
                 "shard-bases-unused",

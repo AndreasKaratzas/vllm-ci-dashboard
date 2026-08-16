@@ -43,8 +43,11 @@ from collect_ci import (  # noqa: E402
     _cache_covers_all_jobs,
     _cached_job_names,
     _compact_amd_build_snapshot,
+    _completed_result_entries,
     _find_false_normalization_merges,
     _find_missing_parity_groups,
+    _is_complete_nightly_build,
+    _select_latest_complete_evidence_build,
     _is_parity_excluded_group,
     _should_verify_cache_coverage,
     write_amd_nightly_snapshot,
@@ -177,6 +180,43 @@ class TestCacheCoversAllJobs:
     def test_only_latest_build_forces_cache_coverage_verification(self):
         assert _should_verify_cache_coverage(8193, 8193) is True
         assert _should_verify_cache_coverage(64187, 64258) is False
+        assert _should_verify_cache_coverage(64187, 64258, 64187) is True
+
+
+    @staticmethod
+    def _build(number: int, state: str, job_state: str, commit: str = "a" * 40):
+        return {
+            "number": number,
+            "state": state,
+            "commit": commit,
+            "created_at": f"2026-08-{number - 100:02d}T09:00:00Z",
+            "jobs": [_job("mi300_1: Model tests", state=job_state)],
+        }
+
+    def test_soft_job_still_running_makes_terminal_build_provisional(self):
+        build = self._build(112, "passed", "running")
+        assert not _is_complete_nightly_build(build)
+
+    def test_selects_previous_complete_build_when_latest_is_running(self):
+        latest = self._build(112, "running", "running")
+        previous = self._build(111, "passed", "passed")
+        results = {112: [object()], 111: [object()]}
+
+        selected = _select_latest_complete_evidence_build(
+            [latest, previous], results
+        )
+
+        assert selected is previous
+
+    def test_nonterminal_results_are_excluded_from_canonical_analysis(self):
+        latest = self._build(112, "running", "running")
+        previous = self._build(111, "passed", "passed")
+        entries = [
+            (111, "2026-08-11", [object()]),
+            (112, "2026-08-12", [object()]),
+        ]
+
+        assert _completed_result_entries(entries, [latest, previous]) == [entries[0]]
 
     def test_cache_complete_skips(self, tmp_path):
         # All 3 current jobs are in the cache → cache is complete → True.

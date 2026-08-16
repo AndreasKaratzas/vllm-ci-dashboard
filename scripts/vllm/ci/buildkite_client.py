@@ -159,12 +159,18 @@ def fetch_nightly_builds(
         msg = build.get("message", "") or ""
         if name_re.search(msg):
             build_num = build["number"]
-            # Use cached version if build is in terminal state and cached
+            # Preserve cached job detail, but never replace fresh API metadata
+            # wholesale. A cached build may still say ``running`` after the
+            # live summary has become terminal, or omit a late soft-fail job.
             if (
                 build_num in cached_builds
                 and build.get("state") in cfg.TERMINAL_STATES
             ):
-                nightly_builds.append(cached_builds[build_num])
+                merged = dict(build)
+                cached_jobs = cached_builds[build_num].get("jobs")
+                if not merged.get("jobs") and isinstance(cached_jobs, list):
+                    merged["jobs"] = cached_jobs
+                nightly_builds.append(merged)
             else:
                 nightly_builds.append(build)
 

@@ -12,6 +12,8 @@ Usage:
 import argparse
 import json
 import logging
+import os
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -58,6 +60,12 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT = ROOT / "data" / "vllm" / "ci"
 QUARANTINE_PATH = ROOT / "config" / "quarantine.yaml"
 AMD_NIGHTLY_SNAPSHOT = Path(".cache") / "amd_nightly_snapshot.json"
+COMPLETE_JOB_STATES = frozenset(
+    set(cfg.TERMINAL_STATES)
+    | set(cfg.BLOCKED_JOB_STATES)
+    | {"expired", "not_run", "skipped"}
+)
+FULL_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 
 # Configure CI framework with vLLM-specific settings
 cfg.configure(VLLM_ORG, VLLM_PIPELINES)
@@ -221,9 +229,85 @@ def _cached_job_names(jsonl_path: Path, build_num: int) -> set[str]:
     return names
 
 
-def _should_verify_cache_coverage(build_num: int, latest_build_num: int) -> bool:
-    """Only the newest nightly should force an incomplete-cache refetch."""
-    return build_num == latest_build_num
+def _should_verify_cache_coverage(
+    build_num: int,
+    latest_build_num: int,
+    latest_terminal_build_num: int = 0,
+) -> bool:
+    """Refresh the newest build and newest terminal candidate.
+
+    When today's nightly is still running, yesterday's terminal nightly is
+    the publication candidate and must still be checked for late soft-fail
+    jobs before its cached JSONL is trusted.
+    """
+    return build_num in {latest_build_num, latest_terminal_build_num}
+
+
+def _nightly_test_jobs(build: dict) -> list[dict]:
+    """Return non-superseded test jobs from a Buildkite nightly roster."""
+    return [
+        job
+        for job in build.get("jobs") or []
+        if job.get("type") == "script"
+        and not job.get("retried_in_job_id")
+        and not any(
+            skip in str(job.get("name") or "").lower()
+            for skip in SKIP_JOB_PATTERNS
+        )
+    ]
+
+
+def _is_complete_nightly_build(build: dict) -> bool:
+    """Return whether a nightly has a terminal build and test-job roster."""
+    if build.get("state") not in cfg.TERMINAL_STATES:
+        return False
+    test_jobs = _nightly_test_jobs(build)
+    return bool(test_jobs) and all(
+        str(job.get("state") or "").casefold() in COMPLETE_JOB_STATES
+        for job in test_jobs
+    )
+
+
+def _select_latest_complete_evidence_build(
+    builds: list[dict],
+    results_by_build: dict[int, list[TestResult]],
+) -> dict | None:
+    """Select the newest verified-complete build with parsed test evidence."""
+    ordered = sorted(
+        builds,
+        key=lambda build: (
+            str(build.get("created_at") or ""),
+            int(build.get("number") or 0),
+        ),
+        reverse=True,
+    )
+    return next(
+        (
+            build
+            for build in ordered
+            if results_by_build.get(int(build.get("number") or 0))
+            and _is_complete_nightly_build(build)
+        ),
+        None,
+    )
+
+
+def _completed_result_entries(
+    entries: list[tuple[int, str, list[TestResult]]],
+    fetched_builds: list[dict],
+) -> list[tuple[int, str, list[TestResult]]]:
+    """Exclude fetched nonterminal/incomplete builds from canonical analysis."""
+    builds_by_number = {
+        int(build.get("number") or 0): build
+        for build in fetched_builds
+        if build.get("number")
+    }
+    return [
+        entry
+        for entry in entries
+        if entry[0] not in builds_by_number
+        or _is_complete_nightly_build(builds_by_number[entry[0]])
+    ]
 
 
 def _cache_covers_all_jobs(
@@ -340,12 +424,39 @@ def collect_pipeline(
     results_by_build: dict[int, list[TestResult]] = {}
     slug = cfg.PIPELINES[pipeline_key]["slug"]
     latest_build_num = max((b.get("number", 0) for b in builds), default=0)
+    latest_terminal_build_num = max(
+        (
+            int(build.get("number") or 0)
+            for build in builds
+            if build.get("state") in cfg.TERMINAL_STATES
+        ),
+        default=0,
+    )
 
     for build in builds:
         build_num = build.get("number", 0)
         created = build.get("created_at", "")
         date = nightly_date(created)
         state = build.get("state", "")
+
+        verify_candidate = _should_verify_cache_coverage(
+            build_num,
+            latest_build_num,
+            latest_terminal_build_num,
+        )
+        if verify_candidate and state in cfg.TERMINAL_STATES:
+            try:
+                detail = fetch_build_detail(pipeline_key, build_num)
+                build.clear()
+                build.update(detail)
+                state = build.get("state", state)
+            except Exception as exc:
+                log.warning(
+                    "  Build #%d: couldn't refresh terminal roster (%s); "
+                    "it will not be promoted unless the cached roster is complete",
+                    build_num,
+                    exc,
+                )
 
         # Cache-skip eligibility: date is already on disk AND build is terminal.
         # But "build terminal" is not enough on its own — a soft-fail job can
@@ -356,7 +467,7 @@ def collect_pipeline(
         # omit the soft-fail result. Verify coverage before trusting cache.
         if date in existing_dates and state in cfg.TERMINAL_STATES:
             jsonl_path = results_dir / f"{date}_{pipeline_key}.jsonl"
-            if not _should_verify_cache_coverage(build_num, latest_build_num):
+            if not verify_candidate:
                 log.info("  Build #%d (%s): cached historical build, skipping", build_num, date)
                 loaded = _load_cached_results(jsonl_path)
                 if loaded:
@@ -637,6 +748,24 @@ def main():
         log.info("Data collection complete (analysis skipped).")
         return
 
+    evidence_build = _select_latest_complete_evidence_build(
+        all_builds.get("amd", []),
+        all_results.get("amd", {}),
+    )
+    evidence_commit = str((evidence_build or {}).get("commit") or "").casefold()
+    if FULL_COMMIT_SHA_RE.fullmatch(evidence_commit):
+        os.environ["VLLM_CONFIG_SHA"] = evidence_commit
+        log.info(
+            "Pinned CI definitions to completed AMD build #%s commit %s",
+            evidence_build.get("number"),
+            evidence_commit,
+        )
+    else:
+        log.warning(
+            "No completed AMD evidence build with a full commit SHA; "
+            "the publication audit will reject unaligned shard metadata"
+        )
+
     # Extract shard bases from upstream YAML (needed for correct group normalization)
     if not args.skip_config_parity:
         log.info("Extracting shard bases from upstream YAML...")
@@ -645,6 +774,23 @@ def main():
             extract_shard_base_catalog,
         )
         shard_catalog = extract_shard_base_catalog()
+        if evidence_build:
+            evidence_date = nightly_date(str(evidence_build.get("created_at") or ""))
+            shard_catalog["evidence"] = {
+                "pipeline": "amd",
+                "build_number": int(evidence_build.get("number") or 0),
+                "build_commit": evidence_commit,
+                "build_state": str(evidence_build.get("state") or ""),
+                "roster_complete": _is_complete_nightly_build(evidence_build),
+                "result_file": f"{evidence_date}_amd.jsonl",
+                "job_names": sorted(
+                    {
+                        str(job.get("name") or "")
+                        for job in _nightly_test_jobs(evidence_build)
+                        if str(job.get("name") or "")
+                    }
+                ),
+            }
         shard_bases = shard_catalog.get("normalization_bases", [])
         shard_path = output_dir / "shard_bases.json"
         shard_path.write_text(json.dumps(shard_bases, indent=2))
@@ -685,6 +831,10 @@ def main():
                 pipeline_results.append((bn, date, results))
 
         pipeline_results.sort(key=lambda x: x[1])
+        pipeline_results = _completed_result_entries(
+            pipeline_results,
+            all_builds.get(pk, []),
+        )
 
         if pk == "amd":
             amd_by_build = pipeline_results

@@ -494,6 +494,31 @@ def test_stale_shard_bases_are_a_routable_ci_surface_error(tmp_path: Path) -> No
     (ci / "shard_bases.json").write_text(
         json.dumps(["active sharded group", "removed sharded group"])
     )
+    (ci / "shard_base_catalog.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source": {"commit_sha": "a" * 40},
+                "normalization_bases": [
+                    "active sharded group",
+                    "removed sharded group",
+                ],
+                "pipelines": {
+                    "amd": ["active sharded group", "removed sharded group"],
+                    "upstream": [],
+                },
+                "definitions": [],
+                "evidence": {
+                    "pipeline": "amd",
+                    "build_number": 100,
+                    "build_commit": "a" * 40,
+                    "build_state": "passed",
+                    "roster_complete": True,
+                    "result_file": "2026-08-12_amd.jsonl",
+                },
+            }
+        )
+    )
     (results / "2026-08-12_amd.jsonl").write_text(
         json.dumps({"job_name": "mi300_1: Active Sharded Group 1"}) + "\n"
     )
@@ -509,6 +534,26 @@ def test_stale_shard_bases_are_a_routable_ci_surface_error(tmp_path: Path) -> No
     assert finding.path == "data/vllm/ci/shard_bases.json"
     assert finding_surfaces(finding) == frozenset({"ci"})
     assert "removed sharded group" in finding.message
+
+
+def test_missing_shard_catalog_skips_unsafe_cross_pipeline_audit(tmp_path: Path) -> None:
+    ci = tmp_path / "data/vllm/ci"
+    results = ci / "test_results"
+    results.mkdir(parents=True)
+    (ci / "shard_bases.json").write_text(
+        json.dumps(["unknown pipeline sharded group"])
+    )
+    (results / "2026-08-12_amd.jsonl").write_text(
+        json.dumps({"job_name": "mi300_1: Different Group"}) + "\n"
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_shard_bases()
+
+    assert not audit.report.errors
+    assert {finding.code for finding in audit.report.warnings} == {
+        "shard-base-catalog-missing"
+    }
 
 
 def test_upstream_only_shard_base_is_not_required_in_amd_evidence(tmp_path: Path) -> None:
@@ -532,6 +577,14 @@ def test_upstream_only_shard_base_is_not_required_in_amd_evidence(tmp_path: Path
                     "upstream": ["humming eval (h100)"],
                 },
                 "definitions": [],
+                "evidence": {
+                    "pipeline": "amd",
+                    "build_number": 100,
+                    "build_commit": "a" * 40,
+                    "build_state": "passed",
+                    "roster_complete": True,
+                    "result_file": "2026-08-12_amd.jsonl",
+                },
             }
         )
     )
@@ -544,4 +597,160 @@ def test_upstream_only_shard_base_is_not_required_in_amd_evidence(tmp_path: Path
 
     assert "shard-bases-unused" not in {
         finding.code for finding in audit.report.errors
+    }
+
+
+def test_shard_audit_uses_completed_evidence_file_not_newer_partial_file(
+    tmp_path: Path,
+) -> None:
+    ci = tmp_path / "data/vllm/ci"
+    results = ci / "test_results"
+    results.mkdir(parents=True)
+    (ci / "shard_bases.json").write_text(json.dumps(["completed group"]))
+    (ci / "shard_base_catalog.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source": {"commit_sha": "a" * 40},
+                "normalization_bases": ["completed group"],
+                "pipelines": {"amd": ["completed group"], "upstream": []},
+                "definitions": [],
+                "evidence": {
+                    "pipeline": "amd",
+                    "build_number": 100,
+                    "build_commit": "a" * 40,
+                    "build_state": "passed",
+                    "roster_complete": True,
+                    "result_file": "2026-08-11_amd.jsonl",
+                    "job_names": ["mi300_1: Completed Group 1"],
+                },
+            }
+        )
+    )
+    (results / "2026-08-11_amd.jsonl").write_text(
+        json.dumps({"job_name": "mi300_1: Parsed Different Group"}) + "\n"
+    )
+    (results / "2026-08-12_amd.jsonl").write_text(
+        json.dumps({"job_name": "mi300_1: Still Running"}) + "\n"
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_shard_bases()
+
+    assert not audit.report.errors
+
+
+def test_nonterminal_shard_evidence_is_a_warning_not_an_error(tmp_path: Path) -> None:
+    ci = tmp_path / "data/vllm/ci"
+    results = ci / "test_results"
+    results.mkdir(parents=True)
+    (ci / "shard_bases.json").write_text(json.dumps(["scheduled group"]))
+    (ci / "shard_base_catalog.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source": {"commit_sha": "a" * 40},
+                "normalization_bases": ["scheduled group"],
+                "pipelines": {"amd": ["scheduled group"], "upstream": []},
+                "definitions": [],
+                "evidence": {
+                    "pipeline": "amd",
+                    "build_number": 101,
+                    "build_commit": "a" * 40,
+                    "build_state": "running",
+                    "roster_complete": False,
+                    "result_file": "2026-08-12_amd.jsonl",
+                },
+            }
+        )
+    )
+    (results / "2026-08-12_amd.jsonl").write_text(
+        json.dumps({"job_name": "mi300_1: Other Group"}) + "\n"
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_shard_bases()
+
+    assert not audit.report.errors
+    assert {finding.code for finding in audit.report.warnings} == {
+        "shard-evidence-provisional"
+    }
+
+
+def test_optional_amd_shard_absence_is_a_warning(tmp_path: Path) -> None:
+    ci = tmp_path / "data/vllm/ci"
+    results = ci / "test_results"
+    results.mkdir(parents=True)
+    (ci / "shard_bases.json").write_text(json.dumps(["optional group"]))
+    (ci / "shard_base_catalog.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source": {"commit_sha": "a" * 40},
+                "normalization_bases": ["optional group"],
+                "pipelines": {"amd": ["optional group"], "upstream": []},
+                "definitions": [
+                    {
+                        "base": "optional group",
+                        "pipeline": "amd",
+                        "optional": True,
+                    }
+                ],
+                "evidence": {
+                    "pipeline": "amd",
+                    "build_number": 101,
+                    "build_commit": "a" * 40,
+                    "build_state": "passed",
+                    "roster_complete": True,
+                    "result_file": "2026-08-12_amd.jsonl",
+                },
+            }
+        )
+    )
+    (results / "2026-08-12_amd.jsonl").write_text(
+        json.dumps({"job_name": "mi300_1: Other Group"}) + "\n"
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_shard_bases()
+
+    assert not audit.report.errors
+    assert {finding.code for finding in audit.report.warnings} == {
+        "shard-bases-optional-unobserved"
+    }
+
+
+def test_shard_source_must_match_completed_evidence_commit(tmp_path: Path) -> None:
+    ci = tmp_path / "data/vllm/ci"
+    results = ci / "test_results"
+    results.mkdir(parents=True)
+    (ci / "shard_bases.json").write_text(json.dumps(["completed group"]))
+    (ci / "shard_base_catalog.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source": {"commit_sha": "a" * 40},
+                "normalization_bases": ["completed group"],
+                "pipelines": {"amd": ["completed group"], "upstream": []},
+                "definitions": [],
+                "evidence": {
+                    "pipeline": "amd",
+                    "build_number": 101,
+                    "build_commit": "b" * 40,
+                    "build_state": "passed",
+                    "roster_complete": True,
+                    "result_file": "2026-08-12_amd.jsonl",
+                },
+            }
+        )
+    )
+    (results / "2026-08-12_amd.jsonl").write_text(
+        json.dumps({"job_name": "mi300_1: Completed Group 1"}) + "\n"
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_shard_bases()
+
+    assert {finding.code for finding in audit.report.errors} == {
+        "shard-config-evidence-mismatch"
     }
