@@ -2112,7 +2112,7 @@ class TestAlertAutomationWorkflow:
             env = steps[index].get("env") or {}
             assert {"GITHUB_TOKEN", "GITHUB_REPOSITORY", "GITHUB_RUN_ID"} <= set(env)
 
-        persist = names.index("Persist managed alert issue state")
+        persist = names.index("Stage managed alert issue state")
         assert persist > max(amd_watch, ci_watch, duration_watch, agent_watch)
         assert steps[persist].get("if") == (
             "steps.publication-selector.outcome == 'success'"
@@ -2125,8 +2125,10 @@ class TestAlertAutomationWorkflow:
             "open_agent_health_issues.json",
         ):
             assert state_file in persist_run
-        assert "if ! git push origin HEAD:main; then" in persist_run
-        assert "deferring it to the final data commit" in persist_run
+            assert surface_for_path(f"data/vllm/ci/{state_file}") is None
+        assert "git add" in persist_run
+        assert "git commit" not in persist_run
+        assert "git push" not in persist_run
 
     def test_alert_state_is_committed_with_collected_data(self):
         text = _load_workflow_text("hourly-master.yml")
@@ -2145,7 +2147,7 @@ class TestAlertAutomationWorkflow:
         selector = names.index("Select validated publication surfaces")
         watcher = names.index("Watch AMD CI test-area regressions (ranked owners)")
         project_sync = names.index("Sync managed issues to AMD CI Operations project")
-        persist = names.index("Persist CI ownership issue state")
+        persist = names.index("Stage CI ownership issue state")
         second_build = names.index(
             "Rebuild v2 operations snapshot with selected issue state"
         )
@@ -2190,8 +2192,13 @@ class TestAlertAutomationWorkflow:
         )
         assert ",ci_core," in steps[persist].get("if", "")
         assert "open_ci_area_regression_issues.json" in steps[persist]["run"]
-        assert "if ! git push origin HEAD:main; then" in steps[persist]["run"]
-        assert "deferring it to the final data commit" in steps[persist]["run"]
+        assert (
+            surface_for_path("data/vllm/ci/open_ci_area_regression_issues.json")
+            is None
+        )
+        assert "git add" in steps[persist]["run"]
+        assert "git commit" not in steps[persist]["run"]
+        assert "git push" not in steps[persist]["run"]
         assert steps[project_sync]["run"] == (
             "python scripts/vllm/sync_ci_operations_project.py"
         )

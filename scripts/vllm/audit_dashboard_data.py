@@ -36,6 +36,7 @@ from vllm.publication_surfaces import (  # noqa: E402
     SURFACE_SPECS,
     SurfaceSpec,
     fallback_dependency_closure,
+    ignored_watcher_state_paths,
 )
 
 
@@ -236,6 +237,30 @@ def _publication_expected_paths(root: Path, spec: SurfaceSpec) -> set[str]:
     return expected
 
 
+def _migrated_publication_manifest_entries(
+    surface: str,
+    entries: object,
+) -> object:
+    if not isinstance(entries, dict):
+        return entries
+    ignored = ignored_watcher_state_paths(surface)
+    return {
+        relative: descriptor
+        for relative, descriptor in entries.items()
+        if relative not in ignored
+    }
+
+
+def _migrated_publication_restored_paths(
+    surface: str,
+    paths: object,
+) -> object:
+    if not isinstance(paths, list) or any(not isinstance(path, str) for path in paths):
+        return paths
+    ignored = ignored_watcher_state_paths(surface)
+    return sorted(path for path in paths if path not in ignored)
+
+
 def _publication_surface_expansions(
     surfaces: list[str],
     aliases: dict[str, frozenset[str]],
@@ -260,7 +285,11 @@ def _partition_publication_manifest(
 ) -> dict[str, dict]:
     partitioned: dict[str, dict] = {}
     for surface, targets in expansions.items():
-        entries = manifest[surface]
+        entries = _migrated_publication_manifest_entries(
+            surface, manifest[surface]
+        )
+        if not isinstance(entries, dict):
+            raise ValueError("publication fallback manifest entries must be objects")
         if targets == frozenset({surface}):
             partitioned[surface] = dict(entries)
             continue
@@ -848,7 +877,11 @@ class DashboardAudit:
             spec: SurfaceSpec,
             entries: object,
         ) -> bool:
-            expected_paths = _publication_expected_paths(self.root, spec)
+            entries = _migrated_publication_manifest_entries(surface, entries)
+            expected_paths = (
+                _publication_expected_paths(self.root, spec)
+                - ignored_watcher_state_paths(surface)
+            )
             if not isinstance(entries, dict) or set(entries) != expected_paths:
                 self.error(
                     "publication-fallback-manifest-mismatch",
@@ -884,6 +917,24 @@ class DashboardAudit:
                     valid = False
             return valid
 
+        def verify_restored_paths(
+            surface: str,
+            entries: object,
+            restored: object,
+        ) -> bool:
+            if not isinstance(entries, dict):
+                return False
+            migrated = _migrated_publication_restored_paths(surface, restored)
+            if migrated == sorted(entries):
+                return True
+            self.error(
+                "publication-fallback-manifest-mismatch",
+                f"{surface} restored path list no longer matches publication state",
+                self.rel(path),
+                context={"surface": surface},
+            )
+            return False
+
         schema_version = state.get("schema_version")
         mode = state.get("mode")
         if (
@@ -899,6 +950,7 @@ class DashboardAudit:
         degraded_raw = state.get("degraded_surfaces")
         degraded_since = state.get("degraded_since")
         manifest = state.get("restored_manifest")
+        restored_paths = state.get("restored_paths")
 
         if schema_version == 1:
             aliases = _publication_legacy_aliases()
@@ -920,6 +972,7 @@ class DashboardAudit:
                     degraded_raw
                     or degraded_since not in ({}, None)
                     or manifest not in ({}, None)
+                    or restored_paths not in ({}, None)
                 ):
                     return reject(
                         "current publication state cannot declare degraded or "
@@ -937,6 +990,13 @@ class DashboardAudit:
                 )
                 or not isinstance(manifest, dict)
                 or set(manifest) != set(degraded_raw)
+                or (
+                    restored_paths is not None
+                    and (
+                        not isinstance(restored_paths, dict)
+                        or set(restored_paths) != set(degraded_raw)
+                    )
+                )
             ):
                 return reject(
                     "publication state lacks complete degradation or fallback "
@@ -952,7 +1012,18 @@ class DashboardAudit:
                     if surface == LEGACY_CI_SURFACE and surface in aliases
                     else SURFACE_SPECS[surface]
                 )
-                raw_valid = verify_manifest(surface, spec, manifest[surface]) and raw_valid
+                migrated_entries = _migrated_publication_manifest_entries(
+                    surface, manifest[surface]
+                )
+                raw_valid = verify_manifest(
+                    surface, spec, manifest[surface]
+                ) and raw_valid
+                if restored_paths is not None:
+                    raw_valid = verify_restored_paths(
+                        surface,
+                        migrated_entries,
+                        restored_paths.get(surface),
+                    ) and raw_valid
             if not raw_valid:
                 self._fallback_surfaces_cache = frozenset()
                 return self._fallback_surfaces_cache
@@ -1024,6 +1095,7 @@ class DashboardAudit:
                     or degraded_since not in ({}, None)
                     or fallback_since not in ({}, None)
                     or manifest not in ({}, None)
+                    or restored_paths not in ({}, None)
                 )
             ):
                 return reject(
@@ -1048,6 +1120,15 @@ class DashboardAudit:
                     and (not isinstance(manifest, dict) or set(manifest) != fallback_set)
                 )
                 or (not fallback_set and manifest not in ({}, None))
+                or (
+                    fallback_set
+                    and restored_paths is not None
+                    and (
+                        not isinstance(restored_paths, dict)
+                        or set(restored_paths) != fallback_set
+                    )
+                )
+                or (not fallback_set and restored_paths not in ({}, None))
             ):
                 return reject(
                     "publication state lacks complete degradation or fallback "
@@ -1063,9 +1144,18 @@ class DashboardAudit:
                 return self._fallback_surfaces_cache
             valid = True
             for surface in sorted(fallback_surfaces):
+                migrated_entries = _migrated_publication_manifest_entries(
+                    surface, manifest[surface]
+                )
                 valid = verify_manifest(
                     surface, SURFACE_SPECS[surface], manifest[surface]
                 ) and valid
+                if restored_paths is not None:
+                    valid = verify_restored_paths(
+                        surface,
+                        migrated_entries,
+                        restored_paths.get(surface),
+                    ) and valid
             if not valid:
                 self._fallback_surfaces_cache = frozenset()
                 return self._fallback_surfaces_cache

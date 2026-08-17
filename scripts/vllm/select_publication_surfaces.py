@@ -32,6 +32,7 @@ from vllm.publication_surfaces import (  # noqa: E402
     SurfaceSpec,
     fallback_dependency_closure,
     finding_surfaces,
+    ignored_watcher_state_paths,
 )
 
 
@@ -157,12 +158,18 @@ def _validate_baseline_manifest(
 ) -> dict[str, dict]:
     if not isinstance(entries, dict):
         raise RuntimeError(f"fallback baseline manifest for {surface} is invalid")
-    expected = _baseline_expected_paths(root, ref, spec)
-    if set(entries) != expected:
+    ignored = ignored_watcher_state_paths(surface)
+    migrated_entries = {
+        relative: descriptor
+        for relative, descriptor in entries.items()
+        if relative not in ignored
+    }
+    expected = _baseline_expected_paths(root, ref, spec) - ignored
+    if set(migrated_entries) != expected:
         raise RuntimeError(
             f"fallback baseline manifest path set for {surface} is inconsistent"
         )
-    for relative, descriptor in entries.items():
+    for relative, descriptor in migrated_entries.items():
         if not isinstance(descriptor, dict):
             raise RuntimeError(
                 f"fallback baseline descriptor for {relative} is invalid"
@@ -177,7 +184,17 @@ def _validate_baseline_manifest(
             raise RuntimeError(
                 f"fallback baseline content for {relative} does not match its manifest"
             )
-    return entries
+    return migrated_entries
+
+
+def _migrated_restored_paths(
+    surface: str,
+    paths: object,
+) -> list[str] | None:
+    if not isinstance(paths, list) or any(not isinstance(path, str) for path in paths):
+        return None
+    ignored = ignored_watcher_state_paths(surface)
+    return sorted(path for path in paths if path not in ignored)
 
 
 def _partition_baseline_manifest(
@@ -320,9 +337,9 @@ def _baseline_publication_state(
             entries = _validate_baseline_manifest(
                 root, ref, surface, spec, manifest[surface]
             )
-            if restored_paths is not None and restored_paths.get(surface) != sorted(
-                entries
-            ):
+            if restored_paths is not None and _migrated_restored_paths(
+                surface, restored_paths.get(surface)
+            ) != sorted(entries):
                 raise RuntimeError(
                     f"fallback baseline restored paths for {surface} are inconsistent"
                 )
@@ -394,15 +411,28 @@ def _baseline_publication_state(
         not isinstance(restored_paths, dict) or set(restored_paths) != set(fallback)
     ):
         raise RuntimeError("fallback baseline state has incomplete restored paths")
+    validated_manifest: dict[str, dict] = {}
+    migrated_paths: dict[str, list[str]] = {}
     for surface in fallback:
         entries = _validate_baseline_manifest(
             root, ref, surface, SURFACE_SPECS[surface], manifest[surface]
         )
-        if restored_paths is not None and restored_paths.get(surface) != sorted(entries):
+        normalized_paths = (
+            _migrated_restored_paths(surface, restored_paths.get(surface))
+            if restored_paths is not None
+            else sorted(entries)
+        )
+        if normalized_paths != sorted(entries):
             raise RuntimeError(
                 f"fallback baseline restored paths for {surface} are inconsistent"
             )
-    return payload
+        validated_manifest[surface] = entries
+        migrated_paths[surface] = sorted(entries)
+    return {
+        **payload,
+        "restored_paths": migrated_paths,
+        "restored_manifest": validated_manifest,
+    }
 
 
 def _start_times(

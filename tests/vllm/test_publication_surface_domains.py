@@ -10,8 +10,10 @@ import pytest
 
 from vllm import publication_surfaces as surfaces_module
 from vllm.publication_surfaces import (
+    CI_CORE_WATCHER_STATE_PATHS,
     FALLBACK_DEPENDENCIES,
     GLOBAL_DATA_PATHS,
+    INDEPENDENT_WATCHER_STATE_PATHS,
     LEGACY_CI_SURFACE,
     LEGACY_CI_SURFACE_SPEC,
     LEGACY_SURFACE_ALIASES,
@@ -133,10 +135,28 @@ def test_legacy_monolithic_ci_contract_is_exactly_partitioned() -> None:
         pattern for surface in CI_DOMAINS for pattern in SURFACE_SPECS[surface].globs
     }
     assert partitioned_required == expected_required
-    assert partitioned_optional == expected_optional
+    assert partitioned_optional == expected_optional - set(
+        CI_CORE_WATCHER_STATE_PATHS
+    )
+    assert partitioned_optional | set(CI_CORE_WATCHER_STATE_PATHS) == expected_optional
     assert partitioned_globs == set(LEGACY_CI_SURFACE_SPEC.globs)
-    assert {surface_for_path(path) for path in expected_required | expected_optional} <= (
-        CI_DOMAINS
+    assert {
+        surface_for_path(path)
+        for path in expected_required | partitioned_optional
+    } <= CI_DOMAINS
+
+
+def test_private_watcher_ledgers_have_no_publication_surface_owner() -> None:
+    assert INDEPENDENT_WATCHER_STATE_PATHS == {
+        "data/vllm/ci/open_agent_health_issues.json",
+        "data/vllm/ci/open_amd_duration_regression_issues.json",
+        "data/vllm/ci/open_amd_main_failure_issues.json",
+        "data/vllm/ci/open_ci_area_regression_issues.json",
+        "data/vllm/ci/open_ci_main_failure_issues.json",
+    }
+    assert all(
+        surface_for_path(path) is None
+        for path in INDEPENDENT_WATCHER_STATE_PATHS
     )
 
 

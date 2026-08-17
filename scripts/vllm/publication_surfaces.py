@@ -20,6 +20,20 @@ class SurfaceSpec:
     globs: tuple[str, ...] = ()
 
 
+CI_CORE_WATCHER_STATE_PATHS = (
+    "data/vllm/ci/open_amd_duration_regression_issues.json",
+    "data/vllm/ci/open_amd_main_failure_issues.json",
+    "data/vllm/ci/open_ci_area_regression_issues.json",
+    "data/vllm/ci/open_ci_main_failure_issues.json",
+)
+AGENT_HEALTH_WATCHER_STATE_PATHS = (
+    "data/vllm/ci/open_agent_health_issues.json",
+)
+INDEPENDENT_WATCHER_STATE_PATHS = frozenset(
+    (*CI_CORE_WATCHER_STATE_PATHS, *AGENT_HEALTH_WATCHER_STATE_PATHS)
+)
+
+
 CI_CORE_SURFACE_SPEC = SurfaceSpec(
     required_paths=(
         "data/vllm/ci/amd_test_matrix.json",
@@ -37,10 +51,6 @@ CI_CORE_SURFACE_SPEC = SurfaceSpec(
     ),
     optional_paths=(
         "data/vllm/ci/ci_ownership.json",
-        "data/vllm/ci/open_amd_duration_regression_issues.json",
-        "data/vllm/ci/open_amd_main_failure_issues.json",
-        "data/vllm/ci/open_ci_area_regression_issues.json",
-        "data/vllm/ci/open_ci_main_failure_issues.json",
         "data/vllm/ci/parity_key_overrides.json",
         "data/vllm/ci/quarantine.json",
         "data/vllm/ci/shard_base_catalog.json",
@@ -89,7 +99,6 @@ SURFACE_SPECS: dict[str, SurfaceSpec] = {
     ),
     "agent_health": SurfaceSpec(
         required_paths=("data/vllm/ci/agent_health.json",),
-        optional_paths=("data/vllm/ci/open_agent_health_issues.json",),
         globs=("data/vllm/ci/agent_health/*.jsonl",),
     ),
     "dns_health": SurfaceSpec(
@@ -137,7 +146,13 @@ LEGACY_CI_SURFACE_SPEC = SurfaceSpec(
         )
         for path in spec.required_paths
     ),
-    optional_paths=CI_CORE_SURFACE_SPEC.optional_paths,
+    # Schema-v1 manifests predate the private watcher-state boundary. Keep
+    # recognizing those entries during migration, but never restore them into
+    # an active publication surface.
+    optional_paths=(
+        *CI_CORE_SURFACE_SPEC.optional_paths,
+        *CI_CORE_WATCHER_STATE_PATHS,
+    ),
     globs=CI_CORE_SURFACE_SPEC.globs,
 )
 LEGACY_SURFACE_SPECS = {LEGACY_CI_SURFACE: LEGACY_CI_SURFACE_SPEC}
@@ -146,6 +161,20 @@ LEGACY_SURFACE_ALIASES = {
         {"ci_core", "ci_gating", "ci_changes", "ci_hotness"}
     ),
 }
+
+
+def ignored_watcher_state_paths(surface: str) -> frozenset[str]:
+    """Return historical private-ledger entries accepted for one surface.
+
+    These files are independently mutable automation state, not dashboard
+    publication bytes. The allowlist is deliberately surface-specific so an
+    unrelated or misplaced manifest entry still fails closed.
+    """
+    if surface in {LEGACY_CI_SURFACE, "ci_core"}:
+        return frozenset(CI_CORE_WATCHER_STATE_PATHS)
+    if surface == "agent_health":
+        return frozenset(AGENT_HEALTH_WATCHER_STATE_PATHS)
+    return frozenset()
 
 
 # These are invalidation edges, not data-flow dependencies: if a source surface
