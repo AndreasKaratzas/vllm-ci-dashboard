@@ -246,11 +246,14 @@ jobs:
               fi
             done
           }
+          # PUBLIC-ANALYTICS-BOUNDARY: gh-pages contains only the bounded public
+          # projection. It must never seed the private reliability input; main
+          # and the analytics collector own the full analytics.json artifact.
           sync_ci_core_seed() {
             sync_ci_files \
               ci_health.json parity_report.json config_parity.json \
               flaky_tests.json failure_trends.json quarantine.json \
-              analytics.json gating_nightlies.json shard_bases.json \
+              gating_nightlies.json shard_bases.json \
               shard_base_catalog.json amd_test_matrix.json \
               ownership_config_parity.json ci_ownership.json \
               parity_key_overrides.json

@@ -964,6 +964,44 @@ def test_publication_budget_rejects_an_oversized_file(tmp_path, monkeypatch):
     }
 
 
+def test_publication_budget_counts_projection_ceiling_not_private_source(tmp_path):
+    config = tmp_path / "config"
+    data = tmp_path / "data"
+    analytics = data / "vllm/ci/analytics.json"
+    config.mkdir()
+    analytics.parent.mkdir(parents=True)
+    (data / "public.json").write_text("{}")
+    analytics.write_text("x" * 500)
+    (config / "public_data_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "required_files": ["public.json"],
+                "optional_files": [],
+                "optional_globs": [],
+                "build_inputs": ["vllm/ci/analytics.json"],
+                "projected_files": [
+                    {
+                        "path": "vllm/ci/analytics.json",
+                        "projector": "public_analytics_v1",
+                        "max_bytes": 17,
+                    }
+                ],
+            }
+        )
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_publication_size()
+
+    metrics = audit.report.metrics["publication_size"]
+    assert metrics["estimated_bytes"] == 19
+    assert metrics["projected_budget_bytes"] == 17
+    assert metrics["projected_files"] == {"vllm/ci/analytics.json": 17}
+    assert metrics["largest_files"]["vllm/ci/analytics.json"] == 17
+    assert not audit.report.errors
+
+
 def test_operations_audit_rejects_cross_pipeline_links_and_trajectory(tmp_path):
     ci = tmp_path / "data/vllm/ci"
     ci.mkdir(parents=True)
@@ -1703,4 +1741,66 @@ def test_hourly_workflow_orders_live_audit_tests_and_enforcement(tmp_path):
 
     assert "workflow-hourly-step-order" in {
         finding.code for finding in invalid.report.errors
+    }
+
+
+def test_workflow_audit_enforces_one_way_analytics_projection(tmp_path):
+    for relative in (
+        ".github/workflows/hourly-master.yml",
+        "config/public_data_manifest.json",
+        "scripts/build_site.py",
+    ):
+        destination = tmp_path / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text((ROOT / relative).read_text())
+
+    valid = DashboardAudit(tmp_path)
+    valid.audit_workflows()
+    projection_codes = {
+        "workflow-public-analytics-feedback",
+        "workflow-public-analytics-boundary",
+        "private-analytics-lineage",
+        "public-analytics-projection",
+        "public-analytics-materialization",
+    }
+    assert not projection_codes & {
+        finding.code for finding in valid.report.errors
+    }
+
+    hourly = tmp_path / ".github/workflows/hourly-master.yml"
+    hourly.write_text(
+        hourly.read_text().replace(
+            "ci_health.json parity_report.json config_parity.json",
+            "ci_health.json analytics.json parity_report.json config_parity.json",
+            1,
+        )
+    )
+    feedback = DashboardAudit(tmp_path)
+    feedback.audit_workflows()
+    assert "workflow-public-analytics-feedback" in {
+        finding.code for finding in feedback.report.errors
+    }
+
+    manifest_path = tmp_path / "config/public_data_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["projected_files"] = []
+    manifest_path.write_text(json.dumps(manifest))
+    missing_projection = DashboardAudit(tmp_path)
+    missing_projection.audit_workflows()
+    assert "public-analytics-projection" in {
+        finding.code for finding in missing_projection.report.errors
+    }
+
+    build_site = tmp_path / "scripts/build_site.py"
+    build_site.write_text(
+        build_site.read_text().replace(
+            "PUBLIC_ANALYTICS_PROJECTOR_ID: compact_public_analytics_json",
+            "PUBLIC_ANALYTICS_PROJECTOR_ID: object",
+            1,
+        )
+    )
+    broken_materialization = DashboardAudit(tmp_path)
+    broken_materialization.audit_workflows()
+    assert "public-analytics-materialization" in {
+        finding.code for finding in broken_materialization.report.errors
     }

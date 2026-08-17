@@ -21,7 +21,7 @@ import re
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -77,6 +77,10 @@ FULL_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 PUBLIC_FILE_WARN_BYTES = 90 * 1024 * 1024
 PUBLIC_FILE_HARD_BYTES = 100 * 1024 * 1024
 PUBLIC_SITE_WARN_BYTES = 250 * 1024 * 1024
+PRIVATE_ANALYTICS_PATH = "vllm/ci/analytics.json"
+PRIVATE_ANALYTICS_DATA_PATH = f"data/{PRIVATE_ANALYTICS_PATH}"
+PUBLIC_ANALYTICS_PROJECTOR_ID = "public_analytics_v1"
+PUBLIC_ANALYTICS_BOUNDARY_MARKER = "PUBLIC-ANALYTICS-BOUNDARY"
 PUBLICATION_STATE_RELATIVE = Path("data/vllm/ci/publication_state.json")
 DECLARED_PUBLICATION_SURFACE_NAMES = frozenset(SURFACE_SPECS)
 PUBLICATION_SURFACE_REQUIRED_KEYS = {
@@ -1331,6 +1335,51 @@ class DashboardAudit:
                         path.stat().st_size
                     )
 
+        projected_budgets: dict[str, int] = {}
+        projected_files = manifest.get("projected_files") or []
+        if not isinstance(projected_files, list):
+            self.error(
+                "public-manifest-projections",
+                "public_data_manifest.json projected_files must be a list",
+                "config/public_data_manifest.json",
+            )
+            projected_files = []
+        for index, descriptor in enumerate(projected_files):
+            if not isinstance(descriptor, dict):
+                self.error(
+                    "public-manifest-projection",
+                    f"projected_files[{index}] must be an object",
+                    "config/public_data_manifest.json",
+                )
+                continue
+            relative = descriptor.get("path")
+            maximum = descriptor.get("max_bytes")
+            safe_path = (
+                isinstance(relative, str)
+                and bool(relative)
+                and not PurePosixPath(relative).is_absolute()
+                and ".." not in PurePosixPath(relative).parts
+            )
+            if not safe_path or (
+                isinstance(maximum, bool)
+                or not isinstance(maximum, int)
+                or maximum <= 0
+            ):
+                self.error(
+                    "public-manifest-projection",
+                    (
+                        f"projected_files[{index}] needs a safe path and positive "
+                        "integer max_bytes"
+                    ),
+                    "config/public_data_manifest.json",
+                )
+                continue
+            # The source at data/<path> is the full private build input. It may
+            # be much larger than the bounded artifact written to _site, so use
+            # the projection contract's ceiling for the public-site estimate.
+            published_sizes[relative] = maximum
+            projected_budgets[relative] = maximum
+
         operations_manifest_path = (
             self.root / "data/vllm/ci/operations_v2_manifest.json"
         )
@@ -1378,6 +1427,8 @@ class DashboardAudit:
             )
         self.report.metrics["publication_size"] = {
             "estimated_bytes": total,
+            "projected_budget_bytes": sum(projected_budgets.values()),
+            "projected_files": projected_budgets,
             "largest_files": dict(
                 sorted(
                     published_sizes.items(),
@@ -5307,6 +5358,149 @@ class DashboardAudit:
                 )
             last = idx
 
+        sync_start = text.find("name: Sync CI data from gh-pages")
+        sync_end = text.find("\n      - name:", sync_start + 1)
+        sync_block = (
+            text[sync_start : sync_end if sync_end >= 0 else len(text)]
+            if sync_start >= 0
+            else ""
+        )
+        sync_commands = "\n".join(
+            line
+            for line in sync_block.splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        analytics_feedback_blocked = not bool(
+            re.search(r"\banalytics\.json\b", sync_commands)
+        )
+        if not analytics_feedback_blocked:
+            self.error(
+                "workflow-public-analytics-feedback",
+                (
+                    "hourly-master.yml restores analytics.json from gh-pages; "
+                    "the bounded public projection must never replace the full "
+                    "private reliability input"
+                ),
+                ".github/workflows/hourly-master.yml",
+            )
+        if PUBLIC_ANALYTICS_BOUNDARY_MARKER not in sync_block:
+            self.error(
+                "workflow-public-analytics-boundary",
+                (
+                    "hourly-master.yml must document the one-way private-to-public "
+                    "analytics projection boundary"
+                ),
+                ".github/workflows/hourly-master.yml",
+            )
+
+        analytics_owner = next(
+            (
+                surface
+                for surface, spec in SURFACE_SPECS.items()
+                if _publication_spec_owns_path(spec, PRIVATE_ANALYTICS_DATA_PATH)
+            ),
+            None,
+        )
+        analytics_spec = next(
+            (spec for spec in DATA_SPECS if spec.relpath == PRIVATE_ANALYTICS_DATA_PATH),
+            None,
+        )
+        private_lineage_ok = (
+            analytics_owner == "ci_core"
+            and analytics_spec is not None
+            and "scripts/vllm/collect_analytics.py" in analytics_spec.producers
+        )
+        if not private_lineage_ok:
+            self.error(
+                "private-analytics-lineage",
+                (
+                    "full analytics.json must remain selector-owned by ci_core and "
+                    "covered by the private data audit"
+                ),
+                PRIVATE_ANALYTICS_DATA_PATH,
+            )
+
+        manifest_path = self.root / "config/public_data_manifest.json"
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            manifest = {}
+        if not isinstance(manifest, dict):
+            manifest = {}
+        build_inputs = manifest.get("build_inputs")
+        if not isinstance(build_inputs, list):
+            build_inputs = []
+        projected_files = manifest.get("projected_files")
+        if not isinstance(projected_files, list):
+            projected_files = []
+        analytics_projection = next(
+            (
+                descriptor
+                for descriptor in projected_files
+                if isinstance(descriptor, dict)
+                and descriptor.get("path") == PRIVATE_ANALYTICS_PATH
+            ),
+            None,
+        )
+        direct_public_files = {
+            relative
+            for field in ("required_files", "optional_files")
+            for relative in (
+                manifest.get(field) if isinstance(manifest.get(field), list) else []
+            )
+            if isinstance(relative, str)
+        }
+        projection_declared = (
+            manifest.get("schema_version") == 2
+            and PRIVATE_ANALYTICS_PATH in build_inputs
+            and PRIVATE_ANALYTICS_PATH not in direct_public_files
+            and isinstance(analytics_projection, dict)
+            and analytics_projection.get("projector")
+            == PUBLIC_ANALYTICS_PROJECTOR_ID
+            and isinstance(analytics_projection.get("max_bytes"), int)
+            and not isinstance(analytics_projection.get("max_bytes"), bool)
+            and analytics_projection["max_bytes"] > 0
+        )
+        if not projection_declared:
+            self.error(
+                "public-analytics-projection",
+                (
+                    "public_data_manifest.json must retain analytics.json as a "
+                    "private build input and declare its bounded public projection"
+                ),
+                "config/public_data_manifest.json",
+            )
+
+        build_site_path = self.root / "scripts/build_site.py"
+        build_site_text = (
+            build_site_path.read_text(errors="ignore")
+            if build_site_path.exists()
+            else ""
+        )
+        materialization_ok = (
+            re.search(
+                r"PUBLIC_ANALYTICS_PROJECTOR_ID\s*:\s*"
+                r"compact_public_analytics_json",
+                build_site_text,
+            )
+            is not None
+            and re.search(
+                r"materialize_projected_files\s*\(\s*DATA\s*,\s*"
+                r"output_dir\s*/\s*['\"]data['\"]\s*,\s*manifest\s*,?\s*\)",
+                build_site_text,
+            )
+            is not None
+        )
+        if not materialization_ok:
+            self.error(
+                "public-analytics-materialization",
+                (
+                    "build_site.py must materialize the declared analytics "
+                    "projection through the registered projector"
+                ),
+                "scripts/build_site.py",
+            )
+
         deploy_pages = self.root / ".github/workflows/deploy-pages.yml"
         deploy_text = deploy_pages.read_text(errors="ignore") if deploy_pages.exists() else ""
         forbidden_ci_writes = [
@@ -5327,6 +5521,9 @@ class DashboardAudit:
         self.report.metrics["workflows"] = {
             "workflow_count": len(workflows),
             "gh_pages_workflows": gh_pages_workflows,
+            "private_analytics_surface": analytics_owner,
+            "public_analytics_projection_declared": projection_declared,
+            "public_analytics_feedback_blocked": analytics_feedback_blocked,
         }
 
 

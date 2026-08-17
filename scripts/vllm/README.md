@@ -65,9 +65,11 @@ build_queue_section.py    --> data/vllm/ci/operations_v2/queue.json
                           --> data/vllm/ci/queue_history_chart.json
                           --> queue-data branch (live browser feed)
 collect_capacity_monitor.py --> data/vllm/ci/capacity_monitor.json
-collect_analytics.py      --> data/vllm/ci/analytics.json
+collect_analytics.py      --> data/vllm/ci/analytics.json (private full input)
                            --> ci_main_failure_watcher.py
                            --> open_ci_main_failure_issues.json (private state)
+private analytics.json    --> ci/public_analytics.py during build_site.py
+                           --> bounded _site/data/vllm/ci/analytics.json
 collect_amd_test_matrix.py --> data/vllm/ci/amd_test_matrix.json
 collect_ownership_parity.py --> data/vllm/ci/ownership_config_parity.json
 collect_gating_targets.py --> data/vllm/ci/gating_targets.json
@@ -87,6 +89,12 @@ raw operational inputs    --> build_operations_snapshot.py
                            --> docs/assets/js/ops-v2.js
 audit_dashboard_data.py   --> validates data/ + docs/assets/js + workflows
 ```
+
+The gh-pages analytics file is the bounded browser projection, not a
+last-known-good reliability input. The hourly collector deliberately retains
+the full artifact from `main` until collection refreshes it and never seeds it
+from gh-pages. This keeps public evidence from feeding back into incident
+history, watcher state, or the next projection.
 
 ## Bounded last-known-good publication
 

@@ -9,11 +9,14 @@ These tests ensure:
 """
 
 import ast
+import json
 import re
 from pathlib import Path
 
 import pytest
 import yaml
+
+from vllm.publication_surfaces import surface_for_path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
@@ -492,12 +495,13 @@ class TestHourlyMasterWorkflow:
         }
         for filename in (
             "ci_health.json",
-            "analytics.json",
             "amd_test_matrix.json",
             "ownership_config_parity.json",
             "gating_nightlies.json",
         ):
             assert filename in seed_sections["ci_core"]
+        assert "analytics.json" not in seed_sections["ci_core"]
+        assert "PUBLIC-ANALYTICS-BOUNDARY" in sync
         for filename in (
             "gating_targets.json",
             "gating_proposals.json",
@@ -514,6 +518,55 @@ class TestHourlyMasterWorkflow:
             workflow_text,
         )
         assert "',ci,'" not in workflow_text
+
+    def test_private_analytics_projection_has_no_public_feedback_loop(self):
+        private_path = "data/vllm/ci/analytics.json"
+        manifest_path = "vllm/ci/analytics.json"
+        assert surface_for_path(private_path) == "ci_core"
+
+        manifest = json.loads(
+            (REPO_ROOT / "config/public_data_manifest.json").read_text()
+        )
+        assert manifest_path in manifest["build_inputs"]
+        assert manifest_path not in {
+            *manifest["required_files"],
+            *manifest["optional_files"],
+        }
+        descriptor = next(
+            item
+            for item in manifest["projected_files"]
+            if item["path"] == manifest_path
+        )
+        assert descriptor == {
+            "path": manifest_path,
+            "projector": "public_analytics_v1",
+            "max_bytes": 8 * 1024 * 1024,
+        }
+
+        build_site = (REPO_ROOT / "scripts/build_site.py").read_text()
+        for token in (
+            "materialize_projected_files",
+            "compact_public_analytics_json",
+            "PUBLIC_ANALYTICS_PROJECTOR_ID",
+        ):
+            assert token in build_site
+        assert re.search(
+            r"PUBLIC_ANALYTICS_PROJECTOR_ID\s*:\s*compact_public_analytics_json",
+            build_site,
+        )
+
+        workflow = _load_workflow("hourly-master.yml")
+        steps = next(iter(workflow["jobs"].values())).get("steps", [])
+        sync = next(
+            step["run"]
+            for step in steps
+            if step.get("name") == "Sync CI data from gh-pages"
+        )
+        commands = "\n".join(
+            line for line in sync.splitlines() if not line.lstrip().startswith("#")
+        )
+        assert "PUBLIC-ANALYTICS-BOUNDARY" in sync
+        assert "analytics.json" not in commands
 
     def test_selection_precedes_side_effects_render_and_tests(self):
         data = _load_workflow("hourly-master.yml")

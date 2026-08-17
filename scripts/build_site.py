@@ -10,8 +10,14 @@ import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
+from typing import Callable
 
 from vllm.build_operations_snapshot import write_snapshot_bundle
+from vllm.ci.public_analytics import (
+    PUBLIC_ANALYTICS_PROJECTOR_ID,
+    compact_public_analytics_json,
+    project_public_analytics,
+)
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -21,6 +27,9 @@ PUBLIC_DATA_MANIFEST = ROOT / "config" / "public_data_manifest.json"
 CACHE_BUST_RE = re.compile(r"\?v=\d+")
 PUBLICATION_STATE_INPUT = "vllm/ci/publication_state.json"
 PUBLICATION_STATUS_OUTPUT = "vllm/ci/publication_status.json"
+PROJECTOR_SERIALIZERS: dict[str, Callable[[object], str]] = {
+    PUBLIC_ANALYTICS_PROJECTOR_ID: compact_public_analytics_json,
+}
 PUBLICATION_MODES = frozenset({"current", "degraded", "fallback", "mixed", "blocked"})
 PUBLICATION_SURFACE_LABELS = {
     "agent_health": "Agent health",
@@ -71,7 +80,7 @@ def _safe_manifest_path(value: object, field: str, *, glob: bool = False) -> str
 
 def load_public_data_manifest(path: Path = PUBLIC_DATA_MANIFEST) -> dict:
     payload = json.loads(path.read_text())
-    if payload.get("schema_version") != 1:
+    if payload.get("schema_version") != 2:
         raise ValueError(f"Unsupported public data manifest schema in {path}")
 
     normalized = dict(payload)
@@ -100,6 +109,36 @@ def load_public_data_manifest(path: Path = PUBLIC_DATA_MANIFEST) -> dict:
             for value in values
         ]
 
+    descriptors = payload.get("projected_files")
+    if not isinstance(descriptors, list):
+        raise ValueError(f"projected_files must be a list in {path}")
+    normalized_descriptors = []
+    for index, descriptor in enumerate(descriptors):
+        field = f"projected_files[{index}]"
+        if not isinstance(descriptor, dict):
+            raise ValueError(f"{field} must be an object in {path}")
+        expected_keys = {"path", "projector", "max_bytes"}
+        if set(descriptor) != expected_keys:
+            raise ValueError(
+                f"{field} must contain exactly {sorted(expected_keys)} in {path}"
+            )
+        relative = _safe_manifest_path(descriptor.get("path"), f"{field}.path")
+        projector = descriptor.get("projector")
+        if not isinstance(projector, str) or projector not in PROJECTOR_SERIALIZERS:
+            raise ValueError(f"{field} names an unknown projector in {path}: {projector!r}")
+        max_bytes = descriptor.get("max_bytes")
+        if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes <= 0:
+            raise ValueError(f"{field}.max_bytes must be a positive integer in {path}")
+        normalized_descriptors.append({
+            "path": relative,
+            "projector": projector,
+            "max_bytes": max_bytes,
+        })
+    projected_paths = [descriptor["path"] for descriptor in normalized_descriptors]
+    if len(projected_paths) != len(set(projected_paths)):
+        raise ValueError(f"projected_files contains duplicate paths in {path}")
+    normalized["projected_files"] = normalized_descriptors
+
     public_exact_paths = (
         normalized["required_files"]
         + normalized["optional_files"]
@@ -111,9 +150,34 @@ def load_public_data_manifest(path: Path = PUBLIC_DATA_MANIFEST) -> dict:
         raise ValueError(
             f"Build inputs cannot also be public outputs in {path}: {sorted(overlap)}"
         )
+    undeclared_inputs = sorted(set(projected_paths) - build_inputs)
+    if undeclared_inputs:
+        raise ValueError(
+            "Projected files must be declared as build inputs in "
+            f"{path}: {undeclared_inputs}"
+        )
+    projected_direct_overlap = sorted(set(projected_paths) & set(public_exact_paths))
+    if projected_direct_overlap:
+        raise ValueError(
+            "Projected files cannot also be direct public outputs in "
+            f"{path}: {projected_direct_overlap}"
+        )
+    projected_glob_overlap = sorted(
+        relative
+        for relative in projected_paths
+        if any(
+            PurePosixPath(relative).match(pattern)
+            for pattern in normalized["optional_globs"]
+        )
+    )
+    if projected_glob_overlap:
+        raise ValueError(
+            "Projected files cannot also match direct public globs in "
+            f"{path}: {projected_glob_overlap}"
+        )
     blocked = [
         value
-        for value in public_exact_paths
+        for value in public_exact_paths + projected_paths
         if any(
             PurePosixPath(value).match(pattern)
             for pattern in normalized["never_publish_patterns"]
@@ -183,6 +247,42 @@ def materialize_operations_bundle(
     output = site_data / relative
     output.parent.mkdir(parents=True, exist_ok=True)
     write_snapshot_bundle(output, payload, write_monolith=False, log=False)
+
+
+def materialize_projected_files(
+    source_data: Path,
+    site_data: Path,
+    manifest: dict,
+) -> set[str]:
+    """Project private build inputs into bounded same-path public outputs."""
+    projected: set[str] = set()
+    for descriptor in manifest["projected_files"]:
+        relative = descriptor["path"]
+        source = source_data / relative
+        if not source.is_file() or source.is_symlink():
+            raise FileNotFoundError(
+                f"Projected build input is missing or unsafe: {source}"
+            )
+        try:
+            source.resolve().relative_to(source_data.resolve())
+        except ValueError as exc:
+            raise ValueError(
+                f"Projected build input escapes data/: {source}"
+            ) from exc
+
+        payload = json.loads(source.read_text())
+        encoded = PROJECTOR_SERIALIZERS[descriptor["projector"]](payload).encode()
+        if len(encoded) > descriptor["max_bytes"]:
+            raise RuntimeError(
+                f"Projected public file {relative} is {len(encoded)} bytes; "
+                f"limit is {descriptor['max_bytes']} bytes"
+            )
+
+        output = site_data / relative
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(encoded)
+        projected.add(relative)
+    return projected
 
 
 def _validated_public_timestamp(value: object) -> tuple[str | None, datetime | None]:
@@ -315,18 +415,23 @@ def validate_public_data(
 ) -> None:
     """Fail closed if assembly emits anything outside the publication contract."""
     generated = set(manifest["generated_files"])
+    projected = {
+        descriptor["path"]
+        for descriptor in manifest["projected_files"]
+    }
     published = {
         path.relative_to(site_data).as_posix()
         for path in site_data.rglob("*")
         if path.is_file()
     }
-    missing_generated = sorted(generated - published)
-    if missing_generated:
+    missing_materialized = sorted((generated | projected) - published)
+    if missing_materialized:
         raise RuntimeError(
-            f"Site assembly did not generate declared public files: {missing_generated}"
+            "Site assembly did not materialize declared public files: "
+            f"{missing_materialized}"
         )
 
-    unexpected = sorted(published - copied - generated)
+    unexpected = sorted(published - copied - generated - projected)
     if unexpected:
         raise RuntimeError(f"Site assembly emitted non-public data files: {unexpected}")
 
@@ -349,6 +454,7 @@ def build_site(output_dir: Path, cache_bust: bool) -> None:
     copy_tree_contents(DOCS, output_dir)
     manifest = load_public_data_manifest(PUBLIC_DATA_MANIFEST)
     copied = copy_public_data(DATA, output_dir / "data", manifest)
+    materialize_projected_files(DATA, output_dir / "data", manifest)
     materialize_operations_bundle(DATA, output_dir / "data", manifest)
     materialize_publication_status(DATA, output_dir / "data", manifest)
     validate_public_data(output_dir / "data", copied, manifest)
