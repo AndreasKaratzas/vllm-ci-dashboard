@@ -33,6 +33,7 @@ import os
 import sys
 import time as time_module
 from collections import defaultdict
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -56,6 +57,7 @@ DEFAULT_HOURLY_RETENTION_DAYS = 7
 DEFAULT_PARENT_BUILD_LOOKBACK_DAYS = 3
 DEFAULT_WINDOW_DAYS = 14
 DEFAULT_MAX_PAGES = 50
+MAX_SLICE_WORKERS = 3
 PER_PAGE = 100
 REQUEST_ATTEMPTS = 6
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
@@ -350,18 +352,62 @@ def _iter_pipeline_build_slices(
     max_pages: int = DEFAULT_MAX_PAGES,
     page_fetcher: Callable[[str, str, dict[str, Any]], list[dict]] = _request_build_page,
 ) -> Iterable[tuple[list[dict], dict]]:
-    """Yield one bounded slice at a time so callers can release raw builds."""
+    """Fetch bounded slices concurrently and yield each as soon as it completes.
+
+    The pending set is deliberately capped at ``MAX_SLICE_WORKERS`` rather
+    than submitting the entire date range.  This keeps raw Buildkite payloads
+    bounded to three source-day slices while allowing a slow day to overlap
+    independent day requests.  Consumers sort the privacy-safe slice metadata
+    before publication, so network completion order cannot affect output.
+    """
     path = f"/organizations/{BK_ORG}/pipelines/{pipeline}/builds"
-    for slice_start, slice_end in _bounded_utc_slices(start, end):
-        yield _fetch_pipeline_slice(
-            path,
-            token,
-            pipeline,
-            slice_start,
-            slice_end,
-            max_pages=max_pages,
-            page_fetcher=page_fetcher,
-        )
+    slice_ranges = iter(enumerate(_bounded_utc_slices(start, end)))
+    pending: dict[Future[tuple[list[dict], dict]], int] = {}
+
+    with ThreadPoolExecutor(
+        max_workers=MAX_SLICE_WORKERS,
+        thread_name_prefix="workload-mapping-slice",
+    ) as executor:
+        def submit_next() -> bool:
+            try:
+                slice_index, (slice_start, slice_end) = next(slice_ranges)
+            except StopIteration:
+                return False
+            future = executor.submit(
+                _fetch_pipeline_slice,
+                path,
+                token,
+                pipeline,
+                slice_start,
+                slice_end,
+                max_pages=max_pages,
+                page_fetcher=page_fetcher,
+            )
+            pending[future] = slice_index
+            return True
+
+        for _ in range(MAX_SLICE_WORKERS):
+            if not submit_next():
+                break
+
+        while pending:
+            completed, _ = wait(pending, return_when=FIRST_COMPLETED)
+            # A wait can observe multiple simultaneous completions. Select by
+            # source order so ties remain deterministic; ordinary skewed
+            # completions still free a worker immediately.
+            future = min(completed, key=pending.__getitem__)
+            pending.pop(future)
+            result = future.result()
+            # ``completed`` also owns the selected future (and therefore its
+            # result). Drop both references before yielding so the rolling
+            # three-slice bound is real rather than only a worker-count bound.
+            del completed, future
+            yield result
+            # The production consumer releases the raw result before asking
+            # for another. Submit its replacement only after that hand-off so
+            # this generator never owns more than three slice payloads.
+            del result
+            submit_next()
 
 
 def _summarize_pipeline_slices(
@@ -401,8 +447,7 @@ def fetch_pipeline_builds(
     The production collector consumes ``_iter_pipeline_build_slices`` directly
     and therefore never holds an entire multi-day raw-build range in memory.
     """
-    builds: list[dict] = []
-    slices: list[dict] = []
+    slice_results: list[tuple[dict, list[dict]]] = []
     for rows, source in _iter_pipeline_build_slices(
         token,
         pipeline,
@@ -411,8 +456,10 @@ def fetch_pipeline_builds(
         max_pages=max_pages,
         page_fetcher=page_fetcher,
     ):
-        builds.extend(rows)
-        slices.append(source)
+        slice_results.append((source, rows))
+    slice_results.sort(key=lambda item: item[0]["start"])
+    builds = [build for _, rows in slice_results for build in rows]
+    slices = [source for source, _ in slice_results]
     return builds, _summarize_pipeline_slices(pipeline, start, end, slices)
 
 
@@ -1031,6 +1078,7 @@ def collect_workload_mapping(
                 del builds, extracted
 
             missing_by_workload[workload].extend(pipeline_missing_times)
+            pipeline_slices.sort(key=lambda row: row["start"])
             source = _summarize_pipeline_slices(
                 pipeline,
                 build_query_start,
