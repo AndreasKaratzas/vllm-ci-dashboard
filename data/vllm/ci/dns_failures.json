@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-17T00:00:00Z",
+  "retention": {
+    "start": "2026-07-18T00:00:00Z",
+    "end_exclusive": "2026-08-17T00:00:00Z",
+    "hours": 720
+  },
+  "default_window": "24h",
+  "window_options": [
+    {"id": "1h", "label": "Last hour", "hours": 1},
+    {"id": "3h", "label": "Last 3 hours", "hours": 3},
+    {"id": "12h", "label": "Last 12 hours", "hours": 12},
+    {"id": "24h", "label": "Last day", "hours": 24},
+    {"id": "72h", "label": "Last 3 days", "hours": 72},
+    {"id": "168h", "label": "Last 7 days", "hours": 168},
+    {"id": "720h", "label": "Last 30 days", "hours": 720}
+  ],
+  "count_basis": "distinct_buildkite_job_attempts_with_strong_dns_evidence",
+  "scope": {
+    "organization": "vllm",
+    "pipelines": ["amd-ci", "ci"],
+    "branches": "all",
+    "job_types": ["script"],
+    "states": ["passed", "soft", "hard"],
+    "queue_scope": "active_amd_gpu",
+    "retried_jobs": "included"
+  },
+  "classifier": {
+    "id": "dns-v1",
+    "episode_gap_seconds": 5,
+    "max_log_bytes": 16777216,
+    "target_categories": [
+      "huggingface_hub",
+      "vllm_public_assets",
+      "aws_s3",
+      "github",
+      "pypi",
+      "other_public",
+      "unknown"
+    ]
+  },
+  "coverage": {
+    "status": "not_collected",
+    "complete": false,
+    "discovery_complete": false,
+    "discovery_start": "2026-07-18T00:00:00Z",
+    "discovery_end_exclusive": "2026-08-17T00:00:00Z",
+    "eligible_jobs": 0,
+    "scanned_jobs": 0,
+    "positive_jobs": 0,
+    "negative_jobs": 0,
+    "pending_jobs": 0,
+    "unavailable_jobs": 0,
+    "oversize_jobs": 0
+  },
+  "windows": {
+    "1h": {
+      "start": "2026-08-16T23:00:00Z",
+      "end_exclusive": "2026-08-17T00:00:00Z",
+      "coverage": {"status": "not_collected", "complete": false, "discovery_complete": false, "eligible_jobs": 0, "scanned_jobs": 0, "positive_jobs": 0, "negative_jobs": 0, "pending_jobs": 0, "unavailable_jobs": 0, "oversize_jobs": 0},
+      "totals": {"affected_jobs": 0, "episodes": 0, "huggingface_affected_jobs": 0, "queues": 0, "nodes": 0, "evidence_total": 0},
+      "rows": []
+    },
+    "3h": {
+      "start": "2026-08-16T21:00:00Z",
+      "end_exclusive": "2026-08-17T00:00:00Z",
+      "coverage": {"status": "not_collected", "complete": false, "discovery_complete": false, "eligible_jobs": 0, "scanned_jobs": 0, "positive_jobs": 0, "negative_jobs": 0, "pending_jobs": 0, "unavailable_jobs": 0, "oversize_jobs": 0},
+      "totals": {"affected_jobs": 0, "episodes": 0, "huggingface_affected_jobs": 0, "queues": 0, "nodes": 0, "evidence_total": 0},
+      "rows": []
+    },
+    "12h": {
+      "start": "2026-08-16T12:00:00Z",
+      "end_exclusive": "2026-08-17T00:00:00Z",
+      "coverage": {"status": "not_collected", "complete": false, "discovery_complete": false, "eligible_jobs": 0, "scanned_jobs": 0, "positive_jobs": 0, "negative_jobs": 0, "pending_jobs": 0, "unavailable_jobs": 0, "oversize_jobs": 0},
+      "totals": {"affected_jobs": 0, "episodes": 0, "huggingface_affected_jobs": 0, "queues": 0, "nodes": 0, "evidence_total": 0},
+      "rows": []
+    },
+    "24h": {
+      "start": "2026-08-16T00:00:00Z",
+      "end_exclusive": "2026-08-17T00:00:00Z",
+      "coverage": {"status": "not_collected", "complete": false, "discovery_complete": false, "eligible_jobs": 0, "scanned_jobs": 0, "positive_jobs": 0, "negative_jobs": 0, "pending_jobs": 0, "unavailable_jobs": 0, "oversize_jobs": 0},
+      "totals": {"affected_jobs": 0, "episodes": 0, "huggingface_affected_jobs": 0, "queues": 0, "nodes": 0, "evidence_total": 0},
+      "rows": []
+    },
+    "72h": {
+      "start": "2026-08-14T00:00:00Z",
+      "end_exclusive": "2026-08-17T00:00:00Z",
+      "coverage": {"status": "not_collected", "complete": false, "discovery_complete": false, "eligible_jobs": 0, "scanned_jobs": 0, "positive_jobs": 0, "negative_jobs": 0, "pending_jobs": 0, "unavailable_jobs": 0, "oversize_jobs": 0},
+      "totals": {"affected_jobs": 0, "episodes": 0, "huggingface_affected_jobs": 0, "queues": 0, "nodes": 0, "evidence_total": 0},
+      "rows": []
+    },
+    "168h": {
+      "start": "2026-08-10T00:00:00Z",
+      "end_exclusive": "2026-08-17T00:00:00Z",
+      "coverage": {"status": "not_collected", "complete": false, "discovery_complete": false, "eligible_jobs": 0, "scanned_jobs": 0, "positive_jobs": 0, "negative_jobs": 0, "pending_jobs": 0, "unavailable_jobs": 0, "oversize_jobs": 0},
+      "totals": {"affected_jobs": 0, "episodes": 0, "huggingface_affected_jobs": 0, "queues": 0, "nodes": 0, "evidence_total": 0},
+      "rows": []
+    },
+    "720h": {
+      "start": "2026-07-18T00:00:00Z",
+      "end_exclusive": "2026-08-17T00:00:00Z",
+      "coverage": {"status": "not_collected", "complete": false, "discovery_complete": false, "eligible_jobs": 0, "scanned_jobs": 0, "positive_jobs": 0, "negative_jobs": 0, "pending_jobs": 0, "unavailable_jobs": 0, "oversize_jobs": 0},
+      "totals": {"affected_jobs": 0, "episodes": 0, "huggingface_affected_jobs": 0, "queues": 0, "nodes": 0, "evidence_total": 0},
+      "rows": []
+    }
+  },
+  "evidence": {
+    "evidence_total": 0,
+    "shown": 0,
+    "truncated": false,
+    "items": []
+  }
+}

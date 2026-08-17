@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# cspell:ignore AKIA baprs bxox gaierror xoxb
 """Audit the dashboard's generated data, frontend contracts, and deploy path.
 
 The normal pytest suite has focused unit and schema checks. This script is the
@@ -20,7 +21,7 @@ import math
 import re
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -77,6 +78,66 @@ FULL_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 PUBLIC_FILE_WARN_BYTES = 90 * 1024 * 1024
 PUBLIC_FILE_HARD_BYTES = 100 * 1024 * 1024
 PUBLIC_SITE_WARN_BYTES = 250 * 1024 * 1024
+DNS_FAILURES_DATA_PATH = "data/vllm/ci/dns_failures.json"
+DNS_FAILURES_MAX_BYTES = 8 * 1024 * 1024
+DNS_EVIDENCE_MAX_ITEMS = 5000
+DNS_MAX_FRESH_AGE_HOURS = 3
+DNS_WINDOW_OPTIONS = (
+    ("1h", "Last hour", 1),
+    ("3h", "Last 3 hours", 3),
+    ("12h", "Last 12 hours", 12),
+    ("24h", "Last day", 24),
+    ("72h", "Last 3 days", 72),
+    ("168h", "Last 7 days", 168),
+    ("720h", "Last 30 days", 720),
+)
+DNS_TARGET_CATEGORIES = (
+    "huggingface_hub",
+    "vllm_public_assets",
+    "aws_s3",
+    "github",
+    "pypi",
+    "other_public",
+    "unknown",
+)
+DNS_SIGNATURE_IDS = frozenset({
+    "temporary_name_resolution",
+    "name_or_service_unknown",
+    "urllib3_name_resolution",
+    "curl_could_not_resolve",
+    "getaddrinfo_eai_again",
+    "getaddrinfo_failed",
+    "no_such_host",
+    "nodename_not_known",
+    "temporary_failure_resolving",
+    "dns_resolution_failed",
+})
+DNS_COVERAGE_STATUSES = frozenset({"not_collected", "partial", "complete"})
+DNS_TIME_BASES = frozenset({"log_timestamp", "job_finished_at"})
+DNS_JOB_STATES = frozenset({"passed", "soft", "hard"})
+DNS_PIPELINES = ("amd-ci", "ci")
+DNS_UUID_RE = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+)
+DNS_UTC_SECOND_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+DNS_SAFE_COORD_RE = re.compile(r"[A-Za-z0-9._-]{1,128}")
+DNS_ARBITRARY_HOST_RE = re.compile(
+    r"\b(?:[A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,63}\b",
+    re.IGNORECASE,
+)
+DNS_SECRET_OR_URL_RE = re.compile(
+    r"(?:bkua_[A-Za-z0-9]+|\bhf_[A-Za-z0-9]{16,}|\bAKIA[0-9A-Z]{16}\b|"
+    r"\bxox[baprs]-[A-Za-z0-9-]{16,}|"
+    r"authorization\s*:|bearer\s+[A-Za-z0-9._~+/-]+|-----BEGIN [A-Z ]+PRIVATE KEY-----|"
+    r"(?:https?|s3)://|git@)",
+    re.IGNORECASE,
+)
+DNS_RAW_LOG_RE = re.compile(
+    r"(?:"
+    r"temporary failure in name resolution|name or service not known|could not resolve host|"
+    r"nameresolutionerror|getaddrinfo|socket\.gaierror|traceback|\\[nr])",
+    re.IGNORECASE,
+)
 PRIVATE_ANALYTICS_PATH = "vllm/ci/analytics.json"
 PRIVATE_ANALYTICS_DATA_PATH = f"data/{PRIVATE_ANALYTICS_PATH}"
 PUBLIC_ANALYTICS_PROJECTOR_ID = "public_analytics_v1"
@@ -372,6 +433,25 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         "Commit-pinned vLLM AMD/upstream CI source-definition parity",
     ),
     DataSpec(
+        DNS_FAILURES_DATA_PATH,
+        ("scripts/vllm/collect_dns_failures.py",),
+        ("docs/assets/js/ops-v2.js",),
+        (
+            "schema_version",
+            "generated_at",
+            "retention",
+            "default_window",
+            "window_options",
+            "count_basis",
+            "scope",
+            "classifier",
+            "coverage",
+            "windows",
+            "evidence",
+        ),
+        "Observed DNS failures by AMD queue and physical node",
+    ),
+    DataSpec(
         "data/vllm/ci/ownership_config_parity.json",
         ("scripts/vllm/collect_ownership_parity.py",),
         ("scripts/vllm/ci_area_regression_watcher.py",),
@@ -659,6 +739,7 @@ class DashboardAudit:
         self.audit_amd_matrix()
         self.audit_queue_data()
         self.audit_queue_lifecycle()
+        self.audit_dns_failures()
         self.audit_ready_tickets()
         self.audit_frontend_contracts()
         self.audit_workflows()
@@ -5197,6 +5278,1217 @@ class DashboardAudit:
             "totals": payload.get("totals"),
         }
 
+    def audit_dns_failures(self, source_path: Path | None = None) -> None:
+        """Validate the bounded, privacy-minimized DNS observability dataset."""
+        path_obj = source_path or (self.root / DNS_FAILURES_DATA_PATH)
+        path = self.rel(path_obj)
+        if not path_obj.is_file() or path_obj.is_symlink():
+            self.error(
+                "dns-health-missing",
+                "dns_failures.json must be a regular file",
+                path,
+            )
+            return
+        try:
+            raw = path_obj.read_text()
+            payload = json.loads(raw)
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            self.error("dns-health-json", f"DNS health data is unreadable: {exc}", path)
+            return
+
+        size = len(raw.encode("utf-8"))
+        if size > DNS_FAILURES_MAX_BYTES:
+            self.error(
+                "dns-health-payload-budget",
+                f"dns_failures.json is {size} bytes; limit is {DNS_FAILURES_MAX_BYTES}",
+                path,
+            )
+        # Fixed classifier enums such as ``getaddrinfo_eai_again`` are safe
+        # public metadata even though they contain words found in raw error
+        # text. Scan the complete payload only for credentials and URLs; raw
+        # log prose is rejected below at every free-form display field.
+        if DNS_SECRET_OR_URL_RE.search(raw):
+            self.error(
+                "dns-health-sensitive-content",
+                "DNS health data contains a URL, secret marker, or raw-log text",
+                path,
+            )
+        if not isinstance(payload, dict):
+            self.error("dns-health-shape", "DNS health data must be an object", path)
+            return
+
+        def exact_keys(value: Any, expected: set[str], label: str) -> dict:
+            if not isinstance(value, dict):
+                self.error(
+                    "dns-health-shape",
+                    f"{label} must be an object",
+                    path,
+                )
+                return {}
+            if set(value) != expected:
+                self.error(
+                    "dns-health-schema",
+                    f"{label} must contain exactly {sorted(expected)}, got {sorted(value)}",
+                    path,
+                )
+            return value
+
+        def utc_timestamp(value: Any, label: str) -> datetime | None:
+            if not isinstance(value, str) or not value.endswith("Z"):
+                self.error(
+                    "dns-health-timestamp",
+                    f"{label} must be a UTC timestamp ending in Z",
+                    path,
+                )
+                return None
+            parsed = _parse_timestamp(value)
+            if parsed is None:
+                self.error(
+                    "dns-health-timestamp",
+                    f"{label} is not a valid timestamp: {value!r}",
+                    path,
+                )
+            elif DNS_UTC_SECOND_RE.fullmatch(value) is None:
+                self.error(
+                    "dns-health-timestamp",
+                    f"{label} must use canonical whole-second UTC form",
+                    path,
+                )
+            return parsed
+
+        def safe_coordinate(value: Any, label: str) -> bool:
+            valid = (
+                isinstance(value, str)
+                and DNS_SAFE_COORD_RE.fullmatch(value) is not None
+                and DNS_SECRET_OR_URL_RE.search(value) is None
+                and DNS_RAW_LOG_RE.search(value) is None
+            )
+            if not valid:
+                self.error(
+                    "dns-health-coordinate",
+                    f"{label} is not a bounded safe display coordinate",
+                    path,
+                )
+            return valid
+
+        def safe_hardware(value: Any, label: str) -> bool:
+            valid = isinstance(value, str) and re.fullmatch(r"MI[0-9]{3,4}", value) is not None
+            if not valid:
+                self.error(
+                    "dns-health-hardware",
+                    f"{label} must be a canonical MI hardware family",
+                    path,
+                )
+            return valid
+
+        def queue_matches_hardware(queue: Any, hardware: Any, label: str) -> bool:
+            match = re.match(r"^amd_mi([0-9]{3,4})(?:_|$)", str(queue or ""), re.IGNORECASE)
+            valid = bool(match and hardware == f"MI{match.group(1)}")
+            if not valid:
+                self.error(
+                    "dns-health-queue-hardware",
+                    f"{label} queue and hardware family disagree",
+                    path,
+                )
+            return valid
+
+        top_keys = {
+            "schema_version",
+            "generated_at",
+            "retention",
+            "default_window",
+            "window_options",
+            "count_basis",
+            "scope",
+            "classifier",
+            "coverage",
+            "windows",
+            "evidence",
+        }
+        exact_keys(payload, top_keys, "dns_failures.json")
+        if payload.get("schema_version") != 1:
+            self.error(
+                "dns-health-schema-version",
+                f"DNS health schema_version must be 1, got {payload.get('schema_version')!r}",
+                path,
+            )
+
+        expected_options = [
+            {"id": option_id, "label": label, "hours": hours}
+            for option_id, label, hours in DNS_WINDOW_OPTIONS
+        ]
+        if payload.get("window_options") != expected_options:
+            self.error(
+                "dns-health-window-options",
+                "DNS health window_options must be the canonical ordered seven presets",
+                path,
+            )
+        if payload.get("default_window") != "24h":
+            self.error(
+                "dns-health-default-window",
+                "DNS health default_window must be '24h'",
+                path,
+            )
+        if payload.get("count_basis") != (
+            "distinct_buildkite_job_attempts_with_strong_dns_evidence"
+        ):
+            self.error(
+                "dns-health-count-basis",
+                "DNS health count_basis changed from the distinct-job-attempt contract",
+                path,
+            )
+
+        scope = exact_keys(
+            payload.get("scope"),
+            {
+                "organization",
+                "pipelines",
+                "branches",
+                "job_types",
+                "states",
+                "queue_scope",
+                "retried_jobs",
+            },
+            "scope",
+        )
+        expected_scope = {
+            "organization": "vllm",
+            "pipelines": list(DNS_PIPELINES),
+            "branches": "all",
+            "job_types": ["script"],
+            "states": ["passed", "soft", "hard"],
+            "queue_scope": "active_amd_gpu",
+            "retried_jobs": "included",
+        }
+        if scope != expected_scope:
+            self.error(
+                "dns-health-scope",
+                "DNS health scope must remain all branches, terminal script attempts, and active AMD GPU queues",
+                path,
+            )
+
+        classifier = exact_keys(
+            payload.get("classifier"),
+            {"id", "episode_gap_seconds", "max_log_bytes", "target_categories"},
+            "classifier",
+        )
+        if classifier != {
+            "id": "dns-v1",
+            "episode_gap_seconds": 5,
+            "max_log_bytes": 16 * 1024 * 1024,
+            "target_categories": list(DNS_TARGET_CATEGORIES),
+        }:
+            self.error(
+                "dns-health-classifier",
+                "DNS health classifier metadata does not match the dns-v1 contract",
+                path,
+            )
+
+        generated_at = utc_timestamp(payload.get("generated_at"), "generated_at")
+        retention = exact_keys(
+            payload.get("retention"),
+            {"start", "end_exclusive", "hours"},
+            "retention",
+        )
+        retention_start = utc_timestamp(retention.get("start"), "retention.start")
+        retention_end = utc_timestamp(
+            retention.get("end_exclusive"), "retention.end_exclusive"
+        )
+        if retention.get("hours") != 720:
+            self.error(
+                "dns-health-retention",
+                f"DNS health retention.hours must be 720, got {retention.get('hours')!r}",
+                path,
+            )
+        if (
+            retention_start is not None
+            and retention_end is not None
+            and retention_end - retention_start != timedelta(hours=720)
+        ):
+            self.error(
+                "dns-health-retention",
+                "DNS health retention must be an exact half-open 720-hour interval",
+                path,
+            )
+        if generated_at is not None and generated_at > datetime.now(timezone.utc) + timedelta(minutes=10):
+            self.error(
+                "dns-health-future",
+                "DNS health generated_at is more than ten minutes in the future",
+                path,
+            )
+        if generated_at is not None and retention_end is not None and generated_at != retention_end:
+            self.error(
+                "dns-health-retention",
+                "generated_at must equal retention.end_exclusive",
+                path,
+            )
+
+        coverage_count_fields = (
+            "eligible_jobs",
+            "scanned_jobs",
+            "positive_jobs",
+            "negative_jobs",
+            "pending_jobs",
+            "unavailable_jobs",
+            "oversize_jobs",
+        )
+
+        def validate_coverage(value: Any, label: str, *, top_level: bool) -> dict:
+            expected = {
+                "status",
+                "complete",
+                "discovery_complete",
+                *coverage_count_fields,
+            }
+            if top_level:
+                expected |= {"discovery_start", "discovery_end_exclusive"}
+            block = exact_keys(value, expected, label)
+            status = block.get("status")
+            complete = block.get("complete")
+            discovery_complete = block.get("discovery_complete")
+            if status not in DNS_COVERAGE_STATUSES:
+                self.error(
+                    "dns-health-coverage-status",
+                    f"{label}.status has an unknown value: {status!r}",
+                    path,
+                )
+            if not isinstance(complete, bool) or not isinstance(discovery_complete, bool):
+                self.error(
+                    "dns-health-coverage-flags",
+                    f"{label} completeness fields must be booleans",
+                    path,
+                )
+            if isinstance(complete, bool) and complete != (status == "complete"):
+                self.error(
+                    "dns-health-coverage-status",
+                    f"{label}.complete disagrees with status={status!r}",
+                    path,
+                )
+            counts: dict[str, int] = {}
+            for count_field in coverage_count_fields:
+                raw_count = block.get(count_field)
+                if not _is_nonnegative_int(raw_count):
+                    self.error(
+                        "dns-health-coverage-count",
+                        f"{label}.{count_field} must be a non-negative integer",
+                        path,
+                    )
+                else:
+                    counts[count_field] = raw_count
+            if len(counts) == len(coverage_count_fields):
+                classified = sum(
+                    counts[count_field]
+                    for count_field in (
+                        "positive_jobs",
+                        "negative_jobs",
+                        "pending_jobs",
+                        "unavailable_jobs",
+                        "oversize_jobs",
+                    )
+                )
+                if classified != counts["eligible_jobs"]:
+                    self.error(
+                        "dns-health-coverage-reconciliation",
+                        f"{label} job-state counts sum to {classified}, eligible_jobs={counts['eligible_jobs']}",
+                        path,
+                    )
+                if counts["scanned_jobs"] != counts["positive_jobs"] + counts["negative_jobs"]:
+                    self.error(
+                        "dns-health-coverage-reconciliation",
+                        f"{label}.scanned_jobs must equal positive+negative jobs",
+                        path,
+                    )
+                gaps = sum(
+                    counts[count_field]
+                    for count_field in ("pending_jobs", "unavailable_jobs", "oversize_jobs")
+                )
+                expected_complete = discovery_complete is True and gaps == 0
+                if (
+                    status in {"partial", "complete"}
+                    and isinstance(complete, bool)
+                    and complete != expected_complete
+                ):
+                    self.error(
+                        "dns-health-false-complete",
+                        f"{label} completeness disagrees with discovery and gap counts",
+                        path,
+                    )
+                if status == "not_collected" and (
+                    complete is not False
+                    or discovery_complete is not False
+                    or any(counts.values())
+                ):
+                    self.error(
+                        "dns-health-seed",
+                        f"{label} not_collected state must be incomplete with zero observations",
+                        path,
+                    )
+            if top_level:
+                discovery_start = utc_timestamp(
+                    block.get("discovery_start"), f"{label}.discovery_start"
+                )
+                discovery_end = utc_timestamp(
+                    block.get("discovery_end_exclusive"),
+                    f"{label}.discovery_end_exclusive",
+                )
+                if (
+                    discovery_start is not None
+                    and discovery_end is not None
+                    and discovery_start >= discovery_end
+                ):
+                    self.error(
+                        "dns-health-discovery-window",
+                        f"{label} discovery interval must be non-empty and half-open",
+                        path,
+                    )
+                if (
+                    discovery_end is not None
+                    and retention_end is not None
+                    and discovery_end != retention_end
+                ):
+                    self.error(
+                        "dns-health-discovery-window",
+                        f"{label}.discovery_end_exclusive must equal generated_at",
+                        path,
+                    )
+                if (
+                    discovery_start is not None
+                    and retention_start is not None
+                    and discovery_start < retention_start
+                ):
+                    self.error(
+                        "dns-health-discovery-window",
+                        f"{label}.discovery_start cannot precede retained data",
+                        path,
+                    )
+                if (
+                    complete is True
+                    and retention_start is not None
+                    and retention_end is not None
+                    and discovery_start is not None
+                    and discovery_end is not None
+                    and (discovery_start > retention_start or discovery_end < retention_end)
+                ):
+                    self.error(
+                        "dns-health-false-complete",
+                        "complete DNS coverage does not span the retained interval",
+                        path,
+                    )
+            return block
+
+        coverage = validate_coverage(payload.get("coverage"), "coverage", top_level=True)
+        coverage_status = coverage.get("status")
+        coverage_discovery_start = (
+            _parse_timestamp(coverage.get("discovery_start"))
+            if isinstance(coverage.get("discovery_start"), str)
+            else None
+        )
+        coverage_discovery_end = (
+            _parse_timestamp(coverage.get("discovery_end_exclusive"))
+            if isinstance(coverage.get("discovery_end_exclusive"), str)
+            else None
+        )
+        if (
+            coverage_status in {"partial", "complete"}
+            and retention_start is not None
+            and retention_end is not None
+            and coverage_discovery_start is not None
+            and coverage_discovery_end is not None
+        ):
+            expected_discovery_complete = (
+                coverage_discovery_start <= retention_start
+                and coverage_discovery_end >= retention_end
+            )
+            if coverage.get("discovery_complete") != expected_discovery_complete:
+                self.error(
+                    "dns-health-discovery-window",
+                    "coverage.discovery_complete disagrees with the discovery interval",
+                    path,
+                )
+
+        windows = exact_keys(
+            payload.get("windows"),
+            {option_id for option_id, _, _ in DNS_WINDOW_OPTIONS},
+            "windows",
+        )
+        totals_keys = {
+            "affected_jobs",
+            "episodes",
+            "huggingface_affected_jobs",
+            "queues",
+            "nodes",
+            "evidence_total",
+        }
+        row_keys = {
+            "queue",
+            "node",
+            "hardware",
+            "affected_jobs",
+            "episodes",
+            "huggingface_affected_jobs",
+            "evidence_total",
+        }
+        window_blocks: dict[str, dict[str, Any]] = {}
+        previous_totals: dict[str, int] | None = None
+        for option_id, _, hours in DNS_WINDOW_OPTIONS:
+            block = exact_keys(
+                windows.get(option_id),
+                {"start", "end_exclusive", "coverage", "totals", "rows"},
+                f"windows.{option_id}",
+            )
+            start = utc_timestamp(block.get("start"), f"windows.{option_id}.start")
+            end = utc_timestamp(
+                block.get("end_exclusive"), f"windows.{option_id}.end_exclusive"
+            )
+            if start is not None and end is not None and end - start != timedelta(hours=hours):
+                self.error(
+                    "dns-health-window-boundary",
+                    f"windows.{option_id} must span exactly {hours} hours",
+                    path,
+                )
+            if retention_end is not None and end is not None and end != retention_end:
+                self.error(
+                    "dns-health-window-boundary",
+                    f"windows.{option_id}.end_exclusive must equal retention.end_exclusive",
+                    path,
+                )
+            window_coverage = validate_coverage(
+                block.get("coverage"), f"windows.{option_id}.coverage", top_level=False
+            )
+            if coverage_status == "not_collected" and window_coverage.get("status") != "not_collected":
+                self.error(
+                    "dns-health-seed",
+                    f"windows.{option_id} must remain not_collected with the structural seed",
+                    path,
+                )
+            elif (
+                coverage_status in {"partial", "complete"}
+                and window_coverage.get("status") == "not_collected"
+            ):
+                self.error(
+                    "dns-health-coverage-status",
+                    f"windows.{option_id} cannot be not_collected after collection",
+                    path,
+                )
+            if (
+                coverage_status in {"partial", "complete"}
+                and start is not None
+                and end is not None
+                and coverage_discovery_start is not None
+                and coverage_discovery_end is not None
+            ):
+                expected_discovery_complete = (
+                    coverage_discovery_start <= start
+                    and coverage_discovery_end >= end
+                )
+                if (
+                    window_coverage.get("discovery_complete")
+                    != expected_discovery_complete
+                ):
+                    self.error(
+                        "dns-health-discovery-window",
+                        f"windows.{option_id}.coverage.discovery_complete disagrees with discovery bounds",
+                        path,
+                    )
+
+            totals = exact_keys(block.get("totals"), totals_keys, f"windows.{option_id}.totals")
+            numeric_totals: dict[str, int] = {}
+            for total_field in totals_keys:
+                value = totals.get(total_field)
+                if not _is_nonnegative_int(value):
+                    self.error(
+                        "dns-health-total",
+                        f"windows.{option_id}.totals.{total_field} must be a non-negative integer",
+                        path,
+                    )
+                else:
+                    numeric_totals[total_field] = value
+            if len(numeric_totals) == len(totals_keys):
+                if numeric_totals["huggingface_affected_jobs"] > numeric_totals["affected_jobs"]:
+                    self.error(
+                        "dns-health-total",
+                        f"windows.{option_id} Hugging Face jobs exceed all affected jobs",
+                        path,
+                    )
+                if numeric_totals["evidence_total"] != numeric_totals["affected_jobs"]:
+                    self.error(
+                        "dns-health-evidence-reconciliation",
+                        f"windows.{option_id} evidence_total must equal affected_jobs",
+                        path,
+                    )
+                if _is_nonnegative_int(window_coverage.get("positive_jobs")) and (
+                    window_coverage["positive_jobs"] != numeric_totals["affected_jobs"]
+                ):
+                    self.error(
+                        "dns-health-window-reconciliation",
+                        f"windows.{option_id} positive_jobs disagrees with affected_jobs",
+                        path,
+                    )
+                if previous_totals is not None:
+                    for total_field in (
+                        "affected_jobs",
+                        "episodes",
+                        "huggingface_affected_jobs",
+                        "evidence_total",
+                    ):
+                        if numeric_totals[total_field] < previous_totals[total_field]:
+                            self.error(
+                                "dns-health-window-monotonicity",
+                                f"windows.{option_id}.{total_field} shrinks in a wider window",
+                                path,
+                            )
+                previous_totals = numeric_totals
+
+            rows = block.get("rows")
+            if not isinstance(rows, list):
+                self.error(
+                    "dns-health-rows",
+                    f"windows.{option_id}.rows must be a list",
+                    path,
+                )
+                rows = []
+            coordinates: list[tuple[str, str]] = []
+            row_sums = {
+                "affected_jobs": 0,
+                "episodes": 0,
+                "huggingface_affected_jobs": 0,
+                "evidence_total": 0,
+            }
+            row_lookup: dict[tuple[str, str], dict] = {}
+            for index, raw_row in enumerate(rows):
+                row = exact_keys(raw_row, row_keys, f"windows.{option_id}.rows[{index}]")
+                queue = row.get("queue")
+                node = row.get("node")
+                safe_coordinate(queue, f"windows.{option_id}.rows[{index}].queue")
+                safe_coordinate(node, f"windows.{option_id}.rows[{index}].node")
+                safe_hardware(row.get("hardware"), f"windows.{option_id}.rows[{index}].hardware")
+                queue_matches_hardware(
+                    queue,
+                    row.get("hardware"),
+                    f"windows.{option_id}.rows[{index}]",
+                )
+                coordinate = (str(queue), str(node))
+                coordinates.append(coordinate)
+                if coordinate in row_lookup:
+                    self.error(
+                        "dns-health-row-duplicate",
+                        f"windows.{option_id} repeats queue/node {coordinate!r}",
+                        path,
+                    )
+                row_lookup[coordinate] = row
+                valid_counts = True
+                for count_field in row_sums:
+                    value = row.get(count_field)
+                    if not _is_nonnegative_int(value):
+                        valid_counts = False
+                        self.error(
+                            "dns-health-row-count",
+                            f"windows.{option_id}.rows[{index}].{count_field} must be non-negative",
+                            path,
+                        )
+                    else:
+                        row_sums[count_field] += value
+                if valid_counts:
+                    if row["affected_jobs"] <= 0 or row["episodes"] < row["affected_jobs"]:
+                        self.error(
+                            "dns-health-row-count",
+                            f"windows.{option_id}.rows[{index}] must describe at least one DNS episode/job",
+                            path,
+                        )
+                    if row["huggingface_affected_jobs"] > row["affected_jobs"]:
+                        self.error(
+                            "dns-health-row-count",
+                            f"windows.{option_id}.rows[{index}] has too many Hugging Face jobs",
+                            path,
+                        )
+                    if row["evidence_total"] != row["affected_jobs"]:
+                        self.error(
+                            "dns-health-evidence-reconciliation",
+                            f"windows.{option_id}.rows[{index}] evidence_total must equal affected_jobs",
+                            path,
+                        )
+            if coordinates != sorted(coordinates) or len(coordinates) != len(set(coordinates)):
+                self.error(
+                    "dns-health-row-order",
+                    f"windows.{option_id} rows must be uniquely sorted by queue and node",
+                    path,
+                )
+            if len(numeric_totals) == len(totals_keys):
+                for total_field, row_sum in row_sums.items():
+                    if numeric_totals[total_field] != row_sum:
+                        self.error(
+                            "dns-health-window-reconciliation",
+                            f"windows.{option_id}.totals.{total_field}={numeric_totals[total_field]} but rows sum to {row_sum}",
+                            path,
+                        )
+                if numeric_totals["queues"] != len({queue for queue, _ in coordinates}):
+                    self.error(
+                        "dns-health-window-reconciliation",
+                        f"windows.{option_id}.totals.queues disagrees with rows",
+                        path,
+                    )
+                if numeric_totals["nodes"] != len({node for _, node in coordinates}):
+                    self.error(
+                        "dns-health-window-reconciliation",
+                        f"windows.{option_id}.totals.nodes disagrees with rows",
+                        path,
+                    )
+            window_blocks[option_id] = {
+                "start": start,
+                "end": end,
+                "totals": numeric_totals,
+                "rows": row_lookup,
+                "coverage": window_coverage,
+            }
+
+        retained_coverage = window_blocks.get("720h", {}).get("coverage") or {}
+        for coverage_field in (
+            "status",
+            "complete",
+            "discovery_complete",
+            *coverage_count_fields,
+        ):
+            if coverage.get(coverage_field) != retained_coverage.get(coverage_field):
+                self.error(
+                    "dns-health-coverage-reconciliation",
+                    f"coverage.{coverage_field} disagrees with windows.720h.coverage.{coverage_field}",
+                    path,
+                )
+
+        evidence = exact_keys(
+            payload.get("evidence"),
+            {"evidence_total", "shown", "truncated", "items"},
+            "evidence",
+        )
+        evidence_total = evidence.get("evidence_total")
+        shown = evidence.get("shown")
+        truncated = evidence.get("truncated")
+        items = evidence.get("items")
+        for count_field, value in (("evidence_total", evidence_total), ("shown", shown)):
+            if not _is_nonnegative_int(value):
+                self.error(
+                    "dns-health-evidence-count",
+                    f"evidence.{count_field} must be a non-negative integer",
+                    path,
+                )
+        if not isinstance(truncated, bool):
+            self.error(
+                "dns-health-evidence-count",
+                "evidence.truncated must be a boolean",
+                path,
+            )
+        if not isinstance(items, list):
+            self.error("dns-health-evidence-items", "evidence.items must be a list", path)
+            items = []
+        if _is_nonnegative_int(shown) and shown != len(items):
+            self.error(
+                "dns-health-evidence-count",
+                f"evidence.shown={shown!r} but items contains {len(items)} rows",
+                path,
+            )
+        if _is_nonnegative_int(shown) and shown > DNS_EVIDENCE_MAX_ITEMS:
+            self.error(
+                "dns-health-evidence-count",
+                f"evidence.shown exceeds the {DNS_EVIDENCE_MAX_ITEMS}-item public cap",
+                path,
+            )
+        if _is_nonnegative_int(evidence_total) and _is_nonnegative_int(shown):
+            if shown > evidence_total or truncated != (shown < evidence_total):
+                self.error(
+                    "dns-health-evidence-count",
+                    "evidence shown/total/truncated fields are inconsistent",
+                    path,
+                )
+            retained_total = (
+                window_blocks.get("720h", {}).get("totals", {}).get("evidence_total")
+            )
+            if retained_total is not None and evidence_total != retained_total:
+                self.error(
+                    "dns-health-evidence-reconciliation",
+                    "top-level evidence_total disagrees with the 720h window",
+                    path,
+                )
+
+        item_keys = {
+            "id",
+            "first_at",
+            "last_at",
+            "time_basis",
+            "pipeline",
+            "queue",
+            "node",
+            "hardware",
+            "build_number",
+            "job_id",
+            "state",
+            "episodes",
+            "match_count",
+            "signature_ids",
+            "target_categories",
+            "window_ids",
+            "window_metrics",
+        }
+        seen_ids: set[str] = set()
+        seen_jobs: set[tuple[str, str]] = set()
+        evidence_order: list[tuple[str, str, str, int, str]] = []
+        shown_by_window: dict[str, dict[tuple[str, str], dict[str, int]]] = {
+            option_id: {} for option_id, _, _ in DNS_WINDOW_OPTIONS
+        }
+        for index, raw_item in enumerate(items):
+            item = exact_keys(raw_item, item_keys, f"evidence.items[{index}]")
+            item_id = item.get("id")
+            if not isinstance(item_id, str) or re.fullmatch(r"[0-9a-f]{64}", item_id) is None:
+                self.error(
+                    "dns-health-evidence-id",
+                    f"evidence.items[{index}].id must be a bounded lowercase hash",
+                    path,
+                )
+            elif item_id in seen_ids:
+                self.error(
+                    "dns-health-evidence-duplicate",
+                    f"evidence repeats id {item_id!r}",
+                    path,
+                )
+            else:
+                seen_ids.add(item_id)
+            job_id = item.get("job_id")
+            if not isinstance(job_id, str) or DNS_UUID_RE.fullmatch(job_id) is None:
+                self.error(
+                    "dns-health-job-id",
+                    f"evidence.items[{index}].job_id must be a Buildkite UUID",
+                    path,
+                )
+            first_at = utc_timestamp(item.get("first_at"), f"evidence.items[{index}].first_at")
+            last_at = utc_timestamp(item.get("last_at"), f"evidence.items[{index}].last_at")
+            if first_at is not None and last_at is not None:
+                if first_at > last_at:
+                    self.error(
+                        "dns-health-evidence-time",
+                        f"evidence.items[{index}] first_at is after last_at",
+                        path,
+                    )
+                if (
+                    retention_start is not None
+                    and retention_end is not None
+                    and (first_at < retention_start or last_at >= retention_end)
+                ):
+                    self.error(
+                        "dns-health-evidence-time",
+                        f"evidence.items[{index}] lies outside retained bounds",
+                        path,
+                    )
+            if item.get("time_basis") not in DNS_TIME_BASES:
+                self.error(
+                    "dns-health-evidence-enum",
+                    f"evidence.items[{index}].time_basis is unknown",
+                    path,
+                )
+            pipeline = item.get("pipeline")
+            if pipeline not in DNS_PIPELINES:
+                self.error(
+                    "dns-health-evidence-enum",
+                    f"evidence.items[{index}].pipeline is unknown",
+                    path,
+                )
+            if (
+                isinstance(pipeline, str)
+                and pipeline in DNS_PIPELINES
+                and isinstance(job_id, str)
+                and DNS_UUID_RE.fullmatch(job_id) is not None
+            ):
+                identity = (pipeline, job_id)
+                if identity in seen_jobs:
+                    self.error(
+                        "dns-health-evidence-duplicate",
+                        f"evidence repeats Buildkite job identity {identity!r}",
+                        path,
+                    )
+                else:
+                    seen_jobs.add(identity)
+                expected_id = hashlib.sha256(
+                    f"dns-evidence-v1\0{pipeline}\0{job_id}".encode()
+                ).hexdigest()
+                if item_id != expected_id:
+                    self.error(
+                        "dns-health-evidence-id",
+                        f"evidence.items[{index}].id does not match its versioned job identity",
+                        path,
+                    )
+            for coordinate_field in ("queue", "node"):
+                safe_coordinate(
+                    item.get(coordinate_field),
+                    f"evidence.items[{index}].{coordinate_field}",
+                )
+            safe_hardware(item.get("hardware"), f"evidence.items[{index}].hardware")
+            queue_matches_hardware(
+                item.get("queue"),
+                item.get("hardware"),
+                f"evidence.items[{index}]",
+            )
+            build_number = item.get("build_number")
+            if not _is_nonnegative_int(build_number) or build_number <= 0:
+                self.error(
+                    "dns-health-build-number",
+                    f"evidence.items[{index}].build_number must be positive",
+                    path,
+                )
+            if item.get("state") not in DNS_JOB_STATES:
+                self.error(
+                    "dns-health-evidence-enum",
+                    f"evidence.items[{index}].state is unknown",
+                    path,
+                )
+            if (
+                isinstance(item.get("last_at"), str)
+                and isinstance(item.get("first_at"), str)
+                and isinstance(item.get("pipeline"), str)
+                and _is_nonnegative_int(build_number)
+                and isinstance(job_id, str)
+            ):
+                evidence_order.append(
+                    (
+                        item["last_at"],
+                        item["first_at"],
+                        item["pipeline"],
+                        build_number,
+                        job_id,
+                    )
+                )
+            episodes = item.get("episodes")
+            match_count = item.get("match_count")
+            if (
+                not _is_nonnegative_int(episodes)
+                or episodes <= 0
+                or not _is_nonnegative_int(match_count)
+                or match_count < episodes
+            ):
+                self.error(
+                    "dns-health-evidence-count",
+                    f"evidence.items[{index}] must have match_count >= episodes > 0",
+                    path,
+                )
+
+            def validate_enum_list(
+                container: dict,
+                field: str,
+                allowed: set[str] | frozenset[str],
+                *,
+                label: str,
+                require_order: tuple[str, ...] | None = None,
+            ) -> list[str]:
+                value = container.get(field)
+                valid = (
+                    isinstance(value, list)
+                    and bool(value)
+                    and all(isinstance(entry, str) and entry in allowed for entry in value)
+                    and len(value) == len(set(value))
+                )
+                if valid and require_order is not None:
+                    valid = value == [entry for entry in require_order if entry in value]
+                if not valid:
+                    self.error(
+                        "dns-health-evidence-enum",
+                        f"{label}.{field} is not a unique canonical enum list",
+                        path,
+                    )
+                    return []
+                return value
+
+            item_label = f"evidence.items[{index}]"
+            signatures = validate_enum_list(
+                item,
+                "signature_ids",
+                DNS_SIGNATURE_IDS,
+                label=item_label,
+            )
+            categories = validate_enum_list(
+                item,
+                "target_categories",
+                frozenset(DNS_TARGET_CATEGORIES),
+                label=item_label,
+                require_order=DNS_TARGET_CATEGORIES,
+            )
+            option_order = tuple(option_id for option_id, _, _ in DNS_WINDOW_OPTIONS)
+            window_ids = validate_enum_list(
+                item,
+                "window_ids",
+                frozenset(option_order),
+                label=item_label,
+                require_order=option_order,
+            )
+            if signatures and signatures != sorted(signatures):
+                self.error(
+                    "dns-health-evidence-enum",
+                    f"evidence.items[{index}].signature_ids must be sorted",
+                    path,
+                )
+            if window_ids and "720h" not in window_ids:
+                self.error(
+                    "dns-health-evidence-window",
+                    f"evidence.items[{index}] is retained but omits the 720h window",
+                    path,
+                )
+            window_metrics = exact_keys(
+                item.get("window_metrics"),
+                set(window_ids),
+                f"evidence.items[{index}].window_metrics",
+            )
+            if list(window_metrics) != window_ids:
+                self.error(
+                    "dns-health-evidence-window",
+                    f"evidence.items[{index}].window_metrics keys must follow window_ids order",
+                    path,
+                )
+            normalized_window_metrics: dict[str, dict[str, Any]] = {}
+            metric_keys = {
+                "first_at",
+                "last_at",
+                "episodes",
+                "match_count",
+                "signature_ids",
+                "target_categories",
+            }
+            for window_id in window_ids:
+                metric_label = f"evidence.items[{index}].window_metrics.{window_id}"
+                metric = exact_keys(
+                    window_metrics.get(window_id),
+                    metric_keys,
+                    metric_label,
+                )
+                metric_first = utc_timestamp(metric.get("first_at"), f"{metric_label}.first_at")
+                metric_last = utc_timestamp(metric.get("last_at"), f"{metric_label}.last_at")
+                if (
+                    metric_first is not None
+                    and metric_last is not None
+                    and metric_first > metric_last
+                ):
+                    self.error(
+                        "dns-health-evidence-time",
+                        f"{metric_label}.first_at is after last_at",
+                        path,
+                    )
+                metric_episodes = metric.get("episodes")
+                metric_matches = metric.get("match_count")
+                if (
+                    not _is_nonnegative_int(metric_episodes)
+                    or metric_episodes <= 0
+                    or not _is_nonnegative_int(metric_matches)
+                    or metric_matches < metric_episodes
+                ):
+                    self.error(
+                        "dns-health-evidence-count",
+                        f"{metric_label} must have match_count >= episodes > 0",
+                        path,
+                    )
+                metric_signatures = validate_enum_list(
+                    metric,
+                    "signature_ids",
+                    DNS_SIGNATURE_IDS,
+                    label=metric_label,
+                )
+                metric_categories = validate_enum_list(
+                    metric,
+                    "target_categories",
+                    frozenset(DNS_TARGET_CATEGORIES),
+                    label=metric_label,
+                    require_order=DNS_TARGET_CATEGORIES,
+                )
+                if metric_signatures and metric_signatures != sorted(metric_signatures):
+                    self.error(
+                        "dns-health-evidence-enum",
+                        f"{metric_label}.signature_ids must be sorted",
+                        path,
+                    )
+                window = window_blocks.get(window_id) or {}
+                window_start = window.get("start")
+                window_end = window.get("end")
+                if (
+                    metric_first is not None
+                    and metric_last is not None
+                    and window_start is not None
+                    and window_end is not None
+                    and not (
+                        window_start <= metric_first <= metric_last < window_end
+                    )
+                ):
+                    self.error(
+                        "dns-health-evidence-window",
+                        f"{metric_label} lies outside its selected window",
+                        path,
+                    )
+                normalized_window_metrics[window_id] = {
+                    "first_at": metric_first,
+                    "last_at": metric_last,
+                    "episodes": metric_episodes,
+                    "match_count": metric_matches,
+                    "signature_ids": metric_signatures,
+                    "target_categories": metric_categories,
+                }
+            retained_metric = normalized_window_metrics.get("720h")
+            if retained_metric is not None:
+                retained_contract = {
+                    "first_at": first_at,
+                    "last_at": last_at,
+                    "episodes": episodes,
+                    "match_count": match_count,
+                    "signature_ids": signatures,
+                    "target_categories": categories,
+                }
+                if retained_metric != retained_contract:
+                    self.error(
+                        "dns-health-evidence-reconciliation",
+                        f"evidence.items[{index}] top-level metrics must equal window_metrics.720h",
+                        path,
+                    )
+            if last_at is not None and window_ids:
+                expected_window_ids = [
+                    window_id
+                    for window_id in option_order
+                    if (
+                        window_blocks.get(window_id, {}).get("start") is not None
+                        and window_blocks.get(window_id, {}).get("end") is not None
+                        and window_blocks[window_id]["start"]
+                        <= last_at
+                        < window_blocks[window_id]["end"]
+                    )
+                ]
+                if window_ids != expected_window_ids:
+                    self.error(
+                        "dns-health-evidence-window",
+                        f"evidence.items[{index}].window_ids are not the exact retained-window subset",
+                        path,
+                    )
+            coordinate = (str(item.get("queue")), str(item.get("node")))
+            for window_id in window_ids:
+                window = window_blocks.get(window_id) or {}
+                lookup = window.get("rows") or {}
+                if coordinate not in lookup:
+                    self.error(
+                        "dns-health-evidence-window",
+                        f"evidence.items[{index}] has no {window_id} queue/node rollup",
+                        path,
+                    )
+                counts = shown_by_window[window_id]
+                cell = counts.setdefault(
+                    coordinate,
+                    {
+                        "affected_jobs": 0,
+                        "episodes": 0,
+                        "huggingface_affected_jobs": 0,
+                        "evidence_total": 0,
+                    },
+                )
+                metric = normalized_window_metrics.get(window_id) or {}
+                cell["affected_jobs"] += 1
+                cell["evidence_total"] += 1
+                if _is_nonnegative_int(metric.get("episodes")):
+                    cell["episodes"] += metric["episodes"]
+                cell["huggingface_affected_jobs"] += int(
+                    "huggingface_hub" in (metric.get("target_categories") or [])
+                )
+
+        if evidence_order != sorted(evidence_order, reverse=True):
+            self.error(
+                "dns-health-evidence-order",
+                "DNS evidence items must be ordered newest-first with deterministic tie-breaks",
+                path,
+            )
+
+        for window_id, cells in shown_by_window.items():
+            rows = window_blocks.get(window_id, {}).get("rows") or {}
+            for coordinate, row in rows.items():
+                visible = cells.get(
+                    coordinate,
+                    {
+                        "affected_jobs": 0,
+                        "episodes": 0,
+                        "huggingface_affected_jobs": 0,
+                        "evidence_total": 0,
+                    },
+                )
+                for count_field in (
+                    "affected_jobs",
+                    "episodes",
+                    "huggingface_affected_jobs",
+                    "evidence_total",
+                ):
+                    expected = row.get(count_field)
+                    observed = visible[count_field]
+                    if _is_nonnegative_int(expected) and observed > expected:
+                        self.error(
+                            "dns-health-evidence-reconciliation",
+                            f"{window_id} visible {count_field} exceeds rollup for {coordinate!r}",
+                            path,
+                        )
+                    if (
+                        truncated is False
+                        and _is_nonnegative_int(expected)
+                        and observed != expected
+                    ):
+                        self.error(
+                            "dns-health-evidence-reconciliation",
+                            f"{window_id} {count_field} does not match untruncated evidence for {coordinate!r}",
+                            path,
+                        )
+
+        if coverage_status == "not_collected":
+            seed_windows_valid = all(
+                block.get("coverage", {}).get("status") == "not_collected"
+                and not block.get("rows")
+                and not any((block.get("totals") or {}).values())
+                for block in window_blocks.values()
+            )
+            if (
+                not seed_windows_valid
+                or evidence_total != 0
+                or shown != 0
+                or truncated is not False
+                or items
+            ):
+                self.error(
+                    "dns-health-seed",
+                    "not_collected structural seed must contain no observations or evidence",
+                    path,
+                )
+            else:
+                self.degradation(
+                    "dns-health-not-collected",
+                    "DNS health collection has not completed yet; counts are unavailable, not zero",
+                    path,
+                )
+        elif coverage_status in {"partial", "complete"}:
+            if generated_at is not None:
+                age_hours = (datetime.now(timezone.utc) - generated_at).total_seconds() / 3600
+                if age_hours > DNS_MAX_FRESH_AGE_HOURS:
+                    if "dns_health" in self.fallback_surfaces():
+                        self.warning(
+                            "dns-health-stale-fallback",
+                            f"DNS health fallback is {age_hours:.1f}h old",
+                            path,
+                        )
+                    else:
+                        self.degradation(
+                            "dns-health-stale",
+                            f"DNS health source is {age_hours:.1f}h old; maximum is {DNS_MAX_FRESH_AGE_HOURS}h",
+                            path,
+                        )
+            if coverage_status == "partial":
+                self.degradation(
+                    "dns-health-partial",
+                    "DNS health coverage is partial; incomplete windows must not be interpreted as zero",
+                    path,
+                )
+
+        self.report.metrics["dns_health"] = {
+            "bytes": size,
+            "generated_at": payload.get("generated_at"),
+            "coverage_status": coverage_status,
+            "coverage_complete": coverage.get("complete"),
+            "retention_hours": retention.get("hours"),
+            "evidence_total": evidence_total,
+            "evidence_shown": shown,
+        }
+
     def audit_ready_tickets(self) -> None:
         payload = self.load_json("data/vllm/ci/ready_tickets.json", {})
         if not isinstance(payload, dict):
@@ -5825,13 +7117,30 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Audit generated dashboard data and contracts")
     parser.add_argument("--format", choices=("text", "json"), default="text")
     parser.add_argument(
+        "--dns-only",
+        action="store_true",
+        help="Validate only the DNS health aggregate",
+    )
+    parser.add_argument(
+        "--dns-path",
+        type=Path,
+        help="DNS aggregate path for --dns-only (defaults to the repository dataset)",
+    )
+    parser.add_argument(
         "--strict-warnings",
         action="store_true",
         help="Return nonzero when warnings are present",
     )
     args = parser.parse_args(argv)
 
-    report = run_audit(ROOT)
+    if args.dns_path is not None and not args.dns_only:
+        parser.error("--dns-path requires --dns-only")
+    if args.dns_only:
+        audit = DashboardAudit(ROOT)
+        audit.audit_dns_failures(args.dns_path)
+        report = audit.report
+    else:
+        report = run_audit(ROOT)
     if args.format == "json":
         print(json.dumps(report.as_dict(), indent=2, sort_keys=True, default=str))
     else:

@@ -26,17 +26,18 @@ Collects nightly CI test data from Buildkite, analyzes test health, and produces
 ### Prerequisites
 
 - Python 3.10+
-- `requests` and `pyyaml` packages
-- Buildkite API token with **read_builds**, **read_artifacts**, and
+- `requests`, `pyyaml`, and `cryptography` packages
+- Buildkite API token with **read_builds**, **read_build_logs**, **read_artifacts**, and
   **read_clusters** scopes. Queue lifecycle collection needs `read_builds` for
   organization-wide build cohorts and `read_clusters` for the exact queue UUID
-  allowlist.
+  allowlist. DNS health collection additionally needs `read_build_logs` so it
+  can classify strong DNS signatures without publishing log text.
 - If you run `collect_queue_snapshot.py`, the token should also have **Enable GraphQL API Access** so queue-native cluster metrics can be read
 
 ### Install
 
 ```bash
-pip install requests pyyaml
+pip install requests pyyaml cryptography
 ```
 
 ### Environment
@@ -77,6 +78,7 @@ All files are written to `data/vllm/ci/`:
 | `parity_report.json` | AMD vs upstream test-by-test comparison |
 | `flaky_tests.json` | Registry of flaky tests with pass rates and history |
 | `failure_trends.json` | Top offenders, new failures, recently fixed, MTTF |
+| `dns_failures.json` | Bounded 30-day DNS job-attempt counts and safe Buildkite coordinates |
 | `quarantine.json` | Rendered quarantine/allowlist state |
 | `test_results/{date}_{pipeline}.jsonl` | Per-test results (one JSON per line) |
 
@@ -164,7 +166,7 @@ Quarantined tests are still collected and tracked, but excluded from failure cou
 
 ## GitHub Actions Integration
 
-Five workflows divide canonical publication from focused manual/event collectors:
+Six workflows divide canonical publication from focused manual/event collectors:
 
 | Workflow | Schedule | Purpose |
 |----------|----------|---------|
@@ -173,8 +175,9 @@ Five workflows divide canonical publication from focused manual/event collectors
 | `ci-collect.yml` | Manual | Validation-only focused Buildkite CI refresh; never commits or publishes |
 | `queue-monitor.yml` | Queue webhooks + manual | Queue snapshots and bounded queue issue automation; canonical publication follows via `hourly-master.yml` |
 | `queue-lifecycle.yml` | Hourly + manual | Organization-wide direct job lifecycle observations for the twelve canonical MI250/MI300/MI355 queues |
+| `dns-health.yml` | Hourly + manual | Incremental full-log DNS classification with an isolated durable state branch |
 
-All secrets are managed via GitHub Actions encrypted secrets (Settings > Secrets > Actions). The `BUILDKITE_TOKEN` is never exposed in logs — GitHub automatically masks secret values.
+All secrets are managed via GitHub Actions encrypted secrets (Settings > Secrets > Actions). The `BUILDKITE_TOKEN` is never exposed in logs — GitHub automatically masks secret values. Rotate credentials whenever exposure is suspected and periodically review that each workflow retains only its required read scopes.
 
 ### Webhook-Triggered Updates
 
@@ -225,6 +228,48 @@ instead of silently publishing a partial window. Workflows pass the existing
 `BUILDKITE_TOKEN` secret to the collector as
 `BUILDKITE_API_TOKEN`; tokens must never be placed in source, generated data,
 logs, or dashboard URLs.
+
+### DNS health observations
+
+`collect_dns_failures.py` discovers terminal script-job attempts across the
+`amd-ci` and `ci` pipelines, including retries and passing jobs, then scans each
+new bounded log for strong DNS signatures. Each scheduled run gives log scans
+a 25-minute budget; unvisited work remains pending for the next overlap instead
+of being reported as a complete zero. Its public `dns_failures.json`
+dataset covers the trailing 720 observed hours. “Observed” is deliberate: API,
+rate-limit, oversized-log, and pending-job gaps remain explicit in each
+window's coverage block, so an incomplete scan cannot be displayed as a
+complete zero.
+
+The primary histogram count is the number of distinct affected Buildkite job
+attempts. Retries have different job UUIDs and therefore count independently.
+The separate episode count clusters matching lines within five seconds; stack
+trace repetition cannot inflate the affected-job count. Evidence rows retain
+only safe Buildkite coordinates and fixed classifier enums. Free-form
+Buildkite job names are excluded entirely because a blacklist cannot prove
+that arbitrary labels contain no credentials. Evidence never contains log
+snippets, raw-log URLs, headers, environment values, branches, commits,
+authors, or arbitrary target hostnames.
+
+The repository and its force-orphan `dns-health-data` branch are publicly
+readable. Plaintext scanner state therefore exists only at the gitignored
+`dns_health/scan_state.json.gz` path inside an ephemeral Actions runner. The
+branch stores authenticated Fernet ciphertext at
+`dns_health/scan_state.fernet`; it never stores the plaintext gzip. The
+workflow obtains `DNS_STATE_ENCRYPTION_KEY` only from an encrypted Actions
+secret, decrypts before collection, validates the new gzip and aggregate,
+re-encrypts to a temporary file, deletes the runner plaintext, and only then
+replaces the branch. Cryptographic failures are reported generically without
+printing keys, ciphertext, or state content.
+
+Canonical Pages workflows import only the validated `dns_failures.json`.
+Neither plaintext nor encrypted scanner state is committed to `main` or
+published to Pages. Authentication, decryption, encryption, or total
+collection failure therefore preserves the last encrypted branch commit and
+validated DNS aggregate without rolling back unrelated CI or queue surfaces.
+Keep the encryption key stable across runs. Rotate it through a controlled
+decrypt-and-re-encrypt migration, retaining the old key until the durable
+ciphertext has been replaced successfully.
 
 ### Managed Alert Issues
 

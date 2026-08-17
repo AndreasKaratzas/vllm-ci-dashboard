@@ -1,5 +1,7 @@
 """Regression tests for the cross-surface dashboard data audit."""
 
+# cspell:ignore xoxb
+
 from __future__ import annotations
 
 import copy
@@ -7,7 +9,7 @@ import hashlib
 import json
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -275,6 +277,7 @@ def test_dashboard_audit_covers_core_user_facing_data_files():
         "data/vllm/issues.json",
         "data/vllm/test_results.json",
         "data/vllm/ci/ci_health.json",
+        "data/vllm/ci/dns_failures.json",
         "data/vllm/ci/parity_report.json",
         "data/vllm/ci/analytics.json",
         "data/vllm/ci/amd_test_matrix.json",
@@ -287,6 +290,393 @@ def test_dashboard_audit_covers_core_user_facing_data_files():
         "data/vllm/ci/omni_surge_heuristic.json",
         "data/vllm/perf_eval/perf_eval.json",
     } <= covered
+
+
+def _dns_iso(value: datetime) -> str:
+    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace(
+        "+00:00", "Z"
+    )
+
+
+def _dns_audit_payload(now: datetime | None = None) -> dict:
+    now = (now or datetime.now(timezone.utc)).replace(microsecond=0)
+    retention_start = now - timedelta(hours=720)
+    first_at = now - timedelta(minutes=30)
+    job_id = "00000000-0000-4000-8000-000000000001"
+    option_hours = {
+        "1h": 1,
+        "3h": 3,
+        "12h": 12,
+        "24h": 24,
+        "72h": 72,
+        "168h": 168,
+        "720h": 720,
+    }
+    coverage = {
+        "status": "complete",
+        "complete": True,
+        "discovery_complete": True,
+        "eligible_jobs": 1,
+        "scanned_jobs": 1,
+        "positive_jobs": 1,
+        "negative_jobs": 0,
+        "pending_jobs": 0,
+        "unavailable_jobs": 0,
+        "oversize_jobs": 0,
+    }
+    row = {
+        "queue": "amd_mi300_1",
+        "node": "node-1",
+        "hardware": "MI300",
+        "affected_jobs": 1,
+        "episodes": 1,
+        "huggingface_affected_jobs": 1,
+        "evidence_total": 1,
+    }
+    windows = {}
+    for window_id, hours in option_hours.items():
+        windows[window_id] = {
+            "start": _dns_iso(now - timedelta(hours=hours)),
+            "end_exclusive": _dns_iso(now),
+            "coverage": copy.deepcopy(coverage),
+            "totals": {
+                "affected_jobs": 1,
+                "episodes": 1,
+                "huggingface_affected_jobs": 1,
+                "queues": 1,
+                "nodes": 1,
+                "evidence_total": 1,
+            },
+            "rows": [copy.deepcopy(row)],
+        }
+    return {
+        "schema_version": 1,
+        "generated_at": _dns_iso(now),
+        "retention": {
+            "start": _dns_iso(retention_start),
+            "end_exclusive": _dns_iso(now),
+            "hours": 720,
+        },
+        "default_window": "24h",
+        "window_options": [
+            {"id": "1h", "label": "Last hour", "hours": 1},
+            {"id": "3h", "label": "Last 3 hours", "hours": 3},
+            {"id": "12h", "label": "Last 12 hours", "hours": 12},
+            {"id": "24h", "label": "Last day", "hours": 24},
+            {"id": "72h", "label": "Last 3 days", "hours": 72},
+            {"id": "168h", "label": "Last 7 days", "hours": 168},
+            {"id": "720h", "label": "Last 30 days", "hours": 720},
+        ],
+        "count_basis": "distinct_buildkite_job_attempts_with_strong_dns_evidence",
+        "scope": {
+            "organization": "vllm",
+            "pipelines": ["amd-ci", "ci"],
+            "branches": "all",
+            "job_types": ["script"],
+            "states": ["passed", "soft", "hard"],
+            "queue_scope": "active_amd_gpu",
+            "retried_jobs": "included",
+        },
+        "classifier": {
+            "id": "dns-v1",
+            "episode_gap_seconds": 5,
+            "max_log_bytes": 16777216,
+            "target_categories": [
+                "huggingface_hub",
+                "vllm_public_assets",
+                "aws_s3",
+                "github",
+                "pypi",
+                "other_public",
+                "unknown",
+            ],
+        },
+        "coverage": {
+            **coverage,
+            "discovery_start": _dns_iso(retention_start),
+            "discovery_end_exclusive": _dns_iso(now),
+        },
+        "windows": windows,
+        "evidence": {
+            "evidence_total": 1,
+            "shown": 1,
+            "truncated": False,
+            "items": [
+                {
+                    "id": hashlib.sha256(
+                        f"dns-evidence-v1\0amd-ci\0{job_id}".encode()
+                    ).hexdigest(),
+                    "first_at": _dns_iso(first_at),
+                    "last_at": _dns_iso(first_at),
+                    "time_basis": "log_timestamp",
+                    "pipeline": "amd-ci",
+                    "queue": "amd_mi300_1",
+                    "node": "node-1",
+                    "hardware": "MI300",
+                    "build_number": 123,
+                    "job_id": job_id,
+                    "state": "passed",
+                    "episodes": 1,
+                    "match_count": 1,
+                    "signature_ids": ["temporary_name_resolution"],
+                    "target_categories": ["huggingface_hub"],
+                    "window_ids": list(option_hours),
+                    "window_metrics": {
+                        window_id: {
+                            "first_at": _dns_iso(first_at),
+                            "last_at": _dns_iso(first_at),
+                            "episodes": 1,
+                            "match_count": 1,
+                            "signature_ids": ["temporary_name_resolution"],
+                            "target_categories": ["huggingface_hub"],
+                        }
+                        for window_id in option_hours
+                    },
+                }
+            ],
+        },
+    }
+
+
+def _write_dns_audit_payload(root: Path, payload: dict) -> Path:
+    path = root / "data/vllm/ci/dns_failures.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload))
+    return path
+
+
+def test_dns_audit_accepts_a_reconciled_complete_payload(tmp_path):
+    _write_dns_audit_payload(tmp_path, _dns_audit_payload())
+    audit = DashboardAudit(tmp_path)
+
+    audit.audit_dns_failures()
+
+    assert audit.report.errors == []
+    assert audit.report.degradations == []
+    assert audit.report.metrics["dns_health"]["coverage_status"] == "complete"
+
+
+def test_dns_audit_accepts_fixed_getaddrinfo_signature_enums(tmp_path):
+    payload = _dns_audit_payload()
+    item = payload["evidence"]["items"][0]
+    item["signature_ids"] = ["getaddrinfo_eai_again", "getaddrinfo_failed"]
+    for metric in item["window_metrics"].values():
+        metric["signature_ids"] = ["getaddrinfo_eai_again", "getaddrinfo_failed"]
+    _write_dns_audit_payload(tmp_path, payload)
+    audit = DashboardAudit(tmp_path)
+
+    audit.audit_dns_failures()
+
+    assert audit.report.errors == []
+
+
+def test_dns_audit_rejects_selected_window_evidence_metric_drift(tmp_path):
+    payload = _dns_audit_payload()
+    metric = payload["evidence"]["items"][0]["window_metrics"]["1h"]
+    metric["episodes"] = 2
+    metric["match_count"] = 2
+    metric["target_categories"] = ["github"]
+    _write_dns_audit_payload(tmp_path, payload)
+    audit = DashboardAudit(tmp_path)
+
+    audit.audit_dns_failures()
+
+    assert "dns-health-evidence-reconciliation" in {
+        finding.code for finding in audit.report.errors
+    }
+
+
+def test_dns_audit_rejects_out_of_order_window_metrics(tmp_path):
+    payload = _dns_audit_payload()
+    item = payload["evidence"]["items"][0]
+    item["window_metrics"] = dict(reversed(item["window_metrics"].items()))
+    _write_dns_audit_payload(tmp_path, payload)
+    audit = DashboardAudit(tmp_path)
+
+    audit.audit_dns_failures()
+
+    assert "dns-health-evidence-window" in {
+        finding.code for finding in audit.report.errors
+    }
+
+
+def test_dns_audit_accepts_the_backend_public_projection(tmp_path):
+    from vllm.ci.dns_failures import (
+        DnsClassification,
+        build_public_output,
+        empty_state,
+        iso_timestamp,
+        scan_record,
+    )
+
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    state = empty_state(now, now - timedelta(hours=720))
+    observed_at = iso_timestamp(now - timedelta(minutes=15))
+    state["jobs"] = [
+        scan_record(
+            {
+                "pipeline": "amd-ci",
+                "build_number": 456,
+                "job_id": "00000000-0000-4000-8000-000000000002",
+                "queue": "amd_mi300_1",
+                "node": "node-2",
+                "hardware": "MI300",
+                "state": "passed",
+                "started_at": iso_timestamp(now - timedelta(minutes=30)),
+                "finished_at": iso_timestamp(now - timedelta(minutes=10)),
+            },
+            DnsClassification(
+                match_count=1,
+                episode_times=(observed_at,),
+                signature_ids=("temporary_name_resolution",),
+                target_categories=("huggingface_hub",),
+                time_basis="log_timestamp",
+            ),
+            attempted_at=iso_timestamp(now),
+        )
+    ]
+    _write_dns_audit_payload(tmp_path, build_public_output(state))
+    audit = DashboardAudit(tmp_path)
+
+    audit.audit_dns_failures()
+
+    assert audit.report.errors == []
+    assert audit.report.degradations == []
+
+
+def test_dns_backend_window_coverage_tracks_window_relative_positives(tmp_path):
+    from vllm.ci.dns_failures import (
+        DnsClassification,
+        build_public_output,
+        empty_state,
+        iso_timestamp,
+        scan_record,
+    )
+
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    state = empty_state(now, now - timedelta(hours=720))
+    state["jobs"] = [
+        scan_record(
+            {
+                "pipeline": "amd-ci",
+                "build_number": 457,
+                "job_id": "00000000-0000-4000-8000-000000000003",
+                "queue": "amd_mi300_1",
+                "node": "node-3",
+                "hardware": "MI300",
+                "state": "passed",
+                "started_at": iso_timestamp(now - timedelta(hours=3)),
+                "finished_at": iso_timestamp(now - timedelta(minutes=10)),
+            },
+            DnsClassification(
+                match_count=1,
+                episode_times=(iso_timestamp(now - timedelta(hours=2)),),
+                signature_ids=("temporary_name_resolution",),
+                target_categories=("huggingface_hub",),
+                time_basis="log_timestamp",
+            ),
+            attempted_at=iso_timestamp(now),
+        )
+    ]
+    payload = build_public_output(state)
+    assert payload["windows"]["1h"]["coverage"]["positive_jobs"] == 0
+    assert payload["windows"]["1h"]["coverage"]["negative_jobs"] == 1
+    assert payload["windows"]["1h"]["totals"]["affected_jobs"] == 0
+    _write_dns_audit_payload(tmp_path, payload)
+    audit = DashboardAudit(tmp_path)
+
+    audit.audit_dns_failures()
+
+    assert audit.report.errors == []
+
+
+def test_dns_audit_accepts_the_structural_seed_as_fresh_degradation(tmp_path):
+    seed = json.loads((ROOT / "data/vllm/ci/dns_failures.json").read_text())
+    _write_dns_audit_payload(tmp_path, seed)
+    audit = DashboardAudit(tmp_path)
+
+    audit.audit_dns_failures()
+
+    assert audit.report.errors == []
+    assert {finding.code for finding in audit.report.degradations} == {
+        "dns-health-not-collected"
+    }
+
+
+def test_dns_audit_rejects_sensitive_unknown_and_unreconciled_data(tmp_path):
+    payload = _dns_audit_payload()
+    payload["unexpected"] = "private"
+    payload["evidence"]["items"][0]["job_name"] = "xoxb-" + "1" * 32
+    payload["evidence"]["items"][0]["job_id"] = (
+        "00000000-0000-4000-8000-00000000000A"
+    )
+    payload["windows"]["1h"]["totals"]["episodes"] = 2
+    _write_dns_audit_payload(tmp_path, payload)
+    audit = DashboardAudit(tmp_path)
+
+    audit.audit_dns_failures()
+
+    codes = {finding.code for finding in audit.report.errors}
+    assert {
+        "dns-health-schema",
+        "dns-health-sensitive-content",
+        "dns-health-job-id",
+        "dns-health-window-reconciliation",
+    } <= codes
+
+
+def test_dns_audit_rejects_false_complete_but_degrades_stale_data(tmp_path):
+    stale = _dns_audit_payload(datetime.now(timezone.utc) - timedelta(hours=4))
+    _write_dns_audit_payload(tmp_path, stale)
+    stale_audit = DashboardAudit(tmp_path)
+    stale_audit.audit_dns_failures()
+    assert "dns-health-stale" in {
+        finding.code for finding in stale_audit.report.degradations
+    }
+    assert "dns-health-stale" not in {
+        finding.code for finding in stale_audit.report.errors
+    }
+
+    invalid = _dns_audit_payload()
+    invalid["coverage"].update(eligible_jobs=2, pending_jobs=1)
+    _write_dns_audit_payload(tmp_path, invalid)
+    invalid_audit = DashboardAudit(tmp_path)
+    invalid_audit.audit_dns_failures()
+    assert "dns-health-false-complete" in {
+        finding.code for finding in invalid_audit.report.errors
+    }
+
+
+def test_dns_audit_rejects_boundary_identity_and_membership_drift(tmp_path):
+    payload = _dns_audit_payload()
+    payload["coverage"]["discovery_end_exclusive"] = _dns_iso(
+        datetime.now(timezone.utc) - timedelta(seconds=1)
+    )
+    payload["evidence"]["items"][0]["id"] = "b" * 64
+    payload["evidence"]["items"][0]["window_ids"] = ["720h"]
+    _write_dns_audit_payload(tmp_path, payload)
+    audit = DashboardAudit(tmp_path)
+
+    audit.audit_dns_failures()
+
+    codes = {finding.code for finding in audit.report.errors}
+    assert {
+        "dns-health-discovery-window",
+        "dns-health-evidence-id",
+        "dns-health-evidence-window",
+    } <= codes
+
+
+def test_dns_audit_enforces_the_public_payload_budget(tmp_path, monkeypatch):
+    _write_dns_audit_payload(tmp_path, _dns_audit_payload())
+    monkeypatch.setattr(audit_module, "DNS_FAILURES_MAX_BYTES", 1)
+    audit = DashboardAudit(tmp_path)
+
+    audit.audit_dns_failures()
+
+    assert "dns-health-payload-budget" in {
+        finding.code for finding in audit.report.errors
+    }
 
 
 def _ci_health_rate_build(*, passed=8, failed=2, skipped=3):

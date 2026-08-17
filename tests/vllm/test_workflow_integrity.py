@@ -451,7 +451,7 @@ class TestHourlyMasterWorkflow:
         baseline = steps[names.index("Capture immutable main baseline")]["run"]
         assert (
             "ci_core|ci_gating|ci_changes|ci_hotness|queue|queue_lifecycle|"
-            "agent_health|github_home|ready|perf_eval|test_builds"
+            "agent_health|dns_health|github_home|ready|perf_eval|test_builds"
         ) in baseline
 
         expected_collectors = {
@@ -1030,6 +1030,7 @@ class TestNoOrphanedCronSchedules:
         allowed = {
             "health-check.yml",
             "hourly-master.yml",
+            "dns-health.yml",
             "queue-monitor.yml",
             "queue-lifecycle.yml",
             "ready-tickets-live.yml",
@@ -1045,6 +1046,123 @@ class TestNoOrphanedCronSchedules:
                     f"{f.name} has a cron schedule but should not — "
                     f"all scheduled runs should be in one of {sorted(allowed)}"
                 )
+
+
+class TestDnsHealthWorkflow:
+    def _workflow(self):
+        workflow = _load_workflow("dns-health.yml")
+        return workflow, workflow["jobs"]["collect"]["steps"]
+
+    def test_is_hourly_isolated_and_minimally_privileged(self):
+        workflow, _ = self._workflow()
+        triggers = workflow.get(True, workflow.get("on", {}))
+        assert triggers["schedule"] == [{"cron": "39 * * * *"}]
+        assert "workflow_dispatch" in triggers
+        assert workflow["permissions"] == {"contents": "write"}
+        assert workflow["concurrency"] == {
+            "group": "dns-health-data-publish",
+            "cancel-in-progress": False,
+        }
+        assert workflow["jobs"]["collect"]["timeout-minutes"] == 34
+
+    def test_restores_exact_state_collects_and_validates_before_publish(self):
+        _, steps = self._workflow()
+        names = [step.get("name") for step in steps]
+        install = steps[names.index("Install dependencies")]["run"]
+        restore_step = steps[names.index("Resolve durable DNS scanner state")]
+        restore = restore_step["run"]
+        collect = steps[names.index("Collect DNS failure observations")]
+        validate = steps[names.index("Validate bounded DNS artifacts")]["run"]
+        encrypt_step = steps[names.index("Encrypt durable DNS scanner state")]
+        encrypt = encrypt_step["run"]
+        publish = steps[names.index("Publish durable DNS evidence")]["run"]
+
+        assert names.index("Resolve durable DNS scanner state") < names.index(
+            "Collect DNS failure observations"
+        ) < names.index("Validate bounded DNS artifacts") < names.index(
+            "Encrypt durable DNS scanner state"
+        ) < names.index(
+            "Publish durable DNS evidence"
+        )
+        assert "requests cryptography" in install
+        assert restore_step["env"] == {
+            "DNS_STATE_ENCRYPTION_KEY": "${{ secrets.DNS_STATE_ENCRYPTION_KEY }}"
+        }
+        assert 'if [ -z "${DNS_STATE_ENCRYPTION_KEY:-}" ]' in restore
+        assert "DNS state encryption key is unavailable" in restore
+        assert "git ls-remote --exit-code origin refs/heads/dns-health-data" in restore
+        assert "DNS_DATA_STATUS" in restore
+        assert '"$DNS_DATA_STATUS" -eq 2' in restore
+        assert "+refs/heads/dns-health-data:refs/remotes/origin/dns-health-data" in restore
+        assert (
+            "origin/dns-health-data:data/vllm/ci/dns_health/scan_state.fernet"
+            in restore
+        )
+        assert "dns_state_crypto.py decrypt" in restore
+        assert "data/vllm/ci/dns_health/scan_state.json.gz" in restore
+
+        assert collect.get("env", {}).get("BUILDKITE_TOKEN") == (
+            "${{ secrets.BUILDKITE_TOKEN }}"
+        )
+        assert "DNS_STATE_ENCRYPTION_KEY" not in collect.get("env", {})
+        script = collect["run"]
+        assert "scripts/vllm/collect_dns_failures.py" in script
+        assert "--merge-state-git-ref" not in script
+        assert "--state data/vllm/ci/dns_health/scan_state.json.gz" in script
+        assert "--output data/vllm/ci/dns_failures.json" in script
+        assert "--discover-days 30" in script
+        assert "--max-logs 500" in script
+        assert "--time-budget-seconds 1500" in script
+
+        assert "python -m json.tool data/vllm/ci/dns_failures.json" in validate
+        assert "audit_dashboard_data.py --dns-only" in validate
+        assert "gzip -t data/vllm/ci/dns_health/scan_state.json.gz" in validate
+        assert "chmod 0600 data/vllm/ci/dns_health/scan_state.json.gz" in validate
+
+        assert encrypt_step["env"] == {
+            "DNS_STATE_ENCRYPTION_KEY": "${{ secrets.DNS_STATE_ENCRYPTION_KEY }}"
+        }
+        assert "dns_state_crypto.py encrypt" in encrypt
+        assert "data/vllm/ci/dns_health/scan_state.json.gz" in encrypt
+        assert '"$RUNNER_TEMP/dns-health-scan-state.fernet"' in encrypt
+        assert "rm -f data/vllm/ci/dns_health/scan_state.json.gz" in encrypt
+
+        assert "switch --orphan dns-health-data-publish" in publish
+        assert "data/vllm/ci/dns_failures.json" in publish
+        assert "data/vllm/ci/dns_health/scan_state.fernet" in publish
+        assert "data/vllm/ci/dns_health/scan_state.json.gz" not in publish
+        assert "DNS_STATE_ENCRYPTION_KEY" not in publish
+        assert "push --force origin HEAD:dns-health-data" in publish
+        assert "gh-pages" not in publish
+        assert "data/vllm/ci/dns_health/" in (
+            REPO_ROOT / ".gitignore"
+        ).read_text().splitlines()
+
+    def test_canonical_workflows_import_only_the_validated_public_aggregate(self):
+        hourly = _load_workflow("hourly-master.yml")
+        steps = next(iter(hourly["jobs"].values()))["steps"]
+        names = [step.get("name") for step in steps]
+        sync_index = names.index("Sync validated DNS health aggregate")
+        selector_index = names.index("Select validated publication surfaces")
+        assert sync_index < selector_index
+        sync = steps[sync_index]["run"]
+        assert "origin/dns-health-data:data/vllm/ci/dns_failures.json" in sync
+        assert "audit_dashboard_data.py" in sync and "--dns-only" in sync
+        assert "data/vllm/ci/dns_failures.json" in sync
+        assert "scan_state.json.gz" not in sync
+        assert "scan_state.fernet" not in sync
+        assert "record_surface_failure dns_health" not in sync
+        assert "retaining the existing safe candidate" in sync
+        assert "REMOTE_DNS_STATUS" in sync
+        assert '"$REMOTE_DNS_GENERATED" < "$LOCAL_DNS_GENERATED"' in sync
+
+        deploy = _load_workflow_text("deploy-pages.yml")
+        assert "origin/dns-health-data:data/vllm/ci/dns_failures.json" in deploy
+        assert "--dns-only --dns-path" in deploy
+        assert "data/vllm/ci/dns_health/scan_state.json.gz" not in deploy
+        assert "data/vllm/ci/dns_health/scan_state.fernet" not in deploy
+        assert "REMOTE_DNS_GENERATED" in deploy
+        assert "LOCAL_DNS_GENERATED" in deploy
 
 
 class TestSiteHealthWorkflow:
@@ -1425,7 +1543,7 @@ class TestCronSchedules:
             hourly_by_minute[minute] = wf
 
     def test_cron_minutes_have_safe_spacing(self):
-        """Hourly workflows should have at least 10 minutes between them."""
+        """Hourly workflows use safe spacing for their expected workloads."""
         hourly_minutes = []
         for wf, cron in self._extract_crons():
             parts = cron.split()
@@ -1443,6 +1561,16 @@ class TestCronSchedules:
             m1, wf1 = hourly_minutes[i]
             m2, wf2 = hourly_minutes[i + 1]
             gap = m2 - m1
+            # DNS collection stops starting log requests after 25 minutes and
+            # publishes to its own orphan branch. Its :39 slot intentionally
+            # leaves the main :13 collector clear while ending shortly before
+            # the isolated :47 lifecycle collector begins.
+            if {wf1, wf2} == {"dns-health.yml", "queue-lifecycle.yml"}:
+                assert gap >= 8, (
+                    f"Only {gap} minutes between {wf1} (:{m1:02d}) and "
+                    f"{wf2} (:{m2:02d}); this isolated pair requires 8 minutes."
+                )
+                continue
             assert gap >= 10, (
                 f"Only {gap} minutes between {wf1} (:{m1:02d}) and {wf2} (:{m2:02d}). "
                 "Hourly workflows should be at least 10 minutes apart."
@@ -1744,6 +1872,7 @@ class TestWorkflowPipInstallMatchesImports:
             "shutil",
             "socket",
             "ssl",
+            "stat",
             "string",
             "subprocess",
             "sys",
@@ -1756,6 +1885,7 @@ class TestWorkflowPipInstallMatchesImports:
             "unittest",
             "urllib",
             "uuid",
+            "unicodedata",
             "warnings",
             "xml",
             "zipfile",
