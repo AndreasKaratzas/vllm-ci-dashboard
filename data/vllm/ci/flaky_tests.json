@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-08-17T10:11:34Z",
+  "generated_at": "2026-08-17T10:53:24Z",
   "window_builds": 10,
-  "total_flaky": 8,
+  "total_flaky": 7,
   "tests": [
     {
       "test_id": "mi355_1: Multi-Modal Models (Standard) 1: qwen2::__job_level__",
@@ -18,6 +18,23 @@
         "P"
       ],
       "module": "mi355_1: Multi-Modal Models (Standard) 1: qwen2",
+      "mean_duration": 0.0
+    },
+    {
+      "test_id": "mi355_1: Multi-Modal Models (Standard) 4: other + whisper::__job_level__",
+      "label": "flaky",
+      "pass_rate": 0.25,
+      "appearances": 4,
+      "last_seen": "2026-07-31",
+      "first_failure": null,
+      "failure_streak": 0,
+      "history": [
+        "F",
+        "F",
+        "F",
+        "P"
+      ],
+      "module": "mi355_1: Multi-Modal Models (Standard) 4: other + whisper",
       "mean_duration": 0.0
     },
     {
@@ -38,39 +55,6 @@
       "mean_duration": 0.0
     },
     {
-      "test_id": "mi355_1: V1 Core + KV + Metrics::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.25,
-      "appearances": 4,
-      "last_seen": "2026-07-31",
-      "first_failure": null,
-      "failure_streak": 0,
-      "history": [
-        "F",
-        "F",
-        "F",
-        "P"
-      ],
-      "module": "mi355_1: V1 Core + KV + Metrics",
-      "mean_duration": 0.0
-    },
-    {
-      "test_id": "mi355_1: Multi-Modal Models (Extended Generation 3)::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.3333,
-      "appearances": 3,
-      "last_seen": "2026-07-31",
-      "first_failure": null,
-      "failure_streak": 0,
-      "history": [
-        "F",
-        "F",
-        "P"
-      ],
-      "module": "mi355_1: Multi-Modal Models (Extended Generation 3)",
-      "mean_duration": 0.0
-    },
-    {
       "test_id": "mi355_1: Regression::__job_level__",
       "label": "flaky",
       "pass_rate": 0.3333,
@@ -87,6 +71,22 @@
       "mean_duration": 0.0
     },
     {
+      "test_id": "mi355_1: V1 Core + KV + Metrics::__job_level__",
+      "label": "flaky",
+      "pass_rate": 0.3333,
+      "appearances": 3,
+      "last_seen": "2026-07-31",
+      "first_failure": null,
+      "failure_streak": 0,
+      "history": [
+        "F",
+        "F",
+        "P"
+      ],
+      "module": "mi355_1: V1 Core + KV + Metrics",
+      "mean_duration": 0.0
+    },
+    {
       "test_id": "mi355_2: Weight Loading Multiple GPU::__job_level__",
       "label": "flaky",
       "pass_rate": 0.3333,
@@ -100,27 +100,6 @@
         "P"
       ],
       "module": "mi355_2: Weight Loading Multiple GPU",
-      "mean_duration": 0.0
-    },
-    {
-      "test_id": "mi325_1: Python-only Installation::__job_level__",
-      "label": "flaky",
-      "pass_rate": 0.625,
-      "appearances": 8,
-      "last_seen": "2026-07-23",
-      "first_failure": null,
-      "failure_streak": 0,
-      "history": [
-        "F",
-        "F",
-        "P",
-        "P",
-        "P",
-        "F",
-        "P",
-        "P"
-      ],
-      "module": "mi325_1: Python-only Installation",
       "mean_duration": 0.0
     },
     {
