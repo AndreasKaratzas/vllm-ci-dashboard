@@ -977,6 +977,7 @@ jobs:
           # Always update liveness timestamp so commits prove the cron is running
           date -u +%Y-%m-%dT%H:%M:%SZ > data/vllm/ci/last_collected_at.txt
           git add data/ dashboards/ README.md
+          python scripts/vllm/check_git_blob_sizes.py
           git commit -m "auto: update data $(date -u +%Y-%m-%dT%H:%M)"
           PUSHED=0
           for attempt in 1 2 3; do
@@ -994,18 +995,24 @@ jobs:
             python scripts/render.py
             python scripts/vllm/audit_dashboard_data.py
             git add \
-              data/vllm/ci/operations_v2.json \
               data/vllm/ci/operations_v2_manifest.json \
               data/vllm/ci/queue_history_chart.json \
               data/site/projects.json \
               dashboards/ \
               README.md
+            python scripts/vllm/check_git_blob_sizes.py
             if ! git diff --cached --quiet; then
               git commit --amend --no-edit
             fi
             if git push origin HEAD:main; then
               PUSHED=1
               break
+            fi
+            git fetch origin main
+            REMOTE_MAIN=$(git rev-parse FETCH_HEAD)
+            if git merge-base --is-ancestor "$REMOTE_MAIN" HEAD; then
+              echo "::error::Publication push was rejected while main remained unchanged; refusing futile retries"
+              exit 1
             fi
             echo "::warning::Main advanced during publication attempt $attempt"
             if [ "$attempt" -lt 3 ]; then

@@ -622,6 +622,7 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
         "vllm/ci/operations_v2.json",
         PUBLICATION_STATE_INPUT,
     ]
+    assert "data/vllm/ci/operations_v2.json" in GITIGNORE.read_text().splitlines()
     assert manifest["projected_files"] == [{
         "path": ANALYTICS_PATH,
         "projector": ANALYTICS_PROJECTOR,

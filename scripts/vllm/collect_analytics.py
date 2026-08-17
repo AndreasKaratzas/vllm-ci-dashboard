@@ -51,7 +51,6 @@ from vllm.ci.reliability_history import (  # noqa: E402
     OBSERVATION_LIMIT,
     buildkite_job_url_matches,
     build_all_main_reliability,
-    compact_main_builds,
     compute_nightly_change_history,
     filter_reliability_builds,
     validate_all_main_reliability,
@@ -77,6 +76,11 @@ ANALYTICS_NIGHTLY_LIMIT = 30
 ANALYTICS_WINDOW_BUILD_LIMIT = 50
 ANALYTICS_WINDOW_NIGHTLY_LIMIT = 30
 GATING_NIGHTLY_LIMIT = 30
+# GitHub rejects individual blobs at 100 MiB. Keep the private collector
+# artifact below that boundary with enough headroom for byte/display-unit
+# differences and fail before replacing the validated baseline.
+GITHUB_BLOB_MAX_BYTES = 100 * 1024 * 1024
+PRIVATE_ANALYTICS_MAX_BYTES = 90 * 1024 * 1024
 # The AMD all-main ledger exists for the hourly live alert, not long-range
 # browser analytics. Bounding it keeps analytics.json from growing needlessly.
 AMD_MAIN_OBSERVATION_LIMIT = 24
@@ -768,33 +772,16 @@ def attach_main_reliability(
     retry_builds: list[dict] | None = None,
     retry_analysis: dict | None = None,
 ) -> None:
-    """Attach the bounded all-main cohort and its compatibility stream."""
+    """Attach the authoritative bounded all-main cohort and retry evidence."""
     pipeline_slug = str((reliability.get("cohort") or {}).get("pipeline") or "")
     if not pipeline_slug or not validate_all_main_reliability(reliability, pipeline_slug):
         raise ValueError("all-main reliability payload lacks strict exhaustive provenance")
-    main_builds = compact_main_builds(reliability)
-    retained = sum(len(build.get("jobs") or []) for build in main_builds)
-    cohort = reliability.get("cohort") or {}
-    provenance = reliability.get("provenance") or {}
-    denominator = reliability.get("denominator") or {}
     pipeline_data["all_main_reliability"] = reliability
-    pipeline_data["main_builds"] = main_builds
-    pipeline_data["main_builds_provenance"] = {
-        "schema_version": reliability.get("schema_version"),
-        "cohort": cohort,
-        "window": {
-            key: cohort.get(key)
-            for key in ("window_days", "requested_from", "observed_from", "observed_to")
-        },
-        "denominator": denominator,
-        "source": provenance,
-        "retention": {
-            "eligible_observations_in_denominator": denominator.get("eligible_observations", 0),
-            "eligible_observations_in_main_builds": retained,
-            "observation_limit_per_group": provenance.get("observation_limit_per_group"),
-        },
-        "authoritative_evidence_key": "all_main_reliability",
-    }
+    # These legacy fields duplicated every retained reliability observation.
+    # No consumer trusts them; operations deliberately reads the authoritative
+    # cohort above. Drop them if a caller reuses an existing pipeline mapping.
+    pipeline_data.pop("main_builds", None)
+    pipeline_data.pop("main_builds_provenance", None)
     eligible_numbers = {
         int(build.get("number") or 0)
         for build in reliability.get("builds") or []
@@ -1729,10 +1716,37 @@ def write_gating_nightlies(output: Path, all_data: dict[str, dict[str, Any]], ge
 
 
 def write_analytics(out_path: Path, payload: dict) -> None:
-    """Write the large analytics artifact without whitespace amplification."""
-    out_path.write_text(
-        json.dumps(payload, separators=(",", ":"), default=str) + "\n"
-    )
+    """Write a compact private artifact without replacing an in-budget baseline."""
+    bounded_payload = dict(payload)
+    for slug in PIPELINES:
+        block = bounded_payload.get(slug)
+        if not isinstance(block, dict):
+            continue
+        bounded_block = dict(block)
+        # Also migrate a preserved, non-refreshed pipeline from the legacy
+        # duplicate shape during a targeted collection.
+        bounded_block.pop("main_builds", None)
+        bounded_block.pop("main_builds_provenance", None)
+        bounded_payload[slug] = bounded_block
+
+    serialized = json.dumps(
+        bounded_payload,
+        separators=(",", ":"),
+        default=str,
+    ) + "\n"
+    serialized_bytes = len(serialized.encode("utf-8"))
+    if serialized_bytes > PRIVATE_ANALYTICS_MAX_BYTES:
+        raise IncompleteAnalyticsCollection(
+            "Private analytics payload exceeds the safe GitHub blob budget: "
+            f"{serialized_bytes} > {PRIVATE_ANALYTICS_MAX_BYTES} bytes",
+            {
+                "artifact": str(out_path),
+                "serialized_bytes": serialized_bytes,
+                "max_bytes": PRIVATE_ANALYTICS_MAX_BYTES,
+                "github_blob_limit_bytes": GITHUB_BLOB_MAX_BYTES,
+            },
+        )
+    out_path.write_text(serialized)
 
 
 def main():

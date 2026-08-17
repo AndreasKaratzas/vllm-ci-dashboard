@@ -811,12 +811,11 @@ def build_all_main_reliability(
 
 
 def compact_main_builds(reliability: dict) -> list[dict]:
-    """Adapt bounded evidence to the normalized build shape used downstream.
+    """Adapt bounded evidence to the legacy normalized build shape.
 
-    The authoritative denominator remains in ``all_main_reliability``. This
-    compatibility stream contains every cohort build, but only the retained
-    (at most 60 per group by default) eligible observations, avoiding a second
-    unbounded copy of the Buildkite payload in the static analytics artifact.
+    The private analytics artifact no longer persists this compatibility copy;
+    consumers use ``all_main_reliability`` directly. The adapter remains for
+    callers that need the old in-memory shape while migrating.
     """
     builds: dict[int, dict] = {}
     for source in reliability.get("builds") or []:

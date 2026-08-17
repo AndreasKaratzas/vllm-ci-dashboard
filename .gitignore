@@ -41,8 +41,9 @@ data/vllm/ci/.cache/
 # only dns_failures.json.
 data/vllm/ci/dns_health/
 
-# Generated at collection/site-assembly time from operations_v2.json. The
-# small manifest is tracked, but the large lazy section files are deploy-only.
+# The private Operations monolith and its public lazy sections are generated
+# at collection/site-assembly time. Only the small manifest is tracked.
+data/vllm/ci/operations_v2.json
 data/vllm/ci/operations_v2/
 
 # Durable, privacy-minimized queue lifecycle observations are reconciled on

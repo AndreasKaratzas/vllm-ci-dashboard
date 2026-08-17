@@ -416,33 +416,20 @@ def test_compact_main_builds_preserve_strict_identity_links_and_duration_types()
     assert jobs[labels[0]]["end_to_end_mins"] == 25.0
 
 
-def test_collector_exposes_main_builds_with_exact_cohort_provenance():
+def test_collector_persists_only_authoritative_main_reliability():
     source = _dataset([_build(802, [
         _job("main-attempt", "mi300_1: Main Evidence"),
     ])])
-    pipeline_data = {}
+    pipeline_data = {
+        "main_builds": [{"legacy": True}],
+        "main_builds_provenance": {"legacy": True},
+    }
 
     ca.attach_main_reliability(pipeline_data, source)
 
     assert pipeline_data["all_main_reliability"] is source
-    assert [build["number"] for build in pipeline_data["main_builds"]] == [802]
-    provenance = pipeline_data["main_builds_provenance"]
-    assert provenance["schema_version"] == 1
-    assert provenance["cohort"] == source["cohort"]
-    assert provenance["window"] == {
-        "window_days": 30,
-        "requested_from": "2026-03-25T12:00:00Z",
-        "observed_from": "2026-04-20T09:00:00Z",
-        "observed_to": "2026-04-20T09:00:00Z",
-    }
-    assert provenance["denominator"] == source["denominator"]
-    assert provenance["source"] == source["provenance"]
-    assert provenance["retention"] == {
-        "eligible_observations_in_denominator": 1,
-        "eligible_observations_in_main_builds": 1,
-        "observation_limit_per_group": 60,
-    }
-    assert provenance["authoritative_evidence_key"] == "all_main_reliability"
+    assert "main_builds" not in pipeline_data
+    assert "main_builds_provenance" not in pipeline_data
 
 
 def test_collector_preserves_complete_retry_analysis_when_raw_builds_are_unavailable():
