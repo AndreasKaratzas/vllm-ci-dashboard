@@ -63,6 +63,11 @@ frontend JS, and workflow YAML. It does not call GitHub or Buildkite.
 - Frontend tokens that encode key UX decisions still exist: 10-row tables, overall score bar, wider hardware bars, CI Analytics matrix copy, and Queue Monitor defaulting to running workload.
 - Every Pages writer shares the `gh-pages-deploy` lock and uses `scripts/build_site.py --cache-bust-index`.
 - `hourly-master.yml` runs the audit after data generation and before deploy.
+- The independent `health-check.yml` canary runs at :57 each hour and on
+  demand. It uploads bounded JSON evidence, updates one exact-marker-owned
+  issue without hourly comments, requires two consecutive healthy probes to
+  close/rearm, and fails only after issue reconciliation. It has read-only
+  contents permission and never writes Pages or `main`.
 
 ## Manual Spot Checks
 

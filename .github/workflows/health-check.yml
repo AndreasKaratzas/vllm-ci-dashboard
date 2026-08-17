@@ -1,98 +1,582 @@
 name: Site Health Check
 
 on:
-  workflow_dispatch:  # Manual trigger (hourly runs handled by hourly-master)
+  schedule:
+    # Run after the :13 canonical collection/deploy window, without sharing
+    # its gh-pages lock or becoming a Pages writer.
+    - cron: '57 * * * *'
+  workflow_dispatch:
 
 concurrency:
-  group: health-check
-  cancel-in-progress: true
+  group: site-health-monitor
+  cancel-in-progress: false
 
 permissions:
+  contents: read
   issues: write
 
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Check site is live
-        id: site
-        run: |
-          URL="https://andreaskaratzas.github.io/vllm-ci-dashboard/"
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL" --max-time 15 || echo "000")
-          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
-          echo "Site status: $STATUS"
+      - name: Check out monitor
+        uses: actions/checkout@v4
 
-          # Also check that the page has content (not blank)
-          if [ "$STATUS" = "200" ]; then
-            SIZE=$(curl -s "$URL" --max-time 15 | wc -c)
-            echo "size=$SIZE" >> "$GITHUB_OUTPUT"
-            if [ "$SIZE" -lt 500 ]; then
-              echo "Page is suspiciously small: ${SIZE} bytes"
-              echo "healthy=false" >> "$GITHUB_OUTPUT"
-            else
-              echo "healthy=true" >> "$GITHUB_OUTPUT"
-            fi
-          else
-            echo "healthy=false" >> "$GITHUB_OUTPUT"
-            echo "size=0" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Check data freshness
-        id: data
+      - name: Run synthetic site health check
+        id: synthetic-health
+        continue-on-error: true
+        env:
+          SITE_URL: https://andreaskaratzas.github.io/vllm-ci-dashboard/
+          REPORT_PATH: ${{ runner.temp }}/site-health-report.json
+          DETAILS_PATH: ${{ runner.temp }}/site-health-detail.md
         run: |
-          # Check if queue data is being updated (should update hourly)
-          DATA_URL="https://andreaskaratzas.github.io/vllm-ci-dashboard/data/vllm/ci/queue_timeseries.jsonl"
-          LAST_LINE=$(curl -s "$DATA_URL" --max-time 15 | tail -1)
-          if [ -n "$LAST_LINE" ]; then
-            TS=$(echo "$LAST_LINE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('ts',''))" 2>/dev/null || echo "")
-            echo "last_snapshot=$TS" >> "$GITHUB_OUTPUT"
-            if [ -n "$TS" ]; then
-              AGE=$(python3 -c "
+          set -euo pipefail
+          # Seed bounded fail-closed evidence so a checker import/crash still
+          # reaches artifact upload and marker-owned issue reconciliation.
+          python3 - <<'PY'
+          import json
+          import os
           from datetime import datetime, timezone
-          ts = datetime.fromisoformat('$TS'.replace('Z','+00:00'))
-          age_h = (datetime.now(timezone.utc) - ts).total_seconds() / 3600
-          print(f'{age_h:.1f}')
-          " 2>/dev/null || echo "999")
-              echo "age_hours=$AGE" >> "$GITHUB_OUTPUT"
-              echo "Queue data age: ${AGE}h"
-            fi
-          else
-            echo "last_snapshot=none" >> "$GITHUB_OUTPUT"
-            echo "age_hours=999" >> "$GITHUB_OUTPUT"
-          fi
+          from pathlib import Path
 
-      - name: Create issue if unhealthy
-        if: steps.site.outputs.healthy == 'false'
+          report = {
+              "schema_version": 1,
+              "checked_at": datetime.now(timezone.utc).isoformat(),
+              "healthy": False,
+              "overall_status": "checker_not_completed",
+              "reasons": ["synthetic checker did not produce a complete report"],
+          }
+          Path(os.environ["REPORT_PATH"]).write_text(
+              json.dumps(report, indent=2, sort_keys=True) + "\n"
+          )
+          Path(os.environ["DETAILS_PATH"]).write_text(
+              "Synthetic checker did not produce bounded Markdown details.\n"
+          )
+          PY
+          python scripts/vllm/check_site_health.py \
+            --site-url "$SITE_URL" \
+            --max-publication-age-hours 3 \
+            --output "$REPORT_PATH" \
+            --github-output "$GITHUB_OUTPUT" \
+            --markdown-output "$DETAILS_PATH"
+
+      - name: Normalize bounded health evidence
+        id: health-result
+        if: always()
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHECKER_OUTCOME: ${{ steps.synthetic-health.outcome }}
+          CHECKER_HEALTHY: ${{ steps.synthetic-health.outputs.healthy }}
+          SITE_HTTP: ${{ steps.synthetic-health.outputs.site_http }}
+          SITE_BYTES: ${{ steps.synthetic-health.outputs.site_bytes }}
+          PUBLICATION_HTTP: ${{ steps.synthetic-health.outputs.publication_http }}
+          PUBLICATION_MODE: ${{ steps.synthetic-health.outputs.publication_mode }}
+          PUBLICATION_STATUS: ${{ steps.synthetic-health.outputs.publication_status }}
+          GENERATED_AT: ${{ steps.synthetic-health.outputs.generated_at }}
+          AGE_HOURS: ${{ steps.synthetic-health.outputs.age_hours }}
+          REASON_COUNT: ${{ steps.synthetic-health.outputs.reason_count }}
+          OVERALL_STATUS: ${{ steps.synthetic-health.outputs.overall_status }}
+          REPORT_PATH: ${{ runner.temp }}/site-health-report.json
+          DETAILS_PATH: ${{ runner.temp }}/site-health-detail.md
+          BODY_PATH: ${{ runner.temp }}/site-health-issue.md
+          SITE_URL: https://andreaskaratzas.github.io/vllm-ci-dashboard/
+          OWNERSHIP_MARKER: '<!-- vllm-ci-dashboard:site-health:v1 -->'
         run: |
-          # Check if there's already an open health issue
-          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --label "site-health" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
-          if [ -n "$EXISTING" ]; then
-            echo "Health issue #$EXISTING already open, skipping"
-            exit 0
-          fi
+          set -euo pipefail
+          python3 - <<'PY'
+          import html
+          import json
+          import math
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
 
-          gh issue create \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "Site health alert: dashboard is down or blank" \
-            --body "The site health check detected a problem:
-          - **HTTP status**: ${{ steps.site.outputs.status }}
-          - **Page size**: ${{ steps.site.outputs.size }} bytes
-          - **Last queue snapshot**: ${{ steps.data.outputs.last_snapshot }}
+          max_report_bytes = 64 * 1024
+          max_details_bytes = 16 * 1024
+          report_path = Path(os.environ["REPORT_PATH"])
+          details_path = Path(os.environ["DETAILS_PATH"])
+          body_path = Path(os.environ["BODY_PATH"])
 
-          Check the [GitHub Pages deployment](https://github.com/$GITHUB_REPOSITORY/deployments) and recent [workflow runs](https://github.com/$GITHUB_REPOSITORY/actions).
+          def fallback_report(reason):
+              return {
+                  "schema_version": 1,
+                  "checked_at": datetime.now(timezone.utc).isoformat(),
+                  "healthy": False,
+                  "overall_status": "workflow_evidence_invalid",
+                  "reasons": [reason],
+              }
 
-          Common causes:
-          - Push conflict between concurrent workflows (check for 'rejected' errors)
-          - gh-pages branch has no index.html (deploy step failed)" \
-            --assignee AndreasKaratzas \
-            --label "site-health"
+          report_syntax_valid = False
+          report_error = ""
+          try:
+              raw = report_path.read_bytes()
+              if len(raw) > max_report_bytes:
+                  raise ValueError("checker report exceeded 64 KiB")
+              report = json.loads(raw)
+              if not isinstance(report, dict):
+                  raise ValueError("checker report was not a JSON object")
+              encoded = (json.dumps(report, indent=2, sort_keys=True) + "\n").encode()
+              if len(encoded) > max_report_bytes:
+                  raise ValueError("normalized checker report exceeded 64 KiB")
+              report_syntax_valid = True
+          except (OSError, ValueError, json.JSONDecodeError) as exc:
+              report_error = str(exc)[:500]
+              report = fallback_report(report_error)
 
-      # Keep interaction limits active (GitHub max is 6 months, so auto-renew)
-      - name: Renew interaction limits
+          required = {
+              "healthy": os.environ.get("CHECKER_HEALTHY", ""),
+              "overall_status": os.environ.get("OVERALL_STATUS", ""),
+              "site_http": os.environ.get("SITE_HTTP", ""),
+              "site_bytes": os.environ.get("SITE_BYTES", ""),
+              "publication_http": os.environ.get("PUBLICATION_HTTP", ""),
+              "publication_mode": os.environ.get("PUBLICATION_MODE", ""),
+              "publication_status": os.environ.get("PUBLICATION_STATUS", ""),
+              "generated_at": os.environ.get("GENERATED_AT", ""),
+              "age_hours": os.environ.get("AGE_HOURS", ""),
+              "reason_count": os.environ.get("REASON_COUNT", ""),
+          }
+          missing = sorted(key for key, value in required.items() if not value.strip())
+          contract_errors = []
+
+          def parse_nonnegative_int_output(key, label):
+              raw_value = required[key]
+              try:
+                  value = int(raw_value, 10)
+              except ValueError:
+                  contract_errors.append(f"checker {label} output was not an integer")
+                  return None
+              if raw_value != str(value) or value < 0:
+                  contract_errors.append(
+                      f"checker {label} output was not a canonical nonnegative integer"
+                  )
+                  return None
+              return value
+
+          def is_nonnegative_int(value):
+              return (
+                  isinstance(value, int)
+                  and not isinstance(value, bool)
+                  and value >= 0
+              )
+
+          checker_healthy = None
+          if required["healthy"] in {"true", "false"}:
+              checker_healthy = required["healthy"] == "true"
+          else:
+              contract_errors.append("checker healthy output was not boolean")
+          if not required["overall_status"]:
+              contract_errors.append("checker overall_status output was missing")
+          output_site_http = parse_nonnegative_int_output("site_http", "site HTTP")
+          output_site_bytes = parse_nonnegative_int_output("site_bytes", "site bytes")
+          output_publication_http = parse_nonnegative_int_output(
+              "publication_http", "publication HTTP"
+          )
+          output_reason_count = parse_nonnegative_int_output(
+              "reason_count", "reason count"
+          )
+
+          if report_syntax_valid:
+              reasons = report.get("reasons")
+              report_healthy = report.get("healthy")
+              site = report.get("site")
+              publication = report.get("publication")
+              if type(report.get("schema_version")) is not int or report.get("schema_version") != 1:
+                  contract_errors.append("report schema_version was not 1")
+              if not isinstance(report_healthy, bool):
+                  contract_errors.append("report healthy was not boolean")
+              elif checker_healthy is not None and report_healthy != checker_healthy:
+                  contract_errors.append("report healthy disagreed with checker output")
+              if not isinstance(reasons, list):
+                  contract_errors.append("report reasons was not an array")
+              elif output_reason_count is not None and len(reasons) != output_reason_count:
+                  contract_errors.append("report reason count disagreed with checker output")
+              report_status = report.get("overall_status")
+              if not isinstance(report_status, str) or not report_status:
+                  contract_errors.append("report overall_status was not a nonempty string")
+              elif report_status != required["overall_status"]:
+                  contract_errors.append("report overall_status disagreed with checker output")
+              if checker_healthy is True and required["overall_status"] != "healthy":
+                  contract_errors.append("healthy checker output lacked healthy overall_status")
+              if checker_healthy is False and required["overall_status"] == "healthy":
+                  contract_errors.append("unhealthy checker output claimed healthy status")
+
+              if not isinstance(site, dict):
+                  contract_errors.append("report site was not an object")
+                  site = {}
+              if not isinstance(publication, dict):
+                  contract_errors.append("report publication was not an object")
+                  publication = {}
+
+              report_site_http = site.get("http_status")
+              if not is_nonnegative_int(report_site_http):
+                  contract_errors.append(
+                      "report site http_status was not a nonnegative integer"
+                  )
+              elif (
+                  output_site_http is not None
+                  and report_site_http != output_site_http
+              ):
+                  contract_errors.append("report site HTTP disagreed with checker output")
+
+              report_site_bytes = site.get("bytes_read")
+              if not is_nonnegative_int(report_site_bytes):
+                  contract_errors.append(
+                      "report site bytes_read was not a nonnegative integer"
+                  )
+              elif (
+                  output_site_bytes is not None
+                  and report_site_bytes != output_site_bytes
+              ):
+                  contract_errors.append("report site bytes disagreed with checker output")
+
+              report_publication_http = publication.get("http_status")
+              if not is_nonnegative_int(report_publication_http):
+                  contract_errors.append(
+                      "report publication http_status was not a nonnegative integer"
+                  )
+              elif (
+                  output_publication_http is not None
+                  and report_publication_http != output_publication_http
+              ):
+                  contract_errors.append(
+                      "report publication HTTP disagreed with checker output"
+                  )
+
+              for field, output_key, label in (
+                  ("mode", "publication_mode", "publication mode"),
+                  ("status", "publication_status", "publication status"),
+                  ("generated_at", "generated_at", "publication timestamp"),
+              ):
+                  report_value = publication.get(field)
+                  if report_value is not None and (
+                      not isinstance(report_value, str)
+                      or not report_value
+                      or "\r" in report_value
+                      or "\n" in report_value
+                  ):
+                      contract_errors.append(
+                          f"report {label} was not a safe nonempty string or null"
+                      )
+                      continue
+                  expected_output = "" if report_value is None else report_value
+                  if required[output_key] != expected_output:
+                      contract_errors.append(
+                          f"report {label} disagreed with checker output"
+                      )
+
+              report_generated_at = publication.get("generated_at")
+              if isinstance(report_generated_at, str) and report_generated_at:
+                  try:
+                      parsed_generated_at = datetime.fromisoformat(
+                          report_generated_at.replace("Z", "+00:00")
+                      )
+                      if parsed_generated_at.tzinfo is None:
+                          raise ValueError
+                  except ValueError:
+                      contract_errors.append(
+                          "report publication timestamp was not timezone-aware ISO-8601"
+                      )
+
+              report_age = publication.get("age_hours")
+              if report_age is None:
+                  if required["age_hours"]:
+                      contract_errors.append(
+                          "report publication age disagreed with checker output"
+                      )
+              elif (
+                  isinstance(report_age, bool)
+                  or not isinstance(report_age, (int, float))
+                  or not math.isfinite(report_age)
+              ):
+                  contract_errors.append(
+                      "report publication age_hours was not a finite number or null"
+                  )
+              else:
+                  try:
+                      output_age = float(required["age_hours"])
+                  except ValueError:
+                      output_age = math.nan
+                  if (
+                      not math.isfinite(output_age)
+                      or required["age_hours"] != str(report_age)
+                  ):
+                      contract_errors.append(
+                          "report publication age disagreed with checker output"
+                      )
+
+              if checker_healthy is True:
+                  if reasons:
+                      contract_errors.append("healthy report contained findings")
+                  if (
+                      report_site_http != 200
+                      or not is_nonnegative_int(report_site_bytes)
+                      or report_site_bytes < 500
+                  ):
+                      contract_errors.append("healthy report failed the site-shell contract")
+                  if report_publication_http != 200:
+                      contract_errors.append("healthy report lacked publication HTTP 200")
+                  report_mode = publication.get("mode")
+                  report_publication_status = publication.get("status")
+                  if report_mode not in {"current", "degraded", "fallback", "mixed"}:
+                      contract_errors.append("healthy report used an unhealthy publication mode")
+                  if report_publication_status not in {"healthy", "degraded"}:
+                      contract_errors.append("healthy report used an unhealthy publication status")
+                  if publication.get("publication_blocked") is not False:
+                      contract_errors.append("healthy report was publication-blocked")
+                  expected_fallback = report_mode in {"fallback", "mixed"}
+                  if publication.get("uses_fallback") is not expected_fallback:
+                      contract_errors.append("healthy report had contradictory fallback state")
+                  if (
+                      not isinstance(report_age, (int, float))
+                      or isinstance(report_age, bool)
+                      or not math.isfinite(report_age)
+                      or report_age < -(5 / 60)
+                      or report_age > 3
+                  ):
+                      contract_errors.append("healthy report had an invalid publication age")
+
+          report_valid = report_syntax_valid and not contract_errors
+          if not report_valid:
+              reason = "; ".join(contract_errors) or report_error or "report invalid"
+              report = fallback_report(reason[:500])
+          encoded = (json.dumps(report, indent=2, sort_keys=True) + "\n").encode()
+          report_path.write_bytes(encoded)
+
+          healthy = (
+              os.environ.get("CHECKER_OUTCOME") == "success"
+              and checker_healthy is True
+              and required["overall_status"] == "healthy"
+              and not missing
+              and report_valid
+          )
+
+          try:
+              details_raw = details_path.read_bytes()
+              if len(details_raw) > max_details_bytes:
+                  raise ValueError("checker details exceeded 16 KiB")
+              details = details_raw.decode("utf-8")
+          except (OSError, UnicodeDecodeError, ValueError) as exc:
+              details = f"Synthetic checker details unavailable: {exc}"
+          safe_details = html.escape(details[:max_details_bytes])
+
+          repository = os.environ["GITHUB_REPOSITORY"]
+          server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+          run_url = f"{server}/{repository}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+          deploy_url = f"{server}/{repository}/deployments"
+          status = "healthy recovery probe" if healthy else "unhealthy"
+          missing_text = ", ".join(missing) if missing else "none"
+          body = f"""{os.environ['OWNERSHIP_MARKER']}
+          <!-- SITE_HEALTH_STATE -->
+
+          ## Dashboard synthetic health: {status}
+
+          - **Site:** [{os.environ['SITE_URL']}]({os.environ['SITE_URL']})
+          - **Workflow run:** [synthetic monitor evidence]({run_url})
+          - **Deployment history:** [GitHub deployments]({deploy_url})
+          - **Checker outcome:** `{html.escape(os.environ.get('CHECKER_OUTCOME', 'missing'))}`
+          - **Overall status:** `{html.escape(os.environ.get('OVERALL_STATUS') or 'missing')}`
+          - **Publication mode/status:** `{html.escape(required['publication_mode'] or 'missing')}` / `{html.escape(required['publication_status'] or 'missing')}`
+          - **Publication age:** `{html.escape(required['age_hours'] or 'missing')}` hours
+          - **Missing checker outputs:** `{html.escape(missing_text)}`
+
+          <details><summary>Bounded checker details</summary><pre>{safe_details}</pre></details>
+
+          <!-- SITE_HEALTH_RECOVERY_NOTE -->
+
+          This issue is owned by the synthetic site-health workflow. Evidence is
+          updated in place; the workflow does not post hourly comments.
+          """
+          body_path.write_text(body)
+
+          summary = (
+              f"healthy={str(healthy).lower()} "
+              f"status={os.environ.get('OVERALL_STATUS') or 'missing'} "
+              f"mode={required['publication_mode'] or 'missing'} "
+              f"age_hours={required['age_hours'] or 'missing'} "
+              f"missing_outputs={len(missing)}"
+          ).replace("\n", " ")[:1000]
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"healthy={str(healthy).lower()}\n")
+              output.write(f"report_valid={str(report_valid).lower()}\n")
+              output.write(f"missing_output_count={len(missing)}\n")
+              output.write(f"summary={summary}\n")
+          PY
+
+      - name: Upload bounded site health report
+        id: upload-health-report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-health-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/site-health-report.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 9
+
+      - name: Reconcile marker-owned site health issue
+        id: reconcile-health-issue
+        if: always()
+        uses: actions/github-script@v7
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEALTHY: ${{ steps.health-result.outputs.healthy }}
+          BODY_PATH: ${{ runner.temp }}/site-health-issue.md
+          OWNERSHIP_MARKER: '<!-- vllm-ci-dashboard:site-health:v1 -->'
+        with:
+          script: |
+            const fs = require('fs');
+            const ownershipMarker = process.env.OWNERSHIP_MARKER;
+            const labelName = 'site-health';
+            const statePattern = /<!-- site-health-state:recovery=(\d+);rearmed=(true|false) -->/;
+            const statePlaceholder = '<!-- SITE_HEALTH_STATE -->';
+            const recoveryPlaceholder = '<!-- SITE_HEALTH_RECOVERY_NOTE -->';
+            const healthy = process.env.HEALTHY === 'true';
+            const baseBody = fs.readFileSync(process.env.BODY_PATH, 'utf8');
+            const hasExactMarker = body => String(body || '')
+              .split(/\r?\n/)
+              .some(line => line.trim() === ownershipMarker);
+            if (!hasExactMarker(baseBody) ||
+                !baseBody.includes(statePlaceholder) ||
+                !baseBody.includes(recoveryPlaceholder)) {
+              throw new Error('site-health body file is missing ownership/state placeholders');
+            }
+
+            try {
+              await github.rest.issues.getLabel({ ...context.repo, name: labelName });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.issues.createLabel({
+                ...context.repo,
+                name: labelName,
+                color: 'b60205',
+                description: 'Synthetic dashboard availability incidents',
+              });
+            }
+
+            // Identity comes from the exact body marker, not the mutable label.
+            // Paginating every issue also finds an owned issue after a person or
+            // bot removes its presentation label. If lookup fails, the step
+            // throws before creation, preventing a duplicate incident.
+            const allIssues = await github.paginate(
+              github.rest.issues.listForRepo,
+              { ...context.repo, state: 'all', per_page: 100 },
+            );
+            const owned = allIssues
+              .filter(issue => !issue.pull_request &&
+                hasExactMarker(issue.body))
+              .sort((left, right) => right.number - left.number);
+            // The newest exact-marker issue is authoritative even when manually
+            // closed. Otherwise an older open duplicate could bypass suppression.
+            const existing = owned[0] || null;
+
+            // A historical automation race must not leave two open incidents.
+            for (const duplicate of owned) {
+              if (duplicate.number !== existing?.number && duplicate.state === 'open') {
+                await github.rest.issues.update({
+                  ...context.repo,
+                  issue_number: duplicate.number,
+                  state: 'closed',
+                });
+              }
+            }
+
+            const priorMatch = String(existing?.body || '').match(statePattern);
+            const priorRecovery = priorMatch ? Number(priorMatch[1]) : 0;
+            const priorRearmed = priorMatch?.[2] === 'true';
+            let recovery = 0;
+            let rearmed = false;
+            let note = '';
+            let state = existing?.state || 'open';
+            let title = '[Site Health] Dashboard synthetic monitor unhealthy';
+
+            if (healthy) {
+              if (!existing) {
+                core.info('Healthy probe with no owned incident; nothing to close.');
+                core.setOutput('reconciled', 'true');
+                return;
+              }
+              if (priorRearmed && priorRecovery >= 2 && existing.state === 'closed') {
+                core.info(`Owned site-health issue #${existing.number} is already recovered.`);
+                core.setOutput('reconciled', 'true');
+                return;
+              }
+              recovery = Math.min(2, priorRecovery + 1);
+              rearmed = recovery >= 2;
+              if (rearmed) {
+                state = 'closed';
+                title = '[Recovered] Dashboard synthetic monitor healthy';
+                note = 'Two consecutive healthy probes confirmed recovery. The incident is rearmed.';
+              } else {
+                // Preserve manual closure during the first recovery probe.
+                state = existing.state;
+                title = '[Site Health] Dashboard recovery verification (1/2)';
+                note = 'Recovery probe 1/2 passed; one more consecutive healthy probe is required.';
+              }
+            } else {
+              // Every unhealthy probe resets partial recovery. A manually
+              // closed, not-yet-rearmed issue remains suppressed; an issue
+              // closed after confirmed recovery is reopened in place.
+              recovery = 0;
+              rearmed = false;
+              if (existing?.state === 'closed' && !priorRearmed) {
+                state = 'closed';
+                note = 'The issue remains manually closed until two healthy probes rearm it.';
+              } else {
+                state = 'open';
+                note = 'The unhealthy probe reset the consecutive recovery streak to 0/2.';
+              }
+            }
+
+            const stateMarker = `<!-- site-health-state:recovery=${recovery};rearmed=${rearmed} -->`;
+            const body = baseBody
+              .replace(statePlaceholder, stateMarker)
+              .replace(recoveryPlaceholder, note);
+            if (Buffer.byteLength(body, 'utf8') > 32 * 1024) {
+              throw new Error('bounded site-health issue body exceeded 32 KiB');
+            }
+
+            if (existing) {
+              await github.rest.issues.update({
+                ...context.repo,
+                issue_number: existing.number,
+                title,
+                body,
+                state,
+              });
+              // addLabels is additive, so unrelated/manual labels are retained.
+              // It also repairs presentation metadata if site-health was removed.
+              await github.rest.issues.addLabels({
+                ...context.repo,
+                issue_number: existing.number,
+                labels: [labelName],
+              });
+              core.info(`Updated site-health issue #${existing.number} (${state}).`);
+            } else {
+              const created = await github.rest.issues.create({
+                ...context.repo,
+                title,
+                body,
+                labels: [labelName],
+              });
+              core.info(`Created site-health issue #${created.data.number}.`);
+            }
+            core.setOutput('reconciled', 'true');
+
+      - name: Enforce synthetic health result
+        if: always()
+        env:
+          HEALTHY: ${{ steps.health-result.outputs.healthy }}
+          NORMALIZE_OUTCOME: ${{ steps.health-result.outcome }}
+          UPLOAD_OUTCOME: ${{ steps.upload-health-report.outcome }}
+          RECONCILE_OUTCOME: ${{ steps.reconcile-health-issue.outcome }}
+          RECONCILED: ${{ steps.reconcile-health-issue.outputs.reconciled }}
         run: |
-          gh api repos/$GITHUB_REPOSITORY/interaction-limits -X PUT \
-            -f limit=existing_users -f expiry=six_months > /dev/null 2>&1 || true
+          set -euo pipefail
+          if [ "$NORMALIZE_OUTCOME" != "success" ] || \
+             [ "$UPLOAD_OUTCOME" != "success" ] || \
+             [ "$RECONCILE_OUTCOME" != "success" ] || \
+             [ "$RECONCILED" != "true" ] || \
+             [ "$HEALTHY" != "true" ]; then
+            echo "::error::Synthetic site health is unhealthy or reconciliation evidence is incomplete."
+            exit 1
+          fi
+          echo "Synthetic site health is healthy and issue state is reconciled."

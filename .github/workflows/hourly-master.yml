@@ -1,8 +1,8 @@
 name: Data Collection
 
 # Single unified cron job that runs all data collection, tests, and deploy.
-# Replaces: ci-collect.yml, queue-monitor.yml, daily-update.yml,
-#           health-check.yml, nightly-ci.yml (scheduled triggers).
+# Replaces the legacy CI collection/update schedules. The synthetic site
+# monitor remains independent so it can detect failures after deployment.
 # Those workflows keep their workflow_dispatch triggers for manual runs.
 on:
   schedule:

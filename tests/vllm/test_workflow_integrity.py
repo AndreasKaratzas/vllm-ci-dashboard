@@ -1028,6 +1028,7 @@ class TestNoOrphanedCronSchedules:
         # ready-ticket sync is intentionally limited to the 3x/day master-
         # issue updater.
         allowed = {
+            "health-check.yml",
             "hourly-master.yml",
             "queue-monitor.yml",
             "queue-lifecycle.yml",
@@ -1044,6 +1045,224 @@ class TestNoOrphanedCronSchedules:
                     f"{f.name} has a cron schedule but should not — "
                     f"all scheduled runs should be in one of {sorted(allowed)}"
                 )
+
+
+class TestSiteHealthWorkflow:
+    def _steps(self):
+        workflow = _load_workflow("health-check.yml")
+        return workflow, workflow["jobs"]["check"]["steps"]
+
+    def test_is_hourly_offset_manual_and_read_only_for_pages(self):
+        workflow, _ = self._steps()
+        triggers = workflow.get(True, workflow.get("on", {}))
+        assert triggers["schedule"] == [{"cron": "57 * * * *"}]
+        assert "workflow_dispatch" in triggers
+        assert workflow["permissions"] == {
+            "contents": "read",
+            "issues": "write",
+        }
+        assert workflow["concurrency"] == {
+            "group": "site-health-monitor",
+            "cancel-in-progress": False,
+        }
+        assert workflow["jobs"]["check"]["timeout-minutes"] == 10
+
+        text = _load_workflow_text("health-check.yml")
+        for forbidden in (
+            "peaceiris/actions-gh-pages",
+            "publish_branch: gh-pages",
+            "ref: gh-pages",
+            "git push",
+            "git commit",
+            "git add",
+            "scripts/build_site.py",
+        ):
+            assert forbidden not in text
+
+    def test_checker_report_upload_reconcile_and_enforcement_are_ordered(self):
+        _, steps = self._steps()
+        names = [step.get("name") for step in steps]
+        expected = [
+            "Check out monitor",
+            "Run synthetic site health check",
+            "Normalize bounded health evidence",
+            "Upload bounded site health report",
+            "Reconcile marker-owned site health issue",
+            "Enforce synthetic health result",
+        ]
+        assert names == expected
+        assert steps[0]["uses"] == "actions/checkout@v4"
+
+        checker = steps[1]
+        assert checker["id"] == "synthetic-health"
+        assert checker["continue-on-error"] is True
+        for token in (
+            "python scripts/vllm/check_site_health.py",
+            "--site-url \"$SITE_URL\"",
+            "--max-publication-age-hours 3",
+            "--output \"$REPORT_PATH\"",
+            "--github-output \"$GITHUB_OUTPUT\"",
+            "--markdown-output \"$DETAILS_PATH\"",
+        ):
+            assert token in checker["run"]
+
+        normalize = steps[2]
+        assert normalize["if"] == "always()"
+        assert normalize["id"] == "health-result"
+        assert "max_report_bytes = 64 * 1024" in normalize["run"]
+        assert "report_path.write_bytes(encoded)" in normalize["run"]
+        assert "if not value.strip()" in normalize["run"]
+
+        upload = steps[3]
+        assert upload["if"] == "always()"
+        assert upload["uses"] == "actions/upload-artifact@v4"
+        assert upload["with"]["path"] == "${{ runner.temp }}/site-health-report.json"
+        assert upload["with"]["if-no-files-found"] == "error"
+        assert upload["with"]["retention-days"] == 14
+
+        reconcile = steps[4]
+        enforce = steps[5]
+        assert reconcile["if"] == "always()"
+        assert reconcile["uses"] == "actions/github-script@v7"
+        assert enforce["if"] == "always()"
+        assert "RECONCILE_OUTCOME" in enforce["env"]
+        assert "RECONCILED" in enforce["env"]
+        assert '[ "$HEALTHY" != "true" ]' in enforce["run"]
+        assert "exit 1" in enforce["run"]
+
+    def test_missing_or_malformed_checker_evidence_fails_closed(self):
+        _, steps = self._steps()
+        normalize = steps[2]
+        script = normalize["run"]
+        for output in (
+            "CHECKER_HEALTHY",
+            "OVERALL_STATUS",
+            "SITE_HTTP",
+            "SITE_BYTES",
+            "PUBLICATION_HTTP",
+            "PUBLICATION_MODE",
+            "PUBLICATION_STATUS",
+            "GENERATED_AT",
+            "AGE_HOURS",
+            "REASON_COUNT",
+        ):
+            assert output in normalize["env"]
+            assert output in script
+        assert 'os.environ.get("CHECKER_OUTCOME") == "success"' in script
+        assert "checker_healthy is True" in script
+        assert "and not missing" in script
+        assert "and report_valid" in script
+        assert 'type(report.get("schema_version")) is not int' in script
+        assert "report healthy disagreed with checker output" in script
+        assert "report reason count disagreed with checker output" in script
+        assert "report overall_status disagreed with checker output" in script
+        assert '"healthy": False' in steps[1]["run"]
+
+    def test_normalizer_cross_checks_typed_report_fields_with_outputs(self):
+        _, steps = self._steps()
+        script = steps[2]["run"]
+        for token in (
+            "def parse_nonnegative_int_output",
+            "raw_value != str(value) or value < 0",
+            "isinstance(value, int)",
+            "not isinstance(value, bool)",
+            'not isinstance(site, dict)',
+            'not isinstance(publication, dict)',
+            "report site HTTP disagreed with checker output",
+            "report site bytes disagreed with checker output",
+            "report publication HTTP disagreed with checker output",
+            '("mode", "publication_mode", "publication mode")',
+            '("status", "publication_status", "publication status")',
+            '("generated_at", "generated_at", "publication timestamp")',
+            'required[output_key] != expected_output',
+            'f"report {label} disagreed with checker output"',
+            "datetime.fromisoformat",
+            "parsed_generated_at.tzinfo is None",
+            "not math.isfinite(report_age)",
+            "not math.isfinite(output_age)",
+            'required["age_hours"] != str(report_age)',
+            "report publication age disagreed with checker output",
+            "report reason count disagreed with checker output",
+            "healthy report contained findings",
+            "healthy report failed the site-shell contract",
+            "healthy report lacked publication HTTP 200",
+            "healthy report used an unhealthy publication mode",
+            "healthy report used an unhealthy publication status",
+            "healthy report was publication-blocked",
+            "healthy report had contradictory fallback state",
+            "healthy report had an invalid publication age",
+        ):
+            assert token in script
+
+    def test_issue_reconciliation_is_marker_owned_stable_and_comment_free(self):
+        _, steps = self._steps()
+        normalize = steps[2]
+        reconcile = steps[4]
+        script = reconcile["with"]["script"]
+        assert reconcile["env"]["BODY_PATH"].endswith("/site-health-issue.md")
+        assert reconcile["env"]["OWNERSHIP_MARKER"] == (
+            "<!-- vllm-ci-dashboard:site-health:v1 -->"
+        )
+        assert "fs.readFileSync(process.env.BODY_PATH" in script
+        assert "github.paginate(" in script
+        assert "github.rest.issues.getLabel" in script
+        assert "if (error.status !== 404) throw error" in script
+        assert "github.rest.issues.createLabel" in script
+        assert "github.rest.issues.listForRepo" in script
+        assert "state: 'all'" in script
+        lookup = script[
+            script.index("const allIssues") : script.index("const owned")
+        ]
+        assert "labels:" not in lookup
+        assert ".some(line => line.trim() === ownershipMarker)" in script
+        assert "hasExactMarker(issue.body)" in script
+        assert script.index("github.paginate(") < script.index(
+            "github.rest.issues.create("
+        )
+        assert "github.rest.issues.update" in script
+        assert "github.rest.issues.createComment" not in script
+        existing_branch = script.index("if (existing) {")
+        update_start = script.index(
+            "await github.rest.issues.update({", existing_branch
+        )
+        update_end = script.index("});", update_start)
+        assert "labels:" not in script[update_start:update_end]
+        assert "github.rest.issues.addLabels" in script
+        assert "labels: [labelName]" in script
+        assert "${{" not in script
+        assert "actions/runs/" in normalize["run"]
+        assert "/deployments" in normalize["run"]
+        assert "html.escape(details" in normalize["run"]
+
+    def test_issue_requires_two_healthy_probes_and_honors_manual_close(self):
+        _, steps = self._steps()
+        script = steps[4]["with"]["script"]
+        for token in (
+            "site-health-state:recovery=",
+            "const priorRecovery",
+            "const priorRearmed",
+            "recovery = Math.min(2, priorRecovery + 1)",
+            "rearmed = recovery >= 2",
+            "Two consecutive healthy probes confirmed recovery",
+            "existing?.state === 'closed' && !priorRearmed",
+            "state = 'closed'",
+            "state = 'open'",
+            "recovery = 0",
+            "rearmed = false",
+            "const existing = owned[0] || null",
+            "duplicate.number !== existing?.number",
+        ):
+            assert token in script
+        assert "owned.find(issue => issue.state === 'open')" not in script
+        manual_close = "existing?.state === 'closed' && !priorRearmed"
+        reopen = "state = 'open'"
+        assert script.index(manual_close) < script.index(reopen, script.index(manual_close))
+        assert "does not post hourly comments" in steps[2]["run"]
+
+    def test_hourly_master_does_not_claim_to_replace_health_monitor(self):
+        text = _load_workflow_text("hourly-master.yml")
+        assert "health-check.yml" not in text
+        assert "synthetic site\n# monitor remains independent" in text
 
 
 class TestNightlyCIWorkflow:

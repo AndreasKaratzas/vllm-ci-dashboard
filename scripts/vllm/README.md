@@ -20,6 +20,7 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 | `ensure_ci_operations_labels.py` | Ensures managed and workstream labels exist before issue watchers run | Every canonical collection |
 | `sync_ci_operations_project.py` | Adds open managed dashboard issues to the linked AMD CI Operations Project, split by workstream labels | Hourly after issue reconciliation |
 | `audit_dashboard_data.py` | Cross-checks generated data, frontend assumptions, and deploy workflow ordering before publishing | Hourly via `hourly-master.yml` + local debugging |
+| `check_site_health.py` | Probes the deployed shell and bounded publication-status contract, emitting JSON and Markdown evidence | Hourly at :57 UTC-minute plus manual `health-check.yml` runs |
 | `select_publication_surfaces.py` | Validates collected source transactions, restores only failed surfaces from the captured main baseline, then rebuilds and re-audits the combined snapshot | Every canonical `hourly-master.yml` run before tests |
 | `config_parity.py` | Compares AMD vs NVIDIA CI config (commands, test lists) | Part of `collect_ci.py` |
 | `pipelines.py` | Pipeline definitions (slug, name patterns, build filters) | Imported by other scripts |
@@ -88,6 +89,9 @@ raw operational inputs    --> build_operations_snapshot.py
                            --> operations_v2_manifest.json + operations_v2/*.json
                            --> docs/assets/js/ops-v2.js
 audit_dashboard_data.py   --> validates data/ + docs/assets/js + workflows
+deployed Pages + publication_status.json
+                         --> check_site_health.py
+                         --> bounded workflow artifact + marker-owned issue
 ```
 
 The gh-pages analytics file is the bounded browser projection, not a
