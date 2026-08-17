@@ -101,6 +101,7 @@ DNS_FAILURES_DATA_PATH = "data/vllm/ci/dns_failures.json"
 DNS_FAILURES_MAX_BYTES = 8 * 1024 * 1024
 DNS_EVIDENCE_MAX_ITEMS = 5000
 DNS_MAX_FRESH_AGE_HOURS = 3
+DNS_OUTCOME_CONTRACT = "dns-job-outcomes-v1"
 DNS_WINDOW_OPTIONS = (
     ("1h", "Last hour", 1),
     ("3h", "Last 3 hours", 3),
@@ -134,6 +135,16 @@ DNS_SIGNATURE_IDS = frozenset({
 DNS_COVERAGE_STATUSES = frozenset({"not_collected", "partial", "complete"})
 DNS_TIME_BASES = frozenset({"log_timestamp", "job_finished_at"})
 DNS_JOB_STATES = frozenset({"passed", "soft", "hard"})
+DNS_OUTCOME_COUNT_FIELDS = (
+    "passed_jobs",
+    "soft_failed_jobs",
+    "hard_failed_jobs",
+)
+DNS_OUTCOME_COUNT_FIELD_BY_STATE = {
+    "passed": "passed_jobs",
+    "soft": "soft_failed_jobs",
+    "hard": "hard_failed_jobs",
+}
 DNS_PIPELINES = ("amd-ci", "ci")
 DNS_UUID_RE = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
@@ -502,7 +513,7 @@ DATA_SPECS: tuple[DataSpec, ...] = (
             "windows",
             "evidence",
         ),
-        "Observed DNS failures by AMD queue and physical node",
+        "Observed DNS resolver signatures by AMD queue and physical node",
     ),
     DataSpec(
         "data/vllm/ci/ownership_config_parity.json",
@@ -5608,11 +5619,27 @@ class DashboardAudit:
             "windows",
             "evidence",
         }
+        has_outcome_contract = "outcome_contract" in payload
+        if has_outcome_contract:
+            top_keys.add("outcome_contract")
         exact_keys(payload, top_keys, "dns_failures.json")
         if payload.get("schema_version") != 1:
             self.error(
                 "dns-health-schema-version",
                 f"DNS health schema_version must be 1, got {payload.get('schema_version')!r}",
+                path,
+            )
+        if has_outcome_contract:
+            if payload.get("outcome_contract") != DNS_OUTCOME_CONTRACT:
+                self.error(
+                    "dns-health-outcome-contract",
+                    f"DNS health outcome_contract must be {DNS_OUTCOME_CONTRACT!r}",
+                    path,
+                )
+        else:
+            self.warning(
+                "dns-health-outcome-contract-legacy",
+                "DNS health payload predates exact passed/soft-failed/hard-failed outcome rollups",
                 path,
             )
 
@@ -5931,6 +5958,9 @@ class DashboardAudit:
             "huggingface_affected_jobs",
             "evidence_total",
         }
+        if has_outcome_contract:
+            totals_keys.update(DNS_OUTCOME_COUNT_FIELDS)
+            row_keys.update(DNS_OUTCOME_COUNT_FIELDS)
         window_blocks: dict[str, dict[str, Any]] = {}
         previous_totals: dict[str, int] | None = None
         for option_id, _, hours in DNS_WINDOW_OPTIONS:
@@ -6019,6 +6049,16 @@ class DashboardAudit:
                         f"windows.{option_id} evidence_total must equal affected_jobs",
                         path,
                     )
+                if has_outcome_contract:
+                    outcome_jobs = sum(
+                        numeric_totals[field] for field in DNS_OUTCOME_COUNT_FIELDS
+                    )
+                    if outcome_jobs != numeric_totals["affected_jobs"]:
+                        self.error(
+                            "dns-health-outcome-reconciliation",
+                            f"windows.{option_id} outcome jobs sum to {outcome_jobs}, affected_jobs={numeric_totals['affected_jobs']}",
+                            path,
+                        )
                 if _is_nonnegative_int(window_coverage.get("positive_jobs")) and (
                     window_coverage["positive_jobs"] != numeric_totals["affected_jobs"]
                 ):
@@ -6028,12 +6068,15 @@ class DashboardAudit:
                         path,
                     )
                 if previous_totals is not None:
-                    for total_field in (
+                    monotonic_fields = (
                         "affected_jobs",
                         "episodes",
                         "huggingface_affected_jobs",
                         "evidence_total",
-                    ):
+                    )
+                    if has_outcome_contract:
+                        monotonic_fields += DNS_OUTCOME_COUNT_FIELDS
+                    for total_field in monotonic_fields:
                         if numeric_totals[total_field] < previous_totals[total_field]:
                             self.error(
                                 "dns-health-window-monotonicity",
@@ -6057,6 +6100,8 @@ class DashboardAudit:
                 "huggingface_affected_jobs": 0,
                 "evidence_total": 0,
             }
+            if has_outcome_contract:
+                row_sums.update({field: 0 for field in DNS_OUTCOME_COUNT_FIELDS})
             row_lookup: dict[tuple[str, str], dict] = {}
             for index, raw_row in enumerate(rows):
                 row = exact_keys(raw_row, row_keys, f"windows.{option_id}.rows[{index}]")
@@ -6110,6 +6155,16 @@ class DashboardAudit:
                             f"windows.{option_id}.rows[{index}] evidence_total must equal affected_jobs",
                             path,
                         )
+                    if has_outcome_contract:
+                        outcome_jobs = sum(
+                            row[field] for field in DNS_OUTCOME_COUNT_FIELDS
+                        )
+                        if outcome_jobs != row["affected_jobs"]:
+                            self.error(
+                                "dns-health-outcome-reconciliation",
+                                f"windows.{option_id}.rows[{index}] outcome jobs sum to {outcome_jobs}, affected_jobs={row['affected_jobs']}",
+                                path,
+                            )
             if coordinates != sorted(coordinates) or len(coordinates) != len(set(coordinates)):
                 self.error(
                     "dns-health-row-order",
@@ -6576,6 +6631,7 @@ class DashboardAudit:
                     coordinate,
                     {
                         "affected_jobs": 0,
+                        **{field: 0 for field in DNS_OUTCOME_COUNT_FIELDS},
                         "episodes": 0,
                         "huggingface_affected_jobs": 0,
                         "evidence_total": 0,
@@ -6584,6 +6640,9 @@ class DashboardAudit:
                 metric = normalized_window_metrics.get(window_id) or {}
                 cell["affected_jobs"] += 1
                 cell["evidence_total"] += 1
+                outcome_field = DNS_OUTCOME_COUNT_FIELD_BY_STATE.get(item.get("state"))
+                if outcome_field is not None:
+                    cell[outcome_field] += 1
                 if _is_nonnegative_int(metric.get("episodes")):
                     cell["episodes"] += metric["episodes"]
                 cell["huggingface_affected_jobs"] += int(
@@ -6604,17 +6663,21 @@ class DashboardAudit:
                     coordinate,
                     {
                         "affected_jobs": 0,
+                        **{field: 0 for field in DNS_OUTCOME_COUNT_FIELDS},
                         "episodes": 0,
                         "huggingface_affected_jobs": 0,
                         "evidence_total": 0,
                     },
                 )
-                for count_field in (
+                visible_count_fields = (
                     "affected_jobs",
                     "episodes",
                     "huggingface_affected_jobs",
                     "evidence_total",
-                ):
+                )
+                if has_outcome_contract:
+                    visible_count_fields += DNS_OUTCOME_COUNT_FIELDS
+                for count_field in visible_count_fields:
                     expected = row.get(count_field)
                     observed = visible[count_field]
                     if _is_nonnegative_int(expected) and observed > expected:
@@ -6685,6 +6748,10 @@ class DashboardAudit:
         self.report.metrics["dns_health"] = {
             "bytes": size,
             "generated_at": payload.get("generated_at"),
+            "outcome_contract": payload.get("outcome_contract"),
+            "outcome_breakdown_complete": (
+                payload.get("outcome_contract") == DNS_OUTCOME_CONTRACT
+            ),
             "coverage_status": coverage_status,
             "coverage_complete": coverage.get("complete"),
             "retention_hours": retention.get("hours"),

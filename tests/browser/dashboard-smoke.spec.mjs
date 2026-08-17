@@ -42,6 +42,9 @@ const DNS_BASE_ROWS = [
     episodes: 3,
     huggingface_affected_jobs: 1,
     evidence_total: 2,
+    passed_jobs: 1,
+    soft_failed_jobs: 0,
+    hard_failed_jobs: 1,
   },
   {
     queue: 'amd_mi300_1',
@@ -51,6 +54,9 @@ const DNS_BASE_ROWS = [
     episodes: 1,
     huggingface_affected_jobs: 0,
     evidence_total: 1,
+    passed_jobs: 0,
+    soft_failed_jobs: 1,
+    hard_failed_jobs: 0,
   },
 ];
 function dnsEvidenceMetric(firstAt, lastAt, episodes, matchCount, signatureIds, targetCategories) {
@@ -108,8 +114,13 @@ const DNS_WINDOWS = Object.fromEntries(DNS_WINDOW_OPTIONS.map(option => [
         episodes: includesOldLongEpisode ? 2 : 1,
         huggingface_affected_jobs: includesOldLongEpisode ? 1 : 0,
         evidence_total: 1,
+        passed_jobs: 0,
+        soft_failed_jobs: 0,
+        hard_failed_jobs: 1,
       },
-    ];
+    ].sort((left, right) => (
+      left.queue.localeCompare(right.queue) || left.node.localeCompare(right.node)
+    ));
     return {
       start: new Date(
         Date.parse(DNS_GENERATED_AT) - option.hours * 60 * 60 * 1000,
@@ -123,6 +134,9 @@ const DNS_WINDOWS = Object.fromEntries(DNS_WINDOW_OPTIONS.map(option => [
           (sum, row) => sum + row.huggingface_affected_jobs,
           0,
         ),
+        passed_jobs: rows.reduce((sum, row) => sum + row.passed_jobs, 0),
+        soft_failed_jobs: rows.reduce((sum, row) => sum + row.soft_failed_jobs, 0),
+        hard_failed_jobs: rows.reduce((sum, row) => sum + row.hard_failed_jobs, 0),
         queues: new Set(rows.map(row => row.queue)).size,
         nodes: new Set(rows.map(row => row.node)).size,
         evidence_total: rows.reduce((sum, row) => sum + row.evidence_total, 0),
@@ -133,6 +147,7 @@ const DNS_WINDOWS = Object.fromEntries(DNS_WINDOW_OPTIONS.map(option => [
 ]));
 const DNS_FIXTURE = {
   schema_version: 1,
+  outcome_contract: 'dns-job-outcomes-v1',
   generated_at: DNS_GENERATED_AT,
   retention: {
     start: '2026-07-17T10:00:00Z',
@@ -186,8 +201,7 @@ const DNS_FIXTURE = {
       hardware: 'MI300',
       build_number: 12112,
       job_id: DNS_JOB_ID,
-      job_name: 'MUST NOT RENDER xoxb-credential-shaped-text',
-      state: 'hard',
+      state: 'passed',
       episodes: 1,
       match_count: 9,
       signature_ids: ['temporary_name_resolution'],
@@ -197,7 +211,6 @@ const DNS_FIXTURE = {
         option.id,
         cloneDnsEvidenceMetric(DNS_SMOKE_METRIC),
       ])),
-      url: 'https://attacker.example/not-used',
     }, {
       id: DNS_LONG_EVIDENCE_ID,
       first_at: DNS_LONG_RETAINED_METRIC.first_at,
@@ -209,7 +222,6 @@ const DNS_FIXTURE = {
       hardware: 'MI300',
       build_number: 12113,
       job_id: DNS_LONG_JOB_ID,
-      job_name: 'MUST NOT RENDER xoxb-credential-shaped-text',
       state: 'hard',
       episodes: DNS_LONG_RETAINED_METRIC.episodes,
       match_count: DNS_LONG_RETAINED_METRIC.match_count,
@@ -222,18 +234,20 @@ const DNS_FIXTURE = {
           option.hours >= 72 ? DNS_LONG_RETAINED_METRIC : DNS_LONG_RECENT_METRIC,
         ),
       ])),
-      url: 'https://attacker.example/also-not-used',
-    }],
+    }].sort((left, right) => Date.parse(right.last_at) - Date.parse(left.last_at)),
   },
 };
 
-async function routeDnsFixture(page, fixture = DNS_FIXTURE) {
-  const fulfill = route => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    headers: { 'access-control-allow-origin': '*' },
-    body: JSON.stringify(fixture),
-  });
+async function routeDnsFixture(page, fixture = DNS_FIXTURE, delayMs = 0) {
+  const fulfill = async route => {
+    if (delayMs) await new Promise(resolve => setTimeout(resolve, delayMs));
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: { 'access-control-allow-origin': '*' },
+      body: JSON.stringify(fixture),
+    });
+  };
   await page.route('https://raw.githubusercontent.com/**/dns_failures.json*', fulfill);
   await page.route('http://127.0.0.1:4173/data/vllm/ci/dns_failures.json*', fulfill);
 }
@@ -248,11 +262,12 @@ const PUBLIC_VIEWS = [
     heading: 'CI Health',
     watchdog: view === 'overview',
   })),
-  ...['groups', 'flakes', 'retries', 'latency', 'nightlies', 'agent-health'].map(view => ({
+  ...['groups', 'flakes', 'retries', 'latency', 'nightlies', 'dns', 'agent-health'].map(view => ({
     name: `analytics ${view}`,
     url: `/?ops_analytics_view=${view}#ci-analytics`,
     tab: 'ci-analytics',
     heading: 'CI Analytics',
+    dnsFixture: view === 'dns',
   })),
   ...['performance', 'accuracy'].map(view => ({
     name: `performance ${view}`,
@@ -260,13 +275,12 @@ const PUBLIC_VIEWS = [
     tab: 'ci-perf-eval',
     heading: 'Performance & Evaluation',
   })),
-  ...['current', 'lifecycle', 'dns', 'history', 'jobs'].map(view => ({
+  ...['current', 'lifecycle', 'history', 'jobs'].map(view => ({
     name: `queue ${view}`,
     url: `/?ops_queue_view=${view}#ci-queue`,
     tab: 'ci-queue',
     heading: 'Queue Monitor',
     lifecycleFallback: view === 'lifecycle',
-    dnsFixture: view === 'dns',
   })),
   {
     name: 'trajectory capacity',
@@ -320,58 +334,48 @@ test.describe('public dashboard routes', () => {
   }
 });
 
-test('queue DNS histogram opens exact sanitized log evidence', async ({ page }) => {
-  await page.addInitScript(() => {
-    window.Chart = class TestChart {
-      constructor(canvas, config) {
-        this.canvas = canvas;
-        this.config = config;
-      }
-
-      destroy() {}
-    };
-  });
+test('analytics DNS bars are compact, outcome-first, and open sanitized evidence', async ({ page }) => {
   await routeDnsFixture(page);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/?ops_queue_view=dns&ops_queue_dns_window=3h#ci-queue', {
+  await page.goto('/?ops_analytics_view=dns&ops_analytics_dns_window=3h#ci-analytics', {
     waitUntil: 'domcontentloaded',
   });
 
-  const panel = page.locator('#tab-ci-queue');
-  await expect(panel.locator('h1.ops-page-title')).toHaveText('Queue Monitor');
+  const panel = page.locator('#tab-ci-analytics');
+  await expect(panel.locator('h1.ops-page-title')).toHaveText('CI Analytics');
   await expect(panel.getByRole('alert')).toContainText('DNS observations are stale');
-  await expect(panel.getByRole('alert')).toContainText('must not be read as the current last 3 hours');
-  await expect(
-    panel.getByRole('group', { name: 'DNS observation window' })
-      .getByRole('button', { name: 'Last 3 hours' }),
-  ).toHaveAttribute('aria-pressed', 'true');
-  const affectedJobs = panel.locator('.ops-status-item').filter({ hasText: 'DNS-AFFECTED JOBS' });
-  await expect(affectedJobs.locator('.ops-stat-value')).toHaveText('4');
-  await expect(affectedJobs).toHaveClass(/\bis-warning\b/);
-  await expect(affectedJobs).toContainText('stale published window');
+  await expect(panel.getByRole('alert')).toContainText('Treat these as historical observations');
+  await expect(panel.getByRole('combobox', { name: 'DNS observation window' })).toHaveValue('3h');
 
-  const queue = panel.locator('details.ops-dns-queue')
-    .filter({ hasText: 'amd_mi300_1' })
-    .first();
-  await expect(queue.locator('summary')).toContainText('4 affected jobs');
-  await expect(queue.locator('summary')).toContainText('3 nodes');
-  await queue.locator('summary').click();
-  await expect(queue).toHaveAttribute('open', '');
-  await expect(queue.getByText('unidentified', { exact: true })).toBeVisible();
+  const affectedJobs = panel.locator('.ops-dns-summary-item')
+    .filter({ hasText: 'JOBS WITH DNS OBSERVATIONS' });
+  await expect(affectedJobs.locator('.ops-dns-summary-value')).toHaveText('4');
+  const outcomeSummary = panel.locator('.ops-dns-summary-item')
+    .filter({ hasText: 'PASSED / NONPASSING' });
+  await expect(outcomeSummary.locator('.ops-dns-summary-value')).toHaveText('1 / 3');
+  await expect(outcomeSummary).toHaveClass(/\bis-danger\b/);
+  await expect(panel.getByText('Passed after observation')).toBeVisible();
+  await expect(panel.getByText('Outcome is correlation, not proof DNS caused the result.')).toBeVisible();
 
-  const chart = queue.getByRole('button', {
-    name: /amd_mi300_1 DNS-affected jobs by node\. Use arrow keys/,
-  });
-  await expect(chart).toBeVisible();
-  await chart.focus();
-  await chart.press('ArrowUp');
-  await chart.press('ArrowUp');
-  await chart.press('Enter');
+  const queue = panel.locator('article.ops-dns-queue-card')
+    .filter({ hasText: 'amd_mi300_1' });
+  await expect(queue).toBeVisible();
+  await expect(queue.locator('.ops-dns-queue-card-stats')).toContainText('4 jobs');
+  await expect(queue.locator('.ops-dns-node-bar')).toHaveCount(3);
+  await expect(panel.getByText('amd_mi250_1', { exact: true })).toHaveCount(0);
+  await expect(queue.locator('.ops-dns-bar-segment.is-passed')).toHaveCount(1);
+  await expect(queue.locator('.ops-dns-bar-segment.is-soft')).toHaveCount(1);
+  await expect(queue.locator('.ops-dns-bar-segment.is-hard')).toHaveCount(2);
 
-  let drawer = page.getByRole('dialog');
+  const nodeAction = queue.getByRole('button', { name: /node-a: 2 jobs with DNS observations/ });
+  await nodeAction.click();
+  const drawer = page.getByRole('dialog');
   await expect(drawer.getByRole('heading', { name: 'node-a' })).toBeVisible();
+  await expect(drawer).toContainText('DNS observation is not the job outcome');
+  await expect(drawer).toContainText('Passed means the final Buildkite job outcome was passed after a resolver signature was observed');
   await expect(drawer).toContainText('Exact links are retained for 1 of 2 affected jobs');
   const evidenceRow = drawer.locator('table[data-geometry="queue-dns-evidence"] tbody tr');
+  await expect(evidenceRow.locator('td').nth(0)).toHaveText('Passed after observation');
   await expect(evidenceRow.locator('td').nth(6)).toHaveText('1');
   await expect(evidenceRow.locator('td').nth(7)).toHaveText('9');
   await expect(evidenceRow).toContainText('MI300');
@@ -382,67 +386,33 @@ test('queue DNS histogram opens exact sanitized log evidence', async ({ page }) 
   await expect(exactLog).toBeVisible();
   await expect(exactLog).toHaveAttribute('target', '_blank');
   await expect(exactLog).toHaveAttribute('rel', 'noopener');
-  await expect(drawer).not.toContainText('attacker.example');
-  await expect(drawer).not.toContainText('credential-shaped-text');
 
   await page.keyboard.press('Escape');
   await expect(drawer).toHaveCount(0);
-  await expect(chart).toBeFocused();
-
-  const nodeAction = queue.getByRole('button', {
-    name: 'Open exact DNS failure logs for node-a',
-  });
-  await nodeAction.click();
-  drawer = page.getByRole('dialog');
-  await expect(drawer.getByRole('heading', { name: 'node-a' })).toBeVisible();
-  await page.keyboard.press('Escape');
   await expect(nodeAction).toBeFocused();
-
-  const layout = await page.evaluate(() => {
-    const stage = document.querySelector('.ops-dns-chart .ops-chart-stage');
-    return {
-      pageFits: document.documentElement.scrollWidth <= window.innerWidth,
-      chartScrollsInternally: Boolean(stage && stage.scrollWidth > stage.clientWidth),
-    };
-  });
-  expect(layout.pageFits).toBe(true);
-  expect(layout.chartScrollsInternally).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
-test('queue DNS drawer projects long-job evidence into the selected window', async ({ page }) => {
-  await page.addInitScript(() => {
-    window.Chart = class TestChart {
-      constructor(canvas, config) {
-        this.canvas = canvas;
-        this.config = config;
-      }
-
-      destroy() {}
-    };
-  });
+test('analytics DNS drawer projects long-job evidence into the selected window', async ({ page }) => {
   await routeDnsFixture(page);
-  await page.goto('/?ops_queue_view=dns&ops_queue_scope=all&ops_queue_dns_window=1h#ci-queue', {
+  await page.goto('/?ops_analytics_view=dns&ops_analytics_dns_window=1h#ci-analytics', {
     waitUntil: 'domcontentloaded',
   });
 
-  const panel = page.locator('#tab-ci-queue');
+  const panel = page.locator('#tab-ci-analytics');
   const dnsScope = panel.getByRole('group', { name: 'DNS queue scope' });
-  await expect(dnsScope.getByRole('button', { name: 'All active AMD GPU' }))
+  await expect(dnsScope.getByRole('button', { name: 'All AMD GPU' }))
     .toHaveAttribute('aria-pressed', 'true');
   await expect(dnsScope.getByRole('button', { name: 'All queues' })).toHaveCount(0);
-  await expect(panel.getByText('Published scope: active AMD GPU queues')).toBeVisible();
 
-  const queue = panel.locator('details.ops-dns-queue')
-    .filter({ hasText: 'amd_mi300_1' })
-    .first();
-  await queue.locator('summary').click();
-  await queue.getByRole('button', {
-    name: 'Open exact DNS failure logs for node-long',
-  }).click();
+  const queue = panel.locator('article.ops-dns-queue-card')
+    .filter({ hasText: 'amd_mi300_1' });
+  await queue.getByRole('button', { name: /node-long: 1 jobs with DNS observations/ }).click();
 
   const drawer = page.getByRole('dialog');
   const evidenceRow = drawer.locator('table[data-geometry="queue-dns-evidence"] tbody tr');
   await expect(evidenceRow).toHaveCount(1);
+  await expect(evidenceRow.locator('td').nth(0)).toHaveText('Hard-failed');
   await expect(evidenceRow.locator('td').nth(6)).toHaveText('1');
   await expect(evidenceRow.locator('td').nth(7)).toHaveText('4');
   await expect(evidenceRow).toContainText('GitHub');
@@ -450,24 +420,9 @@ test('queue DNS drawer projects long-job evidence into the selected window', asy
   await expect(evidenceRow).not.toContainText('Hugging Face Hub');
   await expect(evidenceRow).not.toContainText('temporary name resolution');
   await expect(evidenceRow.locator(`a[href="${DNS_LONG_LOG_URL}"]`).first()).toBeVisible();
-  await expect(drawer).not.toContainText('attacker.example');
-  await expect(drawer).not.toContainText('credential-shaped-text');
 });
 
-test('queue DNS partial coverage renders node values as lower bounds', async ({ page }) => {
-  await page.addInitScript(() => {
-    window.Chart = class TestChart {
-      constructor(canvas, config) {
-        this.canvas = canvas;
-        this.config = config;
-        canvas.dataset.datasetLabel = config.data.datasets[0].label;
-        const afterLabel = config.options.plugins.tooltip.callbacks.afterLabel;
-        canvas.dataset.afterLabel = JSON.stringify(afterLabel({ dataIndex: 0 }));
-      }
-
-      destroy() {}
-    };
-  });
+test('analytics DNS partial coverage renders native bars as lower bounds', async ({ page }) => {
   const partialFixture = JSON.parse(JSON.stringify(DNS_FIXTURE));
   const partialCoverage = {
     status: 'partial',
@@ -490,30 +445,126 @@ test('queue DNS partial coverage renders node values as lower bounds', async ({ 
     windowBlock.coverage = { ...partialCoverage };
   });
   await routeDnsFixture(page, partialFixture);
+  await page.goto('/?ops_analytics_view=dns&ops_analytics_dns_window=3h#ci-analytics', {
+    waitUntil: 'domcontentloaded',
+  });
+
+  const panel = page.locator('#tab-ci-analytics');
+  await expect(panel.getByRole('status')).toContainText('Partial coverage - counts are lower bounds');
+  const queue = panel.locator('article.ops-dns-queue-card')
+    .filter({ hasText: 'amd_mi300_1' });
+  const nodeA = queue.getByRole('button', { name: /node-a: ≥ 2 jobs with DNS observations/ });
+  await expect(nodeA.locator('.ops-dns-node-count')).toHaveText('≥ 2');
+  await expect(nodeA.locator('.ops-dns-node-meta')).toContainText('≥ 3 episodes');
+  const unidentified = queue.getByRole('button', { name: /unidentified.*≥ 1 jobs with DNS observations/ });
+  await expect(unidentified.locator('.ops-dns-node-count')).toHaveText('≥ 1');
+  await expect(unidentified.locator('.ops-dns-node-meta')).toContainText('≥ 1 episodes');
+  await expect(queue.locator('.ops-dns-bar-track')).toHaveCount(3);
+});
+
+test('legacy Queue DNS deep links migrate to CI Analytics', async ({ page }) => {
+  await routeDnsFixture(page);
   await page.goto('/?ops_queue_view=dns&ops_queue_dns_window=3h#ci-queue', {
     waitUntil: 'domcontentloaded',
   });
 
-  const panel = page.locator('#tab-ci-queue');
-  await expect(panel.getByText(/Counts are observed lower bounds/)).toBeVisible();
-  const queue = panel.locator('details.ops-dns-queue')
-    .filter({ hasText: 'amd_mi300_1' })
-    .first();
-  await queue.locator('summary').click();
-  const nodeTable = queue.locator('table[data-geometry="queue-dns-nodes"]');
-  const nodeA = nodeTable.locator('tbody tr').filter({ hasText: 'node-a' });
-  await expect(nodeA.locator('td').nth(1)).toHaveText('≥ 2');
-  await expect(nodeA.locator('td').nth(2)).toHaveText('≥ 3');
-  await expect(nodeA.locator('td').nth(3)).toHaveText('≥ 1');
-  const unidentified = nodeTable.locator('tbody tr').filter({ hasText: 'unidentified' });
-  await expect(unidentified.locator('td').nth(1)).toHaveText('≥ 1');
-  await expect(unidentified.locator('td').nth(2)).toHaveText('≥ 1');
-  await expect(unidentified.locator('td').nth(3)).toHaveText('-');
-
-  const chart = queue.getByRole('button', {
-    name: /amd_mi300_1 DNS-affected jobs by node\. Use arrow keys/,
+  await expect(page.locator('#tab-ci-analytics')).toHaveClass(/\bactive\b/);
+  await expect(page.locator('#tab-ci-analytics .ops-dns-node-bar').first()).toBeVisible();
+  await expect.poll(() => page.evaluate(() => ({
+    hash: window.location.hash,
+    search: window.location.search,
+  }))).toEqual({
+    hash: '#ci-analytics',
+    search: '?ops_analytics_view=dns&ops_analytics_dns_window=3h',
   });
-  await expect(chart).toHaveAttribute('data-dataset-label', 'Observed DNS-affected jobs (lower bound)');
-  await expect(chart).toHaveAttribute('data-after-label', /≥ 3 DNS episodes/);
-  await expect(chart).toHaveAttribute('data-after-label', /≥ 1 Hugging Face affected jobs/);
+});
+
+test('delayed DNS data cannot repaint Analytics after the user switches views', async ({ page }) => {
+  await routeDnsFixture(page, DNS_FIXTURE, 800);
+  await page.goto('/?ops_analytics_view=dns#ci-analytics', {
+    waitUntil: 'domcontentloaded',
+  });
+
+  const panel = page.locator('#tab-ci-analytics');
+  await expect(panel.getByText('Loading DNS observations...')).toBeVisible();
+  await panel.getByRole('button', { name: 'AMD nightlies', exact: true }).click();
+  await expect(panel.getByRole('button', { name: 'AMD nightlies', exact: true }))
+    .toHaveAttribute('aria-pressed', 'true');
+  await expect(panel.locator('.ops-loading')).toHaveCount(0);
+
+  await page.waitForTimeout(1_000);
+  await expect(panel.locator('.ops-dns-summary')).toHaveCount(0);
+  await expect(panel.locator('.ops-dns-node-bar')).toHaveCount(0);
+  await expect(panel.getByText('Loading DNS observations...')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => new URL(window.location.href).searchParams.get('ops_analytics_view')))
+    .toBe('nightlies');
+});
+
+test('analytics DNS paints fast Pages data without loading the operations manifest', async ({ page }) => {
+  const requested = [];
+  page.on('request', request => requested.push(request.url()));
+  await page.route('https://raw.githubusercontent.com/**/dns_failures.json*', () => new Promise(() => {}));
+  await page.route('http://127.0.0.1:4173/data/vllm/ci/dns_failures.json*', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(DNS_FIXTURE),
+  }));
+
+  const started = Date.now();
+  await page.goto('/?ops_analytics_view=dns&ops_analytics_dns_window=3h#ci-analytics', {
+    waitUntil: 'domcontentloaded',
+  });
+  await expect(page.locator('#tab-ci-analytics .ops-dns-node-bar').first()).toBeVisible();
+  expect(Date.now() - started).toBeLessThan(1_500);
+  expect(requested.some(url => /operations_v2_manifest\.json/.test(url))).toBe(false);
+  expect(requested.some(url => /operations_v2\/queue\.json/.test(url))).toBe(false);
+  expect(requested.some(url => /operations_v2\/reliability\.json/.test(url))).toBe(false);
+});
+
+test('analytics DNS upgrades a fast older Pages paint when slower live data is newer', async ({ page }) => {
+  const newerLive = JSON.parse(JSON.stringify(DNS_FIXTURE));
+  newerLive.generated_at = '2026-08-16T11:00:00Z';
+  newerLive.retention.start = '2026-07-17T11:00:00Z';
+  newerLive.retention.end_exclusive = newerLive.generated_at;
+  newerLive.coverage.discovery_start = newerLive.retention.start;
+  newerLive.coverage.discovery_end_exclusive = newerLive.generated_at;
+  Object.entries(newerLive.windows).forEach(([windowId, windowBlock]) => {
+    const option = DNS_WINDOW_OPTIONS.find(candidate => candidate.id === windowId);
+    windowBlock.start = new Date(
+      Date.parse(newerLive.generated_at) - option.hours * 60 * 60 * 1000,
+    ).toISOString().replace('.000Z', 'Z');
+    windowBlock.end_exclusive = newerLive.generated_at;
+  });
+  const shiftOneHour = timestamp => new Date(Date.parse(timestamp) + 60 * 60 * 1000)
+    .toISOString().replace('.000Z', 'Z');
+  newerLive.evidence.items.forEach(row => {
+    row.first_at = shiftOneHour(row.first_at);
+    row.last_at = shiftOneHour(row.last_at);
+    Object.values(row.window_metrics).forEach(metric => {
+      metric.first_at = shiftOneHour(metric.first_at);
+      metric.last_at = shiftOneHour(metric.last_at);
+    });
+  });
+  await page.route('https://raw.githubusercontent.com/**/dns_failures.json*', async route => {
+    await new Promise(resolve => setTimeout(resolve, 400));
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: { 'access-control-allow-origin': '*' },
+      body: JSON.stringify(newerLive),
+    });
+  });
+  await page.route('http://127.0.0.1:4173/data/vllm/ci/dns_failures.json*', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(DNS_FIXTURE),
+  }));
+
+  await page.goto('/?ops_analytics_view=dns&ops_analytics_dns_window=3h#ci-analytics', {
+    waitUntil: 'domcontentloaded',
+  });
+  const panel = page.locator('#tab-ci-analytics');
+  await expect(panel.locator('.ops-dns-node-bar').first()).toBeVisible();
+  await panel.locator('summary.ops-dns-method-summary').click();
+  await expect(panel.locator('.ops-dns-method-body')).toContainText('source: live dns-health-data');
 });

@@ -1334,7 +1334,7 @@ class TestHotness:
 class TestDnsFailures:
     def test_exact_top_level_and_window_contract(self):
         d = _load_json_or_skip("dns_failures.json")
-        assert set(d) == {
+        top_level_keys = {
             "schema_version",
             "generated_at",
             "retention",
@@ -1347,6 +1347,12 @@ class TestDnsFailures:
             "windows",
             "evidence",
         }
+        outcome_contract = d.get("outcome_contract")
+        if outcome_contract is None:
+            assert set(d) == top_level_keys
+        else:
+            assert outcome_contract == "dns-job-outcomes-v1"
+            assert set(d) == top_level_keys | {"outcome_contract"}
         assert d["schema_version"] == 1
         assert d["retention"]["hours"] == 720
         assert d["default_window"] == "24h"
@@ -1358,6 +1364,31 @@ class TestDnsFailures:
             "partial",
             "complete",
         }
+        totals_keys = {
+            "affected_jobs",
+            "episodes",
+            "huggingface_affected_jobs",
+            "queues",
+            "nodes",
+            "evidence_total",
+        }
+        row_keys = {
+            "queue",
+            "node",
+            "hardware",
+            "affected_jobs",
+            "episodes",
+            "huggingface_affected_jobs",
+            "evidence_total",
+        }
+        outcome_fields = {
+            "passed_jobs",
+            "soft_failed_jobs",
+            "hard_failed_jobs",
+        }
+        if outcome_contract is not None:
+            totals_keys |= outcome_fields
+            row_keys |= outcome_fields
         for window_id in expected_ids:
             window = d["windows"][window_id]
             assert set(window) == {
@@ -1372,6 +1403,28 @@ class TestDnsFailures:
                 "partial",
                 "complete",
             }
+            totals = window["totals"]
+            assert set(totals) == totals_keys
+            for field in totals_keys:
+                assert type(totals[field]) is int and totals[field] >= 0
+            assert isinstance(window["rows"], list)
+            for row in window["rows"]:
+                assert set(row) == row_keys
+                for field in totals_keys - {"queues", "nodes"}:
+                    assert type(row[field]) is int and row[field] >= 0
+            if outcome_contract is not None:
+                assert sum(totals[field] for field in outcome_fields) == totals[
+                    "affected_jobs"
+                ]
+                assert all(
+                    sum(row[field] for field in outcome_fields)
+                    == row["affected_jobs"]
+                    for row in window["rows"]
+                )
+                assert all(
+                    totals[field] == sum(row[field] for row in window["rows"])
+                    for field in outcome_fields
+                )
 
     def test_public_payload_has_no_log_or_url_fields(self):
         d = _load_json_or_skip("dns_failures.json")

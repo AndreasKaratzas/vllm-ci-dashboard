@@ -246,7 +246,7 @@ separate finalization reserve. Unvisited log work remains pending for the next
 overlap instead of being reported as a complete zero. Pending work is scanned
 in a deterministic oldest/newest alternation, starting with the oldest job, so
 a steady stream of new jobs cannot monopolize the bounded request budget while
-every other request still samples the freshest incidents. Its public
+every other request still samples the freshest observations. Its public
 `dns_failures.json` dataset covers the trailing 720 observed hours. “Observed”
 is deliberate: API, rate-limit, oversized-log, and pending-job gaps remain
 explicit in each window's coverage block, so an incomplete scan cannot be
@@ -261,6 +261,15 @@ Buildkite job names are excluded entirely because a blacklist cannot prove
 that arbitrary labels contain no credentials. Evidence never contains log
 snippets, raw-log URLs, headers, environment values, branches, commits,
 authors, or arbitrary target hostnames.
+
+A DNS observation is independent of the final Buildkite outcome. Passing jobs
+remain in scope because a retry or cache fallback can recover from genuine
+resolver trouble while leaving useful node-level infrastructure evidence. The
+public outcome contract therefore reconciles every affected-job total into
+`passed_jobs`, `soft_failed_jobs`, and `hard_failed_jobs`. The dashboard labels
+these as final outcomes after the DNS observation and reserves failure styling
+for non-passing outcomes. It does not infer that DNS caused a retry, or describe
+resolver-line clusters as CI incidents.
 
 The repository and its force-orphan `dns-health-data` branch are publicly
 readable. Plaintext scanner state therefore exists only at the gitignored

@@ -329,6 +329,9 @@ def _dns_audit_payload(now: datetime | None = None) -> dict:
         "node": "node-1",
         "hardware": "MI300",
         "affected_jobs": 1,
+        "passed_jobs": 1,
+        "soft_failed_jobs": 0,
+        "hard_failed_jobs": 0,
         "episodes": 1,
         "huggingface_affected_jobs": 1,
         "evidence_total": 1,
@@ -341,6 +344,9 @@ def _dns_audit_payload(now: datetime | None = None) -> dict:
             "coverage": copy.deepcopy(coverage),
             "totals": {
                 "affected_jobs": 1,
+                "passed_jobs": 1,
+                "soft_failed_jobs": 0,
+                "hard_failed_jobs": 0,
                 "episodes": 1,
                 "huggingface_affected_jobs": 1,
                 "queues": 1,
@@ -351,6 +357,7 @@ def _dns_audit_payload(now: datetime | None = None) -> dict:
         }
     return {
         "schema_version": 1,
+        "outcome_contract": "dns-job-outcomes-v1",
         "generated_at": _dns_iso(now),
         "retention": {
             "start": _dns_iso(retention_start),
@@ -483,6 +490,47 @@ def test_dns_audit_accepts_a_reconciled_complete_payload(tmp_path):
     assert audit.report.errors == []
     assert audit.report.degradations == []
     assert audit.report.metrics["dns_health"]["coverage_status"] == "complete"
+    assert audit.report.metrics["dns_health"]["outcome_breakdown_complete"] is True
+
+
+def test_dns_audit_accepts_legacy_payload_with_outcome_warning(tmp_path):
+    payload = _dns_audit_payload()
+    payload.pop("outcome_contract")
+    outcome_fields = {
+        "passed_jobs",
+        "soft_failed_jobs",
+        "hard_failed_jobs",
+    }
+    for block in payload["windows"].values():
+        for field in outcome_fields:
+            block["totals"].pop(field)
+        for row in block["rows"]:
+            for field in outcome_fields:
+                row.pop(field)
+    _write_dns_audit_payload(tmp_path, payload)
+    audit = DashboardAudit(tmp_path)
+
+    audit.audit_dns_failures()
+
+    assert audit.report.errors == []
+    assert {finding.code for finding in audit.report.warnings} == {
+        "dns-health-outcome-contract-legacy"
+    }
+    assert audit.report.metrics["dns_health"]["outcome_breakdown_complete"] is False
+
+
+def test_dns_audit_rejects_unreconciled_outcome_breakdown(tmp_path):
+    payload = _dns_audit_payload()
+    payload["windows"]["1h"]["totals"]["passed_jobs"] = 0
+    payload["windows"]["1h"]["rows"][0]["passed_jobs"] = 0
+    _write_dns_audit_payload(tmp_path, payload)
+    audit = DashboardAudit(tmp_path)
+
+    audit.audit_dns_failures()
+
+    assert "dns-health-outcome-reconciliation" in {
+        finding.code for finding in audit.report.errors
+    }
 
 
 def test_dns_audit_accepts_honest_24h_incremental_bootstrap(tmp_path):

@@ -1,5 +1,5 @@
 # cspell:ignore AKIA ASIA bkua gaierror github_pat pousr servname xapp xethub xoxb
-"""Classify and aggregate Buildkite DNS failures without retaining job logs.
+"""Classify and aggregate Buildkite DNS resolver observations without retaining job logs.
 
 This module is deliberately split from the collector CLI. It owns the pure
 classifier, the sanitized scanner-state contract (encrypted before durable
@@ -24,6 +24,7 @@ from typing import Iterable, Literal, TypedDict
 SCHEMA_VERSION = 1
 STATE_KIND = "vllm-ci-dns-scan-state"
 CLASSIFIER_ID = "dns-v1"
+OUTCOME_CONTRACT = "dns-job-outcomes-v1"
 RETENTION_HOURS = 720
 EPISODE_GAP_SECONDS = 5
 LOG_CLOCK_TOLERANCE_SECONDS = 60
@@ -33,6 +34,11 @@ PUBLIC_EVIDENCE_BYTE_BUDGET = 5 * 1024 * 1024
 
 PIPELINES = ("amd-ci", "ci")
 JOB_STATES = ("passed", "soft", "hard")
+OUTCOME_COUNT_FIELD_BY_STATE = {
+    "passed": "passed_jobs",
+    "soft": "soft_failed_jobs",
+    "hard": "hard_failed_jobs",
+}
 SCAN_STATUSES = ("positive", "negative", "pending", "unavailable", "oversize")
 FINAL_SCAN_STATUSES = frozenset({"positive", "negative", "oversize"})
 TARGET_CATEGORIES = (
@@ -1119,12 +1125,16 @@ def build_public_output(state: object) -> dict:
                     "node": row["node"],
                     "hardware": row["hardware"],
                     "affected_jobs": 0,
+                    "passed_jobs": 0,
+                    "soft_failed_jobs": 0,
+                    "hard_failed_jobs": 0,
                     "episodes": 0,
                     "huggingface_affected_jobs": 0,
                     "evidence_total": 0,
                 },
             )
             bucket["affected_jobs"] += 1
+            bucket[OUTCOME_COUNT_FIELD_BY_STATE[row["state"]]] += 1
             bucket["episodes"] += len(episode_metrics)
             bucket["huggingface_affected_jobs"] += int(
                 any(
@@ -1140,6 +1150,15 @@ def build_public_output(state: object) -> dict:
             "coverage": coverage,
             "totals": {
                 "affected_jobs": len(positives),
+                "passed_jobs": sum(
+                    row["state"] == "passed" for row, _ in positives
+                ),
+                "soft_failed_jobs": sum(
+                    row["state"] == "soft" for row, _ in positives
+                ),
+                "hard_failed_jobs": sum(
+                    row["state"] == "hard" for row, _ in positives
+                ),
                 "episodes": sum(len(episodes) for _, episodes in positives),
                 "huggingface_affected_jobs": sum(
                     any(
@@ -1210,6 +1229,7 @@ def build_public_output(state: object) -> dict:
     }
     return {
         "schema_version": SCHEMA_VERSION,
+        "outcome_contract": OUTCOME_CONTRACT,
         "generated_at": payload["generated_at"],
         "retention": {
             "start": iso_timestamp(retention_start),

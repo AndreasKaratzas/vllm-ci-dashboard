@@ -701,6 +701,32 @@ def test_window_start_is_inclusive_and_distinct_job_counts_match_evidence():
     assert len({item["job_id"] for item in output["evidence"]["items"]}) == 2
 
 
+def test_public_windows_reconcile_affected_jobs_by_terminal_outcome():
+    rows = [
+        _positive_record(1, state="passed"),
+        _positive_record(2, state="soft"),
+        _positive_record(3, state="hard"),
+    ]
+
+    output = dns.build_public_output(_state(rows))
+    one_hour = output["windows"]["1h"]
+    outcome_counts = {
+        "passed_jobs": 1,
+        "soft_failed_jobs": 1,
+        "hard_failed_jobs": 1,
+    }
+
+    assert output["outcome_contract"] == "dns-job-outcomes-v1"
+    assert one_hour["totals"]["affected_jobs"] == 3
+    assert {key: one_hour["totals"][key] for key in outcome_counts} == outcome_counts
+    assert len(one_hour["rows"]) == 1
+    node_row = one_hour["rows"][0]
+    assert node_row["affected_jobs"] == 3
+    assert {key: node_row[key] for key in outcome_counts} == outcome_counts
+    assert sum(one_hour["totals"][key] for key in outcome_counts) == 3
+    assert sum(node_row[key] for key in outcome_counts) == 3
+
+
 def test_partial_coverage_reconciles_every_cached_status():
     rows = [
         _positive_record(1),
