@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-08-17T18:56:17Z",
+  "generated_at": "2026-08-17T20:02:17Z",
   "amd_date": "2026-08-17",
   "upstream_date": "2026-08-17",
   "parity_pct": 0.0,
-  "total_tests": 788,
+  "total_tests": 790,
   "summary": {
-    "upstream_only": 450,
+    "upstream_only": 452,
     "amd_only": 338
   },
   "by_module": {
@@ -437,6 +437,10 @@
       "parity_pct": 100.0,
       "upstream_only": 1
     },
+    "DSv4-Flash Disaggregated DP EP": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
     "DeepSeek V2-Lite Prefetch Offload Accuracy (H100)": {
       "parity_pct": 100.0,
       "upstream_only": 1
@@ -486,6 +490,10 @@
       "upstream_only": 1
     },
     "Distributed MooncakeConnector PD accuracy (4 GPUs)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
+    "Distributed NixlConnector PD accuracy (4 GPUs)": {
       "parity_pct": 100.0,
       "upstream_only": 1
     },
@@ -752,6 +760,10 @@
     "Kimi K3 Unit Tests (B200)": {
       "parity_pct": 100.0,
       "upstream_only": 2
+    },
+    "Kimi-Linear-48B-A3B Disaggregated DP EP": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
     },
     "LM Eval Humming Act fp8/int8 (B200 - TEMPORARY)": {
       "parity_pct": 100.0,
@@ -2229,10 +2241,6 @@
       "parity_pct": 100.0,
       "amd_only": 1
     },
-    "v1/kv_connector/nixl_integration/test_nixl_imports.py": {
-      "parity_pct": 100.0,
-      "upstream_only": 1
-    },
     "vLLM IR Tests": {
       "parity_pct": 100.0,
       "upstream_only": 2
@@ -2580,7 +2588,7 @@
       "family_key": "basic models tests (extra initialization)",
       "family_name": "basic models tests (extra initialization)",
       "amd_job_name": "mi300_1: Basic Models Tests (Extra Initialization) 2",
-      "upstream_job_name": "Basic Models Tests (Extra Initialization) 3",
+      "upstream_job_name": "Basic Models Tests (Extra Initialization) 1",
       "amd": {
         "total": 374,
         "passed": 374,
@@ -2617,8 +2625,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a00e50-6d94-4dc2-812f-590f77d5d71d&tab=output",
-          "job_name": "Basic Models Tests (Extra Initialization) 3",
+          "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a00e50-6d94-45a4-8ea3-00d10c739ae7&tab=output",
+          "job_name": "Basic Models Tests (Extra Initialization) 1",
           "side": "upstream"
         }
       ],
@@ -3488,26 +3496,22 @@
         "duration": 58.9
       },
       "upstream": {
-        "total": 1,
-        "passed": 0,
-        "failed": 1,
+        "total": 2,
+        "passed": 2,
+        "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 150.29
       },
       "hardware": [
         "h100",
         "mi300"
       ],
-      "hw_failures": {
-        "h100": 1
-      },
+      "hw_failures": null,
       "hw_canceled": null,
-      "failure_tests": [
-        "test_nixl_and_nixl_ep_imports"
-      ],
+      "failure_tests": [],
       "job_links": [
         {
           "hw": "mi300",
@@ -3517,15 +3521,15 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a00e50-6cbc-4e30-bc98-23a37b54c6fa&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a01126-feca-45cc-993a-833a14557ce3&tab=output",
           "job_name": "Distributed NixlConnector PD accuracy (4 GPUs)",
           "side": "upstream"
         }
       ],
       "delta": {
-        "total": 1,
-        "passed": 2,
-        "failed": -1,
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
         "skipped": 0
       },
       "status": "both",
@@ -5292,7 +5296,7 @@
       "family_key": "gpqa eval (gpt-oss) (2 gpus)",
       "family_name": "gpqa eval (gpt-oss) (2 gpus)",
       "amd_job_name": "mi355_2: GPQA Eval (GPT-OSS) (2xB200-2xMI355)",
-      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xB200)",
+      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xH100)",
       "amd": {
         "total": 4,
         "passed": 4,
@@ -5329,15 +5333,15 @@
           "side": "amd"
         },
         {
-          "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a00e50-6d6f-45fd-9215-27c1f9b63316&tab=output",
-          "job_name": "GPQA Eval (GPT-OSS) (2xB200)",
-          "side": "upstream"
-        },
-        {
           "hw": "h100",
           "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a00e50-6d6f-4dc4-9550-688258ab2725&tab=output",
           "job_name": "GPQA Eval (GPT-OSS) (2xH100)",
+          "side": "upstream"
+        },
+        {
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a00e50-6d6f-45fd-9215-27c1f9b63316&tab=output",
+          "job_name": "GPQA Eval (GPT-OSS) (2xB200)",
           "side": "upstream"
         }
       ],
@@ -5355,7 +5359,7 @@
       "family_key": "gpqa eval (gpt-oss) (2 gpus)",
       "family_name": "gpqa eval (gpt-oss) (2 gpus)",
       "amd_job_name": "mi300_2: GPQA Eval (GPT-OSS) (2xH100-2xMI300)",
-      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xB200)",
+      "upstream_job_name": "GPQA Eval (GPT-OSS) (2xH100)",
       "amd": {
         "total": 1,
         "passed": 1,
@@ -5392,15 +5396,15 @@
           "side": "amd"
         },
         {
-          "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a00e50-6d6f-45fd-9215-27c1f9b63316&tab=output",
-          "job_name": "GPQA Eval (GPT-OSS) (2xB200)",
-          "side": "upstream"
-        },
-        {
           "hw": "h100",
           "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a00e50-6d6f-4dc4-9550-688258ab2725&tab=output",
           "job_name": "GPQA Eval (GPT-OSS) (2xH100)",
+          "side": "upstream"
+        },
+        {
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a00e50-6d6f-45fd-9215-27c1f9b63316&tab=output",
+          "job_name": "GPQA Eval (GPT-OSS) (2xB200)",
           "side": "upstream"
         }
       ],
@@ -5688,7 +5692,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a00e50-6d66-4ee5-a73a-d18241d5350d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a00e50-6d66-43f7-88cb-84a7293e3705&tab=output",
           "job_name": "Kernels Core Operation Test",
           "side": "upstream"
         }
@@ -6222,7 +6226,7 @@
       "family_key": "language models test (extended pooling)",
       "family_name": "language models test (extended pooling)",
       "amd_job_name": "mi300_1: Language Models Test (Extended Pooling)",
-      "upstream_job_name": "Language Models Test (Extended Pooling) 2",
+      "upstream_job_name": "Language Models Test (Extended Pooling) 1",
       "amd": {
         "total": 240,
         "passed": 230,
@@ -6270,8 +6274,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a00e50-6d9e-40a3-9725-3f8d9d942a1f&tab=output",
-          "job_name": "Language Models Test (Extended Pooling) 2",
+          "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a00e50-6d9d-45e9-bb3a-fdf7fd0c2dfa&tab=output",
+          "job_name": "Language Models Test (Extended Pooling) 1",
           "side": "upstream"
         }
       ],
@@ -7736,7 +7740,7 @@
       "family_key": "multi-modal models (extended generation 2)",
       "family_name": "multi-modal models (extended generation 2)",
       "amd_job_name": "mi300_1: Multi-Modal Models (Extended Generation 2)",
-      "upstream_job_name": "Multi-Modal Models (Extended Generation 2) 1",
+      "upstream_job_name": "Multi-Modal Models (Extended Generation 2) 3",
       "amd": {
         "total": 44,
         "passed": 17,
@@ -7773,8 +7777,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a00e50-6da4-4a04-a435-f543b540ff9f&tab=output",
-          "job_name": "Multi-Modal Models (Extended Generation 2) 1",
+          "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a00e50-6da4-4f3d-8532-598135296b78&tab=output",
+          "job_name": "Multi-Modal Models (Extended Generation 2) 3",
           "side": "upstream"
         }
       ],
@@ -8221,7 +8225,7 @@
       "family_key": "multi-modal processor (cpu)",
       "family_name": "multi-modal processor (cpu)",
       "amd_job_name": "mi250_1: Multi-Modal Processor (CPU) 3",
-      "upstream_job_name": "Multi-Modal Processor (CPU) 2",
+      "upstream_job_name": "Multi-Modal Processor (CPU) 1",
       "amd": {
         "total": 1190,
         "passed": 1058,
@@ -8258,8 +8262,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a00e50-6db0-4c52-8a0a-8d5bd7fd1c15&tab=output",
-          "job_name": "Multi-Modal Processor (CPU) 2",
+          "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a00e50-6da6-42f3-baad-5bd913421073&tab=output",
+          "job_name": "Multi-Modal Processor (CPU) 1",
           "side": "upstream"
         }
       ],
@@ -10418,7 +10422,7 @@
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a00e50-6c83-46bb-8f81-00d37d0494ce&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a00e50-6c86-417f-adb6-801163ee8413&tab=output",
           "job_name": "V1 attention (B200)",
           "side": "upstream"
         }
@@ -11380,6 +11384,42 @@
       "backfilled": false
     },
     {
+      "name": "dsv4-flash disaggregated dp ep",
+      "family_key": "dsv4-flash disaggregated dp ep",
+      "family_name": "dsv4-flash disaggregated dp ep",
+      "amd_job_name": null,
+      "upstream_job_name": "DSv4-Flash Disaggregated DP EP",
+      "amd": null,
+      "upstream": {
+        "total": 1,
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 0.0
+      },
+      "hardware": [
+        "h100"
+      ],
+      "hw_failures": {
+        "h100": 1
+      },
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a01126-f59d-4482-b8d4-6c456d9bf804&tab=output",
+          "job_name": "DSv4-Flash Disaggregated DP EP",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
       "name": "extract hidden states integration (2 gpus)",
       "family_key": "extract hidden states integration (2 gpus)",
       "family_name": "extract hidden states integration (2 gpus)",
@@ -12053,6 +12093,40 @@
           "hw": "b200",
           "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a00e50-6d96-4593-a0c5-b2d6df6eea36&tab=output",
           "job_name": "Kimi K3 Unit Tests (B200)",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
+      "name": "kimi-linear-48b-a3b disaggregated dp ep",
+      "family_key": "kimi-linear-48b-a3b disaggregated dp ep",
+      "family_name": "kimi-linear-48b-a3b disaggregated dp ep",
+      "amd_job_name": null,
+      "upstream_job_name": "Kimi-Linear-48B-A3B Disaggregated DP EP",
+      "amd": null,
+      "upstream": {
+        "total": 2,
+        "passed": 2,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 257.31
+      },
+      "hardware": [
+        "h100"
+      ],
+      "hw_failures": null,
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/84160/steps/canvas?jid=01a01127-071f-4630-b9c7-34ffff038c07&tab=output",
+          "job_name": "Kimi-Linear-48B-A3B Disaggregated DP EP",
           "side": "upstream"
         }
       ],
@@ -13418,44 +13492,6 @@
       ],
       "status": "upstream_only",
       "backfilled": false
-    },
-    {
-      "name": "dsv4-flash disaggregated dp ep",
-      "family_key": "dsv4-flash disaggregated dp ep",
-      "family_name": "dsv4-flash disaggregated dp ep",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
-    },
-    {
-      "name": "kimi-linear-48b-a3b disaggregated dp ep",
-      "family_key": "kimi-linear-48b-a3b disaggregated dp ep",
-      "family_name": "kimi-linear-48b-a3b disaggregated dp ep",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "hardware": [
-        "h100"
-      ],
-      "hw_failures": null,
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
     }
   ],
   "details": [
@@ -14360,6 +14396,12 @@
       "category": "upstream_only"
     },
     {
+      "test_id": "DSv4-Flash Disaggregated DP EP::__job_level__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
       "test_id": "DeepSeek V2-Lite Prefetch Offload Accuracy (H100)::__job_level__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -14451,6 +14493,12 @@
     },
     {
       "test_id": "Distributed MooncakeConnector PD accuracy (4 GPUs)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Distributed NixlConnector PD accuracy (4 GPUs)::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
       "category": "upstream_only"
@@ -15041,6 +15089,12 @@
       "test_id": "Kimi K3 Unit Tests (B200)::__skipped__",
       "amd_status": "missing",
       "upstream_status": "skipped",
+      "category": "upstream_only"
+    },
+    {
+      "test_id": "Kimi-Linear-48B-A3B Disaggregated DP EP::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
@@ -18168,12 +18222,6 @@
       "amd_status": "passed",
       "upstream_status": "missing",
       "category": "amd_only"
-    },
-    {
-      "test_id": "v1/kv_connector/nixl_integration/test_nixl_imports.py::test_nixl_and_nixl_ep_imports",
-      "amd_status": "missing",
-      "upstream_status": "failed",
-      "category": "upstream_only"
     },
     {
       "test_id": "vLLM IR Tests::__passed__",
