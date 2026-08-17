@@ -1039,7 +1039,10 @@ def test_complete_same_commit_unused_shard_base_is_a_degradation(tmp_path):
                 "normalization_bases": ["required sharded group"],
                 "pipelines": {"amd": ["required sharded group"], "upstream": []},
                 "evidence": {
+                    "pipeline": "amd",
+                    "build_number": 100,
                     "build_commit": "a" * 40,
+                    "build_state": "passed",
                     "result_file": result_name,
                     "roster_complete": True,
                     "job_names": ["mi300_1: Observed Group"],

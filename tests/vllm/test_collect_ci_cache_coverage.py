@@ -47,7 +47,9 @@ from collect_ci import (  # noqa: E402
     _find_false_normalization_merges,
     _find_missing_parity_groups,
     _is_complete_nightly_build,
+    _select_shard_evidence_build,
     _select_latest_complete_evidence_build,
+    _shard_catalog_evidence,
     _is_parity_excluded_group,
     _should_verify_cache_coverage,
     collect_pipeline,
@@ -209,6 +211,59 @@ class TestCacheCoversAllJobs:
         )
 
         assert selected is previous
+
+    def test_shard_catalog_uses_latest_build_as_explicit_provisional_evidence(self):
+        running = self._build(112, "running", "running")
+
+        selected, verified_complete = _select_shard_evidence_build([running], {})
+        evidence = _shard_catalog_evidence(
+            selected,
+            verified_complete=verified_complete,
+        )
+
+        assert selected is running
+        assert evidence == {
+            "pipeline": "amd",
+            "build_number": 112,
+            "build_commit": "a" * 40,
+            "build_state": "running",
+            "roster_complete": False,
+            "result_file": "",
+            "job_names": ["mi300_1: Model tests"],
+        }
+
+    def test_shard_catalog_evidence_is_present_when_no_build_is_available(self):
+        selected, verified_complete = _select_shard_evidence_build([], {})
+
+        assert selected is None
+        assert _shard_catalog_evidence(
+            selected,
+            verified_complete=verified_complete,
+        ) == {
+            "pipeline": "amd",
+            "build_number": 0,
+            "build_commit": "",
+            "build_state": "unavailable",
+            "roster_complete": False,
+            "result_file": "",
+            "job_names": [],
+        }
+
+    def test_shard_catalog_prefers_verified_complete_evidence(self):
+        latest = self._build(112, "running", "running")
+        previous = self._build(111, "passed", "passed")
+
+        selected, verified_complete = _select_shard_evidence_build(
+            [latest, previous],
+            {111: [object()]},
+        )
+
+        assert selected is previous
+        assert verified_complete is True
+        assert _shard_catalog_evidence(
+            selected,
+            verified_complete=verified_complete,
+        )["result_file"] == "2026-08-11_amd.jsonl"
 
     def test_nonterminal_results_are_excluded_from_canonical_analysis(self):
         latest = self._build(112, "running", "running")
