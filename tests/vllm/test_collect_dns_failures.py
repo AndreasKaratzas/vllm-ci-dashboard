@@ -751,7 +751,7 @@ def test_build_discovery_is_all_branch_and_includes_retried_jobs():
     assert params["per_page"] == 100
 
 
-def test_discovery_unions_active_with_finished_from_not_created_from():
+def test_discovery_bounds_active_parent_builds_and_unions_finished_cohort():
     old_created_finished_inside = _build(100, [_job(1)])
     old_created_finished_inside["created_at"] = _timestamp(hours=-800)
     current = _build(101, [_job(2)])
@@ -774,7 +774,7 @@ def test_discovery_unions_active_with_finished_from_not_created_from():
     assert {build["number"] for build in builds} == {100, 101}
     active_params, finished_params = [call["params"] for call in session.calls]
     assert active_params["state[]"] == list(collector.ACTIVE_BUILD_STATES)
-    assert "created_from" not in active_params
+    assert active_params["created_from"] == _timestamp(hours=-720)
     assert finished_params["finished_from"] == _timestamp(hours=-720)
     assert "created_from" not in finished_params
     assert all(params["include_retried_jobs"] == "true" for params in (active_params, finished_params))
