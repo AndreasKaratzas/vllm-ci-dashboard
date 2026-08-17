@@ -239,7 +239,11 @@ quota. Each later run re-queries a two-hour overlap and extends the contiguous
 coverage start; a gap longer than 24 hours resets to a fresh 24-hour bootstrap.
 The configured 30-day value remains the target retention horizon. Until enough
 contiguous observations accrue, longer windows are explicitly partial and the
-UI renders their values as lower bounds.
+UI renders their values as lower bounds. This expected, explicitly quantified
+partial coverage is a DNS-panel warning rather than a site-wide publication
+degradation. A DNS dataset that is stale, not collected, malformed, or
+internally inconsistent still takes the stricter degradation or fail-closed
+publication path.
 
 Each scheduled run gives the whole collection a 25-minute budget with a
 separate finalization reserve. Unvisited log work remains pending for the next

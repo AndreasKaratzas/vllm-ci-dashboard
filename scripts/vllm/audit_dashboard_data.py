@@ -6739,7 +6739,14 @@ class DashboardAudit:
                             path,
                         )
             if coverage_status == "partial":
-                self.degradation(
+                # The scanner is deliberately bounded and retains unvisited
+                # work as pending.  That makes partial coverage an honest
+                # property of an otherwise current, valid dataset rather than
+                # a publication incident.  The DNS panel exposes the pending
+                # counts and renders every aggregate as a lower bound.  Keep
+                # stale, not-collected, malformed, and inconsistent payloads
+                # on their stricter paths above.
+                self.warning(
                     "dns-health-partial",
                     "DNS health coverage is partial; incomplete windows must not be interpreted as zero",
                     path,

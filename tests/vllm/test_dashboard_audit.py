@@ -533,7 +533,7 @@ def test_dns_audit_rejects_unreconciled_outcome_breakdown(tmp_path):
     }
 
 
-def test_dns_audit_accepts_honest_24h_incremental_bootstrap(tmp_path):
+def test_dns_audit_keeps_honest_partial_coverage_as_a_local_warning(tmp_path):
     payload = _dns_audit_payload()
     now = datetime.fromisoformat(payload["generated_at"].replace("Z", "+00:00"))
     discovery_start = now - timedelta(hours=24)
@@ -562,7 +562,8 @@ def test_dns_audit_accepts_honest_24h_incremental_bootstrap(tmp_path):
     audit.audit_dns_failures()
 
     assert audit.report.errors == []
-    assert [finding.code for finding in audit.report.degradations] == [
+    assert audit.report.degradations == []
+    assert [finding.code for finding in audit.report.warnings] == [
         "dns-health-partial"
     ]
     assert audit.report.metrics["dns_health"]["coverage_status"] == "partial"
@@ -736,8 +737,18 @@ def test_dns_audit_rejects_sensitive_unknown_and_unreconciled_data(tmp_path):
     } <= codes
 
 
-def test_dns_audit_rejects_false_complete_but_degrades_stale_data(tmp_path):
+def test_dns_audit_rejects_false_complete_and_degrades_stale_partial_data(tmp_path):
     stale = _dns_audit_payload(datetime.now(timezone.utc) - timedelta(hours=4))
+    coverage_blocks = [stale["coverage"]] + [
+        window["coverage"] for window in stale["windows"].values()
+    ]
+    for coverage in coverage_blocks:
+        coverage.update(
+            status="partial",
+            complete=False,
+            eligible_jobs=2,
+            pending_jobs=1,
+        )
     _write_dns_audit_payload(tmp_path, stale)
     stale_audit = DashboardAudit(tmp_path)
     stale_audit.audit_dns_failures()
@@ -746,6 +757,9 @@ def test_dns_audit_rejects_false_complete_but_degrades_stale_data(tmp_path):
     }
     assert "dns-health-stale" not in {
         finding.code for finding in stale_audit.report.errors
+    }
+    assert "dns-health-partial" in {
+        finding.code for finding in stale_audit.report.warnings
     }
 
     invalid = _dns_audit_payload()

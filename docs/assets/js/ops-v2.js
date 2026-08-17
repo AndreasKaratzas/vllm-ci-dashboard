@@ -21,6 +21,7 @@
   let chartLibraryPromise = null;
   let lastQueueRefreshAt = 0;
   let lastDnsRefreshAt = 0;
+  let firstRenderSettled = false;
   const SOURCE_ASSETS = {
     operations: 'data/vllm/ci/operations_v2_manifest.json',
     operationsManifest: 'data/vllm/ci/operations_v2_manifest.json',
@@ -8162,11 +8163,15 @@
 
     const toolbar = n('div', 'ops-toolbar ops-dns-toolbar');
     const scopeControl = segmented([
-      {id: 'canonical', label: 'Canonical AMD'},
-      {id: 'amd', label: 'All AMD GPU'},
+      {id: 'canonical', label: 'Canonical AMD (12)'},
+      {id: 'amd', label: 'All active AMD GPU'},
     ], dnsScope, function (id) {
       setRouteState('ci-analytics', 'analyticsDnsScope', id, 'analytics_dns_scope');
     }, 'DNS queue scope');
+    const scopeHelp = n('p', 'ops-dns-scope-help');
+    scopeHelp.id = 'ops-dns-scope-help';
+    scopeHelp.textContent = 'Canonical AMD is the 12 standard MI250, MI300, and MI355 queues at widths 1, 2, 4, and 8. All active AMD GPU also includes other amd_mi* models and widths, such as MI325; retired MI355B queues are excluded.';
+    scopeControl.setAttribute('aria-describedby', scopeHelp.id);
     const windowField = n('label', 'ops-dns-window-field');
     const windowSelect = n('select', 'ops-select ops-dns-window-select');
     windowSelect.setAttribute('aria-label', 'DNS observation window');
@@ -8183,7 +8188,7 @@
     const freshnessBadge = n('span', 'ops-badge ' + (freshness.stale ? 'is-warning' : 'is-success'),
       (freshness.stale ? 'Stale - ' : 'Updated ') + age(selected.block.end_exclusive));
     add(toolbar, [scopeControl, windowField, n('span', 'ops-toolbar-spacer'), freshnessBadge]);
-    host.append(toolbar);
+    host.append(toolbar, scopeHelp);
 
     if (freshness.stale) {
       const selectedOption = QUEUE_DNS_WINDOW_OPTIONS.find(function (option) { return option.id === selected.id; });
@@ -11823,6 +11828,13 @@
     ));
   }
 
+  function notifyFirstRenderSettled() {
+    if (firstRenderSettled) return;
+    firstRenderSettled = true;
+    window.__opsV2FirstRenderSettled = true;
+    window.dispatchEvent(new Event('ops-v2:first-render'));
+  }
+
   async function render(tabId, force) {
     if (!OWNED_TABS.has(tabId)) return false;
     if (migrateLegacyQueueDnsRoute(tabId)) return true;
@@ -11857,6 +11869,7 @@
       if (host.dataset.renderToken !== token) return false;
       if (tabId === 'ci-queue') lastQueueRefreshAt = Date.now();
       host.dataset.renderState = 'ready';
+      notifyFirstRenderSettled();
       return true;
     } catch (error) {
       if (host.dataset.renderToken !== token) return false;
@@ -11873,6 +11886,7 @@
         window.__recordBootIssue('ops-v2 render', tabId + ': ' + (error.message || String(error)));
       }
       console.error('Ops v2 render failed:', error);
+      notifyFirstRenderSettled();
       return false;
     }
   }

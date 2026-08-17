@@ -650,6 +650,89 @@ def test_clean_candidate_writes_schema_v2_current_state(
     }
 
 
+@pytest.mark.parametrize("stale", [False, True], ids=("fresh", "stale"))
+def test_dns_partial_warning_stays_local_unless_the_payload_is_stale(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stale: bool,
+) -> None:
+    repo = tmp_path / "repo"
+    source = repo / "data/vllm/ci/dns_failures.json"
+    source.parent.mkdir(parents=True)
+    source.write_text('{"coverage":{"status":"partial"}}\n')
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "validated DNS baseline")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    partial_warning = Finding(
+        "warning",
+        "dns-health-partial",
+        "DNS health coverage is partial",
+        "data/vllm/ci/dns_failures.json",
+    )
+    stale_degradation = Finding(
+        "degradation",
+        "dns-health-stale",
+        "DNS health source is stale",
+        "data/vllm/ci/dns_failures.json",
+    )
+
+    class DnsAudit:
+        def __init__(self, *args, **kwargs):
+            self.report = SimpleNamespace(errors=[], degradations=[], warnings=[])
+
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def run(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                errors=[],
+                degradations=[stale_degradation] if stale else [],
+                warnings=[partial_warning],
+            )
+
+    monkeypatch.setattr(
+        selector_module,
+        "SURFACE_SPECS",
+        {
+            "dns_health": SurfaceSpec(
+                required_paths=("data/vllm/ci/dns_failures.json",)
+            )
+        },
+    )
+    monkeypatch.setattr(selector_module, "DashboardAudit", DnsAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    state = selector_module.select_publication(
+        repo,
+        baseline,
+        repo / "publication-state.json",
+    )
+
+    assert state["mode"] == ("degraded" if stale else "current")
+    expected_surfaces = ["dns_health"] if stale else []
+    assert state["degraded_surfaces"] == expected_surfaces
+    assert state["fresh_degraded_surfaces"] == expected_surfaces
+    assert state["fallback_surfaces"] == []
+    assert state["candidate_degradations"] == (
+        [
+            {
+                "severity": "degradation",
+                "code": "dns-health-stale",
+                "message": "DNS health source is stale",
+                "path": "data/vllm/ci/dns_failures.json",
+                "surfaces": ["dns_health"],
+            }
+        ]
+        if stale
+        else []
+    )
+
+
 def test_degradation_publishes_candidate_bytes_without_fallback(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
