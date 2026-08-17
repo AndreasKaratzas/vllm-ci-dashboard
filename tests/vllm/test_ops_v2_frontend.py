@@ -1,5 +1,7 @@
 """Static contracts for the vLLM AMD CI Operations frontend boundary."""
 
+# cspell:ignore xoxb
+
 import json
 import shutil
 import subprocess
@@ -30,6 +32,19 @@ def ops_data():
 @pytest.fixture(scope="module")
 def ops_manifest():
     return json.loads(OPS_MANIFEST_PATH.read_text())
+
+
+def test_ops_v2_javascript_has_valid_syntax():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not available")
+    result = subprocess.run(
+        [node, "--check", str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_v2_assets_and_mobile_shell_are_loaded():
@@ -1431,10 +1446,402 @@ def test_queue_lifecycle_view_matches_the_published_rolling_contract():
     assert "queueScope: 'amd'" in OPS_JS
     assert "queue_scope: 'amd'" in OPS_JS
     assert "['canonical', 'amd', 'all']" in OPS_JS
-    assert "['current', 'lifecycle', 'history', 'jobs']" in OPS_JS
+    assert "['current', 'lifecycle', 'history', 'jobs', 'dns']" in OPS_JS
     assert "seconds / 60" in OPS_JS
     assert "cache.delete(SOURCE_ASSETS.queueLifecycle)" in OPS_JS
     assert "cache.delete(SOURCE_ASSETS.queueLifecycleFallback)" in OPS_JS
+
+
+def test_queue_dns_view_is_lazy_scoped_drillable_and_coverage_honest():
+    for contract in (
+        "queueDns: QUEUE_DNS_LIVE_BASE + 'dns_failures.json'",
+        "/dns-health-data/data/vllm/ci/",
+        "queueDnsFallback: 'data/vllm/ci/dns_failures.json'",
+        "async function loadQueueDns",
+        "const sources = [SOURCE_ASSETS.queueDns, SOURCE_ASSETS.queueDnsFallback]",
+        "Promise.allSettled",
+        "candidates.sort(compareQueueDnsCandidates)",
+        "ops_queue_dns_window",
+        "queue_dns_window: '24h'",
+        "{id: 'dns', label: 'DNS'}",
+        "DNS observation window",
+        "DNS-AFFECTED JOBS",
+        "Per-queue DNS failures by node",
+        "DNS-affected jobs by physical node",
+        "indexAxis: 'y'",
+        "data: nodes.map(function (node) { return node.affectedJobs; })",
+        "Accessible per-node DNS histogram values",
+        "openQueueDnsNodeEvidence",
+        "Exact Buildkite log evidence",
+        "Exact evidence shown",
+        "Exact evidence total",
+        "Evidence retention truncated",
+        "{label: 'Time basis'",
+        "{label: 'Hardware'",
+        "The histogram continues to use the published affected-job row count",
+        "coverage is incomplete; this is not a confirmed zero",
+        "Counts are observed lower bounds",
+        "not_collected",
+        "QUEUE_DNS_STALE_MS = 3 * 60 * 60 * 1000",
+        "QUEUE_DNS_FETCH_TIMEOUT_MS = 8 * 1000",
+        "function queueDnsWithTimeout",
+        "function queueDnsFreshness",
+        "function queueDnsEvidenceWindowRow",
+        "window_metrics",
+        "metric = row.window_metrics[windowId]",
+        "function queueDnsMatchesPublishedScope",
+        "Published scope: active AMD GPU queues",
+        "DNS observations are stale",
+        "must not be read as the current",
+        "stale published window",
+        "displayed counts are observed lower bounds",
+        "queueDnsDisplayCount(node.episodes, coverage)",
+        "queueDnsDisplayCount(node.huggingfaceAffectedJobs, coverage)",
+        "cache.delete(SOURCE_ASSETS.queueDns)",
+        "cache.delete(SOURCE_ASSETS.queueDnsFallback)",
+    ):
+        assert contract in OPS_JS
+
+    for label in (
+        "Last hour",
+        "Last 3 hours",
+        "Last 12 hours",
+        "Last day",
+        "Last 3 days",
+        "Last 7 days",
+        "Last 30 days",
+    ):
+        assert label in OPS_JS
+
+    assert "new Set(['amd-ci', 'ci'])" in OPS_JS
+    assert "QUEUE_DNS_JOB_ID_RE" in OPS_JS
+    assert "'/list?jid='" in OPS_JS
+    assert (
+        "segmented([{id: 'canonical', label: 'Canonical AMD'}, "
+        "{id: 'amd', label: 'All active AMD GPU'}], queueDnsScope(state.queueScope)"
+    ) in OPS_JS
+    assert "row.url" not in OPS_JS[
+        OPS_JS.index("function queueDnsEvidenceUrl")
+        : OPS_JS.index("function queueDnsEvidenceForNode")
+    ]
+    for contract in (
+        ".ops-page .ops-dns-queue-summary",
+        ".ops-page .ops-dns-stale-warning",
+        ".ops-page .ops-dns-queue-summary:focus-visible",
+        ".ops-page .ops-dns-chart .ops-chart-stage",
+        ".ops-page .ops-dns-chart .ops-chart-viewport",
+        '.ops-page .ops-dns-chart .ops-chart-canvas[role="button"]:focus-visible',
+    ):
+        assert contract in OPS_CSS
+
+
+def test_queue_dns_helpers_enforce_counts_scope_coverage_and_exact_urls():
+    if not shutil.which("node"):
+        pytest.skip("node is not available")
+    script = r"""
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const validJobId = '01a00c92-9cab-4dd2-9a75-32210e739d02';
+const rows = [
+  {queue: 'amd_mi300_1', node: 'node-a', hardware: 'MI300', affected_jobs: 2, episodes: 3, huggingface_affected_jobs: 1, evidence_total: 2},
+  {queue: 'amd_mi300_1', node: 'node-a', hardware: 'MI300', affected_jobs: 1, episodes: 2, huggingface_affected_jobs: 1, evidence_total: 0},
+  {queue: 'amd_mi300_1', node: '', hardware: 'MI300', affected_jobs: 1, episodes: 1, huggingface_affected_jobs: 0, evidence_total: 0},
+  {queue: 'amd_mi300_8', node: 'node-b', hardware: 'MI300', affected_jobs: 5, episodes: 7, huggingface_affected_jobs: 4, evidence_total: 1},
+  {queue: 'amd_mi355b_1', node: 'retired-node', hardware: 'MI355', affected_jobs: 100, episodes: 100, huggingface_affected_jobs: 100, evidence_total: 100},
+  {queue: 'gpu_queue', node: 'upstream-node', hardware: 'H100', affected_jobs: 200, episodes: 200, huggingface_affected_jobs: 200, evidence_total: 200},
+];
+const completeCoverage = {
+  status: 'complete', complete: true, discovery_complete: true,
+  eligible_jobs: 20, scanned_jobs: 20, positive_jobs: 9,
+  negative_jobs: 11, pending_jobs: 0, unavailable_jobs: 0, oversize_jobs: 0,
+};
+function windowBlock(hours, blockRows) {
+  return {
+    start: new Date(Date.parse('2026-08-17T10:00:00Z') - hours * 60 * 60 * 1000).toISOString().replace('.000Z', 'Z'),
+    end_exclusive: '2026-08-17T10:00:00Z',
+    coverage: completeCoverage,
+    totals: {affected_jobs: 209, episodes: 313, huggingface_affected_jobs: 206, queues: 4, nodes: 6, evidence_total: 303},
+    rows: blockRows,
+  };
+}
+const canonicalWindowOptions = [
+  {id: '1h', label: 'Last hour', hours: 1},
+  {id: '3h', label: 'Last 3 hours', hours: 3},
+  {id: '12h', label: 'Last 12 hours', hours: 12},
+  {id: '24h', label: 'Last day', hours: 24},
+  {id: '72h', label: 'Last 3 days', hours: 72},
+  {id: '168h', label: 'Last 7 days', hours: 168},
+  {id: '720h', label: 'Last 30 days', hours: 720},
+];
+function evidenceMetric(firstAt, lastAt, episodes, matchCount, signatureIds, targetCategories) {
+  return {
+    first_at: firstAt, last_at: lastAt, episodes: episodes, match_count: matchCount,
+    signature_ids: signatureIds.slice(), target_categories: targetCategories.slice(),
+  };
+}
+function repeatedWindowMetrics(windowIds, metric) {
+  return Object.fromEntries(windowIds.map(function (windowId) {
+    return [windowId, {
+      first_at: metric.first_at, last_at: metric.last_at, episodes: metric.episodes,
+      match_count: metric.match_count, signature_ids: metric.signature_ids.slice(),
+      target_categories: metric.target_categories.slice(),
+    }];
+  }));
+}
+const recentWindowIds = ['3h', '12h', '24h', '72h', '168h', '720h'];
+const firstRecentMetric = evidenceMetric(
+  '2026-08-17T08:00:00Z', '2026-08-17T08:00:05Z', 3, 9,
+  ['temporary_name_resolution'], ['huggingface_hub'],
+);
+const secondRecentMetric = evidenceMetric(
+  '2026-08-17T08:00:00Z', '2026-08-17T08:01:00Z', 3, 10,
+  ['temporary_name_resolution'], ['huggingface_hub'],
+);
+const oldMetric = evidenceMetric(
+  '2026-08-10T08:00:00Z', '2026-08-10T08:00:05Z', 1, 1,
+  ['dns_resolution_failed'], ['unknown'],
+);
+const livePayload = {
+  schema_version: 1,
+  generated_at: '2026-08-17T10:00:00Z',
+  retention: {start: '2026-07-18T10:00:00Z', end_exclusive: '2026-08-17T10:00:00Z', hours: 720},
+  default_window: '24h',
+  window_options: canonicalWindowOptions,
+  count_basis: 'distinct_buildkite_job_attempts_with_strong_dns_evidence',
+  scope: {pipelines: ['amd-ci', 'ci'], queue_scope: 'active_amd_gpu'},
+  classifier: {id: 'dns-v1', target_categories: ['huggingface_hub', 'unknown']},
+  coverage: completeCoverage,
+  windows: Object.fromEntries(canonicalWindowOptions.map(function (option) {
+    return [option.id, windowBlock(option.hours, rows)];
+  })),
+  evidence: {
+    evidence_total: 2,
+    shown: 1,
+    truncated: true,
+    items: [{
+      id: 'a'.repeat(64), first_at: '2026-08-17T08:00:00Z', last_at: '2026-08-17T08:00:05Z',
+      time_basis: 'job_finished_at', pipeline: 'amd-ci', queue: 'amd_mi300_1', node: 'node-a', hardware: 'MI300',
+      build_number: 12112, job_id: validJobId, job_name: 'MUST NOT RENDER xoxb-secret', state: 'hard', episodes: 3, match_count: 9,
+      signature_ids: ['temporary_name_resolution'], target_categories: ['huggingface_hub'], window_ids: recentWindowIds,
+      window_metrics: repeatedWindowMetrics(recentWindowIds, firstRecentMetric),
+      url: 'https://attacker.example/log',
+    }, {
+      id: 'a'.repeat(64), first_at: '2026-08-17T08:00:00Z', last_at: '2026-08-17T08:01:00Z',
+      time_basis: 'job_finished_at', pipeline: 'amd-ci', queue: 'amd_mi300_1', node: 'node-a', hardware: 'MI300',
+      build_number: 12112, job_id: validJobId, job_name: 'MUST NOT RENDER xoxb-secret', state: 'hard', episodes: 3, match_count: 10,
+      signature_ids: ['temporary_name_resolution'], target_categories: ['huggingface_hub'], window_ids: recentWindowIds,
+      window_metrics: repeatedWindowMetrics(recentWindowIds, secondRecentMetric),
+    }, {
+      id: 'b'.repeat(64), first_at: '2026-08-10T08:00:00Z', last_at: '2026-08-10T08:00:05Z',
+      time_basis: 'job_finished_at', pipeline: 'ci', queue: 'amd_mi300_1', node: 'node-a', hardware: 'MI300',
+      build_number: 10, job_id: validJobId, job_name: 'MUST NOT RENDER xoxb-secret', state: 'passed', episodes: 1, match_count: 1,
+      signature_ids: ['dns_resolution_failed'], target_categories: ['unknown'], window_ids: ['720h'],
+      window_metrics: repeatedWindowMetrics(['720h'], oldMetric),
+    }],
+  },
+};
+const pagesPayload = JSON.parse(JSON.stringify(livePayload));
+pagesPayload.generated_at = '2026-08-17T11:00:00Z';
+Object.entries(pagesPayload.windows).forEach(function (entry) {
+  const option = canonicalWindowOptions.find(function (candidate) { return candidate.id === entry[0]; });
+  entry[1].start = new Date(Date.parse(pagesPayload.generated_at) - option.hours * 60 * 60 * 1000).toISOString().replace('.000Z', 'Z');
+  entry[1].end_exclusive = pagesPayload.generated_at;
+});
+const sandbox = {
+  window: {__OPS_V2_TEST__: true, setTimeout: setTimeout, clearTimeout: clearTimeout},
+  document: {addEventListener: function () {}},
+  console: console,
+  URL: URL,
+  fetch: function (url) {
+    if (String(url).includes('raw.githubusercontent.com')) return new Promise(function () {});
+    return Promise.resolve({ok: true, json: function () { return Promise.resolve(pagesPayload); }});
+  },
+};
+vm.createContext(sandbox);
+vm.runInContext(source, sandbox, {filename: process.argv[1]});
+const helpers = sandbox.window.OpsV2Test;
+
+assert.equal(helpers.queueDnsPayloadValid(livePayload), true);
+assert.equal(helpers.queueDnsPayloadValid(pagesPayload), true);
+assert.equal(helpers.queueDnsPayloadValid({schema_version: 1}), false);
+assert.equal(helpers.queueDnsPayloadValid(Object.assign({}, livePayload, {windows: {}})), false);
+assert.equal(helpers.queueDnsPayloadValid(Object.assign({}, livePayload, {window_options: canonicalWindowOptions.slice(1)})), false);
+const missingDefaultBlock = JSON.parse(JSON.stringify(livePayload));
+delete missingDefaultBlock.windows['24h'];
+assert.equal(helpers.queueDnsPayloadValid(missingDefaultBlock), false);
+const missingSelectedMetrics = JSON.parse(JSON.stringify(livePayload));
+delete missingSelectedMetrics.evidence.items[0].window_metrics['3h'];
+assert.equal(helpers.queueDnsPayloadValid(missingSelectedMetrics), false);
+assert.equal(helpers.queueDnsWindow(livePayload, '3h').id, '3h');
+assert.equal(helpers.queueDnsWindow(livePayload, '7d').id, '24h');
+
+const coverage = helpers.queueDnsCoverage(livePayload, livePayload.windows['3h']);
+assert.equal(coverage.complete, true);
+assert.equal(helpers.queueDnsDisplayCount(0, coverage), '0');
+const retainedPartialPayload = Object.assign({}, livePayload, {
+  coverage: {
+    status: 'partial', complete: false, discovery_complete: true,
+    eligible_jobs: 100, scanned_jobs: 99, positive_jobs: 9,
+    negative_jobs: 90, pending_jobs: 1, unavailable_jobs: 0, oversize_jobs: 0,
+  },
+});
+const selectedCompleteCoverage = helpers.queueDnsCoverage(
+  retainedPartialPayload,
+  retainedPartialPayload.windows['3h'],
+);
+assert.equal(selectedCompleteCoverage.complete, true);
+assert.equal(selectedCompleteCoverage.status, 'complete');
+assert.equal(helpers.queueDnsDisplayCount(0, selectedCompleteCoverage), '0');
+const selectedPartialCoverage = helpers.queueDnsCoverage(
+  livePayload,
+  Object.assign({}, livePayload.windows['3h'], {
+    coverage: {
+      status: 'partial', complete: false, discovery_complete: true,
+      eligible_jobs: 20, scanned_jobs: 19, positive_jobs: 9,
+      negative_jobs: 10, pending_jobs: 1, unavailable_jobs: 0, oversize_jobs: 0,
+    },
+  }),
+);
+assert.equal(selectedPartialCoverage.complete, false);
+assert.equal(selectedPartialCoverage.status, 'partial');
+assert.equal(helpers.queueDnsDisplayCount(0, selectedPartialCoverage), '-');
+const structuralSeedCoverage = helpers.queueDnsCoverage(
+  Object.assign({}, livePayload, {coverage: {status: 'not_collected', complete: false, discovery_complete: false}}),
+  Object.assign({}, livePayload.windows['3h'], {coverage: {status: 'not_collected', complete: false, discovery_complete: false}}),
+);
+assert.equal(structuralSeedCoverage.complete, false);
+assert.equal(helpers.queueDnsDisplayCount(0, structuralSeedCoverage), '-');
+assert.equal(helpers.queueDnsDisplayCount(2, structuralSeedCoverage), '≥ 2');
+const almostStale = helpers.queueDnsFreshness(
+  livePayload,
+  livePayload.windows['3h'],
+  Date.parse('2026-08-17T12:59:59Z'),
+);
+assert.equal(almostStale.stale, false);
+const stale = helpers.queueDnsFreshness(
+  livePayload,
+  livePayload.windows['3h'],
+  Date.parse('2026-08-17T13:00:01Z'),
+);
+assert.equal(stale.stale, true);
+assert.equal(stale.thresholdMs, 3 * 60 * 60 * 1000);
+const staleWindowOnly = helpers.queueDnsFreshness(
+  Object.assign({}, livePayload, {generated_at: '2026-08-17T13:30:00Z'}),
+  livePayload.windows['3h'],
+  Date.parse('2026-08-17T13:30:00Z'),
+);
+assert.equal(staleWindowOnly.stale, true);
+
+const nodeRows = helpers.queueDnsNodeRows(livePayload.windows['3h'], 'amd');
+assert.equal(JSON.stringify(nodeRows.map(function (row) { return [row.queue, row.node, row.affectedJobs]; })), JSON.stringify([
+  ['amd_mi300_8', 'node-b', 5],
+  ['amd_mi300_1', 'node-a', 3],
+  ['amd_mi300_1', '(unidentified)', 1],
+]));
+assert.equal(nodeRows[1].episodes, 5);
+assert.equal(nodeRows[1].huggingfaceAffectedJobs, 2);
+assert.equal(helpers.queueDnsScope('all'), 'amd');
+assert.equal(helpers.queueDnsMatchesPublishedScope('amd_mi300_1', 'all'), true);
+assert.equal(helpers.queueDnsMatchesPublishedScope('amd-cpu', 'all'), false);
+assert.equal(helpers.queueDnsMatchesPublishedScope('amd_rocm', 'all'), false);
+assert.equal(helpers.queueDnsMatchesPublishedScope('gpu_queue', 'all'), false);
+assert.equal(helpers.queueDnsMatchesPublishedScope('amd_mi355b_1', 'all'), false);
+const publishedAllRows = helpers.queueDnsNodeRows(livePayload.windows['3h'], 'all');
+assert.equal(JSON.stringify(publishedAllRows), JSON.stringify(nodeRows));
+const queueRows = helpers.queueDnsQueueRows(livePayload.windows['3h'], 'amd', [
+  'amd_mi300_1', 'amd_mi300_2', 'amd_mi355b_1', 'amd-cpu', 'gpu_queue',
+]);
+assert.equal(JSON.stringify(queueRows.map(function (row) { return [row.queue, row.affectedJobs]; })), JSON.stringify([
+  ['amd_mi300_8', 5], ['amd_mi300_1', 4], ['amd_mi300_2', 0],
+]));
+assert.ok(!queueRows.some(function (row) { return row.queue === 'amd_mi355b_1'; }));
+const allRouteQueueRows = helpers.queueDnsQueueRows(livePayload.windows['3h'], 'all', [
+  'amd_mi300_1', 'amd_mi300_2', 'amd_mi355b_1', 'amd-cpu', 'gpu_queue',
+]);
+assert.equal(JSON.stringify(allRouteQueueRows), JSON.stringify(queueRows));
+
+const expectedUrl = 'https://buildkite.com/vllm/amd-ci/builds/12112/list?jid=' + validJobId + '&tab=output';
+assert.equal(helpers.queueDnsEvidenceUrl(livePayload.evidence.items[0]), expectedUrl);
+assert.equal(helpers.queueDnsEvidenceUrl(Object.assign({}, livePayload.evidence.items[0], {pipeline: 'evil'})), '');
+assert.equal(helpers.queueDnsEvidenceUrl(Object.assign({}, livePayload.evidence.items[0], {build_number: 0})), '');
+assert.equal(helpers.queueDnsEvidenceUrl(Object.assign({}, livePayload.evidence.items[0], {job_id: 'not-a-uuid'})), '');
+assert.equal(helpers.queueDnsEvidenceUrl(Object.assign({}, livePayload.evidence.items[0], {job_id: '00000000-0000-0000-0000-000000000000'})), '');
+assert.equal(helpers.queueDnsEvidenceUrl({url: expectedUrl}), '');
+const nodeEvidence = helpers.queueDnsEvidenceForNode(livePayload, '3h', 'amd_mi300_1', 'node-a');
+assert.equal(nodeEvidence.length, 1);
+assert.equal(nodeEvidence[0].match_count, 10);
+assert.equal(Object.prototype.hasOwnProperty.call(nodeEvidence[0], 'window_metrics'), false);
+assert.equal(Object.prototype.hasOwnProperty.call(nodeEvidence[0], 'url'), false);
+assert.equal(Object.prototype.hasOwnProperty.call(nodeEvidence[0], 'job_name'), false);
+
+const longJobWindowIds = canonicalWindowOptions.map(function (option) { return option.id; });
+const recentGitHubMetric = evidenceMetric(
+  '2026-08-17T09:30:00Z', '2026-08-17T09:31:00Z', 1, 4,
+  ['name_or_service_unknown'], ['github'],
+);
+const retainedLongJobMetric = evidenceMetric(
+  '2026-08-16T08:00:00Z', '2026-08-17T09:31:00Z', 2, 9,
+  ['name_or_service_unknown', 'temporary_name_resolution'], ['huggingface_hub', 'github'],
+);
+const longJobMetrics = Object.fromEntries(longJobWindowIds.map(function (windowId) {
+  return [windowId, ['72h', '168h', '720h'].includes(windowId)
+    ? Object.assign({}, retainedLongJobMetric, {
+      signature_ids: retainedLongJobMetric.signature_ids.slice(),
+      target_categories: retainedLongJobMetric.target_categories.slice(),
+    })
+    : Object.assign({}, recentGitHubMetric, {
+      signature_ids: recentGitHubMetric.signature_ids.slice(),
+      target_categories: recentGitHubMetric.target_categories.slice(),
+    })];
+}));
+const longJob = {
+  id: 'c'.repeat(64), first_at: retainedLongJobMetric.first_at, last_at: retainedLongJobMetric.last_at,
+  time_basis: 'log_timestamp', pipeline: 'amd-ci', queue: 'amd_mi300_1', node: 'node-long', hardware: 'MI300',
+  build_number: 12113, job_id: validJobId, job_name: 'MUST NOT RENDER xoxb-secret', state: 'hard',
+  episodes: retainedLongJobMetric.episodes, match_count: retainedLongJobMetric.match_count,
+  signature_ids: retainedLongJobMetric.signature_ids.slice(), target_categories: retainedLongJobMetric.target_categories.slice(),
+  window_ids: longJobWindowIds, window_metrics: longJobMetrics,
+};
+const selectedLongJob = helpers.queueDnsEvidenceWindowRow(longJob, '1h', livePayload.windows);
+assert.ok(selectedLongJob);
+assert.equal(selectedLongJob.first_at, recentGitHubMetric.first_at);
+assert.equal(selectedLongJob.episodes, 1);
+assert.equal(selectedLongJob.match_count, 4);
+assert.equal(JSON.stringify(selectedLongJob.target_categories), JSON.stringify(['github']));
+assert.equal(JSON.stringify(selectedLongJob.signature_ids), JSON.stringify(['name_or_service_unknown']));
+assert.equal(Object.prototype.hasOwnProperty.call(selectedLongJob, 'window_metrics'), false);
+const malformedLongJob = JSON.parse(JSON.stringify(longJob));
+delete malformedLongJob.window_metrics['1h'];
+assert.equal(helpers.queueDnsEvidenceWindowRow(malformedLongJob, '1h', livePayload.windows), null);
+
+(async function () {
+  const selected = await helpers.loadQueueDns(5);
+  assert.equal(selected.generated_at, pagesPayload.generated_at);
+  assert.equal(selected.__sourceAsset, 'data/vllm/ci/dns_failures.json');
+  const newest = [
+    {payload: livePayload, priority: 0},
+    {payload: pagesPayload, priority: 1},
+  ].sort(helpers.compareQueueDnsCandidates);
+  assert.equal(newest[0].payload.generated_at, pagesPayload.generated_at);
+  const tied = [
+    {payload: livePayload, priority: 1},
+    {payload: livePayload, priority: 0},
+  ].sort(helpers.compareQueueDnsCandidates);
+  assert.equal(tied[0].priority, 0);
+})().catch(function (error) {
+  console.error(error);
+  process.exitCode = 1;
+});
+"""
+    result = subprocess.run(
+        ["node", "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_queue_lifecycle_scope_metrics_and_freshest_source_execute_in_javascript():
@@ -1740,7 +2147,8 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
         "resolved groups passing",
     ):
         assert retired_contract not in OPS_JS
-    assert 'assets/js/ops-v2.js?v=15' in INDEX
+    assert 'assets/css/ops-v2.css?v=9' in INDEX
+    assert 'assets/js/ops-v2.js?v=16' in INDEX
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
     assert "policy.passing_groups) + ' / ' + integer(policy.included_groups)" in OPS_JS
     assert "openMatrixHealthBrowser('all')" in OPS_JS

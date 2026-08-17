@@ -2743,6 +2743,137 @@
   text-align: right;
 }
 
+.ops-page .ops-dns-section {
+  margin: 14px 0;
+}
+
+.ops-page .ops-dns-stale-warning {
+  border-left-color: var(--ops-danger);
+  color: var(--ops-text);
+  background: var(--ops-danger-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ops-danger) 42%, transparent);
+}
+
+.ops-page .ops-dns-queue-list {
+  overflow: hidden;
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius);
+  background: var(--ops-surface);
+}
+
+.ops-page .ops-dns-queue {
+  border-bottom: 1px solid var(--ops-divider);
+}
+
+.ops-page .ops-dns-queue:last-child {
+  border-bottom: 0;
+}
+
+.ops-page .ops-dns-queue-summary {
+  display: grid;
+  min-height: 48px;
+  grid-template-columns: minmax(210px, 1fr) repeat(3, minmax(120px, auto));
+  align-items: center;
+  gap: 14px;
+  padding: 8px 12px;
+  color: var(--ops-text-muted);
+  background: var(--ops-surface);
+  font-size: 11px;
+  line-height: 17px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.ops-page .ops-dns-queue-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ops-page .ops-dns-queue-summary::before {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  grid-column: 1;
+  grid-row: 1;
+  color: var(--ops-text-subtle);
+  content: "\25b8";
+  font-size: 13px;
+  transform: translateX(-2px);
+}
+
+.ops-page .ops-dns-queue[open] > .ops-dns-queue-summary::before {
+  content: "\25be";
+}
+
+.ops-page .ops-dns-queue-summary:hover,
+.ops-page .ops-dns-queue[open] > .ops-dns-queue-summary {
+  color: var(--ops-text);
+  background: var(--ops-surface-hover);
+}
+
+.ops-page .ops-dns-queue-summary:focus-visible {
+  position: relative;
+  z-index: 2;
+  outline: 2px solid var(--ops-focus);
+  outline-offset: -2px;
+}
+
+.ops-page .ops-dns-queue-name {
+  min-width: 0;
+  grid-column: 1;
+  grid-row: 1;
+  padding-left: 22px;
+  overflow: hidden;
+  color: var(--ops-text);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-page .ops-dns-queue-stat {
+  min-width: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ops-page .ops-dns-queue-body {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  padding: 12px;
+  border-top: 1px solid var(--ops-divider);
+  background: var(--ops-surface-inset);
+}
+
+.ops-page .ops-dns-chart {
+  margin: 0;
+}
+
+.ops-page .ops-dns-chart .ops-chart-stage {
+  display: block;
+  max-height: min(620px, 72vh);
+  overflow: auto;
+}
+
+.ops-page .ops-dns-chart .ops-chart-viewport {
+  min-width: 620px;
+}
+
+.ops-page .ops-dns-chart .ops-chart-canvas[role="button"] {
+  cursor: pointer;
+}
+
+.ops-page .ops-dns-chart .ops-chart-canvas[role="button"]:focus-visible {
+  outline: 2px solid var(--ops-focus);
+  outline-offset: -2px;
+}
+
+.ops-page .ops-dns-evidence > * + * {
+  margin-top: 12px;
+}
+
 .ops-page .ops-trajectory-stages {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -4870,6 +5001,32 @@ body.ops-overlay-open {
     width: 100%;
     margin-left: 0;
   }
+
+  .ops-page .ops-dns-queue-summary {
+    grid-template-columns: minmax(0, 1fr) minmax(110px, auto);
+    gap: 4px 10px;
+    padding: 9px 10px;
+  }
+
+  .ops-page .ops-dns-queue-name {
+    grid-column: 1 / -1;
+  }
+
+  .ops-page .ops-dns-queue-stat {
+    text-align: left;
+  }
+
+  .ops-page .ops-dns-queue-stat:nth-of-type(odd) {
+    text-align: right;
+  }
+
+  .ops-page .ops-dns-queue-body {
+    padding: 8px;
+  }
+
+  .ops-page .ops-dns-chart .ops-chart-viewport {
+    min-width: 520px;
+  }
 }
 
 @media (max-width: 420px) {
@@ -4925,6 +5082,16 @@ body.ops-overlay-open {
   .ops-page .ops-evidence-stat,
   .ops-page .ops-evidence-stat:nth-child(2n) {
     border-right: 0;
+  }
+
+  .ops-page .ops-dns-queue-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ops-page .ops-dns-queue-stat,
+  .ops-page .ops-dns-queue-stat:nth-of-type(odd) {
+    padding-left: 22px;
+    text-align: left;
   }
 
   .ops-page .ops-trajectory-stages,
