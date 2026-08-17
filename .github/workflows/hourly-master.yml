@@ -338,13 +338,56 @@ jobs:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # PRIVATE-ANALYTICS-CACHE-BOUNDARY: this cache is restored only from
+      # GitHub Actions cache storage. It is never seeded from gh-pages, staged
+      # in git, or included in the public site manifest. Keys are immutable;
+      # the collector fully reconciles the first snapshot saved each UTC day.
+      - name: Prepare private analytics cache key
+        id: analytics-cache-key
+        shell: bash
+        run: |
+          set -euo pipefail
+          CACHE_DAY=$(date -u +%Y-%m-%d)
+          PRIOR_CACHE_DAY=$(date -u -d '1 day ago' +%Y-%m-%d)
+          CACHE_NAMESPACE="analytics-builds-v1-${{ runner.os }}"
+          {
+            echo "key=$CACHE_NAMESPACE-$CACHE_DAY"
+            echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore private analytics build cache
+        id: analytics-cache-restore
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: data/vllm/ci/.cache/analytics-builds-v1
+          key: ${{ steps.analytics-cache-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.analytics-cache-key.outputs.prior_day_prefix }}
+
       - name: Collect CI analytics
+        id: collect-analytics
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           run_surface_collector ci_core "CI analytics" \
             python scripts/vllm/collect_analytics.py --days 30 --output data/vllm/ci/
+          if surface_is_current ci_core; then
+            echo "cache_save=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "cache_save=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Save private analytics build cache
+        if: >-
+          steps.collect-analytics.outputs.cache_save == 'true' &&
+          steps.analytics-cache-restore.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: data/vllm/ci/.cache/analytics-builds-v1
+          key: ${{ steps.analytics-cache-key.outputs.key }}
 
       - name: Collect AMD agent health (all builds, all branches)
         # Walks every build on AMD GPU hardware (not just main nightlies) and

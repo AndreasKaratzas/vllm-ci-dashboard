@@ -283,4 +283,15 @@ scripts/
 
 **Rate limiting (429)**: The script retries on 429 with exponential backoff using the `Retry-After` header. For large fetches (30+ days), run in smaller batches: `--days 7`.
 
-**Cached data**: Build data is cached in `data/vllm/ci/.cache/`. JSONL test results are also cached — the script skips builds that already have results. Delete the cache to force a full re-fetch.
+**Cached data**: The analytics collector's sanitized Buildkite history cache
+lives in `data/vllm/ci/.cache/analytics-builds-v1`. The hourly workflow keeps
+one immutable cache key per UTC day in GitHub Actions cache storage, restores
+the prior day when the new key is not populated, and still refetches the recent
+overlap on every run. The collector fully reconciles when the restored cache's
+`generated_at` UTC date differs from the current collection date, or when
+cached `last_full_at` reaches 24 hours old. This guarantees that the first
+snapshot saved under each immutable daily key is complete. A failed analytics
+collection does not save the new daily key; cache transport failures are
+non-fatal and collection continues from Buildkite.
+This directory is private, gitignored, never published, and never restored
+from gh-pages. Delete the local directory to force a cache-free fetch.

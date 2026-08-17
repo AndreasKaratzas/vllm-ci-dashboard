@@ -81,6 +81,17 @@ PRIVATE_ANALYTICS_PATH = "vllm/ci/analytics.json"
 PRIVATE_ANALYTICS_DATA_PATH = f"data/{PRIVATE_ANALYTICS_PATH}"
 PUBLIC_ANALYTICS_PROJECTOR_ID = "public_analytics_v1"
 PUBLIC_ANALYTICS_BOUNDARY_MARKER = "PUBLIC-ANALYTICS-BOUNDARY"
+PRIVATE_ANALYTICS_CACHE_VERSION = "analytics-builds-v1"
+PRIVATE_ANALYTICS_CACHE_PATH = (
+    f"data/vllm/ci/.cache/{PRIVATE_ANALYTICS_CACHE_VERSION}"
+)
+PRIVATE_ANALYTICS_CACHE_MANIFEST_PATH = PRIVATE_ANALYTICS_CACHE_PATH.removeprefix(
+    "data/"
+)
+PRIVATE_ANALYTICS_CACHE_SAMPLE = (
+    f"{PRIVATE_ANALYTICS_CACHE_MANIFEST_PATH}/amd-ci.json"
+)
+PRIVATE_ANALYTICS_CACHE_BOUNDARY_MARKER = "PRIVATE-ANALYTICS-CACHE-BOUNDARY"
 PUBLICATION_STATE_RELATIVE = Path("data/vllm/ci/publication_state.json")
 DECLARED_PUBLICATION_SURFACE_NAMES = frozenset(SURFACE_SPECS)
 PUBLICATION_SURFACE_REQUIRED_KEYS = {
@@ -5327,11 +5338,31 @@ class DashboardAudit:
 
         hourly = self.root / ".github/workflows/hourly-master.yml"
         text = hourly.read_text(errors="ignore") if hourly.exists() else ""
+
+        def workflow_step_block(name: str) -> str:
+            marker = f"      - name: {name}"
+            start = text.find(marker)
+            if start < 0:
+                return ""
+            candidates = [
+                index
+                for index in (
+                    text.find("\n      - name:", start + len(marker)),
+                    text.find("\n      - uses:", start + len(marker)),
+                )
+                if index >= 0
+            ]
+            end = min(candidates) if candidates else len(text)
+            return text[start:end]
+
         ordered_tokens = [
             "name: Sync CI data from gh-pages",
             "name: Collect AMD gating target list",
             "name: Collect CI data",
+            "name: Prepare private analytics cache key",
+            "name: Restore private analytics build cache",
             "name: Collect CI analytics",
+            "name: Save private analytics build cache",
             "name: Collect test group changes",
             "name: Collect AMD test matrix",
             "name: Collect AMD gating proposals",
@@ -5501,6 +5532,234 @@ class DashboardAudit:
                 "scripts/build_site.py",
             )
 
+        cache_prepare = workflow_step_block("Prepare private analytics cache key")
+        cache_restore = workflow_step_block("Restore private analytics build cache")
+        analytics_collect = workflow_step_block("Collect CI analytics")
+        cache_save = workflow_step_block("Save private analytics build cache")
+        cache_steps = (cache_prepare, cache_restore, analytics_collect, cache_save)
+        cache_step_indexes = [text.index(block) for block in cache_steps] if all(
+            cache_steps
+        ) else []
+        cache_ordered = bool(cache_step_indexes) and cache_step_indexes == sorted(
+            cache_step_indexes
+        )
+        if not cache_ordered:
+            self.error(
+                "workflow-private-analytics-cache-order",
+                (
+                    "private analytics cache key/restore must precede analytics "
+                    "collection and cache save must follow it"
+                ),
+                ".github/workflows/hourly-master.yml",
+            )
+
+        cache_key_ok = all(
+            token in cache_prepare
+            for token in (
+                "id: analytics-cache-key",
+                "CACHE_DAY=$(date -u +%Y-%m-%d)",
+                "PRIOR_CACHE_DAY=$(date -u -d '1 day ago' +%Y-%m-%d)",
+                f'CACHE_NAMESPACE="{PRIVATE_ANALYTICS_CACHE_VERSION}-${{{{ runner.os }}}}"',
+                'echo "key=$CACHE_NAMESPACE-$CACHE_DAY"',
+                'echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY"',
+            )
+        )
+        if not cache_key_ok:
+            self.error(
+                "workflow-private-analytics-cache-key",
+                (
+                    "private analytics cache needs one immutable versioned key per "
+                    "UTC day and an explicit prior-day restore prefix"
+                ),
+                ".github/workflows/hourly-master.yml",
+            )
+
+        cache_restore_ok = all(
+            token in cache_restore
+            for token in (
+                "id: analytics-cache-restore",
+                "continue-on-error: true",
+                "uses: actions/cache/restore@v4",
+                f"path: {PRIVATE_ANALYTICS_CACHE_PATH}",
+                "key: ${{ steps.analytics-cache-key.outputs.key }}",
+                "${{ steps.analytics-cache-key.outputs.prior_day_prefix }}",
+            )
+        )
+        if not cache_restore_ok:
+            self.error(
+                "workflow-private-analytics-cache-restore",
+                (
+                    "private analytics cache restore must use actions/cache@v4, "
+                    "the exact private path, and the prior UTC-day prefix"
+                ),
+                ".github/workflows/hourly-master.yml",
+            )
+
+        analytics_cache_signal_ok = all(
+            token in analytics_collect
+            for token in (
+                "id: collect-analytics",
+                "surface_is_current ci_core",
+                'echo "cache_save=true"',
+                'echo "cache_save=false"',
+            )
+        )
+        cache_save_ok = analytics_cache_signal_ok and all(
+            token in cache_save
+            for token in (
+                "steps.collect-analytics.outputs.cache_save == 'true'",
+                "steps.analytics-cache-restore.outputs.cache-hit != 'true'",
+                "continue-on-error: true",
+                "uses: actions/cache/save@v4",
+                f"path: {PRIVATE_ANALYTICS_CACHE_PATH}",
+                "key: ${{ steps.analytics-cache-key.outputs.key }}",
+            )
+        )
+        if not cache_save_ok:
+            self.error(
+                "workflow-private-analytics-cache-save",
+                (
+                    "private analytics cache may be saved only after successful "
+                    "analytics collection and only when today's immutable key missed"
+                ),
+                ".github/workflows/hourly-master.yml",
+            )
+
+        if PRIVATE_ANALYTICS_CACHE_BOUNDARY_MARKER not in text:
+            self.error(
+                "workflow-private-analytics-cache-boundary",
+                "hourly-master.yml must document the private analytics cache boundary",
+                ".github/workflows/hourly-master.yml",
+            )
+        gh_pages_seed_blocks = [
+            block
+            for block in re.split(r"(?=^      - (?:name|uses):)", text, flags=re.MULTILINE)
+            if "origin/gh-pages" in block
+        ]
+        cache_feedback_blocked = not any(
+            token in "\n".join(
+                line
+                for line in block.splitlines()
+                if not line.lstrip().startswith("#")
+            )
+            for block in gh_pages_seed_blocks
+            for token in (
+                PRIVATE_ANALYTICS_CACHE_PATH,
+                PRIVATE_ANALYTICS_CACHE_VERSION,
+            )
+        )
+        if not cache_feedback_blocked:
+            self.error(
+                "workflow-private-analytics-cache-feedback",
+                (
+                    "the private analytics cache must never be restored from the "
+                    "public gh-pages branch"
+                ),
+                ".github/workflows/hourly-master.yml",
+            )
+
+        workflow_commands = "\n".join(
+            line
+            for line in text.splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        cache_staging_blocked = (
+            re.search(
+                r"\bgit\s+add\s+(?:[^\n]*\s)?(?:-f|--force)\b",
+                workflow_commands,
+            )
+            is None
+            and re.search(
+                r"\bgit\s+add\b[^\n]*"
+                + re.escape(PRIVATE_ANALYTICS_CACHE_PATH),
+                workflow_commands,
+            )
+            is None
+            and re.search(
+                r"\bgit\s+add\s+\\[\s\S]{0,2000}?"
+                + re.escape(PRIVATE_ANALYTICS_CACHE_PATH),
+                workflow_commands,
+            )
+            is None
+        )
+        if not cache_staging_blocked:
+            self.error(
+                "workflow-private-analytics-cache-staging",
+                "hourly-master.yml must never force-add or explicitly stage the cache",
+                ".github/workflows/hourly-master.yml",
+            )
+
+        gitignore_path = self.root / ".gitignore"
+        gitignore_lines = {
+            line.strip()
+            for line in (
+                gitignore_path.read_text(errors="ignore").splitlines()
+                if gitignore_path.exists()
+                else []
+            )
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        cache_ignored = "data/vllm/ci/.cache/" in gitignore_lines
+        if not cache_ignored:
+            self.error(
+                "private-analytics-cache-ignore",
+                "the private analytics cache directory must remain gitignored",
+                ".gitignore",
+            )
+
+        manifest_exact_paths = {
+            relative
+            for field in (
+                "required_files",
+                "optional_files",
+                "build_inputs",
+                "generated_files",
+            )
+            for relative in (
+                manifest.get(field) if isinstance(manifest.get(field), list) else []
+            )
+            if isinstance(relative, str)
+        }
+        manifest_exact_paths.update(
+            descriptor["path"]
+            for descriptor in projected_files
+            if isinstance(descriptor, dict) and isinstance(descriptor.get("path"), str)
+        )
+        cache_manifest_exposed = any(
+            relative == PRIVATE_ANALYTICS_CACHE_MANIFEST_PATH
+            or relative.startswith(f"{PRIVATE_ANALYTICS_CACHE_MANIFEST_PATH}/")
+            or PRIVATE_ANALYTICS_CACHE_MANIFEST_PATH.startswith(
+                f"{relative.rstrip('/')}/"
+            )
+            for relative in manifest_exact_paths
+        ) or any(
+            PurePosixPath(PRIVATE_ANALYTICS_CACHE_SAMPLE).match(pattern)
+            for pattern in (
+                manifest.get("optional_globs")
+                if isinstance(manifest.get("optional_globs"), list)
+                else []
+            )
+            if isinstance(pattern, str)
+        )
+        cache_never_published = any(
+            PurePosixPath(PRIVATE_ANALYTICS_CACHE_SAMPLE).match(pattern)
+            for pattern in (
+                manifest.get("never_publish_patterns")
+                if isinstance(manifest.get("never_publish_patterns"), list)
+                else []
+            )
+            if isinstance(pattern, str)
+        )
+        if cache_manifest_exposed or not cache_never_published:
+            self.error(
+                "private-analytics-cache-publication",
+                (
+                    "the analytics cache must be absent from public/build inputs "
+                    "and covered by an effective never-publish pattern"
+                ),
+                "config/public_data_manifest.json",
+            )
+
         deploy_pages = self.root / ".github/workflows/deploy-pages.yml"
         deploy_text = deploy_pages.read_text(errors="ignore") if deploy_pages.exists() else ""
         forbidden_ci_writes = [
@@ -5524,6 +5783,11 @@ class DashboardAudit:
             "private_analytics_surface": analytics_owner,
             "public_analytics_projection_declared": projection_declared,
             "public_analytics_feedback_blocked": analytics_feedback_blocked,
+            "private_analytics_cache_ordered": cache_ordered,
+            "private_analytics_cache_key_valid": cache_key_ok,
+            "private_analytics_cache_feedback_blocked": cache_feedback_blocked,
+            "private_analytics_cache_gitignored": cache_ignored,
+            "private_analytics_cache_never_published": cache_never_published,
         }
 
 

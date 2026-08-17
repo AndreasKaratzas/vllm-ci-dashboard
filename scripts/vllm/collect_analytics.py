@@ -18,6 +18,7 @@ import re
 import sys
 import time
 from collections import defaultdict
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from statistics import mean, median
@@ -28,6 +29,14 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vllm.constants import BK_API_BASE, BK_ORG  # noqa: E402
+from vllm.ci.analytics_cache import (  # noqa: E402
+    CACHE_DIR_NAME,
+    CACHE_SCHEMA_VERSION,
+    builds_needing_refresh,
+    load_build_cache,
+    merge_builds,
+    write_build_cache,
+)
 from vllm.ci.incident_transitions import INCIDENT_TRANSITION_POLICY_ID  # noqa: E402
 from vllm.ci.models import PASS_RATE_CONTRACT_VERSION  # noqa: E402
 from vllm.ci.utils import (  # noqa: E402
@@ -79,6 +88,8 @@ BK_GET_INITIAL_READ_TIMEOUT_SECONDS = 30
 BK_GET_READ_TIMEOUT_STEP_SECONDS = 15
 BK_GET_MAX_READ_TIMEOUT_SECONDS = 60
 BK_GET_RETRY_STATUS_CODES = frozenset({500, 502, 503, 504, 520, 522, 524})
+ANALYTICS_CACHE_OVERLAP = timedelta(hours=24)
+ANALYTICS_CACHE_FULL_REFRESH_INTERVAL = timedelta(hours=24)
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 OUTPUT = ROOT / "data" / "vllm" / "ci"
@@ -87,6 +98,10 @@ RESULT_SUFFIX = {"amd-ci": "amd", "ci": "upstream"}
 # Current vLLM nightly slots in UTC. Actual Buildkite ``created_at`` values win
 # whenever they are available; these hours are only for JSONL-only fallbacks.
 FALLBACK_CREATED_HOUR_UTC = {"amd-ci": 9, "ci": 6}
+CACHE_NIGHTLY_MESSAGE = {
+    "amd-ci": "AMD Full CI Run - nightly",
+    "ci": "Full CI run - nightly",
+}
 RETRY_FIELDS = (
     "retried",
     "retried_in_job_id",
@@ -96,6 +111,23 @@ RETRY_FIELDS = (
     "step_key",
 )
 FAILED_JOB_STATES = {"failed", "soft_fail", "soft_failed", "timed_out", "broken", "canceled", "expired"}
+
+# ``main`` deliberately keeps the historical three-argument
+# ``fetch_pipeline_builds`` call so downstream tests and collectors can still
+# monkeypatch that seam. The real implementation reads this task-local context
+# to opt into output-relative caching with the one frozen collection clock.
+_FETCH_CONTEXT: ContextVar[tuple[Path, datetime] | None] = ContextVar(
+    "analytics_fetch_context",
+    default=None,
+)
+
+
+class IncompleteAnalyticsCollection(RuntimeError):
+    """Raised when neither incremental nor full pagination is exhaustive."""
+
+    def __init__(self, message: str, provenance: dict | None = None):
+        super().__init__(message)
+        self.provenance = provenance or {}
 
 
 def buildkite_job_url(pipeline_slug: str, build_number: int, job_id: str = "", step_id: str = "") -> str:
@@ -380,8 +412,15 @@ def _build_metadata(builds: list[dict]) -> dict[int, dict]:
     return {int(b.get("number") or 0): b for b in builds if b.get("number") is not None}
 
 
-def load_test_result_builds(output: Path, pipeline_slug: str, days: int, buildkite_builds: list[dict] | None = None,
-                            previous_builds: list[dict] | None = None) -> list[dict]:
+def load_test_result_builds(
+    output: Path,
+    pipeline_slug: str,
+    days: int,
+    buildkite_builds: list[dict] | None = None,
+    previous_builds: list[dict] | None = None,
+    *,
+    now: datetime | None = None,
+) -> list[dict]:
     """Build analytics rows from parsed CI test-result JSONL files.
 
     ``collect_ci.py`` runs immediately before this script in the scheduled
@@ -398,7 +437,9 @@ def load_test_result_builds(output: Path, pipeline_slug: str, days: int, buildki
     if not results_dir.exists():
         return []
 
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    cutoff = ((now or datetime.now(timezone.utc)) - timedelta(days=days)).strftime(
+        "%Y-%m-%d"
+    )
     paths = sorted(results_dir.glob(f"*_{suffix}.jsonl"))
     paths = [p for p in paths if p.name.rsplit("_", 1)[0] >= cutoff]
     if not paths:
@@ -885,10 +926,17 @@ def _fetched_build_rank(build: dict) -> tuple:
     )
 
 
-def fetch_pipeline_builds(pipeline_slug, token, days, max_pages=None):
-    """Fetch Buildkite ``main`` builds exhaustively within the safety cap."""
-    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    log.info("Fetching %s builds (last %d days)...", pipeline_slug, days)
+def _fetch_pipeline_build_leg(
+    pipeline_slug: str,
+    token: str,
+    *,
+    filter_name: str,
+    since: str,
+    max_pages: int | None = None,
+) -> tuple[list[dict], dict]:
+    """Fetch one exhaustive Buildkite list leg for a timestamp filter."""
+    if filter_name not in {"created_from", "finished_from"}:
+        raise ValueError(f"Unsupported Buildkite timestamp filter: {filter_name!r}")
     path = f"/organizations/{BK_ORG}/pipelines/{pipeline_slug}/builds"
     page_limit = max_pages if max_pages is not None else BUILD_FETCH_MAX_PAGES
     by_number: dict[int, dict] = {}
@@ -897,13 +945,17 @@ def fetch_pipeline_builds(pipeline_slug, token, days, max_pages=None):
     pages_fetched = 0
     for page in range(1, page_limit + 1):
         pages_fetched = page
-        rows = bk_get(path, token, {
-            "branch": "main",
-            "created_from": since,
-            "per_page": BUILD_FETCH_PAGE_SIZE,
-            "page": page,
-            "include_retried_jobs": "true",
-        })
+        rows = bk_get(
+            path,
+            token,
+            {
+                "branch": "main",
+                filter_name: since,
+                "per_page": BUILD_FETCH_PAGE_SIZE,
+                "page": page,
+                "include_retried_jobs": "true",
+            },
+        )
         if not rows:
             termination_reason = "empty_page"
             exhaustive = True
@@ -943,15 +995,404 @@ def fetch_pipeline_builds(pipeline_slug, token, days, max_pages=None):
         ),
         reverse=True,
     )
-    log.info("  %d unique builds fetched", len(builds_raw))
-    return builds_raw, {
-        "created_from": since,
+    log.info("  %d unique builds fetched from %s", len(builds_raw), filter_name)
+    provenance = {
+        filter_name: since,
+        "filter": filter_name,
         "page_size": BUILD_FETCH_PAGE_SIZE,
         "max_pages": page_limit,
         "pages_fetched": pages_fetched,
         "termination_reason": termination_reason,
         "exhaustive": exhaustive,
     }
+    return builds_raw, provenance
+
+
+def _as_utc_datetime(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        parsed = parse_ts(value)
+    if parsed is None or parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _cache_diagnostics(
+    cache,
+    *,
+    decision: str,
+    ref_now: datetime,
+    cutoff: datetime,
+) -> dict:
+    return {
+        "schema_version": CACHE_SCHEMA_VERSION,
+        "load_valid": cache.valid,
+        "load_reason": cache.reason,
+        "decision": decision,
+        "window_days": cache.window_days,
+        "cached_builds": len(cache.builds),
+        "requested_cutoff": cutoff.isoformat(),
+        "watermark": (
+            value.isoformat()
+            if (value := _as_utc_datetime(cache.watermark)) is not None
+            else None
+        ),
+        "last_full_at": (
+            value.isoformat()
+            if (value := _as_utc_datetime(cache.last_full_at)) is not None
+            else None
+        ),
+        "complete_from": (
+            value.isoformat()
+            if (value := _as_utc_datetime(cache.complete_from)) is not None
+            else None
+        ),
+        "generated_at": (
+            value.isoformat()
+            if (value := _as_utc_datetime(cache.generated_at)) is not None
+            else None
+        ),
+        "ref_now": ref_now.isoformat(),
+    }
+
+
+def _reliability_builds_with_cache_aliases(
+    builds: list[dict],
+    pipeline_slug: str,
+) -> list[dict]:
+    """Restore the one semantic field compact cache rows intentionally replace.
+
+    The private cache records ``canonical_nightly`` instead of retaining every
+    build message. Reliability history still accepts raw Buildkite rows and
+    classifies their messages with the configured regex, so give only flagged
+    cached rows a known matching compatibility message on a shallow copy.
+    """
+    nightly_message = CACHE_NIGHTLY_MESSAGE.get(pipeline_slug, "")
+    compatible = []
+    for build in builds:
+        if (
+            nightly_message
+            and build.get("canonical_nightly") is True
+            and not build.get("message")
+        ):
+            build = {**build, "message": nightly_message}
+        compatible.append(build)
+    return compatible
+
+
+def _full_cached_fetch(
+    pipeline_slug: str,
+    token: str,
+    days: int,
+    *,
+    cache_dir: Path,
+    cache,
+    ref_now: datetime,
+    cutoff: datetime,
+    reason: str,
+    max_pages: int | None,
+    incremental_diagnostics: dict | None = None,
+) -> tuple[list[dict], dict]:
+    rows, leg = _fetch_pipeline_build_leg(
+        pipeline_slug,
+        token,
+        filter_name="created_from",
+        since=cutoff.isoformat(),
+        max_pages=max_pages,
+    )
+    diagnostics = _cache_diagnostics(
+        cache,
+        decision=reason,
+        ref_now=ref_now,
+        cutoff=cutoff,
+    )
+    diagnostics.update(
+        {
+            "fetch_mode": "full",
+            "returned_builds": len(rows),
+            "cache_written": False,
+        }
+    )
+    if incremental_diagnostics:
+        diagnostics["incremental_attempt"] = incremental_diagnostics
+    provenance = {
+        **leg,
+        "fetch_mode": (
+            "full_after_incremental" if incremental_diagnostics else "full"
+        ),
+        "legs": {"created": leg},
+        "cache": diagnostics,
+    }
+    if leg.get("exhaustive") is not True:
+        raise IncompleteAnalyticsCollection(
+            f"Incomplete full Buildkite collection for {pipeline_slug}: "
+            f"{leg.get('termination_reason') or 'unknown'}",
+            provenance,
+        )
+
+    builds = merge_builds([], rows, cutoff=cutoff)
+    write_build_cache(
+        cache_dir,
+        pipeline_slug,
+        builds=builds,
+        watermark=ref_now,
+        window_days=days,
+        last_full_at=ref_now,
+        updated_at=ref_now,
+        complete_from=cutoff,
+    )
+    diagnostics["returned_builds"] = len(builds)
+    diagnostics["cache_written"] = True
+    diagnostics["watermark"] = ref_now.isoformat()
+    diagnostics["last_full_at"] = ref_now.isoformat()
+    diagnostics["complete_from"] = cutoff.isoformat()
+    return builds, provenance
+
+
+def _fetch_individual_build(
+    pipeline_slug: str,
+    token: str,
+    build_number: int,
+) -> dict:
+    path = (
+        f"/organizations/{BK_ORG}/pipelines/{pipeline_slug}/builds/"
+        f"{build_number}"
+    )
+    rows = bk_get(path, token, {"include_retried_jobs": "true"})
+    for row in rows:
+        if isinstance(row, dict) and _safe_build_number(row) == build_number:
+            return row
+    raise RuntimeError(
+        f"Individual Buildkite refresh for {pipeline_slug} build {build_number} "
+        "returned no matching build"
+    )
+
+
+def _incremental_cached_fetch(
+    pipeline_slug: str,
+    token: str,
+    days: int,
+    *,
+    cache_dir: Path,
+    cache,
+    ref_now: datetime,
+    cutoff: datetime,
+    max_pages: int | None,
+) -> tuple[list[dict], dict] | tuple[None, dict]:
+    watermark = _as_utc_datetime(cache.watermark)
+    if watermark is None:
+        return None, {"failure": "cache_watermark_missing"}
+    overlap_from = max(cutoff, watermark - ANALYTICS_CACHE_OVERLAP)
+    overlap_iso = overlap_from.isoformat()
+    diagnostics = _cache_diagnostics(
+        cache,
+        decision="incremental",
+        ref_now=ref_now,
+        cutoff=cutoff,
+    )
+    diagnostics.update(
+        {
+            "fetch_mode": "incremental",
+            "overlap_from": overlap_iso,
+            "overlap_hours": int(ANALYTICS_CACHE_OVERLAP.total_seconds() / 3600),
+            "cache_written": False,
+        }
+    )
+    try:
+        created, created_leg = _fetch_pipeline_build_leg(
+            pipeline_slug,
+            token,
+            filter_name="created_from",
+            since=overlap_iso,
+            max_pages=max_pages,
+        )
+        finished, finished_leg = _fetch_pipeline_build_leg(
+            pipeline_slug,
+            token,
+            filter_name="finished_from",
+            since=overlap_iso,
+            max_pages=max_pages,
+        )
+        diagnostics["legs"] = {
+            "created": created_leg,
+            "finished": finished_leg,
+        }
+        if (
+            created_leg.get("exhaustive") is not True
+            or finished_leg.get("exhaustive") is not True
+        ):
+            diagnostics["failure"] = "incremental_pagination_incomplete"
+            return None, diagnostics
+
+        refresh_numbers = builds_needing_refresh(cache.builds)
+        refreshed = [
+            _fetch_individual_build(pipeline_slug, token, build_number)
+            for build_number in refresh_numbers
+        ]
+        fresh = merge_builds(created, finished, cutoff=cutoff)
+        fresh = merge_builds(fresh, refreshed, cutoff=cutoff)
+        builds = merge_builds(cache.builds, fresh, cutoff=cutoff)
+        last_full_at = _as_utc_datetime(cache.last_full_at)
+        if last_full_at is None:
+            diagnostics["failure"] = "cache_last_full_at_missing"
+            return None, diagnostics
+        write_build_cache(
+            cache_dir,
+            pipeline_slug,
+            builds=builds,
+            watermark=ref_now,
+            window_days=days,
+            last_full_at=last_full_at,
+            updated_at=ref_now,
+            complete_from=cutoff,
+        )
+    except Exception as exc:
+        diagnostics["failure"] = f"{type(exc).__name__}: {exc}"
+        return None, diagnostics
+
+    diagnostics.update(
+        {
+            "created_builds": len(created),
+            "finished_builds": len(finished),
+            "refreshed_builds": len(refreshed),
+            "refresh_build_numbers": refresh_numbers,
+            "fresh_builds": len(fresh),
+            "returned_builds": len(builds),
+            "cache_written": True,
+            "watermark": ref_now.isoformat(),
+        }
+    )
+    pages_fetched = sum(
+        int(leg.get("pages_fetched") or 0)
+        for leg in (created_leg, finished_leg)
+    )
+    provenance = {
+        # This is the completeness boundary of the merged cache, not the
+        # narrower API overlap used by the two incremental legs below.
+        "created_from": cutoff.isoformat(),
+        "page_size": BUILD_FETCH_PAGE_SIZE,
+        "max_pages": max_pages if max_pages is not None else BUILD_FETCH_MAX_PAGES,
+        "pages_fetched": pages_fetched,
+        "termination_reason": "incremental_complete",
+        "exhaustive": True,
+        "fetch_mode": "incremental",
+        "legs": diagnostics["legs"],
+        "cache": diagnostics,
+    }
+    return builds, provenance
+
+
+def _fetch_pipeline_builds_cached(
+    pipeline_slug: str,
+    token: str,
+    days: int,
+    *,
+    cache_dir: Path,
+    ref_now: datetime,
+    max_pages: int | None,
+) -> tuple[list[dict], dict]:
+    frozen_now = _as_utc_datetime(ref_now)
+    if frozen_now is None:
+        raise ValueError("ref_now must be a timezone-aware datetime")
+    cutoff = frozen_now - timedelta(days=days)
+    cache = load_build_cache(
+        cache_dir,
+        pipeline_slug,
+        cutoff=cutoff,
+        window_days=days,
+        ref_now=frozen_now,
+    )
+    last_full_at = _as_utc_datetime(cache.last_full_at)
+    cache_generated_at = _as_utc_datetime(cache.generated_at)
+    if not cache.valid:
+        full_reason = f"cache_{cache.reason or 'invalid'}"
+    elif last_full_at is None:
+        full_reason = "cache_last_full_at_missing"
+    elif (
+        cache_generated_at is None
+        or cache_generated_at.date() != frozen_now.date()
+    ):
+        full_reason = "utc_day_reconciliation"
+    elif frozen_now - last_full_at >= ANALYTICS_CACHE_FULL_REFRESH_INTERVAL:
+        full_reason = "daily_reconciliation"
+    else:
+        builds, incremental = _incremental_cached_fetch(
+            pipeline_slug,
+            token,
+            days,
+            cache_dir=cache_dir,
+            cache=cache,
+            ref_now=frozen_now,
+            cutoff=cutoff,
+            max_pages=max_pages,
+        )
+        if builds is not None:
+            return builds, incremental
+        full_reason = "incremental_fallback_full"
+        return _full_cached_fetch(
+            pipeline_slug,
+            token,
+            days,
+            cache_dir=cache_dir,
+            cache=cache,
+            ref_now=frozen_now,
+            cutoff=cutoff,
+            reason=full_reason,
+            max_pages=max_pages,
+            incremental_diagnostics=incremental,
+        )
+
+    return _full_cached_fetch(
+        pipeline_slug,
+        token,
+        days,
+        cache_dir=cache_dir,
+        cache=cache,
+        ref_now=frozen_now,
+        cutoff=cutoff,
+        reason=full_reason,
+        max_pages=max_pages,
+    )
+
+
+def fetch_pipeline_builds(
+    pipeline_slug,
+    token,
+    days,
+    max_pages=None,
+    *,
+    ref_now=None,
+    cache_dir=None,
+):
+    """Fetch Buildkite ``main`` builds exhaustively within the safety cap.
+
+    ``ref_now`` is optional to preserve the historical call surface used by
+    collectors and tests. Cached collection passes its one frozen reference
+    time so the query boundary and downstream windows cannot drift apart.
+    """
+    context = _FETCH_CONTEXT.get()
+    if cache_dir is None and ref_now is None and context is not None:
+        cache_dir, ref_now = context
+    frozen_now = ref_now or datetime.now(timezone.utc)
+    if cache_dir is not None:
+        return _fetch_pipeline_builds_cached(
+            pipeline_slug,
+            token,
+            days,
+            cache_dir=Path(cache_dir),
+            ref_now=frozen_now,
+            max_pages=max_pages,
+        )
+    since = (frozen_now - timedelta(days=days)).isoformat()
+    log.info("Fetching %s builds (last %d days)...", pipeline_slug, days)
+    return _fetch_pipeline_build_leg(
+        pipeline_slug,
+        token,
+        filter_name="created_from",
+        since=since,
+        max_pages=max_pages,
+    )
 
 
 def summarize_pipeline_builds(pipeline_slug, builds_raw, nightly_only=False, name_pattern=None):
@@ -961,7 +1402,12 @@ def summarize_pipeline_builds(pipeline_slug, builds_raw, nightly_only=False, nam
     # Filter to nightly if requested
     if nightly_only and name_pattern:
         pat = re.compile(name_pattern, re.IGNORECASE)
-        builds_raw = [b for b in builds_raw if pat.search(b.get("message", "") or "")]
+        builds_raw = [
+            b
+            for b in builds_raw
+            if b.get("canonical_nightly") is True
+            or pat.search(b.get("message", "") or "")
+        ]
         log.info("  %d nightly builds after filter", len(builds_raw))
 
     builds = []
@@ -972,7 +1418,10 @@ def summarize_pipeline_builds(pipeline_slug, builds_raw, nightly_only=False, nam
         created = b.get("created_at", "")
         finished = b.get("finished_at", "")
         wall_mins = duration_mins(created, finished)
-        message = (b.get("message") or "")[:100]
+        raw_message = b.get("message") or ""
+        if not raw_message and b.get("canonical_nightly") is True:
+            raw_message = CACHE_NIGHTLY_MESSAGE.get(pipeline_slug, "")
+        message = raw_message[:100]
         author = (b.get("creator") or {}).get("name", "") or (b.get("author") or {}).get("name", "")
 
         jobs = [j for j in b.get("jobs", []) if j.get("type") == "script"]
@@ -985,7 +1434,7 @@ def summarize_pipeline_builds(pipeline_slug, builds_raw, nightly_only=False, nam
             norm = normalize_job(name)
             state = j.get("state", "")
             sf = j.get("soft_failed", False)
-            queue = queue_from_rules(j.get("agent_query_rules"))
+            queue = j.get("q") or queue_from_rules(j.get("agent_query_rules"))
 
             dur = duration_mins(j.get("started_at"), j.get("finished_at"))
             wait = duration_mins(j.get("runnable_at"), j.get("started_at"))
@@ -1048,7 +1497,8 @@ def summarize_pipeline_builds(pipeline_slug, builds_raw, nightly_only=False, nam
             "soft_failed": soft,
             "total_jobs": len(jobs),
             "jobs": job_summaries,
-            "web_url": b.get("web_url", ""),
+            "web_url": b.get("web_url")
+            or buildkite_job_url(pipeline_slug, build_num),
         })
 
     # Sort builds newest first
@@ -1315,8 +1765,9 @@ def main():
         for slug, block in previous_data.items()
         if slug not in pipelines and isinstance(block, dict)
     }
-    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     ref_now = datetime.now(timezone.utc)
+    generated_at = ref_now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    cache_dir = output / ".cache" / CACHE_DIR_NAME
 
     for slug in pipelines:
         log.info("=== %s ===", PIPELINES.get(slug, slug))
@@ -1328,11 +1779,21 @@ def main():
         raw_builds = []
         collection_provenance = {}
         if token:
-            raw_builds, collection_provenance = fetch_pipeline_builds(
-                slug,
-                token,
-                args.days,
-            )
+            context_token = _FETCH_CONTEXT.set((cache_dir, ref_now))
+            try:
+                # Keep this historical three-positional-argument call intact:
+                # tests and sibling collectors monkeypatch it directly.
+                raw_builds, collection_provenance = fetch_pipeline_builds(
+                    slug,
+                    token,
+                    args.days,
+                )
+            finally:
+                _FETCH_CONTEXT.reset(context_token)
+        reliability_raw_builds = _reliability_builds_with_cache_aliases(
+            raw_builds,
+            slug,
+        )
         buildkite_builds = (
             collect_pipeline(
                 slug,
@@ -1345,7 +1806,14 @@ def main():
             if token
             else []
         )
-        result_builds = load_test_result_builds(output, slug, args.days, buildkite_builds, previous_builds)
+        result_builds = load_test_result_builds(
+            output,
+            slug,
+            args.days,
+            buildkite_builds,
+            previous_builds,
+            now=ref_now,
+        )
         builds = choose_analytics_builds(buildkite_builds, result_builds, previous_builds, slug)
         job_rankings = compute_job_rankings(builds)
         windows = compute_window_blocks(builds, args.days, now=ref_now)
@@ -1405,7 +1873,7 @@ def main():
         complete_retry_builds = None
         if token and collection_provenance.get("exhaustive") is True:
             all_main_reliability = build_all_main_reliability(
-                raw_builds,
+                reliability_raw_builds,
                 pipeline_slug=slug,
                 window_days=args.days,
                 generated_at=generated_at,
@@ -1421,7 +1889,7 @@ def main():
             if slug == "ci":
                 complete_retry_builds = summarize_pipeline_builds(
                     slug,
-                    filter_reliability_builds(raw_builds),
+                    filter_reliability_builds(reliability_raw_builds),
                 )
         elif validate_all_main_reliability(previous_all_main, slug):
             reason = (

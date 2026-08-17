@@ -96,6 +96,27 @@ the full artifact from `main` until collection refreshes it and never seeds it
 from gh-pages. This keeps public evidence from feeding back into incident
 history, watcher state, or the next projection.
 
+### Private analytics build cache
+
+The hourly workflow persists only
+`data/vllm/ci/.cache/analytics-builds-v1` through GitHub Actions cache storage.
+Its immutable key is versioned and changes once per UTC day. The first
+successful run of a day saves that day's snapshot; later runs restore the same
+snapshot and refetch the rolling 24-hour overlap instead of trying to mutate an
+existing cache key. On the next UTC day, the prior-day key is the restore
+fallback and the collector forces a full reconciliation when the restored
+cache's `generated_at` UTC date differs from the collection date. It also
+forces a full reconciliation once `last_full_at` is at least 24 hours old.
+This ensures the first cache saved under each immutable daily key is fully
+reconciled instead of freezing an incremental snapshot for that day.
+
+Cache restore or save transport failures are non-fatal optimizations: the
+collector continues against Buildkite. If analytics collection itself fails,
+the `ci_core` publication surface falls back to its validated baseline and the
+workflow does not save a cache for the new day, so the next run retries from
+the prior safe snapshot. The directory is gitignored, covered by the public
+manifest's never-publish policy, never staged, and never seeded from gh-pages.
+
 ## Bounded last-known-good publication
 
 The hourly workflow splits CI into four atomic publication surfaces: core

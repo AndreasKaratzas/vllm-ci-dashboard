@@ -11,7 +11,7 @@ These tests ensure:
 import ast
 import json
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 import yaml
@@ -567,6 +567,108 @@ class TestHourlyMasterWorkflow:
         )
         assert "PUBLIC-ANALYTICS-BOUNDARY" in sync
         assert "analytics.json" not in commands
+
+    def test_private_analytics_cache_is_daily_and_one_way(self):
+        cache_path = "data/vllm/ci/.cache/analytics-builds-v1"
+        manifest_cache_path = "vllm/ci/.cache/analytics-builds-v1"
+        cache_sample = f"{manifest_cache_path}/amd-ci.json"
+        workflow = _load_workflow("hourly-master.yml")
+        steps = next(iter(workflow["jobs"].values())).get("steps", [])
+        names = [step.get("name") for step in steps]
+        key_index = names.index("Prepare private analytics cache key")
+        restore_index = names.index("Restore private analytics build cache")
+        collect_index = names.index("Collect CI analytics")
+        save_index = names.index("Save private analytics build cache")
+        assert key_index < restore_index < collect_index < save_index
+
+        key_step = steps[key_index]
+        assert key_step["id"] == "analytics-cache-key"
+        key_script = key_step["run"]
+        assert "CACHE_DAY=$(date -u +%Y-%m-%d)" in key_script
+        assert "PRIOR_CACHE_DAY=$(date -u -d '1 day ago' +%Y-%m-%d)" in key_script
+        assert 'CACHE_NAMESPACE="analytics-builds-v1-${{ runner.os }}"' in key_script
+        assert 'echo "key=$CACHE_NAMESPACE-$CACHE_DAY"' in key_script
+        assert (
+            'echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY"'
+            in key_script
+        )
+        assert "github.run_id" not in key_script
+        assert "github.run_attempt" not in key_script
+
+        restore = steps[restore_index]
+        assert restore["uses"] == "actions/cache/restore@v4"
+        assert restore["continue-on-error"] is True
+        assert restore["with"] == {
+            "path": cache_path,
+            "key": "${{ steps.analytics-cache-key.outputs.key }}",
+            "restore-keys": "${{ steps.analytics-cache-key.outputs.prior_day_prefix }}\n",
+        }
+
+        collect = steps[collect_index]
+        assert collect["id"] == "collect-analytics"
+        assert "surface_is_current ci_core" in collect["run"]
+        assert 'echo "cache_save=true"' in collect["run"]
+        assert 'echo "cache_save=false"' in collect["run"]
+
+        save = steps[save_index]
+        assert save["uses"] == "actions/cache/save@v4"
+        assert save["continue-on-error"] is True
+        assert "steps.collect-analytics.outputs.cache_save == 'true'" in save["if"]
+        assert (
+            "steps.analytics-cache-restore.outputs.cache-hit != 'true'"
+            in save["if"]
+        )
+        assert save["with"] == {
+            "path": cache_path,
+            "key": "${{ steps.analytics-cache-key.outputs.key }}",
+        }
+
+        for step in steps:
+            run = step.get("run") or ""
+            if "origin/gh-pages" not in run:
+                continue
+            seed_commands = "\n".join(
+                line
+                for line in run.splitlines()
+                if not line.lstrip().startswith("#")
+            )
+            assert cache_path not in seed_commands
+            assert "analytics-builds-v1" not in seed_commands
+        commit = steps[names.index("Commit and push")]["run"]
+        assert cache_path not in commit
+        assert not re.search(r"\bgit\s+add\b[^\n]*(?:\s-f\b|\s--force\b)", commit)
+        assert "data/vllm/ci/.cache/" in {
+            line.strip()
+            for line in (REPO_ROOT / ".gitignore").read_text().splitlines()
+        }
+
+        manifest = json.loads(
+            (REPO_ROOT / "config/public_data_manifest.json").read_text()
+        )
+        exact_paths = {
+            relative
+            for field in (
+                "required_files",
+                "optional_files",
+                "build_inputs",
+                "generated_files",
+            )
+            for relative in manifest[field]
+        }
+        exact_paths.update(item["path"] for item in manifest["projected_files"])
+        assert not any(
+            path == manifest_cache_path
+            or path.startswith(f"{manifest_cache_path}/")
+            for path in exact_paths
+        )
+        assert not any(
+            PurePosixPath(cache_sample).match(pattern)
+            for pattern in manifest["optional_globs"]
+        )
+        assert any(
+            PurePosixPath(cache_sample).match(pattern)
+            for pattern in manifest["never_publish_patterns"]
+        )
 
     def test_selection_precedes_side_effects_render_and_tests(self):
         data = _load_workflow("hourly-master.yml")
@@ -1396,6 +1498,7 @@ class TestWorkflowPipInstallMatchesImports:
             "collections",
             "concurrent",
             "contextlib",
+            "contextvars",
             "copy",
             "csv",
             "dataclasses",

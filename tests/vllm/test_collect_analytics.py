@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -50,6 +51,82 @@ def _build(number: int, days_ago: float, jobs: list[dict], state: str = "passed"
         "jobs": jobs,
         "web_url": "",
     }
+
+
+def _raw_api_build(
+    number: int,
+    *,
+    created_at: datetime | None = None,
+    state: str = "passed",
+    job_state: str = "passed",
+    marker: str = "cached",
+) -> dict:
+    created = created_at or (NOW - timedelta(days=2))
+    build_finished = state in ca.TERMINAL_BUILD_STATES
+    job_finished = job_state in {
+        "passed",
+        "failed",
+        "canceled",
+        "skipped",
+        "not_run",
+        "broken",
+        "timed_out",
+    }
+    return {
+        "number": number,
+        "branch": "main",
+        "state": state,
+        "commit": f"commit-{number}-{marker}",
+        "message": f"Full CI run - nightly ({marker})",
+        "created_at": created.isoformat(),
+        "started_at": (created + timedelta(minutes=1)).isoformat(),
+        "finished_at": (
+            (created + timedelta(hours=1)).isoformat() if build_finished else None
+        ),
+        "web_url": f"https://buildkite.com/vllm/ci/builds/{number}",
+        "jobs": [
+            {
+                "id": f"job-{number}",
+                "type": "script",
+                "name": f"Job {number}",
+                "state": job_state,
+                "runnable_at": (created + timedelta(minutes=1)).isoformat(),
+                "started_at": (created + timedelta(minutes=2)).isoformat(),
+                "finished_at": (
+                    (created + timedelta(minutes=30)).isoformat()
+                    if job_finished
+                    else None
+                ),
+                "agent_query_rules": ["queue=gpu_1_queue"],
+                "step": {"id": f"step-{number}", "key": f"job-{number}"},
+            }
+        ],
+    }
+
+
+def _write_test_build_cache(
+    tmp_path,
+    *,
+    builds: list[dict],
+    pipeline: str = "ci",
+    watermark: datetime | None = None,
+    last_full_at: datetime | None = None,
+    window_days: int = 30,
+):
+    cache_dir = tmp_path / ca.CACHE_DIR_NAME
+    watermark = watermark or (NOW - timedelta(hours=1))
+    last_full_at = last_full_at or (NOW - timedelta(hours=2))
+    ca.write_build_cache(
+        cache_dir,
+        pipeline,
+        builds=builds,
+        watermark=watermark,
+        window_days=window_days,
+        last_full_at=last_full_at,
+        updated_at=watermark,
+        complete_from=watermark - timedelta(days=window_days),
+    )
+    return cache_dir
 
 
 def test_bk_get_waits_for_longest_buildkite_rate_limit_reset(monkeypatch):
@@ -305,6 +382,485 @@ class TestWindowedAnalytics:
 
         assert [build["number"] for build in builds] == [42]
         assert provenance["exhaustive"] is True
+
+    def test_cached_aliases_preserve_nightly_filter_and_queue(self):
+        cached = _raw_api_build(42)
+        cached.pop("message")
+        cached["canonical_nightly"] = True
+        cached["jobs"][0].pop("agent_query_rules")
+        cached["jobs"][0]["q"] = "gpu_1_queue"
+
+        builds = ca.summarize_pipeline_builds(
+            "ci",
+            [cached],
+            nightly_only=True,
+            name_pattern=ca.NIGHTLY_NAME_PATTERNS_BY_SLUG["ci"],
+        )
+
+        assert [build["number"] for build in builds] == [42]
+        assert builds[0]["message"] == ca.CACHE_NIGHTLY_MESSAGE["ci"]
+        assert re.search(
+            ca.NIGHTLY_NAME_PATTERNS_BY_SLUG["ci"],
+            builds[0]["message"],
+            re.IGNORECASE,
+        )
+        expected_build_url = "https://buildkite.com/vllm/ci/builds/42"
+        assert builds[0]["web_url"] == expected_build_url
+        assert ca.gating_build_summary(builds[0])["web_url"] == expected_build_url
+        assert builds[0]["jobs"][0]["q"] == "gpu_1_queue"
+        reliability = ca.build_all_main_reliability(
+            ca._reliability_builds_with_cache_aliases([cached], "ci"),
+            pipeline_slug="ci",
+            window_days=30,
+            nightly_pattern=ca.NIGHTLY_NAME_PATTERNS_BY_SLUG["ci"],
+        )
+        assert reliability["cohort"]["canonical_nightly_build_count"] == 1
+
+
+class TestIncrementalAnalyticsCache:
+    def test_steady_state_uses_overlapping_created_and_finished_legs(
+        self, monkeypatch, tmp_path
+    ):
+        watermark = NOW - timedelta(hours=1)
+        cached = _raw_api_build(1)
+        fresh = _raw_api_build(2, created_at=NOW - timedelta(minutes=30), marker="fresh")
+        cache_dir = _write_test_build_cache(
+            tmp_path,
+            builds=[cached],
+            watermark=watermark,
+        )
+        calls = []
+
+        def fake_get(path, token, params=None):
+            calls.append((path, dict(params or {})))
+            if "created_from" in params:
+                return [fresh]
+            if "finished_from" in params:
+                return []
+            raise AssertionError(f"unexpected request: {path} {params}")
+
+        monkeypatch.setattr(ca, "bk_get", fake_get)
+
+        builds, provenance = ca.fetch_pipeline_builds(
+            "ci",
+            "fake-token",
+            30,
+            cache_dir=cache_dir,
+            ref_now=NOW,
+        )
+
+        assert [build["number"] for build in builds] == [2, 1]
+        assert provenance["fetch_mode"] == "incremental"
+        assert provenance["created_from"] == (NOW - timedelta(days=30)).isoformat()
+        assert provenance["cache"]["cache_written"] is True
+        overlap = (watermark - ca.ANALYTICS_CACHE_OVERLAP).isoformat()
+        assert [params.get("created_from") for _, params in calls] == [overlap, None]
+        assert [params.get("finished_from") for _, params in calls] == [None, overlap]
+        assert all(params["include_retried_jobs"] == "true" for _, params in calls)
+
+        reloaded = ca.load_build_cache(
+            cache_dir,
+            "ci",
+            cutoff=NOW - timedelta(days=30),
+            window_days=30,
+            ref_now=NOW,
+        )
+        assert reloaded.valid is True
+        assert _iso_or_datetime(reloaded.watermark) == NOW
+        assert _iso_or_datetime(reloaded.complete_from) == NOW - timedelta(days=30)
+
+    def test_running_cached_job_is_refreshed_from_individual_endpoint(
+        self, monkeypatch, tmp_path
+    ):
+        running = _raw_api_build(7, state="running", job_state="running")
+        completed = _raw_api_build(7, state="passed", job_state="passed", marker="complete")
+        cache_dir = _write_test_build_cache(tmp_path, builds=[running])
+        calls = []
+
+        def fake_get(path, token, params=None):
+            calls.append((path, dict(params or {})))
+            if path.endswith("/builds"):
+                return []
+            if path.endswith("/builds/7"):
+                return [completed]
+            raise AssertionError(path)
+
+        monkeypatch.setattr(ca, "bk_get", fake_get)
+
+        builds, provenance = ca.fetch_pipeline_builds(
+            "ci", "fake-token", 30, cache_dir=cache_dir, ref_now=NOW
+        )
+
+        assert builds[0]["state"] == "passed"
+        assert builds[0]["jobs"][0]["state"] == "passed"
+        assert builds[0]["commit"].endswith("-complete")
+        assert provenance["cache"]["refresh_build_numbers"] == [7]
+        individual = next(call for call in calls if call[0].endswith("/builds/7"))
+        assert individual[1] == {"include_retried_jobs": "true"}
+
+    def test_finished_leg_recovers_build_created_before_overlap(
+        self, monkeypatch, tmp_path
+    ):
+        cache_dir = _write_test_build_cache(
+            tmp_path,
+            builds=[_raw_api_build(1)],
+        )
+        late = _raw_api_build(
+            9,
+            created_at=NOW - timedelta(days=10),
+            marker="late-finished",
+        )
+
+        def fake_get(path, token, params=None):
+            if "created_from" in params:
+                return []
+            if "finished_from" in params:
+                return [late]
+            raise AssertionError(path)
+
+        monkeypatch.setattr(ca, "bk_get", fake_get)
+
+        builds, provenance = ca.fetch_pipeline_builds(
+            "ci", "fake-token", 30, cache_dir=cache_dir, ref_now=NOW
+        )
+
+        recovered = next(build for build in builds if build["number"] == 9)
+        assert recovered["commit"].endswith("-late-finished")
+        assert provenance["cache"]["finished_builds"] == 1
+
+    def test_duplicate_builds_merge_with_freshest_leg_winning(
+        self, monkeypatch, tmp_path
+    ):
+        cache_dir = _write_test_build_cache(
+            tmp_path,
+            builds=[_raw_api_build(5, marker="cached")],
+        )
+        created = _raw_api_build(5, marker="created-leg")
+        finished = _raw_api_build(5, marker="finished-leg")
+
+        def fake_get(path, token, params=None):
+            if "created_from" in params:
+                return [created]
+            if "finished_from" in params:
+                return [finished]
+            raise AssertionError(path)
+
+        monkeypatch.setattr(ca, "bk_get", fake_get)
+
+        builds, _ = ca.fetch_pipeline_builds(
+            "ci", "fake-token", 30, cache_dir=cache_dir, ref_now=NOW
+        )
+
+        assert len(builds) == 1
+        assert builds[0]["commit"].endswith("-finished-leg")
+
+    @pytest.mark.parametrize("cache_case", ["missing", "malformed", "tampered", "expanded"])
+    def test_cache_miss_invalid_tamper_or_window_expansion_forces_full_fetch(
+        self, monkeypatch, tmp_path, cache_case
+    ):
+        cache_dir = tmp_path / ca.CACHE_DIR_NAME
+        if cache_case != "missing":
+            cache_dir = _write_test_build_cache(
+                tmp_path,
+                builds=[_raw_api_build(1)],
+                window_days=7 if cache_case == "expanded" else 30,
+            )
+        cache_path = cache_dir / "ci.json"
+        if cache_case == "malformed":
+            cache_path.write_text("{not json")
+        elif cache_case == "tampered":
+            payload = json.loads(cache_path.read_text())
+            payload["builds"][0]["state"] = "failed"
+            cache_path.write_text(json.dumps(payload))
+
+        full = _raw_api_build(22, marker=f"full-{cache_case}")
+        calls = []
+
+        def fake_get(path, token, params=None):
+            calls.append(dict(params or {}))
+            return [full]
+
+        monkeypatch.setattr(ca, "bk_get", fake_get)
+
+        builds, provenance = ca.fetch_pipeline_builds(
+            "ci", "fake-token", 30, cache_dir=cache_dir, ref_now=NOW
+        )
+
+        assert [build["number"] for build in builds] == [22]
+        assert provenance["fetch_mode"] == "full"
+        assert provenance["cache"]["decision"].startswith("cache_")
+        assert len(calls) == 1
+        assert calls[0]["created_from"] == (NOW - timedelta(days=30)).isoformat()
+        assert "finished_from" not in calls[0]
+
+    def test_partial_incremental_retries_one_full_fetch(self, monkeypatch, tmp_path):
+        watermark = NOW - timedelta(hours=1)
+        cache_dir = _write_test_build_cache(
+            tmp_path,
+            builds=[_raw_api_build(1)],
+            watermark=watermark,
+        )
+        overlap = (watermark - ca.ANALYTICS_CACHE_OVERLAP).isoformat()
+        cutoff = (NOW - timedelta(days=30)).isoformat()
+        full = _raw_api_build(40, marker="fallback-full")
+        calls = []
+
+        def fake_get(path, token, params=None):
+            params = dict(params or {})
+            calls.append(params)
+            if params.get("created_from") == overlap:
+                return [{"number": number} for number in range(1, 101)]
+            if params.get("finished_from") == overlap:
+                return []
+            if params.get("created_from") == cutoff:
+                return [full]
+            raise AssertionError(params)
+
+        monkeypatch.setattr(ca, "bk_get", fake_get)
+
+        builds, provenance = ca.fetch_pipeline_builds(
+            "ci",
+            "fake-token",
+            30,
+            max_pages=1,
+            cache_dir=cache_dir,
+            ref_now=NOW,
+        )
+
+        assert [build["number"] for build in builds] == [40]
+        assert provenance["fetch_mode"] == "full_after_incremental"
+        attempt = provenance["cache"]["incremental_attempt"]
+        assert attempt["failure"] == "incremental_pagination_incomplete"
+        assert [params.get("created_from") for params in calls] == [overlap, None, cutoff]
+
+    def test_incomplete_full_fetch_raises_and_leaves_cache_unchanged(
+        self, monkeypatch, tmp_path
+    ):
+        cache_dir = _write_test_build_cache(
+            tmp_path,
+            builds=[_raw_api_build(1)],
+            watermark=NOW - timedelta(hours=1),
+        )
+        cache_path = cache_dir / "ci.json"
+        before = cache_path.read_bytes()
+
+        monkeypatch.setattr(
+            ca,
+            "bk_get",
+            lambda path, token, params=None: [
+                {"number": number} for number in range(1, 101)
+            ],
+        )
+
+        with pytest.raises(ca.IncompleteAnalyticsCollection) as exc_info:
+            ca.fetch_pipeline_builds(
+                "ci",
+                "fake-token",
+                30,
+                max_pages=1,
+                cache_dir=cache_dir,
+                ref_now=NOW,
+            )
+
+        assert exc_info.value.provenance["exhaustive"] is False
+        assert exc_info.value.provenance["fetch_mode"] == "full_after_incremental"
+        assert cache_path.read_bytes() == before
+
+    def test_cache_miss_with_incomplete_full_fetch_fails_without_writing(
+        self, monkeypatch, tmp_path
+    ):
+        cache_dir = tmp_path / ca.CACHE_DIR_NAME
+        monkeypatch.setattr(
+            ca,
+            "bk_get",
+            lambda path, token, params=None: [
+                {"number": number} for number in range(1, 101)
+            ],
+        )
+
+        with pytest.raises(ca.IncompleteAnalyticsCollection) as exc_info:
+            ca.fetch_pipeline_builds(
+                "ci",
+                "fake-token",
+                30,
+                max_pages=1,
+                cache_dir=cache_dir,
+                ref_now=NOW,
+            )
+
+        assert exc_info.value.provenance["fetch_mode"] == "full"
+        assert exc_info.value.provenance["exhaustive"] is False
+        assert not (cache_dir / "ci.json").exists()
+
+    def test_daily_reconciliation_uses_full_fetch_at_twenty_four_hours(
+        self, monkeypatch, tmp_path
+    ):
+        cache_dir = _write_test_build_cache(
+            tmp_path,
+            builds=[_raw_api_build(1)],
+            watermark=NOW - timedelta(hours=1),
+            last_full_at=NOW - timedelta(hours=24),
+        )
+        calls = []
+
+        def fake_get(path, token, params=None):
+            calls.append(dict(params or {}))
+            return [_raw_api_build(2, marker="daily-full")]
+
+        monkeypatch.setattr(ca, "bk_get", fake_get)
+
+        builds, provenance = ca.fetch_pipeline_builds(
+            "ci", "fake-token", 30, cache_dir=cache_dir, ref_now=NOW
+        )
+
+        assert [build["number"] for build in builds] == [2]
+        assert provenance["fetch_mode"] == "full"
+        assert provenance["cache"]["decision"] == "daily_reconciliation"
+        assert len(calls) == 1
+        assert calls[0]["created_from"] == (NOW - timedelta(days=30)).isoformat()
+
+    def test_utc_date_rollover_forces_full_reconciliation_before_twenty_four_hours(
+        self, monkeypatch, tmp_path
+    ):
+        ref_now = datetime(2026, 4, 21, 0, 30, tzinfo=timezone.utc)
+        cache_dir = _write_test_build_cache(
+            tmp_path,
+            builds=[_raw_api_build(1)],
+            watermark=datetime(2026, 4, 20, 23, 30, tzinfo=timezone.utc),
+            last_full_at=datetime(2026, 4, 20, 22, 30, tzinfo=timezone.utc),
+        )
+        calls = []
+
+        def fake_get(path, token, params=None):
+            calls.append(dict(params or {}))
+            return [_raw_api_build(2, marker="rollover-full")]
+
+        monkeypatch.setattr(ca, "bk_get", fake_get)
+
+        builds, provenance = ca.fetch_pipeline_builds(
+            "ci", "fake-token", 30, cache_dir=cache_dir, ref_now=ref_now
+        )
+
+        assert [build["number"] for build in builds] == [2]
+        assert provenance["cache"]["decision"] == "utc_day_reconciliation"
+        assert len(calls) == 1
+        assert calls[0]["created_from"] == (
+            ref_now - timedelta(days=30)
+        ).isoformat()
+
+    def test_main_freezes_one_clock_for_fetch_cache_results_and_windows(
+        self, monkeypatch, tmp_path
+    ):
+        class MovingDatetime(datetime):
+            calls = 0
+
+            @classmethod
+            def now(cls, tz=None):
+                cls.calls += 1
+                value = NOW + timedelta(hours=cls.calls - 1)
+                return cls.fromtimestamp(value.timestamp(), tz=tz)
+
+        fetch_params = []
+        result_times = []
+
+        def fake_get(path, token, params=None):
+            fetch_params.append(dict(params or {}))
+            return []
+
+        def fake_results(*args, **kwargs):
+            result_times.append(kwargs["now"])
+            return []
+
+        monkeypatch.setattr(ca, "datetime", MovingDatetime)
+        monkeypatch.setattr(ca, "bk_get", fake_get)
+        monkeypatch.setattr(ca, "load_test_result_builds", fake_results)
+        monkeypatch.setenv("BUILDKITE_TOKEN", "fake-token")
+        monkeypatch.setattr(
+            ca.sys,
+            "argv",
+            [
+                "collect_analytics.py",
+                "--days",
+                "30",
+                "--pipeline",
+                "both",
+                "--output",
+                str(tmp_path),
+            ],
+        )
+
+        ca.main()
+
+        assert MovingDatetime.calls == 1
+        assert result_times == [NOW, NOW]
+        created_filters = [
+            params["created_from"]
+            for params in fetch_params
+            if "created_from" in params
+        ]
+        assert created_filters == [(NOW - timedelta(days=30)).isoformat()] * 2
+        payload = json.loads((tmp_path / "analytics.json").read_text())
+        assert {block["generated_at"] for block in payload.values()} == {
+            "2026-04-20T12:00:00Z"
+        }
+
+
+def _iso_or_datetime(value) -> datetime | None:
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc)
+    return ca.parse_ts(value)
+
+
+class TestWindowedAnalyticsMain:
+    def test_targeted_pipeline_refresh_preserves_other_pipeline_block(
+        self, monkeypatch, tmp_path
+    ):
+        preserved_amd = {
+            "display_name": "AMD CI",
+            "sentinel": "preserve-me",
+            "summary": {
+                "total_builds": 1,
+                "terminal_builds": 1,
+                "build_pass_rate_pct": 100.0,
+                "jobs_with_failures": 0,
+                "total_jobs_tracked": 1,
+            },
+        }
+        (tmp_path / "analytics.json").write_text(
+            json.dumps({"amd-ci": preserved_amd})
+        )
+        fresh = _raw_api_build(88, marker="targeted")
+
+        def fake_fetch(pipeline_slug, token, days, max_pages=None):
+            assert pipeline_slug == "ci"
+            return [fresh], {
+                "created_from": (NOW - timedelta(days=30)).isoformat(),
+                "exhaustive": True,
+            }
+
+        monkeypatch.setenv("BUILDKITE_TOKEN", "fake-token")
+        monkeypatch.setattr(ca, "fetch_pipeline_builds", fake_fetch)
+        monkeypatch.setattr(ca, "load_test_result_builds", lambda *args, **kwargs: [])
+        monkeypatch.setattr(
+            ca.sys,
+            "argv",
+            [
+                "collect_analytics.py",
+                "--days",
+                "30",
+                "--pipeline",
+                "ci",
+                "--output",
+                str(tmp_path),
+            ],
+        )
+
+        ca.main()
+
+        payload = json.loads((tmp_path / "analytics.json").read_text())
+        assert payload["amd-ci"] == preserved_amd
+        assert payload["ci"]["pipeline"] == "ci"
+        assert payload["ci"]["builds"][0]["number"] == 88
 
     def test_main_emits_all_main_reliability_for_both_and_retries_only_upstream(self, monkeypatch, tmp_path):
         messages = {

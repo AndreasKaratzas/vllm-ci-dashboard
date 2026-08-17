@@ -1706,7 +1706,10 @@ def test_hourly_workflow_orders_live_audit_tests_and_enforcement(tmp_path):
         "name: Sync CI data from gh-pages",
         "name: Collect AMD gating target list",
         "name: Collect CI data",
+        "name: Prepare private analytics cache key",
+        "name: Restore private analytics build cache",
         "name: Collect CI analytics",
+        "name: Save private analytics build cache",
         "name: Collect test group changes",
         "name: Collect AMD test matrix",
         "name: Collect AMD gating proposals",
@@ -1803,4 +1806,90 @@ def test_workflow_audit_enforces_one_way_analytics_projection(tmp_path):
     broken_materialization.audit_workflows()
     assert "public-analytics-materialization" in {
         finding.code for finding in broken_materialization.report.errors
+    }
+
+
+def test_workflow_audit_enforces_private_analytics_cache_boundary(tmp_path):
+    for relative in (
+        ".github/workflows/hourly-master.yml",
+        ".gitignore",
+        "config/public_data_manifest.json",
+        "scripts/build_site.py",
+    ):
+        destination = tmp_path / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text((ROOT / relative).read_text())
+
+    cache_codes = {
+        "workflow-private-analytics-cache-order",
+        "workflow-private-analytics-cache-key",
+        "workflow-private-analytics-cache-restore",
+        "workflow-private-analytics-cache-save",
+        "workflow-private-analytics-cache-boundary",
+        "workflow-private-analytics-cache-feedback",
+        "workflow-private-analytics-cache-staging",
+        "private-analytics-cache-ignore",
+        "private-analytics-cache-publication",
+    }
+    valid = DashboardAudit(tmp_path)
+    valid.audit_workflows()
+    assert not cache_codes & {finding.code for finding in valid.report.errors}
+
+    hourly = tmp_path / ".github/workflows/hourly-master.yml"
+    hourly.write_text(
+        hourly.read_text().replace(
+            "CACHE_DAY=$(date -u +%Y-%m-%d)",
+            "CACHE_DAY=$(date +%Y-%m-%d)",
+            1,
+        )
+    )
+    bad_key = DashboardAudit(tmp_path)
+    bad_key.audit_workflows()
+    assert "workflow-private-analytics-cache-key" in {
+        finding.code for finding in bad_key.report.errors
+    }
+
+    hourly.write_text(
+        hourly.read_text().replace(
+            "flaky_tests.json failure_trends.json quarantine.json",
+            (
+                "flaky_tests.json failure_trends.json quarantine.json "
+                "analytics-builds-v1"
+            ),
+            1,
+        )
+    )
+    feedback = DashboardAudit(tmp_path)
+    feedback.audit_workflows()
+    assert "workflow-private-analytics-cache-feedback" in {
+        finding.code for finding in feedback.report.errors
+    }
+
+    hourly.write_text(
+        hourly.read_text().replace("git add data/", "git add -f data/", 1)
+    )
+    staged = DashboardAudit(tmp_path)
+    staged.audit_workflows()
+    assert "workflow-private-analytics-cache-staging" in {
+        finding.code for finding in staged.report.errors
+    }
+
+    gitignore = tmp_path / ".gitignore"
+    gitignore.write_text(
+        gitignore.read_text().replace("data/vllm/ci/.cache/", "", 1)
+    )
+    unignored = DashboardAudit(tmp_path)
+    unignored.audit_workflows()
+    assert "private-analytics-cache-ignore" in {
+        finding.code for finding in unignored.report.errors
+    }
+
+    manifest_path = tmp_path / "config/public_data_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["build_inputs"].append("vllm/ci/.cache/analytics-builds-v1")
+    manifest_path.write_text(json.dumps(manifest))
+    exposed = DashboardAudit(tmp_path)
+    exposed.audit_workflows()
+    assert "private-analytics-cache-publication" in {
+        finding.code for finding in exposed.report.errors
     }

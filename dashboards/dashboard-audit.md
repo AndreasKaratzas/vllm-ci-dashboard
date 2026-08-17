@@ -56,6 +56,10 @@ frontend JS, and workflow YAML. It does not call GitHub or Buildkite.
   manifest declares its bounded projection, publication-size accounting uses
   that projection's `max_bytes`, and the hourly workflow never restores the
   public projection into the private reliability input.
+- The versioned analytics build cache is restored before analytics collection
+  from GitHub Actions cache storage only. Its UTC-day key, prior-day fallback,
+  post-success save, gitignore rule, and never-publish coverage are audited;
+  cache transport failures do not block a fresh Buildkite collection.
 - Frontend tokens that encode key UX decisions still exist: 10-row tables, overall score bar, wider hardware bars, CI Analytics matrix copy, and Queue Monitor defaulting to running workload.
 - Every Pages writer shares the `gh-pages-deploy` lock and uses `scripts/build_site.py --cache-bust-index`.
 - `hourly-master.yml` runs the audit after data generation and before deploy.
