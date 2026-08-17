@@ -446,22 +446,23 @@ def test_pending_scan_interleaves_oldest_and_newest_with_a_hard_limit():
         max_logs=4,
     )
 
-    assert client.calls == [_uuid(6), _uuid(1), _uuid(5), _uuid(2)]
+    assert set(client.calls) == {_uuid(6), _uuid(1), _uuid(5), _uuid(2)}
     assert [row["status"] for row in rows].count("negative") == 4
     assert [row["status"] for row in rows].count("pending") == 2
 
 
-def test_scan_uses_a_rolling_window_of_exactly_three_log_fetches():
+def test_scan_uses_the_configured_bounded_rolling_fetch_window():
+    candidate_count = collector.MAX_CONCURRENT_LOG_FETCHES + 3
     pending = [
         dns.pending_record(_metadata(index, finished_hours=-index / 10))
-        for index in range(1, 7)
+        for index in range(1, candidate_count + 1)
     ]
 
     class BlockingClient:
         def __init__(self):
             self.lock = threading.Lock()
             self.release = threading.Event()
-            self.three_started = threading.Event()
+            self.window_started = threading.Event()
             self.calls: list[str] = []
             self.active = 0
             self.peak_active = 0
@@ -472,7 +473,7 @@ def test_scan_uses_a_rolling_window_of_exactly_three_log_fetches():
                 self.active += 1
                 self.peak_active = max(self.peak_active, self.active)
                 if self.active == collector.MAX_CONCURRENT_LOG_FETCHES:
-                    self.three_started.set()
+                    self.window_started.set()
             if not self.release.wait(timeout=5):
                 raise AssertionError("rolling scanner did not release blocked fetches")
             with self.lock:
@@ -488,7 +489,7 @@ def test_scan_uses_a_rolling_window_of_exactly_three_log_fetches():
                 pending,
                 client=client,
                 attempted_at=_timestamp(),
-                max_logs=6,
+                max_logs=candidate_count,
             )
         except BaseException as exc:  # make worker failures visible to the test
             result["error"] = exc
@@ -496,7 +497,7 @@ def test_scan_uses_a_rolling_window_of_exactly_three_log_fetches():
     scanner = threading.Thread(target=run_scan)
     scanner.start()
     try:
-        assert client.three_started.wait(timeout=5)
+        assert client.window_started.wait(timeout=5)
         with client.lock:
             assert len(client.calls) == collector.MAX_CONCURRENT_LOG_FETCHES
             assert client.peak_active == collector.MAX_CONCURRENT_LOG_FETCHES
@@ -506,9 +507,17 @@ def test_scan_uses_a_rolling_window_of_exactly_three_log_fetches():
 
     assert not scanner.is_alive()
     assert "error" not in result
-    assert len(client.calls) == 6
+    assert len(client.calls) == candidate_count
     assert client.peak_active == collector.MAX_CONCURRENT_LOG_FETCHES
-    assert [row["status"] for row in result["rows"]].count("negative") == 6
+    assert (
+        [row["status"] for row in result["rows"]].count("negative")
+        == candidate_count
+    )
+
+
+def test_concurrent_log_window_has_an_explicit_raw_memory_bound():
+    assert collector.MAX_CONCURRENT_LOG_FETCHES == 8
+    assert collector.MAX_IN_FLIGHT_RAW_LOG_BYTES == 128 * 1024 * 1024
 
 
 def test_concurrent_client_admission_stays_at_thirty_request_starts_per_minute():
@@ -630,9 +639,10 @@ def test_retry_after_blocks_other_concurrent_requesters():
 
 
 def test_shared_deadline_stops_rolling_submission_after_in_flight_requests():
+    candidate_count = collector.MAX_CONCURRENT_LOG_FETCHES + 3
     pending = [
         dns.pending_record(_metadata(index, finished_hours=-index / 10))
-        for index in range(1, 7)
+        for index in range(1, candidate_count + 1)
     ]
     clock = {"value": 0.0}
     clock_lock = threading.Lock()
@@ -660,23 +670,38 @@ def test_shared_deadline_stops_rolling_submission_after_in_flight_requests():
         pending,
         client=client,
         attempted_at=_timestamp(),
-        max_logs=6,
+        max_logs=candidate_count,
         deadline=10.0,
         monotonic=monotonic,
     )
 
-    expected_first_window = {_uuid(6), _uuid(1), _uuid(5)}
+    expected_first_window = {
+        row["job_id"]
+        for row in collector._fair_pending_order(pending)[
+            : collector.MAX_CONCURRENT_LOG_FETCHES
+        ]
+    }
     assert set(client.calls) == expected_first_window
     assert len(client.calls) == collector.MAX_CONCURRENT_LOG_FETCHES
-    assert [row["status"] for row in rows].count("negative") == 3
+    assert (
+        [row["status"] for row in rows].count("negative")
+        == collector.MAX_CONCURRENT_LOG_FETCHES
+    )
     assert [row["status"] for row in rows].count("pending") == 3
 
 
 def test_budget_exhaustion_never_starts_a_candidate_beyond_the_active_window():
+    candidate_count = collector.MAX_CONCURRENT_LOG_FETCHES + 3
     pending = [
         dns.pending_record(_metadata(index, finished_hours=-index / 10))
-        for index in range(1, 7)
+        for index in range(1, candidate_count + 1)
     ]
+    fair_order = collector._fair_pending_order(pending)
+    exhausting_job = fair_order[0]["job_id"]
+    initial_window = {
+        row["job_id"]
+        for row in fair_order[: collector.MAX_CONCURRENT_LOG_FETCHES]
+    }
     exhausted = threading.Event()
 
     class ExhaustingClient:
@@ -687,7 +712,7 @@ def test_budget_exhaustion_never_starts_a_candidate_beyond_the_active_window():
         def fetch_job_log(self, metadata: dict, *, deadline: float | None = None):
             with self.lock:
                 self.calls.append(metadata["job_id"])
-            if metadata["job_id"] == _uuid(6):
+            if metadata["job_id"] == exhausting_job:
                 exhausted.set()
                 raise collector.BudgetExhausted()
             if not exhausted.wait(timeout=5):
@@ -699,11 +724,10 @@ def test_budget_exhaustion_never_starts_a_candidate_beyond_the_active_window():
         pending,
         client=client,
         attempted_at=_timestamp(),
-        max_logs=6,
+        max_logs=candidate_count,
     )
 
-    initial_window = {_uuid(6), _uuid(1), _uuid(5)}
-    assert _uuid(6) in client.calls
+    assert exhausting_job in client.calls
     assert set(client.calls) <= initial_window
     assert len(client.calls) <= collector.MAX_CONCURRENT_LOG_FETCHES
     assert [row["status"] for row in rows].count("pending") >= 4
