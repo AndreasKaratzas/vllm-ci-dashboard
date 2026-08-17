@@ -48,6 +48,7 @@ import logging
 import re
 import sys
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -89,6 +90,13 @@ UNIDENTIFIED_NODE = "(unidentified)"
 # its test group demonstrably works that day (so the failure is anomalous).
 INFRA_SUSPECT_MIN_PASS_RATE = 0.5
 INFRA_SUSPECT_MIN_SAMPLES = 3
+
+# The hourly workflow refreshes three days.  A single upstream ``ci`` page with
+# 100 embedded job rosters is large enough to approach the HTTP timeout, so
+# split only that small incremental window into independent 24-hour requests.
+# Keeping the long backfill path unchanged avoids multiplying its API quota.
+MAX_INCREMENTAL_SLICE_DAYS = 3
+MAX_INCREMENTAL_SLICE_WORKERS = 3
 
 # AMD-relevant pipeline slugs to walk.
 AGENT_HEALTH_SLUGS = ("amd-ci", "ci")
@@ -178,19 +186,95 @@ def _observe(slug: str, build: dict, job: dict, nightly_re: re.Pattern | None) -
     }
 
 
-def _fetch_pipeline_observations(slug: str, days: int) -> list[dict]:
-    created_from = datetime.now(timezone.utc) - timedelta(days=days)
+def _incremental_slices(
+    created_from: datetime,
+    created_to: datetime,
+) -> list[tuple[datetime, datetime]]:
+    """Return exact, non-overlapping 24-hour ranges covering a refresh window."""
+    slices = []
+    start = created_from
+    while start < created_to:
+        end = min(start + timedelta(days=1), created_to)
+        slices.append((start, end))
+        start = end
+    return slices
+
+
+def _fetch_pipeline_builds(
+    url: str,
+    created_from: datetime,
+    created_to: datetime,
+    days: int,
+) -> list[dict]:
+    """Fetch one pipeline's build/job payloads with bounded incremental fan-out.
+
+    Buildkite defines ``created_from`` as inclusive and ``created_to`` as
+    exclusive, so the slices neither omit nor double-count boundary builds.
+    Any slice failure is re-raised; callers therefore never publish a partial
+    agent-health refresh.  ``_paginate`` retains the existing retry behavior.
+    """
+    base_params = {
+        "per_page": 100,
+        "exclude_pipeline": "true",
+    }
+    if days > MAX_INCREMENTAL_SLICE_DAYS:
+        return _paginate(
+            url,
+            {**base_params, "created_from": created_from.isoformat()},
+        )
+
+    ranges = _incremental_slices(created_from, created_to)
+    results: list[list[dict] | None] = [None] * len(ranges)
+    with ThreadPoolExecutor(
+        max_workers=min(MAX_INCREMENTAL_SLICE_WORKERS, len(ranges)),
+        thread_name_prefix="agent-health-slice",
+    ) as executor:
+        pending = {
+            executor.submit(
+                _paginate,
+                url,
+                {
+                    **base_params,
+                    "created_from": start.isoformat(),
+                    "created_to": end.isoformat(),
+                },
+            ): index
+            for index, (start, end) in enumerate(ranges)
+        }
+        for future in as_completed(pending):
+            results[pending[future]] = future.result()
+
+    # Restore the builds endpoint's newest-first ordering across slices and
+    # defensively deduplicate by pipeline-local build number.
+    builds: list[dict] = []
+    seen_builds: set[object] = set()
+    for rows in reversed(results):
+        assert rows is not None
+        for build in rows:
+            build_number = build.get("number")
+            if build_number is not None and build_number in seen_builds:
+                continue
+            if build_number is not None:
+                seen_builds.add(build_number)
+            builds.append(build)
+    return builds
+
+
+def _fetch_pipeline_observations(
+    slug: str,
+    days: int,
+    *,
+    query_time: datetime | None = None,
+) -> list[dict]:
+    query_time = query_time or datetime.now(timezone.utc)
+    created_from = query_time - timedelta(days=days)
     url = f"{cfg.BK_API_BASE}/organizations/{cfg.BK_ORG}/pipelines/{slug}/builds"
     # NB: we deliberately do NOT request include_retried_jobs. The upstream ``ci``
     # pipeline has thousands of builds over 60d; pulling every superseded attempt
     # inline makes pages huge and the endpoint time out. The latest attempt per
     # job still carries the node tag + terminal state, which is what node-health
     # needs, and this keeps both the backfill and the hourly incremental fast.
-    params = {
-        "created_from": created_from.isoformat(),
-        "per_page": 100,
-    }
-    builds = _paginate(url, params)
+    builds = _fetch_pipeline_builds(url, created_from, query_time, days)
     nightly_re = None
     pattern = NIGHTLY_NAME_PATTERNS_BY_SLUG.get(slug)
     if pattern:
@@ -363,7 +447,7 @@ def main() -> int:
 
     obs: list[dict] = []
     for slug in slugs:
-        obs.extend(_fetch_pipeline_observations(slug, days))
+        obs.extend(_fetch_pipeline_observations(slug, days, query_time=now))
     _mark_infra_suspect(obs)
 
     fresh_rollups = list(_rollup_rows(obs).values())
