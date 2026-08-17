@@ -912,6 +912,78 @@ def test_prior_fallback_start_persists_until_hard_expiration(
     assert source.read_text() == '{"version":"candidate"}\n'
 
 
+def test_clean_candidate_recovers_after_prior_fallback_expired(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    source = repo / "data/source.json"
+    state_path = repo / "data/vllm/ci/publication_state.json"
+    state_path.parent.mkdir(parents=True)
+    source.write_text('{"version":"baseline"}\n')
+    source_bytes = source.read_bytes()
+    original_since = "2000-01-01T00:00:00Z"
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "generated_at": original_since,
+                "baseline_ref": "0" * 40,
+                "mode": "fallback",
+                "degraded_surfaces": ["ci"],
+                "degraded_since": {"ci": original_since},
+                "fallback_max_age_hours": 36,
+                "restored_manifest": {
+                    "ci": {
+                        "data/source.json": {
+                            "bytes": len(source_bytes),
+                            "sha256": hashlib.sha256(source_bytes).hexdigest(),
+                        }
+                    }
+                },
+            }
+        )
+    )
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "expired fallback baseline")
+    baseline = _git(repo, "rev-parse", "HEAD")
+    source.write_text('{"version":"fresh-candidate"}\n')
+
+    class CleanAudit:
+        def __init__(self, *args, **kwargs):
+            self.report = SimpleNamespace(errors=[], degradations=[])
+
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def run(self) -> SimpleNamespace:
+            return SimpleNamespace(errors=[], degradations=[])
+
+    monkeypatch.setattr(
+        selector_module,
+        "SURFACE_SPECS",
+        {"ci": SurfaceSpec(required_paths=("data/source.json",))},
+    )
+    monkeypatch.setattr(selector_module, "DashboardAudit", CleanAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    state = selector_module.select_publication(repo, baseline, state_path)
+
+    assert source.read_text() == '{"version":"fresh-candidate"}\n'
+    assert state["mode"] == "current"
+    assert state["degraded_surfaces"] == []
+    assert state["fresh_degraded_surfaces"] == []
+    assert state["fallback_surfaces"] == []
+    assert state["degraded_since"] == {}
+    assert state["fallback_since"] == {}
+    assert state["restored_paths"] == {}
+    assert state["restored_manifest"] == {}
+
+
 @pytest.mark.parametrize(
     ("source_timestamp", "expected_severity"),
     [

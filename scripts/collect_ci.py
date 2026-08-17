@@ -487,8 +487,14 @@ def collect_pipeline(
                 build_num, date,
             )
 
-        # For non-terminal builds, collect whatever jobs have completed so far.
-        # The 3-hour cron will re-run and pick up newly finished jobs.
+        # Hydrate the roster before deciding whether this build is eligible for
+        # canonical test evidence.  Buildkite can expose hundreds of completed
+        # jobs while the nightly itself is still ``running``/``failing`` (and a
+        # terminal build can still have late soft-fail jobs in flight).  Writing
+        # those partial rows to the date-keyed JSONL would replace the previous
+        # complete cohort even though analysis correctly excludes the build.
+        # Keep provisional builds visible through build metadata, then retry
+        # their logs on the next collection pass.
         is_running = state not in cfg.TERMINAL_STATES
 
         log.info("  Build #%d (%s): fetching test results...%s",
@@ -502,6 +508,15 @@ def collect_pipeline(
             # when there are no test-result rows for the build.
             build.clear()
             build.update(detail)
+
+        if not _is_complete_nightly_build(build):
+            log.info(
+                "  Build #%d (%s): provisional roster; skipping canonical "
+                "test-result publication",
+                build_num,
+                date,
+            )
+            continue
 
         jobs = fetch_build_jobs(build)
         # Filter to test jobs (skip bootstrap, docker build, etc.)
