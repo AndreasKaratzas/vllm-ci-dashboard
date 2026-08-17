@@ -38,6 +38,7 @@ PUBLICATION_SURFACE_LABELS = {
     "ci_core": "CI core health",
     "ci_gating": "CI gating",
     "ci_hotness": "CI workload hotness",
+    "dns_health": "DNS health",
     "github_home": "Project activity",
     "perf_eval": "Performance evaluation",
     "queue": "Queue health",

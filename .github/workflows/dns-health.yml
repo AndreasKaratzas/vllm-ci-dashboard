@@ -1,0 +1,131 @@
+name: DNS Health Monitor
+
+on:
+  schedule:
+    # Keep full-log scanning independent from the canonical Pages build and the
+    # queue collectors. The durable branch makes delayed runs idempotent.
+    - cron: '39 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: dns-health-data-publish
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 34
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests cryptography
+
+      - name: Resolve durable DNS scanner state
+        env:
+          DNS_STATE_ENCRYPTION_KEY: ${{ secrets.DNS_STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DNS_STATE_ENCRYPTION_KEY:-}" ]; then
+            echo "::error::DNS state encryption key is unavailable; refusing to collect."
+            exit 1
+          fi
+          # A missing branch is the expected first-run bootstrap. Transport or
+          # lookup failures must not turn an established ledger into an empty
+          # orphan branch. The public orphan branch contains ciphertext only.
+          set +e
+          git ls-remote --exit-code origin refs/heads/dns-health-data >/dev/null 2>&1
+          DNS_DATA_STATUS=$?
+          set -e
+          if [ "$DNS_DATA_STATUS" -eq 0 ]; then
+            git fetch origin \
+              +refs/heads/dns-health-data:refs/remotes/origin/dns-health-data \
+              --depth=1
+            ENCRYPTED_STATE="$RUNNER_TEMP/dns-health-scan-state.fernet"
+            if ! git show \
+              origin/dns-health-data:data/vllm/ci/dns_health/scan_state.fernet \
+              > "$ENCRYPTED_STATE" 2>/dev/null; then
+              rm -f "$ENCRYPTED_STATE"
+              echo "::error::Durable encrypted DNS state is unavailable; refusing to collect."
+              exit 1
+            fi
+            python scripts/vllm/ci/dns_state_crypto.py decrypt \
+              "$ENCRYPTED_STATE" \
+              data/vllm/ci/dns_health/scan_state.json.gz
+            gzip -t data/vllm/ci/dns_health/scan_state.json.gz
+            rm -f "$ENCRYPTED_STATE"
+          elif [ "$DNS_DATA_STATUS" -eq 2 ]; then
+            echo "No dns-health-data branch exists; starting the first bounded bootstrap."
+          else
+            echo "::error::Could not determine durable DNS branch state; refusing to publish."
+            exit "$DNS_DATA_STATUS"
+          fi
+
+      - name: Collect DNS failure observations
+        env:
+          BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
+        run: |
+          set -euo pipefail
+          ARGS=(
+            --state data/vllm/ci/dns_health/scan_state.json.gz
+            --output data/vllm/ci/dns_failures.json
+            --discover-days 30
+            --max-logs 500
+            --time-budget-seconds 1500
+          )
+          python scripts/vllm/collect_dns_failures.py "${ARGS[@]}"
+
+      - name: Validate bounded DNS artifacts
+        run: |
+          set -euo pipefail
+          python -m json.tool data/vllm/ci/dns_failures.json >/dev/null
+          python scripts/vllm/audit_dashboard_data.py --dns-only
+          test -s data/vllm/ci/dns_health/scan_state.json.gz
+          gzip -t data/vllm/ci/dns_health/scan_state.json.gz
+          chmod 0600 data/vllm/ci/dns_health/scan_state.json.gz
+
+      - name: Encrypt durable DNS scanner state
+        env:
+          DNS_STATE_ENCRYPTION_KEY: ${{ secrets.DNS_STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          python scripts/vllm/ci/dns_state_crypto.py encrypt \
+            data/vllm/ci/dns_health/scan_state.json.gz \
+            "$RUNNER_TEMP/dns-health-scan-state.fernet"
+          test -s "$RUNNER_TEMP/dns-health-scan-state.fernet"
+          rm -f data/vllm/ci/dns_health/scan_state.json.gz
+
+      - name: Publish durable DNS evidence
+        run: |
+          set -euo pipefail
+          # The orphan branch is publicly readable. Retain only the bounded
+          # aggregate and authenticated ciphertext on its single commit.
+          LIVE_ROOT=$(mktemp -d)
+          cleanup() {
+            git worktree remove --force "$LIVE_ROOT" 2>/dev/null || true
+            rm -rf "$LIVE_ROOT"
+          }
+          trap cleanup EXIT
+          git worktree add --detach "$LIVE_ROOT" HEAD
+          git -C "$LIVE_ROOT" switch --orphan dns-health-data-publish
+          git -C "$LIVE_ROOT" rm -rf --ignore-unmatch .
+          install -D -m 0644 data/vllm/ci/dns_failures.json \
+            "$LIVE_ROOT/data/vllm/ci/dns_failures.json"
+          install -D -m 0644 "$RUNNER_TEMP/dns-health-scan-state.fernet" \
+            "$LIVE_ROOT/data/vllm/ci/dns_health/scan_state.fernet"
+          git -C "$LIVE_ROOT" config user.name "github-actions[bot]"
+          git -C "$LIVE_ROOT" config user.email "github-actions[bot]@users.noreply.github.com"
+          git -C "$LIVE_ROOT" add \
+            data/vllm/ci/dns_failures.json \
+            data/vllm/ci/dns_health/scan_state.fernet
+          git -C "$LIVE_ROOT" commit -m "dns: health observations $(date -u +%Y-%m-%dT%H:%M)"
+          git -C "$LIVE_ROOT" push --force origin HEAD:dns-health-data

@@ -37,6 +37,7 @@ PUBLICATION_SURFACE_LABELS = frozenset({
     "CI health",
     "CI test changes",
     "CI workload hotness",
+    "DNS health",
     "Performance evaluation",
     "Project activity",
     "Queue health",

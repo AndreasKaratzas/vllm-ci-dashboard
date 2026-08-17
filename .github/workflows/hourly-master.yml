@@ -76,7 +76,7 @@ jobs:
             local label="$2"
             local status="$3"
             case "$surface" in
-              ci_core|ci_gating|ci_changes|ci_hotness|queue|queue_lifecycle|agent_health|github_home|ready|perf_eval|test_builds) ;;
+              ci_core|ci_gating|ci_changes|ci_hotness|queue|queue_lifecycle|agent_health|dns_health|github_home|ready|perf_eval|test_builds) ;;
               *) echo "::error::Unknown publication surface: $surface"; return 2 ;;
             esac
             printf '%s\n' "$surface" >> "$PUBLICATION_FAILED_SURFACES_FILE"
@@ -188,6 +188,43 @@ jobs:
             echo "Synced the independently collected lifecycle aggregate."
           else
             record_surface_failure queue_lifecycle "queue lifecycle aggregate" 1
+          fi
+
+      - name: Sync validated DNS health aggregate
+        run: |
+          sync_dns_health() {
+            LIVE_DNS_FAILURES="$RUNNER_TEMP/dns_failures.json"
+            git fetch origin \
+              +refs/heads/dns-health-data:refs/remotes/origin/dns-health-data \
+              --depth=1 || return $?
+            git show origin/dns-health-data:data/vllm/ci/dns_failures.json \
+              > "$LIVE_DNS_FAILURES" || return $?
+            python -m json.tool "$LIVE_DNS_FAILURES" >/dev/null || return $?
+            python scripts/vllm/audit_dashboard_data.py \
+              --dns-only --dns-path "$LIVE_DNS_FAILURES" || return $?
+            read -r REMOTE_DNS_STATUS REMOTE_DNS_GENERATED < <(
+              python -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["coverage"]["status"], d["generated_at"])' \
+                "$LIVE_DNS_FAILURES"
+            ) || return $?
+            read -r LOCAL_DNS_STATUS LOCAL_DNS_GENERATED < <(
+              python -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["coverage"]["status"], d["generated_at"])' \
+                data/vllm/ci/dns_failures.json
+            ) || return $?
+            if [[ "$REMOTE_DNS_STATUS" != "complete" && "$REMOTE_DNS_STATUS" != "partial" ]]; then
+              echo "::warning::Durable DNS branch has not completed an initial collection."
+              return 0
+            fi
+            if [[ "$REMOTE_DNS_GENERATED" < "$LOCAL_DNS_GENERATED" ]]; then
+              echo "Keeping newer local DNS aggregate from $LOCAL_DNS_GENERATED."
+              return 0
+            fi
+            install -m 0644 "$LIVE_DNS_FAILURES" \
+              data/vllm/ci/dns_failures.json || return $?
+          }
+          if sync_dns_health; then
+            echo "DNS health aggregate sync check completed."
+          else
+            echo "::warning::DNS health live aggregate is unavailable; retaining the existing safe candidate."
           fi
 
       - name: Sync issue automation state from gh-pages

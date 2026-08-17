@@ -34,6 +34,9 @@ jobs:
             +refs/heads/queue-lifecycle-data:refs/remotes/origin/queue-lifecycle-data \
             --depth=1 || true
           git fetch origin \
+            +refs/heads/dns-health-data:refs/remotes/origin/dns-health-data \
+            --depth=1 || true
+          git fetch origin \
             +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
             --depth=1 || true
 
@@ -52,6 +55,29 @@ jobs:
               install -m 0644 "$LIVE_QUEUE_LIFECYCLE" data/vllm/ci/queue_lifecycle.json
             else
               echo "::warning::queue-lifecycle-data has no valid aggregate; keeping the main-branch copy."
+            fi
+          fi
+
+          if git rev-parse --verify --quiet origin/dns-health-data >/dev/null; then
+            LIVE_DNS_FAILURES="$RUNNER_TEMP/dns_failures.json"
+            if git show origin/dns-health-data:data/vllm/ci/dns_failures.json > "$LIVE_DNS_FAILURES" 2>/dev/null \
+              && python -m json.tool "$LIVE_DNS_FAILURES" >/dev/null \
+              && python scripts/vllm/audit_dashboard_data.py --dns-only --dns-path "$LIVE_DNS_FAILURES"; then
+              read -r REMOTE_DNS_STATUS REMOTE_DNS_GENERATED < <(
+                python -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["coverage"]["status"], d["generated_at"])' \
+                  "$LIVE_DNS_FAILURES"
+              )
+              read -r LOCAL_DNS_STATUS LOCAL_DNS_GENERATED < <(
+                python -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["coverage"]["status"], d["generated_at"])' \
+                  data/vllm/ci/dns_failures.json
+              )
+              if [[ "$REMOTE_DNS_STATUS" =~ ^(complete|partial)$ && ! "$REMOTE_DNS_GENERATED" < "$LOCAL_DNS_GENERATED" ]]; then
+                install -m 0644 "$LIVE_DNS_FAILURES" data/vllm/ci/dns_failures.json
+              else
+                echo "Keeping the newer or already-collected main-branch DNS aggregate."
+              fi
+            else
+              echo "::warning::dns-health-data has no valid aggregate; keeping the main-branch copy."
             fi
           fi
 

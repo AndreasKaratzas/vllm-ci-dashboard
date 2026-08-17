@@ -19,6 +19,7 @@ README_PATH = ROOT / "README.md"
 README_RENDERER = ROOT / "scripts" / "render.py"
 VLLM_SCRIPTS_README = ROOT / "scripts" / "vllm" / "README.md"
 DASHBOARD_AUDIT = ROOT / "dashboards" / "dashboard-audit.md"
+GITIGNORE = ROOT / ".gitignore"
 
 
 def _load_build_site_module():
@@ -606,6 +607,7 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
         "site/projects.json",
         "users.json",
         "vllm/ci/amd_test_matrix.json",
+        "vllm/ci/dns_failures.json",
         "vllm/ci/gating_targets.json",
         "vllm/ci/omni_surge_heuristic.json",
         "vllm/ci/queue_lifecycle.json",
@@ -632,6 +634,8 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
     forbidden = {
         "vllm/ci/.cache/builds_amd.json",
         "vllm/ci/agent_health/node_days.jsonl",
+        "vllm/ci/dns_health/scan_state.json.gz",
+        "vllm/ci/dns_health/scan_state.fernet",
         "vllm/ci/open_queue_issues.json",
         "vllm/ci/ready_tickets_state.json",
         "vllm/ci/operations_v2.json",
@@ -646,6 +650,15 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
             fnmatch.fnmatchcase(relative, pattern)
             for pattern in manifest["optional_globs"]
         )
+    assert any(
+        fnmatch.fnmatchcase("vllm/ci/dns_health/scan_state.json.gz", pattern)
+        for pattern in manifest["never_publish_patterns"]
+    )
+    assert any(
+        fnmatch.fnmatchcase("vllm/ci/dns_health/scan_state.fernet", pattern)
+        for pattern in manifest["never_publish_patterns"]
+    )
+    assert "data/vllm/ci/dns_health/" in GITIGNORE.read_text().splitlines()
 
 
 @pytest.mark.live_data

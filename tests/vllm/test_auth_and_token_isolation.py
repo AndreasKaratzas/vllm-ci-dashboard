@@ -122,6 +122,44 @@ def _python_code_contains(path: Path, needle: str) -> bool:
 # ---------------------------------------------------------------------------
 
 class TestBuildkiteTokenIsolation:
+    def test_dns_state_key_is_confined_to_cryptographic_steps(self):
+        workflow_hits = [
+            path.name
+            for path in WORKFLOWS.glob("*.yml")
+            if "DNS_STATE_ENCRYPTION_KEY" in _read(path)
+        ]
+        assert workflow_hits == ["dns-health.yml"]
+
+        workflow = yaml.safe_load(_read(WORKFLOWS / "dns-health.yml"))
+        steps = workflow["jobs"]["collect"]["steps"]
+        keyed_steps = [
+            step
+            for step in steps
+            if "DNS_STATE_ENCRYPTION_KEY" in (step.get("env") or {})
+        ]
+        assert [step["name"] for step in keyed_steps] == [
+            "Resolve durable DNS scanner state",
+            "Encrypt durable DNS scanner state",
+        ]
+        for step in keyed_steps:
+            assert step["env"] == {
+                "DNS_STATE_ENCRYPTION_KEY": "${{ secrets.DNS_STATE_ENCRYPTION_KEY }}"
+            }
+            assert "--key" not in step["run"]
+            assert "echo \"$DNS_STATE_ENCRYPTION_KEY\"" not in step["run"]
+            assert "dns_state_crypto.py" in step["run"] or "-z" in step["run"]
+
+        collect = next(
+            step
+            for step in steps
+            if step.get("name") == "Collect DNS failure observations"
+        )
+        publish = next(
+            step for step in steps if step.get("name") == "Publish durable DNS evidence"
+        )
+        assert "DNS_STATE_ENCRYPTION_KEY" not in (collect.get("env") or {})
+        assert "DNS_STATE_ENCRYPTION_KEY" not in (publish.get("env") or {})
+
     def test_register_test_build_has_no_buildkite_token(self):
         # Check the script's *code* (AST string literals + identifiers),
         # not the docstring which explicitly documents that this path

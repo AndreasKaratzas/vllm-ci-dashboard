@@ -75,6 +75,7 @@ def test_active_surfaces_have_unique_ownership_and_cover_public_manifest() -> No
     assert surface_for_path("data/vllm/ci/gating_targets.json") == "ci_gating"
     assert surface_for_path("data/vllm/ci/group_changes.json") == "ci_changes"
     assert surface_for_path("data/vllm/ci/hotness.json") == "ci_hotness"
+    assert surface_for_path("data/vllm/ci/dns_failures.json") == "dns_health"
     assert (
         surface_for_path("data/vllm/ci/test_results/domain-contract.jsonl")
         == "ci_core"
@@ -146,6 +147,7 @@ def test_legacy_monolithic_ci_contract_is_exactly_partitioned() -> None:
         ("data/vllm/ci/gating_targets.json", {"ci_gating"}),
         ("data/vllm/ci/group_changes.json", {"ci_changes"}),
         ("data/vllm/ci/hotness.json", {"ci_hotness"}),
+        ("data/vllm/ci/dns_failures.json", {"dns_health"}),
     ),
 )
 def test_path_specific_findings_route_to_the_owning_domain(
@@ -173,6 +175,7 @@ def test_path_specific_findings_route_to_the_owning_domain(
         ("operations-ownership-invalid", None, {"ci_core"}),
         ("gating-target-invalid", None, {"ci_gating"}),
         ("analytics-invalid", None, {"ci_core"}),
+        ("dns-health-invalid", None, {"dns_health"}),
     ),
 )
 def test_generic_findings_route_to_their_consuming_domains(

@@ -92,6 +92,9 @@ SURFACE_SPECS: dict[str, SurfaceSpec] = {
         optional_paths=("data/vllm/ci/open_agent_health_issues.json",),
         globs=("data/vllm/ci/agent_health/*.jsonl",),
     ),
+    "dns_health": SurfaceSpec(
+        required_paths=("data/vllm/ci/dns_failures.json",),
+    ),
     "github_home": SurfaceSpec(
         required_paths=(
             "data/vllm/issues.json",
@@ -300,6 +303,7 @@ def finding_surfaces(finding: Any) -> frozenset[str]:
         ),
         (("gating-target-",), "ci_gating"),
         (("queue-lifecycle-",), "queue_lifecycle"),
+        (("dns-health-",), "dns_health"),
         (("queue-",), "queue"),
         (("ready-ticket-",), "ready"),
         (("ci-pr-", "linked-ci-pr-", "rocm-pr-", "ci-custom-tag", "rocm-custom-tag", "home-", "project-issue-"), "github_home"),

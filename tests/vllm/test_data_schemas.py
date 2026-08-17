@@ -1331,6 +1331,100 @@ class TestHotness:
         )
 
 
+class TestDnsFailures:
+    def test_exact_top_level_and_window_contract(self):
+        d = _load_json_or_skip("dns_failures.json")
+        assert set(d) == {
+            "schema_version",
+            "generated_at",
+            "retention",
+            "default_window",
+            "window_options",
+            "count_basis",
+            "scope",
+            "classifier",
+            "coverage",
+            "windows",
+            "evidence",
+        }
+        assert d["schema_version"] == 1
+        assert d["retention"]["hours"] == 720
+        assert d["default_window"] == "24h"
+        expected_ids = ["1h", "3h", "12h", "24h", "72h", "168h", "720h"]
+        assert [option["id"] for option in d["window_options"]] == expected_ids
+        assert set(d["windows"]) == set(expected_ids)
+        assert d["coverage"]["status"] in {
+            "not_collected",
+            "partial",
+            "complete",
+        }
+        for window_id in expected_ids:
+            window = d["windows"][window_id]
+            assert set(window) == {
+                "start",
+                "end_exclusive",
+                "coverage",
+                "totals",
+                "rows",
+            }
+            assert window["coverage"]["status"] in {
+                "not_collected",
+                "partial",
+                "complete",
+            }
+
+    def test_public_payload_has_no_log_or_url_fields(self):
+        d = _load_json_or_skip("dns_failures.json")
+        serialized = json.dumps(d).lower()
+        for forbidden in (
+            "raw_log",
+            "log_url",
+            "log_snippet",
+            "authorization",
+            "bearer ",
+            "https://",
+            "http://",
+            "bkua_",
+        ):
+            assert forbidden not in serialized
+        assert set(d["evidence"]) == {
+            "evidence_total",
+            "shown",
+            "truncated",
+            "items",
+        }
+        for item in d["evidence"]["items"]:
+            assert set(item) == {
+                "id",
+                "first_at",
+                "last_at",
+                "time_basis",
+                "pipeline",
+                "queue",
+                "node",
+                "hardware",
+                "build_number",
+                "job_id",
+                "state",
+                "episodes",
+                "match_count",
+                "signature_ids",
+                "target_categories",
+                "window_ids",
+                "window_metrics",
+            }
+            assert list(item["window_metrics"]) == item["window_ids"]
+            for metric in item["window_metrics"].values():
+                assert set(metric) == {
+                    "first_at",
+                    "last_at",
+                    "episodes",
+                    "match_count",
+                    "signature_ids",
+                    "target_categories",
+                }
+
+
 class TestAllJsonIsValid:
     """Catch-all: every committed *.json in data/vllm/ci/ must parse cleanly."""
 
