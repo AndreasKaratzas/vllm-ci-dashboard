@@ -84,6 +84,8 @@ REQUEST_INTERVAL_SECONDS = 60 / REQUESTS_PER_MINUTE
 MAX_CONCURRENT_LOG_FETCHES = 8
 MAX_IN_FLIGHT_RAW_LOG_BYTES = MAX_CONCURRENT_LOG_FETCHES * MAX_LOG_BYTES
 SHARED_QUOTA_RESERVE = 10
+ACTIVE_DISCOVERY_SLICE_HOURS = 24
+MAX_CONCURRENT_ACTIVE_SLICES = 3
 ACTIVE_BUILD_STATES = (
     "creating",
     "scheduled",
@@ -508,12 +510,140 @@ class BuildkiteClient:
                 return builds
         raise CollectionError("invalid_response")
 
+    def _active_builds(
+        self,
+        pipeline: str,
+        *,
+        created_from: str,
+        created_to: str,
+        deadline: float | None,
+    ) -> list[dict]:
+        """Fetch the active horizon in bounded, concurrent UTC slices."""
+        start = parse_timestamp(created_from, "active_created_from")
+        end = parse_timestamp(created_to, "active_created_to")
+        if start >= end:
+            raise CollectionError("invalid_response")
+
+        slices: list[tuple[datetime, datetime]] = []
+        cursor = end
+        width = timedelta(hours=ACTIVE_DISCOVERY_SLICE_HOURS)
+        while cursor > start:
+            slice_start = max(start, cursor - width)
+            slices.append((slice_start, cursor))
+            cursor = slice_start
+        # Buildkite lists builds newest-first. Process newest slices first and
+        # merge in this stable order so slicing does not change determinism.
+
+        results: dict[int, list[dict]] = {}
+        in_flight: dict[Future[list[dict]], int] = {}
+        next_index = 0
+
+        def submit_available(pool: ThreadPoolExecutor) -> None:
+            nonlocal next_index
+            while (
+                next_index < len(slices)
+                and len(in_flight) < MAX_CONCURRENT_ACTIVE_SLICES
+            ):
+                slice_start, slice_end = slices[next_index]
+                index = next_index
+                next_index += 1
+                in_flight[
+                    pool.submit(
+                        self._active_slice_builds,
+                        pipeline,
+                        created_from=slice_start,
+                        created_to=slice_end,
+                        deadline=deadline,
+                    )
+                ] = index
+
+        with ThreadPoolExecutor(
+            max_workers=MAX_CONCURRENT_ACTIVE_SLICES,
+            thread_name_prefix="dns-active-slice",
+        ) as pool:
+            submit_available(pool)
+            while in_flight:
+                done, _ = wait(tuple(in_flight), return_when=FIRST_COMPLETED)
+                for future in sorted(done, key=in_flight.__getitem__):
+                    index = in_flight.pop(future)
+                    results[index] = future.result()
+                submit_available(pool)
+
+        merged: dict[int, dict] = {}
+        for index in range(len(slices)):
+            for build in results[index]:
+                merged.setdefault(build["number"], build)
+        return list(merged.values())
+
+    def _active_slice_builds(
+        self,
+        pipeline: str,
+        *,
+        created_from: datetime,
+        created_to: datetime,
+        deadline: float | None,
+    ) -> list[dict]:
+        """Fetch one time slice without mutable page-number offsets.
+
+        A full first page is ambiguous: it may have more rows behind it, or
+        exactly fill the page. Split that interval in half and refetch both
+        children until every accepted leaf fits in one response. This avoids
+        losing an unrelated active build when another build leaves page one
+        before a later numbered page is read.
+        """
+        pending = [(created_from, created_to)]
+        builds: list[dict] = []
+        seen_numbers: set[int] = set()
+        pages = 0
+
+        while pending:
+            if pages >= MAX_DISCOVERY_PAGES:
+                raise CollectionError("invalid_response")
+            range_start, range_end = pending.pop()
+            batch = self.build_page(
+                pipeline,
+                filters={
+                    "state[]": list(ACTIVE_BUILD_STATES),
+                    "created_from": iso_timestamp(range_start),
+                    "created_to": iso_timestamp(range_end),
+                },
+                page=1,
+                deadline=deadline,
+            )
+            pages += 1
+            if len(batch) > PAGE_SIZE:
+                raise CollectionError("invalid_response")
+            validated_batch: list[tuple[int, dict]] = []
+            for build in batch:
+                number = build.get("number")
+                if (
+                    isinstance(number, bool)
+                    or not isinstance(number, int)
+                    or number <= 0
+                ):
+                    raise CollectionError("invalid_response")
+                validated_batch.append((number, build))
+            if len(batch) == PAGE_SIZE:
+                midpoint = range_start + (range_end - range_start) / 2
+                if midpoint <= range_start or midpoint >= range_end:
+                    raise CollectionError("invalid_response")
+                # LIFO: query the newer half first to preserve API ordering.
+                pending.append((range_start, midpoint))
+                pending.append((midpoint, range_end))
+                continue
+            for number, build in validated_batch:
+                if number not in seen_numbers:
+                    seen_numbers.add(number)
+                    builds.append(build)
+        return builds
+
     def discover_builds(
         self,
         pipeline: str,
         *,
         finished_from: str,
         active_created_from: str | None = None,
+        active_created_to: str | None = None,
         deadline: float | None = None,
     ) -> list[dict]:
         """Union recent active builds with all builds finished in the window.
@@ -527,13 +657,23 @@ class BuildkiteClient:
         """
         active_started = self.monotonic()
         active_requests_before = self.request_starts()["build_page"]
-        active = self._paginate_builds(
-            pipeline,
-            filters={
-                "state[]": list(ACTIVE_BUILD_STATES),
-                "created_from": active_created_from or finished_from,
-            },
-            deadline=deadline,
+        active_from = active_created_from or finished_from
+        active = (
+            self._active_builds(
+                pipeline,
+                created_from=active_from,
+                created_to=active_created_to,
+                deadline=deadline,
+            )
+            if active_created_to is not None
+            else self._paginate_builds(
+                pipeline,
+                filters={
+                    "state[]": list(ACTIVE_BUILD_STATES),
+                    "created_from": active_from,
+                },
+                deadline=deadline,
+            )
         )
         active_requests = self.request_starts()["build_page"] - active_requests_before
         log.info(
@@ -1134,6 +1274,7 @@ def collect(
     )
     finished_from = iso_timestamp(query_start)
     active_created_from = iso_timestamp(target_start)
+    active_created_to = iso_timestamp(clock)
     discovered: list[dict] = []
     discovered_builds = 0
     discovery_started = monotonic()
@@ -1147,6 +1288,7 @@ def collect(
             pipeline,
             finished_from=finished_from,
             active_created_from=active_created_from,
+            active_created_to=active_created_to,
             deadline=deadline,
         )
         discovered_builds += len(builds)

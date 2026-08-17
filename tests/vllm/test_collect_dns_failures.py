@@ -858,6 +858,7 @@ def test_later_discovery_does_not_erase_log_recovered_node(tmp_path: Path):
             *,
             finished_from: str,
             active_created_from: str | None = None,
+            active_created_to: str | None = None,
             deadline: float | None = None,
         ):
             return [_build(12112, [job])] if pipeline == "amd-ci" else []
@@ -1124,10 +1125,15 @@ def test_discovery_bounds_active_parent_builds_and_unions_finished_cohort():
     old_created_finished_inside["created_at"] = _timestamp(hours=-800)
     old_created_finished_inside["state"] = "blocked"
     current = _build(101, [_job(2)])
+    current["state"] = "running"
+    finished_current = {**current, "state": "passed"}
     session = _FakeSession(
         [
             _FakeResponse(200, json_payload=[current]),
-            _FakeResponse(200, json_payload=[old_created_finished_inside]),
+            _FakeResponse(
+                200,
+                json_payload=[old_created_finished_inside, finished_current],
+            ),
         ]
     )
     client = collector.BuildkiteClient(
@@ -1138,20 +1144,290 @@ def test_discovery_bounds_active_parent_builds_and_unions_finished_cohort():
     builds = client.discover_builds(
         "amd-ci",
         finished_from=_timestamp(hours=-2),
-        active_created_from=_timestamp(hours=-720),
+        active_created_from=_timestamp(hours=-24),
+        active_created_to=_timestamp(),
     )
 
     assert {build["number"] for build in builds} == {100, 101}
+    assert next(build for build in builds if build["number"] == 101)["state"] == "passed"
     active_params, finished_params = [call["params"] for call in session.calls]
     assert active_params["state[]"] == list(collector.ACTIVE_BUILD_STATES)
     assert "blocked" in active_params["state[]"]
-    assert active_params["created_from"] == _timestamp(hours=-720)
+    assert active_params["created_from"] == _timestamp(hours=-24)
+    assert active_params["created_to"] == _timestamp()
     assert finished_params["finished_from"] == _timestamp(hours=-2)
     assert "created_from" not in finished_params
     assert all(params["include_retried_jobs"] == "true" for params in (active_params, finished_params))
 
     rows = collector.discover_job_metadata({"amd-ci": builds, "ci": []})
     assert {row["job_id"] for row in rows} == {_uuid(1), _uuid(2)}
+
+
+def test_active_discovery_uses_bounded_slices_and_deterministic_dedupe():
+    class SlicedClient(collector.BuildkiteClient):
+        def __init__(self):
+            super().__init__(
+                "memory-only-token",
+                session=_FakeSession([]),
+                sleep=lambda _: None,
+            )
+            self.lock = threading.Lock()
+            self.three_started = threading.Event()
+            self.active = 0
+            self.peak_active = 0
+            self.slice_calls: list[dict] = []
+
+        def _active_slice_builds(
+            self,
+            pipeline: str,
+            *,
+            created_from: datetime,
+            created_to: datetime,
+            deadline: float | None = None,
+        ) -> list[dict]:
+            with self.lock:
+                self.active += 1
+                self.peak_active = max(self.peak_active, self.active)
+                self.slice_calls.append(
+                    {
+                        "created_from": collector.iso_timestamp(created_from),
+                        "created_to": collector.iso_timestamp(created_to),
+                    }
+                )
+                call_number = len(self.slice_calls)
+                if self.active == collector.MAX_CONCURRENT_ACTIVE_SLICES:
+                    self.three_started.set()
+            assert self.three_started.wait(timeout=1)
+            with self.lock:
+                self.active -= 1
+            return [{"number": call_number}, {"number": 999}]
+
+        def _paginate_builds(
+            self,
+            pipeline: str,
+            *,
+            filters: dict,
+            deadline: float | None = None,
+        ) -> list[dict]:
+            assert "finished_from" in filters
+            return [{"number": 777}]
+
+    client = SlicedClient()
+    builds = client.discover_builds(
+        "amd-ci",
+        finished_from=_timestamp(hours=-2),
+        active_created_from=_timestamp(hours=-73),
+        active_created_to=_timestamp(),
+    )
+
+    assert client.peak_active == collector.MAX_CONCURRENT_ACTIVE_SLICES
+    assert len(client.slice_calls) == 4
+    assert {
+        (call["created_from"], call["created_to"])
+        for call in client.slice_calls
+    } == {
+        (_timestamp(hours=-24), _timestamp()),
+        (_timestamp(hours=-48), _timestamp(hours=-24)),
+        (_timestamp(hours=-72), _timestamp(hours=-48)),
+        (_timestamp(hours=-73), _timestamp(hours=-72)),
+    }
+    assert {build["number"] for build in builds} == {1, 2, 3, 4, 777, 999}
+
+
+def test_full_active_page_is_bisected_into_single_page_time_ranges():
+    class AdaptiveClient(collector.BuildkiteClient):
+        def __init__(self):
+            super().__init__(
+                "memory-only-token",
+                session=_FakeSession([]),
+                sleep=lambda _: None,
+            )
+            self.calls: list[dict] = []
+
+        def build_page(
+            self,
+            pipeline: str,
+            *,
+            filters: dict,
+            page: int,
+            deadline: float | None = None,
+        ) -> list[dict]:
+            self.calls.append({**filters, "page": page})
+            bounds = (filters["created_from"], filters["created_to"])
+            if bounds == (_timestamp(hours=-24), _timestamp()):
+                return [{"number": number} for number in range(1, 101)]
+            if bounds == (_timestamp(hours=-12), _timestamp()):
+                return [{"number": number} for number in range(1, 61)]
+            if bounds == (_timestamp(hours=-24), _timestamp(hours=-12)):
+                return [{"number": number} for number in range(61, 121)]
+            raise AssertionError(f"unexpected range: {bounds}")
+
+    client = AdaptiveClient()
+    builds = client._active_slice_builds(
+        "ci",
+        created_from=NOW - timedelta(hours=24),
+        created_to=NOW,
+        deadline=123.0,
+    )
+
+    assert [build["number"] for build in builds] == list(range(1, 121))
+    assert [
+        (call["created_from"], call["created_to"])
+        for call in client.calls
+    ] == [
+        (_timestamp(hours=-24), _timestamp()),
+        (_timestamp(hours=-12), _timestamp()),
+        (_timestamp(hours=-24), _timestamp(hours=-12)),
+    ]
+    assert all(call["page"] == 1 for call in client.calls)
+    assert all(
+        call["state[]"] == list(collector.ACTIVE_BUILD_STATES)
+        for call in client.calls
+    )
+
+
+def test_full_active_pages_fail_closed_at_subdivision_limit(monkeypatch):
+    class AlwaysFullClient(collector.BuildkiteClient):
+        def __init__(self):
+            super().__init__(
+                "memory-only-token",
+                session=_FakeSession([]),
+                sleep=lambda _: None,
+            )
+            self.calls = 0
+
+        def build_page(
+            self,
+            pipeline: str,
+            *,
+            filters: dict,
+            page: int,
+            deadline: float | None = None,
+        ) -> list[dict]:
+            self.calls += 1
+            return [{"number": number} for number in range(1, 101)]
+
+    monkeypatch.setattr(collector, "MAX_DISCOVERY_PAGES", 3)
+    client = AlwaysFullClient()
+    with pytest.raises(collector.CollectionError, match="invalid_response"):
+        client._active_slice_builds(
+            "ci",
+            created_from=NOW - timedelta(hours=24),
+            created_to=NOW,
+            deadline=None,
+        )
+    assert client.calls == 3
+
+
+def test_full_active_probe_rejects_malformed_rows_before_subdivision():
+    class MalformedClient(collector.BuildkiteClient):
+        def __init__(self):
+            super().__init__(
+                "memory-only-token",
+                session=_FakeSession([]),
+                sleep=lambda _: None,
+            )
+            self.calls = 0
+
+        def build_page(
+            self,
+            pipeline: str,
+            *,
+            filters: dict,
+            page: int,
+            deadline: float | None = None,
+        ) -> list[dict]:
+            self.calls += 1
+            return [{"number": True}, *({"number": number} for number in range(2, 101))]
+
+    client = MalformedClient()
+    with pytest.raises(collector.CollectionError, match="invalid_response"):
+        client._active_slice_builds(
+            "ci",
+            created_from=NOW - timedelta(hours=24),
+            created_to=NOW,
+            deadline=None,
+        )
+    assert client.calls == 1
+
+
+def test_full_active_probe_fails_closed_when_timestamp_cannot_split():
+    class DenseClient(collector.BuildkiteClient):
+        def build_page(
+            self,
+            pipeline: str,
+            *,
+            filters: dict,
+            page: int,
+            deadline: float | None = None,
+        ) -> list[dict]:
+            return [{"number": number} for number in range(1, 101)]
+
+    client = DenseClient(
+        "memory-only-token",
+        session=_FakeSession([]),
+        sleep=lambda _: None,
+    )
+    with pytest.raises(collector.CollectionError, match="invalid_response"):
+        client._active_slice_builds(
+            "ci",
+            created_from=NOW,
+            created_to=NOW + timedelta(microseconds=1),
+            deadline=None,
+        )
+
+
+def test_active_discovery_slice_failure_starts_no_fourth_slice():
+    class FailingClient(collector.BuildkiteClient):
+        def __init__(self):
+            super().__init__(
+                "memory-only-token",
+                session=_FakeSession([]),
+                sleep=lambda _: None,
+            )
+            self.lock = threading.Lock()
+            self.initial_window_started = threading.Event()
+            self.slice_calls: list[dict] = []
+
+        def _active_slice_builds(
+            self,
+            pipeline: str,
+            *,
+            created_from: datetime,
+            created_to: datetime,
+            deadline: float | None = None,
+        ) -> list[dict]:
+            with self.lock:
+                self.slice_calls.append(
+                    {
+                        "created_from": collector.iso_timestamp(created_from),
+                        "created_to": collector.iso_timestamp(created_to),
+                    }
+                )
+                if len(self.slice_calls) == collector.MAX_CONCURRENT_ACTIVE_SLICES:
+                    self.initial_window_started.set()
+            assert self.initial_window_started.wait(timeout=1)
+            raise collector.CollectionError("network_error")
+
+        def _paginate_builds(
+            self,
+            pipeline: str,
+            *,
+            filters: dict,
+            deadline: float | None = None,
+        ) -> list[dict]:
+            raise AssertionError("finished cohort must not run after slice failure")
+
+    client = FailingClient()
+    with pytest.raises(collector.CollectionError, match="network_error"):
+        client.discover_builds(
+            "amd-ci",
+            finished_from=_timestamp(hours=-2),
+            active_created_from=_timestamp(hours=-96),
+            active_created_to=_timestamp(),
+        )
+
+    assert len(client.slice_calls) == collector.MAX_CONCURRENT_ACTIVE_SLICES
 
 
 def test_rate_limit_honors_numeric_and_http_date_retry_after():
@@ -1330,7 +1606,7 @@ def test_log_fetch_marks_declared_and_streamed_oversize_without_partial_scan(mon
 
 class _EmptyDiscoveryClient:
     def __init__(self):
-        self.discovery_calls: list[tuple[str, str, str | None]] = []
+        self.discovery_calls: list[tuple[str, str, str | None, str | None]] = []
 
     def discover_builds(
         self,
@@ -1338,10 +1614,11 @@ class _EmptyDiscoveryClient:
         *,
         finished_from: str,
         active_created_from: str | None = None,
+        active_created_to: str | None = None,
         deadline: float | None = None,
     ):
         self.discovery_calls.append(
-            (pipeline, finished_from, active_created_from)
+            (pipeline, finished_from, active_created_from, active_created_to)
         )
         return []
 
@@ -1364,8 +1641,8 @@ def test_missing_state_bootstraps_one_exhaustive_day_and_reports_partial_30d(
 
     bootstrap_start = _timestamp(hours=-collector.BOOTSTRAP_DISCOVERY_HOURS)
     assert client.discovery_calls == [
-        ("amd-ci", bootstrap_start, _timestamp(hours=-720)),
-        ("ci", bootstrap_start, _timestamp(hours=-720)),
+        ("amd-ci", bootstrap_start, _timestamp(hours=-720), _timestamp()),
+        ("ci", bootstrap_start, _timestamp(hours=-720), _timestamp()),
     ]
     state = dns.load_state(state_path)
     assert state is not None
@@ -1397,8 +1674,8 @@ def test_incremental_discovery_overlaps_prior_end_and_carries_contiguous_start(
         - timedelta(hours=collector.INCREMENTAL_DISCOVERY_OVERLAP_HOURS)
     )
     assert client.discovery_calls == [
-        ("amd-ci", overlap_start, _timestamp(hours=-720)),
-        ("ci", overlap_start, _timestamp(hours=-720)),
+        ("amd-ci", overlap_start, _timestamp(hours=-720), _timestamp()),
+        ("ci", overlap_start, _timestamp(hours=-720), _timestamp()),
     ]
     state = dns.load_state(state_path)
     assert state is not None
@@ -1426,11 +1703,14 @@ def test_stale_prior_state_resets_to_bounded_bootstrap_without_claiming_history(
     )
 
     bootstrap_start = _timestamp(hours=-collector.BOOTSTRAP_DISCOVERY_HOURS)
-    assert {finished_from for _, finished_from, _ in client.discovery_calls} == {
+    assert {finished_from for _, finished_from, _, _ in client.discovery_calls} == {
         bootstrap_start
     }
-    assert {active_from for _, _, active_from in client.discovery_calls} == {
+    assert {active_from for _, _, active_from, _ in client.discovery_calls} == {
         _timestamp(hours=-720)
+    }
+    assert {active_to for _, _, _, active_to in client.discovery_calls} == {
+        _timestamp()
     }
     state = dns.load_state(state_path)
     assert state is not None
@@ -1511,6 +1791,7 @@ def test_time_budget_persists_progress_and_honest_pending_coverage(tmp_path: Pat
             *,
             finished_from: str,
             active_created_from: str | None = None,
+            active_created_to: str | None = None,
             deadline: float | None = None,
         ):
             return [_build(12112, jobs)] if pipeline == "amd-ci" else []
@@ -1558,6 +1839,7 @@ def test_discovery_budget_exhaustion_does_not_replace_durable_state(tmp_path: Pa
             *,
             finished_from: str,
             active_created_from: str | None = None,
+            active_created_to: str | None = None,
             deadline: float | None = None,
         ):
             raise collector.BudgetExhausted()
@@ -1586,6 +1868,7 @@ def test_bootstrap_discovery_budget_exhaustion_writes_no_seed(tmp_path: Path):
             *,
             finished_from: str,
             active_created_from: str | None = None,
+            active_created_to: str | None = None,
             deadline: float | None = None,
         ):
             raise collector.BudgetExhausted()
@@ -1612,6 +1895,7 @@ def test_dry_run_does_not_write_state_or_public_output(tmp_path: Path):
             *,
             finished_from: str,
             active_created_from: str | None = None,
+            active_created_to: str | None = None,
             deadline: float | None = None,
         ):
             return []
