@@ -754,22 +754,14 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: python scripts/vllm/agent_health_issue_watcher.py
 
-      - name: Persist managed alert issue state
+      - name: Stage managed alert issue state
         if: steps.publication-selector.outcome == 'success'
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add \
             data/vllm/ci/open_amd_main_failure_issues.json \
             data/vllm/ci/open_ci_main_failure_issues.json \
             data/vllm/ci/open_amd_duration_regression_issues.json \
             data/vllm/ci/open_agent_health_issues.json
-          if ! git diff --cached --quiet; then
-            git commit -m "auto: update managed alert state [skip ci]"
-            if ! git push origin HEAD:main; then
-              echo "::warning::Managed alert state push raced with another main update; deferring it to the final data commit"
-            fi
-          fi
 
       - name: Watch AMD CI test-area regressions (ranked owners)
         if: >-
@@ -794,20 +786,12 @@ jobs:
           PROJECTS_WRITE_TOKEN: ${{ secrets.PROJECTS_WRITE_TOKEN || secrets.PROJECTS_TOKEN }}
         run: python scripts/vllm/sync_ci_operations_project.py
 
-      - name: Persist CI ownership issue state
+      - name: Stage CI ownership issue state
         if: >-
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/vllm/ci/open_ci_area_regression_issues.json
-          if ! git diff --cached --quiet; then
-            git commit -m "auto: update CI ownership issue state [skip ci]"
-            if ! git push origin HEAD:main; then
-              echo "::warning::CI ownership state push raced with another main update; deferring it to the final data commit"
-            fi
-          fi
 
       - name: Rebuild v2 operations snapshot with selected issue state
         run: python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json

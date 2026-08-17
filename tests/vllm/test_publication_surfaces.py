@@ -15,6 +15,8 @@ from vllm import audit_dashboard_data as audit_module
 from vllm import select_publication_surfaces as selector_module
 from vllm.audit_dashboard_data import DashboardAudit, Finding
 from vllm.publication_surfaces import (
+    AGENT_HEALTH_WATCHER_STATE_PATHS,
+    CI_CORE_WATCHER_STATE_PATHS,
     GLOBAL_DATA_PATHS,
     LEGACY_CI_SURFACE_SPEC,
     SOURCE_SURFACES,
@@ -140,6 +142,53 @@ def _write_legacy_ci_baseline(repo: Path, since: str) -> tuple[Path, dict[str, b
         )
     )
     return state_path, baseline_bytes
+
+
+def _manifest_descriptor(payload: bytes) -> dict[str, int | str]:
+    return {
+        "bytes": len(payload),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
+
+
+def _write_v2_agent_health_baseline(repo: Path, since: str) -> tuple[Path, str, str]:
+    surface = "agent_health"
+    source_relative = "data/vllm/ci/agent_health.json"
+    ledger_relative = AGENT_HEALTH_WATCHER_STATE_PATHS[0]
+    source = repo / source_relative
+    ledger = repo / ledger_relative
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source_payload = b'{"selection":"baseline"}\n'
+    ledger_payload = b'{"active":{"old":true}}\n'
+    source.write_bytes(source_payload)
+    ledger.write_bytes(ledger_payload)
+    state_path = repo / "data/vllm/ci/publication_state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "generated_at": since,
+                "baseline_ref": "0" * 40,
+                "mode": "fallback",
+                "degraded_surfaces": [surface],
+                "fresh_degraded_surfaces": [],
+                "fallback_surfaces": [surface],
+                "degraded_since": {surface: since},
+                "fallback_since": {surface: since},
+                "fallback_max_age_hours": 36,
+                "restored_paths": {
+                    surface: [source_relative, ledger_relative],
+                },
+                "restored_manifest": {
+                    surface: {
+                        source_relative: _manifest_descriptor(source_payload),
+                        ledger_relative: _manifest_descriptor(ledger_payload),
+                    }
+                },
+            }
+        )
+    )
+    return state_path, source_relative, ledger_relative
 
 
 def test_restore_surface_restores_exact_and_globbed_files_atomically(
@@ -346,6 +395,162 @@ def test_legacy_ci_state_migrates_clocks_and_closes_core_dependency(
             "selection": "candidate",
             "surface": surface,
         }
+
+
+def test_legacy_ci_state_drops_independently_mutated_watcher_ledger(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path, _ = _write_legacy_ci_baseline(repo, now)
+    ledger_relative = CI_CORE_WATCHER_STATE_PATHS[0]
+    ledger = repo / ledger_relative
+    original = b'{"active":{"before":true}}\n'
+    ledger.write_bytes(original)
+    state = json.loads(state_path.read_text())
+    state["restored_manifest"]["ci"][ledger_relative] = _manifest_descriptor(
+        original
+    )
+    state["restored_paths"] = {
+        "ci": sorted(state["restored_manifest"]["ci"]),
+    }
+    state_path.write_text(json.dumps(state))
+
+    # Watcher hysteresis is deliberately allowed to advance independently of
+    # publication data and therefore no longer participates in the proof.
+    ledger.write_text('{"active":{"after":true}}\n')
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "legacy fallback with newer watcher state")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    migrated = selector_module._baseline_publication_state(
+        repo, baseline, state_path
+    )
+
+    assert migrated is not None
+    assert set(migrated["fallback_surfaces"]) == {
+        "ci_core",
+        "ci_gating",
+        "ci_changes",
+        "ci_hotness",
+    }
+    assert all(
+        ledger_relative not in entries
+        for entries in migrated["restored_manifest"].values()
+    )
+    assert all(
+        ledger_relative not in paths
+        for paths in migrated["restored_paths"].values()
+    )
+
+    audit = DashboardAudit(repo, publication_state_path=state_path)
+    assert audit.fallback_surfaces() == frozenset(migrated["fallback_surfaces"])
+    assert "publication-fallback-manifest-mismatch" not in {
+        finding.code for finding in audit.report.errors
+    }
+
+
+def test_schema_v2_state_drops_independently_mutated_watcher_ledger(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path, source_relative, ledger_relative = _write_v2_agent_health_baseline(
+        repo, now
+    )
+    (repo / ledger_relative).write_text('{"active":{"after":true}}\n')
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "v2 fallback with newer watcher state")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    migrated = selector_module._baseline_publication_state(
+        repo, baseline, state_path
+    )
+
+    assert migrated is not None
+    assert migrated["fallback_surfaces"] == ["agent_health"]
+    assert migrated["restored_paths"] == {"agent_health": [source_relative]}
+    assert set(migrated["restored_manifest"]["agent_health"]) == {
+        source_relative
+    }
+
+    audit = DashboardAudit(repo, publication_state_path=state_path)
+    assert audit.fallback_surfaces() == frozenset({"agent_health"})
+    assert "publication-fallback-manifest-mismatch" not in {
+        finding.code for finding in audit.report.errors
+    }
+
+
+def test_schema_v2_state_still_rejects_non_ledger_manifest_tampering(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path, source_relative, _ = _write_v2_agent_health_baseline(repo, now)
+    (repo / source_relative).write_text('{"selection":"tampered"}\n')
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "tampered v2 fallback")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    with pytest.raises(RuntimeError, match="does not match its manifest"):
+        selector_module._baseline_publication_state(repo, baseline, state_path)
+
+    audit = DashboardAudit(repo, publication_state_path=state_path)
+    assert audit.fallback_surfaces() == frozenset()
+    mismatches = [
+        finding
+        for finding in audit.report.errors
+        if finding.code == "publication-fallback-manifest-mismatch"
+    ]
+    assert any(
+        finding.context.get("path") == source_relative
+        for finding in mismatches
+    )
+
+
+def test_schema_v2_state_still_rejects_non_ledger_restored_path_tampering(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path, source_relative, ledger_relative = (
+        _write_v2_agent_health_baseline(repo, now)
+    )
+    state = json.loads(state_path.read_text())
+    state["restored_paths"]["agent_health"] = [ledger_relative]
+    state_path.write_text(json.dumps(state))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "tampered v2 restored path proof")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    with pytest.raises(RuntimeError, match="restored paths .* inconsistent"):
+        selector_module._baseline_publication_state(repo, baseline, state_path)
+
+    audit = DashboardAudit(repo, publication_state_path=state_path)
+    assert audit.fallback_surfaces() == frozenset()
+    mismatches = [
+        finding
+        for finding in audit.report.errors
+        if finding.code == "publication-fallback-manifest-mismatch"
+    ]
+    assert any(
+        finding.context.get("surface") == "agent_health"
+        and "restored path list" in finding.message
+        for finding in mismatches
+    )
+    assert source_relative not in state["restored_paths"]["agent_health"]
 
 
 def test_schema_v2_baseline_rejects_legacy_ci_alias(tmp_path: Path) -> None:
