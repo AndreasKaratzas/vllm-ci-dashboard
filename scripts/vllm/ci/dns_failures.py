@@ -1,4 +1,4 @@
-# cspell:ignore AKIA gaierror pousr servname xethub
+# cspell:ignore AKIA ASIA bkua gaierror github_pat pousr servname xapp xethub xoxb
 """Classify and aggregate Buildkite DNS failures without retaining job logs.
 
 This module is deliberately split from the collector CLI. It owns the pure
@@ -127,6 +127,23 @@ _PUBLIC_HOST_RE = re.compile(
 )
 _QUEUE_RE = re.compile(r"^amd_mi(\d{3,4})(?:_|$)", re.IGNORECASE)
 _SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+# Coordinates normally contain only queue/node identifiers. Reject recognizable
+# credential shapes as a second boundary in case an upstream label is ever
+# mapped into one of those otherwise syntactically valid fields.
+_SENSITIVE_VALUE_RE = re.compile(
+    r"(?:"
+    r"\b(?:xox[a-z]|xapp)-[A-Za-z0-9-]{12,}|"
+    r"\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,})|"
+    r"\bbk[a-z]{1,6}_[A-Za-z0-9]{16,}|"
+    r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|"
+    r"\bauthorization\s*[:=]|"
+    r"\b(?:bearer|basic)\s+[A-Za-z0-9+/_.~=-]{12,}|"
+    r"-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY(?: BLOCK)?-----|"
+    r"\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|"
+    r"password|secret|token)\b[\"']?\s*[:=]\s*[\"']?[A-Za-z0-9+/_.~=-]{8,}"
+    r")",
+    re.IGNORECASE,
+)
 _HARDWARE_RE = re.compile(r"^MI[0-9]{3,4}$")
 _HEX_64_RE = re.compile(r"^[0-9a-f]{64}$")
 _STATE_TOP_KEYS = frozenset(
@@ -582,7 +599,11 @@ def _validate_exact_keys(value: dict, expected: frozenset[str], field: str) -> N
 
 
 def _validate_token(value: object, field: str) -> str:
-    if not isinstance(value, str) or not _SAFE_TOKEN_RE.fullmatch(value):
+    if (
+        not isinstance(value, str)
+        or not _SAFE_TOKEN_RE.fullmatch(value)
+        or _SENSITIVE_VALUE_RE.search(value)
+    ):
         raise StateValidationError(f"{field} is not a safe token")
     return value
 
