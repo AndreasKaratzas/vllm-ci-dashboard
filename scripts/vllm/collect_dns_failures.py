@@ -757,6 +757,32 @@ def _discovery_window(
     return query_start, coverage_start
 
 
+def _fair_pending_order(rows: Iterable[dict]) -> list[dict]:
+    """Interleave oldest and newest pending rows, starting with backfill.
+
+    The durable state is sorted newest-first. Always taking that prefix lets a
+    sustained arrival rate monopolize the bounded request budget and strand
+    older jobs. Alternating the two ends advances the oldest backlog on every
+    other request while retaining equally frequent samples from fresh jobs.
+    Starting at the old end also guarantees that a deadline-shortened run that
+    completes at least one request still makes backfill progress.
+    """
+    ordered = list(rows)
+    fair: list[dict] = []
+    newest = 0
+    oldest = len(ordered) - 1
+    take_oldest = True
+    while newest <= oldest:
+        if take_oldest:
+            fair.append(ordered[oldest])
+            oldest -= 1
+        else:
+            fair.append(ordered[newest])
+            newest += 1
+        take_oldest = not take_oldest
+    return fair
+
+
 def scan_records(
     rows: Iterable[dict],
     *,
@@ -766,10 +792,12 @@ def scan_records(
     deadline: float | None = None,
     monotonic: Callable[[], float] = time.monotonic,
 ) -> list[dict]:
-    """Scan new backlog before retries, newest-first within each class."""
+    """Scan fairly ordered new backlog before bounded unavailable retries."""
     ordered = sort_state_jobs(rows)
     by_identity = {(row["pipeline"], row["job_id"]): row for row in ordered}
-    pending = [row for row in ordered if row["status"] == "pending"]
+    pending = _fair_pending_order(
+        row for row in ordered if row["status"] == "pending"
+    )
     unavailable = [row for row in ordered if row["status"] == "unavailable"]
     candidates = (pending + unavailable)[:max_logs]
     for row in candidates:

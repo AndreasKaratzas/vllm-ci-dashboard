@@ -243,7 +243,10 @@ UI renders their values as lower bounds.
 
 Each scheduled run gives the whole collection a 25-minute budget with a
 separate finalization reserve. Unvisited log work remains pending for the next
-overlap instead of being reported as a complete zero. Its public
+overlap instead of being reported as a complete zero. Pending work is scanned
+in a deterministic oldest/newest alternation, starting with the oldest job, so
+a steady stream of new jobs cannot monopolize the bounded request budget while
+every other request still samples the freshest incidents. Its public
 `dns_failures.json` dataset covers the trailing 720 observed hours. “Observed”
 is deliberate: API, rate-limit, oversized-log, and pending-job gaps remain
 explicit in each window's coverage block, so an incomplete scan cannot be

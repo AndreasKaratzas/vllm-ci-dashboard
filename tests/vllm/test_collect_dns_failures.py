@@ -428,7 +428,62 @@ def test_scan_cache_skips_final_positive_negative_and_oversize_records():
     }
 
 
-def test_unavailable_is_retried_and_newest_first_limit_leaves_pending():
+def test_pending_scan_interleaves_oldest_and_newest_with_a_hard_limit():
+    pending = [
+        dns.pending_record(_metadata(index, finished_hours=-index / 10))
+        for index in range(1, 7)
+    ]
+    client = _LogClient(
+        {row["job_id"]: "ordinary output" for row in pending}
+    )
+
+    rows = collector.scan_records(
+        pending,
+        client=client,
+        attempted_at=_timestamp(),
+        max_logs=4,
+    )
+
+    assert client.calls == [_uuid(6), _uuid(1), _uuid(5), _uuid(2)]
+    assert [row["status"] for row in rows].count("negative") == 4
+    assert [row["status"] for row in rows].count("pending") == 2
+
+
+def test_deadline_shortened_scan_starts_with_oldest_backfill():
+    pending = [
+        dns.pending_record(_metadata(index, finished_hours=-index / 10))
+        for index in range(1, 5)
+    ]
+    elapsed = [0.0]
+
+    class DeadlineClient(_LogClient):
+        def fetch_job_log(
+            self,
+            metadata: dict,
+            *,
+            deadline: float | None = None,
+        ) -> tuple[str, int]:
+            result = super().fetch_job_log(metadata, deadline=deadline)
+            elapsed[0] += 1.0
+            return result
+
+    client = DeadlineClient(
+        {row["job_id"]: "ordinary output" for row in pending}
+    )
+
+    collector.scan_records(
+        pending,
+        client=client,
+        attempted_at=_timestamp(),
+        max_logs=4,
+        deadline=2.0,
+        monotonic=lambda: elapsed[0],
+    )
+
+    assert client.calls == [_uuid(4), _uuid(1)]
+
+
+def test_unavailable_is_retried_after_new_pending_work():
     unavailable = dns.unavailable_record(
         _metadata(1, finished_hours=-0.01),
         "network_error",
@@ -1160,7 +1215,7 @@ def test_time_budget_persists_progress_and_honest_pending_coverage(tmp_path: Pat
         monotonic=lambda: clock["value"],
     )
 
-    assert client.calls == [_uuid(1)]
+    assert client.calls == [_uuid(3)]
     assert state_path.is_file() and output_path.is_file()
     state = dns.load_state(state_path)
     assert state is not None
