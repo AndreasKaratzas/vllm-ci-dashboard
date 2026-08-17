@@ -1,0 +1,1110 @@
+"""DNS health collector contract, privacy, and boundary regression tests."""
+
+from __future__ import annotations
+
+# cspell:ignore crsuse gaierror xoxb
+
+import gzip
+import json
+import subprocess
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import pytest
+import requests
+
+from vllm import collect_dns_failures as collector
+from vllm.ci import dns_failures as dns
+
+
+NOW = datetime(2026, 8, 17, 12, 0, tzinfo=timezone.utc)
+
+
+def _timestamp(*, hours: float = 0, seconds: float = 0) -> str:
+    return dns.iso_timestamp(NOW + timedelta(hours=hours, seconds=seconds))
+
+
+def _uuid(index: int) -> str:
+    return f"00000000-0000-4000-8000-{index:012x}"
+
+
+def _metadata(
+    index: int,
+    *,
+    pipeline: str = "amd-ci",
+    finished_hours: float = -0.5,
+    started_hours: float | None = None,
+    state: str = "passed",
+    queue: str = "amd_mi355_1",
+    node: str = "crsuse2-m2m-295",
+) -> dict:
+    return {
+        "pipeline": pipeline,
+        "build_number": 12000 + index,
+        "job_id": _uuid(index),
+        "queue": queue,
+        "node": node,
+        "hardware": dns.queue_hardware(queue),
+        "state": state,
+        "started_at": _timestamp(
+            hours=started_hours if started_hours is not None else finished_hours - 1
+        ),
+        "finished_at": _timestamp(hours=finished_hours),
+    }
+
+
+def _classification(
+    episode_hours: float,
+    *,
+    matches: int = 1,
+    targets: tuple[str, ...] = ("unknown",),
+) -> dns.DnsClassification:
+    return dns.DnsClassification(
+        match_count=matches,
+        episode_times=(_timestamp(hours=episode_hours),),
+        signature_ids=("temporary_name_resolution",),
+        target_categories=targets,
+        time_basis="log_timestamp",
+    )
+
+
+def _positive_record(
+    index: int,
+    *,
+    episode_hours: float = -0.25,
+    finished_hours: float = -0.1,
+    started_hours: float | None = None,
+    state: str = "passed",
+    targets: tuple[str, ...] = ("unknown",),
+) -> dict:
+    return dns.scan_record(
+        _metadata(
+            index,
+            finished_hours=finished_hours,
+            started_hours=started_hours,
+            state=state,
+        ),
+        _classification(episode_hours, targets=targets),
+        attempted_at=_timestamp(),
+    )
+
+
+def _negative_record(index: int, *, finished_hours: float = -0.5) -> dict:
+    return dns.scan_record(
+        _metadata(index, finished_hours=finished_hours),
+        dns.DnsClassification(0, (), (), (), "job_finished_at"),
+        attempted_at=_timestamp(),
+    )
+
+
+def _state(rows: list[dict], *, discovery_hours: float = 720) -> dict:
+    payload = dns.empty_state(NOW, NOW - timedelta(hours=discovery_hours))
+    payload["jobs"] = dns.sort_state_jobs(rows)
+    return dns.validate_state(payload)
+
+
+def _job(
+    index: int,
+    *,
+    state: str = "passed",
+    soft_failed: bool = False,
+    queue: str = "amd_mi355_1",
+    finished_hours: float = -0.5,
+    name: str | None = None,
+    node: str = "crsuse2-m2m-295",
+) -> dict:
+    return {
+        "id": _uuid(index),
+        "type": "script",
+        "state": state,
+        "soft_failed": soft_failed,
+        "name": name or f"test group {index}",
+        "started_at": _timestamp(hours=finished_hours - 1),
+        "finished_at": _timestamp(hours=finished_hours),
+        "agent_query_rules": [f"queue={queue}"],
+        "agent": {"meta_data": [f"queue={queue}", f"k8s:node={node}"]},
+        "raw_log_url": "https://should-never-be-retained.invalid/private",
+        "env": {"SECRET": "should-never-be-retained"},
+    }
+
+
+def _build(number: int, jobs: list[dict]) -> dict:
+    return {
+        "number": number,
+        "branch": "private-contributor-branch",
+        "commit": "deadbeef",
+        "author": {"email": "private@example.com"},
+        "jobs": jobs,
+    }
+
+
+def test_classifier_collapses_sixteen_dns_lines_into_one_five_second_episode():
+    base_ms = int((NOW - timedelta(minutes=10)).timestamp() * 1000)
+    lines = [
+        f"\x1b_bk;t={base_ms + index * 250}\x07 socket.gaierror: "
+        "Temporary failure in name resolution while reading "
+        "vllm-public-assets.s3.us-west-2.amazonaws.com"
+        for index in range(16)
+    ]
+
+    result = dns.classify_dns_log(
+        "\n".join(lines),
+        job_finished_at=_timestamp(),
+        job_started_at=_timestamp(hours=-1),
+    )
+
+    assert result.match_count == 16
+    assert len(result.episode_times) == 1
+    assert result.signature_ids == ("temporary_name_resolution",)
+    assert result.target_categories == ("vllm_public_assets", "aws_s3")
+    assert result.time_basis == "log_timestamp"
+
+
+def test_buildkite_timestamp_parser_accepts_milliseconds_and_nanoseconds():
+    epoch_seconds = int((NOW - timedelta(minutes=5)).timestamp())
+    millisecond = dns.classify_dns_log(
+        f"\x1b_bk;t={epoch_seconds * 1000} getaddrinfo failed",
+        job_finished_at=_timestamp(),
+        job_started_at=_timestamp(hours=-1),
+    )
+    nanosecond = dns.classify_dns_log(
+        f"\x1b_bk;t={epoch_seconds * 1_000_000_000} getaddrinfo failed",
+        job_finished_at=_timestamp(),
+        job_started_at=_timestamp(hours=-1),
+    )
+
+    expected = dns.iso_timestamp(datetime.fromtimestamp(epoch_seconds, timezone.utc))
+    assert millisecond.episode_times == (expected,)
+    assert nanosecond.episode_times == (expected,)
+
+
+def test_plain_or_out_of_range_timestamp_text_cannot_spoof_an_incident_window():
+    spoofed_seconds = int((NOW - timedelta(hours=12)).timestamp() * 1000)
+    plain = dns.classify_dns_log(
+        f"_bk;t={spoofed_seconds} getaddrinfo failed",
+        job_started_at=_timestamp(hours=-1),
+        job_finished_at=_timestamp(),
+    )
+    control_but_out_of_range = dns.classify_dns_log(
+        f"\x1b_bk;t={spoofed_seconds} getaddrinfo failed",
+        job_started_at=_timestamp(hours=-1),
+        job_finished_at=_timestamp(),
+    )
+
+    for result in (plain, control_but_out_of_range):
+        assert result.episode_times == (_timestamp(),)
+        assert result.time_basis == "job_finished_at"
+
+
+def test_fractional_nanosecond_marker_projects_as_whole_second():
+    base_seconds = int((NOW - timedelta(minutes=30)).timestamp())
+    result = dns.classify_dns_log(
+        f"\x1b_bk;t={base_seconds * 1_000_000_000 + 123_456_000} getaddrinfo failed",
+        job_started_at=_timestamp(hours=-1),
+        job_finished_at=_timestamp(),
+    )
+    assert result.episode_times == (
+        dns.iso_timestamp(datetime.fromtimestamp(base_seconds, timezone.utc)),
+    )
+    row = dns.scan_record(
+        _metadata(99, finished_hours=-0.1),
+        result,
+        attempted_at=_timestamp(),
+    )
+    output = dns.build_public_output(_state([row]))
+    item = output["evidence"]["items"][0]
+    assert "." not in item["first_at"]
+    assert item["first_at"] == item["window_metrics"]["720h"]["first_at"]
+
+
+def test_classifier_requires_strong_dns_evidence_and_uses_only_target_enums():
+    generic_failures = "\n".join(
+        [
+            "MaxRetryError: too many retries",
+            "ReadTimeout: request timed out",
+            "SSLError: TLS handshake failed",
+            "HTTP 429 Too Many Requests",
+            "ConnectionError: connection reset",
+        ]
+    )
+    assert not dns.classify_dns_log(generic_failures, job_finished_at=_timestamp()).positive
+
+    classified = dns.classify_dns_log(
+        "curl: (6) Could not resolve host: packages.unfamiliar.example",
+        job_finished_at=_timestamp(),
+    )
+    assert classified.positive
+    assert classified.target_categories == ("unknown",)
+    assert "packages.unfamiliar.example" not in repr(classified)
+
+
+def test_episode_gap_is_inclusive_at_five_seconds_and_splits_after_it():
+    base = int((NOW - timedelta(hours=1)).timestamp() * 1000)
+    text = "\n".join(
+        [
+            f"\x1b_bk;t={base} no such host",
+            f"\x1b_bk;t={base + 5_000} no such host",
+            f"\x1b_bk;t={base + 10_001} no such host",
+        ]
+    )
+    result = dns.classify_dns_log(
+        text,
+        job_finished_at=_timestamp(),
+        job_started_at=_timestamp(hours=-2),
+    )
+    assert result.match_count == 3
+    assert len(result.episode_times) == 2
+
+
+def test_discovery_includes_passed_soft_hard_and_distinct_retry_uuids():
+    jobs = [
+        _job(1, state="passed"),
+        _job(2, state="failed", soft_failed=True),
+        _job(3, state="failed"),
+        _job(4, state="failed", name="same retried step"),
+        _job(5, state="passed", name="same retried step"),
+        _job(6, state="canceled"),
+        _job(7, state="passed", queue="cpu_queue_postmerge"),
+        _job(8, state="passed", queue="amd_mi355b_1"),
+    ]
+
+    rows = collector.discover_job_metadata(
+        {"amd-ci": [_build(12112, jobs)], "ci": []}
+    )
+
+    assert {row["job_id"] for row in rows} == {_uuid(i) for i in range(1, 6)}
+    assert {row["state"] for row in rows} == {"passed", "soft", "hard"}
+    assert all("job_name" not in row for row in rows)
+    assert all("branch" not in row and "commit" not in row and "author" not in row for row in rows)
+    assert all("raw_log_url" not in row and "env" not in row for row in rows)
+
+
+def test_discovery_normalizes_fractional_job_timestamps_to_whole_seconds():
+    job = _job(1, state="passed")
+    job["started_at"] = "2026-08-16T22:00:00.987654Z"
+    job["finished_at"] = "2026-08-16T23:00:00.123456Z"
+
+    [row] = collector.discover_job_metadata(
+        {"amd-ci": [_build(12112, [job])], "ci": []}
+    )
+
+    assert row["started_at"] == "2026-08-16T22:00:00Z"
+    assert row["finished_at"] == "2026-08-16T23:00:00Z"
+
+
+def test_discovery_fails_closed_when_build_job_inventory_is_malformed():
+    with pytest.raises(collector.CollectionError, match="invalid_response"):
+        collector.discover_job_metadata({"amd-ci": [{"number": 1}], "ci": []})
+    malformed_job = _job(1)
+    malformed_job["id"] = "not-a-buildkite-uuid"
+    with pytest.raises(collector.CollectionError, match="invalid_response"):
+        collector.discover_job_metadata(
+            {"amd-ci": [_build(1, [malformed_job])], "ci": []}
+        )
+
+
+def test_arbitrary_job_names_never_enter_state_or_public_evidence():
+    synthetic_buildkite_token = "bkua_" + "1" * 20
+    synthetic_github_token = "ghp_" + "2" * 24
+    synthetic_slack_token = "xoxb-" + "3" * 32
+    unsafe = (
+        "Traceback owner.person@private.example at https://private.example/path "
+        f"token=supersecretvalue {synthetic_buildkite_token} "
+        f"{synthetic_github_token} {synthetic_slack_token}\x00"
+    )
+    job = _job(1, name=unsafe)
+    [metadata] = collector.discover_job_metadata(
+        {"amd-ci": [_build(12112, [job])], "ci": []}
+    )
+    assert "job_name" not in metadata
+    pending = dns.pending_record(metadata)
+    assert "job_name" not in pending
+
+    positive = dns.scan_record(
+        metadata,
+        _classification(-0.75),
+        attempted_at=_timestamp(),
+    )
+    public = dns.build_public_output(_state([positive]))
+    serialized = json.dumps(public)
+    assert "job_name" not in public["evidence"]["items"][0]
+    for secret in (synthetic_buildkite_token, synthetic_github_token, synthetic_slack_token):
+        assert secret not in serialized
+
+    bad_row = dict(pending, job_name=unsafe)
+    bad = dns.empty_state(NOW, NOW - timedelta(hours=720))
+    bad["jobs"] = [bad_row]
+    with pytest.raises(dns.StateValidationError, match="unexpected keys"):
+        dns.validate_state(bad)
+
+
+def test_state_gzip_is_deterministic_strict_and_contains_no_raw_evidence(tmp_path: Path):
+    metadata = _metadata(1)
+    raw_log = (
+        "\x1b_bk;t=1786966200000 Temporary failure in name resolution "
+        "https://huggingface.co/private/model?token=supersecretvalue"
+    )
+    row = dns.scan_record(
+        metadata,
+        dns.classify_dns_log(
+            raw_log,
+            job_finished_at=metadata["finished_at"],
+            job_started_at=metadata["started_at"],
+        ),
+        attempted_at=_timestamp(),
+    )
+    state = _state([row])
+
+    first = dns.state_bytes(state)
+    second = dns.state_bytes(state)
+    assert first == second
+    decoded = gzip.decompress(first).decode()
+    public = json.dumps(dns.build_public_output(state))
+    for forbidden in (
+        "huggingface.co",
+        "private.example",
+        "supersecretvalue",
+        "Temporary failure in name resolution",
+        "https://",
+        "bkua_",
+    ):
+        assert forbidden not in decoded
+        assert forbidden not in public
+
+    path = tmp_path / "state.json.gz"
+    dns.write_state(path, state)
+    assert dns.load_state(path) == state
+    with pytest.raises(dns.StateValidationError):
+        dns.state_from_bytes(b"not gzip")
+    malformed = dict(state)
+    malformed["unexpected"] = True
+    with pytest.raises(dns.StateValidationError, match="unexpected keys"):
+        dns.state_bytes(malformed)
+
+
+class _LogClient:
+    def __init__(self, responses: dict[str, str | Exception]):
+        self.responses = responses
+        self.calls: list[str] = []
+
+    def fetch_job_log(
+        self,
+        metadata: dict,
+        *,
+        deadline: float | None = None,
+    ) -> tuple[str, int]:
+        self.calls.append(metadata["job_id"])
+        result = self.responses[metadata["job_id"]]
+        if isinstance(result, Exception):
+            raise result
+        return result, len(result.encode())
+
+
+def test_scan_cache_skips_final_positive_negative_and_oversize_records():
+    positive = _positive_record(1, finished_hours=-1)
+    negative = _negative_record(2, finished_hours=-2)
+    oversize = dns.oversize_record(
+        _metadata(3, finished_hours=-3),
+        dns.MAX_LOG_BYTES + 1,
+        attempted_at=_timestamp(),
+    )
+    pending = dns.pending_record(_metadata(4, finished_hours=-0.25))
+    client = _LogClient({_uuid(4): "ordinary successful output"})
+
+    rows = collector.scan_records(
+        [positive, negative, oversize, pending],
+        client=client,
+        attempted_at=_timestamp(),
+        max_logs=10,
+    )
+
+    assert client.calls == [_uuid(4)]
+    statuses = {row["job_id"]: row["status"] for row in rows}
+    assert statuses == {
+        _uuid(1): "positive",
+        _uuid(2): "negative",
+        _uuid(3): "oversize",
+        _uuid(4): "negative",
+    }
+
+
+def test_unavailable_is_retried_and_newest_first_limit_leaves_pending():
+    unavailable = dns.unavailable_record(
+        _metadata(1, finished_hours=-0.01),
+        "network_error",
+        attempted_at=_timestamp(hours=-1),
+    )
+    newest = dns.pending_record(_metadata(2, finished_hours=-0.1))
+    client = _LogClient(
+        {
+            _uuid(1): "getaddrinfo failed",
+            _uuid(2): "ordinary output",
+        }
+    )
+
+    limited = collector.scan_records(
+        [unavailable, newest],
+        client=client,
+        attempted_at=_timestamp(),
+        max_logs=1,
+    )
+    assert client.calls == [_uuid(2)]
+    assert {row["job_id"]: row["status"] for row in limited} == {
+        _uuid(1): "unavailable",
+        _uuid(2): "negative",
+    }
+
+    retry_client = _LogClient({_uuid(1): "getaddrinfo failed"})
+    retried = collector.scan_records(
+        [unavailable],
+        client=retry_client,
+        attempted_at=_timestamp(),
+        max_logs=1,
+    )
+    assert retried[0]["status"] == "positive"
+    assert retried[0]["attempts"] == 2
+
+
+def test_unavailable_and_oversize_are_never_cached_as_negative():
+    pending_network = dns.pending_record(_metadata(1))
+    pending_large = dns.pending_record(_metadata(2, finished_hours=-0.25))
+    client = _LogClient(
+        {
+            _uuid(1): collector.LogUnavailable("rate_limited"),
+            _uuid(2): collector.OversizeLog(dns.MAX_LOG_BYTES + 10),
+        }
+    )
+    rows = collector.scan_records(
+        [pending_network, pending_large],
+        client=client,
+        attempted_at=_timestamp(),
+        max_logs=10,
+    )
+    assert {row["status"] for row in rows} == {"unavailable", "oversize"}
+    assert not any(row["status"] == "negative" for row in rows)
+
+
+def test_missing_agent_node_is_recovered_from_safe_full_log_banner():
+    metadata = _metadata(1, node="unidentified")
+    pending = dns.pending_record(metadata)
+    client = _LogClient(
+        {
+            _uuid(1): (
+                "=== Pod: buildkite-amd-abc | Node: crsuse2-m2m-295 | now ===\n"
+                "ordinary successful output"
+            )
+        }
+    )
+    rows = collector.scan_records(
+        [pending],
+        client=client,
+        attempted_at=_timestamp(),
+        max_logs=1,
+    )
+    assert rows[0]["node"] == "crsuse2-m2m-295"
+    assert rows[0]["status"] == "negative"
+
+
+def test_later_discovery_does_not_erase_log_recovered_node(tmp_path: Path):
+    job = _job(1, node="worker.private.example.com")
+    marker_ms = int((NOW - timedelta(minutes=45)).timestamp() * 1000)
+
+    class Client:
+        def __init__(self):
+            self.log_calls = 0
+
+        def discover_builds(
+            self,
+            pipeline: str,
+            *,
+            finished_from: str,
+            deadline: float | None = None,
+        ):
+            return [_build(12112, [job])] if pipeline == "amd-ci" else []
+
+        def fetch_job_log(self, metadata: dict, *, deadline: float | None = None):
+            self.log_calls += 1
+            text = (
+                "=== Pod: buildkite-amd-abc | Node: crsuse2-m2m-295 | now ===\n"
+                f"\x1b_bk;t={marker_ms} getaddrinfo failed"
+            )
+            return text, len(text.encode())
+
+    client = Client()
+    state_path = tmp_path / "scan_state.json.gz"
+    output_path = tmp_path / "dns_failures.json"
+    first = collector.collect(
+        client=client,
+        state_path=state_path,
+        output_path=output_path,
+        now=NOW,
+    )
+    second = collector.collect(
+        client=client,
+        state_path=state_path,
+        output_path=output_path,
+        now=NOW + timedelta(hours=1),
+    )
+
+    assert client.log_calls == 1
+    assert first["evidence"]["items"][0]["node"] == "crsuse2-m2m-295"
+    assert second["evidence"]["items"][0]["node"] == "crsuse2-m2m-295"
+    assert dns.load_state(state_path)["jobs"][0]["node"] == "crsuse2-m2m-295"
+
+
+def test_window_coverage_uses_episode_time_for_a_long_job():
+    # The job finishes in the last hour, but its only DNS episode is two hours old.
+    long_job = _positive_record(
+        1,
+        episode_hours=-2,
+        finished_hours=-0.5,
+        started_hours=-3,
+        targets=("huggingface_hub",),
+    )
+    output = dns.build_public_output(_state([long_job]))
+
+    one_hour = output["windows"]["1h"]
+    assert one_hour["coverage"]["eligible_jobs"] == 1
+    assert one_hour["coverage"]["positive_jobs"] == 0
+    assert one_hour["coverage"]["negative_jobs"] == 1
+    assert one_hour["totals"]["affected_jobs"] == 0
+    three_hours = output["windows"]["3h"]
+    assert three_hours["coverage"]["positive_jobs"] == 1
+    assert three_hours["totals"]["affected_jobs"] == 1
+
+
+def test_window_rollups_and_evidence_keep_old_hf_separate_from_recent_github():
+    old_ms = int((NOW - timedelta(hours=2)).timestamp() * 1000)
+    recent_ms = int((NOW - timedelta(minutes=30)).timestamp() * 1000)
+    raw_log = "\n".join(
+        [
+            f"\x1b_bk;t={old_ms} getaddrinfo failed for huggingface.co",
+            "x" * 3000,
+            f"\x1b_bk;t={recent_ms} getaddrinfo failed for github.com",
+        ]
+    )
+    metadata = _metadata(88, finished_hours=-0.1, started_hours=-3)
+    classification = dns.classify_dns_log(
+        raw_log,
+        job_started_at=metadata["started_at"],
+        job_finished_at=metadata["finished_at"],
+    )
+    assert [metric.target_categories for metric in classification.episode_metrics] == [
+        ("huggingface_hub",),
+        ("github",),
+    ]
+    row = dns.scan_record(metadata, classification, attempted_at=_timestamp())
+    output = dns.build_public_output(_state([row]))
+
+    one_hour = output["windows"]["1h"]
+    assert one_hour["totals"]["affected_jobs"] == 1
+    assert one_hour["totals"]["huggingface_affected_jobs"] == 0
+    three_hours = output["windows"]["3h"]
+    assert three_hours["totals"]["huggingface_affected_jobs"] == 1
+    item = output["evidence"]["items"][0]
+    assert item["window_ids"] == ["1h", "3h", "12h", "24h", "72h", "168h", "720h"]
+    assert item["window_metrics"]["1h"] == {
+        "first_at": _timestamp(hours=-0.5),
+        "last_at": _timestamp(hours=-0.5),
+        "episodes": 1,
+        "match_count": 1,
+        "signature_ids": ["getaddrinfo_failed"],
+        "target_categories": ["github"],
+    }
+    assert item["window_metrics"]["3h"]["episodes"] == 2
+    assert item["window_metrics"]["3h"]["match_count"] == 2
+    assert item["window_metrics"]["3h"]["target_categories"] == [
+        "huggingface_hub",
+        "github",
+    ]
+    assert {
+        key: item[key]
+        for key in (
+            "first_at",
+            "last_at",
+            "episodes",
+            "match_count",
+            "signature_ids",
+            "target_categories",
+        )
+    } == item["window_metrics"]["720h"]
+
+
+def test_window_start_is_inclusive_and_distinct_job_counts_match_evidence():
+    at_start = _positive_record(1, episode_hours=-1, finished_hours=-0.25)
+    just_inside = _positive_record(2, episode_hours=-0.5, finished_hours=-0.1)
+    output = dns.build_public_output(_state([at_start, just_inside]))
+
+    one_hour = output["windows"]["1h"]
+    assert one_hour["totals"]["affected_jobs"] == 2
+    assert one_hour["totals"]["episodes"] == 2
+    assert one_hour["coverage"]["positive_jobs"] == 2
+    assert one_hour["coverage"]["eligible_jobs"] == 2
+    assert one_hour["coverage"]["negative_jobs"] == 0
+    assert output["evidence"]["evidence_total"] == 2
+    assert len({item["job_id"] for item in output["evidence"]["items"]}) == 2
+
+
+def test_partial_coverage_reconciles_every_cached_status():
+    rows = [
+        _positive_record(1),
+        _negative_record(2),
+        dns.pending_record(_metadata(3)),
+        dns.unavailable_record(
+            _metadata(4),
+            "not_found",
+            attempted_at=_timestamp(),
+        ),
+        dns.oversize_record(
+            _metadata(5),
+            dns.MAX_LOG_BYTES + 1,
+            attempted_at=_timestamp(),
+        ),
+    ]
+    output = dns.build_public_output(_state(rows, discovery_hours=72))
+    coverage = output["windows"]["1h"]["coverage"]
+    assert coverage == {
+        "status": "partial",
+        "complete": False,
+        "discovery_complete": True,
+        "eligible_jobs": 5,
+        "scanned_jobs": 2,
+        "positive_jobs": 1,
+        "negative_jobs": 1,
+        "pending_jobs": 1,
+        "unavailable_jobs": 1,
+        "oversize_jobs": 1,
+    }
+    assert output["windows"]["720h"]["coverage"]["discovery_complete"] is False
+
+
+def test_retention_pruning_is_half_open():
+    start = NOW - timedelta(hours=dns.RETENTION_HOURS)
+    before = dns.pending_record(_metadata(1, finished_hours=-721))
+    at_start = dns.pending_record(_metadata(2, finished_hours=-720))
+    inside = dns.pending_record(_metadata(3, finished_hours=-1))
+    at_end = dns.pending_record(_metadata(4, finished_hours=0))
+
+    retained = dns.prune_state_jobs([before, at_start, inside, at_end], start, NOW)
+    assert {row["job_id"] for row in retained} == {_uuid(2), _uuid(3)}
+
+
+def test_public_writer_preserves_canonical_window_order(tmp_path: Path):
+    output = dns.build_public_output(_state([_positive_record(1)]))
+    path = tmp_path / "dns_failures.json"
+    dns.write_public_output(path, output)
+    round_tripped = json.loads(path.read_text())
+    assert list(round_tripped["windows"]) == [item["id"] for item in dns.WINDOW_OPTIONS]
+    assert path.read_bytes().endswith(b"\n")
+
+
+class _FakeResponse:
+    def __init__(
+        self,
+        status_code: int,
+        *,
+        body: bytes = b"",
+        headers: dict[str, str] | None = None,
+        json_payload: object | None = None,
+    ):
+        self.status_code = status_code
+        self._body = body
+        self.headers = headers or {}
+        self._json_payload = json_payload
+        self.closed = False
+
+    def json(self):
+        if self._json_payload is None:
+            raise requests.exceptions.JSONDecodeError("bad", "", 0)
+        return self._json_payload
+
+    def iter_content(self, chunk_size: int):
+        for offset in range(0, len(self._body), max(1, min(chunk_size, 7))):
+            yield self._body[offset : offset + max(1, min(chunk_size, 7))]
+
+    def close(self):
+        self.closed = True
+
+
+class _FakeSession:
+    def __init__(self, responses: list[_FakeResponse]):
+        self.responses = list(responses)
+        self.headers: dict[str, str] = {}
+        self.calls: list[dict] = []
+
+    def request(self, method: str, url: str, **kwargs):
+        self.calls.append({"method": method, "url": url, **kwargs})
+        return self.responses.pop(0)
+
+
+def test_build_discovery_is_all_branch_and_includes_retried_jobs():
+    session = _FakeSession([_FakeResponse(200, json_payload=[])])
+    client = collector.BuildkiteClient("memory-only-token", session=session, sleep=lambda _: None)
+    assert client.build_page(
+        "amd-ci",
+        filters={"finished_from": _timestamp(hours=-24)},
+        page=1,
+    ) == []
+    params = session.calls[0]["params"]
+    assert params["include_retried_jobs"] == "true"
+    assert "branch" not in params
+    assert params["per_page"] == 100
+
+
+def test_discovery_unions_active_with_finished_from_not_created_from():
+    old_created_finished_inside = _build(100, [_job(1)])
+    old_created_finished_inside["created_at"] = _timestamp(hours=-800)
+    current = _build(101, [_job(2)])
+    session = _FakeSession(
+        [
+            _FakeResponse(200, json_payload=[current]),
+            _FakeResponse(200, json_payload=[old_created_finished_inside]),
+        ]
+    )
+    client = collector.BuildkiteClient(
+        "memory-only-token",
+        session=session,
+        sleep=lambda _: None,
+    )
+    builds = client.discover_builds(
+        "amd-ci",
+        finished_from=_timestamp(hours=-720),
+    )
+
+    assert {build["number"] for build in builds} == {100, 101}
+    active_params, finished_params = [call["params"] for call in session.calls]
+    assert active_params["state[]"] == list(collector.ACTIVE_BUILD_STATES)
+    assert "created_from" not in active_params
+    assert finished_params["finished_from"] == _timestamp(hours=-720)
+    assert "created_from" not in finished_params
+    assert all(params["include_retried_jobs"] == "true" for params in (active_params, finished_params))
+
+    rows = collector.discover_job_metadata({"amd-ci": builds, "ci": []})
+    assert {row["job_id"] for row in rows} == {_uuid(1), _uuid(2)}
+
+
+def test_rate_limit_honors_numeric_and_http_date_retry_after():
+    reference = datetime(2026, 8, 17, 12, 0, tzinfo=timezone.utc)
+    assert collector.retry_after_seconds("7", now=reference) == 7
+    assert (
+        collector.retry_after_seconds(
+            "Mon, 17 Aug 2026 12:00:09 GMT",
+            now=reference,
+        )
+        == 9
+    )
+    sleeps: list[float] = []
+    clock = {"value": 0.0}
+
+    def sleeping(seconds: float) -> None:
+        sleeps.append(seconds)
+        clock["value"] += seconds
+
+    session = _FakeSession(
+        [
+            _FakeResponse(429, headers={"Retry-After": "3"}),
+            _FakeResponse(200, json_payload=[]),
+        ]
+    )
+    client = collector.BuildkiteClient(
+        "memory-only-token",
+        session=session,
+        sleep=sleeping,
+        monotonic=lambda: clock["value"],
+    )
+    assert client.build_page(
+        "ci",
+        filters={"finished_from": _timestamp(hours=-1)},
+        page=1,
+    ) == []
+    assert sleeps == [3]
+
+
+def test_client_proactively_paces_and_adapts_to_shared_quota_headers():
+    clock = {"value": 0.0}
+    sleeps: list[float] = []
+
+    def sleeping(seconds: float) -> None:
+        sleeps.append(seconds)
+        clock["value"] += seconds
+
+    session = _FakeSession(
+        [
+            _FakeResponse(
+                200,
+                json_payload=[],
+                headers={"RateLimit-Remaining": "10", "RateLimit-Reset": "5"},
+            ),
+            _FakeResponse(200, json_payload=[]),
+        ]
+    )
+    client = collector.BuildkiteClient(
+        "memory-only-token",
+        session=session,
+        sleep=sleeping,
+        monotonic=lambda: clock["value"],
+    )
+    filters = {"finished_from": _timestamp(hours=-1)}
+    client.build_page("ci", filters=filters, page=1)
+    client.build_page("ci", filters=filters, page=2)
+
+    # Reset + one-second safety takes precedence over the normal two-second pace.
+    assert sleeps == [6]
+    assert clock["value"] == 6
+
+
+def test_proactive_pacing_caps_request_starts_at_thirty_per_minute():
+    clock = {"value": 0.0}
+    starts: list[float] = []
+
+    class Session(_FakeSession):
+        def request(self, method: str, url: str, **kwargs):
+            starts.append(clock["value"])
+            return super().request(method, url, **kwargs)
+
+    def sleeping(seconds: float) -> None:
+        clock["value"] += seconds
+
+    session = Session([_FakeResponse(200, json_payload=[]) for _ in range(31)])
+    client = collector.BuildkiteClient(
+        "memory-only-token",
+        session=session,
+        sleep=sleeping,
+        monotonic=lambda: clock["value"],
+    )
+    for page in range(1, 32):
+        client.build_page(
+            "ci",
+            filters={"finished_from": _timestamp(hours=-1)},
+            page=page,
+        )
+    assert starts[0] == 0
+    assert starts[-1] == 60
+    assert all(later - earlier >= 2 for earlier, later in zip(starts, starts[1:]))
+
+
+def test_log_request_does_not_sleep_or_retry_past_monotonic_deadline():
+    clock = {"value": 0.0}
+    sleeps: list[float] = []
+    session = _FakeSession([_FakeResponse(429, headers={"Retry-After": "60"})])
+    client = collector.BuildkiteClient(
+        "memory-only-token",
+        session=session,
+        sleep=sleeps.append,
+        monotonic=lambda: clock["value"],
+    )
+    with pytest.raises(collector.BudgetExhausted):
+        client.fetch_job_log(_metadata(1), deadline=10)
+    assert len(session.calls) == 1
+    assert sleeps == []
+
+
+def test_log_fetch_reads_complete_stream_and_json_envelope():
+    first = b"\x1b_bk;t=1786966200000 getaddrinfo failed\n"
+    second = b"last line proves this was not a tail"
+    plain = _FakeResponse(
+        200,
+        body=first + second,
+        headers={"Content-Type": "text/plain", "Content-Length": str(len(first + second))},
+    )
+    envelope_body = json.dumps({"content": "no such host at the beginning\nfinal line"}).encode()
+    envelope = _FakeResponse(
+        200,
+        body=envelope_body,
+        headers={"Content-Type": "application/json"},
+    )
+    session = _FakeSession([plain, envelope])
+    client = collector.BuildkiteClient("memory-only-token", session=session, sleep=lambda _: None)
+    metadata = _metadata(1)
+
+    text, size = client.fetch_job_log(metadata)
+    assert text.encode() == first + second
+    assert size == len(first + second)
+    assert dns.classify_dns_log(
+        text,
+        job_finished_at=metadata["finished_at"],
+        job_started_at=metadata["started_at"],
+    ).positive
+    text, size = client.fetch_job_log(metadata)
+    assert text.endswith("final line")
+    assert size == len(text.encode())
+    assert all(call["headers"]["Accept"] == "text/plain" for call in session.calls)
+
+
+def test_log_fetch_marks_declared_and_streamed_oversize_without_partial_scan(monkeypatch):
+    monkeypatch.setattr(collector, "MAX_LOG_BYTES", 10)
+    declared = _FakeResponse(
+        200,
+        body=b"ignored",
+        headers={"Content-Type": "text/plain", "Content-Length": "11"},
+    )
+    streamed = _FakeResponse(200, body=b"12345678901", headers={"Content-Type": "text/plain"})
+    client = collector.BuildkiteClient(
+        "memory-only-token",
+        session=_FakeSession([declared, streamed]),
+        sleep=lambda _: None,
+    )
+    with pytest.raises(collector.OversizeLog) as declared_error:
+        client.fetch_job_log(_metadata(1))
+    assert declared_error.value.log_bytes == 11
+    with pytest.raises(collector.OversizeLog) as streamed_error:
+        client.fetch_job_log(_metadata(2))
+    assert streamed_error.value.log_bytes == 11
+
+
+def test_time_budget_persists_progress_and_honest_pending_coverage(tmp_path: Path):
+    clock = {"value": 0.0}
+    jobs = [
+        _job(1, finished_hours=-0.1),
+        _job(2, finished_hours=-0.2),
+        _job(3, finished_hours=-0.3),
+    ]
+
+    class Client:
+        def __init__(self):
+            self.calls: list[str] = []
+
+        def discover_builds(
+            self,
+            pipeline: str,
+            *,
+            finished_from: str,
+            deadline: float | None = None,
+        ):
+            return [_build(12112, jobs)] if pipeline == "amd-ci" else []
+
+        def fetch_job_log(self, metadata: dict, *, deadline: float | None = None):
+            self.calls.append(metadata["job_id"])
+            clock["value"] = 11.0
+            return "ordinary successful output", 26
+
+    client = Client()
+    state_path = tmp_path / "dns_health" / "scan_state.json.gz"
+    output_path = tmp_path / "dns_failures.json"
+    output = collector.collect(
+        client=client,
+        state_path=state_path,
+        output_path=output_path,
+        discover_days=30,
+        max_logs=500,
+        time_budget_seconds=40,
+        now=NOW,
+        monotonic=lambda: clock["value"],
+    )
+
+    assert client.calls == [_uuid(1)]
+    assert state_path.is_file() and output_path.is_file()
+    state = dns.load_state(state_path)
+    assert state is not None
+    assert [row["status"] for row in state["jobs"]].count("negative") == 1
+    assert [row["status"] for row in state["jobs"]].count("pending") == 2
+    assert output["coverage"]["status"] == "partial"
+    assert output["coverage"]["pending_jobs"] == 2
+
+
+def test_discovery_budget_exhaustion_does_not_replace_durable_state(tmp_path: Path):
+    state_path = tmp_path / "scan_state.json.gz"
+    output_path = tmp_path / "dns_failures.json"
+    dns.write_state(state_path, _state([_negative_record(1)]))
+    output_path.write_text("durable-public-output\n")
+    before_state = state_path.read_bytes()
+
+    class Client:
+        def discover_builds(
+            self,
+            pipeline: str,
+            *,
+            finished_from: str,
+            deadline: float | None = None,
+        ):
+            raise collector.BudgetExhausted()
+
+    with pytest.raises(collector.BudgetExhausted):
+        collector.collect(
+            client=Client(),
+            state_path=state_path,
+            output_path=output_path,
+            time_budget_seconds=40,
+            now=NOW,
+            monotonic=lambda: 0.0,
+        )
+    assert state_path.read_bytes() == before_state
+    assert output_path.read_text() == "durable-public-output\n"
+
+
+def test_dry_run_does_not_write_state_or_public_output(tmp_path: Path):
+    class Client:
+        def discover_builds(
+            self,
+            pipeline: str,
+            *,
+            finished_from: str,
+            deadline: float | None = None,
+        ):
+            return []
+
+        def fetch_job_log(self, metadata: dict, *, deadline: float | None = None):
+            raise AssertionError("no jobs")
+
+    state_path = tmp_path / "scan_state.json.gz"
+    output_path = tmp_path / "dns_failures.json"
+    output = collector.collect(
+        client=Client(),
+        state_path=state_path,
+        output_path=output_path,
+        dry_run=True,
+        now=NOW,
+    )
+    assert output["coverage"]["eligible_jobs"] == 0
+    assert not state_path.exists()
+    assert not output_path.exists()
+
+
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=True,
+    )
+
+
+def test_git_ref_state_requires_established_object_and_rejects_malformed_state(tmp_path: Path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.name", "DNS test")
+    _git(repo, "config", "user.email", "dns-test@example.invalid")
+    (repo / "README").write_text("seed\n")
+    _git(repo, "add", "README")
+    _git(repo, "commit", "-qm", "seed")
+    with pytest.raises(dns.StateValidationError, match="missing"):
+        collector.load_state_from_git_ref("HEAD", repo_root=repo)
+
+    path = repo / collector.STATE_GIT_PATH
+    dns.write_state(path, _state([_negative_record(1)]))
+    _git(repo, "add", collector.STATE_GIT_PATH)
+    _git(repo, "commit", "-qm", "valid state")
+    assert collector.load_state_from_git_ref("HEAD", repo_root=repo)["jobs"][0]["status"] == "negative"
+
+    path.write_bytes(b"malformed state")
+    _git(repo, "add", collector.STATE_GIT_PATH)
+    _git(repo, "commit", "-qm", "malformed state")
+    with pytest.raises(dns.StateValidationError):
+        collector.load_state_from_git_ref("HEAD", repo_root=repo)
+
+
+def test_cli_contract_has_no_token_flag_and_exposes_budget(capsys):
+    with pytest.raises(SystemExit) as raised:
+        collector.main(["--help"])
+    assert raised.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--state" in help_text
+    assert "--output" in help_text
+    assert "--discover-days" in help_text
+    assert "--max-logs" in help_text
+    assert "--time-budget-seconds" in help_text
+    assert "--merge-state-git-ref" in help_text
+    assert "--dry-run" in help_text
+    assert "--token" not in help_text
