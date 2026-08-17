@@ -380,15 +380,20 @@ class BuildkiteClient:
         finished_from: str,
         deadline: float | None = None,
     ) -> list[dict]:
-        """Union current builds with all builds finished in the scan window.
+        """Union recent active builds with all builds finished in the window.
 
         Querying active states first and the unbounded-upper finished cohort
         second closes state transitions during pagination: a build that
-        finishes between legs remains present in at least one cohort.
+        finishes between legs remains present in at least one cohort. Bound
+        the active leg to the same parent-build horizon so a historical
+        blocked-build backlog cannot consume the entire collection budget.
         """
         active = self._paginate_builds(
             pipeline,
-            filters={"state[]": list(ACTIVE_BUILD_STATES)},
+            filters={
+                "state[]": list(ACTIVE_BUILD_STATES),
+                "created_from": finished_from,
+            },
             deadline=deadline,
         )
         finished = self._paginate_builds(
@@ -871,10 +876,13 @@ def main(argv: list[str] | None = None) -> int:
             merge_state_git_ref=args.merge_state_git_ref,
             dry_run=args.dry_run,
         )
-    except (CollectionError, StateValidationError, ValueError):
+    except CollectionError as exc:
         # Fail closed without interpolating response bodies, headers, URLs, or
         # arbitrary labels into CI logs.
-        log.error("DNS health collection failed safely")
+        log.error("DNS health collection failed safely: reason=%s", exc.reason)
+        return 1
+    except (StateValidationError, ValueError):
+        log.error("DNS health collection failed safely: reason=invalid_state")
         return 1
     log.info("DNS health collection complete: %s", _summary(payload))
     return 0
