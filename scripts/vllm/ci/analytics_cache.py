@@ -119,6 +119,7 @@ def _parse_timestamp(value: object, field: str, *, required: bool) -> datetime |
 
 
 def _timestamp(value: object, field: str, *, required: bool = False) -> str | None:
+    parsed: datetime | None
     if isinstance(value, datetime):
         parsed = _utc(value, field)
     else:
