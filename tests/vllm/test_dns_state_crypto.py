@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import os
 import stat
 import subprocess
@@ -32,7 +33,9 @@ def test_authenticated_state_round_trip_is_randomized_and_private(tmp_path: Path
 def test_tamper_wrong_key_and_wrong_context_fail_closed():
     key = Fernet.generate_key()
     token = crypto.encrypt_state(b"state", key)
-    tampered = token[:-2] + (b"A" if token[-2:-1] != b"A" else b"B") + token[-1:]
+    decoded = bytearray(base64.urlsafe_b64decode(token))
+    decoded[len(decoded) // 2] ^= 1
+    tampered = base64.urlsafe_b64encode(decoded)
 
     with pytest.raises(crypto.StateCryptoError):
         crypto.decrypt_state(tampered, key)
