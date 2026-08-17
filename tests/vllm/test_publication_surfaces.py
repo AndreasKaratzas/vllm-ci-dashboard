@@ -1291,6 +1291,7 @@ def test_stale_shard_bases_are_a_routable_ci_surface_error(tmp_path: Path) -> No
                     "build_state": "passed",
                     "roster_complete": True,
                     "result_file": "2026-08-12_amd.jsonl",
+                    "job_names": ["mi300_1: Active Sharded Group 1"],
                 },
             }
         )
@@ -1360,6 +1361,7 @@ def test_upstream_only_shard_base_is_not_required_in_amd_evidence(tmp_path: Path
                     "build_state": "passed",
                     "roster_complete": True,
                     "result_file": "2026-08-12_amd.jsonl",
+                    "job_names": ["mi300_1: AMD Sharded Group 1"],
                 },
             }
         )
@@ -1416,6 +1418,120 @@ def test_shard_audit_uses_completed_evidence_file_not_newer_partial_file(
     assert not audit.report.errors
 
 
+def test_unavailable_shard_evidence_is_liveness_safe(tmp_path: Path) -> None:
+    ci = tmp_path / "data/vllm/ci"
+    ci.mkdir(parents=True)
+    (ci / "shard_bases.json").write_text(json.dumps(["scheduled group"]))
+    (ci / "shard_base_catalog.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source": {"commit_sha": "a" * 40},
+                "normalization_bases": ["scheduled group"],
+                "pipelines": {"amd": ["scheduled group"], "upstream": []},
+                "definitions": [],
+                "evidence": {
+                    "pipeline": "amd",
+                    "build_number": 0,
+                    "build_commit": "",
+                    "build_state": "unavailable",
+                    "roster_complete": False,
+                    "result_file": "",
+                    "job_names": [],
+                },
+            }
+        )
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_shard_bases()
+
+    assert not audit.report.errors
+    assert {finding.code for finding in audit.report.warnings} == {
+        "shard-evidence-unavailable"
+    }
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        {},
+        {
+            "pipeline": "amd",
+            "build_number": 0,
+            "build_commit": "a" * 40,
+            "build_state": "unavailable",
+            "roster_complete": False,
+            "result_file": "",
+            "job_names": [],
+        },
+        {
+            "pipeline": "amd",
+            "build_number": 101,
+            "build_commit": "a" * 40,
+            "build_state": "running",
+            "roster_complete": False,
+            "result_file": "2026-08-12_amd.jsonl",
+            "job_names": ["mi300_1: Scheduled Group 1"],
+        },
+        {
+            "pipeline": "amd",
+            "build_number": 101,
+            "build_commit": "a" * 40,
+            "build_state": "running",
+            "roster_complete": "false",
+            "result_file": "",
+            "job_names": ["mi300_1: Scheduled Group 1"],
+        },
+        {
+            "pipeline": "amd",
+            "build_number": 101,
+            "build_commit": "a" * 40,
+            "build_state": "running",
+            "roster_complete": True,
+            "result_file": "2026-08-12_amd.jsonl",
+            "job_names": ["mi300_1: Scheduled Group 1"],
+        },
+        {
+            "pipeline": "amd",
+            "build_number": 101,
+            "build_commit": "a" * 40,
+            "build_state": "passed",
+            "roster_complete": True,
+            "result_file": "../2026-08-12_amd.jsonl",
+            "job_names": ["mi300_1: Scheduled Group 1"],
+        },
+    ],
+)
+def test_invalid_shard_evidence_union_is_rejected(
+    tmp_path: Path,
+    evidence: dict,
+) -> None:
+    ci = tmp_path / "data/vllm/ci"
+    ci.mkdir(parents=True)
+    (ci / "shard_bases.json").write_text(json.dumps(["scheduled group"]))
+    (ci / "shard_base_catalog.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source": {"commit_sha": "a" * 40},
+                "normalization_bases": ["scheduled group"],
+                "pipelines": {"amd": ["scheduled group"], "upstream": []},
+                "definitions": [],
+                "evidence": evidence,
+            }
+        )
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_shard_bases()
+
+    assert {finding.code for finding in audit.report.errors} == {
+        "publication-source-shape"
+    }
+    assert not audit.report.warnings
+
+
 def test_nonterminal_shard_evidence_is_a_warning_not_an_error(tmp_path: Path) -> None:
     ci = tmp_path / "data/vllm/ci"
     results = ci / "test_results"
@@ -1435,7 +1551,8 @@ def test_nonterminal_shard_evidence_is_a_warning_not_an_error(tmp_path: Path) ->
                     "build_commit": "a" * 40,
                     "build_state": "running",
                     "roster_complete": False,
-                    "result_file": "2026-08-12_amd.jsonl",
+                    "result_file": "",
+                    "job_names": ["mi300_1: Scheduled Group 1"],
                 },
             }
         )
@@ -1479,6 +1596,7 @@ def test_optional_amd_shard_absence_is_a_warning(tmp_path: Path) -> None:
                     "build_state": "passed",
                     "roster_complete": True,
                     "result_file": "2026-08-12_amd.jsonl",
+                    "job_names": ["mi300_1: Other Group"],
                 },
             }
         )
@@ -1516,6 +1634,7 @@ def test_shard_source_must_match_completed_evidence_commit(tmp_path: Path) -> No
                     "build_state": "passed",
                     "roster_complete": True,
                     "result_file": "2026-08-12_amd.jsonl",
+                    "job_names": ["mi300_1: Completed Group 1"],
                 },
             }
         )

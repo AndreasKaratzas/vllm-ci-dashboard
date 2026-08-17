@@ -292,6 +292,60 @@ def _select_latest_complete_evidence_build(
     )
 
 
+def _select_shard_evidence_build(
+    builds: list[dict],
+    results_by_build: dict[int, list[TestResult]],
+) -> tuple[dict | None, bool]:
+    """Select complete shard evidence, or the newest provisional roster.
+
+    A narrow collection window can contain only today's still-running nightly.
+    The shard catalog still needs explicit evidence so its schema remains
+    publishable, while ``verified_complete=False`` tells the audit to skip
+    absence conclusions until a completed roster with parsed results exists.
+    """
+    complete = _select_latest_complete_evidence_build(builds, results_by_build)
+    if complete is not None:
+        return complete, True
+    provisional = max(
+        builds,
+        key=lambda build: (
+            str(build.get("created_at") or ""),
+            int(build.get("number") or 0),
+        ),
+        default=None,
+    )
+    return provisional, False
+
+
+def _shard_catalog_evidence(
+    build: dict | None,
+    *,
+    verified_complete: bool,
+) -> dict:
+    """Return the stable shard-catalog evidence object for any collection state."""
+    build = build or {}
+    evidence_date = nightly_date(str(build.get("created_at") or ""))
+    return {
+        "pipeline": "amd",
+        "build_number": int(build.get("number") or 0),
+        "build_commit": str(build.get("commit") or "").casefold(),
+        "build_state": str(build.get("state") or "unavailable"),
+        "roster_complete": verified_complete,
+        "result_file": (
+            f"{evidence_date}_amd.jsonl"
+            if verified_complete and evidence_date
+            else ""
+        ),
+        "job_names": sorted(
+            {
+                str(job.get("name") or "")
+                for job in _nightly_test_jobs(build)
+                if str(job.get("name") or "")
+            }
+        ),
+    }
+
+
 def _completed_result_entries(
     entries: list[tuple[int, str, list[TestResult]]],
     fetched_builds: list[dict],
@@ -824,22 +878,34 @@ def main():
         log.info("Data collection complete (analysis skipped).")
         return
 
-    evidence_build = _select_latest_complete_evidence_build(
+    evidence_build, evidence_verified_complete = _select_shard_evidence_build(
         all_builds.get("amd", []),
         all_results.get("amd", {}),
     )
     evidence_commit = str((evidence_build or {}).get("commit") or "").casefold()
-    if FULL_COMMIT_SHA_RE.fullmatch(evidence_commit):
+    if evidence_verified_complete and FULL_COMMIT_SHA_RE.fullmatch(evidence_commit):
         os.environ["VLLM_CONFIG_SHA"] = evidence_commit
         log.info(
             "Pinned CI definitions to completed AMD build #%s commit %s",
             evidence_build.get("number"),
             evidence_commit,
         )
+    elif evidence_verified_complete:
+        log.warning(
+            "Completed AMD evidence build #%s lacks a full commit SHA; "
+            "the publication audit will reject unaligned shard metadata",
+            evidence_build.get("number"),
+        )
+    elif evidence_build:
+        log.warning(
+            "No verified-complete AMD evidence build; publishing shard metadata "
+            "with provisional build #%s evidence",
+            evidence_build.get("number"),
+        )
     else:
         log.warning(
-            "No completed AMD evidence build with a full commit SHA; "
-            "the publication audit will reject unaligned shard metadata"
+            "No AMD evidence build is available; publishing shard metadata "
+            "with explicit unavailable evidence"
         )
 
     # Extract shard bases from upstream YAML (needed for correct group normalization)
@@ -850,23 +916,10 @@ def main():
             extract_shard_base_catalog,
         )
         shard_catalog = extract_shard_base_catalog()
-        if evidence_build:
-            evidence_date = nightly_date(str(evidence_build.get("created_at") or ""))
-            shard_catalog["evidence"] = {
-                "pipeline": "amd",
-                "build_number": int(evidence_build.get("number") or 0),
-                "build_commit": evidence_commit,
-                "build_state": str(evidence_build.get("state") or ""),
-                "roster_complete": _is_complete_nightly_build(evidence_build),
-                "result_file": f"{evidence_date}_amd.jsonl",
-                "job_names": sorted(
-                    {
-                        str(job.get("name") or "")
-                        for job in _nightly_test_jobs(evidence_build)
-                        if str(job.get("name") or "")
-                    }
-                ),
-            }
+        shard_catalog["evidence"] = _shard_catalog_evidence(
+            evidence_build,
+            verified_complete=evidence_verified_complete,
+        )
         shard_bases = shard_catalog.get("normalization_bases", [])
         shard_path = output_dir / "shard_bases.json"
         shard_path.write_text(json.dumps(shard_bases, indent=2))

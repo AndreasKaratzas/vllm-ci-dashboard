@@ -76,6 +76,24 @@ OPERATIONS_SOURCE_MAX_AGE_OVERRIDES = {
 }
 PUBLICATION_FALLBACK_MAX_AGE_HOURS = 36
 FULL_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
+SHARD_EVIDENCE_REQUIRED_KEYS = frozenset({
+    "pipeline",
+    "build_number",
+    "build_commit",
+    "build_state",
+    "roster_complete",
+    "result_file",
+    "job_names",
+})
+SHARD_TERMINAL_BUILD_STATES = frozenset({
+    "passed",
+    "failed",
+    "timed_out",
+    "canceled",
+    "broken",
+    "blocked",
+})
+SHARD_RESULT_FILE_RE = re.compile(r"\d{4}-\d{2}-\d{2}_amd\.jsonl")
 PUBLIC_FILE_WARN_BYTES = 90 * 1024 * 1024
 PUBLIC_FILE_HARD_BYTES = 100 * 1024 * 1024
 PUBLIC_SITE_WARN_BYTES = 250 * 1024 * 1024
@@ -1242,6 +1260,110 @@ class DashboardAudit:
                 elif relative.endswith(".jsonl"):
                     self.load_jsonl(relative)
 
+    def _validate_shard_evidence(
+        self,
+        catalog: dict[str, Any],
+        catalog_path: str,
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """Validate complete, provisional, and unavailable evidence states."""
+        evidence = catalog.get("evidence")
+
+        def invalid(message: str) -> tuple[None, None]:
+            self.error(
+                "publication-source-shape",
+                f"{catalog_path} evidence {message}",
+                catalog_path,
+            )
+            return None, None
+
+        if not isinstance(evidence, dict):
+            return invalid("must be a JSON object")
+        if missing := SHARD_EVIDENCE_REQUIRED_KEYS - set(evidence):
+            return invalid(f"is missing required keys {sorted(missing)}")
+
+        pipeline = evidence.get("pipeline")
+        build_number = evidence.get("build_number")
+        build_commit = evidence.get("build_commit")
+        build_state = evidence.get("build_state")
+        roster_complete = evidence.get("roster_complete")
+        result_file = evidence.get("result_file")
+        job_names = evidence.get("job_names")
+        if pipeline != "amd":
+            return invalid("must identify the amd pipeline")
+        if (
+            isinstance(build_number, bool)
+            or not isinstance(build_number, int)
+            or build_number < 0
+        ):
+            return invalid("build_number must be a non-negative integer")
+        if not isinstance(build_commit, str):
+            return invalid("build_commit must be a string")
+        if not isinstance(build_state, str) or not build_state:
+            return invalid("build_state must be a non-empty string")
+        if type(roster_complete) is not bool:
+            return invalid("roster_complete must be a boolean")
+        if not isinstance(result_file, str):
+            return invalid("result_file must be a string")
+        if (
+            not isinstance(job_names, list)
+            or any(not isinstance(name, str) or not name for name in job_names)
+            or job_names != sorted(set(job_names))
+        ):
+            return invalid("job_names must be a sorted list of unique non-empty strings")
+
+        if build_number == 0:
+            if (
+                build_commit
+                or build_state != "unavailable"
+                or roster_complete
+                or result_file
+                or job_names
+            ):
+                return invalid(
+                    "build #0 must use the exact unavailable sentinel state"
+                )
+            return evidence, "unavailable"
+
+        if not FULL_COMMIT_SHA_RE.fullmatch(build_commit.casefold()):
+            return invalid("build_commit must be a full 40-character SHA")
+        if not roster_complete:
+            if result_file:
+                return invalid("provisional evidence must not reference a result_file")
+            return evidence, "provisional"
+
+        if build_state.casefold() not in SHARD_TERMINAL_BUILD_STATES:
+            return invalid("complete evidence must identify a terminal build state")
+        if (
+            not result_file
+            or Path(result_file).name != result_file
+            or not SHARD_RESULT_FILE_RE.fullmatch(result_file)
+        ):
+            return invalid(
+                "complete evidence result_file must be a canonical AMD JSONL basename"
+            )
+        if not job_names:
+            return invalid("complete evidence must include at least one job name")
+
+        source = catalog.get("source")
+        source_commit = str(
+            source.get("commit_sha") if isinstance(source, dict) else ""
+        ).casefold()
+        if (
+            not FULL_COMMIT_SHA_RE.fullmatch(source_commit)
+            or source_commit != build_commit.casefold()
+        ):
+            self.error(
+                "shard-config-evidence-mismatch",
+                (
+                    "shard definitions are not pinned to the AMD evidence "
+                    f"commit ({source_commit or 'missing'} != "
+                    f"{build_commit.casefold() or 'missing'})"
+                ),
+                catalog_path,
+            )
+            return None, None
+        return evidence, "complete"
+
     def audit_shard_bases(self) -> None:
         """Keep AMD-owned shard normalization aligned with AMD evidence."""
         relpath = "data/vllm/ci/shard_bases.json"
@@ -1259,6 +1381,26 @@ class DashboardAudit:
                 catalog_path,
             )
             return
+        evidence, evidence_state = self._validate_shard_evidence(
+            catalog,
+            catalog_path,
+        )
+        if evidence is None:
+            return
+        if evidence_state == "unavailable":
+            self.warning(
+                "shard-evidence-unavailable",
+                "AMD shard evidence is unavailable; skipping runtime absence checks",
+                catalog_path,
+            )
+            return
+        if evidence_state == "provisional":
+            self.warning(
+                "shard-evidence-provisional",
+                "AMD shard roster is incomplete; absence checks are provisional",
+                catalog_path,
+            )
+            return
         latest = self.latest_result_file("amd")
         if not isinstance(bases, list) or not bases or latest is None:
             return
@@ -1267,43 +1409,8 @@ class DashboardAudit:
             pipelines = catalog.get("pipelines")
             if isinstance(pipelines, dict) and isinstance(pipelines.get("amd"), list):
                 audited_bases = pipelines["amd"]
-            evidence = catalog.get("evidence")
-            if not isinstance(evidence, dict):
-                self.warning(
-                    "shard-evidence-missing",
-                    "pipeline shard evidence is unavailable; skipping runtime absence audit",
-                    catalog_path,
-                )
-                return
-            if not evidence.get("roster_complete"):
-                self.warning(
-                    "shard-evidence-provisional",
-                    "AMD shard evidence is nonterminal; absence checks are provisional",
-                    catalog_path,
-                )
-                return
             result_file = str(evidence.get("result_file") or "")
-            if result_file and Path(result_file).name == result_file:
-                latest = self.root / "data/vllm/ci/test_results" / result_file
-            source = catalog.get("source")
-            source_commit = str(
-                source.get("commit_sha") if isinstance(source, dict) else ""
-            ).casefold()
-            evidence_commit = str(evidence.get("build_commit") or "").casefold()
-            if (
-                not FULL_COMMIT_SHA_RE.fullmatch(source_commit)
-                or source_commit != evidence_commit
-            ):
-                self.error(
-                    "shard-config-evidence-mismatch",
-                    (
-                        "shard definitions are not pinned to the AMD evidence "
-                        f"commit ({source_commit or 'missing'} != "
-                        f"{evidence_commit or 'missing'})"
-                    ),
-                    catalog_path,
-                )
-                return
+            latest = self.root / "data/vllm/ci/test_results" / result_file
         from vllm.ci import analyzer
 
         previous = list(analyzer._SHARD_BASES)
