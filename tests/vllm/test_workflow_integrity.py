@@ -271,6 +271,16 @@ class TestHourlyMasterWorkflow:
         text = _load_workflow_text("hourly-master.yml")
         assert "collect_ci.py" in text
 
+    def test_manual_ci_history_default_covers_completed_nightly_evidence(self):
+        workflow = _load_workflow("hourly-master.yml")
+        triggers = workflow.get(True, workflow.get("on", {}))
+        inputs = triggers["workflow_dispatch"]["inputs"]
+
+        assert inputs["ci_days"]["default"] == "8"
+        assert 'github.event.inputs.ci_days || \'8\'' in _load_workflow_text(
+            "hourly-master.yml"
+        )
+
     def test_calls_collect_analytics_script(self):
         text = _load_workflow_text("hourly-master.yml")
         assert "collect_analytics.py" in text
