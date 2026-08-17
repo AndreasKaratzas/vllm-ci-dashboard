@@ -1,5 +1,5 @@
 {
-  "baseline_ref": "d8a2cbecb95b65e732366add65fb5f8ad2fa6edb",
+  "baseline_ref": "f6c1d2cd58c59581ab4a851bada77c05d5c7b508",
   "candidate_degradations": [
     {
       "code": "dns-health-partial",
@@ -11,99 +11,24 @@
       ]
     }
   ],
-  "candidate_errors": [
-    {
-      "code": "publication-collector-failed",
-      "context": {
-        "surface": "queue"
-      },
-      "message": "queue collection failed before publication validation",
-      "path": "",
-      "severity": "error",
-      "surfaces": [
-        "queue"
-      ]
-    }
-  ],
+  "candidate_errors": [],
   "degraded_since": {
-    "dns_health": "2026-08-17T10:25:39Z",
-    "queue": "2026-08-17T15:05:22Z"
+    "dns_health": "2026-08-17T10:25:39Z"
   },
   "degraded_surfaces": [
-    "dns_health",
-    "queue"
+    "dns_health"
   ],
   "fallback_max_age_hours": 36,
-  "fallback_since": {
-    "queue": "2026-08-17T15:05:22Z"
-  },
-  "fallback_surfaces": [
-    "queue"
-  ],
-  "final_degradations": [
-    {
-      "code": "dns-health-partial",
-      "message": "DNS health coverage is partial; incomplete windows must not be interpreted as zero",
-      "path": "data/vllm/ci/dns_failures.json",
-      "severity": "degradation",
-      "surfaces": [
-        "dns_health"
-      ]
-    }
-  ],
+  "fallback_since": {},
+  "fallback_surfaces": [],
+  "final_degradations": [],
   "final_errors": [],
   "fresh_degraded_surfaces": [
     "dns_health"
   ],
-  "generated_at": "2026-08-17T16:25:01Z",
-  "mode": "mixed",
-  "restored_manifest": {
-    "queue": {
-      "data/vllm/ci/capacity_monitor.json": {
-        "bytes": 73917,
-        "sha256": "1dc3bb0f910d7b08732b3c89ea2a9801dd4d54467eca9daaca19ea5f44568f1f"
-      },
-      "data/vllm/ci/omni_surge_heuristic.json": {
-        "bytes": 640,
-        "sha256": "ed9e1655164f20057720ba3fc741477d62ae8292f0757a03bfec6c43c5aa16ca"
-      },
-      "data/vllm/ci/open_omni_surge_issues.json": {
-        "bytes": 127,
-        "sha256": "e39a758d76ee59f02bcf06542abf91be9db80f0b72928db6d66fe1477d3e3cdc"
-      },
-      "data/vllm/ci/open_queue_issues.json": {
-        "bytes": 74,
-        "sha256": "663dae4f77e7242984341093270c1919127e0e617e97cba2edad98e08d74b94e"
-      },
-      "data/vllm/ci/open_queue_zombie_issues.json": {
-        "bytes": 54,
-        "sha256": "6e4a079f0e08dbd82bcd02f269179d6521e161e8f874c327692fb13932bd51d4"
-      },
-      "data/vllm/ci/queue_jobs.json": {
-        "bytes": 161983,
-        "sha256": "f34329098adae8add995062671a2d4e25d74bfde74df42462ce240953391eefe"
-      },
-      "data/vllm/ci/queue_timeseries.jsonl": {
-        "bytes": 33381682,
-        "sha256": "62f18aaa14622e06cf58794b44263a06ff553859d6a8593eeb6e16c388f7228a"
-      },
-      "data/vllm/ci/workload_mapping.json": {
-        "bytes": 1093864,
-        "sha256": "42bc2c4cba34c4cba523f54d86ea798472575b1cc235b61d4b4c79adc5e3aba7"
-      }
-    }
-  },
-  "restored_paths": {
-    "queue": [
-      "data/vllm/ci/capacity_monitor.json",
-      "data/vllm/ci/omni_surge_heuristic.json",
-      "data/vllm/ci/open_omni_surge_issues.json",
-      "data/vllm/ci/open_queue_issues.json",
-      "data/vllm/ci/open_queue_zombie_issues.json",
-      "data/vllm/ci/queue_jobs.json",
-      "data/vllm/ci/queue_timeseries.jsonl",
-      "data/vllm/ci/workload_mapping.json"
-    ]
-  },
+  "generated_at": "2026-08-17T17:04:40Z",
+  "mode": "degraded",
+  "restored_manifest": {},
+  "restored_paths": {},
   "schema_version": 2
 }
