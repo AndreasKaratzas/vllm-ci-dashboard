@@ -16,6 +16,7 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from vllm.collect_gating_target_candidates import hardware_fold_key
+from vllm.ci.incident_transitions import advance_incident
 
 
 INCIDENT_STATES = {"failed", "hard", "soft", "soft_fail", "soft_failed"}
@@ -513,6 +514,10 @@ def target_result(target: dict) -> str:
 def matrix_runtime_targets(matrix: dict) -> list[dict]:
     """Project every exact matrix definition into the ownership target shape."""
     generated_at = str(matrix.get("generated_at") or "")
+    build_observed_at = str(
+        (matrix.get("source") or {}).get("latest_build_created_at")
+        or generated_at
+    )
     latest_build = (matrix.get("summary") or {}).get("latest_build_number")
     definitions = [row for row in matrix.get("rows") or [] if isinstance(row, dict)]
     title_counts = Counter(str(row.get("title") or "unknown") for row in definitions)
@@ -570,7 +575,10 @@ def matrix_runtime_targets(matrix: dict) -> list[dict]:
                 "latest_amd_result": {
                     "state": state,
                     "build_number": latest_build,
-                    "observed_at": generated_at,
+                    # Evidence identity must remain stable when the same completed
+                    # build is collected again.  ``generated_at`` is collector
+                    # freshness, not the time of the observed build.
+                    "observed_at": build_observed_at,
                     "evidence": evidence,
                 },
                 "runtime_resolution": {
@@ -744,3 +752,384 @@ def build_ownership_status(
         "areas": area_rows,
         "unmapped_targets": sorted(unmapped, key=lambda row: row["label"].casefold()),
     }
+
+
+def _target_signal_key(target: dict) -> str:
+    target_id = str(target.get("id") or "").strip()
+    if target_id:
+        return target_id
+    return f"label:{normalize_label(target.get('label'))}"
+
+
+def _target_failure_evidence(target: dict) -> dict:
+    return {
+        key: target.get(key)
+        for key in ("build_number", "observed_at", "url")
+        if target.get(key) not in (None, "")
+    }
+
+
+def _numeric_build_id(value: Any) -> int | None:
+    """Return a comparable Buildkite build number when one is available."""
+    if value in (None, "") or isinstance(value, bool):
+        return None
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _signal_build_watermark(signal: dict | None) -> int | None:
+    if not isinstance(signal, dict):
+        return None
+    for key in ("build_watermark", "last_eligible_build_id"):
+        watermark = _numeric_build_id(signal.get(key))
+        if watermark is not None:
+            return watermark
+    evidence = signal.get("evidence")
+    if isinstance(evidence, dict):
+        return _numeric_build_id(evidence.get("build_number"))
+    return None
+
+
+def _target_identity(target: dict, signal_key: str) -> dict:
+    identity = {
+        "id": target.get("id"),
+        "label": str(target.get("label") or signal_key),
+    }
+    if identity["id"] in (None, ""):
+        identity["id"] = signal_key
+    area_method = target.get("area_method")
+    if area_method not in (None, ""):
+        identity["area_method"] = area_method
+    return identity
+
+
+def _retained_target(
+    signal_key: str,
+    signal: dict,
+    *,
+    build_number: Any,
+    observed_at: str,
+) -> dict:
+    identity = signal.get("identity")
+    if not isinstance(identity, dict):
+        identity = {}
+    return {
+        "id": identity.get("id") or signal_key,
+        "label": str(identity.get("label") or signal_key),
+        "result": "unobserved",
+        "build_number": build_number,
+        "observed_at": observed_at,
+        "url": "",
+        "area_method": identity.get("area_method") or "retained_incident_identity",
+        "target_disappeared": True,
+    }
+
+
+def apply_incident_hysteresis(
+    status: dict,
+    prior_areas: dict[str, dict],
+    *,
+    soft_threshold: int = 2,
+) -> dict[str, dict[str, dict]]:
+    """Annotate raw ownership results with confirmed incident state.
+
+    Hard observations confirm immediately. Soft observations remain visible as
+    pending until they recur on ``soft_threshold`` distinct completed builds.
+    Re-reading the same build cannot advance the streak, and an unobserved
+    target holds (rather than resolving) its prior incident state.
+
+    The returned mapping is deliberately separate from the public status. It
+    is persisted alongside each area's managed-issue state and supplied on the
+    next watcher run.
+    """
+    next_signals: dict[str, dict[str, dict]] = {}
+    summary_raw = Counter()
+    summary_confirmed = Counter()
+    areas_with_pending = 0
+
+    for area in status.get("areas") or []:
+        if not isinstance(area, dict):
+            continue
+        area_key = str(area.get("area") or "")
+        prior_area = prior_areas.get(area_key) or {}
+        raw_prior_signals = prior_area.get("signals") or {}
+        prior_signals = {
+            str(signal_key): dict(signal)
+            for signal_key, signal in raw_prior_signals.items()
+            if isinstance(signal, dict)
+        } if isinstance(raw_prior_signals, dict) else {}
+        grandfather_soft_incidents = not prior_signals and bool(
+            prior_area.get("issue") or prior_area.get("suppressed")
+        )
+
+        current_targets = [
+            dict(target)
+            for target in area.get("targets") or []
+            if isinstance(target, dict)
+        ]
+        area_observations = [
+            (
+                build_id,
+                target.get("build_number"),
+                str(target.get("observed_at") or ""),
+            )
+            for target in current_targets
+            if (build_id := _numeric_build_id(target.get("build_number")))
+            is not None
+        ]
+        if area_observations:
+            _, area_build_number, area_observed_at = max(
+                area_observations,
+                key=lambda row: row[0],
+            )
+        else:
+            area_build_number = None
+            area_observed_at = next(
+                (
+                    str(target.get("observed_at") or "")
+                    for target in current_targets
+                    if target.get("observed_at")
+                ),
+                "",
+            )
+
+        area_signals: dict[str, dict] = {}
+        confirmed: list[dict] = []
+        pending_soft: list[dict] = []
+        raw_counts = Counter()
+        annotated_targets: list[dict] = []
+        seen_signal_keys: set[str] = set()
+
+        def record_target(raw_target: dict) -> None:
+            target = dict(raw_target)
+            raw_result = str(target.get("result") or "unobserved").lower()
+            raw_counts[raw_result] += 1
+            summary_raw[raw_result] += 1
+            outcome = {
+                "hard": "hard",
+                "soft": "soft",
+                "passed": "passed",
+                "unobserved": "absent",
+            }.get(raw_result, "indeterminate")
+            signal_key = _target_signal_key(target)
+            seen_signal_keys.add(signal_key)
+            previous_signal = area_signals.get(signal_key) or prior_signals.get(
+                signal_key
+            )
+            previous_evidence = (
+                previous_signal.get("evidence")
+                if isinstance(previous_signal, dict)
+                and isinstance(previous_signal.get("evidence"), dict)
+                else {}
+            )
+            if (
+                previous_signal is None
+                and grandfather_soft_incidents
+                and outcome == "soft"
+            ):
+                # Area issues created before per-target transition state already
+                # represent confirmed incidents. Seed their current soft members
+                # as confirmed so rollout cannot close a still-active issue after
+                # relabeling a single current soft observation as pending.
+                legacy_generation = f"legacy:{area_key}:{signal_key}"
+                seeded = advance_incident(
+                    None,
+                    "soft",
+                    f"{legacy_generation}:1",
+                    soft_threshold=soft_threshold,
+                )
+                previous_signal = advance_incident(
+                    seeded["state"],
+                    "soft",
+                    f"{legacy_generation}:2",
+                    soft_threshold=soft_threshold,
+                )["state"]
+
+            previous_watermark = _signal_build_watermark(previous_signal)
+            current_watermark = _numeric_build_id(target.get("build_number"))
+            non_monotonic = outcome != "absent" and (
+                previous_watermark is not None
+                and (
+                    current_watermark is None
+                    or current_watermark <= previous_watermark
+                )
+            )
+            if (
+                current_watermark is None
+                and previous_watermark is None
+                and isinstance(previous_signal, dict)
+                and previous_signal.get("status") in {"pending_soft", "confirmed"}
+                and outcome != "absent"
+            ):
+                # An unnumbered observation cannot prove that it is newer than an
+                # active incident.  Hold until a completed build ID is available.
+                non_monotonic = True
+            effective_outcome = "absent" if non_monotonic else outcome
+            transition = advance_incident(
+                previous_signal,
+                effective_outcome,
+                target.get("build_number") if not non_monotonic else None,
+                soft_threshold=soft_threshold,
+            )
+            signal = transition["state"]
+            evidence = (
+                _target_failure_evidence(target)
+                if not non_monotonic and outcome in {"hard", "soft"}
+                else previous_evidence
+            )
+            persisted_signal = dict(signal)
+            accepted_watermark = previous_watermark
+            if current_watermark is not None and (
+                accepted_watermark is None
+                or current_watermark > accepted_watermark
+            ):
+                accepted_watermark = current_watermark
+            if accepted_watermark is not None:
+                persisted_signal["build_watermark"] = accepted_watermark
+            previous_identity = (
+                previous_signal.get("identity")
+                if isinstance(previous_signal, dict)
+                and isinstance(previous_signal.get("identity"), dict)
+                else {}
+            )
+            identity = dict(previous_identity)
+            if not target.get("target_disappeared") or not identity:
+                identity.update(_target_identity(target, signal_key))
+            persisted_signal["identity"] = identity
+            if signal["status"] != "clear" and evidence:
+                persisted_signal["evidence"] = dict(evidence)
+                target["last_failure_evidence"] = dict(evidence)
+            area_signals[signal_key] = persisted_signal
+            target.update(
+                {
+                    "raw_result": raw_result,
+                    "incident_status": signal["status"],
+                    "incident_severity": signal.get("severity"),
+                    "incident_peak_severity": signal.get("peak_severity"),
+                    "incident_start_build_id": signal.get(
+                        "incident_start_build_id"
+                    ),
+                    "incident_classification": transition["classification"],
+                    "incident_change": transition["change"],
+                    "incident_observation_eligible": not non_monotonic,
+                    "soft_streak": signal.get("soft_streak", 0),
+                    "soft_threshold": soft_threshold,
+                }
+            )
+            if non_monotonic:
+                target["incident_observation_reason"] = (
+                    "ignored_non_monotonic_build"
+                )
+            annotated_targets.append(target)
+            if signal["status"] == "confirmed":
+                severity = str(signal.get("severity") or "soft")
+                summary_confirmed[severity] += 1
+                confirmed.append(target)
+            elif signal["status"] == "pending_soft":
+                pending_soft.append(target)
+
+        for target in current_targets:
+            record_target(target)
+
+        # A missing row is absence, not recovery.  Keep active identity and exact
+        # failure evidence visible until an explicit newer pass resolves it.
+        for signal_key, previous_signal in prior_signals.items():
+            if signal_key in seen_signal_keys:
+                continue
+            if previous_signal.get("status") in {"pending_soft", "confirmed"}:
+                record_target(
+                    _retained_target(
+                        signal_key,
+                        previous_signal,
+                        build_number=area_build_number,
+                        observed_at=area_observed_at,
+                    )
+                )
+            else:
+                area_signals[signal_key] = dict(previous_signal)
+
+        confirmed.sort(
+            key=lambda row: (
+                0 if row.get("incident_severity") == "hard" else 1,
+                str(row.get("label") or "").casefold(),
+            )
+        )
+        pending_soft.sort(key=lambda row: str(row.get("label") or "").casefold())
+        confirmed_counts = Counter(
+            str(row.get("incident_severity") or "soft") for row in confirmed
+        )
+        counts = area.setdefault("counts", {})
+        counts.update(
+            {
+                "targets": len(annotated_targets),
+                "incidents": len(confirmed),
+                "confirmed_hard": confirmed_counts["hard"],
+                "confirmed_soft": confirmed_counts["soft"],
+                "pending_soft": len(pending_soft),
+                "raw_incidents": raw_counts["hard"] + raw_counts["soft"],
+                "hard": raw_counts["hard"],
+                "soft": raw_counts["soft"],
+                "passed": raw_counts["passed"],
+                "unobserved": raw_counts["unobserved"],
+                "raw_results": {
+                    result: raw_counts[result]
+                    for result in ("hard", "soft", "unobserved", "passed")
+                },
+            }
+        )
+        area["targets"] = annotated_targets
+        area["regressions"] = confirmed
+        area["pending_soft_observations"] = pending_soft
+        next_signals[area_key] = area_signals
+        if pending_soft:
+            areas_with_pending += 1
+
+    # Configuration or attribution changes must not silently orphan managed
+    # issue state for an area omitted from the current public projection.
+    for raw_area_key, prior_area in prior_areas.items():
+        area_key = str(raw_area_key)
+        if area_key in next_signals or not isinstance(prior_area, dict):
+            continue
+        raw_signals = prior_area.get("signals") or {}
+        next_signals[area_key] = {
+            str(signal_key): dict(signal)
+            for signal_key, signal in raw_signals.items()
+            if isinstance(signal, dict)
+        } if isinstance(raw_signals, dict) else {}
+
+    summary = status.setdefault("summary", {})
+    summary.update(
+        {
+            "areas_with_incidents": sum(
+                bool((area.get("counts") or {}).get("incidents"))
+                for area in status.get("areas") or []
+                if isinstance(area, dict)
+            ),
+            "areas_with_pending_soft": areas_with_pending,
+            "incidents": summary_confirmed["hard"] + summary_confirmed["soft"],
+            "confirmed_hard": summary_confirmed["hard"],
+            "confirmed_soft": summary_confirmed["soft"],
+            "pending_soft": sum(
+                len(area.get("pending_soft_observations") or [])
+                for area in status.get("areas") or []
+                if isinstance(area, dict)
+            ),
+            "raw_incidents": summary_raw["hard"] + summary_raw["soft"],
+            "hard": summary_raw["hard"],
+            "soft": summary_raw["soft"],
+            "passed": summary_raw["passed"],
+            "unobserved": summary_raw["unobserved"],
+            "raw_results": {
+                result: summary_raw[result]
+                for result in ("hard", "soft", "unobserved", "passed")
+            },
+        }
+    )
+    status.setdefault("policy", {})["incident_confirmation"] = (
+        f"hard observations confirm immediately; soft observations require "
+        f"{soft_threshold} distinct completed builds; absent observations hold state; "
+        "non-monotonic build observations cannot change incident state"
+    )
+    return next_signals

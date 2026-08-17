@@ -426,7 +426,7 @@ function renderParityView(projectsCfg, dataMap, parityHistData) {
 
       html += '<div style="text-align:center;padding:14px;background:var(--bg);border-radius:6px;border:1px solid var(--border);border-top:3px solid #da3633;cursor:pointer;transition:transform .15s,box-shadow .15s" onclick="showGroupOverlay(\'' + overlayId + '\',\'amd-hw\')" onmouseenter="this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 4px 12px rgba(0,0,0,.3)\'" onmouseleave="this.style.transform=\'\';this.style.boxShadow=\'\'">';
       html += '<div style="font-size:28px;font-weight:800;color:' + (hwPassPct >= 85 ? '#238636' : hwPassPct >= 70 ? '#db6d28' : '#da3633') + '">' + hwPassPct + '%</div>';
-      html += '<div style="font-size:15px;color:var(--text-muted)">AMD HW Pass Rate</div>';
+      html += '<div style="font-size:15px;color:var(--text-muted)">AMD hardware-group pass rate</div>';
       html += '<div style="font-size:13px;color:var(--text-muted);margin-top:4px">' + hwSummary.passing + '/' + hwSummary.current + ' hardware groups passing</div></div>';
 
       html += '<div style="text-align:center;padding:14px;background:var(--bg);border-radius:6px;border:1px solid var(--border);border-top:3px solid #238636;cursor:pointer;transition:transform .15s,box-shadow .15s" onclick="showGroupOverlay(\'' + overlayId + '\',\'common\')" onmouseenter="this.style.transform=\'translateY(-2px)\';this.style.boxShadow=\'0 4px 12px rgba(0,0,0,.3)\'" onmouseleave="this.style.transform=\'\';this.style.boxShadow=\'\'">';
@@ -478,26 +478,30 @@ function renderParityView(projectsCfg, dataMap, parityHistData) {
       html += buildParityBar(tr.cuda_parity);
     }
 
-    // Per-platform pass rates (secondary)
+    // Per-platform test-assertion pass rates (secondary)
     html += '<div class="parity-bars">';
-    if (rocm && rocm.summary) html += buildPassRateBar("ROCm", rocm.summary, rocm.run_url);
-    if (cuda && cuda.summary) html += buildPassRateBar("CUDA", cuda.summary, cuda.run_url);
+    if (rocm && rocm.summary) html += buildTestAssertionPassRateBar("ROCm test assertions", rocm.summary, rocm.run_url);
+    if (cuda && cuda.summary) html += buildTestAssertionPassRateBar("CUDA test assertions", cuda.summary, cuda.run_url);
     html += '</div>';
 
     // Stats line
     html += '<div class="parity-stats">';
     if (rocm && rocm.summary) {
       var rs = rocm.summary;
-      html += '<span>ROCm: <span class="stat-num">' + (rs.passed || 0) + '</span> passed';
-      if (rs.failed) html += ', <span class="stat-num">' + rs.failed + '</span> failed';
-      if (rs.skipped) html += ', ' + rs.skipped + ' skipped';
+      var ra = testAssertionCounts(rs);
+      var rd = ra || rs;
+      html += '<span>ROCm ' + (ra ? 'test assertions' : 'jobs') + ': <span class="stat-num">' + (rd.passed || 0) + '</span> passed';
+      if (rd.failed) html += ', <span class="stat-num">' + rd.failed + '</span> failed';
+      if (rd.skipped) html += ', ' + rd.skipped + ' skipped';
       html += '</span>';
     }
     if (cuda && cuda.summary) {
       var cs = cuda.summary;
-      html += '<span>CUDA: <span class="stat-num">' + (cs.passed || 0) + '</span> passed';
-      if (cs.failed) html += ', <span class="stat-num">' + cs.failed + '</span> failed';
-      if (cs.skipped) html += ', ' + cs.skipped + ' skipped';
+      var ca = testAssertionCounts(cs);
+      var cd = ca || cs;
+      html += '<span>CUDA ' + (ca ? 'test assertions' : 'jobs') + ': <span class="stat-num">' + (cd.passed || 0) + '</span> passed';
+      if (cd.failed) html += ', <span class="stat-num">' + cd.failed + '</span> failed';
+      if (cd.skipped) html += ', ' + cd.skipped + ' skipped';
       html += '</span>';
     }
     html += '</div>';
@@ -622,8 +626,8 @@ function buildParityHardwareBreakdown(health, parity) {
   var overallColor = overallRate >= 0.95 ? '#238636' : overallRate >= 0.85 ? '#d29922' : overallRate >= 0.7 ? '#db6d28' : '#da3633';
   var html = '<details class="parity-hw-breakdown" open>';
   html += '<summary><span style="color:#da3633;font-weight:700">AMD</span> Hardware Breakdown</summary>';
-  html += '<div class="parity-hw-overall"><div class="parity-hw-overall-head"><span>Overall pass rate</span><strong style="color:' + overallColor + '">' + _fix(overallRate * 100, 1) + '%</strong><span>' + summary.passing + '/' + summary.current + ' hardware groups passing</span></div><span class="parity-score-bar"><span style="width:' + _fix(overallRate * 100, 2) + '%;background:' + overallColor + '"></span></span></div>';
-  html += '<table class="parity-hw-table"><tr><th>Hardware</th><th>Group Pass Rate</th><th>Passing</th><th>Failing</th><th>Total Groups</th></tr>';
+  html += '<div class="parity-hw-overall"><div class="parity-hw-overall-head"><span>Overall hardware-group pass rate</span><strong style="color:' + overallColor + '">' + _fix(overallRate * 100, 1) + '%</strong><span>' + summary.passing + '/' + summary.current + ' hardware groups passing</span></div><span class="parity-score-bar"><span style="width:' + _fix(overallRate * 100, 2) + '%;background:' + overallColor + '"></span></span></div>';
+  html += '<table class="parity-hw-table"><tr><th>Hardware</th><th>Hardware-group pass rate</th><th>Passing</th><th>Failing</th><th>Total Groups</th></tr>';
   for (var i = 0; i < rows.length; i++) {
     var hw = rows[i][0];
     var groups = hwMap[hw] || { passing: [], failing: [], pending: [], canceled: [] };

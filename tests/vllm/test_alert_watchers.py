@@ -186,25 +186,44 @@ def test_amd_watcher_initializes_from_latest_build_then_resolves_on_pass():
         ],
         [
             _amd_group("old", [_amd_observation(10, "failed", "2026-07-17T09:50:00Z", "old-fail")]),
-            _amd_group("current", [_amd_observation(11, "soft_fail", "2026-07-17T10:50:00Z", "current-soft")]),
+            _amd_group(
+                "current",
+                [_amd_observation(11, "soft_fail", "2026-07-17T10:50:00Z", "current-soft")],
+            ),
         ],
     )
 
     initialized = amd.advance_incidents(reliability, amd._default_state())
 
     assert set(initialized["processed_build_numbers"]) == {10, 11}
-    assert set(initialized["active"]) == {"current"}
-    assert initialized["active"]["current"]["result"] == "soft_fail"
+    assert initialized["schema_version"] == 2
+    assert initialized["active"] == {}
+    assert set(initialized["pending_soft"]) == {"current"}
+    assert initialized["pending_soft"]["current"]["transition"]["soft_streak"] == 1
 
     reliability["builds"].append(_amd_build(12, "2026-07-17T12:00:00Z"))
     reliability["groups"][1]["observations"].insert(
         0,
-        _amd_observation(12, "passed", "2026-07-17T11:50:00Z", "current-pass"),
+        _amd_observation(12, "soft_fail", "2026-07-17T11:50:00Z", "current-soft-2"),
     )
-    resolved = amd.advance_incidents(reliability, initialized)
+    confirmed = amd.advance_incidents(reliability, initialized)
+
+    assert set(confirmed["active"]) == {"current"}
+    transition = confirmed["active"]["current"]["transition"]
+    assert transition["status"] == "confirmed"
+    assert transition["soft_streak"] == 2
+    assert confirmed["pending_soft"] == {}
+
+    reliability["builds"].append(_amd_build(13, "2026-07-17T13:00:00Z"))
+    reliability["groups"][1]["observations"].insert(
+        0,
+        _amd_observation(13, "passed", "2026-07-17T12:50:00Z", "current-pass"),
+    )
+    resolved = amd.advance_incidents(reliability, confirmed)
 
     assert resolved["active"] == {}
-    assert set(resolved["processed_build_numbers"]) == {10, 11, 12}
+    assert resolved["pending_soft"] == {}
+    assert set(resolved["processed_build_numbers"]) == {10, 11, 12, 13}
 
 
 def test_amd_watcher_latest_retry_attempt_wins_inside_build():
@@ -215,7 +234,9 @@ def test_amd_watcher_latest_retry_attempt_wins_inside_build():
                 "retried",
                 [
                     _amd_observation(20, "passed", "2026-07-17T11:50:00Z", "retry-pass"),
-                    _amd_observation(20, "failed", "2026-07-17T11:50:00Z", "retry-fail", "retry-pass"),
+                    _amd_observation(
+                        20, "failed", "2026-07-17T11:50:00Z", "retry-fail", "retry-pass"
+                    ),
                 ],
             ),
         ],
@@ -224,6 +245,178 @@ def test_amd_watcher_latest_retry_attempt_wins_inside_build():
     state = amd.advance_incidents(reliability, amd._default_state())
 
     assert state["active"] == {}
+    assert state["pending_soft"] == {}
+
+
+def test_amd_watcher_hard_failure_confirms_immediately_and_absence_holds():
+    reliability = _amd_reliability(
+        [_amd_build(21, "2026-07-17T11:00:00Z")],
+        [
+            _amd_group(
+                "hard-group",
+                [_amd_observation(21, "failed", "2026-07-17T10:50:00Z", "hard-21")],
+            )
+        ],
+    )
+
+    confirmed = amd.advance_incidents(reliability, amd._default_state())
+    assert confirmed["active"]["hard-group"]["transition"] == {
+        "status": "confirmed",
+        "severity": "hard",
+        "peak_severity": "hard",
+        "soft_streak": 0,
+        "last_eligible_build_id": "21",
+        "incident_start_build_id": "21",
+        "confirmed_build_id": "21",
+    }
+
+    reliability["builds"].append(_amd_build(22, "2026-07-17T12:00:00Z"))
+    held = amd.advance_incidents(reliability, confirmed)
+
+    assert held["active"] == confirmed["active"]
+    assert set(held["processed_build_numbers"]) == {21, 22}
+
+
+def test_amd_watcher_pass_clears_one_soft_without_confirming_issue():
+    reliability = _amd_reliability(
+        [_amd_build(25, "2026-07-17T11:00:00Z")],
+        [
+            _amd_group(
+                "soft-then-pass",
+                [_amd_observation(25, "soft_fail", "2026-07-17T10:50:00Z", "soft-25")],
+            )
+        ],
+    )
+    pending = amd.advance_incidents(reliability, amd._default_state())
+    assert set(pending["pending_soft"]) == {"soft-then-pass"}
+    assert pending["active"] == {}
+
+    reliability["builds"].append(_amd_build(26, "2026-07-17T12:00:00Z"))
+    reliability["groups"][0]["observations"].insert(
+        0,
+        _amd_observation(26, "passed", "2026-07-17T11:50:00Z", "pass-26"),
+    )
+    cleared = amd.advance_incidents(reliability, pending)
+
+    assert cleared["pending_soft"] == {}
+    assert cleared["active"] == {}
+
+
+def test_amd_watcher_sorts_unprocessed_builds_before_soft_confirmation():
+    reliability = _amd_reliability(
+        [
+            _amd_build(32, "2026-07-17T12:00:00Z"),
+            _amd_build(31, "2026-07-17T11:00:00Z"),
+        ],
+        [
+            _amd_group(
+                "out-of-list-order",
+                [
+                    _amd_observation(32, "soft_fail", "2026-07-17T11:50:00Z", "soft-32"),
+                    _amd_observation(31, "soft_fail", "2026-07-17T10:50:00Z", "soft-31"),
+                ],
+            )
+        ],
+    )
+    already_initialized = amd._default_state() | {"initialized": True}
+
+    confirmed = amd.advance_incidents(reliability, already_initialized)
+
+    transition = confirmed["active"]["out-of-list-order"]["transition"]
+    assert transition["soft_streak"] == 2
+    assert transition["incident_start_build_id"] == "31"
+    assert transition["confirmed_build_id"] == "32"
+
+    duplicate = amd.advance_incidents(reliability, confirmed)
+    assert duplicate["active"] == confirmed["active"]
+
+
+def test_amd_watcher_ignores_older_build_discovered_after_newer_result():
+    reliability = _amd_reliability(
+        [_amd_build(40, "2026-07-17T12:00:00Z")],
+        [
+            _amd_group(
+                "late-old-build",
+                [_amd_observation(40, "soft_fail", "2026-07-17T11:50:00Z", "soft-40")],
+            )
+        ],
+    )
+    pending = amd.advance_incidents(reliability, amd._default_state())
+
+    late_old_build = _amd_build(39, "2026-07-17T13:00:00Z")
+    late_old_build["created_at"] = "2026-07-17T11:00:00Z"
+    reliability["builds"].append(late_old_build)
+    reliability["groups"][0]["observations"].append(
+        _amd_observation(39, "soft_fail", "2026-07-17T10:50:00Z", "late-soft-39")
+    )
+    held = amd.advance_incidents(reliability, pending)
+
+    row = held["pending_soft"]["late-old-build"]
+    assert row["build_number"] == 40
+    assert row["transition"]["soft_streak"] == 1
+    assert held["group_watermarks"]["late-old-build"]["build_number"] == 40
+
+
+def test_amd_watcher_migrates_v1_order_fence_before_processing_late_build():
+    reliability = _amd_reliability(
+        [
+            _amd_build(50, "2026-07-17T12:00:00Z"),
+            _amd_build(49, "2026-07-17T11:00:00Z"),
+        ],
+        [
+            _amd_group(
+                "resolved-before-migration",
+                [
+                    _amd_observation(50, "passed", "2026-07-17T11:50:00Z", "pass-50"),
+                    _amd_observation(49, "failed", "2026-07-17T10:50:00Z", "late-fail-49"),
+                ],
+            )
+        ],
+    )
+    schema_v1_state = {
+        "schema_version": 1,
+        "initialized": True,
+        "processed_build_numbers": [50],
+        "active": {},
+        "group_watermarks": {},
+    }
+
+    migrated = amd.advance_incidents(reliability, schema_v1_state)
+
+    assert migrated["active"] == {}
+    assert migrated["pending_soft"] == {}
+    assert migrated["group_watermarks"]["resolved-before-migration"]["build_number"] == 50
+
+
+def test_amd_watcher_migrates_legacy_active_rows_as_confirmed():
+    reliability = _amd_reliability(
+        [_amd_build(24, "2026-07-17T12:00:00Z")],
+        [],
+    )
+    legacy = {
+        "schema_version": 1,
+        "initialized": True,
+        "processed_build_numbers": [24],
+        "active": {
+            "legacy-soft": _amd_group(
+                "legacy-soft",
+                [],
+            )
+            | {
+                "result": "soft_fail",
+                "build_number": 24,
+                "observed_at": "2026-07-17T11:50:00Z",
+            }
+        },
+    }
+
+    migrated = amd.advance_incidents(reliability, legacy)
+
+    transition = migrated["active"]["legacy-soft"]["transition"]
+    assert migrated["schema_version"] == 2
+    assert transition["status"] == "confirmed"
+    assert transition["peak_severity"] == "soft"
+    assert migrated["signal_fingerprint_version"] == 1
 
 
 def test_amd_issue_body_contains_exact_job_evidence_and_rule():
@@ -247,9 +440,74 @@ def test_amd_issue_body_contains_exact_job_evidence_and_rule():
 
     assert "job-42" in body
     assert "latest eligible attempt" in body
-    assert "72 hours" in body
+    assert "two distinct eligible builds" in body
+    assert "only an explicit pass" in body
     assert "GitHub assignee: AndreasKaratzas." in body
     assert "@AndreasKaratzas" not in body
+
+
+def test_main_watcher_signal_fingerprint_ignores_recurring_build_evidence():
+    transition = {
+        "status": "confirmed",
+        "severity": "hard",
+        "peak_severity": "hard",
+        "soft_streak": 0,
+        "last_eligible_build_id": "42",
+        "incident_start_build_id": "40",
+        "confirmed_build_id": "40",
+    }
+    first = {
+        "group": {
+            "result": "failed",
+            "build_number": 42,
+            "job_id": "job-42",
+            "transition": transition,
+        }
+    }
+    recurring = {
+        "group": {
+            "result": "soft_fail",
+            "build_number": 43,
+            "job_id": "job-43",
+            "transition": transition | {"severity": "soft", "last_eligible_build_id": "43"},
+        }
+    }
+
+    assert amd._fingerprint(first) == amd._fingerprint(recurring)
+    assert amd._content_fingerprint(first) != amd._content_fingerprint(recurring)
+    assert amd._fingerprint(first) != amd._fingerprint(
+        {
+            "group": recurring["group"]
+            | {"transition": recurring["group"]["transition"] | {"incident_start_build_id": "43"}}
+        }
+    )
+    assert amd._fingerprint(first) != amd._fingerprint(
+        {
+            "group": recurring["group"]
+            | {"transition": recurring["group"]["transition"] | {"peak_severity": "soft"}}
+        }
+    )
+
+
+def test_main_watcher_fingerprint_migration_preserves_manual_suppression():
+    active = {
+        "group": {
+            "result": "soft_fail",
+            "build_number": 42,
+        }
+    }
+    state = {
+        "signal_fingerprint_version": 1,
+        "last_fingerprint": "legacy-evidence-fingerprint",
+        "suppressed": True,
+        "suppressed_fingerprint": "legacy-evidence-fingerprint",
+    }
+
+    fingerprint = amd._migrate_signal_fingerprint(state, active)
+
+    assert state["signal_fingerprint_version"] == 2
+    assert state["last_fingerprint"] == fingerprint
+    assert state["suppressed_fingerprint"] == fingerprint
 
 
 def _ci_build(number, finished_at, commit, *, created_at=None):
@@ -305,12 +563,8 @@ def test_upstream_watcher_retains_last_good_and_first_bad_commit():
             _ci_group(
                 "upstream-group",
                 [
-                    _ci_observation(
-                        31, "failed", "2026-07-17T10:50:00Z", "bad-31", first_bad
-                    ),
-                    _ci_observation(
-                        30, "passed", "2026-07-17T09:50:00Z", "good-30", good
-                    ),
+                    _ci_observation(31, "failed", "2026-07-17T10:50:00Z", "bad-31", first_bad),
+                    _ci_observation(30, "passed", "2026-07-17T09:50:00Z", "good-30", good),
                 ],
             )
         ],
@@ -328,25 +582,22 @@ def test_upstream_watcher_retains_last_good_and_first_bad_commit():
     assert incident["bisect_command"] == f"git bisect start {first_bad} {good}"
 
     reliability["generated_at"] = "2026-07-17T13:10:00Z"
-    reliability["builds"].append(
-        _ci_build(32, "2026-07-17T12:00:00Z", later_bad)
-    )
+    reliability["builds"].append(_ci_build(32, "2026-07-17T12:00:00Z", later_bad))
     reliability["groups"][0]["observations"].insert(
         0,
-        _ci_observation(
-            32, "soft_fail", "2026-07-17T11:50:00Z", "bad-32", later_bad
-        ),
+        _ci_observation(32, "soft_fail", "2026-07-17T11:50:00Z", "bad-32", later_bad),
     )
     continued = upstream.advance_incidents(reliability, initialized)
     incident = continued["active"]["upstream-group"]
     assert incident["good_commit"] == good
     assert incident["bad_commit"] == first_bad
     assert incident["latest_bad_commit"] == later_bad
+    assert incident["transition"]["severity"] == "soft"
+    assert incident["transition"]["peak_severity"] == "hard"
+    assert incident["transition"]["incident_start_build_id"] == "31"
 
     reliability["generated_at"] = "2026-07-17T14:10:00Z"
-    reliability["builds"].append(
-        _ci_build(33, "2026-07-17T13:00:00Z", recovered_commit)
-    )
+    reliability["builds"].append(_ci_build(33, "2026-07-17T13:00:00Z", recovered_commit))
     reliability["groups"][0]["observations"].insert(
         0,
         _ci_observation(
@@ -359,6 +610,62 @@ def test_upstream_watcher_retains_last_good_and_first_bad_commit():
     )
     recovered = upstream.advance_incidents(reliability, continued)
     assert recovered["active"] == {}
+
+
+def test_upstream_watcher_confirms_soft_on_second_build_and_keeps_first_bad():
+    good = "a" * 40
+    first_soft = "b" * 40
+    second_soft = "c" * 40
+    reliability = {
+        "generated_at": "2026-07-17T12:10:00Z",
+        "builds": [
+            _ci_build(60, "2026-07-17T09:00:00Z", good),
+            _ci_build(61, "2026-07-17T10:00:00Z", first_soft),
+        ],
+        "groups": [
+            _ci_group(
+                "soft-upstream-group",
+                [
+                    _ci_observation(
+                        61,
+                        "soft_fail",
+                        "2026-07-17T09:50:00Z",
+                        "soft-61",
+                        first_soft,
+                    ),
+                    _ci_observation(60, "passed", "2026-07-17T08:50:00Z", "good-60", good),
+                ],
+            )
+        ],
+    }
+
+    pending = upstream.advance_incidents(reliability, upstream._default_state())
+
+    assert pending["active"] == {}
+    pending_row = pending["pending_soft"]["soft-upstream-group"]
+    assert pending_row["transition"]["soft_streak"] == 1
+    assert pending_row["bad_commit"] == first_soft
+    assert pending_row["good_commit"] == good
+
+    reliability["builds"].append(_ci_build(62, "2026-07-17T11:00:00Z", second_soft))
+    reliability["groups"][0]["observations"].insert(
+        0,
+        _ci_observation(
+            62,
+            "soft_fail",
+            "2026-07-17T10:50:00Z",
+            "soft-62",
+            second_soft,
+        ),
+    )
+    confirmed = upstream.advance_incidents(reliability, pending)
+
+    incident = confirmed["active"]["soft-upstream-group"]
+    assert confirmed["pending_soft"] == {}
+    assert incident["bad_commit"] == first_soft
+    assert incident["latest_bad_commit"] == second_soft
+    assert incident["transition"]["incident_start_build_id"] == "61"
+    assert incident["transition"]["confirmed_build_id"] == "62"
 
 
 def test_upstream_issue_body_contains_bisect_candidate():
@@ -417,12 +724,8 @@ def test_upstream_watcher_orders_commit_range_by_build_creation():
             _ci_group(
                 "out-of-order-group",
                 [
-                    _ci_observation(
-                        41, "failed", "2026-07-17T11:20:00Z", "bad-41", bad
-                    ),
-                    _ci_observation(
-                        40, "passed", "2026-07-17T12:20:00Z", "good-40", good
-                    ),
+                    _ci_observation(41, "failed", "2026-07-17T11:20:00Z", "bad-41", bad),
+                    _ci_observation(40, "passed", "2026-07-17T12:20:00Z", "good-40", good),
                 ],
             )
         ],
@@ -448,9 +751,7 @@ def test_upstream_watcher_initializes_from_each_groups_latest_outcome():
             _ci_group(
                 "recovered-before-enable-group",
                 [
-                    _ci_observation(
-                        46, "passed", "2026-07-17T12:20:00Z", "good-46", recovered
-                    ),
+                    _ci_observation(46, "passed", "2026-07-17T12:20:00Z", "good-46", recovered),
                     _ci_observation(45, "failed", "2026-07-17T11:20:00Z", "bad-45", bad),
                 ],
             )
@@ -480,11 +781,7 @@ def test_upstream_watcher_ignores_older_build_that_finishes_late():
         "groups": [
             _ci_group(
                 "late-build-group",
-                [
-                    _ci_observation(
-                        51, "failed", "2026-07-17T11:20:00Z", "bad-51", bad
-                    )
-                ],
+                [_ci_observation(51, "failed", "2026-07-17T11:20:00Z", "bad-51", bad)],
             )
         ],
     }
@@ -501,9 +798,7 @@ def test_upstream_watcher_ignores_older_build_that_finishes_late():
         )
     )
     reliability["groups"][0]["observations"].append(
-        _ci_observation(
-            50, "passed", "2026-07-17T12:20:00Z", "old-good-50", old_good
-        )
+        _ci_observation(50, "passed", "2026-07-17T12:20:00Z", "old-good-50", old_good)
     )
     after_late_pass = upstream.advance_incidents(reliability, initial)
     assert "late-build-group" in after_late_pass["active"]

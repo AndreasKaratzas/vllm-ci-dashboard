@@ -515,6 +515,7 @@ class TestJobLinkGeneration:
 # Frontend data contract: parity_report.json structure for utils.js
 # ═══════════════════════════════════════════════════════════════════════════════
 
+@pytest.mark.live_data
 class TestFrontendDataContract:
     """Verify the parity_report.json matches what the frontend JS expects."""
 
@@ -742,6 +743,7 @@ class TestFrontendRouting:
             pytest.skip("parity_report.json not collected yet")
         return json.loads(path.read_text())
 
+    @pytest.mark.live_data
     def test_real_data_routing_produces_step_canvas_urls(self, parity):
         """With real parity data, every group that has results must route to a
         step canvas URL, not a bare build URL."""

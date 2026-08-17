@@ -42,6 +42,11 @@ def normalize_managed_state(state: Any) -> dict:
     data = dict(state) if isinstance(state, dict) else {}
     suppressed = bool(data.get("suppressed"))
     last_fingerprint = str(data.get("last_fingerprint") or "")
+    last_content_fingerprint = (
+        str(data.get("last_content_fingerprint") or "")
+        if "last_content_fingerprint" in data
+        else last_fingerprint
+    )
     suppressed_fingerprint = str(data.get("suppressed_fingerprint") or "")
     if suppressed and not suppressed_fingerprint:
         # Backward-compatible recovery for states written before the dedicated
@@ -53,7 +58,9 @@ def normalize_managed_state(state: Any) -> dict:
     elif isinstance(issue, dict):
         number = issue.get("number")
         issue = {
-            "number": int(number) if isinstance(number, int) and not isinstance(number, bool) else 0,
+            "number": int(number)
+            if isinstance(number, int) and not isinstance(number, bool)
+            else 0,
             "opened_at": str(issue.get("opened_at") or ""),
         }
         if issue["number"] <= 0:
@@ -67,6 +74,7 @@ def normalize_managed_state(state: Any) -> dict:
         "suppressed": suppressed,
         "suppressed_fingerprint": suppressed_fingerprint,
         "last_fingerprint": last_fingerprint,
+        "last_content_fingerprint": last_content_fingerprint,
         "last_run": str(data.get("last_run") or ""),
     }
 
@@ -122,14 +130,11 @@ class GitHubIssueClient:
                     raise RuntimeError("Open managed-issue recovery lookup failed") from error
                 if response.status_code >= 300:
                     raise RuntimeError(
-                        "Open managed-issue recovery lookup failed: "
-                        f"HTTP {response.status_code}"
+                        f"Open managed-issue recovery lookup failed: HTTP {response.status_code}"
                     )
                 payload = response.json()
                 if not isinstance(payload, list):
-                    raise RuntimeError(
-                        "Open managed-issue recovery lookup returned invalid JSON"
-                    )
+                    raise RuntimeError("Open managed-issue recovery lookup returned invalid JSON")
                 for issue in payload:
                     if not isinstance(issue, dict) or issue.get("pull_request"):
                         continue
@@ -332,6 +337,7 @@ def reconcile_managed_issue(
     *,
     active: bool,
     fingerprint: str,
+    content_fingerprint: str | None = None,
     title: str,
     body: str,
     ownership_marker: str,
@@ -341,15 +347,20 @@ def reconcile_managed_issue(
     client: GitHubIssueClient,
     assignees: list[str] | None = None,
 ) -> dict:
-    """Reconcile one state-owned umbrella issue with an alert signal."""
+    """Reconcile one state-owned umbrella issue with an alert signal.
+
+    ``fingerprint`` identifies the stable alert signal and controls whether a
+    manually closed issue may reopen. ``content_fingerprint`` identifies the
+    mutable evidence rendered into an open issue. Callers that do not need the
+    distinction retain the legacy behavior because content defaults to signal.
+    """
     normalized = normalize_managed_state(state)
+    desired_content_fingerprint = (
+        fingerprint if content_fingerprint is None else content_fingerprint
+    )
     if not ownership_marker.startswith("<!--") or not ownership_marker.endswith("-->"):
         raise ValueError("ownership_marker must be an HTML comment")
-    managed_body = (
-        body
-        if ownership_marker in body
-        else f"{ownership_marker}\n{body}"
-    )
+    managed_body = body if ownership_marker in body else f"{ownership_marker}\n{body}"
     issue = normalized.get("issue")
     number = int((issue or {}).get("number") or 0)
     recovered = False
@@ -364,9 +375,7 @@ def reconcile_managed_issue(
             number = 0
             if active:
                 normalized["suppressed"] = True
-                normalized["suppressed_fingerprint"] = (
-                    normalized["last_fingerprint"] or fingerprint
-                )
+                normalized["suppressed_fingerprint"] = normalized["last_fingerprint"] or fingerprint
                 log.info("Issue was manually closed; suppressing until the signal recovers")
 
     if active:
@@ -407,7 +416,11 @@ def reconcile_managed_issue(
                 client.ensure_owner_assigned(number)
             else:
                 client.set_assignees(number, assignees)
-            if recovered or normalized["last_fingerprint"] != fingerprint:
+            if (
+                recovered
+                or normalized["last_fingerprint"] != fingerprint
+                or normalized["last_content_fingerprint"] != desired_content_fingerprint
+            ):
                 updated = (
                     client.update_issue(number, title, managed_body)
                     if assignees is None
@@ -415,6 +428,14 @@ def reconcile_managed_issue(
                 )
                 if updated:
                     normalized["last_fingerprint"] = fingerprint
+                    normalized["last_content_fingerprint"] = desired_content_fingerprint
+                elif recovered:
+                    # Do not adopt a recovered issue locally until its managed
+                    # title/body have been refreshed successfully. Otherwise a
+                    # transient PATCH failure with already-matching hashes makes
+                    # the forced recovery refresh impossible to retry.
+                    normalized["issue"] = None
+                    number = 0
         else:
             opened_number = (
                 client.open_issue(title, managed_body, label_specs)
@@ -433,6 +454,7 @@ def reconcile_managed_issue(
                 }
                 normalized["suppressed_fingerprint"] = ""
                 normalized["last_fingerprint"] = fingerprint
+                normalized["last_content_fingerprint"] = desired_content_fingerprint
     else:
         if number:
             ensure_issue_labels = getattr(client, "ensure_issue_labels", None)
@@ -450,6 +472,7 @@ def reconcile_managed_issue(
             normalized["suppressed"] = False
             normalized["suppressed_fingerprint"] = ""
             normalized["last_fingerprint"] = ""
+            normalized["last_content_fingerprint"] = ""
 
     normalized["last_run"] = observed_at
     return normalized

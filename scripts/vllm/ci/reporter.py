@@ -5,7 +5,12 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .models import BuildSummary, TestHealth, TestResult
+from .models import (
+    PASS_RATE_CONTRACT_VERSION,
+    BuildSummary,
+    TestHealth,
+    TestResult,
+)
 
 log = logging.getLogger(__name__)
 
@@ -126,6 +131,7 @@ def write_ci_health(
         }
 
     data = {
+        "pass_rate_contract_version": PASS_RATE_CONTRACT_VERSION,
         "generated_at": _now_iso(),
         "amd": _build_section(amd_summaries),
         "upstream": _build_section(upstream_summaries),

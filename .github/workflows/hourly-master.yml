@@ -1,8 +1,8 @@
 name: Data Collection
 
 # Single unified cron job that runs all data collection, tests, and deploy.
-# Replaces: ci-collect.yml, queue-monitor.yml, daily-update.yml,
-#           health-check.yml, nightly-ci.yml (scheduled triggers).
+# Replaces the legacy CI collection/update schedules. The synthetic site
+# monitor remains independent so it can detect failures after deployment.
 # Those workflows keep their workflow_dispatch triggers for manual runs.
 on:
   schedule:
@@ -19,7 +19,7 @@ on:
         required: false
         default: '1'
       skip_tests:
-        description: 'Skip pytest run'
+        description: 'Skip deterministic pytest run (live publication audit still runs)'
         required: false
         default: 'false'
       reset_perf_eval:
@@ -76,7 +76,7 @@ jobs:
             local label="$2"
             local status="$3"
             case "$surface" in
-              ci|queue|queue_lifecycle|agent_health|github_home|ready|perf_eval|test_builds) ;;
+              ci_core|ci_gating|ci_changes|ci_hotness|queue|queue_lifecycle|agent_health|github_home|ready|perf_eval|test_builds) ;;
               *) echo "::error::Unknown publication surface: $surface"; return 2 ;;
             esac
             printf '%s\n' "$surface" >> "$PUBLICATION_FAILED_SURFACES_FILE"
@@ -146,7 +146,7 @@ jobs:
           STATUS=$?
           set -e
           if [ "$STATUS" -ne 0 ]; then
-            record_surface_failure ci "vLLM config snapshot" "$STATUS"
+            record_surface_failure ci_core "vLLM config snapshot" "$STATUS"
             record_surface_failure queue "vLLM config snapshot" "$STATUS"
           fi
 
@@ -238,13 +238,36 @@ jobs:
       - name: Sync CI data from gh-pages
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          sync_ci_seed() {
-            for f in ci_health.json parity_report.json config_parity.json flaky_tests.json failure_trends.json quarantine.json analytics.json gating_nightlies.json gating_targets.json gating_target_candidates.json shard_bases.json group_changes.json amd_test_matrix.json gating_proposals.json hotness.json operations_v2.json; do
+          sync_ci_files() {
+            for f in "$@"; do
               LIVE=$(git show origin/gh-pages:data/vllm/ci/$f 2>/dev/null || true)
               if [ -n "$LIVE" ]; then
                 printf '%s\n' "$LIVE" > "data/vllm/ci/$f" || return $?
               fi
             done
+          }
+          # PUBLIC-ANALYTICS-BOUNDARY: gh-pages contains only the bounded public
+          # projection. It must never seed the private reliability input; main
+          # and the analytics collector own the full analytics.json artifact.
+          sync_ci_core_seed() {
+            sync_ci_files \
+              ci_health.json parity_report.json config_parity.json \
+              flaky_tests.json failure_trends.json quarantine.json \
+              gating_nightlies.json shard_bases.json \
+              shard_base_catalog.json amd_test_matrix.json \
+              ownership_config_parity.json ci_ownership.json \
+              parity_key_overrides.json
+          }
+          sync_ci_gating_seed() {
+            sync_ci_files \
+              gating_targets.json gating_proposals.json \
+              gating_target_candidates.json
+          }
+          sync_ci_changes_seed() {
+            sync_ci_files group_changes.json
+          }
+          sync_ci_hotness_seed() {
+            sync_ci_files hotness.json
           }
           sync_workload_mapping_seed() {
             # Never replace a newer/schema-upgraded main aggregate with an older
@@ -267,7 +290,10 @@ jobs:
             fi
             rm -f "$REMOTE_MAPPING" || return $?
           }
-          run_surface_collector ci "CI data seed" sync_ci_seed
+          run_surface_collector ci_core "CI core data seed" sync_ci_core_seed
+          run_surface_collector ci_gating "CI gating data seed" sync_ci_gating_seed
+          run_surface_collector ci_changes "CI changes data seed" sync_ci_changes_seed
+          run_surface_collector ci_hotness "CI hotness data seed" sync_ci_hotness_seed
           run_surface_collector queue "workload mapping seed" sync_workload_mapping_seed
 
       # This deterministic snapshot must be rebuilt after the gh-pages sync.
@@ -276,7 +302,7 @@ jobs:
       - name: Collect AMD gating target list
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci "AMD gating target list" \
+          run_surface_collector ci_gating "AMD gating target list" \
             python scripts/vllm/collect_gating_targets.py --output data/vllm/ci/
 
       - name: Collect AMD hotness (3d window)
@@ -284,7 +310,7 @@ jobs:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci "AMD hotness" \
+          run_surface_collector ci_hotness "AMD hotness" \
             python scripts/vllm/collect_hotness.py
 
       - name: Collect vLLM/Omni AMD workload mappings
@@ -306,19 +332,62 @@ jobs:
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           DAYS="${{ github.event.inputs.ci_days || '8' }}"
-          run_surface_collector ci "CI data" \
+          run_surface_collector ci_core "CI data" \
             python scripts/collect_ci.py --days "$DAYS" --pipeline both --output data/vllm/ci/
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # PRIVATE-ANALYTICS-CACHE-BOUNDARY: this cache is restored only from
+      # GitHub Actions cache storage. It is never seeded from gh-pages, staged
+      # in git, or included in the public site manifest. Keys are immutable;
+      # the collector fully reconciles the first snapshot saved each UTC day.
+      - name: Prepare private analytics cache key
+        id: analytics-cache-key
+        shell: bash
+        run: |
+          set -euo pipefail
+          CACHE_DAY=$(date -u +%Y-%m-%d)
+          PRIOR_CACHE_DAY=$(date -u -d '1 day ago' +%Y-%m-%d)
+          CACHE_NAMESPACE="analytics-builds-v1-${{ runner.os }}"
+          {
+            echo "key=$CACHE_NAMESPACE-$CACHE_DAY"
+            echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore private analytics build cache
+        id: analytics-cache-restore
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: data/vllm/ci/.cache/analytics-builds-v1
+          key: ${{ steps.analytics-cache-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.analytics-cache-key.outputs.prior_day_prefix }}
+
       - name: Collect CI analytics
+        id: collect-analytics
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci "CI analytics" \
+          run_surface_collector ci_core "CI analytics" \
             python scripts/vllm/collect_analytics.py --days 30 --output data/vllm/ci/
+          if surface_is_current ci_core; then
+            echo "cache_save=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "cache_save=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Save private analytics build cache
+        if: >-
+          steps.collect-analytics.outputs.cache_save == 'true' &&
+          steps.analytics-cache-restore.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: data/vllm/ci/.cache/analytics-builds-v1
+          key: ${{ steps.analytics-cache-key.outputs.key }}
 
       - name: Collect AMD agent health (all builds, all branches)
         # Walks every build on AMD GPU hardware (not just main nightlies) and
@@ -337,7 +406,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci "test group changes" \
+          run_surface_collector ci_changes "test group changes" \
             python scripts/vllm/collect_group_changes.py --days 30 --output data/vllm/ci/
 
       - name: Collect AMD test matrix
@@ -346,7 +415,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci "AMD test matrix" \
+          run_surface_collector ci_core "AMD test matrix" \
             python scripts/vllm/collect_amd_test_matrix.py --output data/vllm/ci/ \
             --build-snapshot data/vllm/ci/.cache/amd_nightly_snapshot.json
 
@@ -355,7 +424,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci "CI ownership parity" \
+          run_surface_collector ci_core "CI ownership parity" \
             python scripts/vllm/collect_ownership_parity.py \
             --input-dir data/vllm/ci --output data/vllm/ci
 
@@ -364,13 +433,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci "AMD gating proposals" \
+          run_surface_collector ci_gating "AMD gating proposals" \
             python scripts/vllm/collect_gating_proposals.py --output data/vllm/ci/
 
       - name: Collect AMD gating target candidate audit
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci "AMD gating target candidate audit" \
+          run_surface_collector ci_gating "AMD gating target candidate audit" \
             python scripts/vllm/collect_gating_target_candidates.py --output data/vllm/ci/
 
       # ── Perf Eval (AMD nightly perf + accuracy) ──
@@ -611,7 +680,7 @@ jobs:
       - name: Watch AMD main test-group failures (open/close issue)
         if: >-
           steps.publication-selector.outcome == 'success' &&
-          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci,')
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -621,7 +690,7 @@ jobs:
       - name: Watch upstream CI main test-group failures (open/close issue)
         if: >-
           steps.publication-selector.outcome == 'success' &&
-          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci,')
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -631,7 +700,7 @@ jobs:
       - name: Watch AMD main duration regressions (open/close issue)
         if: >-
           steps.publication-selector.outcome == 'success' &&
-          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci,')
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -668,7 +737,7 @@ jobs:
       - name: Watch AMD CI test-area regressions (ranked owners)
         if: >-
           steps.publication-selector.outcome == 'success' &&
-          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci,')
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -678,7 +747,7 @@ jobs:
       - name: Sync managed issues to AMD CI Operations project
         if: >-
           steps.publication-selector.outcome == 'success' &&
-          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci,')
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -691,7 +760,7 @@ jobs:
       - name: Persist CI ownership issue state
         if: >-
           steps.publication-selector.outcome == 'success' &&
-          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci,')
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -709,7 +778,123 @@ jobs:
       - name: Render dashboards after publication selection
         run: python scripts/render.py
 
-      # ── Phase 4: Tests ──
+      # Live-data validation remains in the publication lane. It runs after all
+      # selected-data watchers and rendering, independently of deterministic
+      # pytest, and is enforced before any commit or deployment.
+      - name: Live publication audit
+        id: live-data-audit
+        if: always() && steps.publication-selector.outcome == 'success'
+        continue-on-error: true
+        env:
+          CI: "1"
+          MAX_DATA_AGE_HOURS: "36"
+        run: |
+          set +e
+          python scripts/vllm/audit_dashboard_data.py --format json \
+            > live-publication-audit.json \
+            2> live-publication-audit.stderr
+          AUDIT_EXIT_CODE=$?
+          pytest tests/ -m 'live_data' -v --tb=short 2>&1 \
+            | tee live-data-test-output.txt
+          LIVE_TEST_EXIT_CODE=${PIPESTATUS[0]}
+          set -e
+
+          {
+            echo "=== Dashboard publication audit ==="
+            cat live-publication-audit.json
+            if [ -s live-publication-audit.stderr ]; then
+              echo
+              echo "=== Dashboard publication audit stderr ==="
+              cat live-publication-audit.stderr
+            fi
+            echo
+            echo "=== Live snapshot contracts ==="
+            cat live-data-test-output.txt
+          } > live-publication-audit-output.txt
+          cat live-publication-audit-output.txt
+
+          if [ "$AUDIT_EXIT_CODE" -ne 0 ] || [ "$LIVE_TEST_EXIT_CODE" -ne 0 ]; then
+            EXIT_CODE=1
+          else
+            EXIT_CODE=0
+          fi
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+          LIVE_TEST_EXIT_CODE="$LIVE_TEST_EXIT_CODE" \
+          python - <<'PY'
+          import json
+          import os
+          import uuid
+          from pathlib import Path
+
+          audit_path = Path("live-publication-audit.json")
+          live_test_path = Path("live-data-test-output.txt")
+          try:
+              audit = json.loads(audit_path.read_text())
+          except (OSError, json.JSONDecodeError) as exc:
+              audit = {
+                  "errors": [{
+                      "severity": "error",
+                      "code": "live-audit-output-unreadable",
+                      "message": str(exc),
+                  }],
+                  "degradations": [],
+                  "warnings": [],
+              }
+
+          errors = audit.get("errors") if isinstance(audit.get("errors"), list) else []
+          degradations = (
+              audit.get("degradations")
+              if isinstance(audit.get("degradations"), list)
+              else []
+          )
+          warnings = (
+              audit.get("warnings") if isinstance(audit.get("warnings"), list) else []
+          )
+          findings = [*errors, *degradations, *warnings]
+          live_output = live_test_path.read_text(errors="replace")
+          live_lines = [line for line in live_output.splitlines() if line.strip()]
+          live_summary = live_lines[-1] if live_lines else "No live contract summary captured"
+          live_exit = int(os.environ["LIVE_TEST_EXIT_CODE"])
+          if live_exit:
+              findings.append({
+                  "severity": "error",
+                  "code": "live-data-contract-failure",
+                  "message": live_summary,
+              })
+
+          summary = (
+              f"audit: {len(errors)} errors, {len(degradations)} degradations, "
+              f"{len(warnings)} warnings; live contracts: {live_summary}"
+          )
+          combined_output = Path("live-publication-audit-output.txt").read_text(
+              errors="replace"
+          )[-60000:]
+          values = {
+              "summary": summary,
+              "findings": json.dumps(findings, sort_keys=True),
+              "output": combined_output,
+          }
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as handle:
+              for key, value in values.items():
+                  delimiter = f"LIVE_AUDIT_{uuid.uuid4().hex}"
+                  handle.write(f"{key}<<{delimiter}\n{value}\n{delimiter}\n")
+          PY
+
+          exit "$EXIT_CODE"
+
+      - name: Upload live publication audit artifact
+        if: always() && steps.publication-selector.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-publication-audit
+          path: |
+            live-publication-audit.json
+            live-publication-audit-output.txt
+          if-no-files-found: warn
+
+      # ── Phase 4: Deterministic tests ──
       - name: Run test suite
         if: github.event.inputs.skip_tests != 'true'
         id: run-tests
@@ -718,7 +903,7 @@ jobs:
           MAX_DATA_AGE_HOURS: "36"
         run: |
           set +e
-          pytest tests/ -v --tb=short 2>&1 | tee test-output.txt
+          pytest tests/ -m 'not live_data' -v --tb=short 2>&1 | tee test-output.txt
           EXIT_CODE=${PIPESTATUS[0]}
           set -e
           SUMMARY=$(tail -1 test-output.txt)
@@ -738,14 +923,30 @@ jobs:
             echo "TESTEOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Run dashboard data audit
-        run: python scripts/vllm/audit_dashboard_data.py
-
-      - name: Enforce test suite result
-        if: github.event.inputs.skip_tests != 'true' && steps.run-tests.outputs.exit_code != '0'
+      - name: Enforce publication validation results
+        if: >-
+          always() &&
+          steps.publication-selector.outcome == 'success' && (
+            steps.live-data-audit.outcome != 'success' ||
+            steps.live-data-audit.outputs.exit_code != '0' ||
+            (
+              github.event.inputs.skip_tests != 'true' &&
+              steps.run-tests.outputs.exit_code != '0'
+            )
+          )
         run: |
-          echo "::error::Dashboard tests failed; refusing to publish a site that has not passed validation."
-          exit 1
+          FAILED=0
+          if [ "${{ steps.live-data-audit.outcome }}" != "success" ] || \
+             [ "${{ steps.live-data-audit.outputs.exit_code }}" != "0" ]; then
+            echo "::error::Live publication audit failed; refusing to publish an invalid data snapshot."
+            FAILED=1
+          fi
+          if [ "${{ github.event.inputs.skip_tests }}" != "true" ] && \
+             [ "${{ steps.run-tests.outputs.exit_code }}" != "0" ]; then
+            echo "::error::Deterministic dashboard tests failed; refusing to publish an unvalidated site."
+            FAILED=1
+          fi
+          exit "$FAILED"
 
       # ── Phase 5: Commit + Deploy ──
       - name: Commit and push
@@ -843,11 +1044,16 @@ jobs:
           keep_files: false
           force_orphan: true
 
-      # ── Phase 6: Issue management (test failures) ──
-      - name: Create issue on test failure
+      # ── Phase 6: Hourly publication incident management ──
+      - name: Create hourly validation incident
         if: >-
           always() && (
             (steps.run-tests.outputs.exit_code != '0' && steps.run-tests.outputs.exit_code != '') ||
+            (
+              steps.publication-selector.outcome == 'success' &&
+              steps.live-data-audit.outcome != 'success'
+            ) ||
+            steps.live-data-audit.outputs.exit_code != '0' ||
             steps.publication-selector.outcome == 'failure' ||
             steps.publication-selector.outputs.degraded == 'true'
           )
@@ -863,6 +1069,25 @@ jobs:
             const selectorOutcome = ${{ toJSON(steps.publication-selector.outcome) }} || 'unknown';
             const selectorDegraded = (${{ toJSON(steps.publication-selector.outputs.degraded) }} || '') === 'true';
             const forcedSurfaces = ${{ toJSON(steps.publication-selector.outputs.forced_surfaces) }} || '';
+            const liveAuditOutcome = ${{ toJSON(steps.live-data-audit.outcome) }} || 'unavailable';
+            const liveAuditExitCode = ${{ toJSON(steps.live-data-audit.outputs.exit_code) }} || '';
+            const liveAuditSummary = ${{ toJSON(steps.live-data-audit.outputs.summary) }} || 'Live publication audit did not produce a summary';
+            const liveAuditOutput = ${{ toJSON(steps.live-data-audit.outputs.output) }} || 'No live publication audit output captured';
+            const hasLiveAuditFailure = selectorOutcome === 'success' &&
+              (liveAuditOutcome !== 'success' || liveAuditExitCode !== '0');
+            let liveAuditFindings = [];
+            try {
+              const parsedFindings = JSON.parse(
+                ${{ toJSON(steps.live-data-audit.outputs.findings) }} || '[]',
+              );
+              liveAuditFindings = Array.isArray(parsedFindings) ? parsedFindings : [];
+            } catch (error) {
+              liveAuditFindings = [{
+                severity: 'error',
+                code: 'live-audit-findings-unreadable',
+                message: String(error.message || error),
+              }];
+            }
             let publicationState = {};
             try {
               publicationState = JSON.parse(
@@ -873,6 +1098,8 @@ jobs:
                 mode: selectorOutcome === 'failure' ? 'blocked' : 'unknown',
                 degraded_surfaces: forcedSurfaces.split(',').filter(Boolean),
                 candidate_errors: [],
+                candidate_degradations: [],
+                final_degradations: [],
                 final_errors: [{
                   code: 'publication-state-unreadable',
                   message: String(error.message || error),
@@ -921,18 +1148,26 @@ jobs:
                 .map(line => normalizeDiagnostic(line.replace(/^E\s*/, '')))
                 .filter(Boolean),
             )].sort();
-            const publicationErrors = [
+            const candidatePublicationFindings = [
               ...(Array.isArray(publicationState.candidate_errors)
                 ? publicationState.candidate_errors : []),
+              ...(Array.isArray(publicationState.candidate_degradations)
+                ? publicationState.candidate_degradations : []),
+            ];
+            const publicationFindings = [
+              ...candidatePublicationFindings,
               ...(Array.isArray(publicationState.final_errors)
                 ? publicationState.final_errors : []),
+              ...(Array.isArray(publicationState.final_degradations)
+                ? publicationState.final_degradations : []),
             ];
-            const publicationDiagnostics = [...new Set(publicationErrors.map(error => {
-              const surfaces = Array.isArray(error.surfaces) && error.surfaces.length
-                ? ` [${error.surfaces.join(',')}]` : '';
-              const path = error.path ? ` ${error.path}` : '';
+            const publicationDiagnostics = [...new Set(publicationFindings.map(finding => {
+              const surfaces = Array.isArray(finding.surfaces) && finding.surfaces.length
+                ? ` [${finding.surfaces.join(',')}]` : '';
+              const path = finding.path ? ` ${finding.path}` : '';
               return normalizeDiagnostic(
-                `PUBLICATION ${error.code || 'unknown'}${surfaces}${path}: ${error.message || ''}`,
+                `PUBLICATION ${finding.severity || 'unknown'} ${finding.code || 'unknown'}` +
+                `${surfaces}${path}: ${finding.message || ''}`,
               );
             }))].sort();
             if ((selectorOutcome === 'failure' || selectorDegraded) && !publicationDiagnostics.length) {
@@ -941,19 +1176,99 @@ jobs:
                 `degraded=${(publicationState.degraded_surfaces || []).join(',') || forcedSurfaces || 'unknown'}`,
               ));
             }
-            const fingerprintEvidence = [...new Set([
+            const liveAuditDiagnostics = hasLiveAuditFailure
+              ? [...new Set([
+                ...liveAuditFindings.map(finding => {
+                  const path = finding.path ? ` ${finding.path}` : '';
+                  return normalizeDiagnostic(
+                    `LIVE AUDIT ${finding.severity || 'unknown'} ${finding.code || 'unknown'}` +
+                    `${path}: ${finding.message || ''}`,
+                  );
+                }),
+                ...liveAuditOutput.split('\n')
+                  .map(line => stripAnsi(line).trim())
+                  .filter(line => /^(FAILED|ERROR)\s+/.test(line))
+                  .map(line => normalizeDiagnostic(`LIVE SNAPSHOT ${line}`)),
+              ])].filter(Boolean).sort()
+              : [];
+            if (hasLiveAuditFailure && !liveAuditDiagnostics.length) {
+              liveAuditDiagnostics.push(normalizeDiagnostic(
+                `LIVE AUDIT outcome=${liveAuditOutcome} exit=${liveAuditExitCode || 'unknown'} ` +
+                `summary=${liveAuditSummary}`,
+              ));
+            }
+            const detailedFingerprintEvidence = [...new Set([
               ...normalizedFailures,
               ...normalizedDiagnostics,
               ...publicationDiagnostics,
+              ...liveAuditDiagnostics,
             ])].sort();
-            const summary = hasTestFailure
-              ? testSummary
-              : `publication ${publicationState.mode || selectorOutcome}`;
-            const fingerprintSource = fingerprintEvidence.join('\n') ||
-              `pytest:${normalizeDiagnostic(summary)}`;
+            const candidatePublicationSurfaces = [...new Set(
+              candidatePublicationFindings.flatMap(finding => {
+                if (Array.isArray(finding.surfaces)) return finding.surfaces;
+                return finding.surface ? [finding.surface] : [];
+              }).map(surface => String(surface || '').trim()).filter(Boolean),
+            )].sort();
+            const selectedPublicationSurfaces = [...new Set([
+              ...(Array.isArray(publicationState.degraded_surfaces)
+                ? publicationState.degraded_surfaces : []),
+              ...forcedSurfaces.split(',').filter(Boolean),
+            ].map(surface => String(surface || '').trim()).filter(Boolean))].sort();
+            const publicationSurfaceSignals = [...new Set([
+              ...candidatePublicationSurfaces,
+              ...selectedPublicationSurfaces,
+            ])].sort();
+            const liveFailureNodes = [...new Set(
+              liveAuditOutput.split('\n').map(line => {
+                const clean = stripAnsi(line).trim();
+                const match = clean.match(/^(FAILED|ERROR)\s+(.+)$/);
+                if (!match) return null;
+                return match[2].replace(/\s+-\s+.*$/, '');
+              }).filter(Boolean),
+            )].sort();
+            const liveErrorCodes = [...new Set(
+              liveAuditFindings
+                .filter(finding => String(finding.severity || '').toLowerCase() === 'error')
+                .map(finding => String(finding.code || 'unknown')),
+            )].sort();
+            const signalEvidence = [...new Set([
+              ...(hasTestFailure
+                ? normalizedFailureNodes.map(node => `deterministic:${node}`) : []),
+              ...((selectorOutcome === 'failure' || selectorDegraded)
+                ? (publicationSurfaceSignals.length
+                  ? publicationSurfaceSignals.map(surface => `publication:${surface}`)
+                  : ['publication:unknown'])
+                : []),
+              ...(hasLiveAuditFailure
+                ? [
+                  ...liveErrorCodes.map(code => `live-audit:${code}`),
+                  ...liveFailureNodes.map(node => `live-contract:${node}`),
+                ]
+                : []),
+            ])].sort();
+            const summaryParts = [];
+            if (selectorOutcome === 'failure' || selectorDegraded) {
+              summaryParts.push(`publication ${publicationState.mode || selectorOutcome}`);
+            }
+            if (hasLiveAuditFailure) {
+              summaryParts.push(`live audit: ${liveAuditSummary}`);
+            }
+            if (hasTestFailure) {
+              summaryParts.push(`deterministic tests: ${testSummary}`);
+            }
+            const summary = summaryParts.join('; ') || 'hourly publication validation failed';
+            const fingerprintSource = signalEvidence.join('\n') ||
+              `validation:${normalizeDiagnostic(summary)}`;
             const fingerprint = crypto
               .createHash('sha256')
-              .update(`hourly-ci-v2\n${fingerprintSource}`)
+              .update(`hourly-ci-v3\n${fingerprintSource}`)
+              .digest('hex')
+              .slice(0, 16);
+            const previousFingerprintSource = detailedFingerprintEvidence.join('\n') ||
+              `validation:${normalizeDiagnostic(summary)}`;
+            const previousFingerprint = crypto
+              .createHash('sha256')
+              .update(`hourly-ci-v2\n${previousFingerprintSource}`)
               .digest('hex')
               .slice(0, 16);
             // Preserve discovery of issues opened by the former node-name-only
@@ -967,12 +1282,19 @@ jobs:
               .digest('hex')
               .slice(0, 16);
             const fingerprintMarker = `<!-- hourly-ci-fingerprint:${fingerprint} -->`;
+            const previousFingerprintMarker = `<!-- hourly-ci-fingerprint:${previousFingerprint} -->`;
             const legacyFingerprintMarker = `<!-- hourly-ci-fingerprint:${legacyFingerprint} -->`;
+            const fingerprintVersionMarker = '<!-- hourly-ci-fingerprint-version:3 -->';
             const recoveryMarker = '<!-- hourly-ci-recovery-streak:0 -->';
-            const title = `Hourly CI failure [${fingerprint.slice(0, 8)}] — ${date}`;
+            const recoveredMarker = '<!-- hourly-ci-recovered -->';
+            const title = `Hourly validation failure [${fingerprint.slice(0, 8)}] — ${date}`;
             const incidentKind = selectorOutcome === 'failure'
               ? 'Publication Selection Failure'
-              : selectorDegraded ? 'Degraded Publication' : 'Test Failure';
+              : selectorDegraded
+                ? 'Degraded Publication'
+                : hasLiveAuditFailure
+                  ? 'Live Publication Audit Failure'
+                  : 'Deterministic Test Failure';
             const degradedSurfaces = Array.isArray(publicationState.degraded_surfaces)
               ? publicationState.degraded_surfaces.join(', ') : '';
             const report = [
@@ -983,9 +1305,26 @@ jobs:
               '',
               `**Publication selector:** outcome=\`${selectorOutcome}\`, mode=\`${publicationState.mode || 'unknown'}\``,
               `**Degraded surfaces:** ${degradedSurfaces || 'none'}`,
+              `**Live publication audit:** outcome=\`${liveAuditOutcome}\`, summary=\`${liveAuditSummary}\``,
+              ...(hasLiveAuditFailure ? [
+                '',
+                '<details><summary>Live publication audit findings</summary>',
+                '',
+                '```json',
+                JSON.stringify(liveAuditFindings, null, 2).slice(0, 8000),
+                '```',
+                '</details>',
+                '',
+                '<details><summary>Live publication audit output</summary>',
+                '',
+                '```text',
+                liveAuditOutput.slice(-4000),
+                '```',
+                '</details>',
+              ] : []),
               ...(hasTestFailure ? [
                 '',
-                '**Failing tests:**',
+                '**Failing deterministic tests:**',
                 '',
                 '```text',
                 failures.slice(0, 8000),
@@ -998,46 +1337,164 @@ jobs:
                 '```',
                 '</details>',
               ] : []),
-              ...(publicationErrors.length ? [
+              ...(publicationFindings.length ? [
                 '',
-                '<details><summary>Publication candidate errors</summary>',
+                '<details><summary>Publication findings</summary>',
                 '',
                 '```json',
-                JSON.stringify(publicationErrors, null, 2).slice(0, 8000),
+                JSON.stringify(publicationFindings, null, 2).slice(0, 8000),
                 '```',
                 '</details>',
               ] : []),
               '',
               '*Auto-created by hourly-master workflow.*',
             ].join('\n');
+            const contentFingerprint = crypto
+              .createHash('sha256')
+              .update(`hourly-ci-content-v1\n${report}`)
+              .digest('hex')
+              .slice(0, 16);
+            const contentMarker = `<!-- hourly-ci-content:${contentFingerprint} -->`;
             const body = [
               ownershipMarker,
+              fingerprintVersionMarker,
               fingerprintMarker,
+              contentMarker,
               recoveryMarker,
               '',
               report,
             ].join('\n');
+            const desiredIssueBody = `${body}\n\nGitHub assignee: ${context.repo.owner}.`;
+
+            // v2 fingerprints included mutable diagnostic prose. Recover their
+            // stable signal from the structured issue report so a wording/value
+            // change can migrate the same incident without broadly matching an
+            // unrelated manually closed issue.
+            const fencedSection = (issueBody, heading, language) => {
+              const headingIndex = issueBody.indexOf(heading);
+              if (headingIndex === -1) return '';
+              const tail = issueBody.slice(headingIndex + heading.length);
+              const fence = '```' + language;
+              const fenceIndex = tail.indexOf(fence);
+              if (fenceIndex === -1) return '';
+              const contentStart = tail.indexOf('\n', fenceIndex + fence.length);
+              if (contentStart === -1) return '';
+              const contentEnd = tail.indexOf('\n```', contentStart + 1);
+              return contentEnd === -1 ? '' : tail.slice(contentStart + 1, contentEnd);
+            };
+            const jsonSection = (issueBody, heading) => {
+              const section = fencedSection(issueBody, heading, 'json');
+              if (!section) return [];
+              try {
+                const parsed = JSON.parse(section);
+                return Array.isArray(parsed) ? parsed : null;
+              } catch (error) {
+                return null;
+              }
+            };
+            const failureNodesFromOutput = (value, includeStatus) => [...new Set(
+              value.split('\n').map(line => {
+                const clean = stripAnsi(line).trim();
+                const match = clean.match(/^(FAILED|ERROR)\s+(.+)$/);
+                if (!match) return null;
+                const separator = match[2].indexOf(' - ');
+                const node = separator === -1 ? match[2] : match[2].slice(0, separator);
+                return includeStatus ? `${match[1]} ${node}` : node;
+              }).filter(Boolean),
+            )].sort();
+            const legacyStableSignalEvidence = issueBody => {
+              const evidence = [];
+              const deterministic = fencedSection(
+                issueBody, '**Failing deterministic tests:**', 'text',
+              );
+              evidence.push(...failureNodesFromOutput(deterministic, true).map(
+                node => `deterministic:${node}`,
+              ));
+
+              const degradedMatch = issueBody.match(
+                /\*\*Degraded surfaces:\*\*\s*([^\n]+)/,
+              );
+              const degraded = degradedMatch
+                ? degradedMatch[1].replace(/`/g, '').split(',')
+                  .map(surface => surface.trim())
+                  .filter(surface => surface && surface !== 'none')
+                : [];
+              const publicationRows = jsonSection(
+                issueBody, '<details><summary>Publication findings</summary>',
+              );
+              if (publicationRows === null) return null;
+              const publicationSurfaces = [...new Set([
+                ...degraded,
+                ...publicationRows.flatMap(finding => {
+                  if (!finding || typeof finding !== 'object') return [];
+                  if (Array.isArray(finding.surfaces)) return finding.surfaces;
+                  return finding.surface ? [finding.surface] : [];
+                }),
+              ].map(surface => String(surface || '').trim()).filter(Boolean))].sort();
+              const hasPublicationSignal =
+                /## (?:Publication Selection Failure|Degraded Publication)/.test(issueBody) ||
+                /\*\*Publication selector:\*\* outcome=`failure`/.test(issueBody) ||
+                publicationSurfaces.length > 0;
+              if (hasPublicationSignal) {
+                evidence.push(...(
+                  publicationSurfaces.length ? publicationSurfaces : ['unknown']
+                ).map(surface => `publication:${surface}`));
+              }
+
+              const liveRows = jsonSection(
+                issueBody,
+                '<details><summary>Live publication audit findings</summary>',
+              );
+              if (liveRows === null) return null;
+              evidence.push(...liveRows
+                .filter(finding => finding && typeof finding === 'object' &&
+                  String(finding.severity || '').toLowerCase() === 'error')
+                .map(finding => `live-audit:${String(finding.code || 'unknown')}`));
+              const liveOutput = fencedSection(
+                issueBody,
+                '<details><summary>Live publication audit output</summary>',
+                'text',
+              );
+              evidence.push(...failureNodesFromOutput(liveOutput, false).map(
+                node => `live-contract:${node}`,
+              ));
+              const stable = [...new Set(evidence)].sort();
+              return stable.length ? stable : null;
+            };
+            const sameSignalEvidence = (left, right) => left !== null &&
+              left.length === right.length &&
+              left.every((value, index) => value === right[index]);
 
             const allIssues = await github.paginate(github.rest.issues.listForRepo, {
               owner: context.repo.owner, repo: context.repo.repo,
               labels: 'ci-failure', state: 'all', per_page: 100,
             });
             const openIssues = allIssues.filter(issue => issue.state === 'open');
-            const ownedOpenIssues = openIssues.filter(issue => {
+            const ownedIssues = allIssues.filter(issue => {
               const issueBody = issue.body || '';
               return issueBody.includes(ownershipMarker) ||
                 issueBody.includes(legacySignature);
             });
-            // A failed suite breaks the global recovery streak for every hourly
+            // A failed validation breaks the global recovery streak for every hourly
             // incident, even when this run has a different failure fingerprint.
-            for (const issue of ownedOpenIssues) {
+            // Closed, automatically recovered issues remain armed; closed manual
+            // suppressions only reset a partial healthy streak.
+            for (const issue of ownedIssues) {
               let resetBody = issue.body || '';
+              const closedAlreadyRecovered = issue.state === 'closed' &&
+                resetBody.includes(recoveredMarker);
+              if (closedAlreadyRecovered) continue;
+              const priorRecovery = resetBody.match(recoveryPattern);
+              const closedWithPartialRecovery = issue.state === 'closed' &&
+                priorRecovery && Number(priorRecovery[1]) > 0;
+              if (issue.state !== 'open' && !closedWithPartialRecovery) continue;
               if (!resetBody.includes(ownershipMarker)) {
                 resetBody = `${ownershipMarker}\n${resetBody}`;
               }
               resetBody = recoveryPattern.test(resetBody)
                 ? resetBody.replace(recoveryPattern, recoveryMarker)
                 : `${recoveryMarker}\n${resetBody}`;
+              resetBody = resetBody.replace(`${recoveredMarker}\n`, '');
               if (resetBody !== (issue.body || '')) {
                 await github.rest.issues.update({
                   owner: context.repo.owner, repo: context.repo.repo,
@@ -1046,51 +1503,69 @@ jobs:
                 issue.body = resetBody;
               }
             }
-            const exact = allIssues.find(issue => {
+            const suppressionRank = issue => issue.state === 'closed' &&
+              !(issue.body || '').includes(recoveredMarker) ? 0 :
+              issue.state === 'open' ? 1 : 2;
+            const incidentPreference = (left, right) =>
+              suppressionRank(left) - suppressionRank(right) ||
+              left.number - right.number;
+            const exact = allIssues.filter(issue => {
               const issueBody = issue.body || '';
               return issueBody.includes(ownershipMarker) &&
                 issueBody.includes(fingerprintMarker);
-            });
-            const previousVersion = hasTestFailure && !publicationDiagnostics.length
-              ? allIssues.find(issue => {
+            }).sort(incidentPreference)[0] || null;
+            const previousVersion = allIssues.filter(issue => {
               const issueBody = issue.body || '';
               return issueBody.includes(ownershipMarker) &&
-                issueBody.includes(legacyFingerprintMarker);
-              }) : null;
+                issueBody.includes(previousFingerprintMarker);
+            }).sort(incidentPreference)[0] || null;
+            const stablePreviousVersions = allIssues.filter(issue => {
+              const issueBody = issue.body || '';
+              return issueBody.includes(ownershipMarker) &&
+                fingerprintPattern.test(issueBody) &&
+                !issueBody.includes(fingerprintVersionMarker) &&
+                sameSignalEvidence(
+                  legacyStableSignalEvidence(issueBody), signalEvidence,
+                );
+            }).sort(incidentPreference);
+            const stablePreviousVersion = stablePreviousVersions[0] || null;
+            const legacyVersion = hasTestFailure && !publicationDiagnostics.length &&
+              !liveAuditDiagnostics.length
+              ? allIssues.filter(issue => {
+                const issueBody = issue.body || '';
+                return issueBody.includes(ownershipMarker) &&
+                  issueBody.includes(legacyFingerprintMarker);
+              }).sort(incidentPreference)[0] || null : null;
             const legacy = hasTestFailure && !publicationDiagnostics.length &&
+              !liveAuditDiagnostics.length &&
               normalizedFailureNodes.length ? openIssues.find(issue => {
               const issueBody = issue.body || '';
               return issueBody.includes(legacySignature) &&
                 !issueBody.includes('<!-- hourly-ci-fingerprint:') &&
                 normalizedFailureNodes.every(failure => issueBody.includes(failure));
               }) : null;
-            const existing = exact || previousVersion || legacy;
+            const existing = exact || previousVersion || stablePreviousVersion ||
+              legacyVersion || legacy;
             if (existing) {
+              const manuallySuppressed = existing.state === 'closed' &&
+                !(existing.body || '').includes(recoveredMarker);
+              if (manuallySuppressed) {
+                console.log(
+                  `Hourly validation incident #${existing.number} was manually closed; ` +
+                  'leaving it suppressed until the signal recovers.',
+                );
+                return;
+              }
               const incidentTransition = existing.state === 'open' ? 'unchanged' : 'reopened';
-              let migratedBody = existing.body || '';
-              if (!migratedBody.includes(ownershipMarker)) {
-                migratedBody = `${ownershipMarker}\n${migratedBody}`;
-              }
-              if (fingerprintPattern.test(migratedBody)) {
-                migratedBody = migratedBody.replace(fingerprintPattern, fingerprintMarker);
-              } else {
-                migratedBody = `${fingerprintMarker}\n${migratedBody}`;
-              }
-              if (recoveryPattern.test(migratedBody)) {
-                migratedBody = migratedBody.replace(recoveryPattern, recoveryMarker);
-              } else {
-                migratedBody = `${recoveryMarker}\n${migratedBody}`;
-              }
-              if (migratedBody !== (existing.body || '')) {
+              const evidenceChanged = !(existing.body || '').includes(contentMarker) ||
+                (existing.body || '') !== desiredIssueBody || existing.title !== title;
+              if (evidenceChanged || incidentTransition === 'reopened') {
                 await github.rest.issues.update({
                   owner: context.repo.owner, repo: context.repo.repo,
-                  issue_number: existing.number, body: migratedBody,
+                  issue_number: existing.number,
+                  title,
+                  body: desiredIssueBody,
                   ...(incidentTransition === 'reopened' ? {state: 'open'} : {}),
-                });
-              } else if (incidentTransition === 'reopened') {
-                await github.rest.issues.update({
-                  owner: context.repo.owner, repo: context.repo.repo,
-                  issue_number: existing.number, state: 'open',
                 });
               }
               if (incidentTransition === 'reopened') {
@@ -1116,17 +1591,19 @@ jobs:
               await github.rest.issues.create({
                 owner: context.repo.owner, repo: context.repo.repo,
                 title,
-                body: `${body}\n\nGitHub assignee: ${context.repo.owner}.`,
+                body: desiredIssueBody,
                 labels: ['ci-failure', 'automated', 'workstream:dashboard-ci'],
                 assignees: [context.repo.owner],
               });
             }
 
-      - name: Close issue on test success
+      - name: Close issue after healthy publication
         if: >-
           success() &&
           steps.publication-selector.outcome == 'success' &&
           steps.publication-selector.outputs.degraded == 'false' &&
+          steps.live-data-audit.outcome == 'success' &&
+          steps.live-data-audit.outputs.exit_code == '0' &&
           steps.run-tests.outcome == 'success' &&
           steps.run-tests.outputs.exit_code == '0'
         uses: actions/github-script@v7
@@ -1135,10 +1612,11 @@ jobs:
             const ownershipMarker = '<!-- ci-failure-owner:hourly-master -->';
             const legacySignature = '*Auto-created by hourly-master workflow.*';
             const recoveryPattern = /<!-- hourly-ci-recovery-streak:(\d+) -->/;
+            const recoveredMarker = '<!-- hourly-ci-recovered -->';
             const requiredRecoveryRuns = 2;
             const issues = await github.paginate(github.rest.issues.listForRepo, {
               owner: context.repo.owner, repo: context.repo.repo,
-              labels: 'ci-failure', state: 'open', per_page: 100,
+              labels: 'ci-failure', state: 'all', per_page: 100,
             });
             const ownedIssues = issues.filter(issue => {
               const body = issue.body || '';
@@ -1146,6 +1624,7 @@ jobs:
             });
             for (const issue of ownedIssues) {
               const body = issue.body || '';
+              if (issue.state === 'closed' && body.includes(recoveredMarker)) continue;
               const match = body.match(recoveryPattern);
               const recoveryStreak = match ? Number(match[1]) : 0;
               const nextRecoveryStreak = recoveryStreak + 1;
@@ -1161,17 +1640,34 @@ jobs:
                   owner: context.repo.owner, repo: context.repo.repo,
                   issue_number: issue.number, body: nextBody,
                 });
-                console.log(`Issue #${issue.number} has one successful recovery run; leaving it open.`);
+                console.log(
+                  `Issue #${issue.number} has one successful recovery run; ` +
+                  'leaving its current state unchanged.',
+                );
+                continue;
+              }
+              const recoveredBody = nextBody.includes(recoveredMarker)
+                ? nextBody
+                : `${recoveredMarker}\n${nextBody}`;
+              if (issue.state === 'closed') {
+                await github.rest.issues.update({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: issue.number, body: recoveredBody,
+                });
+                console.log(
+                  `Manually closed issue #${issue.number} recovered in ` +
+                  `${requiredRecoveryRuns} consecutive runs; recurrence is rearmed.`,
+                );
                 continue;
               }
               await github.rest.issues.createComment({
                 owner: context.repo.owner, repo: context.repo.repo,
                 issue_number: issue.number,
-                body: `Tests passed in ${requiredRecoveryRuns} consecutive published runs. Closing.\n\n**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                body: `Publication validation passed in ${requiredRecoveryRuns} consecutive published runs. Closing.\n\n**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
               });
               await github.rest.issues.update({
                 owner: context.repo.owner, repo: context.repo.repo,
-                issue_number: issue.number, body: nextBody, state: 'closed',
+                issue_number: issue.number, body: recoveredBody, state: 'closed',
               });
             }
 

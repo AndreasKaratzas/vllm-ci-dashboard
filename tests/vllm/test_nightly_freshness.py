@@ -10,7 +10,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from collect_ci import _compute_pipeline_summaries, _latest_signal_summary  # noqa: E402
+from collect_ci import (  # noqa: E402
+    _compute_pipeline_summaries,
+    _latest_signal_summary,
+    _project_test_result_summary,
+    _project_test_results_payload,
+)
 from vllm.ci.analyzer import compute_build_summary  # noqa: E402
 from vllm.ci.models import TestResult  # noqa: E402
 from vllm.ci.reporter import write_ci_health  # noqa: E402
@@ -104,6 +109,78 @@ def test_build_summary_counts_skip_only_groups_as_observed():
     assert summary.test_groups_passing_or == 0
     assert summary.test_groups_passing_all == 0
     assert summary.test_groups_partial == 0
+
+
+def test_build_summary_test_pass_rate_excludes_skipped_assertions():
+    build = _build(
+        11006,
+        "2026-07-19T09:00:00Z",
+        "failed",
+        [_job("mi300_2: Assertion Group", "failed", "assertions")],
+    )
+    passed = _result(11006)
+    passed.name = "__passed__ (7)"
+    failed = _result(11006)
+    failed.test_id = "group::__failed__"
+    failed.name = "__failed__ (1)"
+    failed.status = "failed"
+    skipped = _result(11006)
+    skipped.test_id = "group::__skipped__"
+    skipped.name = "__skipped__ (2)"
+    skipped.status = "skipped"
+
+    summary = compute_build_summary(build, [passed, failed, skipped], "amd")
+    serialized = summary.to_dict()
+
+    assert (summary.passed, summary.failed, summary.skipped) == (7, 1, 2)
+    assert summary.pass_rate == 0.875
+    assert serialized["pass_rate"] == 0.875
+    assert serialized["test_pass_rate_pct"] == 87.5
+    assert serialized["test_pass_rate_basis"] == "pytest_assertions_excluding_skipped"
+
+
+def test_root_test_results_separates_assertion_rate_from_legacy_job_counts():
+    summary = compute_build_summary(
+        _build(
+            11007,
+            "2026-07-20T09:00:00Z",
+            "failed",
+            [
+                _job("mi300_2: Passing Step", "passed", "pass-step"),
+                _job("mi300_2: Failing Step", "failed", "fail-step"),
+            ],
+        ),
+        [],
+        "amd",
+    )
+    summary.total_tests = 10
+    summary.passed = 7
+    summary.failed = 1
+    summary.skipped = 2
+    summary.pass_rate = 0.875
+
+    root_summary = _project_test_result_summary(summary)
+
+    assert root_summary["passed"] == 1
+    assert root_summary["failed"] == 1
+    assert root_summary["pass_rate"] == 87.5
+    assert root_summary["test_pass_rate_pct"] == 87.5
+    assert root_summary["test_pass_rate_basis"] == (
+        "pytest_assertions_excluding_skipped"
+    )
+    assert root_summary["test_assertions"] == {
+        "total": 10,
+        "passed": 7,
+        "failed": 1,
+        "skipped": 2,
+    }
+
+    payload = _project_test_results_payload(
+        summary,
+        collected_at="2026-07-20T12:00:00Z",
+    )
+    assert payload["pass_rate_contract_version"] == 1
+    assert payload["rocm"]["summary"] == root_summary
 
 
 def test_pipeline_summary_keeps_blocked_nightly_separate_from_test_signal(tmp_path):

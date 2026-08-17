@@ -16,6 +16,12 @@ from statistics import median
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from vllm.ci.incident_transitions import (
+    INCIDENT_TRANSITION_POLICY_ID,
+    SOFT_CONFIRMATION_BUILDS,
+    advance_incident,
+    completed_build_eligibility,
+)
 from vllm.ci.utils import duration_mins, hardware_from_job_name, percentile, queue_from_rules
 from vllm.constants import BK_ORG, is_excluded_queue
 from vllm.pipelines import SKIP_JOB_PATTERNS
@@ -279,6 +285,18 @@ def _group_id(identity: dict[str, str]) -> str:
     return hashlib.sha256(encoded).hexdigest()[:20]
 
 
+def nightly_signal_identity(
+    job: dict,
+    pipeline_slug: str = "amd-ci",
+) -> dict[str, str]:
+    """Return the shared strict raw/step/hardware/queue incident identity."""
+    return _identity(job, pipeline_slug)
+
+
+def nightly_signal_id(job: dict, pipeline_slug: str = "amd-ci") -> str:
+    return _group_id(nightly_signal_identity(job, pipeline_slug))
+
+
 def _is_test_job(job: dict) -> bool:
     if job.get("type") != "script":
         return False
@@ -309,6 +327,129 @@ def _retry_evidence(job: dict) -> dict:
     if evidence and job_id:
         evidence["job_id"] = job_id
     return evidence
+
+
+def nightly_job_outcome(job: dict) -> str:
+    """Return the shared incident-policy outcome for one terminal attempt."""
+    result, eligible, _ = _result(job)
+    if not eligible:
+        return "indeterminate"
+    return {
+        "failed": "hard",
+        "soft_fail": "soft",
+        "passed": "passed",
+    }[result]
+
+
+def _attempt_id(job: dict) -> str:
+    return str(job.get("id") or job.get("job_id") or "")
+
+
+def _retry_count(job: dict) -> int:
+    value = job.get("retries_count")
+    if isinstance(value, bool):
+        return 0
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def _attempt_time_rank(job: dict) -> tuple[str, str, str]:
+    return (
+        str(job.get("finished_at") or ""),
+        str(job.get("started_at") or ""),
+        str(job.get("runnable_at") or ""),
+    )
+
+
+def _retry_depth(job_id: str, predecessors: dict[str, set[str]]) -> int:
+    def visit(current: str, seen: set[str]) -> int:
+        parents = predecessors.get(current) or set()
+        eligible_parents = parents - seen
+        if not eligible_parents:
+            return 0
+        return 1 + max(
+            visit(parent, seen | {current, parent})
+            for parent in eligible_parents
+        )
+
+    return visit(job_id, {job_id}) if job_id else 0
+
+
+def collapse_nightly_attempts(
+    jobs: list[dict],
+    pipeline_slug: str = "amd-ci",
+) -> dict[str, dict]:
+    """Select one order-independent final attempt per strict nightly signal.
+
+    Explicit retry linkage/rank selects the final attempt. Without retry
+    evidence, incident outcomes win ties conservatively so unrelated duplicate
+    rows cannot manufacture a recovery.
+    """
+    grouped: dict[str, dict] = {}
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        identity = nightly_signal_identity(job, pipeline_slug)
+        group_id = _group_id(identity)
+        group = grouped.setdefault(
+            group_id,
+            {"identity": identity, "attempts": []},
+        )
+        group["attempts"].append(job)
+
+    selected: dict[str, dict] = {}
+    outcome_rank = {"hard": 3, "soft": 2, "passed": 1, "indeterminate": 0}
+    for group_id, group in grouped.items():
+        attempts = group["attempts"]
+        by_id = {
+            _attempt_id(job): job
+            for job in attempts
+            if _attempt_id(job)
+        }
+        predecessors: dict[str, set[str]] = defaultdict(set)
+        for job in attempts:
+            source_id = _attempt_id(job)
+            target_id = str(job.get("retried_in_job_id") or "")
+            if source_id and target_id and target_id in by_id:
+                predecessors[target_id].add(source_id)
+        has_retry_evidence = any(bool(_retry_evidence(job)) for job in attempts)
+
+        def attempt_rank(job: dict) -> tuple:
+            outcome = nightly_job_outcome(job)
+            job_id = _attempt_id(job)
+            if not has_retry_evidence:
+                return (
+                    outcome_rank[outcome],
+                    _attempt_time_rank(job),
+                    job_id,
+                )
+            retry_count = _retry_count(job)
+            explicit_retry_attempt = bool(
+                retry_count
+                or job.get("retry_source")
+                or job.get("retry_type")
+                or job_id in predecessors
+            )
+            return (
+                _retry_depth(job_id, predecessors),
+                retry_count,
+                explicit_retry_attempt,
+                not bool(job.get("retried")),
+                not bool(job.get("retried_in_job_id")),
+                _attempt_time_rank(job),
+                outcome_rank[outcome],
+                job_id,
+            )
+
+        final = max(attempts, key=attempt_rank)
+        selected[group_id] = {
+            "identity": group["identity"],
+            "job": final,
+            "outcome": nightly_job_outcome(final),
+        }
+    return selected
 
 
 def _test_duration_index(
@@ -763,73 +904,163 @@ def compact_main_builds(reliability: dict) -> list[dict]:
     )
 
 
-def _nightly_job_state(job: dict) -> tuple[str, dict]:
-    result, eligible, _ = _result(job)
-    identity = _identity(job)
-    group_id = _group_id(identity)
+def _nightly_job_ref(
+    pipeline_slug: str,
+    build: dict,
+    job: dict,
+    identity: dict[str, str],
+    group_id: str,
+    outcome: str,
+) -> dict:
     url = str(job.get("url") or job.get("web_url") or "")
-    return result if eligible else "indeterminate", {
+    return {
         "group_id": group_id,
+        "source_pipeline": pipeline_slug,
+        "build_number": build.get("number") or build.get("build_number"),
         "name": identity["canonical_label"],
         "raw_name": identity["raw_label"],
         "step_key": identity["step_key"],
         "hardware": identity["hardware"],
         "queue": identity["queue"],
-        "state": result if eligible else str(job.get("state") or "unknown"),
+        "state": {
+            "hard": "failed",
+            "soft": "soft_fail",
+            "passed": "passed",
+            "indeterminate": str(job.get("state") or "unknown"),
+        }[outcome],
         "url": url,
     }
 
 
-def _nightly_state_map(build: dict) -> dict[str, tuple[str, dict]]:
+def _nightly_state_map(
+    build: dict,
+    pipeline_slug: str,
+) -> dict[str, tuple[str, dict]]:
     rows: dict[str, tuple[str, dict]] = {}
-    for job in build.get("jobs") or []:
-        state, ref = _nightly_job_state(job)
-        rows[ref["group_id"]] = (state, ref)
+    for group_id, selected in collapse_nightly_attempts(
+        build.get("jobs") or [], pipeline_slug
+    ).items():
+        outcome = selected["outcome"]
+        rows[group_id] = (
+            outcome,
+            _nightly_job_ref(
+                pipeline_slug,
+                build,
+                selected["job"],
+                selected["identity"],
+                group_id,
+                outcome,
+            ),
+        )
     return rows
 
 
-def compute_nightly_change_history(builds: list[dict]) -> list[dict]:
-    """Compare canonical nightlies; absence never counts as a fixed group."""
+def compute_nightly_change_history(
+    builds: list[dict],
+    *,
+    pipeline_slug: str = "amd-ci",
+) -> list[dict]:
+    """Replay canonical nightlies with confirmed-incident hysteresis."""
     ordered = sorted(
         builds,
         key=lambda build: (str(build.get("created_at") or build.get("date") or ""), int(build.get("number") or 0)),
-        reverse=True,
     )
-    history = []
-    for index, current in enumerate(ordered):
-        previous = ordered[index + 1] if index + 1 < len(ordered) else None
-        current_map = _nightly_state_map(current)
-        previous_map = _nightly_state_map(previous) if previous else {}
-        current_incidents = {key for key, (state, _) in current_map.items() if state in {"failed", "soft_fail"}}
-        previous_incidents = {key for key, (state, _) in previous_map.items() if state in {"failed", "soft_fail"}}
-        new_keys = sorted(current_incidents - previous_incidents) if previous else []
-        recurring_keys = sorted(current_incidents & previous_incidents) if previous else []
-        fixed_keys = sorted(
-            key for key in previous_incidents
-            if previous and key in current_map and current_map[key][0] == "passed"
-        )
-        absent_keys = sorted(key for key in previous_incidents if previous and key not in current_map)
-        indeterminate_keys = sorted(
-            key for key in previous_incidents
-            if previous and key in current_map and current_map[key][0] == "indeterminate"
-        )
+    history: list[dict] = []
+    states: dict[str, dict] = {}
+    incident_refs: dict[str, dict] = {}
+    previous_eligible: dict | None = None
+    for current in ordered:
+        current_map = _nightly_state_map(current, pipeline_slug)
+        build_id = current.get("number") or current.get("build_number")
+        transition_eligible, ineligible_reason = completed_build_eligibility(current)
+        buckets: dict[str, list[dict]] = {
+            "new": [],
+            "recurring": [],
+            "fixed": [],
+            "pending_soft": [],
+            "not_observed": [],
+            "indeterminate": [],
+        }
+        active_keys = {
+            key for key, state in states.items()
+            if state.get("status") in {"pending_soft", "confirmed"}
+        }
+        for key in sorted(set(current_map) | active_keys):
+            observed_state, current_ref = current_map.get(key, ("absent", {}))
+            current_state = observed_state if transition_eligible else "indeterminate"
+            previous_ref = incident_refs.get(key) or {}
+            decision = advance_incident(states.get(key), current_state, build_id)
+            next_state = decision["state"]
+            classification = decision["classification"]
+
+            if classification == "none":
+                pass
+            elif classification == "fixed":
+                buckets[classification].append({
+                    **current_ref,
+                    "current_state": "passed",
+                    "previous_state": previous_ref.get("state") or "",
+                    "previous_url": previous_ref.get("url") or "",
+                    "transition_change": decision["change"],
+                    "transition_eligible": transition_eligible,
+                })
+            else:
+                held_indeterminate = (
+                    decision["change"] == "held"
+                    and decision["outcome"] == "indeterminate"
+                )
+                ref = previous_ref if held_indeterminate else (
+                    current_ref if current_ref else previous_ref
+                )
+                row = {
+                    **ref,
+                    "incident_status": next_state["status"],
+                    "current_severity": next_state["severity"],
+                    "peak_severity": next_state["peak_severity"],
+                    "soft_streak": next_state["soft_streak"],
+                    "confirmation_threshold": SOFT_CONFIRMATION_BUILDS,
+                    "transition_change": decision["change"],
+                    "transition_eligible": transition_eligible,
+                }
+                if held_indeterminate and current_ref:
+                    row["current_indeterminate_evidence"] = dict(current_ref)
+                if not current_ref:
+                    row["observed_in_current_build"] = False
+                if ineligible_reason:
+                    row["transition_ineligible_reason"] = ineligible_reason
+                buckets[classification].append(row)
+
+            if next_state["status"] == "clear":
+                states.pop(key, None)
+                incident_refs.pop(key, None)
+            else:
+                states[key] = next_state
+                if transition_eligible and observed_state in {"hard", "soft"}:
+                    incident_refs[key] = current_ref
+
+        for rows in buckets.values():
+            rows.sort(key=lambda row: (
+                str(row.get("name") or "").casefold(),
+                str(row.get("raw_name") or "").casefold(),
+                str(row.get("hardware") or ""),
+                str(row.get("queue") or ""),
+                str(row.get("group_id") or ""),
+            ))
         history.append({
+            "policy_id": INCIDENT_TRANSITION_POLICY_ID,
             "build_number": current.get("number") or current.get("build_number"),
             "build_url": current.get("web_url") or "",
             "created_at": current.get("created_at") or "",
-            "preceding_build_number": previous.get("number") if previous else None,
-            "new": [current_map[key][1] for key in new_keys],
-            "recurring": [current_map[key][1] for key in recurring_keys],
-            "fixed": [
-                {
-                    **current_map[key][1],
-                    "current_state": "passed",
-                    "previous_state": previous_map[key][0],
-                    "previous_url": previous_map[key][1].get("url") or "",
-                }
-                for key in fixed_keys
-            ],
-            "not_observed": [previous_map[key][1] for key in absent_keys],
-            "indeterminate": [current_map[key][1] for key in indeterminate_keys],
+            "transition_eligible": transition_eligible,
+            "transition_ineligible_reason": ineligible_reason or None,
+            "preceding_build_number": (
+                previous_eligible.get("number")
+                or previous_eligible.get("build_number")
+                if previous_eligible
+                else None
+            ),
+            **buckets,
         })
-    return history
+        if transition_eligible:
+            previous_eligible = current
+    return list(reversed(history))

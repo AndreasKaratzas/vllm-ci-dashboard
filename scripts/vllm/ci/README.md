@@ -80,6 +80,31 @@ All files are written to `data/vllm/ci/`:
 | `quarantine.json` | Rendered quarantine/allowlist state |
 | `test_results/{date}_{pipeline}.jsonl` | Per-test results (one JSON per line) |
 
+### Pass-rate contracts
+
+Pass rates carry an explicit percentage and denominator label so consumers do
+not have to infer whether a value describes builds, jobs, or assertions:
+
+The producer sets `pass_rate_contract_version: 1` at the `ci_health.json` and
+project-root `test_results.json` top levels and in each `analytics.json`
+pipeline block. Unversioned payloads are legacy rollout data; the audit warns
+but does not require the new fields until a producer has emitted version 1.
+
+- Each `analytics.json` pipeline and window summary publishes
+  `build_pass_rate_pct` (0–100) with
+  `build_pass_rate_basis: "terminal_build_state_all_green"`. It is the share
+  of terminal builds whose final state is fully passed. The legacy `pass_rate`
+  remains the same percentage.
+- Every build summary in `ci_health.json` publishes `test_pass_rate_pct`
+  (0–100) with
+  `test_pass_rate_basis: "pytest_assertions_excluding_skipped"`. It is
+  `passed / (passed + failed)`; skipped assertions are excluded. The legacy
+  `pass_rate` remains the equivalent 0–1 ratio.
+- Each platform summary in `data/vllm/test_results.json` uses the same explicit
+  assertion basis and records the source counts under `test_assertions`. Its
+  legacy `pass_rate` remains the equivalent 0–100 percentage. These assertion
+  counts are intentionally separate from the existing job-count fields.
+
 ### JSONL Format (test_results)
 
 Each line in a `.jsonl` file is a JSON object:
@@ -139,13 +164,13 @@ Quarantined tests are still collected and tracked, but excluded from failure cou
 
 ## GitHub Actions Integration
 
-Four workflows divide canonical publication from focused manual/event collectors:
+Five workflows divide canonical publication from focused manual/event collectors:
 
 | Workflow | Schedule | Purpose |
 |----------|----------|---------|
 | `hourly-master.yml` | Hourly + Buildkite nightly-completion webhooks | Full collection, validation, and the only scheduled root-site deployment |
 | `daily-update.yml` | Manual | Focused GitHub-data refresh committed to `main` |
-| `ci-collect.yml` | Manual | Focused Buildkite CI refresh committed to `main` |
+| `ci-collect.yml` | Manual | Validation-only focused Buildkite CI refresh; never commits or publishes |
 | `queue-monitor.yml` | Queue webhooks + manual | Queue snapshots and bounded queue issue automation; canonical publication follows via `hourly-master.yml` |
 | `queue-lifecycle.yml` | Hourly + manual | Organization-wide direct job lifecycle observations for the twelve canonical MI250/MI300/MI355 queues |
 
@@ -208,8 +233,10 @@ umbrella issues in this repository:
 
 - AMD main test-group failures use the exhaustive amd-ci branch=main reliability
   cohort. The latest retry attempt in a build wins; a later pass resolves the
-  same strict label + step + hardware + queue identity. Soft failures remain
-  incidents because the test command failed even when Buildkite continued.
+  same strict label + step + hardware + queue identity. Hard failures confirm
+  immediately. Soft failures remain visible as pending observations and require
+  two distinct eligible completed builds before becoming incidents. Missing or
+  indeterminate observations neither advance nor resolve the signal.
 - Upstream CI main test-group failures use the exhaustive ci branch=main
   reliability cohort and the same strict retry-aware identity. Each active
   incident retains the last known passing commit and first failing commit as a
@@ -256,4 +283,15 @@ scripts/
 
 **Rate limiting (429)**: The script retries on 429 with exponential backoff using the `Retry-After` header. For large fetches (30+ days), run in smaller batches: `--days 7`.
 
-**Cached data**: Build data is cached in `data/vllm/ci/.cache/`. JSONL test results are also cached — the script skips builds that already have results. Delete the cache to force a full re-fetch.
+**Cached data**: The analytics collector's sanitized Buildkite history cache
+lives in `data/vllm/ci/.cache/analytics-builds-v1`. The hourly workflow keeps
+one immutable cache key per UTC day in GitHub Actions cache storage, restores
+the prior day when the new key is not populated, and still refetches the recent
+overlap on every run. The collector fully reconciles when the restored cache's
+`generated_at` UTC date differs from the current collection date, or when
+cached `last_full_at` reaches 24 hours old. This guarantees that the first
+snapshot saved under each immutable daily key is complete. A failed analytics
+collection does not save the new daily key; cache transport failures are
+non-fatal and collection continues from Buildkite.
+This directory is private, gitignored, never published, and never restored
+from gh-pages. Delete the local directory to force a cache-free fetch.

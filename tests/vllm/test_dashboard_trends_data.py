@@ -27,6 +27,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.live_data
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 QUEUE_TS = ROOT / "data" / "vllm" / "ci" / "queue_timeseries.jsonl"
 JS_HOTNESS = ROOT / "docs" / "assets" / "js" / "ci-hotness.js"

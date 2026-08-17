@@ -79,5 +79,6 @@ testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
 addopts = "-v --tb=short --strict-markers"
 markers = [
+    "live_data: tests that validate mutable committed or generated dashboard snapshots",
     "network: tests that touch live network endpoints",
 ]

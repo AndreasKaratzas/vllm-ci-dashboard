@@ -3,17 +3,20 @@ framework isolation, and cron schedule safety.
 
 These tests ensure:
 - All workflow files are valid YAML with required fields
-- ci-collect.yml calls all necessary collection scripts
+- ci-collect.yml exercises its collectors without writing main
 - Deploying workflows sync vLLM CI data from gh-pages (prevents clobbering)
 - No cron schedule conflicts between hourly workflows
 """
 
 import ast
+import json
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 import yaml
+
+from vllm.publication_surfaces import surface_for_path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
@@ -178,8 +181,9 @@ class TestPrimaryCIWorkflow:
         run_tests = next(step for step in steps if step.get("name") == "Run tests")
         assert run_tests.get("id") == "run-tests"
         assert "set -o pipefail" in run_tests.get("run", "")
-        assert "pytest tests/ -v --tb=short 2>&1 | tee test-output.txt" in run_tests.get(
-            "run", ""
+        assert (
+            "pytest tests/ -m 'not live_data' -v --tb=short 2>&1 | tee test-output.txt"
+            in run_tests.get("run", "")
         )
 
     def test_pr_comment_uses_the_terminal_pytest_summary(self):
@@ -213,6 +217,14 @@ class TestPrimaryCIWorkflow:
         assert "browserErrors" in smoke
         assert ".ops-error" in smoke
         assert "12_500" in smoke
+
+
+@pytest.mark.parametrize("workflow", ["ci.yml", "nightly-ci.yml"])
+def test_nonpublication_ci_excludes_live_snapshot_contracts(workflow: str) -> None:
+    text = _load_workflow_text(workflow)
+    assert "pytest tests/ -m 'not live_data'" in text
+    assert "pytest tests/ -m 'live_data'" not in text
+    assert "live-data-audit" not in text
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +319,7 @@ class TestHourlyMasterWorkflow:
         candidates = names.index("Collect AMD gating target candidate audit")
 
         assert sync < collect < candidates
-        assert 'run_surface_collector ci "AMD gating target list"' in (
+        assert 'run_surface_collector ci_gating "AMD gating target list"' in (
             steps[collect]["run"]
         )
         assert "python scripts/vllm/collect_gating_targets.py" in steps[collect][
@@ -405,8 +417,7 @@ class TestHourlyMasterWorkflow:
             ("Normalize and prune queue history", "queue"),
             ("Collect queue snapshot", "queue"),
             ("Refresh Omni surge heuristic", "queue"),
-            ("Sync CI data from gh-pages", "ci"),
-            ("Collect CI data", "ci"),
+            ("Collect CI data", "ci_core"),
             ("Collect AMD agent health (all builds, all branches)", "agent_health"),
             ("Sync perf-eval data from gh-pages", "perf_eval"),
             ("Ingest perf-eval artifacts from Buildkite", "perf_eval"),
@@ -422,7 +433,10 @@ class TestHourlyMasterWorkflow:
         assert "--force-degraded-surfaces \"$FORCED_SURFACES\"" in selector_run
         assert 'sort -u "$PUBLICATION_FAILED_SURFACES_FILE"' in selector_run
         assert selector.get("continue-on-error") is not True
-        assert "run_surface_collector ci" in steps[
+        sync_ci = steps[names.index("Sync CI data from gh-pages")]["run"]
+        for surface in ("ci_core", "ci_gating", "ci_changes", "ci_hotness"):
+            assert f"run_surface_collector {surface}" in sync_ci
+        assert "run_surface_collector ci_gating" in steps[
             names.index("Collect AMD gating target list")
         ]["run"]
         assert "Build v2 operations snapshot" not in names
@@ -430,24 +444,252 @@ class TestHourlyMasterWorkflow:
             names.index("Normalize and prune queue history")
         ]["run"]
 
+    def test_ci_collectors_and_seeds_use_split_publication_surfaces(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        names = [step.get("name") for step in steps]
+        baseline = steps[names.index("Capture immutable main baseline")]["run"]
+        assert (
+            "ci_core|ci_gating|ci_changes|ci_hotness|queue|queue_lifecycle|"
+            "agent_health|github_home|ready|perf_eval|test_builds"
+        ) in baseline
+
+        expected_collectors = {
+            "Collect CI data": "ci_core",
+            "Collect CI analytics": "ci_core",
+            "Collect AMD test matrix": "ci_core",
+            "Collect build-pinned CI ownership parity": "ci_core",
+            "Collect AMD gating target list": "ci_gating",
+            "Collect AMD gating proposals": "ci_gating",
+            "Collect AMD gating target candidate audit": "ci_gating",
+            "Collect test group changes": "ci_changes",
+            "Collect AMD hotness (3d window)": "ci_hotness",
+        }
+        for name, surface in expected_collectors.items():
+            assert f"run_surface_collector {surface}" in steps[names.index(name)][
+                "run"
+            ]
+
+        sync = steps[names.index("Sync CI data from gh-pages")]["run"]
+        seed_sections = {
+            "ci_core": sync[
+                sync.index("sync_ci_core_seed()") : sync.index(
+                    "sync_ci_gating_seed()"
+                )
+            ],
+            "ci_gating": sync[
+                sync.index("sync_ci_gating_seed()") : sync.index(
+                    "sync_ci_changes_seed()"
+                )
+            ],
+            "ci_changes": sync[
+                sync.index("sync_ci_changes_seed()") : sync.index(
+                    "sync_ci_hotness_seed()"
+                )
+            ],
+            "ci_hotness": sync[
+                sync.index("sync_ci_hotness_seed()") : sync.index(
+                    "sync_workload_mapping_seed()"
+                )
+            ],
+        }
+        for filename in (
+            "ci_health.json",
+            "amd_test_matrix.json",
+            "ownership_config_parity.json",
+            "gating_nightlies.json",
+        ):
+            assert filename in seed_sections["ci_core"]
+        assert "analytics.json" not in seed_sections["ci_core"]
+        assert "PUBLIC-ANALYTICS-BOUNDARY" in sync
+        for filename in (
+            "gating_targets.json",
+            "gating_proposals.json",
+            "gating_target_candidates.json",
+        ):
+            assert filename in seed_sections["ci_gating"]
+        assert "group_changes.json" in seed_sections["ci_changes"]
+        assert "hotness.json" in seed_sections["ci_hotness"]
+        assert "operations_v2.json" not in sync
+
+        workflow_text = _load_workflow_text("hourly-master.yml")
+        assert not re.search(
+            r"(?:run_surface_collector|record_surface_failure)\s+ci(?:\s|\")",
+            workflow_text,
+        )
+        assert "',ci,'" not in workflow_text
+
+    def test_private_analytics_projection_has_no_public_feedback_loop(self):
+        private_path = "data/vllm/ci/analytics.json"
+        manifest_path = "vllm/ci/analytics.json"
+        assert surface_for_path(private_path) == "ci_core"
+
+        manifest = json.loads(
+            (REPO_ROOT / "config/public_data_manifest.json").read_text()
+        )
+        assert manifest_path in manifest["build_inputs"]
+        assert manifest_path not in {
+            *manifest["required_files"],
+            *manifest["optional_files"],
+        }
+        descriptor = next(
+            item
+            for item in manifest["projected_files"]
+            if item["path"] == manifest_path
+        )
+        assert descriptor == {
+            "path": manifest_path,
+            "projector": "public_analytics_v1",
+            "max_bytes": 8 * 1024 * 1024,
+        }
+
+        build_site = (REPO_ROOT / "scripts/build_site.py").read_text()
+        for token in (
+            "materialize_projected_files",
+            "compact_public_analytics_json",
+            "PUBLIC_ANALYTICS_PROJECTOR_ID",
+        ):
+            assert token in build_site
+        assert re.search(
+            r"PUBLIC_ANALYTICS_PROJECTOR_ID\s*:\s*compact_public_analytics_json",
+            build_site,
+        )
+
+        workflow = _load_workflow("hourly-master.yml")
+        steps = next(iter(workflow["jobs"].values())).get("steps", [])
+        sync = next(
+            step["run"]
+            for step in steps
+            if step.get("name") == "Sync CI data from gh-pages"
+        )
+        commands = "\n".join(
+            line for line in sync.splitlines() if not line.lstrip().startswith("#")
+        )
+        assert "PUBLIC-ANALYTICS-BOUNDARY" in sync
+        assert "analytics.json" not in commands
+
+    def test_private_analytics_cache_is_daily_and_one_way(self):
+        cache_path = "data/vllm/ci/.cache/analytics-builds-v1"
+        manifest_cache_path = "vllm/ci/.cache/analytics-builds-v1"
+        cache_sample = f"{manifest_cache_path}/amd-ci.json"
+        workflow = _load_workflow("hourly-master.yml")
+        steps = next(iter(workflow["jobs"].values())).get("steps", [])
+        names = [step.get("name") for step in steps]
+        key_index = names.index("Prepare private analytics cache key")
+        restore_index = names.index("Restore private analytics build cache")
+        collect_index = names.index("Collect CI analytics")
+        save_index = names.index("Save private analytics build cache")
+        assert key_index < restore_index < collect_index < save_index
+
+        key_step = steps[key_index]
+        assert key_step["id"] == "analytics-cache-key"
+        key_script = key_step["run"]
+        assert "CACHE_DAY=$(date -u +%Y-%m-%d)" in key_script
+        assert "PRIOR_CACHE_DAY=$(date -u -d '1 day ago' +%Y-%m-%d)" in key_script
+        assert 'CACHE_NAMESPACE="analytics-builds-v1-${{ runner.os }}"' in key_script
+        assert 'echo "key=$CACHE_NAMESPACE-$CACHE_DAY"' in key_script
+        assert (
+            'echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY"'
+            in key_script
+        )
+        assert "github.run_id" not in key_script
+        assert "github.run_attempt" not in key_script
+
+        restore = steps[restore_index]
+        assert restore["uses"] == "actions/cache/restore@v4"
+        assert restore["continue-on-error"] is True
+        assert restore["with"] == {
+            "path": cache_path,
+            "key": "${{ steps.analytics-cache-key.outputs.key }}",
+            "restore-keys": "${{ steps.analytics-cache-key.outputs.prior_day_prefix }}\n",
+        }
+
+        collect = steps[collect_index]
+        assert collect["id"] == "collect-analytics"
+        assert "surface_is_current ci_core" in collect["run"]
+        assert 'echo "cache_save=true"' in collect["run"]
+        assert 'echo "cache_save=false"' in collect["run"]
+
+        save = steps[save_index]
+        assert save["uses"] == "actions/cache/save@v4"
+        assert save["continue-on-error"] is True
+        assert "steps.collect-analytics.outputs.cache_save == 'true'" in save["if"]
+        assert (
+            "steps.analytics-cache-restore.outputs.cache-hit != 'true'"
+            in save["if"]
+        )
+        assert save["with"] == {
+            "path": cache_path,
+            "key": "${{ steps.analytics-cache-key.outputs.key }}",
+        }
+
+        for step in steps:
+            run = step.get("run") or ""
+            if "origin/gh-pages" not in run:
+                continue
+            seed_commands = "\n".join(
+                line
+                for line in run.splitlines()
+                if not line.lstrip().startswith("#")
+            )
+            assert cache_path not in seed_commands
+            assert "analytics-builds-v1" not in seed_commands
+        commit = steps[names.index("Commit and push")]["run"]
+        assert cache_path not in commit
+        assert not re.search(r"\bgit\s+add\b[^\n]*(?:\s-f\b|\s--force\b)", commit)
+        assert "data/vllm/ci/.cache/" in {
+            line.strip()
+            for line in (REPO_ROOT / ".gitignore").read_text().splitlines()
+        }
+
+        manifest = json.loads(
+            (REPO_ROOT / "config/public_data_manifest.json").read_text()
+        )
+        exact_paths = {
+            relative
+            for field in (
+                "required_files",
+                "optional_files",
+                "build_inputs",
+                "generated_files",
+            )
+            for relative in manifest[field]
+        }
+        exact_paths.update(item["path"] for item in manifest["projected_files"])
+        assert not any(
+            path == manifest_cache_path
+            or path.startswith(f"{manifest_cache_path}/")
+            for path in exact_paths
+        )
+        assert not any(
+            PurePosixPath(cache_sample).match(pattern)
+            for pattern in manifest["optional_globs"]
+        )
+        assert any(
+            PurePosixPath(cache_sample).match(pattern)
+            for pattern in manifest["never_publish_patterns"]
+        )
+
     def test_selection_precedes_side_effects_render_and_tests(self):
         data = _load_workflow("hourly-master.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])
         names = [step.get("name") for step in steps]
         selector = names.index("Select validated publication surfaces")
+        live_audit = names.index("Live publication audit")
         watcher_surfaces = (
             ("Watch queue latency (open/close issues)", "queue"),
             ("Watch zombie queue jobs (open/close issues)", "queue"),
             ("Watch Omni workload surge (open/close issues)", "queue"),
-            ("Watch AMD main test-group failures (open/close issue)", "ci"),
-            ("Watch upstream CI main test-group failures (open/close issue)", "ci"),
-            ("Watch AMD main duration regressions (open/close issue)", "ci"),
+            ("Watch AMD main test-group failures (open/close issue)", "ci_core"),
+            ("Watch upstream CI main test-group failures (open/close issue)", "ci_core"),
+            ("Watch AMD main duration regressions (open/close issue)", "ci_core"),
             ("Watch AMD CI agent health (open/close issue)", "agent_health"),
-            ("Watch AMD CI test-area regressions (ranked owners)", "ci"),
+            ("Watch AMD CI test-area regressions (ranked owners)", "ci_core"),
         )
         for name, surface in watcher_surfaces:
             watcher = steps[names.index(name)]
             assert names.index(name) > selector
+            assert names.index(name) < live_audit
             condition = watcher.get("if", "")
             assert "publication-selector.outcome == 'success'" in condition
             assert "degraded_surfaces" in condition
@@ -456,7 +698,13 @@ class TestHourlyMasterWorkflow:
             "run"
         ] == "python scripts/vllm/omni_surge_watcher.py --issues-only"
         assert selector < names.index("Render dashboards after publication selection")
+        assert names.index(
+            "Rebuild v2 operations snapshot with selected issue state"
+        ) < live_audit
         assert names.index("Render dashboards after publication selection") < names.index(
+            "Live publication audit"
+        )
+        assert names.index("Live publication audit") < names.index(
             "Run test suite"
         )
 
@@ -467,16 +715,51 @@ class TestHourlyMasterWorkflow:
 
     def test_runs_pytest(self):
         text = _load_workflow_text("hourly-master.yml")
-        assert "pytest" in text
+        assert "pytest tests/ -m 'not live_data'" in text
+        assert "pytest tests/ -m 'live_data'" in text
 
-    def test_failed_tests_block_publication(self):
+    def test_live_publication_audit_is_independent_and_captures_diagnostics(self):
         data = _load_workflow("hourly-master.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])
         names = [step.get("name") for step in steps]
-        enforce = steps[names.index("Enforce test suite result")]
+        audit = steps[names.index("Live publication audit")]
+        script = audit.get("run", "")
+
+        assert audit.get("id") == "live-data-audit"
+        assert audit.get("continue-on-error") is True
+        assert "always()" in audit.get("if", "")
+        assert "steps.publication-selector.outcome == 'success'" in audit.get("if", "")
+        assert "skip_tests" not in audit.get("if", "")
+        assert "python scripts/vllm/audit_dashboard_data.py --format json" in script
+        assert "pytest tests/ -m 'live_data'" in script
+        assert "live-publication-audit.json" in script
+        for output in ("exit_code", "summary", "findings", "output"):
+            assert f'"{output}"' in script or f"{output}=" in script
+
+        artifact = steps[names.index("Upload live publication audit artifact")]
+        assert artifact.get("uses") == "actions/upload-artifact@v4"
+        assert "live-publication-audit.json" in artifact["with"]["path"]
+        assert names.index("Live publication audit") < names.index(
+            "Enforce publication validation results"
+        )
+
+    def test_failed_validation_blocks_publication(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        names = [step.get("name") for step in steps]
+        enforce = steps[names.index("Enforce publication validation results")]
         assert "steps.run-tests.outputs.exit_code != '0'" in enforce["if"]
-        assert names.index("Enforce test suite result") < names.index("Assemble site")
-        assert names.index("Enforce test suite result") < names.index(
+        assert "steps.live-data-audit.outcome != 'success'" in enforce["if"]
+        assert "steps.live-data-audit.outputs.exit_code != '0'" in enforce["if"]
+        assert "Live publication audit failed" in enforce["run"]
+        assert "Deterministic dashboard tests failed" in enforce["run"]
+        assert names.index("Enforce publication validation results") < names.index(
+            "Commit and push"
+        )
+        assert names.index("Enforce publication validation results") < names.index(
+            "Assemble site"
+        )
+        assert names.index("Enforce publication validation results") < names.index(
             "Deploy to GitHub Pages"
         )
 
@@ -486,57 +769,133 @@ class TestHourlyMasterWorkflow:
         close = next(
             step
             for step in steps
-            if step.get("name") == "Close issue on test success"
+            if step.get("name") == "Close issue after healthy publication"
         )
         condition = close.get("if", "")
         assert "success()" in condition
         assert "steps.run-tests.outcome == 'success'" in condition
         assert "steps.run-tests.outputs.exit_code == '0'" in condition
+        assert "steps.live-data-audit.outcome == 'success'" in condition
+        assert "steps.live-data-audit.outputs.exit_code == '0'" in condition
         assert "steps.publication-selector.outcome == 'success'" in condition
         assert "steps.publication-selector.outputs.degraded == 'false'" in condition
         assert "always()" not in condition
+        assert "<!-- hourly-ci-recovered -->" in close["with"]["script"]
+        assert "body: recoveredBody" in close["with"]["script"]
+        assert "labels: 'ci-failure', state: 'all'" in close["with"]["script"]
+        assert "if (issue.state === 'closed')" in close["with"]["script"]
 
     def test_failure_issues_use_exact_fingerprints_and_migrate_legacy_issues(self):
         data = _load_workflow("hourly-master.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])
         create = next(
-            step for step in steps if step.get("name") == "Create issue on test failure"
+            step
+            for step in steps
+            if step.get("name") == "Create hourly validation incident"
         )
         script = create["with"]["script"]
         condition = create.get("if", "")
 
         assert "steps.publication-selector.outcome == 'failure'" in condition
         assert "steps.publication-selector.outputs.degraded == 'true'" in condition
+        assert "steps.live-data-audit.outcome != 'success'" in condition
+        assert "steps.live-data-audit.outputs.exit_code != '0'" in condition
         assert "createHash('sha256')" in script
-        assert "Hourly CI failure [${fingerprint.slice(0, 8)}]" in script
+        assert "Hourly validation failure [${fingerprint.slice(0, 8)}]" in script
         assert "<!-- ci-failure-owner:hourly-master -->" in script
         assert "<!-- hourly-ci-fingerprint:${fingerprint} -->" in script
         assert "normalizedFailures" in script
         assert "normalizedDiagnostics" in script
         assert "publicationState.candidate_errors" in script
+        assert "publicationState.candidate_degradations" in script
         assert "publicationState.final_errors" in script
+        assert "publicationState.final_degradations" in script
+        assert "Publication findings" in script
         assert "publicationDiagnostics" in script
-        assert "hourly-ci-v2\\n${fingerprintSource}" in script
+        assert "Live Publication Audit Failure" in script
+        assert "liveAuditFindings" in script
+        assert "liveAuditDiagnostics" in script
+        assert "Live publication audit findings" in script
+        assert "Failing deterministic tests" in script
+        assert "deterministic:${node}" in script
+        assert "publication:${surface}" in script
+        assert "live-audit:${code}" in script
+        assert "live-contract:${node}" in script
+        assert "hourly-ci-v3\\n${fingerprintSource}" in script
+        assert "hourly-ci-v2\\n${previousFingerprintSource}" in script
+        assert "<!-- hourly-ci-fingerprint-version:3 -->" in script
+        assert "was manually closed" in script
+        assert "leaving it suppressed until the signal recovers" in script
         assert ".replace(/\\b\\d+(?:\\.\\d+)?\\b/g, '<number>')" in script
         assert "github.paginate(github.rest.issues.listForRepo" in script
         assert "labels: 'ci-failure', state: 'all'" in script
-        assert "allIssues.find" in script
+        assert "allIssues.filter" in script
+        assert ".sort(incidentPreference)[0] || null" in script
+        assert "previousFingerprintMarker" in script
         assert "legacyFingerprintMarker" in script
-        assert "const existing = exact || previousVersion || legacy" in script
-        assert "migratedBody.replace(fingerprintPattern, fingerprintMarker)" in script
+        assert "stablePreviousVersion" in script
+        assert "legacyVersion || legacy" in script
         assert "issueBody.includes(ownershipMarker)" in script
         assert "issueBody.includes(fingerprintMarker)" in script
         assert "*Auto-created by hourly-master workflow.*" in script
-        assert "for (const issue of ownedOpenIssues)" in script
+        assert "for (const issue of ownedIssues)" in script
+        assert "const closedAlreadyRecovered" in script
+        assert "const closedWithPartialRecovery" in script
+        assert "Number(priorRecovery[1]) > 0" in script
+        assert "issue.state !== 'open' && !closedWithPartialRecovery" in script
         assert "resetBody.replace(recoveryPattern, recoveryMarker)" in script
-        assert "migratedBody.replace(recoveryPattern, recoveryMarker)" in script
         assert "existing.data[0]" not in script
+
+    def test_hourly_v2_migration_requires_exact_stable_report_evidence(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        create = next(
+            step
+            for step in steps
+            if step.get("name") == "Create hourly validation incident"
+        )
+        script = create["with"]["script"]
+
+        assert "const legacyStableSignalEvidence = issueBody =>" in script
+        assert "**Failing deterministic tests:**" in script
+        assert "<details><summary>Publication findings</summary>" in script
+        assert "<details><summary>Live publication audit findings</summary>" in script
+        assert "<details><summary>Live publication audit output</summary>" in script
+        assert "const sameSignalEvidence = (left, right) => left !== null" in script
+        assert "left.length === right.length" in script
+        assert "left.every((value, index) => value === right[index])" in script
+        assert "!issueBody.includes(fingerprintVersionMarker)" in script
+        assert "legacyStableSignalEvidence(issueBody), signalEvidence" in script
+        # If duplicate legacy issues exist, a manual close wins the migration
+        # choice so an unrelated open/recovered duplicate cannot bypass it.
+        assert "const suppressionRank = issue => issue.state === 'closed'" in script
+
+    def test_hourly_open_issue_refreshes_evidence_without_notification_churn(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        create = next(
+            step
+            for step in steps
+            if step.get("name") == "Create hourly validation incident"
+        )
+        script = create["with"]["script"]
+
+        assert "hourly-ci-content-v1\\n${report}" in script
+        assert "<!-- hourly-ci-content:${contentFingerprint} -->" in script
+        assert "const evidenceChanged =" in script
+        assert "body: desiredIssueBody" in script
+        assert "title," in script
+        assert script.index("if (manuallySuppressed)") < script.index(
+            "const evidenceChanged ="
+        )
 
     def test_unchanged_hourly_failure_suppresses_duplicate_notification(self):
         data = _load_workflow("hourly-master.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])
         create = next(
-            step for step in steps if step.get("name") == "Create issue on test failure"
+            step
+            for step in steps
+            if step.get("name") == "Create hourly validation incident"
         )
         script = create["with"]["script"]
 
@@ -555,7 +914,9 @@ class TestHourlyMasterWorkflow:
         data = _load_workflow("hourly-master.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])
         close = next(
-            step for step in steps if step.get("name") == "Close issue on test success"
+            step
+            for step in steps
+            if step.get("name") == "Close issue after healthy publication"
         )
         script = close["with"]["script"]
 
@@ -564,7 +925,17 @@ class TestHourlyMasterWorkflow:
         assert "issues.filter" in script
         assert "body.includes(ownershipMarker) || body.includes(legacySignature)" in script
         assert "nextRecoveryStreak < requiredRecoveryRuns" in script
-        assert "issue_number: issue.number, body: nextBody, state: 'closed'" in script
+        assert "const recoveredBody = nextBody.includes(recoveredMarker)" in script
+        assert "issue_number: issue.number, body: recoveredBody, state: 'closed'" in script
+        closed_recovered = (
+            "if (issue.state === 'closed' && body.includes(recoveredMarker)) continue"
+        )
+        closed_rearm = "if (issue.state === 'closed')"
+        assert closed_recovered in script
+        assert script.index(closed_recovered) < script.index(
+            "nextRecoveryStreak < requiredRecoveryRuns"
+        ) < script.index(closed_rearm)
+        assert "recurrence is rearmed" in script
         assert "for (const issue of issues.data)" not in script
 
     def test_final_main_publication_retries_push_races_and_fails_closed(self):
@@ -642,11 +1013,11 @@ class TestHourlyMasterWorkflow:
         assert "GitHub assignee: ${context.repo.owner}." in text
         assert "cc @${context.repo.owner}" not in text
 
-    def test_test_failure_issue_leads_with_concise_failed_test_names(self):
+    def test_deterministic_failure_report_leads_with_concise_test_names(self):
         text = _load_workflow_text("hourly-master.yml")
         assert "grep -E '^(FAILED|ERROR) ' test-output.txt" in text
         assert "steps.run-tests.outputs.failures" in text
-        assert "**Failing tests:**" in text
+        assert "**Failing deterministic tests:**" in text
 
 
 class TestNoOrphanedCronSchedules:
@@ -657,6 +1028,7 @@ class TestNoOrphanedCronSchedules:
         # ready-ticket sync is intentionally limited to the 3x/day master-
         # issue updater.
         allowed = {
+            "health-check.yml",
             "hourly-master.yml",
             "queue-monitor.yml",
             "queue-lifecycle.yml",
@@ -673,6 +1045,224 @@ class TestNoOrphanedCronSchedules:
                     f"{f.name} has a cron schedule but should not — "
                     f"all scheduled runs should be in one of {sorted(allowed)}"
                 )
+
+
+class TestSiteHealthWorkflow:
+    def _steps(self):
+        workflow = _load_workflow("health-check.yml")
+        return workflow, workflow["jobs"]["check"]["steps"]
+
+    def test_is_hourly_offset_manual_and_read_only_for_pages(self):
+        workflow, _ = self._steps()
+        triggers = workflow.get(True, workflow.get("on", {}))
+        assert triggers["schedule"] == [{"cron": "57 * * * *"}]
+        assert "workflow_dispatch" in triggers
+        assert workflow["permissions"] == {
+            "contents": "read",
+            "issues": "write",
+        }
+        assert workflow["concurrency"] == {
+            "group": "site-health-monitor",
+            "cancel-in-progress": False,
+        }
+        assert workflow["jobs"]["check"]["timeout-minutes"] == 10
+
+        text = _load_workflow_text("health-check.yml")
+        for forbidden in (
+            "peaceiris/actions-gh-pages",
+            "publish_branch: gh-pages",
+            "ref: gh-pages",
+            "git push",
+            "git commit",
+            "git add",
+            "scripts/build_site.py",
+        ):
+            assert forbidden not in text
+
+    def test_checker_report_upload_reconcile_and_enforcement_are_ordered(self):
+        _, steps = self._steps()
+        names = [step.get("name") for step in steps]
+        expected = [
+            "Check out monitor",
+            "Run synthetic site health check",
+            "Normalize bounded health evidence",
+            "Upload bounded site health report",
+            "Reconcile marker-owned site health issue",
+            "Enforce synthetic health result",
+        ]
+        assert names == expected
+        assert steps[0]["uses"] == "actions/checkout@v4"
+
+        checker = steps[1]
+        assert checker["id"] == "synthetic-health"
+        assert checker["continue-on-error"] is True
+        for token in (
+            "python scripts/vllm/check_site_health.py",
+            "--site-url \"$SITE_URL\"",
+            "--max-publication-age-hours 3",
+            "--output \"$REPORT_PATH\"",
+            "--github-output \"$GITHUB_OUTPUT\"",
+            "--markdown-output \"$DETAILS_PATH\"",
+        ):
+            assert token in checker["run"]
+
+        normalize = steps[2]
+        assert normalize["if"] == "always()"
+        assert normalize["id"] == "health-result"
+        assert "max_report_bytes = 64 * 1024" in normalize["run"]
+        assert "report_path.write_bytes(encoded)" in normalize["run"]
+        assert "if not value.strip()" in normalize["run"]
+
+        upload = steps[3]
+        assert upload["if"] == "always()"
+        assert upload["uses"] == "actions/upload-artifact@v4"
+        assert upload["with"]["path"] == "${{ runner.temp }}/site-health-report.json"
+        assert upload["with"]["if-no-files-found"] == "error"
+        assert upload["with"]["retention-days"] == 14
+
+        reconcile = steps[4]
+        enforce = steps[5]
+        assert reconcile["if"] == "always()"
+        assert reconcile["uses"] == "actions/github-script@v7"
+        assert enforce["if"] == "always()"
+        assert "RECONCILE_OUTCOME" in enforce["env"]
+        assert "RECONCILED" in enforce["env"]
+        assert '[ "$HEALTHY" != "true" ]' in enforce["run"]
+        assert "exit 1" in enforce["run"]
+
+    def test_missing_or_malformed_checker_evidence_fails_closed(self):
+        _, steps = self._steps()
+        normalize = steps[2]
+        script = normalize["run"]
+        for output in (
+            "CHECKER_HEALTHY",
+            "OVERALL_STATUS",
+            "SITE_HTTP",
+            "SITE_BYTES",
+            "PUBLICATION_HTTP",
+            "PUBLICATION_MODE",
+            "PUBLICATION_STATUS",
+            "GENERATED_AT",
+            "AGE_HOURS",
+            "REASON_COUNT",
+        ):
+            assert output in normalize["env"]
+            assert output in script
+        assert 'os.environ.get("CHECKER_OUTCOME") == "success"' in script
+        assert "checker_healthy is True" in script
+        assert "and not missing" in script
+        assert "and report_valid" in script
+        assert 'type(report.get("schema_version")) is not int' in script
+        assert "report healthy disagreed with checker output" in script
+        assert "report reason count disagreed with checker output" in script
+        assert "report overall_status disagreed with checker output" in script
+        assert '"healthy": False' in steps[1]["run"]
+
+    def test_normalizer_cross_checks_typed_report_fields_with_outputs(self):
+        _, steps = self._steps()
+        script = steps[2]["run"]
+        for token in (
+            "def parse_nonnegative_int_output",
+            "raw_value != str(value) or value < 0",
+            "isinstance(value, int)",
+            "not isinstance(value, bool)",
+            'not isinstance(site, dict)',
+            'not isinstance(publication, dict)',
+            "report site HTTP disagreed with checker output",
+            "report site bytes disagreed with checker output",
+            "report publication HTTP disagreed with checker output",
+            '("mode", "publication_mode", "publication mode")',
+            '("status", "publication_status", "publication status")',
+            '("generated_at", "generated_at", "publication timestamp")',
+            'required[output_key] != expected_output',
+            'f"report {label} disagreed with checker output"',
+            "datetime.fromisoformat",
+            "parsed_generated_at.tzinfo is None",
+            "not math.isfinite(report_age)",
+            "not math.isfinite(output_age)",
+            'required["age_hours"] != str(report_age)',
+            "report publication age disagreed with checker output",
+            "report reason count disagreed with checker output",
+            "healthy report contained findings",
+            "healthy report failed the site-shell contract",
+            "healthy report lacked publication HTTP 200",
+            "healthy report used an unhealthy publication mode",
+            "healthy report used an unhealthy publication status",
+            "healthy report was publication-blocked",
+            "healthy report had contradictory fallback state",
+            "healthy report had an invalid publication age",
+        ):
+            assert token in script
+
+    def test_issue_reconciliation_is_marker_owned_stable_and_comment_free(self):
+        _, steps = self._steps()
+        normalize = steps[2]
+        reconcile = steps[4]
+        script = reconcile["with"]["script"]
+        assert reconcile["env"]["BODY_PATH"].endswith("/site-health-issue.md")
+        assert reconcile["env"]["OWNERSHIP_MARKER"] == (
+            "<!-- vllm-ci-dashboard:site-health:v1 -->"
+        )
+        assert "fs.readFileSync(process.env.BODY_PATH" in script
+        assert "github.paginate(" in script
+        assert "github.rest.issues.getLabel" in script
+        assert "if (error.status !== 404) throw error" in script
+        assert "github.rest.issues.createLabel" in script
+        assert "github.rest.issues.listForRepo" in script
+        assert "state: 'all'" in script
+        lookup = script[
+            script.index("const allIssues") : script.index("const owned")
+        ]
+        assert "labels:" not in lookup
+        assert ".some(line => line.trim() === ownershipMarker)" in script
+        assert "hasExactMarker(issue.body)" in script
+        assert script.index("github.paginate(") < script.index(
+            "github.rest.issues.create("
+        )
+        assert "github.rest.issues.update" in script
+        assert "github.rest.issues.createComment" not in script
+        existing_branch = script.index("if (existing) {")
+        update_start = script.index(
+            "await github.rest.issues.update({", existing_branch
+        )
+        update_end = script.index("});", update_start)
+        assert "labels:" not in script[update_start:update_end]
+        assert "github.rest.issues.addLabels" in script
+        assert "labels: [labelName]" in script
+        assert "${{" not in script
+        assert "actions/runs/" in normalize["run"]
+        assert "/deployments" in normalize["run"]
+        assert "html.escape(details" in normalize["run"]
+
+    def test_issue_requires_two_healthy_probes_and_honors_manual_close(self):
+        _, steps = self._steps()
+        script = steps[4]["with"]["script"]
+        for token in (
+            "site-health-state:recovery=",
+            "const priorRecovery",
+            "const priorRearmed",
+            "recovery = Math.min(2, priorRecovery + 1)",
+            "rearmed = recovery >= 2",
+            "Two consecutive healthy probes confirmed recovery",
+            "existing?.state === 'closed' && !priorRearmed",
+            "state = 'closed'",
+            "state = 'open'",
+            "recovery = 0",
+            "rearmed = false",
+            "const existing = owned[0] || null",
+            "duplicate.number !== existing?.number",
+        ):
+            assert token in script
+        assert "owned.find(issue => issue.state === 'open')" not in script
+        manual_close = "existing?.state === 'closed' && !priorRearmed"
+        reopen = "state = 'open'"
+        assert script.index(manual_close) < script.index(reopen, script.index(manual_close))
+        assert "does not post hourly comments" in steps[2]["run"]
+
+    def test_hourly_master_does_not_claim_to_replace_health_monitor(self):
+        text = _load_workflow_text("hourly-master.yml")
+        assert "health-check.yml" not in text
+        assert "synthetic site\n# monitor remains independent" in text
 
 
 class TestNightlyCIWorkflow:
@@ -756,15 +1346,20 @@ class TestFrameworkIsolation:
             "hourly-master should generate and commit it."
         )
 
-    def test_ci_collect_only_writes_vllm_ci_data(self):
-        """ci-collect.yml should only write to data/vllm/ci/."""
+    def test_ci_collect_is_validation_only_and_cannot_write_main(self):
         text = _load_workflow_text("ci-collect.yml")
-        # Find all 'git add' targets
-        git_adds = re.findall(r"git add\s+(\S+)", text)
-        for target in git_adds:
-            assert "data/vllm/ci" in target, (
-                f"ci-collect.yml has 'git add {target}' — expected only data/vllm/ci/"
-            )
+        workflow = _load_workflow("ci-collect.yml")
+        assert workflow.get("name") == "CI Data Collection (Validation Only)"
+        assert workflow.get("permissions", {}).get("contents") == "read"
+        assert workflow.get("concurrency", {}).get("group") == (
+            "ci-collect-validation"
+        )
+        assert "Report validation-only collection" in text
+        assert "select publication surfaces and update main" in text
+        assert "git add" not in text
+        assert "git commit" not in text
+        assert "git push" not in text
+        assert "peaceiris/actions-gh-pages" not in text
 
     def test_queue_monitor_only_writes_queue_data(self):
         """queue-monitor.yml should only write queue-monitor datasets/state."""
@@ -1122,6 +1717,7 @@ class TestWorkflowPipInstallMatchesImports:
             "collections",
             "concurrent",
             "contextlib",
+            "contextvars",
             "copy",
             "csv",
             "dataclasses",
@@ -1419,7 +2015,7 @@ class TestAlertAutomationWorkflow:
         assert {"GITHUB_TOKEN", "GITHUB_REPOSITORY"} <= set(
             steps[ensure_labels].get("env") or {}
         )
-        assert 'run_surface_collector ci "CI ownership parity"' in (
+        assert 'run_surface_collector ci_core "CI ownership parity"' in (
             steps[ownership_parity]["run"]
         )
         assert "python scripts/vllm/collect_ownership_parity.py" in (
@@ -1438,7 +2034,7 @@ class TestAlertAutomationWorkflow:
         assert "publication-selector.outcome == 'success'" in steps[persist].get(
             "if", ""
         )
-        assert ",ci," in steps[persist].get("if", "")
+        assert ",ci_core," in steps[persist].get("if", "")
         assert "open_ci_area_regression_issues.json" in steps[persist]["run"]
         assert "if ! git push origin HEAD:main; then" in steps[persist]["run"]
         assert "deferring it to the final data commit" in steps[persist]["run"]

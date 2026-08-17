@@ -1,7 +1,7 @@
-name: CI Data Collection
+name: CI Data Collection (Validation Only)
 
-# Legacy/manual focused CI collector. The authoritative hourly-master workflow
-# owns Buildkite completion events and all root GitHub Pages publication.
+# Legacy/manual focused CI collector. This is validation-only: the authoritative
+# hourly-master workflow owns source selection, main writes, and Pages publication.
 on:
   workflow_dispatch:
     inputs:
@@ -15,12 +15,11 @@ on:
         default: 'both'
 
 concurrency:
-  # Serialize its main-branch data commit with the canonical collector.
-  group: gh-pages-deploy
-  cancel-in-progress: false
+  group: ci-collect-validation
+  cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   collect:
@@ -74,21 +73,11 @@ jobs:
       - name: Build v2 operations snapshot
         run: python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
 
-      - name: Commit and push
+      - name: Report validation-only collection
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/vllm/ci/ data/vllm/test_results.json data/vllm/parity_report.json
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "ci: update vLLM CI data $(date -u +%Y-%m-%d)"
-            # Push to main is best-effort — branch protection may block it.
-            # Root publication is deliberately owned by hourly-master.
-            if git pull --rebase origin main; then
-              git push || echo "::warning::Push to main failed (branch protection). Run hourly-master to recollect and publish."
-            else
-              git rebase --abort || true
-              echo "::warning::Rebase against origin/main failed; no data was published."
-            fi
-          fi
+          echo "## Validation-only CI collection" >> "$GITHUB_STEP_SUMMARY"
+          echo "This workflow does not commit, push, or publish collected data." >> "$GITHUB_STEP_SUMMARY"
+          echo "Run the authoritative Data Collection workflow to select publication surfaces and update main." >> "$GITHUB_STEP_SUMMARY"
+          echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          git status --short -- data/vllm/ci/ data/vllm/test_results.json data/vllm/parity_report.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

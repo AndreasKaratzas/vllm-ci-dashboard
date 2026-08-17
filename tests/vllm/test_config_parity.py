@@ -22,6 +22,8 @@ def _step(
     fingerprint: str = "",
     num_gpus: int | None = None,
     working_dir: str = "",
+    parallelism: int | None = None,
+    optional: bool = False,
 ) -> ConfigStep:
     return ConfigStep(
         label=label,
@@ -40,7 +42,60 @@ def _step(
         member_agent_pools=(agent_pool,),
         num_gpus=num_gpus,
         working_dir=working_dir,
+        parallelism=parallelism,
+        optional=optional,
     )
+
+
+def test_shard_base_catalog_preserves_pipeline_provenance(monkeypatch):
+    amd = _step(
+        "AMD model tests %N",
+        "amd-model-tests",
+        ["pytest tests/models"],
+        ".buildkite/test-amd.yaml",
+        definition_id="test-amd#models",
+        parallelism=3,
+    )
+    upstream = _step(
+        "Humming eval (H100) %N",
+        "humming-eval",
+        ["pytest tests/evals"],
+        ".buildkite/test_areas/lm_eval.yaml",
+        definition_id="lm-eval#humming",
+        parallelism=4,
+        optional=True,
+    )
+    monkeypatch.setattr(
+        config_parity,
+        "_load_config_steps",
+        lambda: ([amd], [upstream], []),
+    )
+    monkeypatch.setattr(
+        config_parity,
+        "_source_provenance",
+        lambda: {"commit_sha": "a" * 40},
+    )
+
+    catalog = config_parity.extract_shard_base_catalog()
+
+    assert catalog["normalization_bases"] == [
+        "amd model tests",
+        "humming eval (h100)",
+    ]
+    assert catalog["pipelines"] == {
+        "amd": ["amd model tests"],
+        "upstream": ["humming eval (h100)"],
+    }
+    assert catalog["definitions"][1] == {
+        "base": "humming eval (h100)",
+        "pipeline": "upstream",
+        "label": "Humming eval (H100) %N",
+        "source_file": ".buildkite/test_areas/lm_eval.yaml",
+        "definition_id": "lm-eval#humming",
+        "parallelism": 4,
+        "optional": True,
+    }
+    assert config_parity.extract_shard_bases() == catalog["normalization_bases"]
 
 
 def _snapshot_archive() -> bytes:

@@ -16,17 +16,26 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vllm.publication_surfaces import SOURCE_SURFACES, SURFACE_SPECS  # noqa: E402
+from vllm.publication_surfaces import (  # noqa: E402
+    LEGACY_CI_SURFACE,
+    LEGACY_CI_SURFACE_SPEC,
+    LEGACY_SURFACE_ALIASES,
+    SOURCE_SURFACES,
+    SURFACE_SPECS,
+    SurfaceSpec,
+    fallback_dependency_closure,
+)
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -64,11 +73,36 @@ OPERATIONS_SOURCE_MAX_AGE_OVERRIDES = {
     "ready_tickets": 36,
 }
 PUBLICATION_FALLBACK_MAX_AGE_HOURS = 36
+FULL_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 PUBLIC_FILE_WARN_BYTES = 90 * 1024 * 1024
 PUBLIC_FILE_HARD_BYTES = 100 * 1024 * 1024
 PUBLIC_SITE_WARN_BYTES = 250 * 1024 * 1024
+PRIVATE_ANALYTICS_PATH = "vllm/ci/analytics.json"
+PRIVATE_ANALYTICS_DATA_PATH = f"data/{PRIVATE_ANALYTICS_PATH}"
+PUBLIC_ANALYTICS_PROJECTOR_ID = "public_analytics_v1"
+PUBLIC_ANALYTICS_BOUNDARY_MARKER = "PUBLIC-ANALYTICS-BOUNDARY"
+PRIVATE_ANALYTICS_CACHE_VERSION = "analytics-builds-v1"
+PRIVATE_ANALYTICS_CACHE_PATH = (
+    f"data/vllm/ci/.cache/{PRIVATE_ANALYTICS_CACHE_VERSION}"
+)
+PRIVATE_ANALYTICS_CACHE_MANIFEST_PATH = PRIVATE_ANALYTICS_CACHE_PATH.removeprefix(
+    "data/"
+)
+PRIVATE_ANALYTICS_CACHE_SAMPLE = (
+    f"{PRIVATE_ANALYTICS_CACHE_MANIFEST_PATH}/amd-ci.json"
+)
+PRIVATE_ANALYTICS_CACHE_BOUNDARY_MARKER = "PRIVATE-ANALYTICS-CACHE-BOUNDARY"
 PUBLICATION_STATE_RELATIVE = Path("data/vllm/ci/publication_state.json")
+DECLARED_PUBLICATION_SURFACE_NAMES = frozenset(SURFACE_SPECS)
 PUBLICATION_SURFACE_REQUIRED_KEYS = {
+    "data/vllm/ci/shard_base_catalog.json": {
+        "schema_version",
+        "source",
+        "normalization_bases",
+        "pipelines",
+        "definitions",
+        "evidence",
+    },
     "data/vllm/ci/failure_trends.json": {
         "generated_at",
         "new_failures",
@@ -96,6 +130,96 @@ PUBLICATION_SURFACE_REQUIRED_KEYS = {
 }
 
 
+def _uses_declared_publication_domain() -> bool:
+    """Avoid applying production aliases to monkeypatched test-local specs."""
+    return set(SURFACE_SPECS) == DECLARED_PUBLICATION_SURFACE_NAMES
+
+
+def _publication_legacy_aliases() -> dict[str, frozenset[str]]:
+    if not _uses_declared_publication_domain():
+        return {}
+    return LEGACY_SURFACE_ALIASES
+
+
+def _publication_fallback_closure(surfaces: set[str]) -> set[str]:
+    if not _uses_declared_publication_domain():
+        return set(surfaces)
+    return set(fallback_dependency_closure(surfaces))
+
+
+def _publication_spec_owns_path(spec: SurfaceSpec, relative: str) -> bool:
+    return relative in {*spec.required_paths, *spec.optional_paths} or any(
+        Path(relative).match(pattern) for pattern in spec.globs
+    )
+
+
+def _publication_expected_paths(root: Path, spec: SurfaceSpec) -> set[str]:
+    expected = set(spec.required_paths)
+    expected.update(
+        relative
+        for relative in spec.optional_paths
+        if (root / relative).is_file()
+    )
+    expected.update(
+        candidate.relative_to(root).as_posix()
+        for pattern in spec.globs
+        for candidate in root.glob(pattern)
+        if candidate.is_file()
+    )
+    return expected
+
+
+def _publication_surface_expansions(
+    surfaces: list[str],
+    aliases: dict[str, frozenset[str]],
+) -> dict[str, frozenset[str]]:
+    expansions: dict[str, frozenset[str]] = {}
+    expanded: set[str] = set()
+    for surface in surfaces:
+        targets = aliases.get(surface, frozenset({surface}))
+        if not targets or not set(targets) <= set(SURFACE_SPECS):
+            raise ValueError(f"publication surface {surface!r} cannot be migrated")
+        if expanded & set(targets):
+            raise ValueError("publication surface aliases overlap active surfaces")
+        expansions[surface] = targets
+        expanded.update(targets)
+    return expansions
+
+
+def _partition_publication_manifest(
+    root: Path,
+    manifest: dict[str, dict],
+    expansions: dict[str, frozenset[str]],
+) -> dict[str, dict]:
+    partitioned: dict[str, dict] = {}
+    for surface, targets in expansions.items():
+        entries = manifest[surface]
+        if targets == frozenset({surface}):
+            partitioned[surface] = dict(entries)
+            continue
+        child_entries = {target: {} for target in targets}
+        for relative, descriptor in entries.items():
+            owners = [
+                target
+                for target in targets
+                if _publication_spec_owns_path(SURFACE_SPECS[target], relative)
+            ]
+            if len(owners) != 1:
+                raise ValueError(
+                    "legacy fallback manifest path lacks one active owner"
+                )
+            child_entries[owners[0]][relative] = descriptor
+        for target, entries_for_target in child_entries.items():
+            if set(entries_for_target) != _publication_expected_paths(
+                root, SURFACE_SPECS[target]
+            ):
+                raise ValueError(
+                    f"legacy fallback manifest partition for {target} is incomplete"
+                )
+            partitioned[target] = entries_for_target
+    return partitioned
+
+
 def _mapping(value: Any) -> dict:
     return value if isinstance(value, dict) else {}
 
@@ -120,6 +244,18 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _is_finite_number(value: Any) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+    )
+
+
+def _is_nonnegative_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
 def _parse_timestamp(value: Any) -> datetime | None:
@@ -206,6 +342,13 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         ("docs/assets/js/dashboard.js",),
         ("collected_at", "issues"),
         "Home project #39 issue list and issue counter",
+    ),
+    DataSpec(
+        "data/vllm/test_results.json",
+        ("scripts/collect_ci.py",),
+        ("docs/assets/js/dashboard.js",),
+        ("collected_at", "source", "rocm"),
+        "Home test-result summary with assertion-based pass rates",
     ),
     DataSpec(
         "data/vllm/ci/ci_health.json",
@@ -426,12 +569,18 @@ class AuditReport:
         return [f for f in self.findings if f.severity == "error"]
 
     @property
+    def degradations(self) -> list[Finding]:
+        """Fresh, publishable defects that still require operator attention."""
+        return [f for f in self.findings if f.severity == "degradation"]
+
+    @property
     def warnings(self) -> list[Finding]:
         return [f for f in self.findings if f.severity == "warning"]
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "errors": [f.as_dict() for f in self.errors],
+            "degradations": [f.as_dict() for f in self.degradations],
             "warnings": [f.as_dict() for f in self.warnings],
             "metrics": self.metrics,
         }
@@ -503,6 +652,7 @@ class DashboardAudit:
         self.audit_operations_bundle()
         self.audit_home_pr_issue_data()
         self.audit_ci_health()
+        self.audit_root_test_results()
         self.audit_shard_bases()
         self.audit_gating_target_candidates()
         self.audit_analytics()
@@ -553,6 +703,17 @@ class DashboardAudit:
     ) -> None:
         self.add("warning", code, message, path, context=context)
 
+    def degradation(
+        self,
+        code: str,
+        message: str,
+        path: str | Path = "",
+        *,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        """Record a fresh, publishable defect without making the audit fail."""
+        self.add("degradation", code, message, path, context=context)
+
     def fallback_surfaces(self) -> frozenset[str]:
         if self._fallback_surfaces_cache is not None:
             return self._fallback_surfaces_cache
@@ -573,68 +734,259 @@ class DashboardAudit:
             )
             self._fallback_surfaces_cache = frozenset()
             return self._fallback_surfaces_cache
-        surfaces = state.get("degraded_surfaces") if isinstance(state, dict) else None
-        allowed_surfaces = set(SURFACE_SPECS)
-        if (
-            not isinstance(state, dict)
-            or state.get("schema_version") != 1
-            or state.get("mode") not in {"current", "fallback", "blocked"}
-            or not isinstance(surfaces, list)
-            or any(not isinstance(surface, str) for surface in surfaces)
-            or any(
-                surface not in allowed_surfaces
-                for surface in surfaces
-            )
-            or len(set(surfaces)) != len(surfaces)
-            or not re.fullmatch(r"[0-9a-f]{40}", str(state.get("baseline_ref") or ""))
-            or _parse_timestamp(state.get("generated_at")) is None
-            or state.get("fallback_max_age_hours") != PUBLICATION_FALLBACK_MAX_AGE_HOURS
-        ):
+        if not isinstance(state, dict):
             self.error(
                 "publication-state-invalid",
-                "publication fallback state has an invalid schema or surface list",
-                self.rel(path),
-            )
-            self._fallback_surfaces_cache = frozenset()
-            return self._fallback_surfaces_cache
-        if state.get("mode") == "blocked":
-            self.error(
-                "publication-state-blocked",
-                "publication selector state is blocked",
-                self.rel(path),
-            )
-            self._fallback_surfaces_cache = frozenset()
-            return self._fallback_surfaces_cache
-        degraded_since = state.get("degraded_since")
-        manifest = state.get("restored_manifest")
-        if state.get("mode") == "current":
-            if surfaces or degraded_since not in ({}, None) or manifest not in ({}, None):
-                self.error(
-                    "publication-state-invalid",
-                    "current publication state cannot declare restored surfaces",
-                    self.rel(path),
-                )
-            self._fallback_surfaces_cache = frozenset()
-            return self._fallback_surfaces_cache
-        if (
-            not isinstance(degraded_since, dict)
-            or set(degraded_since) != set(surfaces)
-            or any(_parse_timestamp(value) is None for value in degraded_since.values())
-            or not isinstance(manifest, dict)
-            or set(manifest) != set(surfaces)
-        ):
-            self.error(
-                "publication-state-invalid",
-                "fallback state lacks a complete age or restored-content manifest",
+                "publication state must be a JSON object",
                 self.rel(path),
             )
             self._fallback_surfaces_cache = frozenset()
             return self._fallback_surfaces_cache
 
+        def reject(message: str, *, code: str = "publication-state-invalid"):
+            self.error(code, message, self.rel(path))
+            self._fallback_surfaces_cache = frozenset()
+            return self._fallback_surfaces_cache
+
+        def valid_surface_list(value: object, allowed: set[str]) -> bool:
+            return (
+                isinstance(value, list)
+                and all(isinstance(surface, str) for surface in value)
+                and all(surface in allowed for surface in value)
+                and len(set(value)) == len(value)
+            )
+
+        def verify_manifest(
+            surface: str,
+            spec: SurfaceSpec,
+            entries: object,
+        ) -> bool:
+            expected_paths = _publication_expected_paths(self.root, spec)
+            if not isinstance(entries, dict) or set(entries) != expected_paths:
+                self.error(
+                    "publication-fallback-manifest-mismatch",
+                    f"{surface} restored path set no longer matches publication state",
+                    self.rel(path),
+                    context={"surface": surface},
+                )
+                return False
+            valid = True
+            for relative, descriptor in entries.items():
+                target = self.root / relative
+                expected_size = (
+                    descriptor.get("bytes") if isinstance(descriptor, dict) else None
+                )
+                expected_sha = (
+                    descriptor.get("sha256")
+                    if isinstance(descriptor, dict)
+                    else None
+                )
+                if (
+                    not target.is_file()
+                    or not isinstance(expected_size, int)
+                    or not re.fullmatch(r"[0-9a-f]{64}", str(expected_sha or ""))
+                    or target.stat().st_size != expected_size
+                    or hashlib.sha256(target.read_bytes()).hexdigest() != expected_sha
+                ):
+                    self.error(
+                        "publication-fallback-manifest-mismatch",
+                        f"{surface} restored content changed at {relative}",
+                        self.rel(path),
+                        context={"surface": surface, "path": relative},
+                    )
+                    valid = False
+            return valid
+
+        schema_version = state.get("schema_version")
+        mode = state.get("mode")
+        if (
+            schema_version not in {1, 2}
+            or not re.fullmatch(r"[0-9a-f]{40}", str(state.get("baseline_ref") or ""))
+            or _parse_timestamp(state.get("generated_at")) is None
+            or state.get("fallback_max_age_hours") != PUBLICATION_FALLBACK_MAX_AGE_HOURS
+        ):
+            return reject(
+                "publication state has an invalid schema or common metadata"
+            )
+
+        degraded_raw = state.get("degraded_surfaces")
+        degraded_since = state.get("degraded_since")
+        manifest = state.get("restored_manifest")
+
+        if schema_version == 1:
+            aliases = _publication_legacy_aliases()
+            allowed_v1 = set(SURFACE_SPECS) | set(aliases)
+            if (
+                mode not in {"current", "fallback", "blocked"}
+                or not valid_surface_list(degraded_raw, allowed_v1)
+            ):
+                return reject(
+                    "schema-v1 publication state has an invalid mode or surface list",
+                )
+            if mode == "blocked":
+                return reject(
+                    "publication selector state is blocked",
+                    code="publication-state-blocked",
+                )
+            if mode == "current":
+                if (
+                    degraded_raw
+                    or degraded_since not in ({}, None)
+                    or manifest not in ({}, None)
+                ):
+                    return reject(
+                        "current publication state cannot declare degraded or "
+                        "restored surfaces"
+                    )
+                self._fallback_surfaces_cache = frozenset()
+                return self._fallback_surfaces_cache
+            if (
+                not degraded_raw
+                or not isinstance(degraded_since, dict)
+                or set(degraded_since) != set(degraded_raw)
+                or any(
+                    _parse_timestamp(value) is None
+                    for value in degraded_since.values()
+                )
+                or not isinstance(manifest, dict)
+                or set(manifest) != set(degraded_raw)
+            ):
+                return reject(
+                    "publication state lacks complete degradation or fallback "
+                    "attestations"
+                )
+
+            # Verify the committed schema-v1 transaction as one monolith
+            # before translating its proof and clock to active child surfaces.
+            raw_valid = True
+            for surface in degraded_raw:
+                spec = (
+                    LEGACY_CI_SURFACE_SPEC
+                    if surface == LEGACY_CI_SURFACE and surface in aliases
+                    else SURFACE_SPECS[surface]
+                )
+                raw_valid = verify_manifest(surface, spec, manifest[surface]) and raw_valid
+            if not raw_valid:
+                self._fallback_surfaces_cache = frozenset()
+                return self._fallback_surfaces_cache
+            try:
+                expansions = _publication_surface_expansions(degraded_raw, aliases)
+                partitioned_manifest = _partition_publication_manifest(
+                    self.root, manifest, expansions
+                )
+            except ValueError as exc:
+                return reject(str(exc))
+            fallback_surfaces = {
+                target for targets in expansions.values() for target in targets
+            }
+            if _publication_fallback_closure(fallback_surfaces) != fallback_surfaces:
+                return reject(
+                    "schema-v1 fallback omits a required dependent surface"
+                )
+            fallback_since = {
+                target: degraded_since[surface]
+                for surface, targets in expansions.items()
+                for target in targets
+            }
+            manifest = partitioned_manifest
+        else:
+            fresh_raw = state.get("fresh_degraded_surfaces")
+            fallback_raw = state.get("fallback_surfaces")
+            fallback_since = state.get("fallback_since")
+            allowed_v2 = set(SURFACE_SPECS)
+            if (
+                mode not in {"current", "degraded", "fallback", "mixed", "blocked"}
+                or not valid_surface_list(degraded_raw, allowed_v2)
+                or not valid_surface_list(fresh_raw, allowed_v2)
+                or not valid_surface_list(fallback_raw, allowed_v2)
+            ):
+                return reject(
+                    "schema-v2 publication state has an invalid mode or surface list",
+                )
+
+            degraded_set = set(degraded_raw)
+            fresh_set = set(fresh_raw)
+            fallback_set = set(fallback_raw)
+            mode_sets_are_valid = {
+                "current": not fresh_set and not fallback_set,
+                "degraded": bool(fresh_set) and not fallback_set,
+                "fallback": not fresh_set and bool(fallback_set),
+                "mixed": bool(fresh_set) and bool(fallback_set),
+                # A blocked selector may have stopped before producing complete
+                # timing or manifest attestations, but its surface union must
+                # still be internally consistent.
+                "blocked": True,
+            }
+            if (
+                fresh_set & fallback_set
+                or degraded_set != fresh_set | fallback_set
+                or not mode_sets_are_valid[mode]
+            ):
+                return reject(
+                    "schema-v2 degraded surfaces do not match their selection modes",
+                )
+            if mode == "blocked":
+                return reject(
+                    "publication selector state is blocked",
+                    code="publication-state-blocked",
+                )
+            if (
+                mode == "current"
+                and (
+                    degraded_set
+                    or degraded_since not in ({}, None)
+                    or fallback_since not in ({}, None)
+                    or manifest not in ({}, None)
+                )
+            ):
+                return reject(
+                    "current publication state cannot declare degraded or restored "
+                    "surfaces"
+                )
+            if (
+                not isinstance(degraded_since, dict)
+                or set(degraded_since) != degraded_set
+                or any(
+                    _parse_timestamp(value) is None
+                    for value in degraded_since.values()
+                )
+                or not isinstance(fallback_since, dict)
+                or set(fallback_since) != fallback_set
+                or any(
+                    _parse_timestamp(value) is None
+                    for value in fallback_since.values()
+                )
+                or (
+                    fallback_set
+                    and (not isinstance(manifest, dict) or set(manifest) != fallback_set)
+                )
+                or (not fallback_set and manifest not in ({}, None))
+            ):
+                return reject(
+                    "publication state lacks complete degradation or fallback "
+                    "attestations"
+                )
+            fallback_surfaces = fallback_set
+            if _publication_fallback_closure(fallback_surfaces) != fallback_surfaces:
+                return reject(
+                    "schema-v2 fallback omits a required dependent surface"
+                )
+            if not fallback_surfaces:
+                self._fallback_surfaces_cache = frozenset()
+                return self._fallback_surfaces_cache
+            valid = True
+            for surface in sorted(fallback_surfaces):
+                valid = verify_manifest(
+                    surface, SURFACE_SPECS[surface], manifest[surface]
+                ) and valid
+            if not valid:
+                self._fallback_surfaces_cache = frozenset()
+                return self._fallback_surfaces_cache
+
         now = datetime.now(timezone.utc)
         valid = True
-        for surface in surfaces:
-            since = _parse_timestamp(degraded_since[surface])
+        for surface in sorted(fallback_surfaces):
+            since = _parse_timestamp(fallback_since[surface])
             age_hours = (now - since).total_seconds() / 3600 if since else float("inf")
             if age_hours > PUBLICATION_FALLBACK_MAX_AGE_HOURS:
                 self.error(
@@ -647,50 +999,8 @@ class DashboardAudit:
                     context={"surface": surface},
                 )
                 valid = False
-            entries = manifest.get(surface)
-            if not isinstance(entries, dict):
-                valid = False
-                continue
-            spec = SURFACE_SPECS[surface]
-            actual_paths = {
-                relative
-                for relative in (*spec.required_paths, *spec.optional_paths)
-                if (self.root / relative).is_file()
-            }
-            actual_paths.update(
-                candidate.relative_to(self.root).as_posix()
-                for pattern in spec.globs
-                for candidate in self.root.glob(pattern)
-                if candidate.is_file()
-            )
-            if set(entries) != actual_paths:
-                self.error(
-                    "publication-fallback-manifest-mismatch",
-                    f"{surface} restored path set no longer matches publication state",
-                    self.rel(path),
-                    context={"surface": surface},
-                )
-                valid = False
-                continue
-            for relative, descriptor in entries.items():
-                target = self.root / relative
-                expected_size = descriptor.get("bytes") if isinstance(descriptor, dict) else None
-                expected_sha = descriptor.get("sha256") if isinstance(descriptor, dict) else None
-                if (
-                    not isinstance(expected_size, int)
-                    or not re.fullmatch(r"[0-9a-f]{64}", str(expected_sha or ""))
-                    or target.stat().st_size != expected_size
-                    or hashlib.sha256(target.read_bytes()).hexdigest() != expected_sha
-                ):
-                    self.error(
-                        "publication-fallback-manifest-mismatch",
-                        f"{surface} restored content changed at {relative}",
-                        self.rel(path),
-                        context={"surface": surface, "path": relative},
-                    )
-                    valid = False
         self._fallback_surfaces_cache = (
-            frozenset(surfaces) if valid else frozenset()
+            frozenset(fallback_surfaces) if valid else frozenset()
         )
         return self._fallback_surfaces_cache
 
@@ -756,32 +1066,122 @@ class DashboardAudit:
                     self.load_jsonl(relative)
 
     def audit_shard_bases(self) -> None:
-        """Keep YAML-derived shard normalization aligned with current AMD evidence."""
+        """Keep AMD-owned shard normalization aligned with AMD evidence."""
         relpath = "data/vllm/ci/shard_bases.json"
         bases = self.load_json(relpath, [])
+        catalog_path = "data/vllm/ci/shard_base_catalog.json"
+        catalog = (
+            self.load_json(catalog_path, {})
+            if (self.root / catalog_path).exists()
+            else {}
+        )
+        if not isinstance(catalog, dict) or not catalog:
+            self.warning(
+                "shard-base-catalog-missing",
+                "pipeline shard provenance is unavailable; skipping runtime absence audit",
+                catalog_path,
+            )
+            return
         latest = self.latest_result_file("amd")
         if not isinstance(bases, list) or not bases or latest is None:
             return
+        audited_bases = bases
+        if isinstance(catalog, dict):
+            pipelines = catalog.get("pipelines")
+            if isinstance(pipelines, dict) and isinstance(pipelines.get("amd"), list):
+                audited_bases = pipelines["amd"]
+            evidence = catalog.get("evidence")
+            if not isinstance(evidence, dict):
+                self.warning(
+                    "shard-evidence-missing",
+                    "pipeline shard evidence is unavailable; skipping runtime absence audit",
+                    catalog_path,
+                )
+                return
+            if not evidence.get("roster_complete"):
+                self.warning(
+                    "shard-evidence-provisional",
+                    "AMD shard evidence is nonterminal; absence checks are provisional",
+                    catalog_path,
+                )
+                return
+            result_file = str(evidence.get("result_file") or "")
+            if result_file and Path(result_file).name == result_file:
+                latest = self.root / "data/vllm/ci/test_results" / result_file
+            source = catalog.get("source")
+            source_commit = str(
+                source.get("commit_sha") if isinstance(source, dict) else ""
+            ).casefold()
+            evidence_commit = str(evidence.get("build_commit") or "").casefold()
+            if (
+                not FULL_COMMIT_SHA_RE.fullmatch(source_commit)
+                or source_commit != evidence_commit
+            ):
+                self.error(
+                    "shard-config-evidence-mismatch",
+                    (
+                        "shard definitions are not pinned to the AMD evidence "
+                        f"commit ({source_commit or 'missing'} != "
+                        f"{evidence_commit or 'missing'})"
+                    ),
+                    catalog_path,
+                )
+                return
         from vllm.ci import analyzer
 
         previous = list(analyzer._SHARD_BASES)
         try:
             analyzer.set_shard_bases(bases)
-            normalized = set()
-            for row in self.load_jsonl(self.rel(latest)):
-                normalized.add(analyzer._normalize_job_name(str(row.get("job_name") or "")))
+            roster_names = evidence.get("job_names")
+            if isinstance(roster_names, list):
+                normalized = {
+                    analyzer._normalize_job_name(str(name or ""))
+                    for name in roster_names
+                }
+            else:
+                normalized = {
+                    analyzer._normalize_job_name(str(row.get("job_name") or ""))
+                    for row in self.load_jsonl(self.rel(latest))
+                }
         finally:
             analyzer.set_shard_bases(previous)
         unused = sorted(
             str(base).casefold()
-            for base in bases
+            for base in audited_bases
             if not any(name.startswith(str(base).casefold()) for name in normalized)
         )
+        definitions = catalog.get("definitions") if isinstance(catalog, dict) else []
+        optional_bases = {
+            str(row.get("base") or "").casefold()
+            for row in definitions or []
+            if isinstance(row, dict)
+            and row.get("pipeline") == "amd"
+            and row.get("optional") is True
+        }
+        required_bases = {
+            str(row.get("base") or "").casefold()
+            for row in definitions or []
+            if isinstance(row, dict)
+            and row.get("pipeline") == "amd"
+            and row.get("optional") is not True
+        }
+        optional_bases -= required_bases
+        optional_unused = sorted(set(unused) & optional_bases)
+        unused = sorted(set(unused) - optional_bases)
+        if optional_unused:
+            self.warning(
+                "shard-bases-optional-unobserved",
+                (
+                    f"{len(optional_unused)} optional AMD shard bases are absent "
+                    f"from completed AMD evidence: {optional_unused}"
+                ),
+                relpath,
+            )
         if unused:
-            self.error(
+            self.degradation(
                 "shard-bases-unused",
                 (
-                    f"{len(unused)} shard bases are absent from the latest AMD test "
+                    f"{len(unused)} AMD shard bases are absent from the latest AMD test "
                     f"evidence: {unused}"
                 ),
                 relpath,
@@ -946,6 +1346,51 @@ class DashboardAudit:
                         path.stat().st_size
                     )
 
+        projected_budgets: dict[str, int] = {}
+        projected_files = manifest.get("projected_files") or []
+        if not isinstance(projected_files, list):
+            self.error(
+                "public-manifest-projections",
+                "public_data_manifest.json projected_files must be a list",
+                "config/public_data_manifest.json",
+            )
+            projected_files = []
+        for index, descriptor in enumerate(projected_files):
+            if not isinstance(descriptor, dict):
+                self.error(
+                    "public-manifest-projection",
+                    f"projected_files[{index}] must be an object",
+                    "config/public_data_manifest.json",
+                )
+                continue
+            relative = descriptor.get("path")
+            maximum = descriptor.get("max_bytes")
+            safe_path = (
+                isinstance(relative, str)
+                and bool(relative)
+                and not PurePosixPath(relative).is_absolute()
+                and ".." not in PurePosixPath(relative).parts
+            )
+            if not safe_path or (
+                isinstance(maximum, bool)
+                or not isinstance(maximum, int)
+                or maximum <= 0
+            ):
+                self.error(
+                    "public-manifest-projection",
+                    (
+                        f"projected_files[{index}] needs a safe path and positive "
+                        "integer max_bytes"
+                    ),
+                    "config/public_data_manifest.json",
+                )
+                continue
+            # The source at data/<path> is the full private build input. It may
+            # be much larger than the bounded artifact written to _site, so use
+            # the projection contract's ceiling for the public-site estimate.
+            published_sizes[relative] = maximum
+            projected_budgets[relative] = maximum
+
         operations_manifest_path = (
             self.root / "data/vllm/ci/operations_v2_manifest.json"
         )
@@ -993,6 +1438,8 @@ class DashboardAudit:
             )
         self.report.metrics["publication_size"] = {
             "estimated_bytes": total,
+            "projected_budget_bytes": sum(projected_budgets.values()),
+            "projected_files": projected_budgets,
             "largest_files": dict(
                 sorted(
                     published_sizes.items(),
@@ -2632,10 +3079,163 @@ class DashboardAudit:
             "linked_issue_pr_refs": linked_refs,
         }
 
+    def _pass_rate_contract_enabled(
+        self,
+        version: Any,
+        *,
+        label: str,
+        path: str,
+        code_prefix: str,
+    ) -> bool:
+        if version is None:
+            self.warning(
+                f"{code_prefix}-legacy",
+                (
+                    f"{label} is an unversioned legacy payload; explicit pass-rate "
+                    "fields will be required after its next producer collection"
+                ),
+                path,
+            )
+            return False
+        if not _is_nonnegative_int(version) or version != 1:
+            self.error(
+                f"{code_prefix}-version",
+                f"{label} pass_rate_contract_version={version!r}, expected 1",
+                path,
+            )
+            return False
+        return True
+
+    def _audit_percentage_rate(
+        self,
+        record: dict,
+        *,
+        label: str,
+        path: str,
+        code_prefix: str,
+        percentage_field: str,
+        basis_field: str,
+        expected_basis: str,
+        expected_percentage: float | None,
+        decimal_places: int,
+        legacy_is_ratio: bool,
+    ) -> None:
+        basis = record.get(basis_field)
+        if basis != expected_basis:
+            self.error(
+                f"{code_prefix}-basis",
+                f"{label} {basis_field}={basis!r}, expected {expected_basis!r}",
+                path,
+            )
+
+        percentage = record.get(percentage_field)
+        percentage_valid = _is_finite_number(percentage) and 0 <= percentage <= 100
+        if not percentage_valid:
+            self.error(
+                f"{code_prefix}-pct",
+                f"{label} {percentage_field}={percentage!r}, expected a finite value from 0 to 100",
+                path,
+            )
+
+        legacy = record.get("pass_rate")
+        legacy_upper_bound = 1 if legacy_is_ratio else 100
+        legacy_valid = (
+            _is_finite_number(legacy)
+            and 0 <= legacy <= legacy_upper_bound
+        )
+        if not legacy_valid:
+            unit = "0 to 1 ratio" if legacy_is_ratio else "0 to 100 percentage"
+            self.error(
+                f"{code_prefix}-alias",
+                f"{label} legacy pass_rate={legacy!r}, expected a finite {unit}",
+                path,
+            )
+
+        tolerance = (10 ** -decimal_places) / 2 + 1e-12
+        if (
+            percentage_valid
+            and expected_percentage is not None
+            and not math.isclose(
+                float(percentage),
+                expected_percentage,
+                rel_tol=0,
+                abs_tol=tolerance,
+            )
+        ):
+            self.error(
+                f"{code_prefix}-math",
+                f"{label} {percentage_field}={percentage!r}, expected {expected_percentage}",
+                path,
+            )
+
+        if legacy_valid:
+            normalized_legacy = float(legacy) * (100 if legacy_is_ratio else 1)
+            disagrees_with_percentage = (
+                percentage_valid
+                and not math.isclose(
+                    float(percentage),
+                    normalized_legacy,
+                    rel_tol=0,
+                    abs_tol=tolerance,
+                )
+            )
+            disagrees_with_math = (
+                expected_percentage is not None
+                and not math.isclose(
+                    normalized_legacy,
+                    expected_percentage,
+                    rel_tol=0,
+                    abs_tol=tolerance,
+                )
+            )
+            if disagrees_with_percentage or disagrees_with_math:
+                self.error(
+                    f"{code_prefix}-alias",
+                    (
+                        f"{label} {percentage_field}={percentage!r} disagrees with "
+                        f"legacy pass_rate={legacy!r}"
+                    ),
+                    path,
+                )
+
+    def _audit_ci_health_build_rate(self, build: dict, label: str) -> None:
+        path = "data/vllm/ci/ci_health.json"
+        passed = build.get("passed")
+        failed = build.get("failed")
+        expected_percentage = None
+        if not _is_nonnegative_int(passed) or not _is_nonnegative_int(failed):
+            self.error(
+                "ci-health-test-pass-rate-counts",
+                f"{label} passed/failed assertion counts must be non-negative integers",
+                path,
+            )
+        else:
+            ran = passed + failed
+            expected_percentage = round(passed / ran * 100, 2) if ran else 0.0
+        self._audit_percentage_rate(
+            build,
+            label=label,
+            path=path,
+            code_prefix="ci-health-test-pass-rate",
+            percentage_field="test_pass_rate_pct",
+            basis_field="test_pass_rate_basis",
+            expected_basis="pytest_assertions_excluding_skipped",
+            expected_percentage=expected_percentage,
+            decimal_places=2,
+            legacy_is_ratio=True,
+        )
+
     def audit_ci_health(self) -> None:
         health = self.load_json("data/vllm/ci/ci_health.json", {})
         if not isinstance(health, dict):
             return
+
+        rate_contract_enabled = self._pass_rate_contract_enabled(
+            health.get("pass_rate_contract_version"),
+            label="ci_health.json",
+            path="data/vllm/ci/ci_health.json",
+            code_prefix="ci-health-pass-rate-contract",
+        )
 
         metrics: dict[str, Any] = {}
         for side, suffix in (("amd", "amd"), ("upstream", "upstream")):
@@ -2660,6 +3260,27 @@ class DashboardAudit:
                     f"{side} total_tests={total} but passed+failed+skipped={counted}",
                     "data/vllm/ci/ci_health.json",
                 )
+            if rate_contract_enabled:
+                seen_rows: set[int] = set()
+                for key in (
+                    "latest_build",
+                    "latest_test_signal_build",
+                    "latest_pipeline_build",
+                ):
+                    row = _mapping(_mapping(health.get(side)).get(key))
+                    if row and id(row) not in seen_rows:
+                        seen_rows.add(id(row))
+                        self._audit_ci_health_build_rate(row, f"{side}.{key}")
+                for index, raw_row in enumerate(
+                    _rows(_mapping(health.get(side)).get("builds"))
+                ):
+                    row = _mapping(raw_row)
+                    if row and id(row) not in seen_rows:
+                        seen_rows.add(id(row))
+                        self._audit_ci_health_build_rate(
+                            row,
+                            f"{side}.builds[{index}]",
+                        )
             metrics[side] = {
                 "build_number": build_number,
                 "total_tests": total,
@@ -2671,6 +3292,86 @@ class DashboardAudit:
                 },
             }
         self.report.metrics["ci_health"] = metrics
+
+    def audit_root_test_results(self) -> None:
+        path = "data/vllm/test_results.json"
+        payload = self.load_json(path, {})
+        if not isinstance(payload, dict):
+            return
+
+        rate_contract_enabled = self._pass_rate_contract_enabled(
+            payload.get("pass_rate_contract_version"),
+            label="test_results.json",
+            path=path,
+            code_prefix="root-test-results-pass-rate-contract",
+        )
+
+        metrics: dict[str, Any] = {}
+        for platform in ("rocm", "cuda"):
+            block = payload.get(platform)
+            if block is None:
+                continue
+            if not isinstance(block, dict):
+                self.error(
+                    "root-test-results-platform",
+                    f"test_results.json {platform} must be an object",
+                    path,
+                )
+                continue
+            summary = _mapping(block.get("summary"))
+            if not rate_contract_enabled:
+                continue
+            assertions = _mapping(summary.get("test_assertions"))
+            required_counts = ("total", "passed", "failed", "skipped")
+            counts_valid = all(
+                _is_nonnegative_int(assertions.get(key)) for key in required_counts
+            )
+            expected_percentage = None
+            if not counts_valid:
+                self.error(
+                    "root-test-results-test-pass-rate-counts",
+                    (
+                        f"{platform}.summary.test_assertions must contain non-negative "
+                        "integer total/passed/failed/skipped counts"
+                    ),
+                    path,
+                )
+            else:
+                counted = (
+                    assertions["passed"]
+                    + assertions["failed"]
+                    + assertions["skipped"]
+                )
+                if assertions["total"] != counted:
+                    self.error(
+                        "root-test-results-test-pass-rate-counts",
+                        (
+                            f"{platform}.summary.test_assertions.total={assertions['total']} "
+                            f"but passed+failed+skipped={counted}"
+                        ),
+                        path,
+                    )
+                ran = assertions["passed"] + assertions["failed"]
+                expected_percentage = (
+                    round(assertions["passed"] / ran * 100, 1) if ran else 0.0
+                )
+            self._audit_percentage_rate(
+                summary,
+                label=f"{platform}.summary",
+                path=path,
+                code_prefix="root-test-results-test-pass-rate",
+                percentage_field="test_pass_rate_pct",
+                basis_field="test_pass_rate_basis",
+                expected_basis="pytest_assertions_excluding_skipped",
+                expected_percentage=expected_percentage,
+                decimal_places=1,
+                legacy_is_ratio=False,
+            )
+            metrics[platform] = {
+                "test_assertions": assertions,
+                "test_pass_rate_pct": summary.get("test_pass_rate_pct"),
+            }
+        self.report.metrics["root_test_results"] = metrics
 
     def audit_gating_target_candidates(self) -> None:
         payload = self.load_json("data/vllm/ci/gating_target_candidates.json", {})
@@ -2709,6 +3410,45 @@ class DashboardAudit:
             "summary": payload.get("summary") or {},
         }
 
+    def _audit_analytics_build_rate(self, summary: dict, label: str) -> None:
+        path = "data/vllm/ci/analytics.json"
+        passed = summary.get("passed")
+        failed = summary.get("failed")
+        terminal_builds = summary.get("terminal_builds")
+        expected_percentage = None
+        if (
+            not _is_nonnegative_int(passed)
+            or not _is_nonnegative_int(failed)
+            or not _is_nonnegative_int(terminal_builds)
+            or terminal_builds != passed + failed
+        ):
+            self.error(
+                "analytics-build-pass-rate-counts",
+                (
+                    f"{label} passed/failed/terminal_builds must be non-negative "
+                    "integers with terminal_builds = passed + failed"
+                ),
+                path,
+            )
+        else:
+            expected_percentage = (
+                round(passed / terminal_builds * 100, 1)
+                if terminal_builds
+                else 0.0
+            )
+        self._audit_percentage_rate(
+            summary,
+            label=label,
+            path=path,
+            code_prefix="analytics-build-pass-rate",
+            percentage_field="build_pass_rate_pct",
+            basis_field="build_pass_rate_basis",
+            expected_basis="terminal_build_state_all_green",
+            expected_percentage=expected_percentage,
+            decimal_places=1,
+            legacy_is_ratio=False,
+        )
+
     def audit_analytics(self) -> None:
         analytics = self.load_json("data/vllm/ci/analytics.json", {})
         if not isinstance(analytics, dict):
@@ -2721,9 +3461,21 @@ class DashboardAudit:
                 self.error("analytics-pipeline-missing", f"analytics.json missing {slug}")
                 continue
             builds = _rows(block.get("builds"))
+            rate_contract_enabled = self._pass_rate_contract_enabled(
+                block.get("pass_rate_contract_version"),
+                label=f"analytics.json[{slug}]",
+                path="data/vllm/ci/analytics.json",
+                code_prefix="analytics-pass-rate-contract",
+            )
             if not builds:
                 self.error("analytics-empty-builds", f"{slug} analytics has no builds")
                 continue
+
+            if rate_contract_enabled:
+                self._audit_analytics_build_rate(
+                    _mapping(block.get("summary")),
+                    f"{slug}.summary",
+                )
 
             suffix = RESULT_SUFFIXES[slug]
             latest_results = self.latest_result_file(suffix)
@@ -2757,6 +3509,14 @@ class DashboardAudit:
                         f"{slug} missing precomputed {key} window",
                         "data/vllm/ci/analytics.json",
                     )
+            if rate_contract_enabled:
+                for window_name, raw_window in windows.items():
+                    window = _mapping(raw_window)
+                    if "summary" in window:
+                        self._audit_analytics_build_rate(
+                            _mapping(window.get("summary")),
+                            f"{slug}.windows[{window_name!r}].summary",
+                        )
 
             chartable_builds = [
                 b
@@ -4578,15 +5338,37 @@ class DashboardAudit:
 
         hourly = self.root / ".github/workflows/hourly-master.yml"
         text = hourly.read_text(errors="ignore") if hourly.exists() else ""
+
+        def workflow_step_block(name: str) -> str:
+            marker = f"      - name: {name}"
+            start = text.find(marker)
+            if start < 0:
+                return ""
+            candidates = [
+                index
+                for index in (
+                    text.find("\n      - name:", start + len(marker)),
+                    text.find("\n      - uses:", start + len(marker)),
+                )
+                if index >= 0
+            ]
+            end = min(candidates) if candidates else len(text)
+            return text[start:end]
+
         ordered_tokens = [
             "name: Sync CI data from gh-pages",
             "name: Collect AMD gating target list",
             "name: Collect CI data",
+            "name: Prepare private analytics cache key",
+            "name: Restore private analytics build cache",
             "name: Collect CI analytics",
+            "name: Save private analytics build cache",
             "name: Collect test group changes",
             "name: Collect AMD test matrix",
             "name: Collect AMD gating proposals",
-            "name: Run dashboard data audit",
+            "name: Live publication audit",
+            "name: Run test suite",
+            "name: Enforce publication validation results",
             "python scripts/build_site.py --cache-bust-index",
         ]
         last = -1
@@ -4606,6 +5388,377 @@ class DashboardAudit:
                     ".github/workflows/hourly-master.yml",
                 )
             last = idx
+
+        sync_start = text.find("name: Sync CI data from gh-pages")
+        sync_end = text.find("\n      - name:", sync_start + 1)
+        sync_block = (
+            text[sync_start : sync_end if sync_end >= 0 else len(text)]
+            if sync_start >= 0
+            else ""
+        )
+        sync_commands = "\n".join(
+            line
+            for line in sync_block.splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        analytics_feedback_blocked = not bool(
+            re.search(r"\banalytics\.json\b", sync_commands)
+        )
+        if not analytics_feedback_blocked:
+            self.error(
+                "workflow-public-analytics-feedback",
+                (
+                    "hourly-master.yml restores analytics.json from gh-pages; "
+                    "the bounded public projection must never replace the full "
+                    "private reliability input"
+                ),
+                ".github/workflows/hourly-master.yml",
+            )
+        if PUBLIC_ANALYTICS_BOUNDARY_MARKER not in sync_block:
+            self.error(
+                "workflow-public-analytics-boundary",
+                (
+                    "hourly-master.yml must document the one-way private-to-public "
+                    "analytics projection boundary"
+                ),
+                ".github/workflows/hourly-master.yml",
+            )
+
+        analytics_owner = next(
+            (
+                surface
+                for surface, spec in SURFACE_SPECS.items()
+                if _publication_spec_owns_path(spec, PRIVATE_ANALYTICS_DATA_PATH)
+            ),
+            None,
+        )
+        analytics_spec = next(
+            (spec for spec in DATA_SPECS if spec.relpath == PRIVATE_ANALYTICS_DATA_PATH),
+            None,
+        )
+        private_lineage_ok = (
+            analytics_owner == "ci_core"
+            and analytics_spec is not None
+            and "scripts/vllm/collect_analytics.py" in analytics_spec.producers
+        )
+        if not private_lineage_ok:
+            self.error(
+                "private-analytics-lineage",
+                (
+                    "full analytics.json must remain selector-owned by ci_core and "
+                    "covered by the private data audit"
+                ),
+                PRIVATE_ANALYTICS_DATA_PATH,
+            )
+
+        manifest_path = self.root / "config/public_data_manifest.json"
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            manifest = {}
+        if not isinstance(manifest, dict):
+            manifest = {}
+        build_inputs = manifest.get("build_inputs")
+        if not isinstance(build_inputs, list):
+            build_inputs = []
+        projected_files = manifest.get("projected_files")
+        if not isinstance(projected_files, list):
+            projected_files = []
+        analytics_projection = next(
+            (
+                descriptor
+                for descriptor in projected_files
+                if isinstance(descriptor, dict)
+                and descriptor.get("path") == PRIVATE_ANALYTICS_PATH
+            ),
+            None,
+        )
+        direct_public_files = {
+            relative
+            for field in ("required_files", "optional_files")
+            for relative in (
+                manifest.get(field) if isinstance(manifest.get(field), list) else []
+            )
+            if isinstance(relative, str)
+        }
+        projection_declared = (
+            manifest.get("schema_version") == 2
+            and PRIVATE_ANALYTICS_PATH in build_inputs
+            and PRIVATE_ANALYTICS_PATH not in direct_public_files
+            and isinstance(analytics_projection, dict)
+            and analytics_projection.get("projector")
+            == PUBLIC_ANALYTICS_PROJECTOR_ID
+            and isinstance(analytics_projection.get("max_bytes"), int)
+            and not isinstance(analytics_projection.get("max_bytes"), bool)
+            and analytics_projection["max_bytes"] > 0
+        )
+        if not projection_declared:
+            self.error(
+                "public-analytics-projection",
+                (
+                    "public_data_manifest.json must retain analytics.json as a "
+                    "private build input and declare its bounded public projection"
+                ),
+                "config/public_data_manifest.json",
+            )
+
+        build_site_path = self.root / "scripts/build_site.py"
+        build_site_text = (
+            build_site_path.read_text(errors="ignore")
+            if build_site_path.exists()
+            else ""
+        )
+        materialization_ok = (
+            re.search(
+                r"PUBLIC_ANALYTICS_PROJECTOR_ID\s*:\s*"
+                r"compact_public_analytics_json",
+                build_site_text,
+            )
+            is not None
+            and re.search(
+                r"materialize_projected_files\s*\(\s*DATA\s*,\s*"
+                r"output_dir\s*/\s*['\"]data['\"]\s*,\s*manifest\s*,?\s*\)",
+                build_site_text,
+            )
+            is not None
+        )
+        if not materialization_ok:
+            self.error(
+                "public-analytics-materialization",
+                (
+                    "build_site.py must materialize the declared analytics "
+                    "projection through the registered projector"
+                ),
+                "scripts/build_site.py",
+            )
+
+        cache_prepare = workflow_step_block("Prepare private analytics cache key")
+        cache_restore = workflow_step_block("Restore private analytics build cache")
+        analytics_collect = workflow_step_block("Collect CI analytics")
+        cache_save = workflow_step_block("Save private analytics build cache")
+        cache_steps = (cache_prepare, cache_restore, analytics_collect, cache_save)
+        cache_step_indexes = [text.index(block) for block in cache_steps] if all(
+            cache_steps
+        ) else []
+        cache_ordered = bool(cache_step_indexes) and cache_step_indexes == sorted(
+            cache_step_indexes
+        )
+        if not cache_ordered:
+            self.error(
+                "workflow-private-analytics-cache-order",
+                (
+                    "private analytics cache key/restore must precede analytics "
+                    "collection and cache save must follow it"
+                ),
+                ".github/workflows/hourly-master.yml",
+            )
+
+        cache_key_ok = all(
+            token in cache_prepare
+            for token in (
+                "id: analytics-cache-key",
+                "CACHE_DAY=$(date -u +%Y-%m-%d)",
+                "PRIOR_CACHE_DAY=$(date -u -d '1 day ago' +%Y-%m-%d)",
+                f'CACHE_NAMESPACE="{PRIVATE_ANALYTICS_CACHE_VERSION}-${{{{ runner.os }}}}"',
+                'echo "key=$CACHE_NAMESPACE-$CACHE_DAY"',
+                'echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY"',
+            )
+        )
+        if not cache_key_ok:
+            self.error(
+                "workflow-private-analytics-cache-key",
+                (
+                    "private analytics cache needs one immutable versioned key per "
+                    "UTC day and an explicit prior-day restore prefix"
+                ),
+                ".github/workflows/hourly-master.yml",
+            )
+
+        cache_restore_ok = all(
+            token in cache_restore
+            for token in (
+                "id: analytics-cache-restore",
+                "continue-on-error: true",
+                "uses: actions/cache/restore@v4",
+                f"path: {PRIVATE_ANALYTICS_CACHE_PATH}",
+                "key: ${{ steps.analytics-cache-key.outputs.key }}",
+                "${{ steps.analytics-cache-key.outputs.prior_day_prefix }}",
+            )
+        )
+        if not cache_restore_ok:
+            self.error(
+                "workflow-private-analytics-cache-restore",
+                (
+                    "private analytics cache restore must use actions/cache@v4, "
+                    "the exact private path, and the prior UTC-day prefix"
+                ),
+                ".github/workflows/hourly-master.yml",
+            )
+
+        analytics_cache_signal_ok = all(
+            token in analytics_collect
+            for token in (
+                "id: collect-analytics",
+                "surface_is_current ci_core",
+                'echo "cache_save=true"',
+                'echo "cache_save=false"',
+            )
+        )
+        cache_save_ok = analytics_cache_signal_ok and all(
+            token in cache_save
+            for token in (
+                "steps.collect-analytics.outputs.cache_save == 'true'",
+                "steps.analytics-cache-restore.outputs.cache-hit != 'true'",
+                "continue-on-error: true",
+                "uses: actions/cache/save@v4",
+                f"path: {PRIVATE_ANALYTICS_CACHE_PATH}",
+                "key: ${{ steps.analytics-cache-key.outputs.key }}",
+            )
+        )
+        if not cache_save_ok:
+            self.error(
+                "workflow-private-analytics-cache-save",
+                (
+                    "private analytics cache may be saved only after successful "
+                    "analytics collection and only when today's immutable key missed"
+                ),
+                ".github/workflows/hourly-master.yml",
+            )
+
+        if PRIVATE_ANALYTICS_CACHE_BOUNDARY_MARKER not in text:
+            self.error(
+                "workflow-private-analytics-cache-boundary",
+                "hourly-master.yml must document the private analytics cache boundary",
+                ".github/workflows/hourly-master.yml",
+            )
+        gh_pages_seed_blocks = [
+            block
+            for block in re.split(r"(?=^      - (?:name|uses):)", text, flags=re.MULTILINE)
+            if "origin/gh-pages" in block
+        ]
+        cache_feedback_blocked = not any(
+            token in "\n".join(
+                line
+                for line in block.splitlines()
+                if not line.lstrip().startswith("#")
+            )
+            for block in gh_pages_seed_blocks
+            for token in (
+                PRIVATE_ANALYTICS_CACHE_PATH,
+                PRIVATE_ANALYTICS_CACHE_VERSION,
+            )
+        )
+        if not cache_feedback_blocked:
+            self.error(
+                "workflow-private-analytics-cache-feedback",
+                (
+                    "the private analytics cache must never be restored from the "
+                    "public gh-pages branch"
+                ),
+                ".github/workflows/hourly-master.yml",
+            )
+
+        workflow_commands = "\n".join(
+            line
+            for line in text.splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        cache_staging_blocked = (
+            re.search(
+                r"\bgit\s+add\s+(?:[^\n]*\s)?(?:-f|--force)\b",
+                workflow_commands,
+            )
+            is None
+            and re.search(
+                r"\bgit\s+add\b[^\n]*"
+                + re.escape(PRIVATE_ANALYTICS_CACHE_PATH),
+                workflow_commands,
+            )
+            is None
+            and re.search(
+                r"\bgit\s+add\s+\\[\s\S]{0,2000}?"
+                + re.escape(PRIVATE_ANALYTICS_CACHE_PATH),
+                workflow_commands,
+            )
+            is None
+        )
+        if not cache_staging_blocked:
+            self.error(
+                "workflow-private-analytics-cache-staging",
+                "hourly-master.yml must never force-add or explicitly stage the cache",
+                ".github/workflows/hourly-master.yml",
+            )
+
+        gitignore_path = self.root / ".gitignore"
+        gitignore_lines = {
+            line.strip()
+            for line in (
+                gitignore_path.read_text(errors="ignore").splitlines()
+                if gitignore_path.exists()
+                else []
+            )
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        cache_ignored = "data/vllm/ci/.cache/" in gitignore_lines
+        if not cache_ignored:
+            self.error(
+                "private-analytics-cache-ignore",
+                "the private analytics cache directory must remain gitignored",
+                ".gitignore",
+            )
+
+        manifest_exact_paths = {
+            relative
+            for field in (
+                "required_files",
+                "optional_files",
+                "build_inputs",
+                "generated_files",
+            )
+            for relative in (
+                manifest.get(field) if isinstance(manifest.get(field), list) else []
+            )
+            if isinstance(relative, str)
+        }
+        manifest_exact_paths.update(
+            descriptor["path"]
+            for descriptor in projected_files
+            if isinstance(descriptor, dict) and isinstance(descriptor.get("path"), str)
+        )
+        cache_manifest_exposed = any(
+            relative == PRIVATE_ANALYTICS_CACHE_MANIFEST_PATH
+            or relative.startswith(f"{PRIVATE_ANALYTICS_CACHE_MANIFEST_PATH}/")
+            or PRIVATE_ANALYTICS_CACHE_MANIFEST_PATH.startswith(
+                f"{relative.rstrip('/')}/"
+            )
+            for relative in manifest_exact_paths
+        ) or any(
+            PurePosixPath(PRIVATE_ANALYTICS_CACHE_SAMPLE).match(pattern)
+            for pattern in (
+                manifest.get("optional_globs")
+                if isinstance(manifest.get("optional_globs"), list)
+                else []
+            )
+            if isinstance(pattern, str)
+        )
+        cache_never_published = any(
+            PurePosixPath(PRIVATE_ANALYTICS_CACHE_SAMPLE).match(pattern)
+            for pattern in (
+                manifest.get("never_publish_patterns")
+                if isinstance(manifest.get("never_publish_patterns"), list)
+                else []
+            )
+            if isinstance(pattern, str)
+        )
+        if cache_manifest_exposed or not cache_never_published:
+            self.error(
+                "private-analytics-cache-publication",
+                (
+                    "the analytics cache must be absent from public/build inputs "
+                    "and covered by an effective never-publish pattern"
+                ),
+                "config/public_data_manifest.json",
+            )
 
         deploy_pages = self.root / ".github/workflows/deploy-pages.yml"
         deploy_text = deploy_pages.read_text(errors="ignore") if deploy_pages.exists() else ""
@@ -4627,6 +5780,14 @@ class DashboardAudit:
         self.report.metrics["workflows"] = {
             "workflow_count": len(workflows),
             "gh_pages_workflows": gh_pages_workflows,
+            "private_analytics_surface": analytics_owner,
+            "public_analytics_projection_declared": projection_declared,
+            "public_analytics_feedback_blocked": analytics_feedback_blocked,
+            "private_analytics_cache_ordered": cache_ordered,
+            "private_analytics_cache_key_valid": cache_key_ok,
+            "private_analytics_cache_feedback_blocked": cache_feedback_blocked,
+            "private_analytics_cache_gitignored": cache_ignored,
+            "private_analytics_cache_never_published": cache_never_published,
         }
 
 
@@ -4638,9 +5799,14 @@ def format_text(report: AuditReport) -> str:
     lines = [
         "Dashboard data audit",
         f"Errors: {len(report.errors)}",
+        f"Degradations: {len(report.degradations)}",
         f"Warnings: {len(report.warnings)}",
     ]
-    for severity, findings in (("ERROR", report.errors), ("WARN", report.warnings)):
+    for severity, findings in (
+        ("ERROR", report.errors),
+        ("DEGRADATION", report.degradations),
+        ("WARN", report.warnings),
+    ):
         if not findings:
             continue
         lines.append("")

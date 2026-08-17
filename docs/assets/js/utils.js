@@ -484,9 +484,30 @@ function suiteBadge(suite) {
   return '<span class="suite-conclusion ' + cls + '">' + escapeHtml(conclusion) + "</span>";
 }
 
-function buildPassRateBar(label, summary, runUrl) {
+function testAssertionPassRatePct(summary, legacyScale) {
+  if (!summary) return null;
+  var explicit = Number(summary.test_pass_rate_pct);
+  if (summary.test_pass_rate_pct != null && Number.isFinite(explicit)) return explicit;
+  var legacy = Number(summary.pass_rate);
+  if (summary.pass_rate == null || !Number.isFinite(legacy)) return null;
+  return legacyScale === "fraction" ? legacy * 100 : legacy;
+}
+
+function testAssertionCounts(summary) {
+  var counts = summary && summary.test_assertions;
+  if (!counts || typeof counts !== "object") return null;
+  var passed = Number(counts.passed);
+  var failed = Number(counts.failed);
+  var skipped = Number(counts.skipped);
+  var total = Number(counts.total);
+  if (![passed, failed, skipped, total].every(Number.isFinite)) return null;
+  return { passed: passed, failed: failed, skipped: skipped, total: total };
+}
+
+function buildTestAssertionPassRateBar(label, summary, runUrl) {
   if (!summary) return "";
-  var rate = summary.pass_rate != null ? summary.pass_rate : 0;
+  var rate = testAssertionPassRatePct(summary, "percent");
+  if (rate == null) rate = 0;
   var colorClass = rate >= 95 ? "rate-good" : rate >= 80 ? "rate-warn" : "rate-bad";
   var pctText = rate.toFixed(1) + "%";
   var labelHtml = runUrl

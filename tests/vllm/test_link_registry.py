@@ -201,6 +201,7 @@ class TestLinksNoRedirect:
 
     # ── GitHub repo URLs from projects.json ──
 
+    @pytest.mark.live_data
     @pytest.mark.network
     def test_project_repo_urls_no_redirect(self):
         """Every repo URL in projects.json must not redirect."""
@@ -217,6 +218,7 @@ class TestLinksNoRedirect:
 
     # ── Buildkite job links from parity data ──
 
+    @pytest.mark.live_data
     @pytest.mark.network
     def test_parity_job_links_no_redirect(self):
         """Every job_link URL in parity_report.json must not redirect."""
@@ -239,6 +241,7 @@ class TestLinksNoRedirect:
 
     # ── CI health build URLs ──
 
+    @pytest.mark.live_data
     @pytest.mark.network
     def test_ci_health_build_urls_no_redirect(self):
         """Build URLs in ci_health.json must not redirect."""

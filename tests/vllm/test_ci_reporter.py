@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from vllm.ci.models import TestHealth
+from vllm.ci.models import BuildSummary, TestHealth
 from vllm.ci.reporter import HEALTH_LABEL_BUCKETS, write_ci_health
 
 
@@ -28,3 +28,37 @@ def test_write_ci_health_emits_zero_count_health_buckets(tmp_path):
     assert set(HEALTH_LABEL_BUCKETS) <= set(health["test_counts"])
     assert health["test_counts"]["passing"] == 1
     assert health["test_counts"]["flaky"] == 0
+
+
+def test_write_ci_health_emits_explicit_assertion_pass_rate_semantics(tmp_path):
+    summary = BuildSummary(
+        pipeline="amd",
+        build_number=123,
+        build_url="https://buildkite.com/vllm/amd-ci/builds/123",
+        branch="main",
+        commit="abc123",
+        created_at="2026-08-16T09:00:00Z",
+        state="passed",
+        total_tests=10,
+        passed=2,
+        failed=1,
+        skipped=7,
+        pass_rate=0.6667,
+        has_test_results=True,
+    )
+
+    write_ci_health([summary], [], [], tmp_path)
+
+    health = json.loads((tmp_path / "ci_health.json").read_text())
+    assert health["pass_rate_contract_version"] == 1
+    amd = health["amd"]
+    rows = [
+        amd["latest_build"],
+        amd["latest_test_signal_build"],
+        amd["latest_pipeline_build"],
+        amd["builds"][0],
+    ]
+    for row in rows:
+        assert row["pass_rate"] == 0.6667
+        assert row["test_pass_rate_pct"] == 66.67
+        assert row["test_pass_rate_basis"] == "pytest_assertions_excluding_skipped"

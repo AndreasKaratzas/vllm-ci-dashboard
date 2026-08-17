@@ -12,6 +12,8 @@ Usage:
 import argparse
 import json
 import logging
+import os
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -44,7 +46,7 @@ from vllm.ci.reporter import (
     write_quarantine_report,
     write_test_results,
 )
-from vllm.ci.models import TestResult
+from vllm.ci.models import PASS_RATE_CONTRACT_VERSION, BuildSummary, TestResult
 from vllm.pipelines import PIPELINES as VLLM_PIPELINES, BK_ORG as VLLM_ORG, SKIP_JOB_PATTERNS
 
 logging.basicConfig(
@@ -58,6 +60,12 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT = ROOT / "data" / "vllm" / "ci"
 QUARANTINE_PATH = ROOT / "config" / "quarantine.yaml"
 AMD_NIGHTLY_SNAPSHOT = Path(".cache") / "amd_nightly_snapshot.json"
+COMPLETE_JOB_STATES = frozenset(
+    set(cfg.TERMINAL_STATES)
+    | set(cfg.BLOCKED_JOB_STATES)
+    | {"expired", "not_run", "skipped"}
+)
+FULL_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 
 # Configure CI framework with vLLM-specific settings
 cfg.configure(VLLM_ORG, VLLM_PIPELINES)
@@ -221,9 +229,85 @@ def _cached_job_names(jsonl_path: Path, build_num: int) -> set[str]:
     return names
 
 
-def _should_verify_cache_coverage(build_num: int, latest_build_num: int) -> bool:
-    """Only the newest nightly should force an incomplete-cache refetch."""
-    return build_num == latest_build_num
+def _should_verify_cache_coverage(
+    build_num: int,
+    latest_build_num: int,
+    latest_terminal_build_num: int = 0,
+) -> bool:
+    """Refresh the newest build and newest terminal candidate.
+
+    When today's nightly is still running, yesterday's terminal nightly is
+    the publication candidate and must still be checked for late soft-fail
+    jobs before its cached JSONL is trusted.
+    """
+    return build_num in {latest_build_num, latest_terminal_build_num}
+
+
+def _nightly_test_jobs(build: dict) -> list[dict]:
+    """Return non-superseded test jobs from a Buildkite nightly roster."""
+    return [
+        job
+        for job in build.get("jobs") or []
+        if job.get("type") == "script"
+        and not job.get("retried_in_job_id")
+        and not any(
+            skip in str(job.get("name") or "").lower()
+            for skip in SKIP_JOB_PATTERNS
+        )
+    ]
+
+
+def _is_complete_nightly_build(build: dict) -> bool:
+    """Return whether a nightly has a terminal build and test-job roster."""
+    if build.get("state") not in cfg.TERMINAL_STATES:
+        return False
+    test_jobs = _nightly_test_jobs(build)
+    return bool(test_jobs) and all(
+        str(job.get("state") or "").casefold() in COMPLETE_JOB_STATES
+        for job in test_jobs
+    )
+
+
+def _select_latest_complete_evidence_build(
+    builds: list[dict],
+    results_by_build: dict[int, list[TestResult]],
+) -> dict | None:
+    """Select the newest verified-complete build with parsed test evidence."""
+    ordered = sorted(
+        builds,
+        key=lambda build: (
+            str(build.get("created_at") or ""),
+            int(build.get("number") or 0),
+        ),
+        reverse=True,
+    )
+    return next(
+        (
+            build
+            for build in ordered
+            if results_by_build.get(int(build.get("number") or 0))
+            and _is_complete_nightly_build(build)
+        ),
+        None,
+    )
+
+
+def _completed_result_entries(
+    entries: list[tuple[int, str, list[TestResult]]],
+    fetched_builds: list[dict],
+) -> list[tuple[int, str, list[TestResult]]]:
+    """Exclude fetched nonterminal/incomplete builds from canonical analysis."""
+    builds_by_number = {
+        int(build.get("number") or 0): build
+        for build in fetched_builds
+        if build.get("number")
+    }
+    return [
+        entry
+        for entry in entries
+        if entry[0] not in builds_by_number
+        or _is_complete_nightly_build(builds_by_number[entry[0]])
+    ]
 
 
 def _cache_covers_all_jobs(
@@ -340,12 +424,39 @@ def collect_pipeline(
     results_by_build: dict[int, list[TestResult]] = {}
     slug = cfg.PIPELINES[pipeline_key]["slug"]
     latest_build_num = max((b.get("number", 0) for b in builds), default=0)
+    latest_terminal_build_num = max(
+        (
+            int(build.get("number") or 0)
+            for build in builds
+            if build.get("state") in cfg.TERMINAL_STATES
+        ),
+        default=0,
+    )
 
     for build in builds:
         build_num = build.get("number", 0)
         created = build.get("created_at", "")
         date = nightly_date(created)
         state = build.get("state", "")
+
+        verify_candidate = _should_verify_cache_coverage(
+            build_num,
+            latest_build_num,
+            latest_terminal_build_num,
+        )
+        if verify_candidate and state in cfg.TERMINAL_STATES:
+            try:
+                detail = fetch_build_detail(pipeline_key, build_num)
+                build.clear()
+                build.update(detail)
+                state = build.get("state", state)
+            except Exception as exc:
+                log.warning(
+                    "  Build #%d: couldn't refresh terminal roster (%s); "
+                    "it will not be promoted unless the cached roster is complete",
+                    build_num,
+                    exc,
+                )
 
         # Cache-skip eligibility: date is already on disk AND build is terminal.
         # But "build terminal" is not enough on its own — a soft-fail job can
@@ -356,7 +467,7 @@ def collect_pipeline(
         # omit the soft-fail result. Verify coverage before trusting cache.
         if date in existing_dates and state in cfg.TERMINAL_STATES:
             jsonl_path = results_dir / f"{date}_{pipeline_key}.jsonl"
-            if not _should_verify_cache_coverage(build_num, latest_build_num):
+            if not verify_candidate:
                 log.info("  Build #%d (%s): cached historical build, skipping", build_num, date)
                 loaded = _load_cached_results(jsonl_path)
                 if loaded:
@@ -501,6 +612,67 @@ def _latest_signal_summary(summaries: list):
     return next((summary for summary in summaries if summary.has_test_results), None)
 
 
+def _project_test_result_summary(summary: BuildSummary) -> dict:
+    """Return the legacy root summary plus explicit assertion-rate semantics."""
+    assertions_run = summary.passed + summary.failed
+    test_pass_rate_pct = (
+        round(summary.passed / assertions_run * 100, 1)
+        if assertions_run else 0.0
+    )
+    return {
+        "total_jobs": summary.job_count,
+        "passed": summary.jobs_passed,
+        "failed": summary.jobs_failed,
+        "skipped": 0,
+        # Legacy alias retained for one compatibility cycle. It has always
+        # represented parsed pytest assertions, not the adjacent job counts.
+        "pass_rate": test_pass_rate_pct,
+        "test_pass_rate_pct": test_pass_rate_pct,
+        "test_pass_rate_basis": summary.test_pass_rate_basis,
+        "test_assertions": {
+            "total": summary.total_tests,
+            "passed": summary.passed,
+            "failed": summary.failed,
+            "skipped": summary.skipped,
+        },
+    }
+
+
+def _project_test_results_payload(
+    latest_amd: BuildSummary,
+    latest_upstream: BuildSummary | None = None,
+    *,
+    collected_at: str | None = None,
+) -> dict:
+    """Return the compatibility root payload with an explicit rate contract."""
+    payload = {
+        "pass_rate_contract_version": PASS_RATE_CONTRACT_VERSION,
+        "collected_at": collected_at
+        or datetime.now(timezone.utc).isoformat()[:19] + "Z",
+        "source": "buildkite",
+        "rocm": {
+            "workflow_name": "AMD Nightly (Buildkite)",
+            "run_url": latest_amd.build_url,
+            "run_date": latest_amd.created_at,
+            "conclusion": (
+                "success" if latest_amd.pass_rate >= 0.95 else "failure"
+            ),
+            "summary": _project_test_result_summary(latest_amd),
+        },
+    }
+    if latest_upstream:
+        payload["cuda"] = {
+            "workflow_name": "Upstream Nightly (Buildkite)",
+            "run_url": latest_upstream.build_url,
+            "run_date": latest_upstream.created_at,
+            "conclusion": (
+                "success" if latest_upstream.pass_rate >= 0.95 else "failure"
+            ),
+            "summary": _project_test_result_summary(latest_upstream),
+        }
+    return payload
+
+
 def _merge_with_previous(
     by_build: list[tuple[int, str, list[TestResult]]],
 ) -> tuple[list[TestResult], str, int, set[str]]:
@@ -637,14 +809,59 @@ def main():
         log.info("Data collection complete (analysis skipped).")
         return
 
+    evidence_build = _select_latest_complete_evidence_build(
+        all_builds.get("amd", []),
+        all_results.get("amd", {}),
+    )
+    evidence_commit = str((evidence_build or {}).get("commit") or "").casefold()
+    if FULL_COMMIT_SHA_RE.fullmatch(evidence_commit):
+        os.environ["VLLM_CONFIG_SHA"] = evidence_commit
+        log.info(
+            "Pinned CI definitions to completed AMD build #%s commit %s",
+            evidence_build.get("number"),
+            evidence_commit,
+        )
+    else:
+        log.warning(
+            "No completed AMD evidence build with a full commit SHA; "
+            "the publication audit will reject unaligned shard metadata"
+        )
+
     # Extract shard bases from upstream YAML (needed for correct group normalization)
     if not args.skip_config_parity:
         log.info("Extracting shard bases from upstream YAML...")
-        from vllm.config_parity import extract_parity_key_overrides, extract_shard_bases
-        shard_bases = extract_shard_bases()
+        from vllm.config_parity import (
+            extract_parity_key_overrides,
+            extract_shard_base_catalog,
+        )
+        shard_catalog = extract_shard_base_catalog()
+        if evidence_build:
+            evidence_date = nightly_date(str(evidence_build.get("created_at") or ""))
+            shard_catalog["evidence"] = {
+                "pipeline": "amd",
+                "build_number": int(evidence_build.get("number") or 0),
+                "build_commit": evidence_commit,
+                "build_state": str(evidence_build.get("state") or ""),
+                "roster_complete": _is_complete_nightly_build(evidence_build),
+                "result_file": f"{evidence_date}_amd.jsonl",
+                "job_names": sorted(
+                    {
+                        str(job.get("name") or "")
+                        for job in _nightly_test_jobs(evidence_build)
+                        if str(job.get("name") or "")
+                    }
+                ),
+            }
+        shard_bases = shard_catalog.get("normalization_bases", [])
         shard_path = output_dir / "shard_bases.json"
         shard_path.write_text(json.dumps(shard_bases, indent=2))
         log.info("Wrote shard_bases.json (%d bases: %s)", len(shard_bases), shard_bases)
+        shard_catalog_path = output_dir / "shard_base_catalog.json"
+        shard_catalog_path.write_text(json.dumps(shard_catalog, indent=2))
+        log.info(
+            "Wrote shard_base_catalog.json (%d definitions)",
+            len(shard_catalog.get("definitions", [])),
+        )
         parity_key_overrides = extract_parity_key_overrides()
         override_path = output_dir / "parity_key_overrides.json"
         override_path.write_text(json.dumps(parity_key_overrides, indent=2))
@@ -675,6 +892,10 @@ def main():
                 pipeline_results.append((bn, date, results))
 
         pipeline_results.sort(key=lambda x: x[1])
+        pipeline_results = _completed_result_entries(
+            pipeline_results,
+            all_builds.get(pk, []),
+        )
 
         if pk == "amd":
             amd_by_build = pipeline_results
@@ -1041,43 +1262,18 @@ def main():
     project_dir = output_dir.parent  # data/vllm/
     latest_amd_signal = _latest_signal_summary(amd_summaries)
     if latest_amd_signal:
-        latest = latest_amd_signal
-        test_results = {
-            "collected_at": datetime.now(timezone.utc).isoformat()[:19] + "Z",
-            "source": "buildkite",
-            "rocm": {
-                "workflow_name": "AMD Nightly (Buildkite)",
-                "run_url": latest.build_url,
-                "run_date": latest.created_at,
-                "conclusion": "success" if latest.pass_rate >= 0.95 else "failure",
-                "summary": {
-                    "total_jobs": latest.job_count,
-                    "passed": latest.jobs_passed,
-                    "failed": latest.jobs_failed,
-                    "skipped": 0,
-                    "pass_rate": round(latest.pass_rate * 100, 1),
-                },
-            },
-        }
         latest_upstream_signal = _latest_signal_summary(upstream_summaries)
-        if latest_upstream_signal:
-            up = latest_upstream_signal
-            test_results["cuda"] = {
-                "workflow_name": "Upstream Nightly (Buildkite)",
-                "run_url": up.build_url,
-                "run_date": up.created_at,
-                "conclusion": "success" if up.pass_rate >= 0.95 else "failure",
-                "summary": {
-                    "total_jobs": up.job_count,
-                    "passed": up.jobs_passed,
-                    "failed": up.jobs_failed,
-                    "skipped": 0,
-                    "pass_rate": round(up.pass_rate * 100, 1),
-                },
-            }
+        test_results = _project_test_results_payload(
+            latest_amd_signal,
+            latest_upstream_signal,
+        )
         tr_path = project_dir / "test_results.json"
         tr_path.write_text(json.dumps(test_results, indent=2))
-        log.info("Wrote %s (synced from CI data)", tr_path)
+        log.info(
+            "Wrote %s (synced from CI data; pass rate uses pytest assertions, "
+            "excluding skipped)",
+            tr_path,
+        )
 
     # Copy parity_report.json to project root for compatibility
     ci_parity = output_dir / "parity_report.json"
@@ -1114,7 +1310,7 @@ def _print_summary(
             )
         print(f"\nAMD Latest (Build #{latest.build_number}):")
         print(f"  Tests: {latest.total_tests} | Pass: {latest.passed} | Fail: {latest.failed} | Skip: {latest.skipped}")
-        print(f"  Pass Rate: {latest.pass_rate:.1%}")
+        print(f"  Test Pass Rate (pytest assertions, skipped excluded): {latest.pass_rate:.1%}")
         print(f"  Jobs: {latest.job_count} ({latest.jobs_passed} passed, {latest.jobs_failed} failed)")
         if latest.delta_vs_previous:
             d = latest.delta_vs_previous
@@ -1124,7 +1320,7 @@ def _print_summary(
         latest = _latest_signal_summary(upstream_summaries) or upstream_summaries[0]
         print(f"\nUpstream Latest (Build #{latest.build_number}):")
         print(f"  Tests: {latest.total_tests} | Pass: {latest.passed} | Fail: {latest.failed} | Skip: {latest.skipped}")
-        print(f"  Pass Rate: {latest.pass_rate:.1%}")
+        print(f"  Test Pass Rate (pytest assertions, skipped excluded): {latest.pass_rate:.1%}")
 
     if health_data:
         labels = {}

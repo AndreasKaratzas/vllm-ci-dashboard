@@ -27,7 +27,7 @@ const PUBLIC_VIEWS = [
     url: `/?ops_queue_view=${view}#ci-queue`,
     tab: 'ci-queue',
     heading: 'Queue Monitor',
-    lifecycleSeed: view === 'lifecycle',
+    lifecycleFallback: view === 'lifecycle',
   })),
   {
     name: 'trajectory capacity',
@@ -47,9 +47,9 @@ test.describe('public dashboard routes', () => {
         if (message.type() === 'error') browserErrors.push(`console: ${message.text()}`);
       });
 
-      if (route.lifecycleSeed) {
+      if (route.lifecycleFallback) {
         // Make the live raw candidate intentionally unusable without creating
-        // a browser network error. This locks the assembled Pages seed path.
+        // a browser network error. This locks the assembled Pages fallback path.
         await page.route('https://raw.githubusercontent.com/**/queue_lifecycle.json*', request => request.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -64,9 +64,10 @@ test.describe('public dashboard routes', () => {
       await expect(panel.locator('h1.ops-page-title')).toHaveText(route.heading);
       await expect(panel.locator('.ops-loading')).toHaveCount(0);
       await expect(panel.locator('.ops-error')).toHaveCount(0);
-      if (route.lifecycleSeed) {
-        await expect(panel).toContainText('Lifecycle observations unavailable');
-        await expect(panel.locator('.ops-stat-value')).toHaveText(['-', '-', '-', '-']);
+      if (route.lifecycleFallback) {
+        await expect(
+          panel.getByRole('link', { name: 'Open Pages lifecycle fallback' }),
+        ).toHaveAttribute('href', 'data/vllm/ci/queue_lifecycle.json');
       }
 
       // Deep links defer the Home payload briefly. Let that background work

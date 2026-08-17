@@ -16,6 +16,7 @@ from vllm import select_publication_surfaces as selector_module
 from vllm.audit_dashboard_data import DashboardAudit, Finding
 from vllm.publication_surfaces import (
     GLOBAL_DATA_PATHS,
+    LEGACY_CI_SURFACE_SPEC,
     SOURCE_SURFACES,
     SURFACE_SPECS,
     SurfaceSpec,
@@ -90,7 +91,7 @@ def test_findings_route_to_source_transactions_or_global_stop() -> None:
         "docs/assets/js/ci-hotness.js",
     )
 
-    assert finding_surfaces(matrix) == frozenset({"ci"})
+    assert finding_surfaces(matrix) == frozenset({"ci_core"})
     assert finding_surfaces(queue_source) == frozenset({"queue"})
     assert finding_surfaces(stale_queue_source) == frozenset({"queue"})
     assert finding_surfaces(docs) == frozenset()
@@ -105,6 +106,40 @@ def _git(repo: Path, *args: str) -> str:
         text=True,
     )
     return result.stdout.strip()
+
+
+def _write_legacy_ci_baseline(repo: Path, since: str) -> tuple[Path, dict[str, bytes]]:
+    baseline_bytes: dict[str, bytes] = {}
+    for relative in LEGACY_CI_SURFACE_SPEC.required_paths:
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = (json.dumps({"selection": "baseline", "path": relative}) + "\n").encode()
+        path.write_bytes(payload)
+        baseline_bytes[relative] = payload
+    state_path = repo / "data/vllm/ci/publication_state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "generated_at": since,
+                "baseline_ref": "0" * 40,
+                "mode": "fallback",
+                "degraded_surfaces": ["ci"],
+                "degraded_since": {"ci": since},
+                "fallback_max_age_hours": 36,
+                "restored_manifest": {
+                    "ci": {
+                        relative: {
+                            "bytes": len(payload),
+                            "sha256": hashlib.sha256(payload).hexdigest(),
+                        }
+                        for relative, payload in baseline_bytes.items()
+                    }
+                },
+            }
+        )
+    )
+    return state_path, baseline_bytes
 
 
 def test_restore_surface_restores_exact_and_globbed_files_atomically(
@@ -235,10 +270,469 @@ def test_forced_degraded_surface_restores_a_clean_candidate(
     )
 
     assert source.read_text() == '{"version":"baseline"}\n'
+    assert state["schema_version"] == 2
     assert state["mode"] == "fallback"
     assert state["degraded_surfaces"] == ["ci"]
+    assert state["fresh_degraded_surfaces"] == []
+    assert state["fallback_surfaces"] == ["ci"]
+    assert set(state["degraded_since"]) == {"ci"}
+    assert set(state["fallback_since"]) == {"ci"}
+    assert set(state["restored_manifest"]) == {"ci"}
     assert state["candidate_errors"][0]["code"] == "publication-collector-failed"
     assert audit_runs == [False, False, True]
+
+
+def test_legacy_ci_state_migrates_clocks_and_closes_core_dependency(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    original_since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path, baseline_bytes = _write_legacy_ci_baseline(repo, original_since)
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "legacy monolithic fallback")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    child_paths = {
+        surface: SURFACE_SPECS[surface].required_paths[0]
+        for surface in ("ci_core", "ci_gating", "ci_changes", "ci_hotness")
+    }
+    for surface, relative in child_paths.items():
+        (repo / relative).write_text(
+            json.dumps({"selection": "candidate", "surface": surface}) + "\n"
+        )
+
+    class CleanAudit:
+        def __init__(self, *args, **kwargs):
+            self.report = SimpleNamespace(errors=[])
+
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def run(self) -> SimpleNamespace:
+            return SimpleNamespace(errors=[])
+
+    monkeypatch.setattr(selector_module, "DashboardAudit", CleanAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    state = selector_module.select_publication(
+        repo,
+        baseline,
+        state_path,
+        forced_degraded=("ci_core",),
+    )
+
+    fallback = {"ci_core", "ci_gating"}
+    assert set(state["fallback_surfaces"]) == fallback
+    assert "ci" not in state["degraded_surfaces"]
+    assert state["degraded_since"] == {
+        surface: original_since for surface in fallback
+    }
+    assert state["fallback_since"] == {
+        surface: original_since for surface in fallback
+    }
+    assert set(state["restored_paths"]) == fallback
+    assert set(state["restored_manifest"]) == fallback
+    for surface in fallback:
+        relative = child_paths[surface]
+        assert (repo / relative).read_bytes() == baseline_bytes[relative]
+    for surface in {"ci_changes", "ci_hotness"}:
+        relative = child_paths[surface]
+        assert json.loads((repo / relative).read_text()) == {
+            "selection": "candidate",
+            "surface": surface,
+        }
+
+
+def test_schema_v2_baseline_rejects_legacy_ci_alias(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    state_path = repo / "data/vllm/ci/publication_state.json"
+    state_path.parent.mkdir(parents=True)
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "generated_at": now,
+                "baseline_ref": "0" * 40,
+                "mode": "fallback",
+                "degraded_surfaces": ["ci"],
+                "fresh_degraded_surfaces": [],
+                "fallback_surfaces": ["ci"],
+                "degraded_since": {"ci": now},
+                "fallback_since": {"ci": now},
+                "fallback_max_age_hours": 36,
+                "restored_manifest": {"ci": {}},
+            }
+        )
+    )
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "invalid v2 legacy alias")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    with pytest.raises(RuntimeError, match="publication state is inconsistent"):
+        selector_module._baseline_publication_state(repo, baseline, state_path)
+
+
+def test_clean_candidate_writes_schema_v2_current_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    source = repo / "data/source.json"
+    source.parent.mkdir(parents=True)
+    source.write_text('{"version":"baseline"}\n')
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "validated baseline")
+    baseline = _git(repo, "rev-parse", "HEAD")
+    source.write_text('{"version":"candidate"}\n')
+
+    class CleanAudit:
+        def __init__(self, *args, **kwargs):
+            self.report = SimpleNamespace(errors=[])
+
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def run(self) -> SimpleNamespace:
+            # Deliberately omit ``degradations`` to cover compatibility with
+            # lightweight test fakes and older report implementations.
+            return SimpleNamespace(errors=[])
+
+    monkeypatch.setattr(
+        selector_module,
+        "SURFACE_SPECS",
+        {"ci": SurfaceSpec(required_paths=("data/source.json",))},
+    )
+    monkeypatch.setattr(selector_module, "DashboardAudit", CleanAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    state = selector_module.select_publication(
+        repo,
+        baseline,
+        repo / "publication-state.json",
+    )
+
+    assert source.read_text() == '{"version":"candidate"}\n'
+    assert state == {
+        "schema_version": 2,
+        "generated_at": state["generated_at"],
+        "baseline_ref": baseline,
+        "mode": "current",
+        "degraded_surfaces": [],
+        "fresh_degraded_surfaces": [],
+        "fallback_surfaces": [],
+        "degraded_since": {},
+        "fallback_since": {},
+        "fallback_max_age_hours": 36,
+        "candidate_errors": [],
+        "candidate_degradations": [],
+        "final_errors": [],
+        "final_degradations": [],
+        "restored_paths": {},
+        "restored_manifest": {},
+    }
+
+
+def test_degradation_publishes_candidate_bytes_without_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    source = repo / "data/source.json"
+    source.parent.mkdir(parents=True)
+    source.write_text('{"version":"baseline"}\n')
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "validated baseline")
+    baseline = _git(repo, "rev-parse", "HEAD")
+    source.write_text('{"version":"candidate"}\n')
+
+    degradation = Finding(
+        "degradation",
+        "candidate-provisional",
+        "candidate is usable but provisional",
+        "data/source.json",
+    )
+
+    class DegradedAudit:
+        def __init__(self, *args, **kwargs):
+            self.report = SimpleNamespace(errors=[], degradations=[])
+
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def run(self) -> SimpleNamespace:
+            return SimpleNamespace(errors=[], degradations=[degradation])
+
+    monkeypatch.setattr(
+        selector_module,
+        "SURFACE_SPECS",
+        {"ci": SurfaceSpec(required_paths=("data/source.json",))},
+    )
+    monkeypatch.setattr(
+        selector_module,
+        "finding_surfaces",
+        lambda finding: frozenset({"ci"}),
+    )
+    monkeypatch.setattr(selector_module, "DashboardAudit", DegradedAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    state = selector_module.select_publication(
+        repo,
+        baseline,
+        repo / "publication-state.json",
+    )
+
+    assert source.read_text() == '{"version":"candidate"}\n'
+    assert state["mode"] == "degraded"
+    assert state["degraded_surfaces"] == ["ci"]
+    assert state["fresh_degraded_surfaces"] == ["ci"]
+    assert state["fallback_surfaces"] == []
+    assert set(state["degraded_since"]) == {"ci"}
+    assert state["fallback_since"] == {}
+    assert state["restored_paths"] == {}
+    assert state["restored_manifest"] == {}
+    assert state["candidate_degradations"][0]["code"] == "candidate-provisional"
+
+
+def test_long_lived_fresh_degradation_keeps_incident_age_without_expiring(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    source = repo / "data/source.json"
+    state_path = repo / "data/vllm/ci/publication_state.json"
+    state_path.parent.mkdir(parents=True)
+    source.write_text('{"version":"baseline"}\n')
+    original_since = "2000-01-01T00:00:00Z"
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "generated_at": original_since,
+                "baseline_ref": "0" * 40,
+                "mode": "degraded",
+                "degraded_surfaces": ["ci"],
+                "fresh_degraded_surfaces": ["ci"],
+                "fallback_surfaces": [],
+                "degraded_since": {"ci": original_since},
+                "fallback_since": {},
+                "fallback_max_age_hours": 36,
+                "restored_paths": {},
+                "restored_manifest": {},
+            }
+        )
+    )
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "degraded validated baseline")
+    baseline = _git(repo, "rev-parse", "HEAD")
+    source.write_text('{"version":"candidate"}\n')
+
+    degradation = Finding(
+        "degradation",
+        "candidate-provisional",
+        "candidate is usable but provisional",
+        "data/source.json",
+    )
+
+    class DegradedAudit:
+        def __init__(self, *args, **kwargs):
+            self.report = SimpleNamespace(errors=[], degradations=[])
+
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def run(self) -> SimpleNamespace:
+            return SimpleNamespace(errors=[], degradations=[degradation])
+
+    monkeypatch.setattr(
+        selector_module,
+        "SURFACE_SPECS",
+        {"ci": SurfaceSpec(required_paths=("data/source.json",))},
+    )
+    monkeypatch.setattr(
+        selector_module,
+        "finding_surfaces",
+        lambda finding: frozenset({"ci"}),
+    )
+    monkeypatch.setattr(selector_module, "DashboardAudit", DegradedAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    state = selector_module.select_publication(repo, baseline, state_path)
+
+    assert source.read_text() == '{"version":"candidate"}\n'
+    assert state["mode"] == "degraded"
+    assert state["degraded_since"] == {"ci": original_since}
+    assert state["fallback_since"] == {}
+    assert state["restored_paths"] == {}
+    assert state["restored_manifest"] == {}
+
+
+def test_mixed_state_restores_only_hard_error_surface(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    ci_source = repo / "data/ci.json"
+    queue_source = repo / "data/queue.json"
+    ci_source.parent.mkdir(parents=True)
+    ci_source.write_text('{"version":"ci-baseline"}\n')
+    queue_source.write_text('{"version":"queue-baseline"}\n')
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "validated baseline")
+    baseline = _git(repo, "rev-parse", "HEAD")
+    ci_source.write_text('{"version":"ci-candidate"}\n')
+    queue_source.write_text('{"version":"queue-candidate"}\n')
+
+    candidate_reports = iter([
+        SimpleNamespace(
+            errors=[Finding("error", "queue-invalid", "bad queue", "data/queue.json")],
+            degradations=[
+                Finding(
+                    "degradation",
+                    "ci-provisional",
+                    "provisional CI",
+                    "data/ci.json",
+                )
+            ],
+        ),
+        SimpleNamespace(errors=[], degradations=[]),
+    ])
+
+    class MixedAudit:
+        def __init__(self, *args, **kwargs):
+            self.report = SimpleNamespace(errors=[], degradations=[])
+
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def run(self) -> SimpleNamespace:
+            return next(candidate_reports)
+
+    monkeypatch.setattr(
+        selector_module,
+        "SURFACE_SPECS",
+        {
+            "ci": SurfaceSpec(required_paths=("data/ci.json",)),
+            "queue": SurfaceSpec(required_paths=("data/queue.json",)),
+        },
+    )
+    monkeypatch.setattr(
+        selector_module,
+        "finding_surfaces",
+        lambda finding: frozenset(
+            {"queue" if finding.path == "data/queue.json" else "ci"}
+        ),
+    )
+    monkeypatch.setattr(selector_module, "DashboardAudit", MixedAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    state = selector_module.select_publication(
+        repo,
+        baseline,
+        repo / "publication-state.json",
+    )
+
+    assert ci_source.read_text() == '{"version":"ci-candidate"}\n'
+    assert queue_source.read_text() == '{"version":"queue-baseline"}\n'
+    assert state["mode"] == "mixed"
+    assert state["degraded_surfaces"] == ["ci", "queue"]
+    assert state["fresh_degraded_surfaces"] == ["ci"]
+    assert state["fallback_surfaces"] == ["queue"]
+    assert set(state["degraded_since"]) == {"ci", "queue"}
+    assert set(state["fallback_since"]) == {"queue"}
+    assert set(state["restored_paths"]) == {"queue"}
+    assert set(state["restored_manifest"]) == {"queue"}
+
+
+def test_hard_error_wins_when_surface_is_also_degraded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    source = repo / "data/source.json"
+    source.parent.mkdir(parents=True)
+    source.write_text('{"version":"baseline"}\n')
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "validated baseline")
+    baseline = _git(repo, "rev-parse", "HEAD")
+    source.write_text('{"version":"candidate"}\n')
+
+    reports = iter([
+        SimpleNamespace(
+            errors=[Finding("error", "candidate-invalid", "invalid", "data/source.json")],
+            degradations=[
+                Finding(
+                    "degradation",
+                    "candidate-provisional",
+                    "provisional",
+                    "data/source.json",
+                )
+            ],
+        ),
+        SimpleNamespace(errors=[], degradations=[]),
+    ])
+
+    class OverlapAudit:
+        def __init__(self, *args, **kwargs):
+            self.report = SimpleNamespace(errors=[], degradations=[])
+
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def run(self) -> SimpleNamespace:
+            return next(reports)
+
+    monkeypatch.setattr(
+        selector_module,
+        "SURFACE_SPECS",
+        {"ci": SurfaceSpec(required_paths=("data/source.json",))},
+    )
+    monkeypatch.setattr(
+        selector_module,
+        "finding_surfaces",
+        lambda finding: frozenset({"ci"}),
+    )
+    monkeypatch.setattr(selector_module, "DashboardAudit", OverlapAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    state = selector_module.select_publication(
+        repo,
+        baseline,
+        repo / "publication-state.json",
+    )
+
+    assert source.read_text() == '{"version":"baseline"}\n'
+    assert state["mode"] == "fallback"
+    assert state["fresh_degraded_surfaces"] == []
+    assert state["fallback_surfaces"] == ["ci"]
 
 
 def _write_operations_fixture(root: Path, source_timestamp: str) -> None:
@@ -408,8 +902,12 @@ def test_prior_fallback_start_persists_until_hard_expiration(
         )
 
     blocked = json.loads(state_path.read_text())
+    assert blocked["schema_version"] == 2
     assert blocked["mode"] == "blocked"
+    assert blocked["fresh_degraded_surfaces"] == []
+    assert blocked["fallback_surfaces"] == ["ci"]
     assert blocked["degraded_since"] == {"ci": original_since}
+    assert blocked["fallback_since"] == {"ci": original_since}
     assert blocked["final_errors"][0]["code"] == "publication-fallback-expired"
     assert source.read_text() == '{"version":"candidate"}\n'
 
@@ -438,6 +936,7 @@ def test_stale_source_fallback_is_bounded_at_36_hours(
         "SURFACE_SPECS",
         {"ci": SurfaceSpec(required_paths=("data/vllm/ci/analytics.json",))},
     )
+    monkeypatch.setattr(audit_module, "SOURCE_SURFACES", {"analytics": "ci"})
 
     audit = DashboardAudit(tmp_path)
     audit.audit_operations_v2()
@@ -494,6 +993,31 @@ def test_stale_shard_bases_are_a_routable_ci_surface_error(tmp_path: Path) -> No
     (ci / "shard_bases.json").write_text(
         json.dumps(["active sharded group", "removed sharded group"])
     )
+    (ci / "shard_base_catalog.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source": {"commit_sha": "a" * 40},
+                "normalization_bases": [
+                    "active sharded group",
+                    "removed sharded group",
+                ],
+                "pipelines": {
+                    "amd": ["active sharded group", "removed sharded group"],
+                    "upstream": [],
+                },
+                "definitions": [],
+                "evidence": {
+                    "pipeline": "amd",
+                    "build_number": 100,
+                    "build_commit": "a" * 40,
+                    "build_state": "passed",
+                    "roster_complete": True,
+                    "result_file": "2026-08-12_amd.jsonl",
+                },
+            }
+        )
+    )
     (results / "2026-08-12_amd.jsonl").write_text(
         json.dumps({"job_name": "mi300_1: Active Sharded Group 1"}) + "\n"
     )
@@ -503,9 +1027,229 @@ def test_stale_shard_bases_are_a_routable_ci_surface_error(tmp_path: Path) -> No
 
     finding = next(
         finding
-        for finding in audit.report.errors
+        for finding in audit.report.degradations
         if finding.code == "shard-bases-unused"
     )
     assert finding.path == "data/vllm/ci/shard_bases.json"
-    assert finding_surfaces(finding) == frozenset({"ci"})
+    assert finding_surfaces(finding) == frozenset({"ci_core"})
     assert "removed sharded group" in finding.message
+
+
+def test_missing_shard_catalog_skips_unsafe_cross_pipeline_audit(tmp_path: Path) -> None:
+    ci = tmp_path / "data/vllm/ci"
+    results = ci / "test_results"
+    results.mkdir(parents=True)
+    (ci / "shard_bases.json").write_text(
+        json.dumps(["unknown pipeline sharded group"])
+    )
+    (results / "2026-08-12_amd.jsonl").write_text(
+        json.dumps({"job_name": "mi300_1: Different Group"}) + "\n"
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_shard_bases()
+
+    assert not audit.report.errors
+    assert {finding.code for finding in audit.report.warnings} == {
+        "shard-base-catalog-missing"
+    }
+
+
+def test_upstream_only_shard_base_is_not_required_in_amd_evidence(tmp_path: Path) -> None:
+    ci = tmp_path / "data/vllm/ci"
+    results = ci / "test_results"
+    results.mkdir(parents=True)
+    (ci / "shard_bases.json").write_text(
+        json.dumps(["amd sharded group", "humming eval (h100)"])
+    )
+    (ci / "shard_base_catalog.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source": {"commit_sha": "a" * 40},
+                "normalization_bases": [
+                    "amd sharded group",
+                    "humming eval (h100)",
+                ],
+                "pipelines": {
+                    "amd": ["amd sharded group"],
+                    "upstream": ["humming eval (h100)"],
+                },
+                "definitions": [],
+                "evidence": {
+                    "pipeline": "amd",
+                    "build_number": 100,
+                    "build_commit": "a" * 40,
+                    "build_state": "passed",
+                    "roster_complete": True,
+                    "result_file": "2026-08-12_amd.jsonl",
+                },
+            }
+        )
+    )
+    (results / "2026-08-12_amd.jsonl").write_text(
+        json.dumps({"job_name": "mi300_1: AMD Sharded Group 1"}) + "\n"
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_shard_bases()
+
+    assert "shard-bases-unused" not in {
+        finding.code for finding in audit.report.errors
+    }
+
+
+def test_shard_audit_uses_completed_evidence_file_not_newer_partial_file(
+    tmp_path: Path,
+) -> None:
+    ci = tmp_path / "data/vllm/ci"
+    results = ci / "test_results"
+    results.mkdir(parents=True)
+    (ci / "shard_bases.json").write_text(json.dumps(["completed group"]))
+    (ci / "shard_base_catalog.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source": {"commit_sha": "a" * 40},
+                "normalization_bases": ["completed group"],
+                "pipelines": {"amd": ["completed group"], "upstream": []},
+                "definitions": [],
+                "evidence": {
+                    "pipeline": "amd",
+                    "build_number": 100,
+                    "build_commit": "a" * 40,
+                    "build_state": "passed",
+                    "roster_complete": True,
+                    "result_file": "2026-08-11_amd.jsonl",
+                    "job_names": ["mi300_1: Completed Group 1"],
+                },
+            }
+        )
+    )
+    (results / "2026-08-11_amd.jsonl").write_text(
+        json.dumps({"job_name": "mi300_1: Parsed Different Group"}) + "\n"
+    )
+    (results / "2026-08-12_amd.jsonl").write_text(
+        json.dumps({"job_name": "mi300_1: Still Running"}) + "\n"
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_shard_bases()
+
+    assert not audit.report.errors
+
+
+def test_nonterminal_shard_evidence_is_a_warning_not_an_error(tmp_path: Path) -> None:
+    ci = tmp_path / "data/vllm/ci"
+    results = ci / "test_results"
+    results.mkdir(parents=True)
+    (ci / "shard_bases.json").write_text(json.dumps(["scheduled group"]))
+    (ci / "shard_base_catalog.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source": {"commit_sha": "a" * 40},
+                "normalization_bases": ["scheduled group"],
+                "pipelines": {"amd": ["scheduled group"], "upstream": []},
+                "definitions": [],
+                "evidence": {
+                    "pipeline": "amd",
+                    "build_number": 101,
+                    "build_commit": "a" * 40,
+                    "build_state": "running",
+                    "roster_complete": False,
+                    "result_file": "2026-08-12_amd.jsonl",
+                },
+            }
+        )
+    )
+    (results / "2026-08-12_amd.jsonl").write_text(
+        json.dumps({"job_name": "mi300_1: Other Group"}) + "\n"
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_shard_bases()
+
+    assert not audit.report.errors
+    assert {finding.code for finding in audit.report.warnings} == {
+        "shard-evidence-provisional"
+    }
+
+
+def test_optional_amd_shard_absence_is_a_warning(tmp_path: Path) -> None:
+    ci = tmp_path / "data/vllm/ci"
+    results = ci / "test_results"
+    results.mkdir(parents=True)
+    (ci / "shard_bases.json").write_text(json.dumps(["optional group"]))
+    (ci / "shard_base_catalog.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source": {"commit_sha": "a" * 40},
+                "normalization_bases": ["optional group"],
+                "pipelines": {"amd": ["optional group"], "upstream": []},
+                "definitions": [
+                    {
+                        "base": "optional group",
+                        "pipeline": "amd",
+                        "optional": True,
+                    }
+                ],
+                "evidence": {
+                    "pipeline": "amd",
+                    "build_number": 101,
+                    "build_commit": "a" * 40,
+                    "build_state": "passed",
+                    "roster_complete": True,
+                    "result_file": "2026-08-12_amd.jsonl",
+                },
+            }
+        )
+    )
+    (results / "2026-08-12_amd.jsonl").write_text(
+        json.dumps({"job_name": "mi300_1: Other Group"}) + "\n"
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_shard_bases()
+
+    assert not audit.report.errors
+    assert {finding.code for finding in audit.report.warnings} == {
+        "shard-bases-optional-unobserved"
+    }
+
+
+def test_shard_source_must_match_completed_evidence_commit(tmp_path: Path) -> None:
+    ci = tmp_path / "data/vllm/ci"
+    results = ci / "test_results"
+    results.mkdir(parents=True)
+    (ci / "shard_bases.json").write_text(json.dumps(["completed group"]))
+    (ci / "shard_base_catalog.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source": {"commit_sha": "a" * 40},
+                "normalization_bases": ["completed group"],
+                "pipelines": {"amd": ["completed group"], "upstream": []},
+                "definitions": [],
+                "evidence": {
+                    "pipeline": "amd",
+                    "build_number": 101,
+                    "build_commit": "b" * 40,
+                    "build_state": "passed",
+                    "roster_complete": True,
+                    "result_file": "2026-08-12_amd.jsonl",
+                },
+            }
+        )
+    )
+    (results / "2026-08-12_amd.jsonl").write_text(
+        json.dumps({"job_name": "mi300_1: Completed Group 1"}) + "\n"
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_shard_bases()
+
+    assert {finding.code for finding in audit.report.errors} == {
+        "shard-config-evidence-mismatch"
+    }

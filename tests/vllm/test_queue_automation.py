@@ -26,6 +26,7 @@ DOCS = ROOT / "docs"
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 
+@pytest.mark.live_data
 class TestQueueTimeseriesSchema:
     """Validate the queue_timeseries.jsonl file has the correct structure."""
 
@@ -535,6 +536,7 @@ class TestCIQueueFrontend:
         in_js = "id: 'ci-queue'" in js
         assert in_html or in_js, "ci-queue tab not found in HTML or registerCISection"
 
+    @pytest.mark.live_data
     def test_data_matches_js_expectations(self):
         """Verify that the JSONL data has fields the JS actually reads."""
         path = DATA / "vllm" / "ci" / "queue_timeseries.jsonl"
@@ -554,6 +556,7 @@ class TestCIQueueFrontend:
             assert "waiting" in qdata, f"queue '{qname}' missing 'waiting'"
             assert "running" in qdata, f"queue '{qname}' missing 'running'"
 
+    @pytest.mark.live_data
     def test_queue_wait_time_percentiles_present(self):
         """ci-queue.js percentile selector reads p50/p75/p90/p99/max/avg_wait fields."""
         path = DATA / "vllm" / "ci" / "queue_timeseries.jsonl"
@@ -571,6 +574,7 @@ class TestCIQueueFrontend:
                 f"collect_queue_snapshot.py must emit all percentile fields."
             )
 
+    @pytest.mark.live_data
     def test_queue_source_percentile_ordering(self):
         """Each independently sourced percentile family must stay ordered.
 
@@ -726,6 +730,7 @@ class TestIntervalFilteringLogic:
             "updateChart must reference the last snapshot timestamp for cutoff"
         )
 
+    @pytest.mark.live_data
     def test_every_enabled_interval_returns_data(self, snapshots):
         """For each interval that the UI marks as enabled (hours <= availableHours),
         the filtering must return at least one snapshot."""
@@ -738,6 +743,7 @@ class TestIntervalFilteringLogic:
                 f"but filtering returns 0 snapshots"
             )
 
+    @pytest.mark.live_data
     def test_smallest_enabled_interval_returns_subset(self, snapshots):
         """The smallest enabled interval should return a proper subset
         (not all data) when there are enough snapshots spanning a larger range."""
@@ -752,6 +758,7 @@ class TestIntervalFilteringLogic:
                 f"not all {len(snapshots)} snapshots"
             )
 
+    @pytest.mark.live_data
     def test_larger_interval_includes_smaller(self, snapshots):
         """A larger interval must return a superset of a smaller interval's results."""
         enabled = self._enabled_intervals(snapshots)
@@ -765,6 +772,7 @@ class TestIntervalFilteringLogic:
                 f"from {enabled[i]['label']}"
             )
 
+    @pytest.mark.live_data
     def test_full_range_interval_returns_all(self, snapshots):
         """An interval >= available hours must return all snapshots."""
         available = self._available_hours(snapshots)
@@ -774,6 +782,7 @@ class TestIntervalFilteringLogic:
             f"{len(snapshots)} snapshots, got {len(filtered)}"
         )
 
+    @pytest.mark.live_data
     def test_auto_selected_default_is_valid(self, snapshots):
         """The auto-selected default interval must be the largest with >= 2 snapshots."""
         enabled = self._enabled_intervals(snapshots)
@@ -783,6 +792,7 @@ class TestIntervalFilteringLogic:
             f"Auto-selected default interval {default['label']} has fewer than 2 snapshots"
         )
 
+    @pytest.mark.live_data
     def test_filtered_timestamps_are_after_cutoff(self, snapshots):
         """Every snapshot in filtered results must have ts >= cutoff."""
         from datetime import timedelta
@@ -798,6 +808,7 @@ class TestIntervalFilteringLogic:
                     f"cutoff {cutoff.isoformat()}"
                 )
 
+    @pytest.mark.live_data
     def test_excluded_snapshots_are_before_cutoff(self, snapshots):
         """Snapshots NOT in filtered results must have ts < cutoff."""
         from datetime import timedelta
@@ -814,6 +825,7 @@ class TestIntervalFilteringLogic:
                         f"but is after cutoff {cutoff.isoformat()}"
                     )
 
+    @pytest.mark.live_data
     def test_3h_interval_with_5h_data_returns_correct_count(self, snapshots):
         """Regression test: with ~5h of data, the 3h interval must return data.
         This is the exact scenario from the bug report."""
@@ -830,6 +842,7 @@ class TestIntervalFilteringLogic:
             "3h filter should not return more than total snapshots"
         )
 
+    @pytest.mark.live_data
     def test_enabled_intervals_require_at_least_2_snapshots(self, snapshots):
         """Regression: intervals must be enabled only if >= 2 snapshots exist in range.
         This prevents enabling intervals that would render a single-point chart."""
@@ -840,6 +853,7 @@ class TestIntervalFilteringLogic:
                 f"Need >= 2 for a renderable chart."
             )
 
+    @pytest.mark.live_data
     def test_disabled_intervals_have_fewer_than_2_snapshots(self, snapshots):
         """Intervals NOT in the enabled list must have < 2 snapshots in range."""
         enabled_labels = {iv["label"] for iv in self._enabled_intervals(snapshots)}

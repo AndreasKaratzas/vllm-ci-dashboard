@@ -92,6 +92,7 @@ class TestV2PerfEvalView:
         assert "Inspect history" in self.text
 
 
+@pytest.mark.live_data
 class TestPerfEvalDataContract:
     """The committed perf_eval.json must match what the view reads."""
 

@@ -23,6 +23,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from vllm.ci.incident_transitions import advance_incident  # noqa: E402
 from vllm.ci.managed_issue import (  # noqa: E402
     DASHBOARD_REPO,
     GitHubIssueClient,
@@ -47,9 +48,9 @@ STATE = ROOT / "data" / "vllm" / "ci" / "open_amd_main_failure_issues.json"
 
 PIPELINE = "amd-ci"
 MAX_DATA_AGE = timedelta(hours=3)
-INCIDENT_MAX_AGE = timedelta(hours=72)
 MAX_ISSUE_ROWS = 50
 MAX_BISECT_COMMANDS = 12
+ISSUE_BODY_SCHEMA_VERSION = 2
 OWNERSHIP_MARKER = "<!-- vllm-ci-dashboard:managed-alert:amd-main-failure:v1 -->"
 LABEL_SPECS = [
     ("amd-main-failure", "d73a49", "Unresolved AMD test-group failure on origin/main"),
@@ -105,16 +106,63 @@ def _parse_ts(value: Any) -> datetime | None:
 
 def _default_state() -> dict:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "initialized": False,
         "processed_build_numbers": [],
         "group_watermarks": {},
         "active": {},
+        "pending_soft": {},
         "issue": None,
         "suppressed": False,
         "last_fingerprint": "",
+        "last_content_fingerprint": "",
+        "signal_fingerprint_version": 2,
         "last_run": "",
     }
+
+
+def _nonnegative_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def _legacy_transition(row: dict, *, pending: bool = False) -> dict:
+    """Translate schema-v1 evidence into the shared transition state."""
+    build_id = str(row.get("build_number") or "legacy")
+    incident_start_build_id = str(row.get("bad_build_number") or build_id)
+    severity = "hard" if row.get("result") == "failed" else "soft"
+    if pending:
+        return {
+            "status": "pending_soft",
+            "severity": "soft",
+            "peak_severity": "soft",
+            "soft_streak": max(1, _nonnegative_int(row.get("soft_streak"))),
+            "last_eligible_build_id": build_id,
+            "incident_start_build_id": incident_start_build_id,
+            "confirmed_build_id": None,
+        }
+    return {
+        "status": "confirmed",
+        "severity": severity,
+        "peak_severity": severity,
+        "soft_streak": max(2, _nonnegative_int(row.get("soft_streak")))
+        if severity == "soft"
+        else 0,
+        "last_eligible_build_id": build_id,
+        "incident_start_build_id": incident_start_build_id,
+        "confirmed_build_id": build_id,
+    }
+
+
+def _normalize_entry(row: dict, *, pending: bool = False) -> dict:
+    entry = dict(row)
+    transition = entry.get("transition")
+    if not isinstance(transition, dict):
+        transition = _legacy_transition(entry, pending=pending)
+    entry["transition"] = dict(transition)
+    return entry
 
 
 def _read_state(path: Path = STATE) -> dict:
@@ -125,6 +173,17 @@ def _read_state(path: Path = STATE) -> dict:
     except (OSError, json.JSONDecodeError):
         return _default_state()
     state = normalize_managed_state(raw)
+    source_schema_version = raw.get("schema_version")
+    if not isinstance(source_schema_version, int) or isinstance(source_schema_version, bool):
+        source_schema_version = 1
+    state["schema_version"] = 2
+    signal_fingerprint_version = raw.get("signal_fingerprint_version")
+    state["signal_fingerprint_version"] = (
+        int(signal_fingerprint_version)
+        if isinstance(signal_fingerprint_version, int)
+        and not isinstance(signal_fingerprint_version, bool)
+        else (2 if source_schema_version >= 2 else 1)
+    )
     state["initialized"] = bool(raw.get("initialized"))
     state["processed_build_numbers"] = [
         int(number)
@@ -132,8 +191,13 @@ def _read_state(path: Path = STATE) -> dict:
         if isinstance(number, int) and not isinstance(number, bool) and number > 0
     ]
     state["active"] = {
-        str(group_id): dict(row)
+        str(group_id): _normalize_entry(row)
         for group_id, row in (raw.get("active") or {}).items()
+        if isinstance(row, dict)
+    }
+    state["pending_soft"] = {
+        str(group_id): _normalize_entry(row, pending=True)
+        for group_id, row in (raw.get("pending_soft") or {}).items()
         if isinstance(row, dict)
     }
     state["group_watermarks"] = {
@@ -250,14 +314,6 @@ def _observations_by_build(reliability: dict) -> dict[int, dict[str, dict]]:
     return by_build
 
 
-def _build_rank(build: dict) -> tuple[str, int]:
-    number = build.get("number")
-    return (
-        str(build.get("finished_at") or build.get("created_at") or ""),
-        int(number) if isinstance(number, int) and not isinstance(number, bool) else 0,
-    )
-
-
 def _build_source_rank(build: dict) -> tuple[str, int, str]:
     """Order one pipeline's main builds by creation sequence for commit ranges."""
     number = build.get("number")
@@ -270,11 +326,27 @@ def _build_source_rank(build: dict) -> tuple[str, int, str]:
 
 def _readable_state_copy(state: dict) -> dict:
     normalized = normalize_managed_state(state)
+    source_schema_version = state.get("schema_version")
+    if not isinstance(source_schema_version, int) or isinstance(source_schema_version, bool):
+        source_schema_version = 1
+    normalized["schema_version"] = 2
+    signal_fingerprint_version = state.get("signal_fingerprint_version")
+    normalized["signal_fingerprint_version"] = (
+        int(signal_fingerprint_version)
+        if isinstance(signal_fingerprint_version, int)
+        and not isinstance(signal_fingerprint_version, bool)
+        else (2 if source_schema_version >= 2 else 1)
+    )
     normalized["initialized"] = bool(state.get("initialized"))
     normalized["processed_build_numbers"] = list(state.get("processed_build_numbers") or [])
     normalized["active"] = {
-        str(group_id): dict(row)
+        str(group_id): _normalize_entry(row)
         for group_id, row in (state.get("active") or {}).items()
+        if isinstance(row, dict)
+    }
+    normalized["pending_soft"] = {
+        str(group_id): _normalize_entry(row, pending=True)
+        for group_id, row in (state.get("pending_soft") or {}).items()
         if isinstance(row, dict)
     }
     normalized["group_watermarks"] = {
@@ -357,10 +429,13 @@ def _commit_range(
 
 
 def _watermark(build: dict, row: dict) -> dict:
+    created_at = str(build.get("created_at") or build.get("finished_at") or "")
+    finished_at = str(build.get("finished_at") or created_at)
     return {
         "build_number": int(build.get("number") or 0),
-        "created_at": str(build.get("created_at") or build.get("finished_at") or ""),
-        "finished_at": str(build.get("finished_at") or ""),
+        "order_at": created_at,
+        "created_at": created_at,
+        "finished_at": finished_at,
         "result": str(row.get("result") or ""),
         "commit": _commit(row.get("build_commit")) or _commit(build.get("commit")),
     }
@@ -369,10 +444,27 @@ def _watermark(build: dict, row: dict) -> dict:
 def _watermark_rank(row: dict) -> tuple[str, int, str]:
     number = row.get("build_number")
     return (
-        str(row.get("created_at") or row.get("finished_at") or ""),
+        str(row.get("order_at") or row.get("created_at") or row.get("finished_at") or ""),
         int(number) if isinstance(number, int) and not isinstance(number, bool) else 0,
         str(row.get("finished_at") or ""),
     )
+
+
+def _entry_transition(row: dict | None) -> dict | None:
+    transition = (row or {}).get("transition")
+    return dict(transition) if isinstance(transition, dict) else None
+
+
+def _advance_entry(previous: dict | None, row: dict, number: int) -> tuple[str, dict]:
+    decision = advance_incident(
+        _entry_transition(previous),
+        row.get("result"),
+        str(number),
+    )
+    evidence = dict(previous or {})
+    evidence.update(row)
+    evidence["transition"] = dict(decision["state"])
+    return str(decision["state"]["status"]), evidence
 
 
 def advance_incidents(
@@ -394,15 +486,33 @@ def advance_incidents(
     catalog_by_number = {int(build["number"]): build for build in catalog}
     cohort_numbers = set(catalog_by_number)
     observations = _observations_by_build(reliability)
-    build_rank = _build_source_rank if track_commit_range else _build_rank
+    # Creation order is the source-code chronology for both pipelines. A slow
+    # older build that completes later must not override a newer commit's result.
+    build_rank = _build_source_rank
     ordered_numbers = sorted(
         cohort_numbers,
         key=lambda number: build_rank(catalog_by_number[number]),
     )
     processed = set(updated.get("processed_build_numbers") or [])
     active = dict(updated.get("active") or {})
+    pending_soft = dict(updated.get("pending_soft") or {})
     watermarks = dict(updated.get("group_watermarks") or {})
     initializing = not updated.get("initialized")
+
+    if processed and not watermarks:
+        # Schema-v1 AMD state did not persist per-group ordering fences. Seed
+        # them only from builds already processed by that state, so a late
+        # older build cannot overwrite a newer result during migration.
+        for number in ordered_numbers:
+            if number not in processed:
+                continue
+            for group_id, row in observations.get(number, {}).items():
+                incoming_watermark = _watermark(catalog_by_number[number], row)
+                current_watermark = watermarks.get(group_id) or {}
+                if not current_watermark or _watermark_rank(incoming_watermark) > _watermark_rank(
+                    current_watermark
+                ):
+                    watermarks[group_id] = incoming_watermark
 
     if initializing:
         if initialize_from_history:
@@ -421,13 +531,13 @@ def advance_incidents(
 
     for number in to_process:
         for group_id, row in observations.get(number, {}).items():
-            if track_commit_range:
-                incoming_watermark = _watermark(catalog_by_number[number], row)
-                current_watermark = watermarks.get(group_id) or {}
-                if current_watermark and _watermark_rank(incoming_watermark) <= _watermark_rank(
-                    current_watermark
-                ):
-                    incident = active.get(group_id) or {}
+            incoming_watermark = _watermark(catalog_by_number[number], row)
+            current_watermark = watermarks.get(group_id) or {}
+            if current_watermark and _watermark_rank(incoming_watermark) <= _watermark_rank(
+                current_watermark
+            ):
+                if track_commit_range:
+                    incident = active.get(group_id) or pending_soft.get(group_id) or {}
                     bad_number = int(incident.get("bad_build_number") or 0)
                     bad_row = observations.get(bad_number, {}).get(group_id)
                     if (
@@ -448,28 +558,40 @@ def advance_incidents(
                                 catalog_by_number,
                             )
                         )
-                        active[group_id] = incident
-                    continue
-                watermarks[group_id] = incoming_watermark
-            if row["result"] == "passed":
-                active.pop(group_id, None)
-            else:
-                incident = dict(row)
-                if track_commit_range:
-                    incident.update(
-                        _commit_range(
-                            group_id,
-                            number,
-                            row,
-                            active.get(group_id) or {},
-                            ordered_numbers,
-                            observations,
-                            catalog_by_number,
-                        )
-                    )
-                active[group_id] = incident
+                        if group_id in active:
+                            active[group_id] = incident
+                        else:
+                            pending_soft[group_id] = incident
+                continue
+            watermarks[group_id] = incoming_watermark
 
-    if initializing and track_commit_range:
+            previous = active.get(group_id) or pending_soft.get(group_id)
+            status, incident = _advance_entry(previous, row, number)
+            if status == "clear":
+                active.pop(group_id, None)
+                pending_soft.pop(group_id, None)
+                continue
+
+            if track_commit_range and row["result"] != "passed":
+                incident.update(
+                    _commit_range(
+                        group_id,
+                        number,
+                        row,
+                        previous or {},
+                        ordered_numbers,
+                        observations,
+                        catalog_by_number,
+                    )
+                )
+            if status == "confirmed":
+                active[group_id] = incident
+                pending_soft.pop(group_id, None)
+            else:
+                pending_soft[group_id] = incident
+                active.pop(group_id, None)
+
+    if initializing:
         # Seed one latest source-order outcome per strict group without opening
         # historical incidents. This prevents an older, slow-finishing build
         # from overriding a newer result after the watcher is first enabled.
@@ -482,48 +604,67 @@ def advance_incidents(
                 ):
                     watermarks[group_id] = incoming_watermark
 
-    generated = _parse_ts(reliability.get("generated_at"))
-    if generated is not None:
-        cutoff = generated - INCIDENT_MAX_AGE
-        active = {
-            group_id: row
-            for group_id, row in active.items()
-            if (_parse_ts(row.get("observed_at")) or generated) >= cutoff
-        }
-
     updated["active"] = active
-    updated["group_watermarks"] = watermarks if track_commit_range else {}
+    updated["pending_soft"] = pending_soft
+    updated["group_watermarks"] = watermarks
     updated["processed_build_numbers"] = sorted(processed & cohort_numbers)
     return updated
 
 
 def _fingerprint(active: dict[str, dict]) -> str:
-    compact = [
-        {
-            "group_id": group_id,
-            "result": row.get("result"),
-            "build_number": row.get("build_number"),
-            "job_id": row.get("job_id"),
-            "good_commit": row.get("good_commit"),
-            "bad_commit": row.get("bad_commit"),
-            "commit_range_status": row.get("commit_range_status"),
-        }
-        for group_id, row in sorted(active.items())
-    ]
+    compact = []
+    for group_id, row in sorted(active.items()):
+        transition = _entry_transition(row) or _legacy_transition(row)
+        compact.append(
+            {
+                "group_id": group_id,
+                "generation": transition.get("incident_start_build_id"),
+                "peak_severity": transition.get("peak_severity"),
+            }
+        )
     encoded = json.dumps(compact, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _content_fingerprint(active: dict[str, dict]) -> str:
+    encoded = json.dumps(
+        {
+            "body_schema_version": ISSUE_BODY_SCHEMA_VERSION,
+            "active": active,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _migrate_signal_fingerprint(state: dict, active: dict[str, dict]) -> str:
+    signal_fingerprint = _fingerprint(active)
+    if _nonnegative_int(state.get("signal_fingerprint_version") or 1) < 2:
+        # Schema-v1 fingerprints included changing build/job evidence. Preserve
+        # manual-close suppression while moving it to the stable signal ID.
+        state["last_fingerprint"] = signal_fingerprint if active else ""
+        if state.get("suppressed"):
+            state["suppressed_fingerprint"] = signal_fingerprint
+        state["signal_fingerprint_version"] = 2
+    return signal_fingerprint
 
 
 def _md(value: Any) -> str:
     return str(value or "-").replace("|", "\\|").replace("\n", " ")
 
 
+def _peak_severity(row: dict) -> str:
+    transition = _entry_transition(row) or _legacy_transition(row)
+    return str(transition.get("peak_severity") or "soft")
+
+
 def _issue_title_for(active: dict[str, dict], config: WatcherConfig) -> str:
-    hard = sum(row.get("result") == "failed" for row in active.values())
-    soft = sum(row.get("result") == "soft_fail" for row in active.values())
+    hard = sum(_peak_severity(row) == "hard" for row in active.values())
+    soft = sum(_peak_severity(row) == "soft" for row in active.values())
     return (
-        f"{config.title_prefix}: {len(active)} unresolved test-group failures "
-        f"({hard} hard, {soft} soft)"
+        f"{config.title_prefix}: {len(active)} confirmed test-group failures "
+        f"({hard} peak hard, {soft} soft)"
     )
 
 
@@ -543,8 +684,8 @@ def _issue_body_for(
     owner: str,
     config: WatcherConfig,
 ) -> str:
-    hard = sum(row.get("result") == "failed" for row in active.values())
-    soft = sum(row.get("result") == "soft_fail" for row in active.values())
+    hard = sum(_peak_severity(row) == "hard" for row in active.values())
+    soft = sum(_peak_severity(row) == "soft" for row in active.values())
     generated_at = str(reliability.get("generated_at") or "unknown")
     rows = sorted(
         active.values(),
@@ -558,8 +699,8 @@ def _issue_body_for(
         f"## {config.heading}",
         "",
         (
-            f"**{len(active)} strict {config.scope_name} test groups are unresolved: "
-            f"{hard} hard, {soft} soft.**"
+            f"**{len(active)} strict {config.scope_name} test groups have confirmed "
+            f"unresolved incidents: {hard} peak hard, {soft} soft.**"
         ),
         "",
         "Signal rules:",
@@ -570,10 +711,12 @@ def _issue_body_for(
         ),
         "- Identity: exact test label + Buildkite step key + hardware + queue.",
         "- Retry handling: the latest eligible attempt for the same strict group inside a build wins.",
-        "- Resolution: the same strict group passes, or its last incident receives no new failure for 72 hours.",
+        "- Confirmation: a hard failure confirms immediately; a soft failure requires two distinct eligible builds.",
+        "- Resolution: only an explicit pass by the same strict group resolves an incident.",
+        "- Missing or indeterminate observations hold state without advancing or resolving it.",
         (
-            "- Soft-failed jobs count because they represent a failing test command "
-            "even when Buildkite permits the build to continue."
+            "- Soft-failed jobs remain visible as warnings and advance confirmation "
+            "because the test command failed even when Buildkite permits the build to continue."
         ),
         "",
         f"Collected at **{generated_at}**. [Open test health]({config.dashboard_url}).",
@@ -698,29 +841,38 @@ def run_watcher(config: WatcherConfig) -> int:
         initialize_from_history=config.initialize_from_history,
     )
     active = state.get("active") or {}
+    pending_soft = state.get("pending_soft") or {}
     observed_at = str(reliability.get("generated_at") or now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    title = _issue_title_for(active, config)
+    body = _issue_body_for(active, reliability, run_url, repo_owner(repo), config)
+    signal_fingerprint = _migrate_signal_fingerprint(state, active)
     client = GitHubIssueClient(token, repo)
     reconciled = reconcile_managed_issue(
         state,
         active=bool(active),
-        fingerprint=_fingerprint(active),
-        title=_issue_title_for(active, config),
-        body=_issue_body_for(active, reliability, run_url, repo_owner(repo), config),
+        fingerprint=signal_fingerprint,
+        content_fingerprint=_content_fingerprint(active),
+        title=title,
+        body=body,
         ownership_marker=config.ownership_marker,
         recovery_body=(
             f"No strict {config.scope_name} origin/main test-group incidents remain under the "
-            "watcher's 72-hour live-signal rule. Closing this tracked umbrella issue.\n\n"
+            "watcher's explicit-pass resolution rule. Closing this tracked umbrella issue.\n\n"
             f"*{run_url}*"
         ),
         observed_at=observed_at,
         label_specs=list(config.label_specs),
         client=client,
     )
+    reconciled["schema_version"] = 2
+    reconciled["signal_fingerprint_version"] = 2
     _write_state(reconciled, config.state)
     log.info(
-        "%s main watcher evaluated %d unresolved strict groups; issue=%s suppressed=%s",
+        "%s main watcher evaluated %d confirmed and %d pending-soft strict groups; "
+        "issue=%s suppressed=%s",
         config.pipeline,
         len(active),
+        len(pending_soft),
         (reconciled.get("issue") or {}).get("number"),
         reconciled.get("suppressed"),
     )

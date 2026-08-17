@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create one state-owned dashboard-repository issue per regressing CI area.
+"""Create one state-owned dashboard-repository issue per confirmed CI area.
 
 The latest AMD runtime result is read from the exact 160-row test matrix after
 the operations bundle is freshly built. Test targets are attributed back to their commit-pinned upstream
@@ -32,6 +32,7 @@ from vllm.ci.managed_issue import (  # noqa: E402
     validate_target_repo,
 )
 from vllm.ci.ownership import (  # noqa: E402
+    apply_incident_hysteresis,
     build_ownership_status,
     evaluate_availability,
     isoformat_z,
@@ -62,7 +63,8 @@ MAX_NIGHTLY_AGE = timedelta(hours=36)
 FUTURE_SKEW = timedelta(minutes=15)
 MAX_ISSUE_ROWS = 50
 OWNERSHIP_MARKER_PREFIX = "vllm-ci-dashboard:managed-alert:ci-area-regression"
-ISSUE_BODY_SCHEMA_VERSION = 2
+ISSUE_BODY_SCHEMA_VERSION = 3
+SIGNAL_FINGERPRINT_VERSION = 2
 GITHUB_LOGIN_RE = re.compile(
     r"(?=.{1,39}\Z)[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\Z"
 )
@@ -171,6 +173,27 @@ def _default_state() -> dict:
     }
 
 
+def _normalize_area_state(value: Any) -> dict:
+    """Normalize managed-issue fields without discarding watcher extensions."""
+    raw = value if isinstance(value, dict) else {}
+    state = normalize_managed_state(raw)
+    signals = raw.get("signals")
+    state["signals"] = {
+        str(signal_id): dict(signal)
+        for signal_id, signal in (signals or {}).items()
+        if isinstance(signal, dict)
+    } if isinstance(signals, dict) else {}
+    for key in (
+        "body_schema_version",
+        "signal_fingerprint_version",
+        "incident_state_version",
+    ):
+        raw_value = raw.get(key)
+        if isinstance(raw_value, int) and not isinstance(raw_value, bool):
+            state[key] = raw_value
+    return state
+
+
 def _read_state() -> dict:
     raw = _load_json(STATE)
     state = _default_state()
@@ -179,7 +202,7 @@ def _read_state() -> dict:
     areas = raw.get("areas")
     if isinstance(areas, dict):
         state["areas"] = {
-            str(area): normalize_managed_state(value)
+            str(area): _normalize_area_state(value)
             for area, value in areas.items()
             if isinstance(value, dict)
         }
@@ -265,23 +288,44 @@ def _owner_rank(area: dict) -> str:
 def _issue_title(area: dict) -> str:
     counts = area.get("counts") or {}
     return (
-        f"AMD CI regression [{area['source_file']}]: "
-        f"{int(counts.get('incidents') or 0)} failing target groups"
+        f"AMD CI confirmed incident [{area['source_file']}]: "
+        f"{int(counts.get('incidents') or 0)} affected target groups"
     )
+
+
+def _displayed_failure_evidence(row: dict) -> dict:
+    """Return the exact failure evidence rendered for one incident row."""
+    retained = row.get("last_failure_evidence") or {}
+    if not isinstance(retained, dict):
+        retained = {}
+    held = row.get("incident_observation_eligible") is False or str(
+        row.get("raw_result") or row.get("result") or ""
+    ).lower() in {"unobserved", "unknown", "indeterminate"}
+    primary, fallback = (retained, row) if held else (row, retained)
+    evidence = {}
+    for key in ("build_number", "observed_at", "url"):
+        value = primary.get(key)
+        if value in (None, ""):
+            value = fallback.get(key)
+        if value not in (None, ""):
+            evidence[key] = value
+    return evidence
 
 
 def _issue_body(area: dict, run_url: str) -> str:
     counts = area.get("counts") or {}
+    confirmed_hard = int(counts.get("confirmed_hard", counts.get("hard", 0)) or 0)
+    confirmed_soft = int(counts.get("confirmed_soft", counts.get("soft", 0)) or 0)
     selected = area.get("selected_owner") or {}
     actual = area.get("actual_assignee") or {}
     notification_lines, expected_mentions = _notification_lines(area)
     lines = [
-        f"## AMD CI regression — `{_md(area['source_file'])}`",
+        f"## AMD CI confirmed incident — `{_md(area['source_file'])}`",
         "",
         (
-            f"**{int(counts.get('incidents') or 0)} target groups are regressing: "
-            f"{int(counts.get('hard') or 0)} hard, "
-            f"{int(counts.get('soft') or 0)} soft.**"
+            f"**{int(counts.get('incidents') or 0)} target groups have confirmed incidents: "
+            f"{confirmed_hard} hard, "
+            f"{confirmed_soft} soft.**"
         ),
         "",
         f"Selected owner: **{_md(selected.get('display_name'))}** (rank {_owner_rank(area)}).",
@@ -304,27 +348,50 @@ def _issue_body(area: dict, run_url: str) -> str:
     lines.extend(
         [
             "",
-            "### Current regressions",
+            "### Confirmed incidents",
             "",
-            "| target group | latest result | build | observed |",
-            "|---|---|---|---|",
+            "| target group | confirmed severity | latest observation | build | observed |",
+            "|---|---|---|---|---|",
         ]
     )
     regressions = area.get("regressions") or []
     for row in regressions[:MAX_ISSUE_ROWS]:
+        evidence = _displayed_failure_evidence(row)
         label = _md(row.get("label"))
-        url = str(row.get("url") or "")
+        url = str(evidence.get("url") or "")
         label_md = f"[{label}]({url})" if url else label
-        build = int(row.get("build_number") or 0)
+        try:
+            build = int(evidence.get("build_number") or 0)
+        except (TypeError, ValueError, OverflowError):
+            build = 0
+        observed_at = evidence.get("observed_at")
+        observation = str(row.get("raw_result") or row.get("result") or "")
+        if row.get("incident_observation_eligible") is False:
+            observation = f"{observation} (ignored older build)"
         lines.append(
-            f"| {label_md} | {_md(row.get('result'))} | "
-            f"{f'#{build}' if build else '-'} | {_md(row.get('observed_at'))} |"
+            f"| {label_md} | {_md(row.get('incident_severity'))} | "
+            f"{_md(observation)} | "
+            f"{f'#{build}' if build else '-'} | {_md(observed_at)} |"
         )
     if len(regressions) > MAX_ISSUE_ROWS:
         lines.extend(
             [
                 "",
-                f"{len(regressions) - MAX_ISSUE_ROWS} additional regressions remain in managed state.",
+                f"{len(regressions) - MAX_ISSUE_ROWS} additional confirmed incidents remain in managed state.",
+            ]
+        )
+    pending = area.get("pending_soft_observations") or []
+    if pending:
+        lines.extend(
+            [
+                "",
+                "### Pending soft observations",
+                "",
+                (
+                    f"{len(pending)} soft target observations are visible but have not "
+                    "recurred on two distinct completed builds, so they do not open or "
+                    "escalate this incident."
+                ),
             ]
         )
     gaps = area.get("upstream_parity_gaps") or []
@@ -333,7 +400,7 @@ def _issue_body(area: dict, run_url: str) -> str:
             "",
             "### Area ownership expectations",
             "",
-            "- Fix the active regression and preserve exact evidence for the resolution.",
+            "- Fix the confirmed incident and preserve exact evidence for the resolution.",
             "- Simplify and improve test quality, including retiring obsolete model coverage.",
             "- Reduce test-group time to completion through measurement-backed refactoring.",
             "- Restore parity with upstream definitions when the AMD cadence diverges.",
@@ -363,7 +430,7 @@ def _issue_body(area: dict, run_url: str) -> str:
     return body
 
 
-def _fingerprint_payload(area: dict) -> dict:
+def _legacy_fingerprint_payload(area: dict) -> dict:
     return {
         "area": area.get("area"),
         "selected_owner": (area.get("selected_owner") or {}).get("github_login"),
@@ -390,11 +457,41 @@ def _hash_fingerprint_payload(compact: dict) -> str:
 
 def _legacy_fingerprint(area: dict) -> str:
     """Return the pre-notification-policy signal hash for state migration only."""
-    return _hash_fingerprint_payload(_fingerprint_payload(area))
+    return _hash_fingerprint_payload(_legacy_fingerprint_payload(area))
+
+
+def _fingerprint_payload(area: dict) -> dict:
+    """Return stable incident identity, excluding routing and build evidence."""
+    regressions = [
+        {
+            "id": str(row.get("id") or ""),
+            "generation": str(row.get("incident_start_build_id") or ""),
+            "peak_severity": str(
+                row.get("incident_peak_severity")
+                or row.get("incident_severity")
+                or row.get("result")
+                or ""
+            ),
+        }
+        for row in area.get("regressions") or []
+    ]
+    regressions.sort(key=lambda row: (row["id"], row["generation"]))
+    return {
+        "area": str(area.get("area") or ""),
+        "regressions": regressions,
+    }
 
 
 def _fingerprint(area: dict) -> str:
-    compact = _fingerprint_payload(area)
+    return _hash_fingerprint_payload(_fingerprint_payload(area))
+
+
+def _content_fingerprint(area: dict) -> str:
+    """Hash mutable issue presentation without changing suppression identity."""
+    compact = _legacy_fingerprint_payload(area)
+    compact["source_file"] = area.get("source_file")
+    compact["selected_owner"] = area.get("selected_owner")
+    compact["actual_assignee"] = area.get("actual_assignee")
     compact["owners"] = [
         {
             "rank": row.get("rank"),
@@ -402,6 +499,34 @@ def _fingerprint(area: dict) -> str:
             "display_name": row.get("display_name"),
         }
         for row in area.get("owners") or []
+    ]
+    compact["regressions"] = [
+        {
+            "id": row.get("id"),
+            "label": row.get("label"),
+            "result": row.get("result"),
+            "raw_result": row.get("raw_result"),
+            "incident_observation_eligible": row.get(
+                "incident_observation_eligible"
+            ),
+            "incident_severity": row.get("incident_severity"),
+            "incident_peak_severity": row.get("incident_peak_severity"),
+            "displayed_failure_evidence": _displayed_failure_evidence(row),
+        }
+        for row in area.get("regressions") or []
+    ]
+    compact["pending_soft_observations"] = [
+        {
+            "id": row.get("id"),
+            "label": row.get("label"),
+            "raw_result": row.get("raw_result"),
+            "incident_observation_eligible": row.get(
+                "incident_observation_eligible"
+            ),
+            "displayed_failure_evidence": _displayed_failure_evidence(row),
+            "soft_streak": row.get("soft_streak"),
+        }
+        for row in area.get("pending_soft_observations") or []
     ]
     return _hash_fingerprint_payload(compact)
 
@@ -412,8 +537,27 @@ def _migrate_body_schema_state(
     fingerprint: str,
     legacy_fingerprint: str,
 ) -> dict:
-    """Force one open-issue refresh without hiding genuine signal changes."""
-    normalized = normalize_managed_state(state)
+    """Migrate stable signal identity and force one open-body refresh."""
+    normalized = _normalize_area_state(state)
+    try:
+        signal_fingerprint_version = int(
+            normalized.get("signal_fingerprint_version") or 1
+        )
+    except (TypeError, ValueError):
+        signal_fingerprint_version = 1
+    if signal_fingerprint_version < SIGNAL_FINGERPRINT_VERSION:
+        # Previous area fingerprints included the latest build and routing
+        # decision, so they cannot be compared to the stable signal hash. Keep
+        # manual closes suppressed through this one-way migration and bind
+        # open issues to the current stable incident generation.
+        if normalized["suppressed"]:
+            normalized["suppressed_fingerprint"] = fingerprint
+            normalized["last_fingerprint"] = fingerprint
+        elif normalized.get("issue"):
+            normalized["last_fingerprint"] = fingerprint
+            normalized["last_content_fingerprint"] = ""
+        normalized["signal_fingerprint_version"] = SIGNAL_FINGERPRINT_VERSION
+
     try:
         body_schema = int(normalized.get("body_schema_version") or 1)
     except (TypeError, ValueError):
@@ -422,18 +566,19 @@ def _migrate_body_schema_state(
         return normalized
 
     if normalized["suppressed"]:
-        # The new signal hash includes the ordered CC chain. Preserve a manual
-        # close only when the stored legacy hash proves that the underlying
-        # regression and assignment signal is unchanged.
-        if normalized["suppressed_fingerprint"] == legacy_fingerprint:
+        # Schema-v1 suppression predates the ordered notification chain. This
+        # branch remains for state files that have not yet crossed the stable
+        # fingerprint migration above.
+        if (
+            signal_fingerprint_version >= SIGNAL_FINGERPRINT_VERSION
+            or normalized["suppressed_fingerprint"] == legacy_fingerprint
+        ):
             normalized["suppressed_fingerprint"] = fingerprint
             if normalized["last_fingerprint"] == legacy_fingerprint:
                 normalized["last_fingerprint"] = fingerprint
     elif normalized.get("issue"):
-        # Body schema is intentionally separate from signal identity. Clearing
-        # this value makes an existing open issue refresh once; a successful
-        # update stores the current signal hash again.
-        normalized["last_fingerprint"] = ""
+        # Body schema is intentionally separate from signal identity.
+        normalized["last_content_fingerprint"] = ""
     normalized["body_schema_version"] = ISSUE_BODY_SCHEMA_VERSION
     return normalized
 
@@ -505,6 +650,31 @@ def _checkpoint_state(areas: dict[str, dict], observed_at: str) -> None:
     )
 
 
+def _state_with_signals(managed: dict, signals: dict[str, dict]) -> dict:
+    merged = _normalize_area_state(managed)
+    merged["signals"] = signals
+    merged["incident_state_version"] = 1
+    return merged
+
+
+def _preserved_missing_area_states(
+    prior_areas: dict[str, dict],
+    current_area_keys: set[str],
+    next_signals: dict[str, dict[str, dict]],
+) -> dict[str, dict]:
+    return {
+        str(area_key): _state_with_signals(
+            prior_area,
+            next_signals.get(
+                str(area_key),
+                (prior_area.get("signals") or {}),
+            ),
+        )
+        for area_key, prior_area in prior_areas.items()
+        if isinstance(prior_area, dict) and str(area_key) not in current_area_keys
+    }
+
+
 def _can_mutate_area(active: bool, actual_assignee: dict) -> bool:
     return not active or bool(actual_assignee)
 
@@ -554,25 +724,50 @@ def run() -> int:
         generated_at=observed_at,
         attribution_parity=ownership_parity,
     )
+    state = _read_state()
+    prior_areas = state.get("areas") or {}
+    next_signals = apply_incident_hysteresis(status, prior_areas)
+    current_area_keys = {
+        str(area.get("area") or "")
+        for area in status.get("areas") or []
+        if isinstance(area, dict)
+    }
 
     token = os.getenv("GITHUB_TOKEN", "").strip()
     if not token:
         log.warning("GITHUB_TOKEN not set; writing dry-run ownership status without issue mutations")
         status["available"] = True
         status["issue_mutations"] = "disabled_missing_token"
+        dry_run_areas = _preserved_missing_area_states(
+            prior_areas,
+            current_area_keys,
+            next_signals,
+        )
+        dry_run_areas.update(
+            {
+                area_key: _state_with_signals(
+                    prior_areas.get(area_key) or {},
+                    signals,
+                )
+                for area_key, signals in next_signals.items()
+            }
+        )
+        _checkpoint_state(dry_run_areas, observed_at)
         _write_json(STATUS, status)
         return 0
 
     client = GitHubIssueClient(token, repo)
-    state = _read_state()
-    prior_areas = state.get("areas") or {}
     run_id = os.getenv("GITHUB_RUN_ID", "")
     run_url = (
         f"https://github.com/{repo}/actions/runs/{run_id}"
         if run_id
         else f"https://github.com/{repo}"
     )
-    next_areas: dict[str, dict] = {}
+    next_areas = _preserved_missing_area_states(
+        prior_areas,
+        current_area_keys,
+        next_signals,
+    )
     checkpoint_areas = dict(prior_areas)
     for area in status["areas"]:
         actual, assignment_reason = _actual_assignee(area, config, client)
@@ -585,7 +780,10 @@ def run() -> int:
                 "No assignee could be verified for %s; refusing to open or mutate its issue",
                 area["source_file"],
             )
-            preserved = normalize_managed_state(prior_areas.get(area_key) or {})
+            preserved = _state_with_signals(
+                prior_areas.get(area_key) or {},
+                next_signals.get(area_key) or {},
+            )
             checkpoint_areas[area_key] = preserved
             next_areas[area_key] = preserved
             area["issue_mutations"] = "skipped_no_verified_assignee"
@@ -600,22 +798,27 @@ def run() -> int:
             fingerprint=fingerprint,
             legacy_fingerprint=_legacy_fingerprint(area),
         )
+        prior_area = _state_with_signals(
+            prior_area,
+            next_signals.get(area_key) or {},
+        )
         reconciled = reconcile_managed_issue(
             prior_area,
             active=active,
             fingerprint=fingerprint,
+            content_fingerprint=_content_fingerprint(area),
             title=_issue_title(area),
             body=_issue_body(area, run_url),
             ownership_marker=marker,
             recovery_body=(
-                f"All latest AMD runtime regressions for `{area['source_file']}` have "
+                f"All confirmed AMD runtime incidents for `{area['source_file']}` have "
                 "recovered. Closing this tracked test-area issue.\n\n"
                 f"*{run_url}*"
             ),
             observed_at=observed_at,
             label_specs=[
                 ("automated", "6f42c1", "Managed by dashboard automation"),
-                ("amd-ci-regression", "d73a49", "Latest AMD CI target regression"),
+                ("amd-ci-regression", "d73a49", "Confirmed AMD CI target incident"),
                 ("workstream:dev", "1d76db", "AMD CI test-area development"),
                 (
                     f"test-area:{area_key}",
@@ -627,6 +830,8 @@ def run() -> int:
             assignees=assignees,
         )
         reconciled["body_schema_version"] = ISSUE_BODY_SCHEMA_VERSION
+        reconciled["signals"] = next_signals.get(area_key) or {}
+        reconciled["incident_state_version"] = 1
         next_areas[area_key] = reconciled
         checkpoint_areas[area_key] = reconciled
         _attach_issue(area, reconciled, repo)
