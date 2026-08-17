@@ -61,6 +61,30 @@ class TestWorkflowYAML:
             assert True in data or "on" in data, f"{f.name}: missing 'on' trigger field"
             assert "jobs" in data, f"{f.name}: missing 'jobs' field"
 
+    def test_expression_bearing_scalars_fit_github_parser_limit(self):
+        """GitHub rejects any interpolated YAML scalar longer than 21,000 chars."""
+
+        def scalars(value):
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    yield from scalars(key)
+                    yield from scalars(child)
+            elif isinstance(value, list):
+                for child in value:
+                    yield from scalars(child)
+            elif isinstance(value, str):
+                yield value
+
+        for workflow in WORKFLOWS.glob("*.yml"):
+            data = yaml.safe_load(workflow.read_text())
+            for scalar in scalars(data):
+                if "${{" not in scalar:
+                    continue
+                assert len(scalar) <= 21_000, (
+                    f"{workflow.name}: expression-bearing scalar is {len(scalar)} "
+                    "characters; GitHub's parser limit is 21000"
+                )
+
     def test_no_duplicate_concurrency_groups(self):
         # gh-pages-deploy is intentionally shared by every workflow that writes
         # to the gh-pages branch so those deploys serialize instead of racing.

@@ -1095,27 +1095,40 @@ jobs:
             steps.publication-selector.outputs.degraded == 'true'
           )
         uses: actions/github-script@v7
+        env:
+          HOURLY_TEST_EXIT_CODE: ${{ steps.run-tests.outputs.exit_code }}
+          HOURLY_TEST_SUMMARY: ${{ steps.run-tests.outputs.summary }}
+          HOURLY_TEST_FAILURES: ${{ steps.run-tests.outputs.failures }}
+          HOURLY_TEST_OUTPUT: ${{ steps.run-tests.outputs.output }}
+          HOURLY_SELECTOR_OUTCOME: ${{ steps.publication-selector.outcome }}
+          HOURLY_SELECTOR_DEGRADED: ${{ steps.publication-selector.outputs.degraded }}
+          HOURLY_FORCED_SURFACES: ${{ steps.publication-selector.outputs.forced_surfaces }}
+          HOURLY_LIVE_AUDIT_OUTCOME: ${{ steps.live-data-audit.outcome }}
+          HOURLY_LIVE_AUDIT_EXIT_CODE: ${{ steps.live-data-audit.outputs.exit_code }}
+          HOURLY_LIVE_AUDIT_SUMMARY: ${{ steps.live-data-audit.outputs.summary }}
+          HOURLY_LIVE_AUDIT_OUTPUT: ${{ steps.live-data-audit.outputs.output }}
+          HOURLY_LIVE_AUDIT_FINDINGS: ${{ steps.live-data-audit.outputs.findings }}
         with:
           script: |
             const fs = require('fs');
-            const testExitCode = ${{ toJSON(steps.run-tests.outputs.exit_code) }} || '';
+            const testExitCode = process.env.HOURLY_TEST_EXIT_CODE || '';
             const hasTestFailure = testExitCode !== '' && testExitCode !== '0';
-            const testSummary = ${{ toJSON(steps.run-tests.outputs.summary) }} || 'Tests did not run';
-            const failures = ${{ toJSON(steps.run-tests.outputs.failures) }} || 'No concise failure summary captured.';
-            const output = ${{ toJSON(steps.run-tests.outputs.output) }} || 'No output captured';
-            const selectorOutcome = ${{ toJSON(steps.publication-selector.outcome) }} || 'unknown';
-            const selectorDegraded = (${{ toJSON(steps.publication-selector.outputs.degraded) }} || '') === 'true';
-            const forcedSurfaces = ${{ toJSON(steps.publication-selector.outputs.forced_surfaces) }} || '';
-            const liveAuditOutcome = ${{ toJSON(steps.live-data-audit.outcome) }} || 'unavailable';
-            const liveAuditExitCode = ${{ toJSON(steps.live-data-audit.outputs.exit_code) }} || '';
-            const liveAuditSummary = ${{ toJSON(steps.live-data-audit.outputs.summary) }} || 'Live publication audit did not produce a summary';
-            const liveAuditOutput = ${{ toJSON(steps.live-data-audit.outputs.output) }} || 'No live publication audit output captured';
+            const testSummary = process.env.HOURLY_TEST_SUMMARY || 'Tests did not run';
+            const failures = process.env.HOURLY_TEST_FAILURES || 'No concise failure summary captured.';
+            const output = process.env.HOURLY_TEST_OUTPUT || 'No output captured';
+            const selectorOutcome = process.env.HOURLY_SELECTOR_OUTCOME || 'unknown';
+            const selectorDegraded = (process.env.HOURLY_SELECTOR_DEGRADED || '') === 'true';
+            const forcedSurfaces = process.env.HOURLY_FORCED_SURFACES || '';
+            const liveAuditOutcome = process.env.HOURLY_LIVE_AUDIT_OUTCOME || 'unavailable';
+            const liveAuditExitCode = process.env.HOURLY_LIVE_AUDIT_EXIT_CODE || '';
+            const liveAuditSummary = process.env.HOURLY_LIVE_AUDIT_SUMMARY || 'Live publication audit did not produce a summary';
+            const liveAuditOutput = process.env.HOURLY_LIVE_AUDIT_OUTPUT || 'No live publication audit output captured';
             const hasLiveAuditFailure = selectorOutcome === 'success' &&
               (liveAuditOutcome !== 'success' || liveAuditExitCode !== '0');
             let liveAuditFindings = [];
             try {
               const parsedFindings = JSON.parse(
-                ${{ toJSON(steps.live-data-audit.outputs.findings) }} || '[]',
+                process.env.HOURLY_LIVE_AUDIT_FINDINGS || '[]',
               );
               liveAuditFindings = Array.isArray(parsedFindings) ? parsedFindings : [];
             } catch (error) {
