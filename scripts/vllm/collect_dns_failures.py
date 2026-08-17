@@ -78,7 +78,11 @@ REQUEST_TIMEOUT = (15, 120)
 RETRYABLE_HTTP_STATUSES = frozenset({429, 500, 502, 503, 504, 520, 522, 524})
 REQUESTS_PER_MINUTE = 30
 REQUEST_INTERVAL_SECONDS = 60 / REQUESTS_PER_MINUTE
-MAX_CONCURRENT_LOG_FETCHES = 3
+# Production logs average about eleven seconds per response. Eight workers are
+# enough to hide that latency behind the unchanged two-second admission pace,
+# while bounding raw in-flight log content to 128 MiB on the Actions runner.
+MAX_CONCURRENT_LOG_FETCHES = 8
+MAX_IN_FLIGHT_RAW_LOG_BYTES = MAX_CONCURRENT_LOG_FETCHES * MAX_LOG_BYTES
 SHARED_QUOTA_RESERVE = 10
 ACTIVE_BUILD_STATES = (
     "creating",
