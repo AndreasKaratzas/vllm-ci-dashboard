@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cspell:ignore AKIA baprs bxox gaierror xoxb
+# cspell:ignore AKIA ASIA baprs bkua bxox gaierror github_pat xapp xoxb
 """Audit the dashboard's generated data, frontend contracts, and deploy path.
 
 The normal pytest suite has focused unit and schema checks. This script is the
@@ -126,9 +126,15 @@ DNS_ARBITRARY_HOST_RE = re.compile(
     re.IGNORECASE,
 )
 DNS_SECRET_OR_URL_RE = re.compile(
-    r"(?:bkua_[A-Za-z0-9]+|\bhf_[A-Za-z0-9]{16,}|\bAKIA[0-9A-Z]{16}\b|"
-    r"\bxox[baprs]-[A-Za-z0-9-]{16,}|"
-    r"authorization\s*:|bearer\s+[A-Za-z0-9._~+/-]+|-----BEGIN [A-Z ]+PRIVATE KEY-----|"
+    r"(?:\b(?:xox[a-z]|xapp)-[A-Za-z0-9-]{12,}|"
+    r"\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,})|"
+    r"\bbk[a-z]{1,6}_[A-Za-z0-9]{16,}|\bhf_[A-Za-z0-9]{16,}|"
+    r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|"
+    r"\bauthorization\s*[:=]|"
+    r"\b(?:bearer|basic)\s+[A-Za-z0-9+/_.~=-]{12,}|"
+    r"-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY(?: BLOCK)?-----|"
+    r"\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|"
+    r"password|secret|token)\b[\"']?\s*[:=]\s*[\"']?[A-Za-z0-9+/_.~=-]{8,}|"
     r"(?:https?|s3)://|git@)",
     re.IGNORECASE,
 )
