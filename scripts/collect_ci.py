@@ -499,7 +499,13 @@ def collect_pipeline(
             latest_build_num,
             latest_terminal_build_num,
         )
-        if verify_candidate and state in cfg.TERMINAL_STATES:
+        # The discovery list intentionally excludes embedded jobs. A restored
+        # local roster can avoid this detail request, but clean GitHub runners
+        # still need every selected terminal nightly hydrated: downstream
+        # completeness checks must not discard otherwise valid historical
+        # JSONL evidence merely because its list summary had no ``jobs`` key.
+        roster_missing = not isinstance(build.get("jobs"), list) or not build["jobs"]
+        if state in cfg.TERMINAL_STATES and (verify_candidate or roster_missing):
             try:
                 detail = fetch_build_detail(pipeline_key, build_num)
                 build.clear()
