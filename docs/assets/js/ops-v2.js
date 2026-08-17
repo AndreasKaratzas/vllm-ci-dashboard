@@ -13,12 +13,14 @@
   const cache = new Map();
   const charts = new Map();
   const QUEUE_AUTO_REFRESH_MS = 5 * 60 * 1000;
+  const DNS_AUTO_REFRESH_MS = 5 * 60 * 1000;
   const QUEUE_LIVE_BASE = 'https://raw.githubusercontent.com/AndreasKaratzas/vllm-ci-dashboard/queue-data/data/vllm/ci/';
   const QUEUE_LIFECYCLE_LIVE_BASE = 'https://raw.githubusercontent.com/AndreasKaratzas/vllm-ci-dashboard/queue-lifecycle-data/data/vllm/ci/';
   const QUEUE_DNS_LIVE_BASE = 'https://raw.githubusercontent.com/AndreasKaratzas/vllm-ci-dashboard/dns-health-data/data/vllm/ci/';
   let operationsManifestPromise = null;
   let chartLibraryPromise = null;
   let lastQueueRefreshAt = 0;
+  let lastDnsRefreshAt = 0;
   const SOURCE_ASSETS = {
     operations: 'data/vllm/ci/operations_v2_manifest.json',
     operationsManifest: 'data/vllm/ci/operations_v2_manifest.json',
@@ -50,6 +52,8 @@
     analyticsGroupCohort: 'main',
     analyticsAmdFilter: 'attention',
     analyticsWindow: '24h',
+    analyticsDnsScope: 'amd',
+    analyticsDnsWindow: '24h',
     agentWindow: '7d',
     agentGpu: 'all',
     agentNode: '',
@@ -61,7 +65,6 @@
     queueView: 'current',
     queueRange: '24h',
     queueHistoryQueue: 'fleet',
-    queueDnsWindow: '24h',
     queueIncludeIdle: false,
     trajectoryWindow: '24h',
     trajectoryView: 'workload',
@@ -93,11 +96,12 @@
     'ci-analytics': new Set([
       'ops_analytics_view', 'ops_analytics_pipeline', 'ops_analytics_search',
       'ops_analytics_group', 'ops_analytics_cohort', 'ops_analytics_amd_filter',
-      'ops_analytics_window', 'ops_agent_window', 'ops_agent_gpu', 'ops_agent_node',
+      'ops_analytics_window', 'ops_analytics_dns_scope', 'ops_analytics_dns_window',
+      'ops_agent_window', 'ops_agent_gpu', 'ops_agent_node',
       'ops_agent_cofail', 'ops_agent_excl_cancel', 'ops_agent_nightly',
       'ops_agent_signal', 'ops_detail',
     ]),
-    'ci-queue': new Set(['ops_queue_view', 'ops_queue_range', 'ops_queue_scope', 'ops_queue_history_queue', 'ops_queue_dns_window', 'ops_detail']),
+    'ci-queue': new Set(['ops_queue_view', 'ops_queue_range', 'ops_queue_scope', 'ops_queue_history_queue', 'ops_detail']),
     'ci-hotness': new Set([
       'ops_trajectory_view', 'ops_trajectory_window',
       'ops_capacity_mode', 'ops_capacity_baseline', 'ops_capacity_groups',
@@ -121,6 +125,8 @@
     analytics_cohort: 'main',
     analytics_amd_filter: 'attention',
     analytics_window: '24h',
+    analytics_dns_scope: 'amd',
+    analytics_dns_window: '24h',
     agent_window: '7d',
     agent_gpu: 'all',
     agent_node: '',
@@ -132,7 +138,6 @@
     queue_range: '24h',
     queue_scope: 'amd',
     queue_history_queue: 'fleet',
-    queue_dns_window: '24h',
     trajectory_window: '24h',
     trajectory_view: 'workload',
     capacity_mode: 'groups',
@@ -388,13 +393,15 @@
         ['healthResult', 'health_result', ['all', 'incident', 'unobserved', 'passed']],
       ],
       'ci-analytics': [
-        ['analyticsView', 'analytics_view', ['groups', 'flakes', 'nightlies', 'retries', 'latency', 'agent-health']],
+        ['analyticsView', 'analytics_view', ['groups', 'flakes', 'nightlies', 'retries', 'latency', 'dns', 'agent-health']],
         ['analyticsPipeline', 'analytics_pipeline', ['ci', 'amd-ci']],
         ['analyticsSearch', 'analytics_search', null],
         ['analyticsGroupId', 'analytics_group', null],
         ['analyticsGroupCohort', 'analytics_cohort', ['main', 'nightly']],
         ['analyticsAmdFilter', 'analytics_amd_filter', ['attention', 'all', 'passing', 'incident', 'missing', 'mixed']],
         ['analyticsWindow', 'analytics_window', ['1h', '3h', '6h', '24h', '7d', '30d']],
+        ['analyticsDnsScope', 'analytics_dns_scope', ['canonical', 'amd']],
+        ['analyticsDnsWindow', 'analytics_dns_window', ['1h', '3h', '12h', '24h', '72h', '168h', '720h']],
         ['agentWindow', 'agent_window', ['1d', '3d', '7d', '14d', '30d', '60d']],
         ['agentGpu', 'agent_gpu', null],
         ['agentNode', 'agent_node', null],
@@ -404,11 +411,10 @@
         ['agentSignal', 'agent_signal', ['infra', 'hard', 'all']],
       ],
       'ci-queue': [
-        ['queueView', 'queue_view', ['current', 'lifecycle', 'history', 'jobs', 'dns']],
+        ['queueView', 'queue_view', ['current', 'lifecycle', 'history', 'jobs']],
         ['queueRange', 'queue_range', ['24h', '7d', '30d']],
         ['queueScope', 'queue_scope', ['canonical', 'amd', 'all']],
         ['queueHistoryQueue', 'queue_history_queue', null],
-        ['queueDnsWindow', 'queue_dns_window', ['1h', '3h', '12h', '24h', '72h', '168h', '720h']],
       ],
       'ci-hotness': [
         ['trajectoryView', 'trajectory_view', ['workload', 'capacity']],
@@ -444,6 +450,36 @@
       state[spec[0]] = next && (!spec[2] || spec[2].includes(next)) ? next : fallback;
     });
     if (tabId === 'ci-analytics' && queryValue('analytics_search') !== null) state.analyticsView = 'groups';
+  }
+
+  function migrateLegacyQueueDnsRoute(tabId) {
+    if (tabId !== 'ci-queue' || queryValue('queue_view') !== 'dns') return false;
+    try {
+      const url = new URL(window.location.href);
+      const oldWindow = String(url.searchParams.get('ops_queue_dns_window') || '24h');
+      const dnsWindow = ['1h', '3h', '12h', '24h', '72h', '168h', '720h'].includes(oldWindow)
+        ? oldWindow
+        : '24h';
+      const dnsScope = url.searchParams.get('ops_queue_scope') === 'canonical' ? 'canonical' : 'amd';
+      Array.from(url.searchParams.keys()).forEach(function (key) {
+        if (key.startsWith('ops_queue_')) url.searchParams.delete(key);
+      });
+      url.searchParams.set('ops_analytics_view', 'dns');
+      if (dnsWindow === '24h') url.searchParams.delete('ops_analytics_dns_window');
+      else url.searchParams.set('ops_analytics_dns_window', dnsWindow);
+      if (dnsScope === 'amd') url.searchParams.delete('ops_analytics_dns_scope');
+      else url.searchParams.set('ops_analytics_dns_scope', dnsScope);
+      url.hash = 'ci-analytics';
+      window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+      if (window.__dashboardNav && typeof window.__dashboardNav.switchTab === 'function') {
+        window.__dashboardNav.switchTab('ci-analytics', {updateHash: false});
+      } else {
+        window.location.hash = 'ci-analytics';
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   function navigateTo(tabId, updates) {
@@ -2623,6 +2659,7 @@
       if (state.analyticsView === 'groups') return ['amd_test_health'];
       if (state.analyticsView === 'agent-health') return ['amd_agent_health'];
       if (state.analyticsView === 'nightlies') return ['nightly'];
+      if (state.analyticsView === 'dns') return [];
       return ['reliability'];
     }
     if (tabId === 'ci-queue') return ['queue'];
@@ -2673,6 +2710,7 @@
   }
 
   async function loadOperations(tabId) {
+    if (tabId === 'ci-analytics' && state.analyticsView === 'dns') return {};
     const manifest = await operationsManifest();
     if (!manifest || !manifest.shell || !manifest.sections) {
       throw new Error('Operations manifest is incomplete');
@@ -6464,7 +6502,44 @@
     }));
   }
 
+  function analyticsViewSelector() {
+    return segmented([
+      {id: 'groups', label: 'AMD test health'}, {id: 'flakes', label: 'Flake comparison'},
+      {id: 'retries', label: 'Retry comparison'}, {id: 'latency', label: 'Latency comparison'},
+      {id: 'nightlies', label: 'AMD nightlies'}, {id: 'dns', label: 'DNS health'},
+      {id: 'agent-health', label: 'CI agent health'},
+    ], state.analyticsView, function (id) {
+      setRouteState('ci-analytics', 'analyticsView', id, 'analytics_view');
+    }, 'CI Analytics view');
+  }
+
   async function renderAnalytics(host, ops) {
+    const analyticsRenderToken = host.dataset.renderToken;
+    if (state.analyticsView === 'dns') {
+      add(host, pageHeader('CI Analytics', 'DNS resolver observations by AMD queue and physical node, with final job outcomes and exact Buildkite evidence.'));
+      host.append(analyticsViewSelector());
+      const loading = n('div', 'ops-loading ops-dns-loading', 'Loading DNS observations...');
+      host.append(loading);
+      try {
+        const payload = await loadQueueDns();
+        if (host.dataset.renderToken !== analyticsRenderToken || state.analyticsView !== 'dns') return;
+        loading.remove();
+        setFreshness(payload);
+        renderAnalyticsDns(host, payload);
+      } catch (error) {
+        if (host.dataset.renderToken !== analyticsRenderToken || state.analyticsView !== 'dns') return;
+        loading.remove();
+        const unavailable = n('div', 'ops-error');
+        add(unavailable, [
+          n('strong', '', 'DNS observation data is unavailable. '),
+          n('span', '', (error && error.message) || String(error)),
+          externalLink('Open live DNS asset', SOURCE_ASSETS.queueDns, 'ops-button'),
+          externalLink('Open Pages DNS fallback', SOURCE_ASSETS.queueDnsFallback, 'ops-button'),
+        ]);
+        host.append(unavailable);
+      }
+      return;
+    }
     const reliability = canonicalReliability(ops);
     const amdHealth = ops.amd_test_health || {};
     const retry = reliability.retry_analysis || {};
@@ -6482,11 +6557,7 @@
         ? ((amdHealth.summary || {}).latest_observed_at || ops.generated_at)
         : ops.generated_at;
     add(host, pageHeader('CI Analytics', 'AMD health is primary. Flakes, retries, and latency compare upstream AMD mirror jobs only with their exact CUDA-name equivalents.', analyticsObservedAt));
-    host.append(segmented([
-      {id: 'groups', label: 'AMD test health'}, {id: 'flakes', label: 'Flake comparison'},
-      {id: 'retries', label: 'Retry comparison'}, {id: 'latency', label: 'Latency comparison'},
-      {id: 'nightlies', label: 'AMD nightlies'}, {id: 'agent-health', label: 'CI agent health'},
-    ], state.analyticsView, function (id) { setRouteState('ci-analytics', 'analyticsView', id, 'analytics_view'); }, 'CI Analytics view'));
+    host.append(analyticsViewSelector());
     if (state.analyticsView === 'groups') {
       renderAmdHealth(host, amdHealth);
       return;
@@ -7429,10 +7500,14 @@
   const QUEUE_DNS_WINDOW_IDS = QUEUE_DNS_WINDOW_OPTIONS.map(function (option) { return option.id; });
   const QUEUE_DNS_STALE_MS = 3 * 60 * 60 * 1000;
   const QUEUE_DNS_FETCH_TIMEOUT_MS = 8 * 1000;
+  const QUEUE_DNS_ARBITRATION_MS = 200;
+  const QUEUE_DNS_OUTCOME_CONTRACT = 'dns-job-outcomes-v1';
   const QUEUE_DNS_PIPELINES = new Set(['amd-ci', 'ci']);
   const QUEUE_DNS_JOB_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const QUEUE_DNS_UTC_SECOND_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
   const QUEUE_DNS_WINDOW_METRIC_KEYS = ['first_at', 'last_at', 'episodes', 'match_count', 'signature_ids', 'target_categories'];
+  let queueDnsPreferredCandidate = null;
+  let queueDnsFetchGeneration = 0;
 
   function queueDnsCount(raw) {
     if (raw === null || raw === undefined || raw === '' || typeof raw === 'boolean') return 0;
@@ -7440,10 +7515,30 @@
     return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 0;
   }
 
+  function queueDnsOutcomeCounts(raw) {
+    const source = raw || {};
+    const keys = ['passed_jobs', 'soft_failed_jobs', 'hard_failed_jobs'];
+    const available = keys.every(function (key) {
+      return Object.prototype.hasOwnProperty.call(source, key)
+        && Number.isInteger(source[key]) && source[key] >= 0;
+    }) && Number.isInteger(source.affected_jobs) && source.affected_jobs >= 0;
+    const passed = queueDnsCount(source.passed_jobs);
+    const softFailed = queueDnsCount(source.soft_failed_jobs);
+    const hardFailed = queueDnsCount(source.hard_failed_jobs);
+    return {
+      available: available && passed + softFailed + hardFailed === queueDnsCount(source.affected_jobs),
+      passed: passed,
+      softFailed: softFailed,
+      hardFailed: hardFailed,
+    };
+  }
+
   function queueDnsPayloadValid(payload) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
     if (payload.schema_version !== 1 || queueTimestamp(payload.generated_at) === -Infinity) return false;
     if (!payload.retention || typeof payload.retention !== 'object' || Array.isArray(payload.retention)) return false;
+    const outcomesMarked = Object.prototype.hasOwnProperty.call(payload, 'outcome_contract');
+    if (outcomesMarked && payload.outcome_contract !== QUEUE_DNS_OUTCOME_CONTRACT) return false;
     if (!Array.isArray(payload.window_options) || payload.window_options.length !== QUEUE_DNS_WINDOW_OPTIONS.length) return false;
     if (!payload.window_options.every(function (option, index) {
       const expected = QUEUE_DNS_WINDOW_OPTIONS[index];
@@ -7461,16 +7556,31 @@
     if (publishedWindowIds.length !== QUEUE_DNS_WINDOW_IDS.length
       || !QUEUE_DNS_WINDOW_IDS.every(function (id) { return publishedWindowIds.includes(id); })) return false;
     const generatedAtMs = queueTimestamp(payload.generated_at);
+    if (queueTimestamp(payload.retention.end_exclusive) !== generatedAtMs) return false;
     const windowsValid = QUEUE_DNS_WINDOW_OPTIONS.every(function (option) {
       const windowBlock = payload.windows[option.id];
       const startMs = queueTimestamp(windowBlock && windowBlock.start);
       const endMs = queueTimestamp(windowBlock && windowBlock.end_exclusive);
-      return windowBlock && typeof windowBlock === 'object' && !Array.isArray(windowBlock)
+      const structurallyValid = windowBlock && typeof windowBlock === 'object' && !Array.isArray(windowBlock)
         && startMs !== -Infinity && endMs === generatedAtMs
         && endMs - startMs === option.hours * 60 * 60 * 1000
         && windowBlock.coverage && typeof windowBlock.coverage === 'object' && !Array.isArray(windowBlock.coverage)
         && windowBlock.totals && typeof windowBlock.totals === 'object' && !Array.isArray(windowBlock.totals)
         && Array.isArray(windowBlock.rows);
+      if (!structurallyValid || !outcomesMarked) return Boolean(structurallyValid);
+      const totals = queueDnsOutcomeCounts(windowBlock.totals);
+      if (!totals.available || !windowBlock.rows.every(function (row) {
+        return queueDnsOutcomeCounts(row).available;
+      })) return false;
+      return [
+        ['passed_jobs', totals.passed],
+        ['soft_failed_jobs', totals.softFailed],
+        ['hard_failed_jobs', totals.hardFailed],
+      ].every(function (entry) {
+        return entry[1] === windowBlock.rows.reduce(function (sum, row) {
+          return sum + queueDnsCount(row[entry[0]]);
+        }, 0);
+      });
     });
     return windowsValid && payload.evidence.items.every(function (row) {
       return queueDnsEvidenceItemValid(row, payload.windows);
@@ -7503,17 +7613,56 @@
 
   async function loadQueueDns(requestedTimeoutMs) {
     const sources = [SOURCE_ASSETS.queueDns, SOURCE_ASSETS.queueDnsFallback];
-    const results = await Promise.allSettled(sources.map(function (source) {
-      return queueDnsWithTimeout(fetchJSON(source), source, requestedTimeoutMs);
-    }));
-    const candidates = results.map(function (result, index) {
-      return result.status === 'fulfilled' && queueDnsPayloadValid(result.value)
-        ? {payload: result.value, source: sources[index], priority: index}
-        : null;
-    }).filter(Boolean);
-    if (!candidates.length) throw new Error('No valid DNS failure aggregate is available');
-    candidates.sort(compareQueueDnsCandidates);
-    return Object.assign({}, candidates[0].payload, {__sourceAsset: candidates[0].source});
+    if (queueDnsPreferredCandidate) {
+      return Object.assign({}, queueDnsPreferredCandidate.payload, {__sourceAsset: queueDnsPreferredCandidate.source});
+    }
+    const generation = queueDnsFetchGeneration;
+    const resolved = [];
+    const attempts = sources.map(function (source, index) {
+      return queueDnsWithTimeout(fetchJSON(source), source, requestedTimeoutMs).then(function (payload) {
+        if (!queueDnsPayloadValid(payload)) throw new Error('DNS failure source is invalid: ' + source);
+        const candidate = {payload: payload, source: source, priority: index};
+        resolved.push(candidate);
+        return candidate;
+      });
+    });
+    let first;
+    try {
+      first = await Promise.any(attempts);
+    } catch (_) {
+      throw new Error('No valid DNS failure aggregate is available');
+    }
+    const requested = Number(requestedTimeoutMs);
+    const arbitrationMs = Number.isFinite(requested) && requested > 0
+      ? Math.min(QUEUE_DNS_ARBITRATION_MS, requested)
+      : QUEUE_DNS_ARBITRATION_MS;
+    await Promise.race([
+      Promise.allSettled(attempts),
+      new Promise(function (resolve) { window.setTimeout(resolve, arbitrationMs); }),
+    ]);
+    const selected = resolved.slice().sort(compareQueueDnsCandidates)[0] || first;
+    if (generation === queueDnsFetchGeneration) {
+      queueDnsPreferredCandidate = selected;
+      lastDnsRefreshAt = Date.now();
+    }
+
+    // A slower source may still carry a newer publication. Keep it bounded by
+    // queueDnsWithTimeout, then upgrade the visible view only when it wins the
+    // timestamp/priority comparison. Equal timestamps continue to prefer live.
+    Promise.allSettled(attempts).then(function () {
+      if (generation !== queueDnsFetchGeneration || !resolved.length) return;
+      const newest = resolved.slice().sort(compareQueueDnsCandidates)[0];
+      const current = queueDnsPreferredCandidate;
+      if (!current || compareQueueDnsCandidates(newest, current) < 0) {
+        queueDnsPreferredCandidate = newest;
+        if (typeof document.querySelector === 'function'
+          && activeTab() === 'ci-analytics'
+          && state.analyticsView === 'dns') {
+          render('ci-analytics', true);
+        }
+      }
+    });
+    return Object.assign({}, selected.payload, {__sourceAsset: selected.source});
   }
 
   function queueDnsWindow(payload, requestedWindow) {
@@ -7603,6 +7752,7 @@
       const nodeRaw = String((raw || {}).node || '').trim();
       const node = nodeRaw || '(unidentified)';
       const key = queue + '\u001f' + node;
+      const outcomes = queueDnsOutcomeCounts(raw);
       const current = grouped.get(key) || {
         queue: queue,
         node: node,
@@ -7611,11 +7761,19 @@
         episodes: 0,
         huggingfaceAffectedJobs: 0,
         evidenceTotal: 0,
+        passedJobs: 0,
+        softFailedJobs: 0,
+        hardFailedJobs: 0,
+        outcomesAvailable: true,
       };
       current.affectedJobs += queueDnsCount(raw.affected_jobs);
       current.episodes += queueDnsCount(raw.episodes);
       current.huggingfaceAffectedJobs += queueDnsCount(raw.huggingface_affected_jobs);
       current.evidenceTotal += queueDnsCount(raw.evidence_total);
+      current.passedJobs += outcomes.passed;
+      current.softFailedJobs += outcomes.softFailed;
+      current.hardFailedJobs += outcomes.hardFailed;
+      current.outcomesAvailable = current.outcomesAvailable && outcomes.available;
       grouped.set(key, current);
     });
     return Array.from(grouped.values()).sort(function (left, right) {
@@ -7634,19 +7792,27 @@
         episodes: 0,
         huggingfaceAffectedJobs: 0,
         evidenceTotal: 0,
+        passedJobs: 0,
+        softFailedJobs: 0,
+        hardFailedJobs: 0,
+        outcomesAvailable: true,
         nodes: [],
       };
       row.affectedJobs += node.affectedJobs;
       row.episodes += node.episodes;
       row.huggingfaceAffectedJobs += node.huggingfaceAffectedJobs;
       row.evidenceTotal += node.evidenceTotal;
+      row.passedJobs += node.passedJobs;
+      row.softFailedJobs += node.softFailedJobs;
+      row.hardFailedJobs += node.hardFailedJobs;
+      row.outcomesAvailable = row.outcomesAvailable && node.outcomesAvailable;
       row.nodes.push(node);
       byQueue.set(node.queue, row);
     });
     (queueRoster || []).forEach(function (queue) {
       const name = String(queue || '').trim();
       if (name && queueDnsMatchesPublishedScope(name, requestedScope) && !byQueue.has(name)) {
-        byQueue.set(name, {queue: name, affectedJobs: 0, episodes: 0, huggingfaceAffectedJobs: 0, evidenceTotal: 0, nodes: []});
+        byQueue.set(name, {queue: name, affectedJobs: 0, episodes: 0, huggingfaceAffectedJobs: 0, evidenceTotal: 0, passedJobs: 0, softFailedJobs: 0, hardFailedJobs: 0, outcomesAvailable: false, nodes: []});
       }
     });
     return Array.from(byQueue.values()).sort(function (left, right) {
@@ -7746,6 +7912,31 @@
     });
   }
 
+  function queueDnsNodeOutcomes(payload, windowId, nodeRow) {
+    if (payload.outcome_contract === QUEUE_DNS_OUTCOME_CONTRACT && nodeRow.outcomesAvailable) {
+      return {
+        available: true,
+        passed: nodeRow.passedJobs,
+        softFailed: nodeRow.softFailedJobs,
+        hardFailed: nodeRow.hardFailedJobs,
+      };
+    }
+    const retained = queueDnsEvidenceForNode(payload, windowId, nodeRow.queue, nodeRow.nodeRaw);
+    if (retained.length !== nodeRow.affectedJobs || retained.length < nodeRow.evidenceTotal) {
+      return {available: false, passed: 0, softFailed: 0, hardFailed: 0};
+    }
+    const counts = {available: true, passed: 0, softFailed: 0, hardFailed: 0};
+    retained.forEach(function (row) {
+      const stateName = String(row.state || '').toLowerCase();
+      if (stateName === 'passed') counts.passed += 1;
+      else if (stateName === 'soft' || stateName === 'soft_failed' || stateName === 'soft_fail') counts.softFailed += 1;
+      else if (stateName === 'hard' || stateName === 'failed') counts.hardFailed += 1;
+      else counts.available = false;
+    });
+    if (counts.passed + counts.softFailed + counts.hardFailed !== nodeRow.affectedJobs) counts.available = false;
+    return counts;
+  }
+
   function queueDnsDisplayCount(raw, coverage) {
     const count = queueDnsCount(raw);
     if ((coverage || {}).complete) return integer(count);
@@ -7774,6 +7965,16 @@
       .filter(Boolean);
   }
 
+  function queueDnsOutcomePresentation(state) {
+    const normalized = String(state || '').toLowerCase();
+    if (normalized === 'passed') return {label: 'Passed after observation', tone: 'is-success'};
+    if (normalized === 'soft' || normalized === 'soft_failed' || normalized === 'soft_fail') {
+      return {label: 'Soft-failed', tone: 'is-warning'};
+    }
+    if (normalized === 'hard' || normalized === 'failed') return {label: 'Hard-failed', tone: 'is-danger'};
+    return {label: value(state, 'Unknown'), tone: 'is-neutral'};
+  }
+
   function openQueueDnsNodeEvidence(payload, windowId, queueRow, nodeRow, coverage) {
     const rows = queueDnsEvidenceForNode(payload, windowId, queueRow.queue, nodeRow.nodeRaw).filter(function (row) {
       return Boolean(queueDnsEvidenceUrl(row));
@@ -7781,16 +7982,22 @@
     const evidenceTotal = Math.max(nodeRow.evidenceTotal, rows.length);
     const truncated = rows.length < evidenceTotal;
     const content = n('div', 'ops-dns-evidence');
+    const interpretation = n('div', 'ops-evidence-note is-info');
+    add(interpretation, [
+      n('strong', '', 'DNS observation is not the job outcome. '),
+      n('span', '', 'Passed means the final Buildkite job outcome was passed after a resolver signature was observed. Soft- and hard-failed outcomes are shown separately; none establishes DNS as the cause.'),
+    ]);
+    content.append(interpretation);
     if (truncated) {
       content.append(n('div', 'ops-evidence-note is-warning', 'Exact links are retained for ' + integer(rows.length) + ' of ' + integer(evidenceTotal) + ' affected jobs on this node. The histogram continues to use the published affected-job row count, independent of bounded evidence retention.'));
     } else if (!rows.length && nodeRow.affectedJobs) {
       content.append(n('div', 'ops-evidence-note is-info', 'The aggregate contains affected jobs for this node, but no exact log links were retained in the bounded public evidence set.'));
     }
     const columns = [
-      {label: 'Job', sticky: true, width: '180px', render: function (row) { const url = queueDnsEvidenceUrl(row); return url ? externalLink('Open exact log', url) : n('span', 'ops-cell-muted', 'Exact link unavailable'); }},
+      {label: 'Job outcome', sticky: true, width: '160px', render: function (row) { const url = queueDnsEvidenceUrl(row); const outcome = queueDnsOutcomePresentation(row.state); return linkedBadge(outcome.label, url, null, outcome.tone); }},
+      {label: 'Evidence', width: '150px', render: function (row) { const url = queueDnsEvidenceUrl(row); return url ? externalLink('Open exact log', url) : n('span', 'ops-cell-muted', 'Exact link unavailable'); }},
       {label: 'Observed', width: '170px', render: function (row) { return shortDate(row.first_at) + (row.last_at && row.last_at !== row.first_at ? ' \u2192 ' + shortDate(row.last_at) : ''); }},
       {label: 'Time basis', width: '140px', render: function (row) { return value(String(row.time_basis || '').replace(/_/g, ' ')); }},
-      {label: 'State', width: '90px', render: function (row) { const url = queueDnsEvidenceUrl(row); return linkedBadge(value(row.state, 'unknown'), url, null, toneForState(row.state)); }},
       {label: 'Hardware', width: '90px', render: function (row) { return value(row.hardware); }},
       {label: 'Build', width: '120px', render: function (row) { return externalLink(value(row.pipeline) + ' #' + value(row.build_number), queueDnsEvidenceUrl(row), 'ops-mono'); }},
       {label: 'Episodes', numeric: true, width: '90px', render: function (row) { return integer(row.episodes); }},
@@ -7811,13 +8018,16 @@
       id: detailKey,
       title: nodeRow.node,
       subtitle: queueRow.queue + ' DNS evidence - ' + windowId,
-      description: 'Each row is one distinct Buildkite job attempt with a DNS-specific log signature. Repeated resolver lines within the same attempt do not inflate the affected-job histogram.',
+      description: 'Each row is one distinct Buildkite job attempt with a DNS-specific resolver signature. Repeated lines within an attempt do not inflate the count. A passing job is an observation in a job that ultimately passed, not an incident.',
       fields: [
         {label: 'Queue', value: queueRow.queue},
         {label: 'Physical node', value: nodeRow.node},
         {label: 'Affected jobs', value: queueDnsDisplayCount(nodeRow.affectedJobs, coverage)},
         {label: 'DNS episodes', value: queueDnsDisplayCount(nodeRow.episodes, coverage)},
         {label: 'Hugging Face affected jobs', value: queueDnsDisplayCount(nodeRow.huggingfaceAffectedJobs, coverage)},
+        {label: 'Passed after observation', value: nodeRow.outcomesAvailable ? queueDnsDisplayCount(nodeRow.passedJobs, coverage) : null},
+        {label: 'Soft-failed after observation', value: nodeRow.outcomesAvailable ? queueDnsDisplayCount(nodeRow.softFailedJobs, coverage) : null},
+        {label: 'Hard-failed after observation', value: nodeRow.outcomesAvailable ? queueDnsDisplayCount(nodeRow.hardFailedJobs, coverage) : null},
         {label: 'Exact evidence shown', value: integer(rows.length)},
         {label: 'Exact evidence total', value: integer(evidenceTotal)},
         {label: 'Evidence retention truncated', value: truncated ? 'Yes' : 'No'},
@@ -7827,93 +8037,153 @@
     });
   }
 
-  function renderQueueDnsHistogram(container, payload, windowId, queueRow, coverage, chartKey) {
-    const nodes = queueRow.nodes;
-    if (!nodes.length) {
-      container.append(n('div', 'ops-empty', coverage.complete
-        ? 'No DNS-affected jobs were observed for this queue in the selected complete window.'
-        : 'No DNS-affected jobs are present for this queue, but collection coverage is incomplete; this is not a confirmed zero.'));
-      return;
-    }
-    const chart = chartPanel('DNS-affected jobs by physical node', integer(nodes.length) + ' nodes - distinct Buildkite job attempts; repeated matching lines within one job count once' + (coverage.complete ? '' : '; displayed counts are observed lower bounds'), chartKey);
-    chart.root.classList.add('ops-dns-chart');
-    chart.frame.style.setProperty('--ops-chart-height', Math.max(230, nodes.length * 31 + 72) + 'px');
-    container.append(chart.root);
-    const evidence = nodes.map(function (node) {
-      return {
-        id: queueRow.queue + '-' + node.node,
-        label: node.node,
-        valueSummary: queueDnsDisplayCount(node.affectedJobs, coverage) + ' affected jobs - ' + queueDnsDisplayCount(node.episodes, coverage) + ' DNS episodes',
-        details: {queue: queueRow.queue, node: node.node, affected_jobs: node.affectedJobs, episodes: node.episodes, huggingface_affected_jobs: node.huggingfaceAffectedJobs, exact_evidence_retained: node.evidenceTotal},
-        onOpen: function () { openQueueDnsNodeEvidence(payload, windowId, queueRow, node, coverage); },
-      };
-    });
-    requestAnimationFrame(function () {
-      if (!chart.canvas.isConnected) return;
-      drawChart(chartKey, chart.canvas, {
-        type: 'bar',
-        data: {
-          labels: nodes.map(function (node) { return node.node; }),
-          datasets: [{
-            label: coverage.complete ? 'DNS-affected jobs' : 'Observed DNS-affected jobs (lower bound)',
-            data: nodes.map(function (node) { return node.affectedJobs; }),
-            backgroundColor: '#e06464',
-            borderColor: '#e06464',
-            borderWidth: 0,
-          }],
-        },
-        options: {
-          indexAxis: 'y',
-          scales: {
-            x: {beginAtZero: true, ticks: {precision: 0}, title: {display: true, text: 'Distinct affected Buildkite job attempts'}},
-            y: {grid: {display: false}, ticks: {autoSkip: false}},
-          },
-          plugins: {tooltip: {callbacks: {
-            afterLabel: function (context) {
-              const node = nodes[context.dataIndex] || {};
-              return [queueDnsDisplayCount(node.episodes, coverage) + ' DNS episodes', queueDnsDisplayCount(node.huggingfaceAffectedJobs, coverage) + ' Hugging Face affected jobs', 'Click for exact retained logs'];
-            },
-          }}},
-        },
-        evidenceTitle: queueRow.queue + ' DNS-affected jobs by node',
-        evidenceAsset: payload.__sourceAsset || SOURCE_ASSETS.queueDnsFallback,
-        evidence: evidence,
-      });
-    });
-    const nodeColumns = [
-      {label: 'Physical node', sticky: true, width: '280px', render: function (node) { return linkButton(node.node, function () { openQueueDnsNodeEvidence(payload, windowId, queueRow, node, coverage); }, 'Open exact DNS failure logs for ' + node.node); }},
-      {label: 'Affected jobs', numeric: true, width: '130px', render: function (node) { return linkButton(queueDnsDisplayCount(node.affectedJobs, coverage), function () { openQueueDnsNodeEvidence(payload, windowId, queueRow, node, coverage); }); }},
-      {label: 'DNS episodes', numeric: true, width: '120px', render: function (node) { return queueDnsDisplayCount(node.episodes, coverage); }},
-      {label: 'Hugging Face jobs', numeric: true, width: '150px', render: function (node) { return queueDnsDisplayCount(node.huggingfaceAffectedJobs, coverage); }},
-      {label: 'Evidence retained', numeric: true, width: '150px', render: function (node) { const shown = queueDnsEvidenceForNode(payload, windowId, queueRow.queue, node.nodeRaw).filter(function (row) { return Boolean(queueDnsEvidenceUrl(row)); }).length; return integer(shown) + ' / ' + integer(Math.max(shown, node.evidenceTotal)); }},
-    ];
-    container.append(dataTable(nodeColumns, nodes, 'Accessible per-node DNS histogram values', {name: 'queue-dns-nodes', minWidth: '830px'}));
+  function queueDnsSummaryItem(label, renderedValue, meta, tone) {
+    const item = n('div', 'ops-dns-summary-item ' + (tone || ''));
+    add(item, [
+      n('span', 'ops-dns-summary-label', label),
+      n('strong', 'ops-dns-summary-value', renderedValue),
+      meta ? n('span', 'ops-dns-summary-meta', meta) : null,
+    ]);
+    return item;
   }
 
-  function renderQueueDns(host, payload, snapshot) {
-    const selected = queueDnsWindow(payload, state.queueDnsWindow);
+  function queueDnsNodeBar(payload, windowId, queueRow, nodeRow, coverage, maximum) {
+    const outcomes = queueDnsNodeOutcomes(payload, windowId, nodeRow);
+    const control = n('button', 'ops-dns-node-bar');
+    control.type = 'button';
+    const renderedCount = queueDnsDisplayCount(nodeRow.affectedJobs, coverage);
+    const nonpassing = outcomes.softFailed + outcomes.hardFailed;
+    const outcomeText = outcomes.available
+      ? queueDnsDisplayCount(outcomes.passed, coverage) + ' passed, '
+        + queueDnsDisplayCount(nonpassing, coverage) + ' nonpassing'
+      : 'job outcomes unavailable';
+    control.setAttribute('aria-label', queueRow.queue + ', ' + nodeRow.node + ': ' + renderedCount
+      + ' jobs with DNS observations; ' + outcomeText + '. Open exact Buildkite evidence.');
+    control.addEventListener('click', function () {
+      openQueueDnsNodeEvidence(payload, windowId, queueRow, Object.assign({}, nodeRow, {
+        outcomesAvailable: outcomes.available,
+        passedJobs: outcomes.passed,
+        softFailedJobs: outcomes.softFailed,
+        hardFailedJobs: outcomes.hardFailed,
+      }), coverage);
+    });
+
+    const identity = n('span', 'ops-dns-node-identity');
+    add(identity, [
+      n('span', 'ops-dns-node-name ops-mono', nodeRow.node),
+      n('span', 'ops-dns-node-meta', outcomeText + ' - ' + queueDnsDisplayCount(nodeRow.episodes, coverage) + ' episodes'),
+    ]);
+    const track = n('span', 'ops-dns-bar-track');
+    const fill = n('span', 'ops-dns-bar-fill');
+    fill.style.width = Math.max(3, nodeRow.affectedJobs / Math.max(1, maximum) * 100) + '%';
+    if (outcomes.available && nodeRow.affectedJobs) {
+      [
+        ['is-passed', outcomes.passed],
+        ['is-soft', outcomes.softFailed],
+        ['is-hard', outcomes.hardFailed],
+      ].forEach(function (entry) {
+        if (!entry[1]) return;
+        const segment = n('span', 'ops-dns-bar-segment ' + entry[0]);
+        segment.style.width = entry[1] / nodeRow.affectedJobs * 100 + '%';
+        fill.append(segment);
+      });
+    } else {
+      fill.append(n('span', 'ops-dns-bar-segment is-observed'));
+    }
+    track.append(fill);
+    add(control, [identity, track, n('strong', 'ops-dns-node-count', renderedCount)]);
+    return control;
+  }
+
+  function renderQueueDnsNativeHistogram(payload, windowId, queueRow, coverage, maximum) {
+    const card = n('article', 'ops-dns-queue-card');
+    const header = n('header', 'ops-dns-queue-card-header');
+    const stats = n('div', 'ops-dns-queue-card-stats');
+    add(stats, [
+      n('span', '', queueDnsDisplayCount(queueRow.affectedJobs, coverage) + ' jobs'),
+      n('span', '', queueDnsDisplayCount(queueRow.nodes.length, coverage) + ' nodes'),
+      n('span', '', queueDnsDisplayCount(queueRow.huggingfaceAffectedJobs, coverage) + ' HF'),
+    ]);
+    add(header, [n('h3', 'ops-dns-queue-card-title ops-mono', queueRow.queue), stats]);
+    card.append(header);
+    const bars = n('div', 'ops-dns-node-bars');
+    queueRow.nodes.forEach(function (nodeRow) {
+      bars.append(queueDnsNodeBar(payload, windowId, queueRow, nodeRow, coverage, maximum));
+    });
+    card.append(bars);
+    return card;
+  }
+
+  function renderAnalyticsDns(host, payload) {
+    const selected = queueDnsWindow(payload, state.analyticsDnsWindow);
     if (!selected.block) {
       host.append(n('div', 'ops-error', 'The selected DNS observation window is not present in the published aggregate.'));
       return;
     }
-    if (selected.id !== state.queueDnsWindow) {
-      state.queueDnsWindow = selected.id;
-      setQueryValue('queue_dns_window', selected.id);
+    if (selected.id !== state.analyticsDnsWindow) {
+      state.analyticsDnsWindow = selected.id;
+      setQueryValue('analytics_dns_window', selected.id);
     }
     const coverage = queueDnsCoverage(payload, selected.block);
     const freshness = queueDnsFreshness(payload, selected.block);
-    const dnsScope = queueDnsScope(state.queueScope);
-    const queueRoster = Object.keys((snapshot || {}).queues || {});
-    const queues = queueDnsQueueRows(selected.block, dnsScope, queueRoster);
-    const affectedQueues = queues.filter(function (row) { return row.affectedJobs > 0; });
+    const dnsScope = queueDnsScope(state.analyticsDnsScope);
+    const affectedQueues = queueDnsQueueRows(selected.block, dnsScope, []).filter(function (row) {
+      return row.affectedJobs > 0;
+    });
     const affectedNodes = new Set();
-    affectedQueues.forEach(function (queue) { queue.nodes.forEach(function (node) { if (node.affectedJobs > 0) affectedNodes.add(node.node); }); });
+    affectedQueues.forEach(function (queue) {
+      queue.passedJobs = 0;
+      queue.softFailedJobs = 0;
+      queue.hardFailedJobs = 0;
+      queue.outcomesAvailable = true;
+      queue.nodes.forEach(function (node) {
+        if (node.affectedJobs > 0) affectedNodes.add(node.node);
+        const outcomes = queueDnsNodeOutcomes(payload, selected.id, node);
+        node.outcomesAvailable = outcomes.available;
+        node.passedJobs = outcomes.passed;
+        node.softFailedJobs = outcomes.softFailed;
+        node.hardFailedJobs = outcomes.hardFailed;
+        queue.passedJobs += outcomes.passed;
+        queue.softFailedJobs += outcomes.softFailed;
+        queue.hardFailedJobs += outcomes.hardFailed;
+        queue.outcomesAvailable = queue.outcomesAvailable && outcomes.available;
+      });
+    });
     const totals = affectedQueues.reduce(function (out, queue) {
       out.affectedJobs += queue.affectedJobs;
       out.episodes += queue.episodes;
       out.huggingfaceAffectedJobs += queue.huggingfaceAffectedJobs;
+      out.passedJobs += queue.passedJobs;
+      out.softFailedJobs += queue.softFailedJobs;
+      out.hardFailedJobs += queue.hardFailedJobs;
+      out.outcomesAvailable = out.outcomesAvailable && queue.outcomesAvailable;
       return out;
-    }, {affectedJobs: 0, episodes: 0, huggingfaceAffectedJobs: 0});
+    }, {affectedJobs: 0, episodes: 0, huggingfaceAffectedJobs: 0, passedJobs: 0, softFailedJobs: 0, hardFailedJobs: 0, outcomesAvailable: true});
+
+    const toolbar = n('div', 'ops-toolbar ops-dns-toolbar');
+    const scopeControl = segmented([
+      {id: 'canonical', label: 'Canonical AMD'},
+      {id: 'amd', label: 'All AMD GPU'},
+    ], dnsScope, function (id) {
+      setRouteState('ci-analytics', 'analyticsDnsScope', id, 'analytics_dns_scope');
+    }, 'DNS queue scope');
+    const windowField = n('label', 'ops-dns-window-field');
+    const windowSelect = n('select', 'ops-select ops-dns-window-select');
+    windowSelect.setAttribute('aria-label', 'DNS observation window');
+    QUEUE_DNS_WINDOW_OPTIONS.forEach(function (option) {
+      const item = n('option', '', option.label);
+      item.value = option.id;
+      item.selected = option.id === selected.id;
+      windowSelect.append(item);
+    });
+    windowSelect.addEventListener('change', function () {
+      setRouteState('ci-analytics', 'analyticsDnsWindow', windowSelect.value, 'analytics_dns_window');
+    });
+    add(windowField, [n('span', 'ops-field-label', 'Window'), windowSelect]);
+    const freshnessBadge = n('span', 'ops-badge ' + (freshness.stale ? 'is-warning' : 'is-success'),
+      (freshness.stale ? 'Stale - ' : 'Updated ') + age(selected.block.end_exclusive));
+    add(toolbar, [scopeControl, windowField, n('span', 'ops-toolbar-spacer'), freshnessBadge]);
+    host.append(toolbar);
 
     if (freshness.stale) {
       const selectedOption = QUEUE_DNS_WINDOW_OPTIONS.find(function (option) { return option.id === selected.id; });
@@ -7921,86 +8191,94 @@
       warning.setAttribute('role', 'alert');
       add(warning, [
         n('strong', '', 'DNS observations are stale. '),
-        n('span', '', 'The selected ' + value(selectedOption && selectedOption.label, selected.id) + ' preset is a historical published window ending at ' + value(selected.block.end_exclusive) + ' (' + age(selected.block.end_exclusive) + '); the aggregate was generated at ' + value(payload.generated_at) + ' (' + age(payload.generated_at) + '). One or both timestamps are more than 3 hours behind the dashboard clock. Counts remain exact for that published window, but must not be read as the current ' + value(selectedOption && selectedOption.label, selected.id).toLowerCase() + '.'),
+        n('span', '', value(selectedOption && selectedOption.label, selected.id) + ' ended ' + shortDate(selected.block.end_exclusive) + '. Treat these as historical observations, not the current window.'),
       ]);
       host.append(warning);
     }
 
-    const method = n('div', 'ops-evidence-note is-info');
-    add(method, [
-      n('strong', '', 'DNS-affected job attempts, not matching log lines. '),
-      n('span', '', 'A job counts once when its complete Buildkite log contains a DNS-specific resolver signature. Repeated lines are collapsed into episodes; retries remain distinct physical-node attempts. Generic connection failures do not count. The selected published window runs from ' + shortDate(selected.block.start) + ' to ' + shortDate(selected.block.end_exclusive) + '.'),
-    ]);
-    host.append(method);
     if (!coverage.complete) {
-      const warning = n('div', 'ops-evidence-note is-warning');
+      const warning = n('div', 'ops-evidence-note is-warning ops-dns-coverage-note');
+      warning.setAttribute('role', 'status');
       add(warning, [
-        n('strong', '', 'DNS collection coverage is ' + coverage.status + '. '),
-        n('span', '', 'Counts are observed lower bounds. A missing or zero observation is rendered as unavailable, never as proof that no DNS failures occurred.' + (coverage.notes.length ? ' ' + coverage.notes.join('; ') + '.' : '') + (coverage.facts.length ? ' ' + coverage.facts.join(' - ') + '.' : '')),
+        n('strong', '', 'Partial coverage - counts are lower bounds. '),
+        n('span', '', (coverage.facts.length ? coverage.facts.join(' - ') + '. ' : '') + 'Missing observations never mean zero.'),
       ]);
       host.append(warning);
     }
-    host.append(statusStrip([
-      {id: 'queue-dns-jobs', label: 'DNS-AFFECTED JOBS', value: queueDnsDisplayCount(totals.affectedJobs, coverage), meta: (freshness.stale ? 'stale published window - ' : '') + queueDnsDisplayCount(totals.episodes, coverage) + ' deduplicated episodes in ' + selected.id, tone: freshness.stale ? 'is-warning' : totals.affectedJobs ? 'is-danger' : coverage.complete ? 'is-success' : 'is-warning', window: selected.id, observed: selected.block.end_exclusive, provenance: payload.__sourceAsset},
-      {id: 'queue-dns-queues', label: 'AFFECTED QUEUES', value: queueDnsDisplayCount(affectedQueues.length, coverage), meta: (freshness.stale ? 'stale published window - ' : '') + (dnsScope === 'canonical' ? 'Canonical AMD GPU queues' : 'All active AMD GPU queues'), tone: freshness.stale ? 'is-warning' : affectedQueues.length ? 'is-warning' : coverage.complete ? 'is-success' : 'is-warning', window: selected.id, observed: selected.block.end_exclusive, provenance: payload.__sourceAsset},
-      {id: 'queue-dns-nodes', label: 'AFFECTED NODES', value: queueDnsDisplayCount(affectedNodes.size, coverage), meta: (freshness.stale ? 'stale published window - ' : '') + 'physical nodes including unidentified bucket', tone: freshness.stale ? 'is-warning' : affectedNodes.size ? 'is-warning' : coverage.complete ? 'is-success' : 'is-warning', window: selected.id, observed: selected.block.end_exclusive, provenance: payload.__sourceAsset},
-      {id: 'queue-dns-huggingface', label: 'HUGGING FACE JOBS', value: queueDnsDisplayCount(totals.huggingfaceAffectedJobs, coverage), meta: (freshness.stale ? 'stale published window - ' : '') + 'affected jobs with Hugging Face DNS targets', tone: freshness.stale ? 'is-warning' : totals.huggingfaceAffectedJobs ? 'is-danger' : coverage.complete ? 'is-success' : 'is-warning', window: selected.id, observed: selected.block.end_exclusive, provenance: payload.__sourceAsset},
-    ]));
+    const nonpassing = totals.softFailedJobs + totals.hardFailedJobs;
+    const outcomeTone = totals.hardFailedJobs
+      ? 'is-danger'
+      : totals.softFailedJobs
+        ? 'is-warning'
+        : totals.passedJobs
+          ? 'is-success'
+          : '';
+    const summary = n('section', 'ops-dns-summary');
+    summary.setAttribute('aria-label', 'DNS observation summary');
+    add(summary, [
+      queueDnsSummaryItem('JOBS WITH DNS OBSERVATIONS', queueDnsDisplayCount(totals.affectedJobs, coverage), queueDnsDisplayCount(totals.episodes, coverage) + ' episodes', totals.affectedJobs ? 'is-warning' : 'is-success'),
+      queueDnsSummaryItem('AFFECTED QUEUES', queueDnsDisplayCount(affectedQueues.length, coverage), dnsScope === 'canonical' ? 'canonical AMD' : 'active AMD GPU'),
+      queueDnsSummaryItem('PHYSICAL NODES', queueDnsDisplayCount(affectedNodes.size, coverage), 'including unidentified'),
+      queueDnsSummaryItem('HUGGING FACE JOBS', queueDnsDisplayCount(totals.huggingfaceAffectedJobs, coverage), 'resolver target'),
+      queueDnsSummaryItem('PASSED / NONPASSING', totals.outcomesAvailable
+        ? queueDnsDisplayCount(totals.passedJobs, coverage) + ' / ' + queueDnsDisplayCount(nonpassing, coverage)
+        : '-', totals.outcomesAvailable ? 'final outcome after observation' : 'outcome aggregate unavailable', outcomeTone),
+    ]);
+    host.append(summary);
 
-    if (!queues.length) {
+    const legend = n('div', 'ops-dns-outcome-legend');
+    legend.setAttribute('aria-label', 'Job outcome legend');
+    [
+      ['is-passed', 'Passed after observation'],
+      ['is-soft', 'Soft-failed after observation'],
+      ['is-hard', 'Hard-failed after observation'],
+    ].forEach(function (entry) {
+      const item = n('span', 'ops-dns-legend-item');
+      add(item, [n('span', 'ops-dns-legend-swatch ' + entry[0]), n('span', '', entry[1])]);
+      legend.append(item);
+    });
+    legend.append(n('span', 'ops-dns-legend-note', 'Outcome is correlation, not proof DNS caused the result.'));
+    host.append(legend);
+
+    if (!affectedQueues.length) {
       host.append(n('div', 'ops-empty', coverage.complete
-        ? 'No queues are in the selected scope.'
-        : 'No queue rows are available in the selected scope, and collection coverage is incomplete.'));
+        ? 'No jobs with DNS resolver observations were found in this scope and window.'
+        : 'No retained DNS observations are available in this scope. Partial coverage cannot establish a zero.'));
     } else {
       const section = n('section', 'ops-dns-section');
       const heading = n('header', 'ops-section-header');
       add(heading, [add(n('div', 'ops-section-heading'), [
-        n('h2', 'ops-section-title', 'Per-queue DNS failures by node'),
-        n('p', 'ops-section-description', integer(affectedQueues.length) + ' affected queues and ' + integer(affectedNodes.size) + ' affected physical nodes. Expand a queue, then select a bar or node row for exact retained Buildkite logs.'),
+        n('h2', 'ops-section-title', 'DNS observations by queue and physical node'),
+        n('p', 'ops-section-description', 'Affected queues only. Select any node bar to open the exact retained Buildkite logs in the right-side drawer.'),
       ])]);
       section.append(heading);
-      const list = n('div', 'ops-dns-queue-list');
-      let opened = null;
-      queues.forEach(function (queueRow, index) {
-        const details = n('details', 'ops-dns-queue');
-        const summary = n('summary', 'ops-dns-queue-summary');
-        const countText = queueDnsDisplayCount(queueRow.affectedJobs, coverage);
-        add(summary, [
-          n('span', 'ops-dns-queue-name ops-mono', queueRow.queue),
-          n('span', 'ops-dns-queue-stat', countText + ' affected jobs'),
-          n('span', 'ops-dns-queue-stat', queueDnsDisplayCount(queueRow.nodes.filter(function (node) { return node.affectedJobs > 0; }).length, coverage) + ' nodes'),
-          n('span', 'ops-dns-queue-stat', queueDnsDisplayCount(queueRow.huggingfaceAffectedJobs, coverage) + ' Hugging Face'),
-        ]);
-        const body = n('div', 'ops-dns-queue-body');
-        details.append(summary, body);
-        details.addEventListener('toggle', function () {
-          const chartKey = 'queue-dns-' + selected.id + '-' + index;
-          if (!details.open) {
-            const existing = charts.get(chartKey);
-            if (existing) { existing.destroy(); charts.delete(chartKey); }
-            clear(body);
-            if (opened === details) opened = null;
-            return;
-          }
-          if (opened && opened !== details) opened.open = false;
-          opened = details;
-          clear(body);
-          renderQueueDnsHistogram(body, payload, selected.id, queueRow, coverage, chartKey);
-        });
-        list.append(details);
+      const maximum = Math.max.apply(null, affectedQueues.flatMap(function (queue) {
+        return queue.nodes.map(function (node) { return node.affectedJobs; });
+      }).concat([1]));
+      const grid = n('div', 'ops-dns-queue-grid');
+      affectedQueues.forEach(function (queueRow) {
+        grid.append(renderQueueDnsNativeHistogram(payload, selected.id, queueRow, coverage, maximum));
       });
-      section.append(list);
+      section.append(grid);
       host.append(section);
     }
 
-    const provenance = n('div', 'ops-evidence-note is-info');
-    add(provenance, [
-      n('strong', '', 'DNS evidence provenance. '),
-      n('span', '', 'Schema v' + value(payload.schema_version) + ' - generated ' + shortDate(payload.generated_at) + ' - selected window ' + selected.id + ' - source ' + (payload.__sourceAsset === SOURCE_ASSETS.queueDns ? 'live dns-health-data' : 'Pages fallback') + '. The freshest valid live or fallback payload is used; equal timestamps prefer live.'),
-      externalLink('Open selected DNS data', payload.__sourceAsset || SOURCE_ASSETS.queueDnsFallback, 'ops-button'),
-      externalLink('Open Pages DNS fallback', SOURCE_ASSETS.queueDnsFallback, 'ops-button'),
+    const method = n('details', 'ops-dns-method');
+    const methodSummary = n('summary', 'ops-dns-method-summary', 'Counting method and data provenance');
+    const methodBody = n('div', 'ops-dns-method-body');
+    add(methodBody, [
+      n('p', '', 'One job attempt counts once when its complete log contains a DNS-specific resolver signature. Repeated matching lines collapse into episodes; retries remain distinct attempts. Generic connection, TLS, timeout, and HTTP failures do not count.'),
+      n('p', '', 'Selected window: ' + shortDate(selected.block.start) + ' to ' + shortDate(selected.block.end_exclusive)
+        + '. Schema v' + value(payload.schema_version) + ', generated ' + shortDate(payload.generated_at)
+        + ', source: ' + (payload.__sourceAsset === SOURCE_ASSETS.queueDns ? 'live dns-health-data' : 'Pages fallback') + '.'),
+      coverage.notes.length ? n('p', '', coverage.notes.join('; ') + '.') : null,
+      sourceActions([
+        {label: 'Open selected DNS data', url: payload.__sourceAsset || SOURCE_ASSETS.queueDnsFallback},
+        {label: 'Open Pages DNS fallback', url: SOURCE_ASSETS.queueDnsFallback},
+      ]),
     ]);
-    host.append(provenance);
+    method.append(methodSummary, methodBody);
+    host.append(method);
   }
 
   async function renderQueue(host, ops) {
@@ -8008,20 +8286,11 @@
     const snapshot = queueBlock.snapshot || {};
     let lifecyclePayload = null;
     let lifecycleError = null;
-    let dnsPayload = null;
-    let dnsError = null;
     if (state.queueView === 'lifecycle') {
       try {
         lifecyclePayload = await loadQueueLifecycle();
       } catch (error) {
         lifecycleError = error;
-      }
-    }
-    if (state.queueView === 'dns') {
-      try {
-        dnsPayload = await loadQueueDns();
-      } catch (error) {
-        dnsError = error;
       }
     }
     const allScopeEntries = selectedQueues(snapshot, true);
@@ -8050,21 +8319,15 @@
     const p95 = highestNative('p95'), sampledP95 = highestSample('p95');
     const p95Coverage = allScopeEntries.filter(function (entry) { return officialWaitValue(entry[1] || {}, 'p95') !== null; }).length;
     const sampledP95Coverage = allScopeEntries.filter(function (entry) { return sampleWaitValue(entry[1] || {}, 'p95') !== null; }).length;
-    const queueObservedAt = dnsPayload
-      ? dnsPayload.generated_at
-      : lifecyclePayload
-        ? lifecyclePayload.generated_at || ((lifecyclePayload.window || {}).end_exclusive) || ((lifecyclePayload.window || {}).end)
-        : snapshot.ts;
-    add(host, pageHeader('Queue Monitor', 'Current queue counts, direct lifecycle outcomes, DNS failure evidence, retained history, and active jobs.', queueObservedAt));
+    const queueObservedAt = lifecyclePayload
+      ? lifecyclePayload.generated_at || ((lifecyclePayload.window || {}).end_exclusive) || ((lifecyclePayload.window || {}).end)
+      : snapshot.ts;
+    add(host, pageHeader('Queue Monitor', 'Current queue counts, direct lifecycle outcomes, retained history, and active jobs.', queueObservedAt));
     const controls = n('div', 'ops-toolbar ops-queue-toolbar');
-    controls.append(segmented([{id: 'current', label: 'Current'}, {id: 'lifecycle', label: 'Lifecycle'}, {id: 'dns', label: 'DNS'}, {id: 'history', label: 'History'}, {id: 'jobs', label: 'Jobs'}], state.queueView, function (id) { setRouteState('ci-queue', 'queueView', id, 'queue_view'); }, 'Queue monitor mode'));
+    controls.append(segmented([{id: 'current', label: 'Current'}, {id: 'lifecycle', label: 'Lifecycle'}, {id: 'history', label: 'History'}, {id: 'jobs', label: 'Jobs'}], state.queueView, function (id) { setRouteState('ci-queue', 'queueView', id, 'queue_view'); }, 'Queue monitor mode'));
     if (state.queueView === 'lifecycle') controls.append(n('span', 'ops-badge is-info', 'Canonical AMD lifecycle scope'));
-    else if (state.queueView === 'dns') {
-      controls.append(segmented([{id: 'canonical', label: 'Canonical AMD'}, {id: 'amd', label: 'All active AMD GPU'}], queueDnsScope(state.queueScope), function (id) { setRouteState('ci-queue', 'queueScope', id, 'queue_scope'); }, 'DNS queue scope'));
-      controls.append(n('span', 'ops-badge is-info', 'Published scope: active AMD GPU queues'));
-    } else controls.append(segmented([{id: 'canonical', label: 'Canonical AMD'}, {id: 'amd', label: 'All AMD'}, {id: 'all', label: 'All queues'}], state.queueScope, function (id) { setRouteState('ci-queue', 'queueScope', id, 'queue_scope'); }, 'Queue hardware scope'));
+    else controls.append(segmented([{id: 'canonical', label: 'Canonical AMD'}, {id: 'amd', label: 'All AMD'}, {id: 'all', label: 'All queues'}], state.queueScope, function (id) { setRouteState('ci-queue', 'queueScope', id, 'queue_scope'); }, 'Queue hardware scope'));
     if (state.queueView === 'history') controls.append(segmented([{id: '24h', label: '24h'}, {id: '7d', label: '7d'}, {id: '30d', label: '30d'}], state.queueRange, function (id) { setRouteState('ci-queue', 'queueRange', id, 'queue_range'); }, 'Queue history range'));
-    if (state.queueView === 'dns') controls.append(segmented(QUEUE_DNS_WINDOW_OPTIONS, state.queueDnsWindow, function (id) { setRouteState('ci-queue', 'queueDnsWindow', id, 'queue_dns_window'); }, 'DNS observation window'));
     if (state.queueView === 'current') {
       const idleLabel = n('label', 'ops-toggle');
       const idle = n('input'); idle.type = 'checkbox'; idle.checked = state.queueIncludeIdle;
@@ -8085,21 +8348,6 @@
         host.append(unavailable);
       } else {
         renderQueueLifecycle(host, lifecyclePayload);
-      }
-      return;
-    }
-    if (state.queueView === 'dns') {
-      if (dnsError) {
-        const unavailable = n('div', 'ops-error');
-        add(unavailable, [
-          n('strong', '', 'DNS failure data is unavailable. '),
-          n('span', '', (dnsError && dnsError.message) || String(dnsError)),
-          externalLink('Open live DNS asset', SOURCE_ASSETS.queueDns, 'ops-button'),
-          externalLink('Open Pages DNS fallback', SOURCE_ASSETS.queueDnsFallback, 'ops-button'),
-        ]);
-        host.append(unavailable);
-      } else {
-        renderQueueDns(host, dnsPayload, snapshot);
       }
       return;
     }
@@ -11577,6 +11825,7 @@
 
   async function render(tabId, force) {
     if (!OWNED_TABS.has(tabId)) return false;
+    if (migrateLegacyQueueDnsRoute(tabId)) return true;
     syncRouteState(tabId);
     const host = ownedHost(tabId);
     if (!host) return false;
@@ -11590,6 +11839,10 @@
       if (tabId === 'ci-queue' && !force && Date.now() - lastQueueRefreshAt >= QUEUE_AUTO_REFRESH_MS) {
         await invalidateQueueData();
       }
+      if (tabId === 'ci-analytics' && state.analyticsView === 'dns'
+        && queueDnsRefreshDue()) {
+        invalidateDnsData();
+      }
       const ops = await loadOperations(tabId);
       if (host.dataset.renderToken !== token) return false;
       clear(host);
@@ -11601,14 +11854,17 @@
       else if (tabId === 'ci-queue') await renderQueue(host, ops);
       else if (tabId === 'ci-hotness') await renderTrajectory(host, ops);
       else if (tabId === 'ci-omni') await renderOmni(host, ops);
+      if (host.dataset.renderToken !== token) return false;
       if (tabId === 'ci-queue') lastQueueRefreshAt = Date.now();
       host.dataset.renderState = 'ready';
       return true;
     } catch (error) {
+      if (host.dataset.renderToken !== token) return false;
       clear(host);
       const retry = button('Retry', function () {
         cache.clear();
         operationsManifestPromise = null;
+        invalidateDnsData();
         render(tabId, true);
       }, true);
       add(host, [pageHeader('AMD CI Operations', 'The requested operational data could not be loaded.', null, retry), n('div', 'ops-error', error.message || String(error))]);
@@ -11628,8 +11884,6 @@
     cache.delete(SOURCE_ASSETS.queueChartHistoryFallback);
     cache.delete(SOURCE_ASSETS.queueLifecycle);
     cache.delete(SOURCE_ASSETS.queueLifecycleFallback);
-    cache.delete(SOURCE_ASSETS.queueDns);
-    cache.delete(SOURCE_ASSETS.queueDnsFallback);
     cache.delete('jsonl:' + SOURCE_ASSETS.queueHistory);
     cache.delete('jsonl:' + SOURCE_ASSETS.queueHistoryFallback);
     operationsManifestPromise = null;
@@ -11638,15 +11892,35 @@
     if (descriptor && descriptor.path) cache.delete(resolveOperationSectionPath(descriptor.path));
   }
 
+  function invalidateDnsData() {
+    cache.delete(SOURCE_ASSETS.queueDns);
+    cache.delete(SOURCE_ASSETS.queueDnsFallback);
+    queueDnsPreferredCandidate = null;
+    queueDnsFetchGeneration += 1;
+  }
+
+  function queueDnsRefreshDue(nowMs) {
+    const parsed = Number(nowMs);
+    const current = Number.isFinite(parsed) ? parsed : Date.now();
+    return current - lastDnsRefreshAt >= DNS_AUTO_REFRESH_MS;
+  }
+
   async function refreshQueueData() {
     if (activeTab() !== 'ci-queue' || document.visibilityState === 'hidden') return;
     await invalidateQueueData();
     if (!await render('ci-queue', true)) throw new Error('Queue refresh did not render successfully');
   }
 
+  async function refreshDnsData() {
+    if (activeTab() !== 'ci-analytics' || state.analyticsView !== 'dns' || document.visibilityState === 'hidden') return;
+    invalidateDnsData();
+    if (!await render('ci-analytics', true)) throw new Error('DNS refresh did not render successfully');
+  }
+
   window.OpsV2 = {
     render: render,
     refreshQueue: refreshQueueData,
+    refreshDns: refreshDnsData,
     renderOwnership: renderOwnership,
     state: state,
     openTestGroupHistory: openTestGroupHistory,
@@ -11704,6 +11978,10 @@
       compareQueueDnsCandidates: compareQueueDnsCandidates,
       queueDnsWithTimeout: queueDnsWithTimeout,
       loadQueueDns: loadQueueDns,
+      invalidateDnsData: invalidateDnsData,
+      queueDnsLastRefreshAt: function () { return lastDnsRefreshAt; },
+      queueDnsRefreshDue: queueDnsRefreshDue,
+      queueDnsOutcomeCounts: queueDnsOutcomeCounts,
       queueDnsWindow: queueDnsWindow,
       queueDnsCoverage: queueDnsCoverage,
       queueDnsFreshness: queueDnsFreshness,
@@ -11716,6 +11994,8 @@
       queueDnsEvidenceItemValid: queueDnsEvidenceItemValid,
       queueDnsEvidenceWindowRow: queueDnsEvidenceWindowRow,
       queueDnsEvidenceForNode: queueDnsEvidenceForNode,
+      queueDnsNodeOutcomes: queueDnsNodeOutcomes,
+      queueDnsOutcomePresentation: queueDnsOutcomePresentation,
       queueDnsDisplayCount: queueDnsDisplayCount,
     };
   }
@@ -11731,6 +12011,9 @@
       refreshQueueData().catch(function (error) {
         console.error('Queue auto-refresh failed:', error);
       });
+      refreshDnsData().catch(function (error) {
+        console.error('DNS auto-refresh failed:', error);
+      });
     }, QUEUE_AUTO_REFRESH_MS);
     document.addEventListener('visibilitychange', function () {
       if (
@@ -11740,6 +12023,16 @@
       ) {
         refreshQueueData().catch(function (error) {
           console.error('Queue visibility refresh failed:', error);
+        });
+      }
+      if (
+        document.visibilityState === 'visible'
+        && activeTab() === 'ci-analytics'
+        && state.analyticsView === 'dns'
+        && queueDnsRefreshDue()
+      ) {
+        refreshDnsData().catch(function (error) {
+          console.error('DNS visibility refresh failed:', error);
         });
       }
     });

@@ -1446,41 +1446,60 @@ def test_queue_lifecycle_view_matches_the_published_rolling_contract():
     assert "queueScope: 'amd'" in OPS_JS
     assert "queue_scope: 'amd'" in OPS_JS
     assert "['canonical', 'amd', 'all']" in OPS_JS
-    assert "['current', 'lifecycle', 'history', 'jobs', 'dns']" in OPS_JS
+    assert "['current', 'lifecycle', 'history', 'jobs']" in OPS_JS
     assert "seconds / 60" in OPS_JS
     assert "cache.delete(SOURCE_ASSETS.queueLifecycle)" in OPS_JS
     assert "cache.delete(SOURCE_ASSETS.queueLifecycleFallback)" in OPS_JS
 
 
-def test_queue_dns_view_is_lazy_scoped_drillable_and_coverage_honest():
+def test_analytics_dns_view_is_fast_visual_drillable_and_coverage_honest():
     for contract in (
         "queueDns: QUEUE_DNS_LIVE_BASE + 'dns_failures.json'",
         "/dns-health-data/data/vllm/ci/",
         "queueDnsFallback: 'data/vllm/ci/dns_failures.json'",
         "async function loadQueueDns",
         "const sources = [SOURCE_ASSETS.queueDns, SOURCE_ASSETS.queueDnsFallback]",
-        "Promise.allSettled",
-        "candidates.sort(compareQueueDnsCandidates)",
+        "Promise.any(attempts)",
+        "QUEUE_DNS_ARBITRATION_MS = 200",
+        "resolved.slice().sort(compareQueueDnsCandidates)",
+        "queueDnsPreferredCandidate = newest",
+        "if (tabId === 'ci-analytics' && state.analyticsView === 'dns') return {}",
+        "if (state.analyticsView === 'dns') return []",
+        "ops_analytics_dns_window",
+        "analytics_dns_window: '24h'",
+        "ops_analytics_dns_scope",
+        "analytics_dns_scope: 'amd'",
+        "{id: 'nightlies', label: 'AMD nightlies'}, {id: 'dns', label: 'DNS health'}",
         "ops_queue_dns_window",
-        "queue_dns_window: '24h'",
-        "{id: 'dns', label: 'DNS'}",
+        "function migrateLegacyQueueDnsRoute",
+        "url.hash = 'ci-analytics'",
         "DNS observation window",
-        "DNS-AFFECTED JOBS",
-        "Per-queue DNS failures by node",
-        "DNS-affected jobs by physical node",
-        "indexAxis: 'y'",
-        "data: nodes.map(function (node) { return node.affectedJobs; })",
-        "Accessible per-node DNS histogram values",
+        "JOBS WITH DNS OBSERVATIONS",
+        "DNS observations by queue and physical node",
+        "function renderQueueDnsNativeHistogram",
+        "ops-dns-node-bar",
+        "Affected queues only",
         "openQueueDnsNodeEvidence",
         "Exact Buildkite log evidence",
         "Exact evidence shown",
         "Exact evidence total",
         "Evidence retention truncated",
+        "Job outcome",
+        "Passed after observation",
+        "A passing job is an observation in a job that ultimately passed, not an incident",
+        "Outcome is correlation, not proof DNS caused the result",
+        "passed_jobs",
+        "soft_failed_jobs",
+        "hard_failed_jobs",
+        "QUEUE_DNS_OUTCOME_CONTRACT = 'dns-job-outcomes-v1'",
+        "payload.outcome_contract !== QUEUE_DNS_OUTCOME_CONTRACT",
+        "queueTimestamp(payload.retention.end_exclusive) !== generatedAtMs",
+        "lastDnsRefreshAt = Date.now()",
+        "host.dataset.renderToken !== analyticsRenderToken || state.analyticsView !== 'dns'",
         "{label: 'Time basis'",
         "{label: 'Hardware'",
         "The histogram continues to use the published affected-job row count",
-        "coverage is incomplete; this is not a confirmed zero",
-        "Counts are observed lower bounds",
+        "Partial coverage - counts are lower bounds",
         "not_collected",
         "QUEUE_DNS_STALE_MS = 3 * 60 * 60 * 1000",
         "QUEUE_DNS_FETCH_TIMEOUT_MS = 8 * 1000",
@@ -1490,13 +1509,9 @@ def test_queue_dns_view_is_lazy_scoped_drillable_and_coverage_honest():
         "window_metrics",
         "metric = row.window_metrics[windowId]",
         "function queueDnsMatchesPublishedScope",
-        "Published scope: active AMD GPU queues",
         "DNS observations are stale",
-        "must not be read as the current",
-        "stale published window",
-        "displayed counts are observed lower bounds",
-        "queueDnsDisplayCount(node.episodes, coverage)",
-        "queueDnsDisplayCount(node.huggingfaceAffectedJobs, coverage)",
+        "queueDnsDisplayCount(nodeRow.episodes, coverage)",
+        "queueDnsDisplayCount(nodeRow.huggingfaceAffectedJobs, coverage)",
         "cache.delete(SOURCE_ASSETS.queueDns)",
         "cache.delete(SOURCE_ASSETS.queueDnsFallback)",
     ):
@@ -1516,23 +1531,40 @@ def test_queue_dns_view_is_lazy_scoped_drillable_and_coverage_honest():
     assert "new Set(['amd-ci', 'ci'])" in OPS_JS
     assert "QUEUE_DNS_JOB_ID_RE" in OPS_JS
     assert "'/list?jid='" in OPS_JS
-    assert (
-        "segmented([{id: 'canonical', label: 'Canonical AMD'}, "
-        "{id: 'amd', label: 'All active AMD GPU'}], queueDnsScope(state.queueScope)"
-    ) in OPS_JS
+    assert "{id: 'amd', label: 'All AMD GPU'}" in OPS_JS
+    assert "state.analyticsDnsScope" in OPS_JS
+    assert "{id: 'dns', label: 'DNS'}" not in OPS_JS
     assert "row.url" not in OPS_JS[
         OPS_JS.index("function queueDnsEvidenceUrl")
         : OPS_JS.index("function queueDnsEvidenceForNode")
     ]
     for contract in (
-        ".ops-page .ops-dns-queue-summary",
+        ".ops-page .ops-dns-summary",
         ".ops-page .ops-dns-stale-warning",
-        ".ops-page .ops-dns-queue-summary:focus-visible",
-        ".ops-page .ops-dns-chart .ops-chart-stage",
-        ".ops-page .ops-dns-chart .ops-chart-viewport",
-        '.ops-page .ops-dns-chart .ops-chart-canvas[role="button"]:focus-visible',
+        ".ops-page .ops-dns-queue-grid",
+        ".ops-page .ops-dns-node-bar:focus-visible",
+        ".ops-page .ops-dns-bar-segment.is-passed",
+        ".ops-dns-summary-item.is-danger .ops-dns-summary-value",
+        "#main-content .ops-page .ops-dns-method-summary",
     ):
         assert contract in OPS_CSS
+
+    render_body = OPS_JS[
+        OPS_JS.index("async function render(tabId") : OPS_JS.index("async function invalidateQueueData")
+    ]
+    load_dns_body = OPS_JS[
+        OPS_JS.index("async function loadQueueDns") : OPS_JS.index("function queueDnsWindow")
+    ]
+    assert "&& !force && Date.now() - lastDnsRefreshAt" not in render_body
+    assert "lastDnsRefreshAt = Date.now()" not in render_body
+    assert "lastDnsRefreshAt = Date.now()" in load_dns_body
+    assert "if (host.dataset.renderToken !== token) return false" in render_body
+    dns_invalidation = render_body[
+        render_body.index("if (tabId === 'ci-analytics' && state.analyticsView === 'dns'")
+        : render_body.index("const ops = await loadOperations(tabId)")
+    ]
+    assert "queueDnsRefreshDue()" in dns_invalidation
+    assert "!force" not in dns_invalidation
 
 
 def test_queue_dns_helpers_enforce_counts_scope_coverage_and_exact_urls():
@@ -1545,12 +1577,12 @@ const vm = require('vm');
 const source = fs.readFileSync(process.argv[1], 'utf8');
 const validJobId = '01a00c92-9cab-4dd2-9a75-32210e739d02';
 const rows = [
-  {queue: 'amd_mi300_1', node: 'node-a', hardware: 'MI300', affected_jobs: 2, episodes: 3, huggingface_affected_jobs: 1, evidence_total: 2},
-  {queue: 'amd_mi300_1', node: 'node-a', hardware: 'MI300', affected_jobs: 1, episodes: 2, huggingface_affected_jobs: 1, evidence_total: 0},
-  {queue: 'amd_mi300_1', node: '', hardware: 'MI300', affected_jobs: 1, episodes: 1, huggingface_affected_jobs: 0, evidence_total: 0},
-  {queue: 'amd_mi300_8', node: 'node-b', hardware: 'MI300', affected_jobs: 5, episodes: 7, huggingface_affected_jobs: 4, evidence_total: 1},
-  {queue: 'amd_mi355b_1', node: 'retired-node', hardware: 'MI355', affected_jobs: 100, episodes: 100, huggingface_affected_jobs: 100, evidence_total: 100},
-  {queue: 'gpu_queue', node: 'upstream-node', hardware: 'H100', affected_jobs: 200, episodes: 200, huggingface_affected_jobs: 200, evidence_total: 200},
+  {queue: 'amd_mi300_1', node: 'node-a', hardware: 'MI300', affected_jobs: 2, episodes: 3, huggingface_affected_jobs: 1, evidence_total: 2, passed_jobs: 1, soft_failed_jobs: 1, hard_failed_jobs: 0},
+  {queue: 'amd_mi300_1', node: 'node-a', hardware: 'MI300', affected_jobs: 1, episodes: 2, huggingface_affected_jobs: 1, evidence_total: 0, passed_jobs: 1, soft_failed_jobs: 0, hard_failed_jobs: 0},
+  {queue: 'amd_mi300_1', node: '', hardware: 'MI300', affected_jobs: 1, episodes: 1, huggingface_affected_jobs: 0, evidence_total: 0, passed_jobs: 0, soft_failed_jobs: 0, hard_failed_jobs: 1},
+  {queue: 'amd_mi300_8', node: 'node-b', hardware: 'MI300', affected_jobs: 5, episodes: 7, huggingface_affected_jobs: 4, evidence_total: 1, passed_jobs: 4, soft_failed_jobs: 0, hard_failed_jobs: 1},
+  {queue: 'amd_mi355b_1', node: 'retired-node', hardware: 'MI355', affected_jobs: 100, episodes: 100, huggingface_affected_jobs: 100, evidence_total: 100, passed_jobs: 100, soft_failed_jobs: 0, hard_failed_jobs: 0},
+  {queue: 'gpu_queue', node: 'upstream-node', hardware: 'H100', affected_jobs: 200, episodes: 200, huggingface_affected_jobs: 200, evidence_total: 200, passed_jobs: 200, soft_failed_jobs: 0, hard_failed_jobs: 0},
 ];
 const completeCoverage = {
   status: 'complete', complete: true, discovery_complete: true,
@@ -1562,7 +1594,11 @@ function windowBlock(hours, blockRows) {
     start: new Date(Date.parse('2026-08-17T10:00:00Z') - hours * 60 * 60 * 1000).toISOString().replace('.000Z', 'Z'),
     end_exclusive: '2026-08-17T10:00:00Z',
     coverage: completeCoverage,
-    totals: {affected_jobs: 209, episodes: 313, huggingface_affected_jobs: 206, queues: 4, nodes: 6, evidence_total: 303},
+    totals: {
+      affected_jobs: 309, episodes: 313, huggingface_affected_jobs: 306,
+      queues: 4, nodes: 6, evidence_total: 303,
+      passed_jobs: 306, soft_failed_jobs: 1, hard_failed_jobs: 2,
+    },
     rows: blockRows,
   };
 }
@@ -1605,6 +1641,7 @@ const oldMetric = evidenceMetric(
 );
 const livePayload = {
   schema_version: 1,
+  outcome_contract: 'dns-job-outcomes-v1',
   generated_at: '2026-08-17T10:00:00Z',
   retention: {start: '2026-07-18T10:00:00Z', end_exclusive: '2026-08-17T10:00:00Z', hours: 720},
   default_window: '24h',
@@ -1612,7 +1649,10 @@ const livePayload = {
   count_basis: 'distinct_buildkite_job_attempts_with_strong_dns_evidence',
   scope: {pipelines: ['amd-ci', 'ci'], queue_scope: 'active_amd_gpu'},
   classifier: {id: 'dns-v1', target_categories: ['huggingface_hub', 'unknown']},
-  coverage: completeCoverage,
+  coverage: Object.assign({}, completeCoverage, {
+    discovery_start: '2026-07-18T10:00:00Z',
+    discovery_end_exclusive: '2026-08-17T10:00:00Z',
+  }),
   windows: Object.fromEntries(canonicalWindowOptions.map(function (option) {
     return [option.id, windowBlock(option.hours, rows)];
   })),
@@ -1643,19 +1683,44 @@ const livePayload = {
   },
 };
 const pagesPayload = JSON.parse(JSON.stringify(livePayload));
-pagesPayload.generated_at = '2026-08-17T11:00:00Z';
+pagesPayload.generated_at = '2026-08-17T10:30:00Z';
+pagesPayload.retention.start = '2026-07-18T10:30:00Z';
+pagesPayload.retention.end_exclusive = pagesPayload.generated_at;
+pagesPayload.coverage.discovery_start = pagesPayload.retention.start;
+pagesPayload.coverage.discovery_end_exclusive = pagesPayload.generated_at;
 Object.entries(pagesPayload.windows).forEach(function (entry) {
   const option = canonicalWindowOptions.find(function (candidate) { return candidate.id === entry[0]; });
   entry[1].start = new Date(Date.parse(pagesPayload.generated_at) - option.hours * 60 * 60 * 1000).toISOString().replace('.000Z', 'Z');
   entry[1].end_exclusive = pagesPayload.generated_at;
 });
+const newerLivePayload = JSON.parse(JSON.stringify(livePayload));
+newerLivePayload.generated_at = '2026-08-17T11:00:00Z';
+newerLivePayload.retention.start = '2026-07-18T11:00:00Z';
+newerLivePayload.retention.end_exclusive = newerLivePayload.generated_at;
+newerLivePayload.coverage.discovery_start = newerLivePayload.retention.start;
+newerLivePayload.coverage.discovery_end_exclusive = newerLivePayload.generated_at;
+Object.entries(newerLivePayload.windows).forEach(function (entry) {
+  const option = canonicalWindowOptions.find(function (candidate) { return candidate.id === entry[0]; });
+  entry[1].start = new Date(Date.parse(newerLivePayload.generated_at) - option.hours * 60 * 60 * 1000).toISOString().replace('.000Z', 'Z');
+  entry[1].end_exclusive = newerLivePayload.generated_at;
+});
+let fetchMode = 'hung-live';
+let fetchCalls = 0;
 const sandbox = {
   window: {__OPS_V2_TEST__: true, setTimeout: setTimeout, clearTimeout: clearTimeout},
   document: {addEventListener: function () {}},
   console: console,
   URL: URL,
   fetch: function (url) {
-    if (String(url).includes('raw.githubusercontent.com')) return new Promise(function () {});
+    fetchCalls += 1;
+    if (String(url).includes('raw.githubusercontent.com')) {
+      if (fetchMode === 'hung-live') return new Promise(function () {});
+      return new Promise(function (resolve) {
+        setTimeout(function () {
+          resolve({ok: true, json: function () { return Promise.resolve(newerLivePayload); }});
+        }, 20);
+      });
+    }
     return Promise.resolve({ok: true, json: function () { return Promise.resolve(pagesPayload); }});
   },
 };
@@ -1665,6 +1730,33 @@ const helpers = sandbox.window.OpsV2Test;
 
 assert.equal(helpers.queueDnsPayloadValid(livePayload), true);
 assert.equal(helpers.queueDnsPayloadValid(pagesPayload), true);
+const legacyPayload = JSON.parse(JSON.stringify(livePayload));
+delete legacyPayload.outcome_contract;
+Object.values(legacyPayload.windows).forEach(function (windowBlock) {
+  delete windowBlock.totals.passed_jobs;
+  delete windowBlock.totals.soft_failed_jobs;
+  delete windowBlock.totals.hard_failed_jobs;
+  windowBlock.rows.forEach(function (row) {
+    delete row.passed_jobs;
+    delete row.soft_failed_jobs;
+    delete row.hard_failed_jobs;
+  });
+});
+assert.equal(helpers.queueDnsPayloadValid(legacyPayload), true);
+assert.equal(helpers.queueDnsPayloadValid(Object.assign({}, livePayload, {outcome_contract: 'dns-job-outcomes-v2'})), false);
+assert.equal(helpers.queueDnsPayloadValid(Object.assign({}, livePayload, {
+  retention: Object.assign({}, livePayload.retention, {end_exclusive: '2026-08-17T09:59:59Z'}),
+})), false);
+const invalidRowOutcomes = JSON.parse(JSON.stringify(livePayload));
+invalidRowOutcomes.windows['3h'].rows[0].passed_jobs += 1;
+assert.equal(helpers.queueDnsPayloadValid(invalidRowOutcomes), false);
+const invalidTotalOutcomes = JSON.parse(JSON.stringify(livePayload));
+invalidTotalOutcomes.windows['3h'].totals.passed_jobs += 1;
+assert.equal(helpers.queueDnsPayloadValid(invalidTotalOutcomes), false);
+const mismatchedTotalOutcomes = JSON.parse(JSON.stringify(livePayload));
+mismatchedTotalOutcomes.windows['3h'].totals.passed_jobs -= 1;
+mismatchedTotalOutcomes.windows['3h'].totals.soft_failed_jobs += 1;
+assert.equal(helpers.queueDnsPayloadValid(mismatchedTotalOutcomes), false);
 assert.equal(helpers.queueDnsPayloadValid({schema_version: 1}), false);
 assert.equal(helpers.queueDnsPayloadValid(Object.assign({}, livePayload, {windows: {}})), false);
 assert.equal(helpers.queueDnsPayloadValid(Object.assign({}, livePayload, {window_options: canonicalWindowOptions.slice(1)})), false);
@@ -1742,6 +1834,58 @@ assert.equal(JSON.stringify(nodeRows.map(function (row) { return [row.queue, row
 ]));
 assert.equal(nodeRows[1].episodes, 5);
 assert.equal(nodeRows[1].huggingfaceAffectedJobs, 2);
+assert.equal(nodeRows[0].outcomesAvailable, true);
+assert.equal(nodeRows[0].passedJobs, 4);
+assert.equal(nodeRows[0].softFailedJobs, 0);
+assert.equal(nodeRows[0].hardFailedJobs, 1);
+assert.equal(nodeRows[1].outcomesAvailable, true);
+assert.equal(nodeRows[1].passedJobs, 2);
+assert.equal(nodeRows[1].softFailedJobs, 1);
+assert.equal(nodeRows[1].hardFailedJobs, 0);
+assert.equal(nodeRows[2].outcomesAvailable, true);
+assert.equal(nodeRows[2].passedJobs, 0);
+assert.equal(nodeRows[2].softFailedJobs, 0);
+assert.equal(nodeRows[2].hardFailedJobs, 1);
+const nativeNodeOutcomes = helpers.queueDnsNodeOutcomes(livePayload, '3h', nodeRows[1]);
+assert.equal(nativeNodeOutcomes.available, true);
+assert.equal(nativeNodeOutcomes.passed, 2);
+assert.equal(nativeNodeOutcomes.softFailed, 1);
+assert.equal(nativeNodeOutcomes.hardFailed, 0);
+const legacyCompletePayload = JSON.parse(JSON.stringify(legacyPayload));
+legacyCompletePayload.evidence = {
+  evidence_total: 1,
+  shown: 1,
+  truncated: false,
+  items: [JSON.parse(JSON.stringify(livePayload.evidence.items[2]))],
+};
+const legacyCompleteNode = {
+  queue: 'amd_mi300_1', node: 'node-a', nodeRaw: 'node-a',
+  affectedJobs: 1, evidenceTotal: 1, outcomesAvailable: false,
+  passedJobs: 0, softFailedJobs: 0, hardFailedJobs: 0,
+};
+const legacyCompleteOutcomes = helpers.queueDnsNodeOutcomes(
+  legacyCompletePayload, '720h', legacyCompleteNode,
+);
+assert.deepEqual(
+  JSON.parse(JSON.stringify(legacyCompleteOutcomes)),
+  {available: true, passed: 1, softFailed: 0, hardFailed: 0},
+);
+const legacyTruncatedRows = helpers.queueDnsNodeRows(legacyPayload.windows['3h'], 'amd');
+const legacyTruncatedNode = legacyTruncatedRows.find(function (row) {
+  return row.queue === 'amd_mi300_1' && row.node === 'node-a';
+});
+const legacyTruncatedOutcomes = helpers.queueDnsNodeOutcomes(
+  legacyPayload, '3h', legacyTruncatedNode,
+);
+assert.equal(legacyTruncatedOutcomes.available, false);
+assert.deepEqual(
+  JSON.parse(JSON.stringify(helpers.queueDnsOutcomeCounts({
+    affected_jobs: 3, passed_jobs: 2, soft_failed_jobs: 1, hard_failed_jobs: 0,
+  }))),
+  {available: true, passed: 2, softFailed: 1, hardFailed: 0},
+);
+assert.equal(helpers.queueDnsOutcomeCounts({affected_jobs: 3}).available, false);
+assert.equal(helpers.queueDnsOutcomePresentation('passed').label, 'Passed after observation');
 assert.equal(helpers.queueDnsScope('all'), 'amd');
 assert.equal(helpers.queueDnsMatchesPublishedScope('amd_mi300_1', 'all'), true);
 assert.equal(helpers.queueDnsMatchesPublishedScope('amd-cpu', 'all'), false);
@@ -1817,9 +1961,31 @@ delete malformedLongJob.window_metrics['1h'];
 assert.equal(helpers.queueDnsEvidenceWindowRow(malformedLongJob, '1h', livePayload.windows), null);
 
 (async function () {
+  assert.equal(helpers.queueDnsLastRefreshAt(), 0);
+  const fastFallbackStarted = Date.now();
   const selected = await helpers.loadQueueDns(5);
+  assert.ok(Date.now() - fastFallbackStarted < 100, 'hung live source must not block fast Pages fallback');
   assert.equal(selected.generated_at, pagesPayload.generated_at);
   assert.equal(selected.__sourceAsset, 'data/vllm/ci/dns_failures.json');
+  const firstRefreshAt = helpers.queueDnsLastRefreshAt();
+  assert.ok(firstRefreshAt > 0);
+  assert.equal(helpers.queueDnsRefreshDue(firstRefreshAt + 5 * 60 * 1000 - 1), false);
+  assert.equal(helpers.queueDnsRefreshDue(firstRefreshAt + 5 * 60 * 1000), true);
+  assert.equal(fetchCalls, 2);
+  const cached = await helpers.loadQueueDns();
+  assert.equal(cached.generated_at, pagesPayload.generated_at);
+  assert.equal(fetchCalls, 2, 'cached scope/window rerenders must not launch a new source race');
+  assert.equal(helpers.queueDnsLastRefreshAt(), firstRefreshAt, 'cached rerenders must not reset the refresh clock');
+
+  helpers.invalidateDnsData();
+  assert.equal(helpers.queueDnsLastRefreshAt(), firstRefreshAt, 'cache invalidation alone must not reset the refresh clock');
+  fetchMode = 'slow-newer-live';
+  const upgraded = await helpers.loadQueueDns();
+  assert.equal(upgraded.generated_at, newerLivePayload.generated_at);
+  assert.ok(upgraded.__sourceAsset.includes('raw.githubusercontent.com'));
+  assert.ok(helpers.queueDnsLastRefreshAt() > firstRefreshAt);
+  assert.equal(fetchCalls, 4);
+
   const newest = [
     {payload: livePayload, priority: 0},
     {payload: pagesPayload, priority: 1},
@@ -2147,8 +2313,8 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
         "resolved groups passing",
     ):
         assert retired_contract not in OPS_JS
-    assert 'assets/css/ops-v2.css?v=9' in INDEX
-    assert 'assets/js/ops-v2.js?v=16' in INDEX
+    assert 'assets/css/ops-v2.css?v=10' in INDEX
+    assert 'assets/js/ops-v2.js?v=17' in INDEX
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
     assert "policy.passing_groups) + ' / ' + integer(policy.included_groups)" in OPS_JS
     assert "openMatrixHealthBrowser('all')" in OPS_JS
