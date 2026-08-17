@@ -37,7 +37,7 @@
   <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
 
   <link rel="stylesheet" href="assets/css/dashboard.css?v=57">
-  <link rel="stylesheet" href="assets/css/ops-v2.css?v=10">
+  <link rel="stylesheet" href="assets/css/ops-v2.css?v=11">
   <link rel="stylesheet" href="assets/css/ops-control-v2.css?v=4">
   <script>
     // Apply theme before first paint to avoid flash
@@ -45,6 +45,26 @@
       var saved = localStorage.getItem('theme');
       var theme = saved || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
       document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
+  <script>
+    // Declare the active renderer before shared utilities initialize. On a DNS
+    // deep link, begin the small same-origin fallback request while the browser
+    // is still parsing the shell; the renderer still validates and arbitrates
+    // it against the live dns-health-data candidate before displaying it.
+    window.__DASHBOARD_V2__ = true;
+    (function(){
+      try {
+        var route = new URL(window.location.href);
+        if (route.searchParams.get('ops_analytics_view') !== 'dns') return;
+        var preload = document.createElement('link');
+        preload.rel = 'preload';
+        preload.as = 'fetch';
+        preload.crossOrigin = 'anonymous';
+        preload.fetchPriority = 'high';
+        preload.href = 'data/vllm/ci/dns_failures.json?_=' + Math.floor(Date.now() / 300000);
+        document.head.appendChild(preload);
+      } catch (_) {}
     })();
   </script>
   <script>
@@ -171,21 +191,83 @@
 
   <!-- token-vault MUST load before auth.js so auth can unlock it at sign-in. -->
   <script src="assets/js/token-vault.js?v=1"></script>
-  <script src="assets/js/utils.js?v=58"></script>
+  <script src="assets/js/utils.js?v=59"></script>
   <script src="assets/js/auth.js?v=4"></script>
   <script src="assets/js/publication-status.js?v=1"></script>
-  <script>window.__DASHBOARD_V2__ = true;</script>
-  <script src="assets/js/ci-health.js?v=64"></script>
-  <script src="assets/js/ci-analytics.js?v=54"></script>
-  <script src="assets/js/ci-perf-eval.js?v=2"></script>
-  <script src="assets/js/ci-queue.js?v=63"></script>
-  <script src="assets/js/ci-hotness.js?v=53"></script>
-  <script src="assets/js/ci-omni.js?v=53"></script>
-  <script src="assets/js/dashboard.js?v=59"></script>
-  <script src="assets/js/ci-testbuild.js?v=5"></script>
-  <script src="assets/js/ci-ready.js?v=8"></script>
-  <script src="assets/js/ci-admin.js?v=3"></script>
-  <script src="assets/js/ops-v2.js?v=17"></script>
+  <script src="assets/js/dashboard-nav.js?v=1"></script>
+  <script src="assets/js/ops-v2.js?v=18"></script>
+  <!--
+    This inert template is the source manifest for retired v1 renderers and
+    authenticated control tools. Template resources are not fetched by the
+    browser. The loader below instantiates only control scripts, after the
+    visible route settles or immediately when a control route is requested.
+  -->
+  <template id="ops-deferred-script-manifest">
+    <script src="assets/js/ci-health.js?v=64" data-runtime="retired-v1"></script>
+    <script src="assets/js/ci-analytics.js?v=54" data-runtime="retired-v1"></script>
+    <script src="assets/js/ci-perf-eval.js?v=2" data-runtime="retired-v1"></script>
+    <script src="assets/js/ci-queue.js?v=63" data-runtime="retired-v1"></script>
+    <script src="assets/js/ci-hotness.js?v=53" data-runtime="retired-v1"></script>
+    <script src="assets/js/ci-omni.js?v=53" data-runtime="retired-v1"></script>
+    <script src="assets/js/dashboard.js?v=59" data-runtime="retired-v1"></script>
+    <script src="assets/js/ci-testbuild.js?v=5" data-runtime="control"></script>
+    <script src="assets/js/ci-ready.js?v=8" data-runtime="control"></script>
+    <script src="assets/js/ci-admin.js?v=3" data-runtime="control"></script>
+  </template>
+  <script>
+    (function(){
+      var manifest = document.getElementById('ops-deferred-script-manifest');
+      var sources = Array.from(manifest.content.querySelectorAll('script[data-runtime="control"]'))
+        .map(function(script) { return script.getAttribute('src'); });
+      var loading = null;
+      function loadTools() {
+        if (loading) return loading;
+        loading = sources.reduce(function(chain, source) {
+          return chain.then(function() {
+            return new Promise(function(resolve, reject) {
+              var script = document.createElement('script');
+              script.src = source;
+              script.onload = resolve;
+              script.onerror = function() { reject(new Error('Failed to load ' + source)); };
+              document.body.appendChild(script);
+            });
+          });
+        }, Promise.resolve()).catch(function(error) {
+          if (typeof window.__recordBootIssue === 'function') {
+            window.__recordBootIssue('control tools', error.message || String(error));
+          }
+          console.error('Control tool loading failed:', error);
+        });
+        return loading;
+      }
+      function isToolTab(tab) {
+        return ['ci-testbuild', 'ci-ready', 'ci-admin'].includes(tab);
+      }
+      function deferTools() {
+        window.setTimeout(function() {
+          if (window.requestIdleCallback) {
+            window.requestIdleCallback(loadTools, {timeout: 3000});
+          } else {
+            loadTools();
+          }
+        }, 1500);
+      }
+      window.__loadOpsControlTools = loadTools;
+      var initialTab = location.hash.replace('#', '');
+      if (isToolTab(initialTab)) {
+        loadTools();
+      } else {
+        window.addEventListener('ops-v2:first-render', deferTools, {once: true});
+        window.setTimeout(function() {
+          if (!window.__opsV2FirstRenderSettled) deferTools();
+        }, 12000);
+      }
+      document.addEventListener('click', function(event) {
+        var button = event.target.closest && event.target.closest('.nav-btn');
+        if (button && isToolTab(button.getAttribute('data-tab'))) loadTools();
+      }, true);
+    })();
+  </script>
   <script>
     (function(){
       var btn = document.getElementById('theme-toggle');

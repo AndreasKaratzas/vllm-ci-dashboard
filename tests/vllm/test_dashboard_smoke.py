@@ -116,8 +116,8 @@ class TestIndexHtml:
 
     def test_queue_lifecycle_renderer_has_a_cache_busted_release(self):
         html = (DOCS / "index.html").read_text()
-        assert 'assets/css/ops-v2.css?v=10' in html
-        assert 'assets/js/ops-v2.js?v=17' in html
+        assert 'assets/css/ops-v2.css?v=11' in html
+        assert 'assets/js/ops-v2.js?v=18' in html
         source = (JS / "ops-v2.js").read_text()
         assert "queueLifecycle: QUEUE_LIFECYCLE_LIVE_BASE + 'queue_lifecycle.json'" in source
         assert "/queue-lifecycle-data/data/vllm/ci/" in source
@@ -140,7 +140,7 @@ class TestJsFileShape:
     """
 
     @pytest.mark.parametrize("name", [
-        "utils.js", "ci-health.js", "ci-analytics.js",
+        "utils.js", "dashboard-nav.js", "ci-health.js", "ci-analytics.js",
         "ci-queue.js", "ci-hotness.js", "dashboard.js",
     ])
     def test_file_is_nonempty_and_well_formed(self, name):
@@ -161,7 +161,7 @@ class TestJsFileShape:
         if not shutil.which("node"):
             pytest.skip("node is not available")
         files = [
-            "utils.js", "ci-health.js", "ci-analytics.js",
+            "utils.js", "dashboard-nav.js", "ci-health.js", "ci-analytics.js",
             "ci-queue.js", "ci-hotness.js", "dashboard.js",
         ]
         script = """

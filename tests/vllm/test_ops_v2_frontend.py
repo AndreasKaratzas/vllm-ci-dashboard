@@ -57,9 +57,69 @@ def test_v2_assets_and_mobile_shell_are_loaded():
     assert "Signal Desk" not in OPS_JS
     assert "assets/css/ops-v2.css" in INDEX
     assert "assets/js/ops-v2.js" in INDEX
+    assert "assets/js/dashboard-nav.js" in INDEX
     assert "window.__DASHBOARD_V2__ = true" in INDEX
     assert 'id="ops-menu-toggle"' in INDEX
     assert 'id="ops-nav-backdrop"' in INDEX
+
+
+def test_v2_boot_omits_retired_renderers_and_defers_control_tools():
+    active_runtime = INDEX.replace(
+        INDEX[
+            INDEX.index('<template id="ops-deferred-script-manifest">')
+            : INDEX.index('</template>') + len('</template>')
+        ],
+        '',
+    )
+    for retired in (
+        "dashboard.js",
+        "ci-health.js",
+        "ci-analytics.js",
+        "ci-perf-eval.js",
+        "ci-queue.js",
+        "ci-hotness.js",
+        "ci-omni.js",
+    ):
+        assert f'<script src="assets/js/{retired}' not in active_runtime
+    for control in ("ci-testbuild.js", "ci-ready.js", "ci-admin.js"):
+        assert f'<script src="assets/js/{control}' not in active_runtime
+
+    assert INDEX.index("window.__DASHBOARD_V2__ = true") < INDEX.index("assets/js/utils.js")
+    assert INDEX.index("assets/js/dashboard-nav.js") < INDEX.index("assets/js/ops-v2.js")
+    assert "ops-v2:first-render" in INDEX
+    assert "window.__loadOpsControlTools = loadTools" in INDEX
+
+    runtime_files = (
+        "token-vault.js",
+        "utils.js",
+        "auth.js",
+        "publication-status.js",
+        "dashboard-nav.js",
+        "ops-v2.js",
+    )
+    runtime_bytes = sum(
+        (ROOT / "docs" / "assets" / "js" / name).stat().st_size
+        for name in runtime_files
+    )
+    assert runtime_bytes < 900_000
+
+
+def test_dns_deep_link_preloads_only_its_same_origin_fallback():
+    assert "route.searchParams.get('ops_analytics_view') !== 'dns'" in INDEX
+    assert "preload.rel = 'preload'" in INDEX
+    assert "preload.as = 'fetch'" in INDEX
+    assert "preload.fetchPriority = 'high'" in INDEX
+    assert "data/vllm/ci/dns_failures.json?_=" in INDEX
+
+
+def test_unrelated_link_registry_data_waits_for_first_v2_render():
+    utils = (ROOT / "docs" / "assets" / "js" / "utils.js").read_text()
+    assert "function afterOpsV2FirstRender(task)" in utils
+    assert "window.addEventListener('ops-v2:first-render', function() { schedule(1500); }" in utils
+    assert "afterOpsV2FirstRender(function() {\n  LinkRegistry.onReady" in utils
+    shard_start = utils.index("var _shardBasesReady")
+    shard_end = utils.index("function _stripShardIndex", shard_start)
+    assert "afterOpsV2FirstRender(function()" in utils[shard_start:shard_end]
 
 
 def test_operations_data_is_lazy_loaded_with_bounded_first_render_payloads():
@@ -1514,6 +1574,10 @@ def test_analytics_dns_view_is_fast_visual_drillable_and_coverage_honest():
         "queueDnsDisplayCount(nodeRow.huggingfaceAffectedJobs, coverage)",
         "cache.delete(SOURCE_ASSETS.queueDns)",
         "cache.delete(SOURCE_ASSETS.queueDnsFallback)",
+        "Canonical AMD is the 12 standard MI250, MI300, and MI355 queues",
+        "All active AMD GPU also includes other amd_mi* models and widths",
+        "retired MI355B queues are excluded",
+        "scopeControl.setAttribute('aria-describedby', scopeHelp.id)",
     ):
         assert contract in OPS_JS
 
@@ -1531,7 +1595,8 @@ def test_analytics_dns_view_is_fast_visual_drillable_and_coverage_honest():
     assert "new Set(['amd-ci', 'ci'])" in OPS_JS
     assert "QUEUE_DNS_JOB_ID_RE" in OPS_JS
     assert "'/list?jid='" in OPS_JS
-    assert "{id: 'amd', label: 'All AMD GPU'}" in OPS_JS
+    assert "{id: 'canonical', label: 'Canonical AMD (12)'}" in OPS_JS
+    assert "{id: 'amd', label: 'All active AMD GPU'}" in OPS_JS
     assert "state.analyticsDnsScope" in OPS_JS
     assert "{id: 'dns', label: 'DNS'}" not in OPS_JS
     assert "row.url" not in OPS_JS[
@@ -2313,8 +2378,8 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
         "resolved groups passing",
     ):
         assert retired_contract not in OPS_JS
-    assert 'assets/css/ops-v2.css?v=10' in INDEX
-    assert 'assets/js/ops-v2.js?v=17' in INDEX
+    assert 'assets/css/ops-v2.css?v=11' in INDEX
+    assert 'assets/js/ops-v2.js?v=18' in INDEX
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
     assert "policy.passing_groups) + ' / ' + integer(policy.included_groups)" in OPS_JS
     assert "openMatrixHealthBrowser('all')" in OPS_JS

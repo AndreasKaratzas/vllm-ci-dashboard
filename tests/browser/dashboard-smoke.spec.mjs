@@ -334,6 +334,24 @@ test.describe('public dashboard routes', () => {
   }
 });
 
+test('protected control deep links load their deferred runtime immediately', async ({ browser }) => {
+  const routes = [
+    { tab: 'ci-testbuild', heading: 'Test Build', state: 'Sign in required' },
+    { tab: 'ci-ready', heading: 'Ready Tickets', state: 'Sign in required' },
+    { tab: 'ci-admin', heading: 'Admin Control', state: 'Admin authentication required' },
+  ];
+  for (const route of routes) {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(`/#${route.tab}`, { waitUntil: 'domcontentloaded' });
+    const panel = page.locator(`#tab-${route.tab}`);
+    await expect(panel).toHaveClass(/\bactive\b/);
+    await expect(panel.getByRole('heading', { name: route.heading })).toBeVisible();
+    await expect(panel.getByText(route.state, { exact: true })).toBeVisible();
+    await context.close();
+  }
+});
+
 test('analytics DNS bars are compact, outcome-first, and open sanitized evidence', async ({ page }) => {
   await routeDnsFixture(page);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -401,8 +419,15 @@ test('analytics DNS drawer projects long-job evidence into the selected window',
 
   const panel = page.locator('#tab-ci-analytics');
   const dnsScope = panel.getByRole('group', { name: 'DNS queue scope' });
-  await expect(dnsScope.getByRole('button', { name: 'All AMD GPU' }))
+  await expect(dnsScope.getByRole('button', { name: 'All active AMD GPU' }))
     .toHaveAttribute('aria-pressed', 'true');
+  await expect(dnsScope).toHaveAttribute('aria-describedby', 'ops-dns-scope-help');
+  await expect(panel.locator('#ops-dns-scope-help')).toContainText(
+    'Canonical AMD is the 12 standard MI250, MI300, and MI355 queues',
+  );
+  await expect(panel.locator('#ops-dns-scope-help')).toContainText(
+    'All active AMD GPU also includes other amd_mi* models and widths',
+  );
   await expect(dnsScope.getByRole('button', { name: 'All queues' })).toHaveCount(0);
 
   const queue = panel.locator('article.ops-dns-queue-card')
@@ -519,6 +544,18 @@ test('analytics DNS paints fast Pages data without loading the operations manife
   expect(requested.some(url => /operations_v2_manifest\.json/.test(url))).toBe(false);
   expect(requested.some(url => /operations_v2\/queue\.json/.test(url))).toBe(false);
   expect(requested.some(url => /operations_v2\/reliability\.json/.test(url))).toBe(false);
+  for (const unrelated of [
+    /assets\/js\/dashboard\.js/,
+    /assets\/js\/ci-(?:health|analytics|perf-eval|queue|hotness|omni)\.js/,
+    /assets\/js\/ci-(?:testbuild|ready|admin)\.js/,
+    /data\/vllm\/ci\/(?:ci_health|parity_report|shard_bases)\.json/,
+  ]) {
+    expect(requested.some(url => unrelated.test(url))).toBe(false);
+  }
+  const fallbackIndex = requested.findIndex(url => /data\/vllm\/ci\/dns_failures\.json/.test(url));
+  const rendererIndex = requested.findIndex(url => /assets\/js\/ops-v2\.js/.test(url));
+  expect(fallbackIndex).toBeGreaterThanOrEqual(0);
+  expect(rendererIndex).toBeGreaterThan(fallbackIndex);
 });
 
 test('analytics DNS upgrades a fast older Pages paint when slower live data is newer', async ({ page }) => {
