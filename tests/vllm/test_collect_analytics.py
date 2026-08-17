@@ -21,6 +21,51 @@ def test_analytics_writer_uses_compact_json(tmp_path):
     assert output.read_text() == '{"pipeline":{"builds":[1,2]}}\n'
 
 
+def test_analytics_writer_removes_legacy_reliability_copy(tmp_path):
+    output = tmp_path / "analytics.json"
+    authoritative = {"groups": [{"observations": [{"job_id": "kept"}]}]}
+
+    ca.write_analytics(output, {
+        "ci": {
+            "all_main_reliability": authoritative,
+            "main_builds": [{"jobs": [{"job_id": "duplicate"}]}],
+            "main_builds_provenance": {"authoritative_evidence_key": "all_main_reliability"},
+            "main_retry_analysis": {"available": True},
+        },
+    })
+
+    block = json.loads(output.read_text())["ci"]
+    assert block["all_main_reliability"] == authoritative
+    assert block["main_retry_analysis"] == {"available": True}
+    assert "main_builds" not in block
+    assert "main_builds_provenance" not in block
+
+
+def test_analytics_writer_rejects_over_budget_payload_without_replacing_baseline(
+    monkeypatch, tmp_path
+):
+    output = tmp_path / "analytics.json"
+    output.write_text('{"validated":"baseline"}\n')
+    before = output.read_bytes()
+    monkeypatch.setattr(ca, "PRIVATE_ANALYTICS_MAX_BYTES", 32)
+
+    with pytest.raises(ca.IncompleteAnalyticsCollection) as exc_info:
+        ca.write_analytics(output, {"ci": {"sentinel": "x" * 64}})
+
+    assert output.read_bytes() == before
+    assert exc_info.value.provenance["serialized_bytes"] > 32
+    assert exc_info.value.provenance["max_bytes"] == 32
+    assert (
+        exc_info.value.provenance["github_blob_limit_bytes"]
+        == ca.GITHUB_BLOB_MAX_BYTES
+    )
+
+
+def test_private_analytics_budget_has_github_headroom():
+    assert ca.PRIVATE_ANALYTICS_MAX_BYTES == 90 * 1024 * 1024
+    assert ca.PRIVATE_ANALYTICS_MAX_BYTES < ca.GITHUB_BLOB_MAX_BYTES
+
+
 def _iso(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
