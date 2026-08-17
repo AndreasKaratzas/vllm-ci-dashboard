@@ -273,6 +273,7 @@ def test_dashboard_audit_covers_core_user_facing_data_files():
     assert {
         "data/vllm/prs.json",
         "data/vllm/issues.json",
+        "data/vllm/test_results.json",
         "data/vllm/ci/ci_health.json",
         "data/vllm/ci/parity_report.json",
         "data/vllm/ci/analytics.json",
@@ -286,6 +287,215 @@ def test_dashboard_audit_covers_core_user_facing_data_files():
         "data/vllm/ci/omni_surge_heuristic.json",
         "data/vllm/perf_eval/perf_eval.json",
     } <= covered
+
+
+def _ci_health_rate_build(*, passed=8, failed=2, skipped=3):
+    ran = passed + failed
+    ratio = round(passed / ran, 4) if ran else 0.0
+    return {
+        "build_number": 123,
+        "total_tests": passed + failed + skipped,
+        "passed": passed,
+        "failed": failed,
+        "skipped": skipped,
+        "pass_rate": ratio,
+        "test_pass_rate_pct": round(passed / ran * 100, 2) if ran else 0.0,
+        "test_pass_rate_basis": "pytest_assertions_excluding_skipped",
+    }
+
+
+def _analytics_rate_summary(*, passed=1, terminal=2):
+    pct = round(passed / terminal * 100, 1) if terminal else 0.0
+    return {
+        "total_builds": terminal,
+        "terminal_builds": terminal,
+        "passed": passed,
+        "failed": terminal - passed,
+        "pass_rate": pct,
+        "build_pass_rate_pct": pct,
+        "build_pass_rate_basis": "terminal_build_state_all_green",
+    }
+
+
+def _write_rate_contract_fixtures(tmp_path):
+    ci = tmp_path / "data/vllm/ci"
+    ci.mkdir(parents=True)
+    health = {"pass_rate_contract_version": 1}
+    for side in ("amd", "upstream"):
+        health[side] = {
+            "latest_build": _ci_health_rate_build(),
+            "latest_test_signal_build": _ci_health_rate_build(),
+            "latest_pipeline_build": _ci_health_rate_build(
+                passed=0,
+                failed=0,
+                skipped=0,
+            ),
+            "builds": [_ci_health_rate_build()],
+        }
+    (ci / "ci_health.json").write_text(json.dumps(health))
+
+    analytics = {}
+    for slug in ("amd-ci", "ci"):
+        analytics[slug] = {
+            "pass_rate_contract_version": 1,
+            "summary": _analytics_rate_summary(),
+            "builds": [{"number": 123, "total_jobs": 0, "jobs": []}],
+            "default_window": "1d",
+            "windows": {
+                "1d": {
+                    "summary": _analytics_rate_summary(passed=0, terminal=0),
+                    "builds": [],
+                }
+            },
+        }
+    (ci / "analytics.json").write_text(json.dumps(analytics))
+
+    project = tmp_path / "data/vllm"
+    assertions = {"total": 13, "passed": 8, "failed": 2, "skipped": 3}
+    platform = {
+        "summary": {
+            "pass_rate": 80.0,
+            "test_assertions": assertions,
+            "test_pass_rate_pct": 80.0,
+            "test_pass_rate_basis": "pytest_assertions_excluding_skipped",
+        }
+    }
+    (project / "test_results.json").write_text(
+        json.dumps(
+            {
+                "pass_rate_contract_version": 1,
+                "rocm": platform,
+                "cuda": copy.deepcopy(platform),
+            }
+        )
+    )
+    return health, analytics
+
+
+def test_dashboard_audit_accepts_explicit_pass_rate_contracts(tmp_path):
+    _write_rate_contract_fixtures(tmp_path)
+    audit = DashboardAudit(tmp_path)
+
+    audit.audit_ci_health()
+    audit.audit_analytics()
+    audit.audit_root_test_results()
+
+    assert not [
+        finding
+        for finding in audit.report.errors
+        if "pass-rate" in finding.code
+    ]
+
+
+def test_dashboard_audit_rejects_pass_rate_contract_drift(tmp_path):
+    health, analytics = _write_rate_contract_fixtures(tmp_path)
+    health["amd"]["builds"][0]["test_pass_rate_pct"] = 70.0
+    (tmp_path / "data/vllm/ci/ci_health.json").write_text(json.dumps(health))
+
+    analytics["amd-ci"]["summary"]["build_pass_rate_basis"] = "all_builds"
+    analytics["amd-ci"]["summary"]["pass_rate"] = 49.0
+    analytics["ci"]["summary"]["build_pass_rate_pct"] = 101.0
+    analytics["ci"]["windows"]["1d"]["summary"] = _analytics_rate_summary()
+    analytics["ci"]["windows"]["1d"]["summary"]["build_pass_rate_pct"] = 40.0
+    analytics["ci"]["windows"]["1d"]["summary"]["pass_rate"] = 40.0
+    (tmp_path / "data/vllm/ci/analytics.json").write_text(json.dumps(analytics))
+
+    test_results_path = tmp_path / "data/vllm/test_results.json"
+    test_results = json.loads(test_results_path.read_text())
+    summary = test_results["rocm"]["summary"]
+    summary["test_assertions"]["total"] = 12
+    summary["test_pass_rate_basis"] = "job_outcomes"
+    summary["test_pass_rate_pct"] = 75.0
+    test_results_path.write_text(json.dumps(test_results))
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_ci_health()
+    audit.audit_analytics()
+    audit.audit_root_test_results()
+    codes = {finding.code for finding in audit.report.errors}
+
+    assert {
+        "ci-health-test-pass-rate-math",
+        "ci-health-test-pass-rate-alias",
+        "analytics-build-pass-rate-basis",
+        "analytics-build-pass-rate-pct",
+        "analytics-build-pass-rate-math",
+        "analytics-build-pass-rate-alias",
+        "root-test-results-test-pass-rate-counts",
+        "root-test-results-test-pass-rate-basis",
+        "root-test-results-test-pass-rate-math",
+        "root-test-results-test-pass-rate-alias",
+    } <= codes
+
+
+def test_dashboard_audit_warns_but_accepts_unversioned_pass_rate_payloads(
+    tmp_path,
+):
+    health, analytics = _write_rate_contract_fixtures(tmp_path)
+    health.pop("pass_rate_contract_version")
+    for block in (health["amd"], health["upstream"]):
+        rows = [
+            block["latest_build"],
+            block["latest_test_signal_build"],
+            block["latest_pipeline_build"],
+            *block["builds"],
+        ]
+        for row in rows:
+            row.pop("test_pass_rate_pct")
+            row.pop("test_pass_rate_basis")
+    for block in analytics.values():
+        block.pop("pass_rate_contract_version")
+        block["summary"].pop("build_pass_rate_pct")
+        block["summary"].pop("build_pass_rate_basis")
+    (tmp_path / "data/vllm/ci/ci_health.json").write_text(json.dumps(health))
+    (tmp_path / "data/vllm/ci/analytics.json").write_text(json.dumps(analytics))
+
+    test_results_path = tmp_path / "data/vllm/test_results.json"
+    test_results = json.loads(test_results_path.read_text())
+    test_results.pop("pass_rate_contract_version")
+    for platform in ("rocm", "cuda"):
+        summary = test_results[platform]["summary"]
+        summary.pop("test_pass_rate_pct")
+        summary.pop("test_pass_rate_basis")
+        summary.pop("test_assertions")
+    test_results_path.write_text(json.dumps(test_results))
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_ci_health()
+    audit.audit_analytics()
+    audit.audit_root_test_results()
+
+    assert not [
+        finding for finding in audit.report.errors if "pass-rate" in finding.code
+    ]
+    warning_codes = [finding.code for finding in audit.report.warnings]
+    assert warning_codes.count("ci-health-pass-rate-contract-legacy") == 1
+    assert warning_codes.count("analytics-pass-rate-contract-legacy") == 2
+    assert warning_codes.count("root-test-results-pass-rate-contract-legacy") == 1
+
+
+def test_dashboard_audit_rejects_unknown_pass_rate_contract_versions(tmp_path):
+    health, analytics = _write_rate_contract_fixtures(tmp_path)
+    health["pass_rate_contract_version"] = 2
+    for block in analytics.values():
+        block["pass_rate_contract_version"] = 2
+    (tmp_path / "data/vllm/ci/ci_health.json").write_text(json.dumps(health))
+    (tmp_path / "data/vllm/ci/analytics.json").write_text(json.dumps(analytics))
+
+    test_results_path = tmp_path / "data/vllm/test_results.json"
+    test_results = json.loads(test_results_path.read_text())
+    test_results["pass_rate_contract_version"] = 2
+    test_results_path.write_text(json.dumps(test_results))
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_ci_health()
+    audit.audit_analytics()
+    audit.audit_root_test_results()
+    error_codes = [finding.code for finding in audit.report.errors]
+
+    assert error_codes.count("ci-health-pass-rate-contract-version") == 1
+    assert error_codes.count("analytics-pass-rate-contract-version") == 2
+    assert error_codes.count("root-test-results-pass-rate-contract-version") == 1
 
 
 def test_dashboard_audit_requires_workload_mapping_v2_ranges():

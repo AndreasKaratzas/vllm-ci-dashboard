@@ -183,6 +183,38 @@ for (const file of process.argv.slice(1)) {
             pytest.skip("node acorn parser is not available")
         assert result.returncode == 0, result.stderr
 
+    def test_test_assertion_rate_helper_scales_legacy_values(self):
+        if not shutil.which("node"):
+            pytest.skip("node is not available")
+        script = r"""
+const fs = require('fs');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const match = source.match(/function testAssertionPassRatePct\(summary, legacyScale\) \{[\s\S]*?\n\}/);
+if (!match) throw new Error('testAssertionPassRatePct helper not found');
+eval(match[0]);
+const cases = [
+  [{test_pass_rate_pct: 98.5, pass_rate: 0.1}, 'fraction', 98.5],
+  [{pass_rate: 0.875}, 'fraction', 87.5],
+  [{pass_rate: 87.5}, 'percent', 87.5],
+];
+for (const [summary, scale, expected] of cases) {
+  const actual = testAssertionPassRatePct(summary, scale);
+  if (actual !== expected) {
+    throw new Error(`${JSON.stringify(summary)} (${scale}) produced ${actual}, expected ${expected}`);
+  }
+}
+if (testAssertionPassRatePct({}, 'percent') !== null) {
+  throw new Error('missing rate should stay unavailable');
+}
+"""
+        result = subprocess.run(
+            ["node", "-e", script, str(JS / "utils.js")],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        assert result.returncode == 0, result.stderr
+
     def test_dashboard_boot_has_visible_startup_failure_path(self):
         text = (JS / "dashboard.js").read_text()
         assert "renderStartupError" in text, (

@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vllm.constants import BK_API_BASE, BK_ORG  # noqa: E402
 from vllm.ci.incident_transitions import INCIDENT_TRANSITION_POLICY_ID  # noqa: E402
+from vllm.ci.models import PASS_RATE_CONTRACT_VERSION  # noqa: E402
 from vllm.ci.utils import (  # noqa: E402
     duration_mins,
     parse_iso as parse_ts,
@@ -53,6 +54,14 @@ log = logging.getLogger(__name__)
 
 PIPELINES = {"amd-ci": "AMD CI", "ci": "Upstream CI"}
 ANALYTICS_WINDOWS_DAYS = (1, 3, 7, 14, 30)
+BUILD_PASS_RATE_BASIS = "terminal_build_state_all_green"
+TERMINAL_BUILD_STATES = frozenset({
+    "passed",
+    "failed",
+    "canceled",
+    "skipped",
+    "not_run",
+})
 DEFAULT_ANALYTICS_WINDOW_DAYS = 30
 ANALYTICS_BUILD_LIMIT = 120
 ANALYTICS_NIGHTLY_LIMIT = 30
@@ -1152,14 +1161,25 @@ def compute_queue_stats(job_rankings):
 def compute_summary(builds, job_rankings):
     total_builds = len(builds)
     passed_builds = sum(1 for b in builds if b["state"] == "passed")
-    failed_builds = sum(1 for b in builds if b["state"] in ("failed", "failing"))
+    terminal_builds = sum(
+        1 for build in builds
+        if str(build.get("state") or "").lower() in TERMINAL_BUILD_STATES
+    )
+    failed_builds = terminal_builds - passed_builds
+    build_pass_rate_pct = (
+        round(passed_builds / terminal_builds * 100, 1)
+        if terminal_builds else 0.0
+    )
     hard_failed_jobs = sum(1 for j in job_rankings if j["failed"] > 0)
     soft_failed_jobs = sum(1 for j in job_rankings if j["failed"] == 0 and j["soft_failed"] > 0)
     return {
         "total_builds": total_builds,
+        "terminal_builds": terminal_builds,
         "passed": passed_builds,
         "failed": failed_builds,
-        "pass_rate": round(passed_builds / total_builds * 100, 1) if total_builds else 0,
+        "build_pass_rate_pct": build_pass_rate_pct,
+        "build_pass_rate_basis": BUILD_PASS_RATE_BASIS,
+        "pass_rate": build_pass_rate_pct,
         "total_jobs_tracked": len(job_rankings),
         "jobs_with_failures": hard_failed_jobs + soft_failed_jobs,
         "jobs_with_hard_failures": hard_failed_jobs,
@@ -1350,6 +1370,7 @@ def main():
             "display_name": PIPELINES.get(slug, slug),
             "days": args.days,
             "generated_at": generated_at,
+            "pass_rate_contract_version": PASS_RATE_CONTRACT_VERSION,
             "transition_policy_id": INCIDENT_TRANSITION_POLICY_ID,
             "cohort": {
                 "name": "canonical message-matched nightlies",
@@ -1440,7 +1461,9 @@ def main():
     # Print summary
     for slug, d in all_data.items():
         s = d["summary"]
-        print(f"\n{d['display_name']}: {s['total_builds']} builds, {s['pass_rate']}% pass rate, "
+        print(f"\n{d['display_name']}: {s['total_builds']} builds "
+              f"({s['terminal_builds']} terminal), {s['build_pass_rate_pct']}% "
+              "build pass rate (terminal state all-green), "
               f"{s['jobs_with_failures']} jobs with failures, {s['total_jobs_tracked']} jobs tracked")
 
 

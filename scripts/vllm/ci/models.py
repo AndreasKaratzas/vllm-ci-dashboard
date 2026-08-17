@@ -4,6 +4,10 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
+PASS_RATE_CONTRACT_VERSION = 1
+TEST_PASS_RATE_BASIS = "pytest_assertions_excluding_skipped"
+
+
 @dataclass
 class TestResult:
     """Single test case result from one build."""
@@ -78,6 +82,19 @@ class BuildSummary:
     by_hardware: dict = field(default_factory=dict)  # per-hardware breakdown
     delta_vs_previous: dict = field(default_factory=dict)
 
+    @property
+    def test_pass_rate_pct(self) -> float:
+        """Assertion pass rate on a 0-100 scale; skipped tests are excluded."""
+        assertions_run = self.passed + self.failed
+        return (
+            round(self.passed / assertions_run * 100, 2)
+            if assertions_run else 0.0
+        )
+
+    @property
+    def test_pass_rate_basis(self) -> str:
+        return TEST_PASS_RATE_BASIS
+
     def to_dict(self) -> dict:
         return {
             "pipeline": self.pipeline,
@@ -93,6 +110,8 @@ class BuildSummary:
             "skipped": self.skipped,
             "errors": self.errors,
             "pass_rate": self.pass_rate,
+            "test_pass_rate_pct": self.test_pass_rate_pct,
+            "test_pass_rate_basis": self.test_pass_rate_basis,
             "duration_secs": self.duration_secs,
             "wall_clock_secs": self.wall_clock_secs,
             "job_count": self.job_count,

@@ -19,6 +19,7 @@ frontend JS, and workflow YAML. It does not call GitHub or Buildkite.
 |---------|-------------|----------|------------------|
 | Home PRs | `data/vllm/prs.json` | `scripts/collect.py` | `docs/assets/js/dashboard.js` |
 | Home project issues | `data/vllm/issues.json` | `scripts/collect.py` | `docs/assets/js/dashboard.js` |
+| Home test summary | `data/vllm/test_results.json` | `scripts/collect_ci.py` | `docs/assets/js/dashboard.js` |
 | Operations manifest and lazy shards | `data/vllm/ci/operations_v2_manifest.json`, `data/vllm/ci/operations_v2/*.json` | `scripts/vllm/build_operations_snapshot.py` | `docs/assets/js/ops-v2.js` |
 | CI Health nightly signal | `data/vllm/ci/ci_health.json`, `data/vllm/ci/analytics.json` | `scripts/collect_ci.py`, `scripts/vllm/collect_analytics.py` | operations snapshot builder |
 | CI Health AMD targets | `data/vllm/ci/gating_targets.json`, `data/vllm/ci/gating_target_candidates.json`, `data/vllm/ci/amd_test_matrix.json` | `scripts/vllm/collect_gating_targets.py`, `scripts/vllm/collect_gating_target_candidates.py`, `scripts/vllm/collect_amd_test_matrix.py` | operations snapshot builder |
@@ -34,6 +35,11 @@ frontend JS, and workflow YAML. It does not call GitHub or Buildkite.
 - Linked project #39 issues and CI PR tags agree both ways.
 - CI Health latest build numbers match the latest parsed JSONL files, and
   current/latest group counts remain distinct from retained-history counts.
+- Pass-rate fields declare their denominator: analytics build percentages use
+  terminal build outcomes, while CI-health and Home test percentages use
+  passed versus failed pytest assertions and exclude skipped assertions. The
+  audit enforces these fields for `pass_rate_contract_version: 1`; unversioned
+  pre-rollout data remains readable with a warning until its next collection.
 - CI Health target incident lists sort hard failures, soft failures, and
   unobserved targets before passing targets, then alphabetically within state.
 - CI Analytics has non-empty windows, recent builds, failure rankings, duration rankings, and chartable build rows.

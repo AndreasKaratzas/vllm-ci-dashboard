@@ -1306,16 +1306,16 @@
               const index = item.dataIndex;
               if (item.dataset.type === 'line') {
                 const stat = rollingPass[index] || {};
-                return 'Trailing pass rate: ' + Number(stat.rate || 0).toFixed(1) + '% (' + integer(stat.passed) + ' / ' + integer(stat.total) + ')';
+                return 'Trailing 10-run pass rate: ' + Number(stat.rate || 0).toFixed(1) + '% (' + integer(stat.passed) + ' / ' + integer(stat.total) + ')';
               }
               return 'Result: ' + historyOutcomeLabel(observations[index]);
             }}}},
             scales: {
               x: {grid: {display: false}, ticks: {maxTicksLimit: 8}},
-              y: {min: 0, max: 100, title: {display: true, text: 'Trailing pass rate'}, ticks: {stepSize: 20, callback: function (tick) { return tick + '%'; }}},
+              y: {min: 0, max: 100, title: {display: true, text: 'Trailing 10-run pass rate'}, ticks: {stepSize: 20, callback: function (tick) { return tick + '%'; }}},
             },
           },
-          evidenceTitle: (candidate.name || 'Test group') + ' exact outcomes and trailing pass rate',
+          evidenceTitle: (candidate.name || 'Test group') + ' exact outcomes and trailing 10-run pass rate',
           evidence: evidence,
         });
         if (durationChart) {
@@ -4362,7 +4362,7 @@
         {label: 'GROUPS SHOWN', value: integer(prepared.length), meta: integer(sourceRows.length) + ' with retained main history'},
         {label: 'EXACT RUNS VISIBLE', value: integer(totalRuns), meta: local.cohort === 'nightly' ? 'nightly observations' : 'all-main observations'},
         {label: 'FAILING LATEST', value: integer(latestIncidents), meta: 'groups ending in a failure observation', tone: latestIncidents ? 'is-danger' : 'is-success'},
-        {label: 'MEDIAN PASS RATE', value: medianRate === null ? '-' : medianRate.toFixed(1) + '%', meta: integer(mixed) + ' groups have mixed outcomes', tone: medianRate >= 95 ? 'is-success' : medianRate >= 80 ? 'is-warning' : 'is-danger'},
+        {label: 'MEDIAN RETAINED-RUN PASS RATE', value: medianRate === null ? '-' : medianRate.toFixed(1) + '%', meta: integer(mixed) + ' groups have mixed outcomes', tone: medianRate >= 95 ? 'is-success' : medianRate >= 80 ? 'is-warning' : 'is-danger'},
       ]));
       clear(mapHost);
       if (!prepared.length) {
@@ -4372,7 +4372,7 @@
       const viewport = n('div', 'ops-history-map-viewport');
       const map = n('div', 'ops-history-map');
       const mapHeader = n('div', 'ops-history-map-row ops-history-map-header');
-      add(mapHeader, [n('span', '', 'Test group'), n('span', '', 'Pass rate'), n('span', '', 'Latest'), n('span', '', 'Latest 30 exact runs - oldest to newest')]);
+      add(mapHeader, [n('span', '', 'Test group'), n('span', '', 'Retained-run pass rate'), n('span', '', 'Latest'), n('span', '', 'Latest 30 exact runs - oldest to newest')]);
       map.append(mapHeader);
       prepared.forEach(function (item) {
         const row = n('div', 'ops-history-map-row');
@@ -4477,7 +4477,7 @@
     scoreFill.style.width = passed / observations.length * 100 + '%';
     scoreTrack.append(scoreFill);
     add(score, [
-      n('div', 'ops-history-fact-label', 'RETAINED PASS RATE'),
+      n('div', 'ops-history-fact-label', 'RETAINED-RUN PASS RATE'),
       n('strong', 'ops-history-score-value', percent(passed, observations.length)),
       n('div', 'ops-history-score-meta', integer(passed) + ' passed - ' + integer(hard) + ' hard - ' + integer(soft) + ' soft'),
       scoreTrack,
@@ -4618,7 +4618,7 @@
     const content = n('div', 'ops-amd-group-detail');
     content.append(statusStrip([
       {label: 'LATEST AMD RESULT', value: amdStateLabel(latestState), meta: row.latest_build_number ? '#' + row.latest_build_number + ' - ' + shortDate(row.latest_observed_at) : 'No retained latest result', tone: toneForState(latestState)},
-      {label: 'RETAINED PASS RATE', value: amdGroupPassRate(row) === null ? '-' : amdGroupPassRate(row).toFixed(1) + '%', meta: integer(row.passed) + ' passed - ' + integer(row.soft_failed) + ' soft - ' + integer(row.hard_failed) + ' hard'},
+      {label: 'RETAINED-RUN PASS RATE', value: amdGroupPassRate(row) === null ? '-' : amdGroupPassRate(row).toFixed(1) + '%', meta: integer(row.passed) + ' passed - ' + integer(row.soft_failed) + ' soft - ' + integer(row.hard_failed) + ' hard'},
       {label: 'CURRENT PASS STREAK', value: integer(row.current_pass_streak), meta: integer(row.runs) + ' retained AMD nightlies'},
       {label: 'NON-PASSING RUNS', value: integer(incidents.length), meta: incidents.length ? 'Select any amber or red outcome for its Buildkite job' : 'None in retained history', tone: incidents.length ? 'is-warning' : 'is-success'},
     ]));
@@ -4704,7 +4704,7 @@
       tableHost.append(dataTable([
         {label: 'AMD job variant', sticky: true, width: '370px', render: function (row) { return amdGroupIdentity(row, function () { openAmdGroupDetail(row, amdHealth); }); }},
         {label: 'Latest', width: '130px', render: function (row) { const latest = amdLatestState(row, latestBuild); const url = latest === 'missing' ? '' : row.latest_url; return linkedBadge(amdStateLabel(latest), url, function () { openAmdGroupDetail(row, amdHealth); }, toneForState(latest)); }},
-        {label: 'Pass rate', numeric: true, width: '120px', render: function (row) { const rate = amdGroupPassRate(row); return linkButton(rate === null ? '-' : rate.toFixed(1) + '%', function () { openAmdGroupDetail(row, amdHealth); }); }},
+        {label: 'Retained-run pass rate', numeric: true, width: '160px', render: function (row) { const rate = amdGroupPassRate(row); return linkButton(rate === null ? '-' : rate.toFixed(1) + '%', function () { openAmdGroupDetail(row, amdHealth); }); }},
         {label: 'Runs', numeric: true, width: '90px', render: function (row) { return linkButton(integer(row.runs), function () { openAmdGroupDetail(row, amdHealth); }); }},
         {label: 'Pass streak', numeric: true, width: '120px', render: function (row) { return linkButton(integer(row.current_pass_streak), function () { openAmdGroupDetail(row, amdHealth); }); }},
         {label: 'Hardware', width: '120px', render: function (row) { return badge(value(row.hardware_variant || row.hardware), 'is-neutral'); }},
@@ -4804,7 +4804,7 @@
         ]},
         options: {scales: {x: {stacked: true, grid: {display: false}, ticks: {maxTicksLimit: 10}}, y: {stacked: true, beginAtZero: true, title: {display: true, text: 'AMD job groups'}}}},
         evidenceTitle: 'AMD nightly test-group health',
-        evidence: builds.map(function (build) { return {label: '#' + build.number, timestamp: build.observed_at, url: build.url, valueSummary: integer(build.passed) + ' passing - ' + integer(build.soft_failed) + ' soft - ' + integer(build.hard_failed) + ' hard', details: {observed_groups: build.observed, passing: build.passed, soft_failed: build.soft_failed, hard_failed: build.hard_failed, unknown: build.unknown, pass_rate: Number(build.pass_rate_pct || 0).toFixed(1) + '%'}}; }),
+        evidence: builds.map(function (build) { return {label: '#' + build.number, timestamp: build.observed_at, url: build.url, valueSummary: integer(build.passed) + ' passing - ' + integer(build.soft_failed) + ' soft - ' + integer(build.hard_failed) + ' hard', details: {observed_groups: build.observed, passing: build.passed, soft_failed: build.soft_failed, hard_failed: build.hard_failed, unknown: build.unknown, observed_group_pass_rate: Number(build.pass_rate_pct || 0).toFixed(1) + '%'}}; }),
       });
       drawChart('analytics-amd-hardware-health', hardwareChart.canvas, {
         type: 'bar',
@@ -4841,7 +4841,7 @@
     host.append(panel('Current AMD failures to inspect', integer(priority.length) + ' highest-priority raw results shown; every row opens exact nightly evidence', dataTable([
       {label: 'AMD test group', sticky: true, width: '380px', render: function (row) { return amdGroupIdentity(row, function () { openAmdGroupDetail(row, amdHealth); }); }},
       {label: 'Queue', width: '170px', render: function (row) { return linkButton(value(row.queue), function () { navigateTo('ci-queue', {queueView: 'history', queueHistoryQueue: row.queue, queueScope: 'amd'}); }); }},
-      {label: 'Retained pass rate', numeric: true, width: '150px', render: function (row) { const rate = amdGroupPassRate(row); return linkButton(rate === null ? '-' : rate.toFixed(1) + '%', function () { openAmdGroupDetail(row, amdHealth); }); }},
+      {label: 'Retained-run pass rate', numeric: true, width: '170px', render: function (row) { const rate = amdGroupPassRate(row); return linkButton(rate === null ? '-' : rate.toFixed(1) + '%', function () { openAmdGroupDetail(row, amdHealth); }); }},
       {label: 'Latest', width: '110px', render: function (row) { const latest = amdLatestState(row, latestBuild); return linkedBadge(amdStateLabel(latest), row.latest_url, function () { openAmdGroupDetail(row, amdHealth); }, toneForState(latest)); }},
       {label: 'Pass / soft / hard', numeric: true, width: '170px', render: function (row) { return linkButton(integer(row.passed) + ' / ' + integer(row.soft_failed) + ' / ' + integer(row.hard_failed), function () { openAmdGroupDetail(row, amdHealth); }); }},
       {label: 'Latest evidence', width: '160px', render: function (row) { return externalLink('#' + value(row.latest_build_number), row.latest_url, 'ops-mono'); }},

@@ -38,6 +38,11 @@
   };
   const pct = (v,d=2) => (v*100).toFixed(d)+'%';
   const rc = r => r>=.95?C.g:r>=.85?C.y:r>=.7?C.o:C.r;
+  const testAssertionRate = summary => {
+    const ratePct = testAssertionPassRatePct(summary, 'fraction');
+    return ratePct == null ? null : ratePct / 100;
+  };
+  const executedAssertionCount = summary => Number(summary?.passed || 0) + Number(summary?.failed || 0);
   const PROPOSAL_COLOR = C.o;
 
   const h = el;  // shared element factory defined in utils.js
@@ -1673,9 +1678,11 @@
 
     // AMD runtime card -> opens build link
     const amdGroupCount=mergedAmdGroups||a.unique_test_groups||0;
+    const amdAssertionRate=testAssertionRate(a);
+    const amdAssertions=executedAssertionCount(a);
     const sfInfo=a.jobs_soft_failed?` &bull; ${a.jobs_soft_failed} soft-failed`:'';
     const runInfo=a.is_running?` &bull; <span style="color:${C.y}">&#9888; running</span>`:'';
-    row.append(card('amd-ci runtime',pct(a.pass_rate,1),`Build #${a.build_number} &bull; ${amdGroupCount} runtime groups${sfInfo}${runInfo}`,rc(a.pass_rate),
+    row.append(card('AMD test assertion pass rate',amdAssertionRate==null?'-':pct(amdAssertionRate,1),`Build #${a.build_number} &bull; ${fmtInt(amdAssertions)} executed assertions &bull; ${amdGroupCount} runtime groups${sfInfo}${runInfo}`,amdAssertionRate==null?C.m:rc(amdAssertionRate),
       ()=>{ if(a.build_url) window.open(a.build_url,'_blank'); }));
 
     // Test Failures card -> overlay with failing groups (split AMD / upstream)
@@ -1724,7 +1731,9 @@
         ()=>showParityOverlay(bothGroups,aOnlyGroups,uOnlyGroups)));
     } else if(u) {
       const upGroups=u.unique_test_groups||0;
-      row.append(card('External Upstream',pct(u.pass_rate,1),`Build #${u.build_number} &bull; ${upGroups} runtime groups`,rc(u.pass_rate)));
+      const upstreamAssertionRate=testAssertionRate(u);
+      const upstreamAssertions=executedAssertionCount(u);
+      row.append(card('Upstream test assertion pass rate',upstreamAssertionRate==null?'-':pct(upstreamAssertionRate,1),`Build #${u.build_number} &bull; ${fmtInt(upstreamAssertions)} executed assertions &bull; ${upGroups} runtime groups`,upstreamAssertionRate==null?C.m:rc(upstreamAssertionRate)));
     }
 
     box.append(row);
@@ -1736,7 +1745,7 @@
     const tbl=h('table',{style:{width:'100%',borderCollapse:'collapse'}});
     tbl.append(h('thead',{},[h('tr',{},[
       h('th',{text:'Hardware',style:ts()}),
-      h('th',{text:'Group Pass Rate',style:ts()}),
+      h('th',{text:'Hardware-group pass rate',style:ts()}),
       h('th',{text:'Groups Passing',style:ts('center')}),
       h('th',{text:'Groups Failing',style:ts('center')}),
       h('th',{text:'Total Groups',style:ts('center')}),
@@ -1942,7 +1951,7 @@
   function renderTrend(box,health) {
     if(!health?.amd?.builds||health.amd.builds.length<2) return;
     const det=h('details',{open:true,style:{marginBottom:'20px',background:C.bg,border:`1px solid ${C.bd}`,borderRadius:'8px'}});
-    det.append(h('summary',{text:'Test Group Pass Rate Trend (7 days)',style:{padding:'12px 16px',cursor:'pointer',fontSize:'14px',fontWeight:'600'}}));
+    det.append(h('summary',{text:'Test-group pass rate trend (7 days)',style:{padding:'12px 16px',cursor:'pointer',fontSize:'14px',fontWeight:'600'}}));
     const canvas=h('canvas',{style:{maxHeight:'200px',padding:'0 16px 16px'}});
     det.append(canvas);
     box.append(det);
@@ -2211,7 +2220,7 @@
     const det=h('details',{style:{marginBottom:'8px',background:C.bg,border:`1px solid ${C.bd}`,borderRadius:'8px'}});
     det.append(h('summary',{html:`Flaky Tests <span style="color:${C.y}">(${flaky.total_flaky})</span>`,style:{padding:'12px 16px',cursor:'pointer',fontSize:'14px',fontWeight:'600'}}));
     const tbl=h('table',{style:{width:'100%',borderCollapse:'collapse',fontSize:'14px',margin:'0 0 12px'}});
-    tbl.append(h('thead',{},[h('tr',{},[h('th',{text:'Test',style:ts()}),h('th',{text:'Rate',style:ts('center')}),h('th',{text:'History',style:ts('center')})])]));
+    tbl.append(h('thead',{},[h('tr',{},[h('th',{text:'Test',style:ts()}),h('th',{text:'Retained test-observation pass rate',style:ts('center')}),h('th',{text:'History',style:ts('center')})])]));
     const tb=h('tbody');
     for(const t of flaky.tests)
       tb.append(h('tr',{},[

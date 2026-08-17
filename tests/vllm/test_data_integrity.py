@@ -395,13 +395,39 @@ class TestFrontendFiles:
             "ci-analytics.js legend should not list 'Soft Fail' as separate state"
         )
 
-    def test_pass_rate_bars_exclude_skipped(self):
-        """dashboard.js pass rate bars must use ran count (passed+failed), not total_tests."""
-        js = (DOCS / "assets" / "js" / "dashboard.js").read_text()
-        # The AMD label should NOT use total_tests directly
-        assert "total_tests.toLocaleString()" not in js or "Ran" in js, (
-            "dashboard.js should use passed+failed for test count labels, not total_tests"
-        )
+    def test_test_assertion_rates_use_explicit_fields_with_legacy_fallback(self):
+        """Every assertion-rate UI must prefer the explicit semantic field."""
+        utils = (DOCS / "assets" / "js" / "utils.js").read_text()
+        dashboard = (DOCS / "assets" / "js" / "dashboard.js").read_text()
+        health = (DOCS / "assets" / "js" / "ci-health.js").read_text()
+
+        assert "function testAssertionPassRatePct" in utils
+        assert utils.index("summary.test_pass_rate_pct") < utils.index("summary.pass_rate")
+        assert 'testAssertionPassRatePct(summary, "percent")' in utils
+        assert "testAssertionPassRatePct(summary, 'fraction')" in health
+        assert "AMD test assertion pass rate" in health
+        assert "Upstream test assertion pass rate" in health
+        assert "card('amd-ci runtime'" not in health
+        assert "card('External Upstream'" not in health
+
+        assert "function buildTestAssertionPassRateBar" in utils
+        assert "function buildPassRateBar" not in utils
+        assert 'buildTestAssertionPassRateBar("ROCm test assertions"' in dashboard
+        assert 'buildTestAssertionPassRateBar("CUDA test assertions"' in dashboard
+        assert "testAssertionCounts(rs)" in dashboard
+        assert "testAssertionCounts(cs)" in dashboard
+        assert "(ra ? 'test assertions' : 'jobs')" in dashboard
+        assert "(ca ? 'test assertions' : 'jobs')" in dashboard
+
+    def test_analytics_build_rate_names_its_terminal_nightly_denominator(self):
+        js = (DOCS / "assets" / "js" / "ci-analytics.js").read_text()
+        assert "function buildPassRatePct" in js
+        assert js.index("summary.build_pass_rate_pct") < js.index("summary.pass_rate")
+        assert "s.terminal_builds ?? s.total_builds" in js
+        assert "All-green nightly build rate" in js
+        assert "terminal nightlies" in js
+        assert "Job Pass Rate" in js
+        assert "matched hardware-job pass rate" in js
 
     def test_overlay_tables_have_row_numbers(self):
         """All overlay tables must have a # column for enumeration."""
@@ -513,10 +539,10 @@ class TestFrontendFiles:
     def test_projects_hardware_summary_is_pass_rate_first(self):
         js = (DOCS / "assets" / "js" / "dashboard.js").read_text()
         css = (DOCS / "assets" / "css" / "dashboard.css").read_text()
-        assert "AMD HW Pass Rate" in js, (
+        assert "AMD hardware-group pass rate" in js, (
             "Projects parity card should lead with AMD hardware pass rate, not a raw cell count"
         )
-        assert "parity-hw-overall" in js and "Overall pass rate" in js, (
+        assert "parity-hw-overall" in js and "Overall hardware-group pass rate" in js, (
             "Projects hardware breakdown should show the overall hardware-group pass rate"
         )
         assert "parity-score-bar" in js and ".parity-score-bar" in css, (

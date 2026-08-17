@@ -46,7 +46,7 @@ from vllm.ci.reporter import (
     write_quarantine_report,
     write_test_results,
 )
-from vllm.ci.models import TestResult
+from vllm.ci.models import PASS_RATE_CONTRACT_VERSION, BuildSummary, TestResult
 from vllm.pipelines import PIPELINES as VLLM_PIPELINES, BK_ORG as VLLM_ORG, SKIP_JOB_PATTERNS
 
 logging.basicConfig(
@@ -610,6 +610,67 @@ def _compute_pipeline_summaries(
 def _latest_signal_summary(summaries: list):
     """Return the newest summary backed by parsed test evidence."""
     return next((summary for summary in summaries if summary.has_test_results), None)
+
+
+def _project_test_result_summary(summary: BuildSummary) -> dict:
+    """Return the legacy root summary plus explicit assertion-rate semantics."""
+    assertions_run = summary.passed + summary.failed
+    test_pass_rate_pct = (
+        round(summary.passed / assertions_run * 100, 1)
+        if assertions_run else 0.0
+    )
+    return {
+        "total_jobs": summary.job_count,
+        "passed": summary.jobs_passed,
+        "failed": summary.jobs_failed,
+        "skipped": 0,
+        # Legacy alias retained for one compatibility cycle. It has always
+        # represented parsed pytest assertions, not the adjacent job counts.
+        "pass_rate": test_pass_rate_pct,
+        "test_pass_rate_pct": test_pass_rate_pct,
+        "test_pass_rate_basis": summary.test_pass_rate_basis,
+        "test_assertions": {
+            "total": summary.total_tests,
+            "passed": summary.passed,
+            "failed": summary.failed,
+            "skipped": summary.skipped,
+        },
+    }
+
+
+def _project_test_results_payload(
+    latest_amd: BuildSummary,
+    latest_upstream: BuildSummary | None = None,
+    *,
+    collected_at: str | None = None,
+) -> dict:
+    """Return the compatibility root payload with an explicit rate contract."""
+    payload = {
+        "pass_rate_contract_version": PASS_RATE_CONTRACT_VERSION,
+        "collected_at": collected_at
+        or datetime.now(timezone.utc).isoformat()[:19] + "Z",
+        "source": "buildkite",
+        "rocm": {
+            "workflow_name": "AMD Nightly (Buildkite)",
+            "run_url": latest_amd.build_url,
+            "run_date": latest_amd.created_at,
+            "conclusion": (
+                "success" if latest_amd.pass_rate >= 0.95 else "failure"
+            ),
+            "summary": _project_test_result_summary(latest_amd),
+        },
+    }
+    if latest_upstream:
+        payload["cuda"] = {
+            "workflow_name": "Upstream Nightly (Buildkite)",
+            "run_url": latest_upstream.build_url,
+            "run_date": latest_upstream.created_at,
+            "conclusion": (
+                "success" if latest_upstream.pass_rate >= 0.95 else "failure"
+            ),
+            "summary": _project_test_result_summary(latest_upstream),
+        }
+    return payload
 
 
 def _merge_with_previous(
@@ -1201,43 +1262,18 @@ def main():
     project_dir = output_dir.parent  # data/vllm/
     latest_amd_signal = _latest_signal_summary(amd_summaries)
     if latest_amd_signal:
-        latest = latest_amd_signal
-        test_results = {
-            "collected_at": datetime.now(timezone.utc).isoformat()[:19] + "Z",
-            "source": "buildkite",
-            "rocm": {
-                "workflow_name": "AMD Nightly (Buildkite)",
-                "run_url": latest.build_url,
-                "run_date": latest.created_at,
-                "conclusion": "success" if latest.pass_rate >= 0.95 else "failure",
-                "summary": {
-                    "total_jobs": latest.job_count,
-                    "passed": latest.jobs_passed,
-                    "failed": latest.jobs_failed,
-                    "skipped": 0,
-                    "pass_rate": round(latest.pass_rate * 100, 1),
-                },
-            },
-        }
         latest_upstream_signal = _latest_signal_summary(upstream_summaries)
-        if latest_upstream_signal:
-            up = latest_upstream_signal
-            test_results["cuda"] = {
-                "workflow_name": "Upstream Nightly (Buildkite)",
-                "run_url": up.build_url,
-                "run_date": up.created_at,
-                "conclusion": "success" if up.pass_rate >= 0.95 else "failure",
-                "summary": {
-                    "total_jobs": up.job_count,
-                    "passed": up.jobs_passed,
-                    "failed": up.jobs_failed,
-                    "skipped": 0,
-                    "pass_rate": round(up.pass_rate * 100, 1),
-                },
-            }
+        test_results = _project_test_results_payload(
+            latest_amd_signal,
+            latest_upstream_signal,
+        )
         tr_path = project_dir / "test_results.json"
         tr_path.write_text(json.dumps(test_results, indent=2))
-        log.info("Wrote %s (synced from CI data)", tr_path)
+        log.info(
+            "Wrote %s (synced from CI data; pass rate uses pytest assertions, "
+            "excluding skipped)",
+            tr_path,
+        )
 
     # Copy parity_report.json to project root for compatibility
     ci_parity = output_dir / "parity_report.json"
@@ -1274,7 +1310,7 @@ def _print_summary(
             )
         print(f"\nAMD Latest (Build #{latest.build_number}):")
         print(f"  Tests: {latest.total_tests} | Pass: {latest.passed} | Fail: {latest.failed} | Skip: {latest.skipped}")
-        print(f"  Pass Rate: {latest.pass_rate:.1%}")
+        print(f"  Test Pass Rate (pytest assertions, skipped excluded): {latest.pass_rate:.1%}")
         print(f"  Jobs: {latest.job_count} ({latest.jobs_passed} passed, {latest.jobs_failed} failed)")
         if latest.delta_vs_previous:
             d = latest.delta_vs_previous
@@ -1284,7 +1320,7 @@ def _print_summary(
         latest = _latest_signal_summary(upstream_summaries) or upstream_summaries[0]
         print(f"\nUpstream Latest (Build #{latest.build_number}):")
         print(f"  Tests: {latest.total_tests} | Pass: {latest.passed} | Fail: {latest.failed} | Skip: {latest.skipped}")
-        print(f"  Pass Rate: {latest.pass_rate:.1%}")
+        print(f"  Test Pass Rate (pytest assertions, skipped excluded): {latest.pass_rate:.1%}")
 
     if health_data:
         labels = {}

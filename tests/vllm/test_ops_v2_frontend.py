@@ -184,6 +184,16 @@ def test_reliability_evidence_is_drillable_and_honestly_named():
     assert "Failures only" in OPS_JS
 
 
+def test_pass_rate_copy_names_each_observation_denominator():
+    assert "MEDIAN RETAINED-RUN PASS RATE" in OPS_JS
+    assert "RETAINED-RUN PASS RATE" in OPS_JS
+    assert "Retained-run pass rate" in OPS_JS
+    assert "observed_group_pass_rate" in OPS_JS
+    assert "MEDIAN PASS RATE" not in OPS_JS
+    assert "RETAINED PASS RATE" not in OPS_JS
+    assert "details: {observed_groups:" in OPS_JS
+
+
 def test_test_group_history_switches_cohorts_with_clickable_outcome_evidence():
     for contract in (
         "function isNightlyObservation",
@@ -198,7 +208,7 @@ def test_test_group_history_switches_cohorts_with_clickable_outcome_evidence():
         "Select test group for historical analysis",
         "Outcome timeline",
         "Failures to inspect",
-        "RETAINED PASS RATE",
+        "RETAINED-RUN PASS RATE",
         "CURRENT SIGNAL",
         "LAST FAILURE",
         "TYPICAL COMPLETION",
@@ -427,7 +437,7 @@ def test_architecture_and_test_group_history_show_exact_counts_at_a_glance():
         "Complete test-group history",
         "Latest 30 exact runs - oldest to newest",
         "Explore all groups",
-        "MEDIAN PASS RATE",
+        "MEDIAN RETAINED-RUN PASS RATE",
         "Outcome timeline",
         "--ops-history-track-width",
         "renderGroupHistoryExplorer(host, reliabilityCatalog(reliability), ops, reliability)",

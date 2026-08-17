@@ -9,6 +9,7 @@ a fresh clone) are skipped rather than failing.
 from __future__ import annotations
 
 import json
+import math
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -19,6 +20,7 @@ pytestmark = pytest.mark.live_data
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 DATA = ROOT / "data" / "vllm" / "ci"
+PROJECT_DATA = ROOT / "data" / "vllm"
 
 
 def _load_json_or_skip(name: str):
@@ -37,6 +39,22 @@ def _parse_utc(value: str) -> datetime:
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     assert parsed.tzinfo is not None, f"{value!r} must include a timezone"
     return parsed.astimezone(timezone.utc)
+
+
+def _assert_percentage(value, path: str) -> float:
+    assert isinstance(value, (int, float)) and not isinstance(value, bool), (
+        f"{path} must be numeric"
+    )
+    result = float(value)
+    assert math.isfinite(result), f"{path} must be finite"
+    assert 0 <= result <= 100, f"{path} must be between 0 and 100"
+    return result
+
+
+def _require_pass_rate_contract_v1(version, path: str) -> None:
+    if version is None:
+        pytest.skip(f"{path} is an unversioned legacy payload")
+    assert version == 1, f"{path}.pass_rate_contract_version must be 1"
 
 
 class TestCiHealth:
@@ -60,6 +78,51 @@ class TestCiHealth:
         for side in ("amd", "upstream"):
             block = d[side]
             _assert_has_keys(block, {"builds", "latest_build", "trend"}, f"ci_health.json.{side}")
+
+    def test_build_rows_have_explicit_assertion_pass_rates(self):
+        d = _load_json_or_skip("ci_health.json")
+        _require_pass_rate_contract_v1(
+            d.get("pass_rate_contract_version"),
+            "ci_health.json",
+        )
+        for side in ("amd", "upstream"):
+            block = d[side]
+            rows = [
+                (key, block.get(key))
+                for key in (
+                    "latest_build",
+                    "latest_test_signal_build",
+                    "latest_pipeline_build",
+                )
+            ]
+            rows.extend(
+                (f"builds[{index}]", row)
+                for index, row in enumerate(block.get("builds", []))
+            )
+            for name, row in rows:
+                if not row:
+                    continue
+                path = f"ci_health.json.{side}.{name}"
+                _assert_has_keys(
+                    row,
+                    {
+                        "passed",
+                        "failed",
+                        "skipped",
+                        "pass_rate",
+                        "test_pass_rate_pct",
+                        "test_pass_rate_basis",
+                    },
+                    path,
+                )
+                pct = _assert_percentage(row["test_pass_rate_pct"], f"{path}.test_pass_rate_pct")
+                assert row["test_pass_rate_basis"] == "pytest_assertions_excluding_skipped"
+                ran = row["passed"] + row["failed"]
+                expected = round(row["passed"] / ran * 100, 2) if ran else 0.0
+                assert pct == expected, f"{path} pass rate must exclude skipped assertions"
+                assert pct == pytest.approx(row["pass_rate"] * 100, abs=0.0050001), (
+                    f"{path} explicit percentage disagrees with legacy ratio"
+                )
 
 
 class TestParityReport:
@@ -115,6 +178,97 @@ class TestAnalytics:
             row = builds[0]
             for field in ("number", "state", "created_at", "total_jobs", "passed", "failed"):
                 assert field in row, f"analytics.json[{slug}].builds[0] missing {field!r}"
+
+    def test_summaries_have_explicit_terminal_build_pass_rates(self):
+        d = _load_json_or_skip("analytics.json")
+        checked = 0
+        for slug, block in d.items():
+            version = block.get("pass_rate_contract_version")
+            if version is None:
+                continue
+            assert version == 1, (
+                f"analytics.json[{slug}].pass_rate_contract_version must be 1"
+            )
+            checked += 1
+            summaries = [("summary", block["summary"])]
+            summaries.extend(
+                (f"windows[{window!r}].summary", window_data["summary"])
+                for window, window_data in block.get("windows", {}).items()
+                if "summary" in window_data
+            )
+            for name, summary in summaries:
+                path = f"analytics.json[{slug}].{name}"
+                _assert_has_keys(
+                    summary,
+                    {
+                        "passed",
+                        "terminal_builds",
+                        "pass_rate",
+                        "build_pass_rate_pct",
+                        "build_pass_rate_basis",
+                    },
+                    path,
+                )
+                pct = _assert_percentage(
+                    summary["build_pass_rate_pct"],
+                    f"{path}.build_pass_rate_pct",
+                )
+                assert summary["build_pass_rate_basis"] == "terminal_build_state_all_green"
+                terminal = summary["terminal_builds"]
+                expected = round(summary["passed"] / terminal * 100, 1) if terminal else 0.0
+                assert pct == expected
+                assert pct == summary["pass_rate"], (
+                    f"{path} explicit percentage disagrees with legacy percentage"
+                )
+        if not checked:
+            pytest.skip("analytics.json contains only unversioned legacy payloads")
+
+
+class TestProjectTestResults:
+    def test_platform_summaries_have_explicit_assertion_pass_rates(self):
+        path = PROJECT_DATA / "test_results.json"
+        if not path.exists():
+            pytest.skip("test_results.json not present in this checkout")
+        data = json.loads(path.read_text())
+        _require_pass_rate_contract_v1(
+            data.get("pass_rate_contract_version"),
+            "test_results.json",
+        )
+        for platform in ("rocm", "cuda"):
+            if platform not in data:
+                continue
+            summary = data[platform]["summary"]
+            label = f"test_results.json.{platform}.summary"
+            _assert_has_keys(
+                summary,
+                {
+                    "pass_rate",
+                    "test_assertions",
+                    "test_pass_rate_pct",
+                    "test_pass_rate_basis",
+                },
+                label,
+            )
+            assertions = summary["test_assertions"]
+            _assert_has_keys(
+                assertions,
+                {"total", "passed", "failed", "skipped"},
+                f"{label}.test_assertions",
+            )
+            assert assertions["total"] == (
+                assertions["passed"] + assertions["failed"] + assertions["skipped"]
+            )
+            pct = _assert_percentage(
+                summary["test_pass_rate_pct"],
+                f"{label}.test_pass_rate_pct",
+            )
+            assert summary["test_pass_rate_basis"] == "pytest_assertions_excluding_skipped"
+            ran = assertions["passed"] + assertions["failed"]
+            expected = round(assertions["passed"] / ran * 100, 1) if ran else 0.0
+            assert pct == expected
+            assert pct == summary["pass_rate"], (
+                f"{label} explicit percentage disagrees with legacy percentage"
+            )
 
 
 class TestGatingExecutiveData:

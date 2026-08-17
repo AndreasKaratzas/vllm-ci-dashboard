@@ -373,6 +373,7 @@ class TestWindowedAnalytics:
 
         payload = json.loads((tmp_path / "analytics.json").read_text())
         amd_block = payload["amd-ci"]
+        assert amd_block["pass_rate_contract_version"] == 1
         assert amd_block["transition_policy_id"] == "confirmed-incidents-v1"
         assert (
             amd_block["nightly_change_history"][0]["policy_id"]
@@ -385,6 +386,7 @@ class TestWindowedAnalytics:
         )
         assert "main_retry_analysis" not in amd_block
         block = payload["ci"]
+        assert block["pass_rate_contract_version"] == 1
         assert block["transition_policy_id"] == "confirmed-incidents-v1"
         assert block["nightly_change_history"][0]["policy_id"] == "confirmed-incidents-v1"
         reliability = block["all_main_reliability"]
@@ -651,6 +653,30 @@ class TestWindowedAnalytics:
         assert summary["jobs_with_failures"] == 1
         assert summary["jobs_with_hard_failures"] == 0
         assert summary["jobs_with_soft_failures"] == 1
+        assert summary["build_pass_rate_pct"] == 100.0
+        assert summary["build_pass_rate_basis"] == "terminal_build_state_all_green"
+        assert summary["pass_rate"] == summary["build_pass_rate_pct"]
+
+    def test_build_pass_rate_excludes_nonterminal_builds_from_denominator(self):
+        builds = [
+            _build(1, 0.5, [_job("Passed", 10)], state="passed"),
+            _build(2, 0.4, [_job("Failed", 10)], state="failed"),
+            _build(3, 0.3, [_job("Still running", 10)], state="running"),
+            _build(4, 0.2, [_job("Currently failing", 10)], state="failing"),
+            _build(5, 0.1, [_job("Canceled", 10)], state="canceled"),
+            _build(6, 0.1, [_job("Skipped", 10)], state="skipped"),
+            _build(7, 0.1, [_job("Not run", 10)], state="not_run"),
+        ]
+
+        summary = ca.compute_summary(builds, ca.compute_job_rankings(builds))
+
+        assert summary["total_builds"] == 7
+        assert summary["terminal_builds"] == 5
+        assert summary["passed"] == 1
+        assert summary["failed"] == 4
+        assert summary["build_pass_rate_pct"] == 20.0
+        assert summary["build_pass_rate_basis"] == "terminal_build_state_all_green"
+        assert summary["pass_rate"] == 20.0
 
 
 class TestParsedResultFallback:

@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import sys
 from dataclasses import dataclass, field
@@ -230,6 +231,18 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _is_finite_number(value: Any) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+    )
+
+
+def _is_nonnegative_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
 def _parse_timestamp(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -314,6 +327,13 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         ("docs/assets/js/dashboard.js",),
         ("collected_at", "issues"),
         "Home project #39 issue list and issue counter",
+    ),
+    DataSpec(
+        "data/vllm/test_results.json",
+        ("scripts/collect_ci.py",),
+        ("docs/assets/js/dashboard.js",),
+        ("collected_at", "source", "rocm"),
+        "Home test-result summary with assertion-based pass rates",
     ),
     DataSpec(
         "data/vllm/ci/ci_health.json",
@@ -617,6 +637,7 @@ class DashboardAudit:
         self.audit_operations_bundle()
         self.audit_home_pr_issue_data()
         self.audit_ci_health()
+        self.audit_root_test_results()
         self.audit_shard_bases()
         self.audit_gating_target_candidates()
         self.audit_analytics()
@@ -2996,10 +3017,163 @@ class DashboardAudit:
             "linked_issue_pr_refs": linked_refs,
         }
 
+    def _pass_rate_contract_enabled(
+        self,
+        version: Any,
+        *,
+        label: str,
+        path: str,
+        code_prefix: str,
+    ) -> bool:
+        if version is None:
+            self.warning(
+                f"{code_prefix}-legacy",
+                (
+                    f"{label} is an unversioned legacy payload; explicit pass-rate "
+                    "fields will be required after its next producer collection"
+                ),
+                path,
+            )
+            return False
+        if not _is_nonnegative_int(version) or version != 1:
+            self.error(
+                f"{code_prefix}-version",
+                f"{label} pass_rate_contract_version={version!r}, expected 1",
+                path,
+            )
+            return False
+        return True
+
+    def _audit_percentage_rate(
+        self,
+        record: dict,
+        *,
+        label: str,
+        path: str,
+        code_prefix: str,
+        percentage_field: str,
+        basis_field: str,
+        expected_basis: str,
+        expected_percentage: float | None,
+        decimal_places: int,
+        legacy_is_ratio: bool,
+    ) -> None:
+        basis = record.get(basis_field)
+        if basis != expected_basis:
+            self.error(
+                f"{code_prefix}-basis",
+                f"{label} {basis_field}={basis!r}, expected {expected_basis!r}",
+                path,
+            )
+
+        percentage = record.get(percentage_field)
+        percentage_valid = _is_finite_number(percentage) and 0 <= percentage <= 100
+        if not percentage_valid:
+            self.error(
+                f"{code_prefix}-pct",
+                f"{label} {percentage_field}={percentage!r}, expected a finite value from 0 to 100",
+                path,
+            )
+
+        legacy = record.get("pass_rate")
+        legacy_upper_bound = 1 if legacy_is_ratio else 100
+        legacy_valid = (
+            _is_finite_number(legacy)
+            and 0 <= legacy <= legacy_upper_bound
+        )
+        if not legacy_valid:
+            unit = "0 to 1 ratio" if legacy_is_ratio else "0 to 100 percentage"
+            self.error(
+                f"{code_prefix}-alias",
+                f"{label} legacy pass_rate={legacy!r}, expected a finite {unit}",
+                path,
+            )
+
+        tolerance = (10 ** -decimal_places) / 2 + 1e-12
+        if (
+            percentage_valid
+            and expected_percentage is not None
+            and not math.isclose(
+                float(percentage),
+                expected_percentage,
+                rel_tol=0,
+                abs_tol=tolerance,
+            )
+        ):
+            self.error(
+                f"{code_prefix}-math",
+                f"{label} {percentage_field}={percentage!r}, expected {expected_percentage}",
+                path,
+            )
+
+        if legacy_valid:
+            normalized_legacy = float(legacy) * (100 if legacy_is_ratio else 1)
+            disagrees_with_percentage = (
+                percentage_valid
+                and not math.isclose(
+                    float(percentage),
+                    normalized_legacy,
+                    rel_tol=0,
+                    abs_tol=tolerance,
+                )
+            )
+            disagrees_with_math = (
+                expected_percentage is not None
+                and not math.isclose(
+                    normalized_legacy,
+                    expected_percentage,
+                    rel_tol=0,
+                    abs_tol=tolerance,
+                )
+            )
+            if disagrees_with_percentage or disagrees_with_math:
+                self.error(
+                    f"{code_prefix}-alias",
+                    (
+                        f"{label} {percentage_field}={percentage!r} disagrees with "
+                        f"legacy pass_rate={legacy!r}"
+                    ),
+                    path,
+                )
+
+    def _audit_ci_health_build_rate(self, build: dict, label: str) -> None:
+        path = "data/vllm/ci/ci_health.json"
+        passed = build.get("passed")
+        failed = build.get("failed")
+        expected_percentage = None
+        if not _is_nonnegative_int(passed) or not _is_nonnegative_int(failed):
+            self.error(
+                "ci-health-test-pass-rate-counts",
+                f"{label} passed/failed assertion counts must be non-negative integers",
+                path,
+            )
+        else:
+            ran = passed + failed
+            expected_percentage = round(passed / ran * 100, 2) if ran else 0.0
+        self._audit_percentage_rate(
+            build,
+            label=label,
+            path=path,
+            code_prefix="ci-health-test-pass-rate",
+            percentage_field="test_pass_rate_pct",
+            basis_field="test_pass_rate_basis",
+            expected_basis="pytest_assertions_excluding_skipped",
+            expected_percentage=expected_percentage,
+            decimal_places=2,
+            legacy_is_ratio=True,
+        )
+
     def audit_ci_health(self) -> None:
         health = self.load_json("data/vllm/ci/ci_health.json", {})
         if not isinstance(health, dict):
             return
+
+        rate_contract_enabled = self._pass_rate_contract_enabled(
+            health.get("pass_rate_contract_version"),
+            label="ci_health.json",
+            path="data/vllm/ci/ci_health.json",
+            code_prefix="ci-health-pass-rate-contract",
+        )
 
         metrics: dict[str, Any] = {}
         for side, suffix in (("amd", "amd"), ("upstream", "upstream")):
@@ -3024,6 +3198,27 @@ class DashboardAudit:
                     f"{side} total_tests={total} but passed+failed+skipped={counted}",
                     "data/vllm/ci/ci_health.json",
                 )
+            if rate_contract_enabled:
+                seen_rows: set[int] = set()
+                for key in (
+                    "latest_build",
+                    "latest_test_signal_build",
+                    "latest_pipeline_build",
+                ):
+                    row = _mapping(_mapping(health.get(side)).get(key))
+                    if row and id(row) not in seen_rows:
+                        seen_rows.add(id(row))
+                        self._audit_ci_health_build_rate(row, f"{side}.{key}")
+                for index, raw_row in enumerate(
+                    _rows(_mapping(health.get(side)).get("builds"))
+                ):
+                    row = _mapping(raw_row)
+                    if row and id(row) not in seen_rows:
+                        seen_rows.add(id(row))
+                        self._audit_ci_health_build_rate(
+                            row,
+                            f"{side}.builds[{index}]",
+                        )
             metrics[side] = {
                 "build_number": build_number,
                 "total_tests": total,
@@ -3035,6 +3230,86 @@ class DashboardAudit:
                 },
             }
         self.report.metrics["ci_health"] = metrics
+
+    def audit_root_test_results(self) -> None:
+        path = "data/vllm/test_results.json"
+        payload = self.load_json(path, {})
+        if not isinstance(payload, dict):
+            return
+
+        rate_contract_enabled = self._pass_rate_contract_enabled(
+            payload.get("pass_rate_contract_version"),
+            label="test_results.json",
+            path=path,
+            code_prefix="root-test-results-pass-rate-contract",
+        )
+
+        metrics: dict[str, Any] = {}
+        for platform in ("rocm", "cuda"):
+            block = payload.get(platform)
+            if block is None:
+                continue
+            if not isinstance(block, dict):
+                self.error(
+                    "root-test-results-platform",
+                    f"test_results.json {platform} must be an object",
+                    path,
+                )
+                continue
+            summary = _mapping(block.get("summary"))
+            if not rate_contract_enabled:
+                continue
+            assertions = _mapping(summary.get("test_assertions"))
+            required_counts = ("total", "passed", "failed", "skipped")
+            counts_valid = all(
+                _is_nonnegative_int(assertions.get(key)) for key in required_counts
+            )
+            expected_percentage = None
+            if not counts_valid:
+                self.error(
+                    "root-test-results-test-pass-rate-counts",
+                    (
+                        f"{platform}.summary.test_assertions must contain non-negative "
+                        "integer total/passed/failed/skipped counts"
+                    ),
+                    path,
+                )
+            else:
+                counted = (
+                    assertions["passed"]
+                    + assertions["failed"]
+                    + assertions["skipped"]
+                )
+                if assertions["total"] != counted:
+                    self.error(
+                        "root-test-results-test-pass-rate-counts",
+                        (
+                            f"{platform}.summary.test_assertions.total={assertions['total']} "
+                            f"but passed+failed+skipped={counted}"
+                        ),
+                        path,
+                    )
+                ran = assertions["passed"] + assertions["failed"]
+                expected_percentage = (
+                    round(assertions["passed"] / ran * 100, 1) if ran else 0.0
+                )
+            self._audit_percentage_rate(
+                summary,
+                label=f"{platform}.summary",
+                path=path,
+                code_prefix="root-test-results-test-pass-rate",
+                percentage_field="test_pass_rate_pct",
+                basis_field="test_pass_rate_basis",
+                expected_basis="pytest_assertions_excluding_skipped",
+                expected_percentage=expected_percentage,
+                decimal_places=1,
+                legacy_is_ratio=False,
+            )
+            metrics[platform] = {
+                "test_assertions": assertions,
+                "test_pass_rate_pct": summary.get("test_pass_rate_pct"),
+            }
+        self.report.metrics["root_test_results"] = metrics
 
     def audit_gating_target_candidates(self) -> None:
         payload = self.load_json("data/vllm/ci/gating_target_candidates.json", {})
@@ -3073,6 +3348,45 @@ class DashboardAudit:
             "summary": payload.get("summary") or {},
         }
 
+    def _audit_analytics_build_rate(self, summary: dict, label: str) -> None:
+        path = "data/vllm/ci/analytics.json"
+        passed = summary.get("passed")
+        failed = summary.get("failed")
+        terminal_builds = summary.get("terminal_builds")
+        expected_percentage = None
+        if (
+            not _is_nonnegative_int(passed)
+            or not _is_nonnegative_int(failed)
+            or not _is_nonnegative_int(terminal_builds)
+            or terminal_builds != passed + failed
+        ):
+            self.error(
+                "analytics-build-pass-rate-counts",
+                (
+                    f"{label} passed/failed/terminal_builds must be non-negative "
+                    "integers with terminal_builds = passed + failed"
+                ),
+                path,
+            )
+        else:
+            expected_percentage = (
+                round(passed / terminal_builds * 100, 1)
+                if terminal_builds
+                else 0.0
+            )
+        self._audit_percentage_rate(
+            summary,
+            label=label,
+            path=path,
+            code_prefix="analytics-build-pass-rate",
+            percentage_field="build_pass_rate_pct",
+            basis_field="build_pass_rate_basis",
+            expected_basis="terminal_build_state_all_green",
+            expected_percentage=expected_percentage,
+            decimal_places=1,
+            legacy_is_ratio=False,
+        )
+
     def audit_analytics(self) -> None:
         analytics = self.load_json("data/vllm/ci/analytics.json", {})
         if not isinstance(analytics, dict):
@@ -3085,9 +3399,21 @@ class DashboardAudit:
                 self.error("analytics-pipeline-missing", f"analytics.json missing {slug}")
                 continue
             builds = _rows(block.get("builds"))
+            rate_contract_enabled = self._pass_rate_contract_enabled(
+                block.get("pass_rate_contract_version"),
+                label=f"analytics.json[{slug}]",
+                path="data/vllm/ci/analytics.json",
+                code_prefix="analytics-pass-rate-contract",
+            )
             if not builds:
                 self.error("analytics-empty-builds", f"{slug} analytics has no builds")
                 continue
+
+            if rate_contract_enabled:
+                self._audit_analytics_build_rate(
+                    _mapping(block.get("summary")),
+                    f"{slug}.summary",
+                )
 
             suffix = RESULT_SUFFIXES[slug]
             latest_results = self.latest_result_file(suffix)
@@ -3121,6 +3447,14 @@ class DashboardAudit:
                         f"{slug} missing precomputed {key} window",
                         "data/vllm/ci/analytics.json",
                     )
+            if rate_contract_enabled:
+                for window_name, raw_window in windows.items():
+                    window = _mapping(raw_window)
+                    if "summary" in window:
+                        self._audit_analytics_build_rate(
+                            _mapping(window.get("summary")),
+                            f"{slug}.windows[{window_name!r}].summary",
+                        )
 
             chartable_builds = [
                 b

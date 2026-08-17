@@ -80,6 +80,31 @@ All files are written to `data/vllm/ci/`:
 | `quarantine.json` | Rendered quarantine/allowlist state |
 | `test_results/{date}_{pipeline}.jsonl` | Per-test results (one JSON per line) |
 
+### Pass-rate contracts
+
+Pass rates carry an explicit percentage and denominator label so consumers do
+not have to infer whether a value describes builds, jobs, or assertions:
+
+The producer sets `pass_rate_contract_version: 1` at the `ci_health.json` and
+project-root `test_results.json` top levels and in each `analytics.json`
+pipeline block. Unversioned payloads are legacy rollout data; the audit warns
+but does not require the new fields until a producer has emitted version 1.
+
+- Each `analytics.json` pipeline and window summary publishes
+  `build_pass_rate_pct` (0–100) with
+  `build_pass_rate_basis: "terminal_build_state_all_green"`. It is the share
+  of terminal builds whose final state is fully passed. The legacy `pass_rate`
+  remains the same percentage.
+- Every build summary in `ci_health.json` publishes `test_pass_rate_pct`
+  (0–100) with
+  `test_pass_rate_basis: "pytest_assertions_excluding_skipped"`. It is
+  `passed / (passed + failed)`; skipped assertions are excluded. The legacy
+  `pass_rate` remains the equivalent 0–1 ratio.
+- Each platform summary in `data/vllm/test_results.json` uses the same explicit
+  assertion basis and records the source counts under `test_assertions`. Its
+  legacy `pass_rate` remains the equivalent 0–100 percentage. These assertion
+  counts are intentionally separate from the existing job-count fields.
+
 ### JSONL Format (test_results)
 
 Each line in a `.jsonl` file is a JSON object:

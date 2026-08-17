@@ -44,6 +44,14 @@
     return (value * 100).toFixed(digits) + '%';
   }
 
+  function buildPassRatePct(summary) {
+    if (!summary) return null;
+    const explicit = Number(summary.build_pass_rate_pct);
+    if (summary.build_pass_rate_pct != null && Number.isFinite(explicit)) return explicit;
+    const legacy = Number(summary.pass_rate);
+    return summary.pass_rate != null && Number.isFinite(legacy) ? legacy : null;
+  }
+
   function summarizeAmdMatrix(matrixData) {
     const rows = matrixData?.rows || [];
     const architectures = matrixData?.architectures || [];
@@ -188,7 +196,7 @@
 
       summaryRow.append(metricCard('Nightly Builds', totalBuilds, `${activeLabel} across ${pipelines.length} pipelines`, C.b));
       summaryRow.append(metricCard('Jobs with Failures', totalFailures, `of ${totalJobs} tracked`, totalFailures > 0 ? C.r : C.g));
-      summaryRow.append(metricCard('Worst Failure Rate', topFails[0] ? `${topFails[0].fail_rate}%` : '0%', topFails[0]?.name?.slice(0,30) || '', C.r));
+      summaryRow.append(metricCard('Worst job-run failure rate', topFails[0] ? `${topFails[0].fail_rate}%` : '0%', topFails[0]?.name?.slice(0,30) || '', C.r));
       summaryRow.append(metricCard('Slowest Job (p50)', topDurs[0] ? fmtDur(topDurs[0].median_dur) : '-', topDurs[0]?.name?.slice(0,30) || '', C.o));
       dyn.append(summaryRow);
 
@@ -201,8 +209,17 @@
         col.append(h('h3',{text:d.display_name || p,style:{marginBottom:'12px',color:C.b,borderBottom:`2px solid ${C.b}`,paddingBottom:'6px',fontSize:'14px',fontWeight:'700'}}));
 
         const s = wd.summary || d.summary || {};
-        const miniRow = h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'16px'}});
+        const miniRow = h('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'8px',marginBottom:'16px'}});
         miniRow.append(metricCard('Builds', s.total_builds || 0, activeLabel, C.b));
+        const nightlyBuildRate = buildPassRatePct(s);
+        const terminalBuilds = s.terminal_builds ?? s.total_builds ?? 0;
+        const buildRateBasis = s.terminal_builds != null ? 'terminal nightlies' : 'nightlies (legacy denominator)';
+        miniRow.append(metricCard(
+          'All-green nightly build rate',
+          nightlyBuildRate == null ? '-' : `${nightlyBuildRate.toFixed(1)}%`,
+          `${s.passed || 0}/${terminalBuilds} ${buildRateBasis} all green`,
+          nightlyBuildRate == null ? C.m : nightlyBuildRate >= 95 ? C.g : nightlyBuildRate >= 80 ? C.y : C.r
+        ));
         const hardFailures = s.jobs_with_hard_failures ?? Math.max(0, (s.jobs_with_failures || 0) - (s.jobs_with_soft_failures || 0));
         const softFailures = s.jobs_with_soft_failures || 0;
         const failureSub = softFailures ? `${softFailures} soft-failed of ${s.total_jobs_tracked || 0}` : `of ${s.total_jobs_tracked || 0}`;
@@ -1140,7 +1157,7 @@
     summaryRow.append(metricCard(
       'Passing HW Jobs',
       matrixSummary.passingCells,
-      `${fmtPct(matrixSummary.passRate)} pass rate across matched hardware jobs`,
+      `${fmtPct(matrixSummary.passRate)} matched hardware-job pass rate`,
       matrixSummary.passRate == null ? C.m : matrixSummary.passRate >= 0.85 ? C.g : matrixSummary.passRate >= 0.7 ? C.o : C.r
     ));
     summaryRow.append(metricCard(
