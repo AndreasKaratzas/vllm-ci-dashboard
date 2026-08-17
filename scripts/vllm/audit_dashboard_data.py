@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# cspell:ignore AKIA ASIA baprs bkua bxox gaierror github_pat xapp xoxb
+# cspell:ignore AKIA ASIA baprs bkua bxox gaierror github_pat pousr xapp xoxb
 """Audit the dashboard's generated data, frontend contracts, and deploy path.
 
 The normal pytest suite has focused unit and schema checks. This script is the
