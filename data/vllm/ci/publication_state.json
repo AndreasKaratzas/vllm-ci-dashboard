@@ -1,5 +1,5 @@
 {
-  "baseline_ref": "adcc8db722e33383cf03e404ff84502721fdfc42",
+  "baseline_ref": "ba5236f5903e58f50087f47dd9d1b0645cea6232",
   "candidate_degradations": [
     {
       "code": "dns-health-partial",
@@ -34,24 +34,6 @@
       "severity": "error",
       "surfaces": [
         "queue"
-      ]
-    },
-    {
-      "code": "publication-source-shape",
-      "message": "shard_bases.json must be a non-empty list of labels",
-      "path": "data/vllm/ci/shard_bases.json",
-      "severity": "error",
-      "surfaces": [
-        "ci_core"
-      ]
-    },
-    {
-      "code": "publication-source-shape",
-      "message": "data/vllm/ci/shard_base_catalog.json is missing required keys ['definitions', 'normalization_bases', 'pipelines', 'schema_version', 'source']",
-      "path": "data/vllm/ci/shard_base_catalog.json",
-      "severity": "error",
-      "surfaces": [
-        "ci_core"
       ]
     }
   ],
@@ -93,7 +75,7 @@
   "fresh_degraded_surfaces": [
     "dns_health"
   ],
-  "generated_at": "2026-08-17T15:05:22Z",
+  "generated_at": "2026-08-17T16:00:04Z",
   "mode": "mixed",
   "restored_manifest": {
     "ci_core": {
