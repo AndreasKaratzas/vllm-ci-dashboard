@@ -7,6 +7,8 @@ from __future__ import annotations
 import gzip
 import json
 import subprocess
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -447,6 +449,264 @@ def test_pending_scan_interleaves_oldest_and_newest_with_a_hard_limit():
     assert client.calls == [_uuid(6), _uuid(1), _uuid(5), _uuid(2)]
     assert [row["status"] for row in rows].count("negative") == 4
     assert [row["status"] for row in rows].count("pending") == 2
+
+
+def test_scan_uses_a_rolling_window_of_exactly_three_log_fetches():
+    pending = [
+        dns.pending_record(_metadata(index, finished_hours=-index / 10))
+        for index in range(1, 7)
+    ]
+
+    class BlockingClient:
+        def __init__(self):
+            self.lock = threading.Lock()
+            self.release = threading.Event()
+            self.three_started = threading.Event()
+            self.calls: list[str] = []
+            self.active = 0
+            self.peak_active = 0
+
+        def fetch_job_log(self, metadata: dict, *, deadline: float | None = None):
+            with self.lock:
+                self.calls.append(metadata["job_id"])
+                self.active += 1
+                self.peak_active = max(self.peak_active, self.active)
+                if self.active == collector.MAX_CONCURRENT_LOG_FETCHES:
+                    self.three_started.set()
+            if not self.release.wait(timeout=5):
+                raise AssertionError("rolling scanner did not release blocked fetches")
+            with self.lock:
+                self.active -= 1
+            return "ordinary successful output", 26
+
+    client = BlockingClient()
+    result: dict[str, object] = {}
+
+    def run_scan() -> None:
+        try:
+            result["rows"] = collector.scan_records(
+                pending,
+                client=client,
+                attempted_at=_timestamp(),
+                max_logs=6,
+            )
+        except BaseException as exc:  # make worker failures visible to the test
+            result["error"] = exc
+
+    scanner = threading.Thread(target=run_scan)
+    scanner.start()
+    try:
+        assert client.three_started.wait(timeout=5)
+        with client.lock:
+            assert len(client.calls) == collector.MAX_CONCURRENT_LOG_FETCHES
+            assert client.peak_active == collector.MAX_CONCURRENT_LOG_FETCHES
+    finally:
+        client.release.set()
+        scanner.join(timeout=5)
+
+    assert not scanner.is_alive()
+    assert "error" not in result
+    assert len(client.calls) == 6
+    assert client.peak_active == collector.MAX_CONCURRENT_LOG_FETCHES
+    assert [row["status"] for row in result["rows"]].count("negative") == 6
+
+
+def test_concurrent_client_admission_stays_at_thirty_request_starts_per_minute():
+    clock = {"value": 0.0}
+    clock_lock = threading.Lock()
+
+    def monotonic() -> float:
+        with clock_lock:
+            return clock["value"]
+
+    def sleeping(seconds: float) -> None:
+        with clock_lock:
+            clock["value"] += seconds
+
+    class ConcurrentSession:
+        def __init__(self):
+            self.headers: dict[str, str] = {}
+            self.starts: list[float] = []
+
+        def request(self, method: str, url: str, **kwargs):
+            with clock_lock:
+                self.starts.append(clock["value"])
+            return _FakeResponse(
+                200,
+                body=b"ordinary output",
+                headers={"Content-Type": "text/plain"},
+            )
+
+    session = ConcurrentSession()
+    client = collector.BuildkiteClient(
+        "memory-only-token",
+        session=session,
+        sleep=sleeping,
+        monotonic=monotonic,
+    )
+    with ThreadPoolExecutor(max_workers=collector.MAX_CONCURRENT_LOG_FETCHES) as pool:
+        futures = [
+            pool.submit(client.fetch_job_log, _metadata(index))
+            for index in range(1, 32)
+        ]
+        assert all(future.result()[0] == "ordinary output" for future in futures)
+
+    starts = sorted(session.starts)
+    assert starts[0] == 0
+    assert starts[-1] == 60
+    assert all(later - earlier >= 2 for earlier, later in zip(starts, starts[1:]))
+
+
+def test_retry_after_blocks_other_concurrent_requesters():
+    clock = {"value": 0.0}
+    clock_lock = threading.Lock()
+    backoff_started = threading.Event()
+    release_retry = threading.Event()
+    second_request_started = threading.Event()
+    sleep_lock = threading.Lock()
+    first_backoff_sleep = {"pending": True}
+
+    def monotonic() -> float:
+        with clock_lock:
+            return clock["value"]
+
+    def sleeping(seconds: float) -> None:
+        hold_retry = False
+        with sleep_lock:
+            if seconds == 6 and first_backoff_sleep["pending"]:
+                first_backoff_sleep["pending"] = False
+                hold_retry = True
+        if hold_retry:
+            backoff_started.set()
+            if not release_retry.wait(timeout=5):
+                raise AssertionError("concurrent requester did not observe shared backoff")
+            return
+        with clock_lock:
+            clock["value"] += seconds
+
+    class RetrySession:
+        def __init__(self):
+            self.headers: dict[str, str] = {}
+            self.lock = threading.Lock()
+            self.starts: list[float] = []
+
+        def request(self, method: str, url: str, **kwargs):
+            with self.lock, clock_lock:
+                self.starts.append(clock["value"])
+                request_number = len(self.starts)
+            if request_number == 1:
+                return _FakeResponse(429, headers={"Retry-After": "6"})
+            second_request_started.set()
+            return _FakeResponse(
+                200,
+                body=b"ordinary output",
+                headers={"Content-Type": "text/plain"},
+            )
+
+    session = RetrySession()
+    client = collector.BuildkiteClient(
+        "memory-only-token",
+        session=session,
+        sleep=sleeping,
+        monotonic=monotonic,
+    )
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        retrying = pool.submit(client.fetch_job_log, _metadata(1))
+        assert backoff_started.wait(timeout=5)
+        concurrent = pool.submit(client.fetch_job_log, _metadata(2))
+        try:
+            assert second_request_started.wait(timeout=5)
+        finally:
+            release_retry.set()
+        assert retrying.result()[0] == "ordinary output"
+        assert concurrent.result()[0] == "ordinary output"
+
+    assert session.starts[0] == 0
+    assert session.starts[1] >= 6
+    assert all(
+        later - earlier >= 2
+        for earlier, later in zip(sorted(session.starts), sorted(session.starts)[1:])
+    )
+
+
+def test_shared_deadline_stops_rolling_submission_after_in_flight_requests():
+    pending = [
+        dns.pending_record(_metadata(index, finished_hours=-index / 10))
+        for index in range(1, 7)
+    ]
+    clock = {"value": 0.0}
+    clock_lock = threading.Lock()
+    started = threading.Barrier(collector.MAX_CONCURRENT_LOG_FETCHES)
+
+    def monotonic() -> float:
+        with clock_lock:
+            return clock["value"]
+
+    class DeadlineClient:
+        def __init__(self):
+            self.calls: list[str] = []
+
+        def fetch_job_log(self, metadata: dict, *, deadline: float | None = None):
+            with clock_lock:
+                assert clock["value"] < deadline
+                self.calls.append(metadata["job_id"])
+            started.wait(timeout=5)
+            with clock_lock:
+                clock["value"] = deadline
+            return "ordinary successful output", 26
+
+    client = DeadlineClient()
+    rows = collector.scan_records(
+        pending,
+        client=client,
+        attempted_at=_timestamp(),
+        max_logs=6,
+        deadline=10.0,
+        monotonic=monotonic,
+    )
+
+    expected_first_window = {_uuid(6), _uuid(1), _uuid(5)}
+    assert set(client.calls) == expected_first_window
+    assert len(client.calls) == collector.MAX_CONCURRENT_LOG_FETCHES
+    assert [row["status"] for row in rows].count("negative") == 3
+    assert [row["status"] for row in rows].count("pending") == 3
+
+
+def test_budget_exhaustion_never_starts_a_candidate_beyond_the_active_window():
+    pending = [
+        dns.pending_record(_metadata(index, finished_hours=-index / 10))
+        for index in range(1, 7)
+    ]
+    exhausted = threading.Event()
+
+    class ExhaustingClient:
+        def __init__(self):
+            self.lock = threading.Lock()
+            self.calls: list[str] = []
+
+        def fetch_job_log(self, metadata: dict, *, deadline: float | None = None):
+            with self.lock:
+                self.calls.append(metadata["job_id"])
+            if metadata["job_id"] == _uuid(6):
+                exhausted.set()
+                raise collector.BudgetExhausted()
+            if not exhausted.wait(timeout=5):
+                raise AssertionError("oldest candidate did not exhaust the budget")
+            return "ordinary successful output", 26
+
+    client = ExhaustingClient()
+    rows = collector.scan_records(
+        pending,
+        client=client,
+        attempted_at=_timestamp(),
+        max_logs=6,
+    )
+
+    initial_window = {_uuid(6), _uuid(1), _uuid(5)}
+    assert _uuid(6) in client.calls
+    assert set(client.calls) <= initial_window
+    assert len(client.calls) <= collector.MAX_CONCURRENT_LOG_FETCHES
+    assert [row["status"] for row in rows].count("pending") >= 4
 
 
 def test_deadline_shortened_scan_starts_with_oldest_backfill():

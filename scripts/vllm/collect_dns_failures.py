@@ -16,7 +16,9 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -76,6 +78,7 @@ REQUEST_TIMEOUT = (15, 120)
 RETRYABLE_HTTP_STATUSES = frozenset({429, 500, 502, 503, 504, 520, 522, 524})
 REQUESTS_PER_MINUTE = 30
 REQUEST_INTERVAL_SECONDS = 60 / REQUESTS_PER_MINUTE
+MAX_CONCURRENT_LOG_FETCHES = 3
 SHARED_QUOTA_RESERVE = 10
 ACTIVE_BUILD_STATES = (
     "creating",
@@ -199,12 +202,41 @@ class BuildkiteClient:
     ) -> None:
         if not token:
             raise CollectionError("authentication")
-        self.session = session or requests.Session()
-        self.session.headers.update({"Authorization": f"Bearer {token}"})
+        self._authorization = {"Authorization": f"Bearer {token}"}
+        self._injected_session = session
+        self._thread_sessions = threading.local()
+        # Preserve the public attribute used by callers that inject a session,
+        # while giving each production worker its own requests.Session. Requests
+        # sessions are not a safe place to share mutable connection/cookie state
+        # across concurrent log downloads.
+        self.session = session or self._new_session()
+        if session is not None:
+            self.session.headers.update(self._authorization)
+        else:
+            self._thread_sessions.session = self.session
         self.sleep = sleep
         self.monotonic = monotonic
         self._next_request_at = 0.0
         self._quota_blocked_until = 0.0
+        # Only one thread may wait for/admit the next request at a time. Quota
+        # observations use a separate lock so a response can extend the block
+        # while the admission thread is sleeping.
+        self._admission_lock = threading.Lock()
+        self._quota_lock = threading.Lock()
+
+    def _new_session(self) -> requests.Session:
+        session = requests.Session()
+        session.headers.update(self._authorization)
+        return session
+
+    def _request_session(self) -> requests.Session:
+        if self._injected_session is not None:
+            return self._injected_session
+        session = getattr(self._thread_sessions, "session", None)
+        if session is None:
+            session = self._new_session()
+            self._thread_sessions.session = session
+        return session
 
     def _sleep_with_deadline(self, seconds: float, deadline: float | None) -> None:
         wait = max(0.0, seconds)
@@ -215,13 +247,26 @@ class BuildkiteClient:
             self.sleep(wait)
 
     def _throttle(self, deadline: float | None) -> None:
-        now = self.monotonic()
-        ready_at = max(self._next_request_at, self._quota_blocked_until)
-        self._sleep_with_deadline(max(0.0, ready_at - now), deadline)
-        # Use the scheduled instant as a logical floor so deterministic test
-        # clocks and tiny scheduler wakeups cannot accidentally burst.
-        started_at = max(self.monotonic(), ready_at)
-        self._next_request_at = started_at + REQUEST_INTERVAL_SECONDS
+        with self._admission_lock:
+            while True:
+                with self._quota_lock:
+                    now = self.monotonic()
+                    ready_at = max(self._next_request_at, self._quota_blocked_until)
+                self._sleep_with_deadline(max(0.0, ready_at - now), deadline)
+                # Recheck the adaptive block after sleeping. A concurrent
+                # response may have advertised a near-empty shared quota while
+                # this admission was waiting for the ordinary two-second pace.
+                with self._quota_lock:
+                    observed_at = self.monotonic()
+                    logical_now = max(observed_at, ready_at)
+                    if self._quota_blocked_until > logical_now:
+                        continue
+                    if deadline is not None and logical_now >= deadline:
+                        raise BudgetExhausted()
+                    # The logical floor keeps deterministic/no-op test clocks
+                    # from turning concurrent callers into a burst.
+                    self._next_request_at = logical_now + REQUEST_INTERVAL_SECONDS
+                    return
 
     def _observe_quota_headers(self, headers: object) -> None:
         if not hasattr(headers, "get"):
@@ -235,10 +280,18 @@ class BuildkiteClient:
         if remaining_values and min(remaining_values) <= SHARED_QUOTA_RESERVE:
             reset_wait = rate_limit_reset_seconds(headers)
             if reset_wait:
-                self._quota_blocked_until = max(
-                    self._quota_blocked_until,
-                    self.monotonic() + reset_wait,
-                )
+                self._block_requests_for(reset_wait)
+
+    def _block_requests_for(self, seconds: float) -> None:
+        """Publish one response's backoff to every concurrent requester."""
+        wait = max(0.0, seconds)
+        if not wait:
+            return
+        with self._quota_lock:
+            self._quota_blocked_until = max(
+                self._quota_blocked_until,
+                self.monotonic() + wait,
+            )
 
     def _request(
         self,
@@ -268,7 +321,7 @@ class BuildkiteClient:
                     min(REQUEST_TIMEOUT[1], phase),
                 )
             try:
-                response = self.session.request(
+                response = self._request_session().request(
                     method,
                     url,
                     params=params,
@@ -301,6 +354,10 @@ class BuildkiteClient:
                     fallback=2**attempt,
                 )
                 wait = max(wait, rate_limit_reset_seconds(response.headers))
+                # A 429/5xx Retry-After describes the shared endpoint, not just
+                # this worker. Publish it before sleeping so the other two log
+                # workers cannot consume quota throughout the backoff window.
+                self._block_requests_for(wait)
                 response.close()
                 self._sleep_with_deadline(wait, deadline)
                 continue
@@ -783,6 +840,60 @@ def _fair_pending_order(rows: Iterable[dict]) -> list[dict]:
     return fair
 
 
+def _scan_candidate(
+    row: dict,
+    *,
+    client: BuildkiteClient,
+    attempted_at: str,
+    deadline: float | None,
+    monotonic: Callable[[], float],
+    stop_event: threading.Event,
+) -> dict:
+    """Fetch and classify one log, returning only sanitized scanner state."""
+    if stop_event.is_set() or (deadline is not None and monotonic() >= deadline):
+        stop_event.set()
+        raise BudgetExhausted()
+    previous_attempts = int(row.get("attempts") or 0)
+    try:
+        log_text, _ = client.fetch_job_log(row, deadline=deadline)
+        scan_metadata = row
+        if row["node"] == "unidentified":
+            recovered_node = _node_from_log(log_text)
+            if recovered_node:
+                scan_metadata = dict(row)
+                scan_metadata["node"] = recovered_node
+        classification = classify_dns_log(
+            log_text,
+            job_finished_at=row["finished_at"],
+            job_started_at=row.get("started_at"),
+        )
+        return scan_record(
+            scan_metadata,
+            classification,
+            attempted_at=attempted_at,
+            previous_attempts=previous_attempts,
+        )
+    except OversizeLog as exc:
+        return oversize_record(
+            row,
+            exc.log_bytes,
+            attempted_at=attempted_at,
+            previous_attempts=previous_attempts,
+        )
+    except LogUnavailable as exc:
+        return unavailable_record(
+            row,
+            exc.reason,
+            attempted_at=attempted_at,
+            previous_attempts=previous_attempts,
+        )
+    except BudgetExhausted:
+        # Wake every worker before this exception reaches the coordinator. A
+        # task that has not started I/O yet will observe the shared stop flag.
+        stop_event.set()
+        raise
+
+
 def scan_records(
     rows: Iterable[dict],
     *,
@@ -800,46 +911,59 @@ def scan_records(
     )
     unavailable = [row for row in ordered if row["status"] == "unavailable"]
     candidates = (pending + unavailable)[:max_logs]
-    for row in candidates:
-        if deadline is not None and monotonic() >= deadline:
-            break
-        identity = (row["pipeline"], row["job_id"])
-        previous_attempts = int(row.get("attempts") or 0)
-        try:
-            log_text, _ = client.fetch_job_log(row, deadline=deadline)
-            scan_metadata = row
-            if row["node"] == "unidentified":
-                recovered_node = _node_from_log(log_text)
-                if recovered_node:
-                    scan_metadata = dict(row)
-                    scan_metadata["node"] = recovered_node
-            classification = classify_dns_log(
-                log_text,
-                job_finished_at=row["finished_at"],
-                job_started_at=row.get("started_at"),
-            )
-            by_identity[identity] = scan_record(
-                scan_metadata,
-                classification,
-                attempted_at=attempted_at,
-                previous_attempts=previous_attempts,
-            )
-        except OversizeLog as exc:
-            by_identity[identity] = oversize_record(
-                row,
-                exc.log_bytes,
-                attempted_at=attempted_at,
-                previous_attempts=previous_attempts,
-            )
-        except LogUnavailable as exc:
-            by_identity[identity] = unavailable_record(
-                row,
-                exc.reason,
-                attempted_at=attempted_at,
-                previous_attempts=previous_attempts,
-            )
-        except BudgetExhausted:
-            break
+    if not candidates:
+        return ordered
+
+    # Keep only one task per worker in flight. This gives cancellation a hard
+    # boundary: once any worker observes the shared deadline, no queued task can
+    # wake later and start another request. Results are committed in candidate
+    # order so network completion races never affect serialized state ordering.
+    completed: dict[int, dict] = {}
+    in_flight: dict[Future[dict], int] = {}
+    next_index = 0
+    budget_exhausted = False
+    stop_event = threading.Event()
+
+    def submit_available(pool: ThreadPoolExecutor) -> None:
+        nonlocal next_index, budget_exhausted
+        while (
+            not budget_exhausted
+            and next_index < len(candidates)
+            and len(in_flight) < MAX_CONCURRENT_LOG_FETCHES
+        ):
+            if deadline is not None and monotonic() >= deadline:
+                budget_exhausted = True
+                stop_event.set()
+                return
+            index = next_index
+            next_index += 1
+            in_flight[
+                pool.submit(
+                    _scan_candidate,
+                    candidates[index],
+                    client=client,
+                    attempted_at=attempted_at,
+                    deadline=deadline,
+                    monotonic=monotonic,
+                    stop_event=stop_event,
+                )
+            ] = index
+
+    with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_LOG_FETCHES) as pool:
+        submit_available(pool)
+        while in_flight:
+            done, _ = wait(tuple(in_flight), return_when=FIRST_COMPLETED)
+            for future in sorted(done, key=in_flight.__getitem__):
+                index = in_flight.pop(future)
+                try:
+                    completed[index] = future.result()
+                except BudgetExhausted:
+                    budget_exhausted = True
+            submit_available(pool)
+
+    for index in sorted(completed):
+        row = completed[index]
+        by_identity[(row["pipeline"], row["job_id"])] = row
     return sort_state_jobs(by_identity.values())
 
 

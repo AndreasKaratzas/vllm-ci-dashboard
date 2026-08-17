@@ -271,6 +271,21 @@ class TestFetchNightlyBuilds:
         nums = [b["number"] for b in out]
         assert 1 in nums and 3 in nums and 2 not in nums
 
+    def test_discovery_excludes_embedded_jobs_and_pipeline(self, monkeypatch, fake_cfg):
+        observed = {}
+
+        def paginate(url, params=None):
+            observed["url"] = url
+            observed["params"] = dict(params or {})
+            return []
+
+        monkeypatch.setattr(bk, "_paginate", paginate)
+
+        assert bk.fetch_nightly_builds("amd", days=8) == []
+        assert observed["params"]["exclude_jobs"] == "true"
+        assert observed["params"]["exclude_pipeline"] == "true"
+        assert "include_retried_jobs" not in observed["params"]
+
     def test_amd_pattern_excludes_therock_nightly(self, monkeypatch):
         monkeypatch.setattr(cfg, "BK_ORG", "vllm", raising=False)
         monkeypatch.setattr(cfg, "PIPELINES", {
@@ -365,11 +380,22 @@ class TestFetchNightlyBuilds:
 
 
 class TestFetchBuildDetail:
-    def test_returns_json(self, monkeypatch):
+    def test_returns_json_with_full_retry_roster(self, monkeypatch):
         monkeypatch.setattr(cfg, "BK_ORG", "vllm", raising=False)
         monkeypatch.setattr(cfg, "PIPELINES", {"amd": {"slug": "amd-ci"}}, raising=False)
         expected = {"number": 99, "jobs": []}
         resp = _fake_response(200, json_body=expected)
-        monkeypatch.setattr(bk, "_request", lambda url: resp)
+        observed = {}
+
+        def request(url, params=None):
+            observed["url"] = url
+            observed["params"] = dict(params or {})
+            return resp
+
+        monkeypatch.setattr(bk, "_request", request)
         out = bk.fetch_build_detail("amd", 99)
         assert out == expected
+        assert observed["params"] == {
+            "include_retried_jobs": "true",
+            "exclude_pipeline": "true",
+        }

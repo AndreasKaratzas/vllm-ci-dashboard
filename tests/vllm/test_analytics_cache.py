@@ -277,6 +277,63 @@ def test_nonterminal_or_unknown_build_and_job_states_need_direct_refresh():
     ) == [2, 3, 4, 5]
 
 
+def test_blocked_job_is_terminal_and_does_not_force_direct_refresh():
+    row = _build(1, job_state="blocked")
+    row["jobs"][0]["finished_at"] = None
+    blocked = cache.sanitize_builds([row], "ci")[0]
+
+    assert cache.builds_needing_refresh([blocked]) == []
+
+
+def test_terminal_build_without_finished_at_still_needs_direct_refresh():
+    row = _build(1, job_state="blocked")
+    row["finished_at"] = None
+    unfinished = cache.sanitize_builds([row], "ci")[0]
+
+    assert cache.builds_needing_refresh([unfinished]) == [1]
+
+
+def test_finished_blocked_build_with_waiting_jobs_is_refresh_quiescent():
+    row = _build(1, build_state="blocked", job_state="waiting")
+    row["finished_at"] = NOW.isoformat()
+    blocked = cache.sanitize_builds([row], "ci")[0]
+
+    assert "blocked" not in cache.TERMINAL_BUILD_STATES
+    assert cache.builds_needing_refresh([blocked]) == []
+
+
+def test_blocked_build_without_finished_at_still_needs_direct_refresh():
+    blocked = cache.sanitize_builds(
+        [_build(1, build_state="blocked", job_state="waiting")],
+        "ci",
+    )[0]
+
+    assert cache.builds_needing_refresh([blocked]) == [1]
+
+
+@pytest.mark.parametrize("job_type", ["waiter", "manual", "trigger"])
+def test_finished_terminal_build_ignores_non_script_waiting_jobs(job_type):
+    row = _build(1, job_state="waiting")
+    row["jobs"][0]["type"] = job_type
+    finished = cache.sanitize_builds([row], "ci")[0]
+
+    assert cache.builds_needing_refresh([finished]) == []
+
+
+def test_finished_terminal_build_still_refreshes_running_script_job():
+    running = cache.sanitize_builds([_build(1, job_state="running")], "ci")[0]
+
+    assert cache.builds_needing_refresh([running]) == [1]
+
+
+def test_unknown_job_with_finished_at_is_terminal_like_reliability_history():
+    row = _build(1, job_state="future_state")
+    row["jobs"][0]["finished_at"] = (NOW - timedelta(minutes=30)).isoformat()
+    finished = cache.sanitize_builds([row], "ci")[0]
+
+    assert cache.builds_needing_refresh([finished]) == []
+
+
 def test_atomic_replace_failure_preserves_existing_cache(monkeypatch, tmp_path):
     path = _write(tmp_path)
     original = path.read_bytes()

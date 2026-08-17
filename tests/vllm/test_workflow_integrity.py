@@ -1960,6 +1960,7 @@ class TestWorkflowPipInstallMatchesImports:
             "sys",
             "tempfile",
             "textwrap",
+            "threading",
             "time",
             "traceback",
             "types",

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -230,6 +231,95 @@ def test_rollup_rows_split_buckets():
     # all bucket: 4 runs, 1 soft, 1 hard, 1 canceled; nightly bucket: 1 run, rest 0.
     assert row["a"] == [4, 1, 1, 1]
     assert row["n"] == [1, 0, 0, 0]
+
+
+def test_incremental_build_fetch_is_bounded_exact_and_deduplicated(monkeypatch):
+    barrier = threading.Barrier(ah.MAX_INCREMENTAL_SLICE_WORKERS)
+    lock = threading.Lock()
+    active = 0
+    max_active = 0
+    calls = []
+    build = _build()
+    build["jobs"] = [
+        _job(
+            "j1",
+            "G",
+            "passed",
+            "amd_mi300_1",
+            "node-1",
+            "2026-07-14T09:00:00Z",
+            "2026-07-14T09:05:00Z",
+        )
+    ]
+
+    def paginate(_url, params):
+        nonlocal active, max_active
+        with lock:
+            active += 1
+            max_active = max(max_active, active)
+            calls.append(dict(params))
+        barrier.wait(timeout=2)
+        with lock:
+            active -= 1
+        # Deliberate duplicate proves slice aggregation cannot double-count.
+        return [build]
+
+    monkeypatch.setattr(ah, "_paginate", paginate)
+    rows = ah._fetch_pipeline_observations(
+        "amd-ci",
+        3,
+        query_time=NOW,
+    )
+
+    assert max_active == ah.MAX_INCREMENTAL_SLICE_WORKERS
+    assert len(rows) == 1
+    assert rows[0]["node"] == "node-1"
+    assert sorted(
+        (params["created_from"], params["created_to"])
+        for params in calls
+    ) == [
+        ("2026-07-11T12:00:00+00:00", "2026-07-12T12:00:00+00:00"),
+        ("2026-07-12T12:00:00+00:00", "2026-07-13T12:00:00+00:00"),
+        ("2026-07-13T12:00:00+00:00", "2026-07-14T12:00:00+00:00"),
+    ]
+    assert all(
+        params["per_page"] == 100 and params["exclude_pipeline"] == "true"
+        for params in calls
+    )
+
+
+def test_long_backfill_keeps_single_paginated_query(monkeypatch):
+    calls = []
+
+    def paginate(_url, params):
+        calls.append(dict(params))
+        return []
+
+    monkeypatch.setattr(ah, "_paginate", paginate)
+    assert ah._fetch_pipeline_observations(
+        "ci",
+        60,
+        query_time=NOW,
+    ) == []
+    assert calls == [{
+        "per_page": 100,
+        "exclude_pipeline": "true",
+        "created_from": "2026-05-15T12:00:00+00:00",
+    }]
+
+
+def test_incremental_slice_failure_is_fail_closed(monkeypatch):
+    barrier = threading.Barrier(ah.MAX_INCREMENTAL_SLICE_WORKERS)
+
+    def paginate(_url, params):
+        barrier.wait(timeout=2)
+        if params["created_from"] == "2026-07-12T12:00:00+00:00":
+            raise RuntimeError("slice failed after retries")
+        return []
+
+    monkeypatch.setattr(ah, "_paginate", paginate)
+    with pytest.raises(RuntimeError, match="slice failed after retries"):
+        ah._fetch_pipeline_observations("ci", 3, query_time=NOW)
 
 
 # --------------------------------------------------------------------------- #

@@ -26,6 +26,7 @@ from vllm.ci.buildkite_client import (
     fetch_build_detail,
     fetch_build_jobs,
     fetch_nightly_builds,
+    write_nightly_build_cache,
 )
 from vllm.ci.log_parser import parse_job_results
 from vllm.ci.analyzer import (
@@ -498,7 +499,13 @@ def collect_pipeline(
             latest_build_num,
             latest_terminal_build_num,
         )
-        if verify_candidate and state in cfg.TERMINAL_STATES:
+        # The discovery list intentionally excludes embedded jobs. A restored
+        # local roster can avoid this detail request, but clean GitHub runners
+        # still need every selected terminal nightly hydrated: downstream
+        # completeness checks must not discard otherwise valid historical
+        # JSONL evidence merely because its list summary had no ``jobs`` key.
+        roster_missing = not isinstance(build.get("jobs"), list) or not build["jobs"]
+        if state in cfg.TERMINAL_STATES and (verify_candidate or roster_missing):
             try:
                 detail = fetch_build_detail(pipeline_key, build_num)
                 build.clear()
@@ -610,6 +617,11 @@ def collect_pipeline(
         if build_results:
             results_by_build[build_num] = build_results
             write_test_results(build_results, date, pipeline_key, results_dir)
+
+    # ``fetch_nightly_builds`` now performs a lightweight metadata-only list
+    # query. Persist the rosters hydrated above so historical nightly summaries
+    # keep their exact jobs without downloading them again on the next run.
+    write_nightly_build_cache(pipeline_key, builds, cache_dir)
 
     return builds, results_by_build
 

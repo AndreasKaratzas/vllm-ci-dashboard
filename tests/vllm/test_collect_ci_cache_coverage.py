@@ -462,6 +462,123 @@ class TestCanonicalResultPublication:
         assert not (tmp_path / "test_results" / "2026-08-17_upstream.jsonl").exists()
         parse_results.assert_not_called()
 
+    def test_metadata_only_summary_persists_hydrated_roster(self, tmp_path):
+        summary = self._build(state="failing", job_state="passed")
+        summary.pop("jobs")
+        detail = self._build(state="failing", job_state="passed")
+        detail["creator"] = {
+            "name": "Public Buildkite Name",
+            "email": "private@example.invalid",
+        }
+
+        with (
+            patch("collect_ci.fetch_nightly_builds", return_value=[summary]),
+            patch("collect_ci.fetch_build_detail", return_value=detail),
+            patch("collect_ci.parse_job_results") as parse_results,
+        ):
+            collect_pipeline("upstream", 8, tmp_path)
+
+        cache = json.loads((tmp_path / ".cache" / "builds_upstream.json").read_text())
+        assert cache[0]["jobs"] == detail["jobs"]
+        assert "email" not in cache[0]["creator"]
+        parse_results.assert_not_called()
+
+    def test_latest_terminal_summary_hydrates_before_cache_coverage(self, tmp_path):
+        summary = self._build(state="passed", job_state="passed")
+        detail = json.loads(json.dumps(summary))
+        detail["jobs"].append(
+            {
+                "type": "script",
+                "id": "job-2",
+                "name": "H100: Late soft failure",
+                "state": "timed_out",
+                "soft_failed": True,
+                "retried_in_job_id": None,
+            }
+        )
+
+        cached_path = tmp_path / "test_results" / "2026-08-17_upstream.jsonl"
+        cached = _record("H100: Engine tests", build_num=84160)
+        cached["pipeline"] = "ci"
+        cached["date"] = "2026-08-17"
+        _write_jsonl(cached_path, [cached])
+
+        parsed_by_job = {}
+        for job in detail["jobs"]:
+            row = _record(job["name"], build_num=84160)
+            row["pipeline"] = "ci"
+            row["date"] = "2026-08-17"
+            if job["id"] == "job-2":
+                row["status"] = "failed"
+            parsed_by_job[job["id"]] = TestResult(**row)
+
+        def parse_job(job, *_args):
+            return [parsed_by_job[job["id"]]]
+
+        with (
+            patch("collect_ci.fetch_nightly_builds", return_value=[summary]),
+            patch("collect_ci.fetch_build_detail", return_value=detail) as fetch_detail,
+            patch("collect_ci.parse_job_results", side_effect=parse_job) as parse_results,
+        ):
+            _, results = collect_pipeline("upstream", 8, tmp_path)
+
+        fetch_detail.assert_called_once_with("upstream", 84160)
+        assert parse_results.call_count == 2
+        assert {result.job_name for result in results[84160]} == {
+            "H100: Engine tests",
+            "H100: Late soft failure",
+        }
+        published = [json.loads(line) for line in cached_path.read_text().splitlines()]
+        assert {row["job_name"] for row in published} == {
+            "H100: Engine tests",
+            "H100: Late soft failure",
+        }
+
+    def test_metadata_only_historical_build_keeps_canonical_evidence(self, tmp_path):
+        latest = self._build(state="passed", job_state="passed")
+        latest["number"] = 84161
+        latest["created_at"] = "2026-08-18T06:00:00Z"
+        historical = self._build(state="passed", job_state="passed")
+
+        details = {
+            int(latest["number"]): json.loads(json.dumps(latest)),
+            int(historical["number"]): json.loads(json.dumps(historical)),
+        }
+        summaries = []
+        for build in (latest, historical):
+            summary = json.loads(json.dumps(build))
+            summary.pop("jobs")
+            summaries.append(summary)
+
+            date = summary["created_at"][:10]
+            row = _record("H100: Engine tests", build_num=summary["number"])
+            row["pipeline"] = "ci"
+            row["date"] = date
+            _write_jsonl(
+                tmp_path / "test_results" / f"{date}_upstream.jsonl",
+                [row],
+            )
+
+        def fetch_detail(_pipeline, build_number):
+            return details[build_number]
+
+        with (
+            patch("collect_ci.fetch_nightly_builds", return_value=summaries),
+            patch("collect_ci.fetch_build_detail", side_effect=fetch_detail) as detail_fetch,
+            patch("collect_ci.parse_job_results") as parse_results,
+        ):
+            builds, results = collect_pipeline("upstream", 8, tmp_path)
+
+        assert detail_fetch.call_count == 2
+        parse_results.assert_not_called()
+        assert set(results) == {84160, 84161}
+        assert all(build.get("jobs") for build in builds)
+        entries = [
+            (build_number, rows[0].date, rows)
+            for build_number, rows in sorted(results.items())
+        ]
+        assert _completed_result_entries(entries, builds) == entries
+
     def test_complete_build_promotes_results_to_daily_jsonl(self, tmp_path):
         summary = self._build(state="passed", job_state="passed")
         detail = json.loads(json.dumps(summary))

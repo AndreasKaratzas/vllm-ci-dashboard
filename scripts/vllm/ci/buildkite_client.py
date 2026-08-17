@@ -103,6 +103,19 @@ def _scrub_pii(obj):
     return obj
 
 
+def write_nightly_build_cache(
+    pipeline_key: str,
+    builds: list[dict],
+    cache_dir: Path,
+) -> Path:
+    """Persist hydrated nightly metadata without PII-bearing API fields."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / f"builds_{pipeline_key}.json"
+    scrubbed = [_scrub_pii(json.loads(json.dumps(build))) for build in builds]
+    cache_file.write_text(json.dumps(scrubbed, indent=2))
+    return cache_file
+
+
 # ---------------------------------------------------------------------------
 # Build fetching
 # ---------------------------------------------------------------------------
@@ -147,7 +160,12 @@ def fetch_nightly_builds(
         "branch": branch,
         "created_from": created_from.isoformat(),
         "per_page": 100,
-        "include_retried_jobs": "true",
+        # Discovery only needs the build message/state/timestamps. Downloading
+        # every embedded job for hundreds of non-nightly upstream builds made
+        # this metadata query take minutes. Selected nightlies are hydrated by
+        # ``fetch_build_detail`` when their roster is actually needed.
+        "exclude_jobs": "true",
+        "exclude_pipeline": "true",
     }
 
     all_builds = _paginate(url, params)
@@ -179,10 +197,7 @@ def fetch_nightly_builds(
 
     # Update cache (scrubbed — the cache file is checked into a public repo).
     if cache_dir:
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_file = cache_dir / f"builds_{pipeline_key}.json"
-        scrubbed = [_scrub_pii(json.loads(json.dumps(b))) for b in nightly_builds]
-        cache_file.write_text(json.dumps(scrubbed, indent=2))
+        write_nightly_build_cache(pipeline_key, nightly_builds, cache_dir)
 
     log.info("Found %d nightly builds for %s", len(nightly_builds), pipeline_key)
     return nightly_builds
@@ -235,7 +250,13 @@ def fetch_build_detail(pipeline_key: str, build_number: int) -> dict:
         f"{cfg.BK_API_BASE}/organizations/{cfg.BK_ORG}"
         f"/pipelines/{slug}/builds/{build_number}"
     )
-    resp = _request(url)
+    resp = _request(
+        url,
+        {
+            "include_retried_jobs": "true",
+            "exclude_pipeline": "true",
+        },
+    )
     return resp.json()
 
 

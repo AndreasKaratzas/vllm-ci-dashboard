@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -482,19 +483,83 @@ def test_fetch_uses_independent_bounded_slices_and_reports_local_truncation() ->
     assert source["slices"][0]["end_exclusive"] == "2026-07-28T00:00:00Z"
 
 
-def test_production_collection_releases_each_raw_slice_before_fetching_next(
-    monkeypatch,
-) -> None:
-    released: list[int] = []
-    calls = 0
+def test_slice_fetches_are_concurrent_bounded_and_keep_exact_params() -> None:
+    first_wave = threading.Barrier(cwm.MAX_SLICE_WORKERS)
+    lock = threading.Lock()
+    active = 0
+    max_active = 0
+    requests: list[dict] = []
+
+    def fetcher(_path: str, _token: str, params: dict) -> list[dict]:
+        nonlocal active, max_active
+        with lock:
+            active += 1
+            max_active = max(max_active, active)
+            requests.append(params)
+        if params["created_from"] < "2026-07-28T00:00:00Z":
+            first_wave.wait(timeout=2)
+        with lock:
+            active -= 1
+        return []
+
+    yielded = list(
+        cwm._iter_pipeline_build_slices(
+            "token",
+            "amd-ci",
+            datetime(2026, 7, 25, tzinfo=timezone.utc),
+            datetime(2026, 7, 30, tzinfo=timezone.utc),
+            page_fetcher=fetcher,
+        )
+    )
+
+    assert max_active == cwm.MAX_SLICE_WORKERS
+    assert len(requests) == 5
+    assert all(
+        set(params)
+        == {
+            "created_from",
+            "created_to",
+            "include_retried_jobs",
+            "exclude_pipeline",
+            "per_page",
+            "page",
+        }
+        for params in requests
+    )
+    assert all(params["include_retried_jobs"] == "true" for params in requests)
+    assert all(params["exclude_pipeline"] == "true" for params in requests)
+    assert all(params["per_page"] == cwm.PER_PAGE for params in requests)
+    assert all(params["page"] == 1 for params in requests)
+    assert sorted(
+        (params["created_from"], params["created_to"])
+        for params in requests
+    ) == [
+        ("2026-07-25T00:00:00Z", "2026-07-26T00:00:00Z"),
+        ("2026-07-26T00:00:00Z", "2026-07-27T00:00:00Z"),
+        ("2026-07-27T00:00:00Z", "2026-07-28T00:00:00Z"),
+        ("2026-07-28T00:00:00Z", "2026-07-29T00:00:00Z"),
+        ("2026-07-29T00:00:00Z", "2026-07-30T00:00:00Z"),
+    ]
+    assert len(yielded) == 5
+
+
+def test_slice_generator_retains_at_most_the_worker_cap(monkeypatch) -> None:
+    lock = threading.Lock()
+    live = 0
+    max_live = 0
 
     class RawSlice(list):
-        def __init__(self, marker):
+        def __init__(self) -> None:
+            nonlocal live, max_live
             super().__init__()
-            self.marker = marker
+            with lock:
+                live += 1
+                max_live = max(max_live, live)
 
-        def __del__(self):
-            released.append(self.marker)
+        def __del__(self) -> None:
+            nonlocal live
+            with lock:
+                live -= 1
 
     def fetch_slice(
         _path,
@@ -506,12 +571,7 @@ def test_production_collection_releases_each_raw_slice_before_fetching_next(
         max_pages,
         page_fetcher,
     ):
-        nonlocal calls
-        if calls:
-            assert calls - 1 in released
-        marker = calls
-        calls += 1
-        return RawSlice(marker), {
+        return RawSlice(), {
             "start": cwm._utc_iso(start),
             "end_exclusive": cwm._utc_iso(end),
             "pages_fetched": 1,
@@ -522,23 +582,17 @@ def test_production_collection_releases_each_raw_slice_before_fetching_next(
         }
 
     monkeypatch.setattr(cwm, "_fetch_pipeline_slice", fetch_slice)
-    monkeypatch.setattr(
-        cwm,
-        "fetch_pipeline_builds",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("collector must not materialize the full build range")
-        ),
-    )
 
-    cwm.collect_workload_mapping(
+    for rows, _source in cwm._iter_pipeline_build_slices(
         "token",
-        _config(),
-        now=NOW,
-        force_days=3,
-    )
+        "amd-ci",
+        datetime(2026, 7, 20, tzinfo=timezone.utc),
+        datetime(2026, 7, 30, tzinfo=timezone.utc),
+    ):
+        del rows
 
-    assert calls > 2
-    assert set(released) == set(range(calls))
+    assert max_live <= cwm.MAX_SLICE_WORKERS
+    assert live == 0
 
 
 def test_global_uuid_dedup_survives_pipeline_and_slice_streaming() -> None:
