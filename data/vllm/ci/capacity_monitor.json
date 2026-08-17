@@ -1,14 +1,14 @@
 {
   "schema_version": 2,
-  "generated_at": "2026-08-17T10:48:08Z",
+  "generated_at": "2026-08-17T11:39:03Z",
   "source": {
     "kind": "github_archive",
     "github_repo": "vllm-project/vllm",
     "ref": "main",
     "branch": "main",
-    "requested_ref": "f27ae25473af7520dde3f8b9e0705041940be0c9",
-    "commit_sha": "f27ae25473af7520dde3f8b9e0705041940be0c9",
-    "commit_url": "https://github.com/vllm-project/vllm/commit/f27ae25473af7520dde3f8b9e0705041940be0c9",
+    "requested_ref": "70afdedc1081d28c3eaae53bece8292298484c86",
+    "commit_sha": "70afdedc1081d28c3eaae53bece8292298484c86",
+    "commit_url": "https://github.com/vllm-project/vllm/commit/70afdedc1081d28c3eaae53bece8292298484c86",
     "test_areas_path": ".buildkite/test_areas",
     "capacity_config_path": "config/vllm_amd_queue_capacity.json",
     "capacity_config_schema_version": 1
@@ -117,11 +117,11 @@
     "capacity_scoped_group_count": 58,
     "gated_job_count": 71,
     "gated_gpu_demand": 96,
-    "total_dependency_files": 83190,
-    "total_dependency_lines": 27731750,
-    "unique_dependency_files": 4363,
-    "average_dependency_files_per_group": 1434.3,
-    "average_dependency_lines_per_group": 478133.6,
+    "total_dependency_files": 83270,
+    "total_dependency_lines": 27763060,
+    "unique_dependency_files": 4366,
+    "average_dependency_files_per_group": 1435.7,
+    "average_dependency_lines_per_group": 478673.4,
     "queues_with_gated_work": 5
   },
   "families": [
@@ -202,9 +202,9 @@
       "eight_gpu_node_equivalents": 9.75,
       "gated_groups": 5,
       "gated_jobs": 5,
-      "dependency_file_count": 4618,
-      "dependency_lines": 1547207,
-      "max_group_dependency_lines": 1017256
+      "dependency_file_count": 4625,
+      "dependency_lines": 1549076,
+      "max_group_dependency_lines": 1018781
     },
     {
       "id": "amd_mi250_2",
@@ -278,9 +278,9 @@
       "eight_gpu_node_equivalents": 37.0,
       "gated_groups": 42,
       "gated_jobs": 55,
-      "dependency_file_count": 69854,
-      "dependency_lines": 23268769,
-      "max_group_dependency_lines": 1020912
+      "dependency_file_count": 69918,
+      "dependency_lines": 23296057,
+      "max_group_dependency_lines": 1022437
     },
     {
       "id": "amd_mi300_2",
@@ -297,9 +297,9 @@
       "eight_gpu_node_equivalents": 4.5,
       "gated_groups": 6,
       "gated_jobs": 6,
-      "dependency_file_count": 8578,
-      "dependency_lines": 2871198,
-      "max_group_dependency_lines": 997512
+      "dependency_file_count": 8587,
+      "dependency_lines": 2873351,
+      "max_group_dependency_lines": 999037
     },
     {
       "id": "amd_mi300_4",
@@ -514,8 +514,8 @@
         "vllm/envs.py",
         "vllm/platforms/rocm.py"
       ],
-      "dependency_file_count": 139,
-      "dependency_lines": 74635,
+      "dependency_file_count": 140,
+      "dependency_lines": 74661,
       "missing_dependencies": []
     },
     {
@@ -537,8 +537,8 @@
         "tests/basic_correctness/test_cpu_offload",
         "tests/basic_correctness/test_mem.py"
       ],
-      "dependency_file_count": 2847,
-      "dependency_lines": 997788,
+      "dependency_file_count": 2850,
+      "dependency_lines": 999313,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/",
         "tests/basic_correctness/test_basic_correctness",
@@ -562,8 +562,8 @@
         "!vllm/distributed/kv_transfer/",
         "tests/benchmarks/"
       ],
-      "dependency_file_count": 2864,
-      "dependency_lines": 1000787,
+      "dependency_file_count": 2867,
+      "dependency_lines": 1002312,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -698,8 +698,8 @@
         "tests/entrypoints/openai/test_multi_api_servers.py",
         "vllm/platforms/rocm.py"
       ],
-      "dependency_file_count": 273,
-      "dependency_lines": 109512,
+      "dependency_file_count": 274,
+      "dependency_lines": 109642,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/",
         "vllm/executor/",
@@ -739,7 +739,7 @@
         "tests/jit_monitor/test_hooks_gpu.py"
       ],
       "dependency_file_count": 150,
-      "dependency_lines": 53437,
+      "dependency_lines": 53463,
       "missing_dependencies": [
         "vllm/entrypoints/logger.py",
         "tests/test_sequence",
@@ -785,8 +785,8 @@
         "vllm/v1/",
         "tests/v1/e2e/general/"
       ],
-      "dependency_file_count": 360,
-      "dependency_lines": 150132,
+      "dependency_file_count": 362,
+      "dependency_lines": 150288,
       "missing_dependencies": []
     },
     {
@@ -806,8 +806,8 @@
         "tests/v1/e2e/general/",
         "vllm/platforms/rocm.py"
       ],
-      "dependency_file_count": 361,
-      "dependency_lines": 151287,
+      "dependency_file_count": 363,
+      "dependency_lines": 151443,
       "missing_dependencies": []
     },
     {
@@ -843,8 +843,8 @@
         "vllm/v1/",
         "tests/v1/e2e/spec_decode/"
       ],
-      "dependency_file_count": 2147,
-      "dependency_lines": 716976,
+      "dependency_file_count": 2149,
+      "dependency_lines": 717196,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -866,8 +866,8 @@
         "!vllm/distributed/kv_transfer/",
         "tests/entrypoints/llm"
       ],
-      "dependency_file_count": 2856,
-      "dependency_lines": 999069,
+      "dependency_file_count": 2859,
+      "dependency_lines": 1000594,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -890,8 +890,8 @@
         "tests/entrypoints/serve",
         "tests/entrypoints/scale_out"
       ],
-      "dependency_file_count": 2898,
-      "dependency_lines": 1006914,
+      "dependency_file_count": 2901,
+      "dependency_lines": 1008439,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -914,8 +914,8 @@
         "tests/entrypoints/openai",
         "tests/entrypoints/test_chat_utils"
       ],
-      "dependency_file_count": 2921,
-      "dependency_lines": 1020912,
+      "dependency_file_count": 2924,
+      "dependency_lines": 1022437,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/",
         "tests/entrypoints/test_chat_utils"
@@ -939,8 +939,8 @@
         "tests/entrypoints/openai",
         "tests/entrypoints/test_chat_utils"
       ],
-      "dependency_file_count": 2921,
-      "dependency_lines": 1020912,
+      "dependency_file_count": 2924,
+      "dependency_lines": 1022437,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/",
         "tests/entrypoints/test_chat_utils"
@@ -966,8 +966,8 @@
         "tests/entrypoints/anthropic",
         "tests/entrypoints/generate"
       ],
-      "dependency_file_count": 2875,
-      "dependency_lines": 1004610,
+      "dependency_file_count": 2878,
+      "dependency_lines": 1006135,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -994,8 +994,8 @@
         "vllm/platforms/rocm.py",
         "vllm/model_executor/model_loader/"
       ],
-      "dependency_file_count": 1302,
-      "dependency_lines": 372579,
+      "dependency_file_count": 1303,
+      "dependency_lines": 372637,
       "missing_dependencies": []
     },
     {
@@ -1041,8 +1041,8 @@
         "vllm/envs.py",
         "vllm/platforms/rocm.py"
       ],
-      "dependency_file_count": 153,
-      "dependency_lines": 81714,
+      "dependency_file_count": 154,
+      "dependency_lines": 81740,
       "missing_dependencies": []
     },
     {
@@ -1068,7 +1068,7 @@
         "vllm/model_executor/kernels/"
       ],
       "dependency_file_count": 501,
-      "dependency_lines": 115321,
+      "dependency_lines": 115347,
       "missing_dependencies": []
     },
     {
@@ -1095,7 +1095,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 550,
-      "dependency_lines": 150389,
+      "dependency_lines": 150415,
       "missing_dependencies": [
         "csrc/quantization/cutlass_w8a8/moe/"
       ]
@@ -1122,8 +1122,8 @@
         "vllm/_aiter_ops.py",
         "vllm/platforms/rocm.py"
       ],
-      "dependency_file_count": 1022,
-      "dependency_lines": 423744,
+      "dependency_file_count": 1023,
+      "dependency_lines": 423776,
       "missing_dependencies": []
     },
     {
@@ -1195,8 +1195,8 @@
         "tests/v1/test_request.py",
         "tests/v1/test_outputs.py"
       ],
-      "dependency_file_count": 2054,
-      "dependency_lines": 691176,
+      "dependency_file_count": 2056,
+      "dependency_lines": 691396,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1243,8 +1243,8 @@
         "tests/v1/metrics",
         "tests/entrypoints/openai/correctness/test_lmeval.py"
       ],
-      "dependency_file_count": 2331,
-      "dependency_lines": 808382,
+      "dependency_file_count": 2333,
+      "dependency_lines": 808705,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1300,8 +1300,8 @@
         "tests/v1/tracing",
         "tests/tracing/"
       ],
-      "dependency_file_count": 2068,
-      "dependency_lines": 695427,
+      "dependency_file_count": 2070,
+      "dependency_lines": 695647,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1351,7 +1351,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 1393,
-      "dependency_lines": 441034,
+      "dependency_lines": 441072,
       "missing_dependencies": []
     },
     {
@@ -1373,8 +1373,8 @@
         "tests/models/transformers/test_backend.py",
         "tests/models/test_registry.py"
       ],
-      "dependency_file_count": 2849,
-      "dependency_lines": 998149,
+      "dependency_file_count": 2852,
+      "dependency_lines": 999676,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1396,8 +1396,8 @@
         "!vllm/distributed/kv_transfer/",
         "tests/models/language"
       ],
-      "dependency_file_count": 2900,
-      "dependency_lines": 1004607,
+      "dependency_file_count": 2903,
+      "dependency_lines": 1006132,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1426,8 +1426,8 @@
         "vllm/_aiter_ops.py",
         "vllm/platforms/rocm.py"
       ],
-      "dependency_file_count": 1281,
-      "dependency_lines": 431871,
+      "dependency_file_count": 1282,
+      "dependency_lines": 431935,
       "missing_dependencies": []
     },
     {
@@ -1447,8 +1447,8 @@
         "!vllm/distributed/kv_transfer/",
         "tests/models/language/generation"
       ],
-      "dependency_file_count": 2854,
-      "dependency_lines": 999148,
+      "dependency_file_count": 2857,
+      "dependency_lines": 1000673,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1470,8 +1470,8 @@
         "!vllm/distributed/kv_transfer/",
         "tests/models/language/pooling"
       ],
-      "dependency_file_count": 2870,
-      "dependency_lines": 1000855,
+      "dependency_file_count": 2873,
+      "dependency_lines": 1002380,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1493,8 +1493,8 @@
         "!vllm/distributed/kv_transfer/",
         "tests/models/multimodal"
       ],
-      "dependency_file_count": 2940,
-      "dependency_lines": 1017256,
+      "dependency_file_count": 2943,
+      "dependency_lines": 1018781,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1516,8 +1516,8 @@
         "!vllm/distributed/kv_transfer/",
         "tests/models/multimodal"
       ],
-      "dependency_file_count": 2940,
-      "dependency_lines": 1017256,
+      "dependency_file_count": 2943,
+      "dependency_lines": 1018781,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1539,8 +1539,8 @@
         "!vllm/distributed/kv_transfer/",
         "tests/models/multimodal"
       ],
-      "dependency_file_count": 2940,
-      "dependency_lines": 1017256,
+      "dependency_file_count": 2943,
+      "dependency_lines": 1018781,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1562,8 +1562,8 @@
         "!vllm/distributed/kv_transfer/",
         "tests/models/multimodal"
       ],
-      "dependency_file_count": 2940,
-      "dependency_lines": 1017256,
+      "dependency_file_count": 2943,
+      "dependency_lines": 1018781,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1609,8 +1609,8 @@
         "tests/models/multimodal/generation",
         "tests/models/multimodal/test_mapping.py"
       ],
-      "dependency_file_count": 2879,
-      "dependency_lines": 1006998,
+      "dependency_file_count": 2882,
+      "dependency_lines": 1008523,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1631,8 +1631,8 @@
         "vllm/",
         "tests/models/multimodal/generation_ppl_test/"
       ],
-      "dependency_file_count": 2849,
-      "dependency_lines": 997567,
+      "dependency_file_count": 2852,
+      "dependency_lines": 999092,
       "missing_dependencies": []
     },
     {
@@ -1652,8 +1652,8 @@
         "!vllm/distributed/kv_transfer/",
         "tests/models/multimodal/pooling"
       ],
-      "dependency_file_count": 2862,
-      "dependency_lines": 1000157,
+      "dependency_file_count": 2865,
+      "dependency_lines": 1001682,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1701,7 +1701,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 923,
-      "dependency_lines": 210152,
+      "dependency_lines": 210184,
       "missing_dependencies": [
         "vllm/sampling_metadata.py"
       ]
@@ -1730,8 +1730,8 @@
         "vllm/v1/",
         "tests/v1/spec_decode"
       ],
-      "dependency_file_count": 2054,
-      "dependency_lines": 685899,
+      "dependency_file_count": 2056,
+      "dependency_lines": 686119,
       "missing_dependencies": []
     },
     {
@@ -1756,7 +1756,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 1002,
-      "dependency_lines": 223207,
+      "dependency_lines": 223239,
       "missing_dependencies": []
     },
     {
@@ -1781,7 +1781,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 1002,
-      "dependency_lines": 223207,
+      "dependency_lines": 223239,
       "missing_dependencies": []
     },
     {
@@ -1807,7 +1807,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 1005,
-      "dependency_lines": 223527,
+      "dependency_lines": 223559,
       "missing_dependencies": []
     },
     {
@@ -1832,7 +1832,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 1002,
-      "dependency_lines": 223207,
+      "dependency_lines": 223239,
       "missing_dependencies": []
     },
     {
@@ -1857,7 +1857,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 1002,
-      "dependency_lines": 223207,
+      "dependency_lines": 223239,
       "missing_dependencies": []
     },
     {
@@ -1886,8 +1886,8 @@
         "tests/v1/e2e/spec_decode/test_mtp_parallel_load.py",
         "vllm/platforms/rocm.py"
       ],
-      "dependency_file_count": 1202,
-      "dependency_lines": 340372,
+      "dependency_file_count": 1203,
+      "dependency_lines": 340430,
       "missing_dependencies": []
     },
     {
@@ -1917,8 +1917,8 @@
         "tests/v1/e2e/spec_decode/",
         "vllm/platforms/rocm.py"
       ],
-      "dependency_file_count": 1093,
-      "dependency_lines": 274122,
+      "dependency_file_count": 1094,
+      "dependency_lines": 274180,
       "missing_dependencies": []
     },
     {
@@ -1952,8 +1952,8 @@
         "tests/v1/e2e/spec_decode/",
         "vllm/platforms/rocm.py"
       ],
-      "dependency_file_count": 1097,
-      "dependency_lines": 278659,
+      "dependency_file_count": 1098,
+      "dependency_lines": 278717,
       "missing_dependencies": []
     },
     {
@@ -1973,8 +1973,8 @@
         "!vllm/distributed/kv_transfer/",
         "tests/weight_loading"
       ],
-      "dependency_file_count": 2852,
-      "dependency_lines": 997512,
+      "dependency_file_count": 2855,
+      "dependency_lines": 999037,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1996,7 +1996,7 @@
     "projected_total_jobs": 195.9,
     "projected_total_gpus": 264.8,
     "projected_eight_gpu_node_equivalents": 33.1,
-    "projected_dependency_lines": 76501379,
+    "projected_dependency_lines": 76587752,
     "projected_capacity_ratio": 0.2097,
     "future_slot_capacity_ratio": 0.2669,
     "future_gpu_capacity_ratio": 0.2653,
@@ -2032,7 +2032,7 @@
         "projected_jobs": 13.8,
         "projected_gpu_demand": 13.8,
         "projected_eight_gpu_node_equivalents": 1.73,
-        "projected_dependency_lines": 4268157,
+        "projected_dependency_lines": 4273313,
         "projected_capacity_ratio": 0.1768,
         "projected_future_capacity_ratio": 0.1768,
         "projected_gap_jobs": 0.0,
@@ -2128,7 +2128,7 @@
         "projected_jobs": 151.7,
         "projected_gpu_demand": 151.7,
         "projected_eight_gpu_node_equivalents": 18.96,
-        "projected_dependency_lines": 64189708,
+        "projected_dependency_lines": 64264985,
         "projected_capacity_ratio": 0.5126,
         "projected_future_capacity_ratio": 0.5126,
         "projected_gap_jobs": 0.0,
@@ -2152,7 +2152,7 @@
         "projected_jobs": 16.6,
         "projected_gpu_demand": 33.1,
         "projected_eight_gpu_node_equivalents": 4.14,
-        "projected_dependency_lines": 7920546,
+        "projected_dependency_lines": 7926486,
         "projected_capacity_ratio": 0.9195,
         "projected_future_capacity_ratio": 0.9195,
         "projected_gap_jobs": 0.0,
