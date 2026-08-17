@@ -28,6 +28,9 @@ jobs:
       - name: Install dependencies
         run: pip install pyyaml
 
+      - name: Rebuild v2 operations snapshot
+        run: python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
+
       - name: Generate site data
         run: python scripts/render.py
 

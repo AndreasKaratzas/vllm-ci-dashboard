@@ -974,19 +974,35 @@ class TestHourlyMasterWorkflow:
         render = script.index("python scripts/render.py", rebuild)
         audit = script.index("python scripts/vllm/audit_dashboard_data.py", render)
         stage = script.index("git add", audit)
+        budget = script.index("python scripts/vllm/check_git_blob_sizes.py", stage)
         amend = script.index("git commit --amend --no-edit", audit)
         push = script.index("git push origin HEAD:main", amend)
-        assert pull < rebuild < render < audit < stage < amend < push
-        staged_outputs = script[stage:amend]
+        assert pull < rebuild < render < audit < stage < budget < amend < push
+        staged_outputs = script[stage:budget]
         assert "data/site/projects.json" in staged_outputs
-        assert "data/vllm/ci/operations_v2.json" in staged_outputs
+        assert "data/vllm/ci/operations_v2.json" not in staged_outputs
         assert "data/vllm/ci/operations_v2_manifest.json" in staged_outputs
         assert "data/vllm/ci/operations_v2/" not in staged_outputs
         assert "data/vllm/ci/queue_history_chart.json" in staged_outputs
         assert "git push origin HEAD:main" in script
         assert "refusing to deploy unpublished output" in script
+        unchanged = "Publication push was rejected while main remained unchanged"
+        assert "git fetch origin main" in script[push:]
+        assert "git merge-base --is-ancestor" in script[push:]
+        assert unchanged in script
+        assert script.index(unchanged) < script.index(
+            "Main advanced during publication attempt"
+        )
         assert "Failed to publish collected dashboard data" in script
         assert "exit 1" in script
+
+        initial_stage = script.index("git add data/ dashboards/ README.md")
+        initial_budget = script.index(
+            "python scripts/vllm/check_git_blob_sizes.py",
+            initial_stage,
+        )
+        initial_commit = script.index("git commit -m", initial_budget)
+        assert initial_stage < initial_budget < initial_commit < pull
 
     def test_has_buildkite_token(self):
         text = _load_workflow_text("hourly-master.yml")
@@ -1472,6 +1488,24 @@ class TestFrameworkIsolation:
                 f"{wf} deploys to gh-pages but does not sync CI data from gh-pages first. "
                 "This will overwrite fresh CI data with stale copies from main."
             )
+
+    def test_pr_preview_rebuilds_untracked_operations_input(self):
+        data = _load_workflow("pr-preview.yml")
+        steps = data["jobs"]["deploy-preview"]["steps"]
+        rebuild = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("name") == "Rebuild v2 operations snapshot"
+        )
+        assemble = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("name") == "Assemble site"
+        )
+        command = steps[rebuild].get("run", "")
+        assert "scripts/vllm/build_operations_snapshot.py" in command
+        assert "data/vllm/ci/operations_v2.json" in command
+        assert rebuild < assemble
 
     def test_shard_bases_available_at_deploy(self):
         """shard_bases.json must be on the main branch (committed by hourly-master)
