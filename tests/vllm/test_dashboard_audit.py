@@ -438,6 +438,35 @@ def _dns_audit_payload(now: datetime | None = None) -> dict:
     }
 
 
+def _dns_not_collected_payload(now: datetime | None = None) -> dict:
+    """Build an isolated structural seed without reading mutable repo data."""
+    payload = _dns_audit_payload(now)
+    zero_coverage = {
+        "status": "not_collected",
+        "complete": False,
+        "discovery_complete": False,
+        "eligible_jobs": 0,
+        "scanned_jobs": 0,
+        "positive_jobs": 0,
+        "negative_jobs": 0,
+        "pending_jobs": 0,
+        "unavailable_jobs": 0,
+        "oversize_jobs": 0,
+    }
+    payload["coverage"].update(zero_coverage)
+    for block in payload["windows"].values():
+        block["coverage"] = copy.deepcopy(zero_coverage)
+        block["totals"] = {key: 0 for key in block["totals"]}
+        block["rows"] = []
+    payload["evidence"] = {
+        "evidence_total": 0,
+        "shown": 0,
+        "truncated": False,
+        "items": [],
+    }
+    return payload
+
+
 def _write_dns_audit_payload(root: Path, payload: dict) -> Path:
     path = root / "data/vllm/ci/dns_failures.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -626,8 +655,7 @@ def test_dns_backend_window_coverage_tracks_window_relative_positives(tmp_path):
 
 
 def test_dns_audit_accepts_the_structural_seed_as_fresh_degradation(tmp_path):
-    seed = json.loads((ROOT / "data/vllm/ci/dns_failures.json").read_text())
-    _write_dns_audit_payload(tmp_path, seed)
+    _write_dns_audit_payload(tmp_path, _dns_not_collected_payload())
     audit = DashboardAudit(tmp_path)
 
     audit.audit_dns_failures()
