@@ -233,13 +233,21 @@ logs, or dashboard URLs.
 
 `collect_dns_failures.py` discovers terminal script-job attempts across the
 `amd-ci` and `ci` pipelines, including retries and passing jobs, then scans each
-new bounded log for strong DNS signatures. Each scheduled run gives log scans
-a 25-minute budget; unvisited work remains pending for the next overlap instead
-of being reported as a complete zero. Its public `dns_failures.json`
-dataset covers the trailing 720 observed hours. “Observed” is deliberate: API,
-rate-limit, oversized-log, and pending-job gaps remain explicit in each
-window's coverage block, so an incomplete scan cannot be displayed as a
-complete zero.
+new bounded log for strong DNS signatures. The first successful collection
+exhaustively bootstraps a 24-hour discovery horizon so it fits the shared API
+quota. Each later run re-queries a two-hour overlap and extends the contiguous
+coverage start; a gap longer than 24 hours resets to a fresh 24-hour bootstrap.
+The configured 30-day value remains the target retention horizon. Until enough
+contiguous observations accrue, longer windows are explicitly partial and the
+UI renders their values as lower bounds.
+
+Each scheduled run gives the whole collection a 25-minute budget with a
+separate finalization reserve. Unvisited log work remains pending for the next
+overlap instead of being reported as a complete zero. Its public
+`dns_failures.json` dataset covers the trailing 720 observed hours. “Observed”
+is deliberate: API, rate-limit, oversized-log, and pending-job gaps remain
+explicit in each window's coverage block, so an incomplete scan cannot be
+displayed as a complete zero.
 
 The primary histogram count is the number of distinct affected Buildkite job
 attempts. Retries have different job UUIDs and therefore count independently.
