@@ -1,5 +1,5 @@
 {
-  "baseline_ref": "bf27c280e3efb001bf430e1d727db6eb3e24405f",
+  "baseline_ref": "adcc8db722e33383cf03e404ff84502721fdfc42",
   "candidate_degradations": [
     {
       "code": "dns-health-partial",
@@ -11,24 +11,545 @@
       ]
     }
   ],
-  "candidate_errors": [],
+  "candidate_errors": [
+    {
+      "code": "publication-collector-failed",
+      "context": {
+        "surface": "ci_core"
+      },
+      "message": "ci_core collection failed before publication validation",
+      "path": "",
+      "severity": "error",
+      "surfaces": [
+        "ci_core"
+      ]
+    },
+    {
+      "code": "publication-collector-failed",
+      "context": {
+        "surface": "queue"
+      },
+      "message": "queue collection failed before publication validation",
+      "path": "",
+      "severity": "error",
+      "surfaces": [
+        "queue"
+      ]
+    },
+    {
+      "code": "publication-source-shape",
+      "message": "shard_bases.json must be a non-empty list of labels",
+      "path": "data/vllm/ci/shard_bases.json",
+      "severity": "error",
+      "surfaces": [
+        "ci_core"
+      ]
+    },
+    {
+      "code": "publication-source-shape",
+      "message": "data/vllm/ci/shard_base_catalog.json is missing required keys ['definitions', 'normalization_bases', 'pipelines', 'schema_version', 'source']",
+      "path": "data/vllm/ci/shard_base_catalog.json",
+      "severity": "error",
+      "surfaces": [
+        "ci_core"
+      ]
+    }
+  ],
   "degraded_since": {
-    "dns_health": "2026-08-17T10:25:39Z"
+    "ci_core": "2026-08-17T15:05:22Z",
+    "ci_gating": "2026-08-17T15:05:22Z",
+    "dns_health": "2026-08-17T10:25:39Z",
+    "queue": "2026-08-17T15:05:22Z"
   },
   "degraded_surfaces": [
-    "dns_health"
+    "ci_core",
+    "ci_gating",
+    "dns_health",
+    "queue"
   ],
   "fallback_max_age_hours": 36,
-  "fallback_since": {},
-  "fallback_surfaces": [],
-  "final_degradations": [],
+  "fallback_since": {
+    "ci_core": "2026-08-17T15:05:22Z",
+    "ci_gating": "2026-08-17T15:05:22Z",
+    "queue": "2026-08-17T15:05:22Z"
+  },
+  "fallback_surfaces": [
+    "ci_core",
+    "ci_gating",
+    "queue"
+  ],
+  "final_degradations": [
+    {
+      "code": "dns-health-partial",
+      "message": "DNS health coverage is partial; incomplete windows must not be interpreted as zero",
+      "path": "data/vllm/ci/dns_failures.json",
+      "severity": "degradation",
+      "surfaces": [
+        "dns_health"
+      ]
+    }
+  ],
   "final_errors": [],
   "fresh_degraded_surfaces": [
     "dns_health"
   ],
-  "generated_at": "2026-08-17T13:23:33Z",
-  "mode": "degraded",
-  "restored_manifest": {},
-  "restored_paths": {},
+  "generated_at": "2026-08-17T15:05:22Z",
+  "mode": "mixed",
+  "restored_manifest": {
+    "ci_core": {
+      "data/vllm/ci/amd_test_matrix.json": {
+        "bytes": 918962,
+        "sha256": "7b71ac759e907d111c08047a09cb728b0ad1b6219ff66508f7877575e97bffc2"
+      },
+      "data/vllm/ci/analytics.json": {
+        "bytes": 70953871,
+        "sha256": "65655eb53f73736386fefb2ee6325f1254ad17b83a9945c8972fb3449066d097"
+      },
+      "data/vllm/ci/ci_health.json": {
+        "bytes": 167951,
+        "sha256": "c6d4d9178c09051d4b7653f47fef8dba80998f2f1a101cf2f528b356754397c4"
+      },
+      "data/vllm/ci/ci_ownership.json": {
+        "bytes": 207564,
+        "sha256": "f7af23c139bca77010d0c478d285af0a6411e2b85277cd0ef128ad9805a5de3a"
+      },
+      "data/vllm/ci/config_parity.json": {
+        "bytes": 451444,
+        "sha256": "ead2ae5e0498f29a3c8ff60db4ded59d74876dfa2ba796437b9d695507163ef6"
+      },
+      "data/vllm/ci/failure_trends.json": {
+        "bytes": 29194,
+        "sha256": "121d8fc9e37cfb9758e24e6b0dc288f9a706fce1e9d0e36b12f77a557df3294d"
+      },
+      "data/vllm/ci/flaky_tests.json": {
+        "bytes": 2996,
+        "sha256": "4447552cda9e8a41c7dd86762c54705f5468dfeeb58c4ff35758b30f19e01935"
+      },
+      "data/vllm/ci/gating_nightlies.json": {
+        "bytes": 3626954,
+        "sha256": "6d67de3c38f6648259dc8ace97e36cd257ce867c081d3bcbfbc258464c347df9"
+      },
+      "data/vllm/ci/ownership_config_parity.json": {
+        "bytes": 451481,
+        "sha256": "5ecac57bb05e227b12bd6432e8e9e51e58f514c8a3d7e4571bde0cc3387d1f43"
+      },
+      "data/vllm/ci/parity_key_overrides.json": {
+        "bytes": 1785,
+        "sha256": "9bd23f0379aa8f31c8c0c3db07fef301c793593f750817dd0ee186e17cfc46f6"
+      },
+      "data/vllm/ci/parity_report.json": {
+        "bytes": 517955,
+        "sha256": "b50aa0fd64b1d6bf1469928323ea5f9d42bd6408e4eef3ac425d0145e653e1de"
+      },
+      "data/vllm/ci/quarantine.json": {
+        "bytes": 182,
+        "sha256": "fd3f70b7206c8c5c7f81f7dc9bdc53d4a0843b193e9484e1dffc51097a015b13"
+      },
+      "data/vllm/ci/shard_base_catalog.json": {
+        "bytes": 25280,
+        "sha256": "23050a954c74627599131d3652d26d6b26546b70ec14d6d7614f9f3441ba8a6b"
+      },
+      "data/vllm/ci/shard_bases.json": {
+        "bytes": 653,
+        "sha256": "bc0fa60014eb497ba69df3437eadb673ec5f97401e9ef641411c1a546884ff1b"
+      },
+      "data/vllm/ci/test_results/2026-07-18_amd.jsonl": {
+        "bytes": 145598,
+        "sha256": "94afd622841350a572b0f862fbf7ef7cf0db1697b11ff44979b4c649c1dd2427"
+      },
+      "data/vllm/ci/test_results/2026-07-18_upstream.jsonl": {
+        "bytes": 173480,
+        "sha256": "a179443b50b87102c3668c648592b56ba9bbf6f98f7be0996cfdf6072ab66c1d"
+      },
+      "data/vllm/ci/test_results/2026-07-19_amd.jsonl": {
+        "bytes": 144328,
+        "sha256": "3d1025ef478990e73ed375db4d3a9391c82754ef62650f5459ed4b97d9211c34"
+      },
+      "data/vllm/ci/test_results/2026-07-19_upstream.jsonl": {
+        "bytes": 174056,
+        "sha256": "74bdad0f7d7b016b3133c5426363011a8472bf16986fb4fe35ca637b59276a34"
+      },
+      "data/vllm/ci/test_results/2026-07-20_amd.jsonl": {
+        "bytes": 146812,
+        "sha256": "ffbdad33b43cedc04e276c915493d8109930ffbaeab161b50cc54ed200b6f2a3"
+      },
+      "data/vllm/ci/test_results/2026-07-20_upstream.jsonl": {
+        "bytes": 182264,
+        "sha256": "6e733a567fb59c07758b5a14c9475f8edb1c5a5cc902805a81d1cf9326771294"
+      },
+      "data/vllm/ci/test_results/2026-07-21_amd.jsonl": {
+        "bytes": 147284,
+        "sha256": "51839df581794378fd4e1c52207f9ef75366f05aa6983e26dbcbbcfe6a599c46"
+      },
+      "data/vllm/ci/test_results/2026-07-21_upstream.jsonl": {
+        "bytes": 182411,
+        "sha256": "12a0fae334819d6e63ecce6f79305b673e650a77979adef15ffa164f8e8785d5"
+      },
+      "data/vllm/ci/test_results/2026-07-22_amd.jsonl": {
+        "bytes": 145133,
+        "sha256": "04ffef764fbd16233d25b17a761032d9727a8d53b82fbe011aebc562ba3458f5"
+      },
+      "data/vllm/ci/test_results/2026-07-22_upstream.jsonl": {
+        "bytes": 181641,
+        "sha256": "0939ffc75ce93c8ae2e31950d026c0c0a76476f33530d9de21320619bbee4bb5"
+      },
+      "data/vllm/ci/test_results/2026-07-23_amd.jsonl": {
+        "bytes": 149458,
+        "sha256": "e366ce3d7cb141556a973b570fef15fefd23817a281fc829309cfd809c0031be"
+      },
+      "data/vllm/ci/test_results/2026-07-23_upstream.jsonl": {
+        "bytes": 286203,
+        "sha256": "1d297361cb2e4ffe2c133145a587d54c4d32f5057dbf8c909ea8e0bf2504ed2e"
+      },
+      "data/vllm/ci/test_results/2026-07-24_amd.jsonl": {
+        "bytes": 141232,
+        "sha256": "007a1e81405005b20f3590182770cd3c623379667753b8d7dbeab5b844bb3339"
+      },
+      "data/vllm/ci/test_results/2026-07-24_upstream.jsonl": {
+        "bytes": 186575,
+        "sha256": "9a2f2a1cf99e7307039c6f6db6565c71a79aecbeb82f35ace3beeb6b4e41b1d9"
+      },
+      "data/vllm/ci/test_results/2026-07-25_amd.jsonl": {
+        "bytes": 149122,
+        "sha256": "df31e177ff061191fccd9110b6151d6bbe39b4daae55ff50f228fd9642f44ef7"
+      },
+      "data/vllm/ci/test_results/2026-07-25_upstream.jsonl": {
+        "bytes": 173369,
+        "sha256": "08bff9c12947b51aca8e5b80a4c44723800bfe66611ce5db468076c97b77d9f4"
+      },
+      "data/vllm/ci/test_results/2026-07-26_amd.jsonl": {
+        "bytes": 148808,
+        "sha256": "437023d649611e435bfd9ef1f89540601c8dcb37b05d216804cbda7e5dc94743"
+      },
+      "data/vllm/ci/test_results/2026-07-26_upstream.jsonl": {
+        "bytes": 174954,
+        "sha256": "0d02b17d6ef103080493c1a87ac30567ca763f08e3764b94b537618cb19b6b04"
+      },
+      "data/vllm/ci/test_results/2026-07-27_amd.jsonl": {
+        "bytes": 163842,
+        "sha256": "5687b46978667cbf6d6a5f0da2ef50f65a1bd37b8cc83714f0e5f927f0ca4311"
+      },
+      "data/vllm/ci/test_results/2026-07-27_upstream.jsonl": {
+        "bytes": 178968,
+        "sha256": "3191f2a753c22a555b7334a4543004033517a4e0fd2392e64200735eb4beff1e"
+      },
+      "data/vllm/ci/test_results/2026-07-28_amd.jsonl": {
+        "bytes": 161870,
+        "sha256": "31b568cc2cfa241348b9c879d3b7fd8797bc3901897d611c7d5dc2f914daf52e"
+      },
+      "data/vllm/ci/test_results/2026-07-28_upstream.jsonl": {
+        "bytes": 177797,
+        "sha256": "c28229229f87dec9422e23ce35b4c25d9622d4a1bfb5a4370949e96bb9fcdee9"
+      },
+      "data/vllm/ci/test_results/2026-07-29_amd.jsonl": {
+        "bytes": 164599,
+        "sha256": "43f0aae23181e2ccfee7be9b3f61c4ffdf20f19364be3d54abf4ebe348d04475"
+      },
+      "data/vllm/ci/test_results/2026-07-29_upstream.jsonl": {
+        "bytes": 180051,
+        "sha256": "4374a48f171f6a48738b9bdc64cf829c65bba856ed7d67ea52c63f0a03c038a3"
+      },
+      "data/vllm/ci/test_results/2026-07-30_amd.jsonl": {
+        "bytes": 159709,
+        "sha256": "3f79e5bf21a47ac13532a9d35b71434c1f56e1f6819c66dc830ae7b87cdfae40"
+      },
+      "data/vllm/ci/test_results/2026-07-30_upstream.jsonl": {
+        "bytes": 179488,
+        "sha256": "19152522a20bd18263fae34ef425f1bf5b3ea2b69b990f3aaff98e2f55053848"
+      },
+      "data/vllm/ci/test_results/2026-07-31_amd.jsonl": {
+        "bytes": 158697,
+        "sha256": "3a21a4a91a43da69116e36f8c2275bd066984aecb392a1b89bf6ec4f4ba7afed"
+      },
+      "data/vllm/ci/test_results/2026-07-31_upstream.jsonl": {
+        "bytes": 181033,
+        "sha256": "a57896f61a172fc29354f3ef6dc5e590be611ea4a6bf44741a9c2a2a57da66ac"
+      },
+      "data/vllm/ci/test_results/2026-08-01_amd.jsonl": {
+        "bytes": 157949,
+        "sha256": "a2c1cfca99bdbcc4e474e6217e4fdab2dbff7a4529f1e1992b34d8135654c369"
+      },
+      "data/vllm/ci/test_results/2026-08-01_upstream.jsonl": {
+        "bytes": 179653,
+        "sha256": "1a69b989174f2002b35f114fe7f677655340751bd599dbfe097be58034f8c1d2"
+      },
+      "data/vllm/ci/test_results/2026-08-02_amd.jsonl": {
+        "bytes": 154747,
+        "sha256": "b5ab7cc6a1feb35df19df73a37b46dba66f7bff23e02e8854e7c9a97ab1a93cb"
+      },
+      "data/vllm/ci/test_results/2026-08-02_upstream.jsonl": {
+        "bytes": 177062,
+        "sha256": "76fbe34768a554ce202d0879174d816a09d81ec39f559ccf9bc25349411b5f0b"
+      },
+      "data/vllm/ci/test_results/2026-08-03_amd.jsonl": {
+        "bytes": 157803,
+        "sha256": "90e15ad130e74530afa905d0614501bc049cfcb90387f96eabeeef026b2a4868"
+      },
+      "data/vllm/ci/test_results/2026-08-03_upstream.jsonl": {
+        "bytes": 177726,
+        "sha256": "cc34b83bea1149bc0ed7e9ff84786c291c9fd907dd89bab4e93cfa70c21de236"
+      },
+      "data/vllm/ci/test_results/2026-08-04_amd.jsonl": {
+        "bytes": 156376,
+        "sha256": "efe251051bc6d4297d021bc2e5e73ed7ddf1af6aa42ef2575bcb1ac9caf58ebb"
+      },
+      "data/vllm/ci/test_results/2026-08-04_upstream.jsonl": {
+        "bytes": 179942,
+        "sha256": "3111da95520e6a9ebc930fbbfa286445b40a9d5b294a7533315d7586c9070b08"
+      },
+      "data/vllm/ci/test_results/2026-08-05_amd.jsonl": {
+        "bytes": 168802,
+        "sha256": "526b3492cd23c66fa9a88ee324bfc37897538223490eff75d1722f0b003cc53d"
+      },
+      "data/vllm/ci/test_results/2026-08-05_upstream.jsonl": {
+        "bytes": 178603,
+        "sha256": "4047a7754f0518508f49d3e918714d39e69ccdc835f3b77284847fde2b3d300c"
+      },
+      "data/vllm/ci/test_results/2026-08-06_amd.jsonl": {
+        "bytes": 159335,
+        "sha256": "2e88391ab203546061371f94b0e90e6e5965ab253bb1a5d95c6e1727f963e66b"
+      },
+      "data/vllm/ci/test_results/2026-08-06_upstream.jsonl": {
+        "bytes": 178865,
+        "sha256": "df1ccef0669a9840c4259200310f278ecb2e5230a706c02898ee63437dace206"
+      },
+      "data/vllm/ci/test_results/2026-08-07_amd.jsonl": {
+        "bytes": 160460,
+        "sha256": "d773b603acf7351a362ec081b517454c71c7ee2c1e20995f78d7f4745003f950"
+      },
+      "data/vllm/ci/test_results/2026-08-07_upstream.jsonl": {
+        "bytes": 178990,
+        "sha256": "54e4ff3123b0839a51eb933705edd8b54a68e2193680851cd66aa07330c991ed"
+      },
+      "data/vllm/ci/test_results/2026-08-08_amd.jsonl": {
+        "bytes": 154259,
+        "sha256": "1ea431811d1fc206be772e8c8782c7b3beaccf415c7cbd395c33c7ba43fc6464"
+      },
+      "data/vllm/ci/test_results/2026-08-08_upstream.jsonl": {
+        "bytes": 177149,
+        "sha256": "fc949f93312ae2bef13e4c8e6919f5544b7423ba17b10b4b8548f8e1d8a21b46"
+      },
+      "data/vllm/ci/test_results/2026-08-09_amd.jsonl": {
+        "bytes": 153067,
+        "sha256": "63b6b2d87667cb5d6a9bb5c0692f2e4c0e2f513329819aa8169eae3f8cbb38fc"
+      },
+      "data/vllm/ci/test_results/2026-08-09_upstream.jsonl": {
+        "bytes": 178336,
+        "sha256": "7963a553467fb7d47e478a16f1cf2a5f4c028b72faa925e4a1dc40ec5b863551"
+      },
+      "data/vllm/ci/test_results/2026-08-10_amd.jsonl": {
+        "bytes": 154716,
+        "sha256": "7b34ed1076f7295c7b7b48bd4ca7c29e1db323f257d42cc4f04cf55057362d85"
+      },
+      "data/vllm/ci/test_results/2026-08-10_upstream.jsonl": {
+        "bytes": 177903,
+        "sha256": "41f937c9316828b5decb2362317bc6569ea9119ca3d9e64ae154e066cf03afdd"
+      },
+      "data/vllm/ci/test_results/2026-08-11_amd.jsonl": {
+        "bytes": 151164,
+        "sha256": "fc2641edbfec2b8b6b200f4e3fabdd11f02f523e974f07160462aa0f69ed04b1"
+      },
+      "data/vllm/ci/test_results/2026-08-11_upstream.jsonl": {
+        "bytes": 182650,
+        "sha256": "4fca99246ac02fe7f38f7d3a2723016d87c77668d1b43b753606b44a8964cf8f"
+      },
+      "data/vllm/ci/test_results/2026-08-12_amd.jsonl": {
+        "bytes": 150127,
+        "sha256": "ea7e0abf6aee4ee9f577fbcbc100e251f7ab83484bda7bd0fdc235fdae300445"
+      },
+      "data/vllm/ci/test_results/2026-08-12_upstream.jsonl": {
+        "bytes": 181385,
+        "sha256": "25c4c064af1a8cc5571b59c3b0dccf8c85c2dc6e9cde0d4bcedfe2bd00ef4886"
+      },
+      "data/vllm/ci/test_results/2026-08-13_amd.jsonl": {
+        "bytes": 148276,
+        "sha256": "c0c144ca962d66881dd93437e853980bbf881bc058d5b41ad533866b80bda453"
+      },
+      "data/vllm/ci/test_results/2026-08-13_upstream.jsonl": {
+        "bytes": 180882,
+        "sha256": "90e9e347c209f5b267c90084d5348761b3793cd3e2005413f48f944c2e9b87fd"
+      },
+      "data/vllm/ci/test_results/2026-08-14_amd.jsonl": {
+        "bytes": 148486,
+        "sha256": "a0015351744eeedbf2337f2dfcf81609fcb93d1acc3b524e1a7a6338c7a4d1b8"
+      },
+      "data/vllm/ci/test_results/2026-08-14_upstream.jsonl": {
+        "bytes": 182185,
+        "sha256": "1cfe398336e908d8c4e253ee164086dcadb51de413b80869dcd3ea5956b32c8d"
+      },
+      "data/vllm/ci/test_results/2026-08-15_amd.jsonl": {
+        "bytes": 148078,
+        "sha256": "1db6ef941f0e946084addd3d636a96eb10645c9c832be40cf2ba93126092e1c3"
+      },
+      "data/vllm/ci/test_results/2026-08-15_upstream.jsonl": {
+        "bytes": 185398,
+        "sha256": "16271931260ae1318a3c17d8d59403e7b417d89a95a2bf631551386681560a00"
+      },
+      "data/vllm/ci/test_results/2026-08-16_amd.jsonl": {
+        "bytes": 149611,
+        "sha256": "5ee29fc00d2ad8eccddc1a26b267b8308622e4fb26c64c6ce372b9c541ef22bc"
+      },
+      "data/vllm/ci/test_results/2026-08-16_upstream.jsonl": {
+        "bytes": 191136,
+        "sha256": "386daf7ef8a5d954e31bdffe1d07e21f3a1a30cac4b6b2cc4be4dec25a73d86a"
+      },
+      "data/vllm/ci/test_results/2026-08-17_amd.jsonl": {
+        "bytes": 149744,
+        "sha256": "a4c39547564aff17d6b1110a419d9906e88f4255b061e1301e4052374275e598"
+      },
+      "data/vllm/parity_report.json": {
+        "bytes": 517955,
+        "sha256": "b50aa0fd64b1d6bf1469928323ea5f9d42bd6408e4eef3ac425d0145e653e1de"
+      },
+      "data/vllm/test_results.json": {
+        "bytes": 1249,
+        "sha256": "7e788097120dc6ff5638fe83eb9dce6d94a62d3d88474a07b3d2de37a0bf37ce"
+      }
+    },
+    "ci_gating": {
+      "data/vllm/ci/gating_proposals.json": {
+        "bytes": 12408,
+        "sha256": "3d871b65e52e09e18fe9ecbf0ecb5a9f1be092dfa9e206ea7f2071bc85219e83"
+      },
+      "data/vllm/ci/gating_target_candidates.json": {
+        "bytes": 143622,
+        "sha256": "230cb31b5a32ac0d8fca7ce25a302f3342c1f80baadd440e8fb8f94bdc3c1f1f"
+      },
+      "data/vllm/ci/gating_targets.json": {
+        "bytes": 43092,
+        "sha256": "aa63c52856c42fa751da98a040e94a01e708a71406fa63876b870cea2d8ab81c"
+      }
+    },
+    "queue": {
+      "data/vllm/ci/capacity_monitor.json": {
+        "bytes": 73917,
+        "sha256": "1dc3bb0f910d7b08732b3c89ea2a9801dd4d54467eca9daaca19ea5f44568f1f"
+      },
+      "data/vllm/ci/omni_surge_heuristic.json": {
+        "bytes": 640,
+        "sha256": "ed9e1655164f20057720ba3fc741477d62ae8292f0757a03bfec6c43c5aa16ca"
+      },
+      "data/vllm/ci/open_omni_surge_issues.json": {
+        "bytes": 127,
+        "sha256": "e39a758d76ee59f02bcf06542abf91be9db80f0b72928db6d66fe1477d3e3cdc"
+      },
+      "data/vllm/ci/open_queue_issues.json": {
+        "bytes": 74,
+        "sha256": "663dae4f77e7242984341093270c1919127e0e617e97cba2edad98e08d74b94e"
+      },
+      "data/vllm/ci/open_queue_zombie_issues.json": {
+        "bytes": 54,
+        "sha256": "6e4a079f0e08dbd82bcd02f269179d6521e161e8f874c327692fb13932bd51d4"
+      },
+      "data/vllm/ci/queue_jobs.json": {
+        "bytes": 161983,
+        "sha256": "f34329098adae8add995062671a2d4e25d74bfde74df42462ce240953391eefe"
+      },
+      "data/vllm/ci/queue_timeseries.jsonl": {
+        "bytes": 33381682,
+        "sha256": "62f18aaa14622e06cf58794b44263a06ff553859d6a8593eeb6e16c388f7228a"
+      },
+      "data/vllm/ci/workload_mapping.json": {
+        "bytes": 1093864,
+        "sha256": "42bc2c4cba34c4cba523f54d86ea798472575b1cc235b61d4b4c79adc5e3aba7"
+      }
+    }
+  },
+  "restored_paths": {
+    "ci_core": [
+      "data/vllm/ci/amd_test_matrix.json",
+      "data/vllm/ci/analytics.json",
+      "data/vllm/ci/ci_health.json",
+      "data/vllm/ci/ci_ownership.json",
+      "data/vllm/ci/config_parity.json",
+      "data/vllm/ci/failure_trends.json",
+      "data/vllm/ci/flaky_tests.json",
+      "data/vllm/ci/gating_nightlies.json",
+      "data/vllm/ci/ownership_config_parity.json",
+      "data/vllm/ci/parity_key_overrides.json",
+      "data/vllm/ci/parity_report.json",
+      "data/vllm/ci/quarantine.json",
+      "data/vllm/ci/shard_base_catalog.json",
+      "data/vllm/ci/shard_bases.json",
+      "data/vllm/ci/test_results/2026-07-18_amd.jsonl",
+      "data/vllm/ci/test_results/2026-07-18_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-07-19_amd.jsonl",
+      "data/vllm/ci/test_results/2026-07-19_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-07-20_amd.jsonl",
+      "data/vllm/ci/test_results/2026-07-20_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-07-21_amd.jsonl",
+      "data/vllm/ci/test_results/2026-07-21_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-07-22_amd.jsonl",
+      "data/vllm/ci/test_results/2026-07-22_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-07-23_amd.jsonl",
+      "data/vllm/ci/test_results/2026-07-23_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-07-24_amd.jsonl",
+      "data/vllm/ci/test_results/2026-07-24_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-07-25_amd.jsonl",
+      "data/vllm/ci/test_results/2026-07-25_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-07-26_amd.jsonl",
+      "data/vllm/ci/test_results/2026-07-26_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-07-27_amd.jsonl",
+      "data/vllm/ci/test_results/2026-07-27_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-07-28_amd.jsonl",
+      "data/vllm/ci/test_results/2026-07-28_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-07-29_amd.jsonl",
+      "data/vllm/ci/test_results/2026-07-29_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-07-30_amd.jsonl",
+      "data/vllm/ci/test_results/2026-07-30_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-07-31_amd.jsonl",
+      "data/vllm/ci/test_results/2026-07-31_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-01_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-01_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-02_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-02_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-03_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-03_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-04_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-04_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-05_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-05_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-06_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-06_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-07_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-07_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-08_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-08_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-09_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-09_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-10_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-10_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-11_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-11_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-12_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-12_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-13_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-13_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-14_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-14_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-15_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-15_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-16_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-16_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-17_amd.jsonl",
+      "data/vllm/parity_report.json",
+      "data/vllm/test_results.json"
+    ],
+    "ci_gating": [
+      "data/vllm/ci/gating_proposals.json",
+      "data/vllm/ci/gating_target_candidates.json",
+      "data/vllm/ci/gating_targets.json"
+    ],
+    "queue": [
+      "data/vllm/ci/capacity_monitor.json",
+      "data/vllm/ci/omni_surge_heuristic.json",
+      "data/vllm/ci/open_omni_surge_issues.json",
+      "data/vllm/ci/open_queue_issues.json",
+      "data/vllm/ci/open_queue_zombie_issues.json",
+      "data/vllm/ci/queue_jobs.json",
+      "data/vllm/ci/queue_timeseries.jsonl",
+      "data/vllm/ci/workload_mapping.json"
+    ]
+  },
   "schema_version": 2
 }
