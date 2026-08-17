@@ -233,7 +233,12 @@ class TestPrimaryCIWorkflow:
         package = REPO_ROOT / "tests" / "browser" / "package.json"
         package_text = package.read_text()
         assert '"@playwright/test": "1.62.1"' in package_text
-        assert '"pretest": "python3 ../../scripts/build_site.py"' in package_text
+        package_data = json.loads(package_text)
+        pretest = package_data["scripts"]["pretest"]
+        assert "scripts/vllm/build_operations_snapshot.py" in pretest
+        assert pretest.index("build_operations_snapshot.py") < pretest.index(
+            "scripts/build_site.py"
+        )
 
         smoke = (REPO_ROOT / "tests" / "browser" / "dashboard-smoke.spec.mjs").read_text()
         assert "'/#ci-hotness'" in smoke
@@ -1505,6 +1510,15 @@ class TestFrameworkIsolation:
         command = steps[rebuild].get("run", "")
         assert "scripts/vllm/build_operations_snapshot.py" in command
         assert "data/vllm/ci/operations_v2.json" in command
+        assert rebuild < assemble
+
+    def test_browser_smoke_rebuilds_untracked_operations_input(self):
+        package = json.loads(
+            (REPO_ROOT / "tests" / "browser" / "package.json").read_text()
+        )
+        pretest = package["scripts"]["pretest"]
+        rebuild = pretest.index("scripts/vllm/build_operations_snapshot.py")
+        assemble = pretest.index("scripts/build_site.py")
         assert rebuild < assemble
 
     def test_shard_bases_available_at_deploy(self):
