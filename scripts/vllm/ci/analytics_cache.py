@@ -40,6 +40,11 @@ TERMINAL_BUILD_STATES = frozenset({
     "skipped",
     "not_run",
 })
+# Buildkite's Builds API ``finished`` shortcut includes blocked builds. They
+# are not pass/fail terminal observations, but a blocked row with a real
+# ``finished_at`` is quiescent for cache refresh: a later completion is picked
+# up by the collector's exhaustive ``finished_from`` leg.
+REFRESH_STABLE_BUILD_STATES = TERMINAL_BUILD_STATES | {"blocked"}
 TERMINAL_JOB_STATES = frozenset({
     "passed",
     "failed",
@@ -47,6 +52,7 @@ TERMINAL_JOB_STATES = frozenset({
     "canceled",
     "cancelled",
     "skipped",
+    "blocked",
     "broken",
     "expired",
     "not_run",
@@ -362,13 +368,52 @@ def builds_needing_refresh(builds: object) -> list[int]:
         if isinstance(number, bool) or not isinstance(number, int) or number <= 0:
             raise CacheValidationError("malformed_types", "build.number must be positive")
         jobs = build.get("jobs")
+        try:
+            build_finished = _parse_timestamp(
+                build.get("finished_at"),
+                "build.finished_at",
+                required=False,
+            )
+        except CacheValidationError:
+            build_finished = None
+
+        def job_is_terminal(job: object) -> bool:
+            if not isinstance(job, dict):
+                return False
+            # Only command jobs can contribute the per-job result and retry
+            # evidence consumed downstream. Wait, block, and trigger jobs may
+            # retain structural waiting states after a build has finished.
+            if job.get("type") != "script":
+                return True
+            if job.get("state") in TERMINAL_JOB_STATES:
+                return True
+            try:
+                return _parse_timestamp(
+                    job.get("finished_at"),
+                    "job.finished_at",
+                    required=False,
+                ) is not None
+            except CacheValidationError:
+                return False
+
+        state = build.get("state")
+        blocked_quiescent = state == "blocked" and build_finished is not None
+        # A state alone is not a stable terminal boundary: Buildkite can
+        # retain it while a blocked continuation is still unresolved. A
+        # finished blocked build may contain waiting jobs indefinitely; it is
+        # intentionally excluded from pass/fail reliability and needs no
+        # detail refresh unless Buildkite later returns it via finished_from.
         if (
-            build.get("state") not in TERMINAL_BUILD_STATES
+            state not in REFRESH_STABLE_BUILD_STATES
+            or build_finished is None
             or build.get("jobs_complete") is not True
             or not isinstance(jobs, list)
-            or any(
-                not isinstance(job, dict) or job.get("state") not in TERMINAL_JOB_STATES
-                for job in (jobs if isinstance(jobs, list) else [])
+            or (
+                not blocked_quiescent
+                and any(
+                    not job_is_terminal(job)
+                    for job in (jobs if isinstance(jobs, list) else [])
+                )
             )
         ):
             refresh.add(number)
