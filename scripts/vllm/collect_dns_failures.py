@@ -227,6 +227,19 @@ class BuildkiteClient:
         # while the admission thread is sleeping.
         self._admission_lock = threading.Lock()
         self._quota_lock = threading.Lock()
+        self._metrics_lock = threading.Lock()
+        self._request_starts = {"build_page": 0, "job_log": 0}
+        self._metrics = {
+            "pacing_wait_seconds": 0.0,
+            "quota_wait_seconds": 0.0,
+            "retry_sleep_worker_seconds": 0.0,
+            "network_worker_seconds": 0.0,
+            "network_max_seconds": 0.0,
+            "stream_worker_seconds": 0.0,
+            "stream_max_seconds": 0.0,
+            "retry_requests": 0,
+            "rate_limited_responses": 0,
+        }
 
     def _new_session(self) -> requests.Session:
         session = requests.Session()
@@ -250,13 +263,40 @@ class BuildkiteClient:
         if wait:
             self.sleep(wait)
 
+    def _add_metric(self, name: str, value: float = 1.0) -> None:
+        with self._metrics_lock:
+            self._metrics[name] += value
+
+    def _observe_network_seconds(self, started_at: float) -> None:
+        elapsed = max(0.0, self.monotonic() - started_at)
+        with self._metrics_lock:
+            self._metrics["network_worker_seconds"] += elapsed
+            self._metrics["network_max_seconds"] = max(
+                self._metrics["network_max_seconds"],
+                elapsed,
+            )
+
     def _throttle(self, deadline: float | None) -> None:
         with self._admission_lock:
             while True:
                 with self._quota_lock:
                     now = self.monotonic()
-                    ready_at = max(self._next_request_at, self._quota_blocked_until)
-                self._sleep_with_deadline(max(0.0, ready_at - now), deadline)
+                    next_request_at = self._next_request_at
+                    quota_blocked_until = self._quota_blocked_until
+                    ready_at = max(next_request_at, quota_blocked_until)
+                wait = max(0.0, ready_at - now)
+                wait_metric = (
+                    "quota_wait_seconds"
+                    if quota_blocked_until > next_request_at
+                    else "pacing_wait_seconds"
+                )
+                wait_started = self.monotonic()
+                self._sleep_with_deadline(wait, deadline)
+                if wait:
+                    self._add_metric(
+                        wait_metric,
+                        max(0.0, self.monotonic() - wait_started),
+                    )
                 # Recheck the adaptive block after sleeping. A concurrent
                 # response may have advertised a near-empty shared quota while
                 # this admission was waiting for the ordinary two-second pace.
@@ -308,6 +348,7 @@ class BuildkiteClient:
         deadline: float | None = None,
     ) -> requests.Response:
         url = f"{BUILDKITE_API}{path}"
+        request_kind = "job_log" if path.endswith("/log") else "build_page"
         for attempt in range(MAX_REQUEST_ATTEMPTS):
             self._throttle(deadline)
             remaining = deadline - self.monotonic() if deadline is not None else None
@@ -325,6 +366,11 @@ class BuildkiteClient:
                     min(REQUEST_TIMEOUT[1], phase),
                 )
             try:
+                with self._metrics_lock:
+                    self._request_starts[request_kind] += 1
+                if attempt:
+                    self._add_metric("retry_requests")
+                network_started = self.monotonic()
                 response = self._request_session().request(
                     method,
                     url,
@@ -338,17 +384,26 @@ class BuildkiteClient:
                 requests.exceptions.ConnectionError,
                 requests.exceptions.ChunkedEncodingError,
             ):
+                self._observe_network_seconds(network_started)
                 if attempt + 1 == MAX_REQUEST_ATTEMPTS:
                     raise CollectionError("network_error") from None
                 wait = min(MAX_RETRY_SLEEP_SECONDS, 2**attempt)
                 try:
+                    retry_started = self.monotonic()
                     self._sleep_with_deadline(wait, deadline)
+                    self._add_metric(
+                        "retry_sleep_worker_seconds",
+                        max(0.0, self.monotonic() - retry_started),
+                    )
                 except BudgetExhausted:
                     raise BudgetExhausted() from None
                 continue
+            self._observe_network_seconds(network_started)
 
             self._observe_quota_headers(response.headers)
             if response.status_code in RETRYABLE_HTTP_STATUSES:
+                if response.status_code == 429:
+                    self._add_metric("rate_limited_responses")
                 if attempt + 1 == MAX_REQUEST_ATTEMPTS:
                     reason = _unavailable_reason(response.status_code)
                     response.close()
@@ -363,7 +418,12 @@ class BuildkiteClient:
                 # workers cannot consume quota throughout the backoff window.
                 self._block_requests_for(wait)
                 response.close()
+                retry_started = self.monotonic()
                 self._sleep_with_deadline(wait, deadline)
+                self._add_metric(
+                    "retry_sleep_worker_seconds",
+                    max(0.0, self.monotonic() - retry_started),
+                )
                 continue
             if response.status_code < 200 or response.status_code >= 300:
                 reason = _unavailable_reason(response.status_code)
@@ -371,6 +431,16 @@ class BuildkiteClient:
                 raise CollectionError(reason)
             return response
         raise CollectionError("network_error")
+
+    def request_starts(self) -> dict[str, int]:
+        """Return privacy-safe request counters for phase diagnostics."""
+        with self._metrics_lock:
+            return dict(self._request_starts)
+
+    def telemetry(self) -> dict[str, int | float]:
+        """Return aggregate numeric I/O metrics without response metadata."""
+        with self._metrics_lock:
+            return {**self._request_starts, **self._metrics}
 
     def build_page(
         self,
@@ -392,6 +462,7 @@ class BuildkiteClient:
                 "per_page": PAGE_SIZE,
                 "page": page,
                 "include_retried_jobs": "true",
+                "exclude_pipeline": "true",
             }
         )
         response = self._request(
@@ -451,9 +522,11 @@ class BuildkiteClient:
         second closes state transitions during pagination: a build that
         finishes between legs remains present in at least one cohort. Bound
         the active leg to the caller's target parent-build horizon so a
-        historical blocked-build backlog cannot consume the entire collection
+        unbounded historical backlog cannot consume the entire collection
         budget, without shrinking it to the incremental finished overlap.
         """
+        active_started = self.monotonic()
+        active_requests_before = self.request_starts()["build_page"]
         active = self._paginate_builds(
             pipeline,
             filters={
@@ -462,10 +535,32 @@ class BuildkiteClient:
             },
             deadline=deadline,
         )
+        active_requests = self.request_starts()["build_page"] - active_requests_before
+        log.info(
+            "DNS discovery cohort complete: pipeline=%s cohort=active "
+            "elapsed_seconds=%.3f builds=%d build_page_requests=%d",
+            pipeline,
+            max(0.0, self.monotonic() - active_started),
+            len(active),
+            active_requests,
+        )
+        finished_started = self.monotonic()
+        finished_requests_before = self.request_starts()["build_page"]
         finished = self._paginate_builds(
             pipeline,
             filters={"finished_from": finished_from},
             deadline=deadline,
+        )
+        finished_requests = (
+            self.request_starts()["build_page"] - finished_requests_before
+        )
+        log.info(
+            "DNS discovery cohort complete: pipeline=%s cohort=finished "
+            "elapsed_seconds=%.3f builds=%d build_page_requests=%d",
+            pipeline,
+            max(0.0, self.monotonic() - finished_started),
+            len(finished),
+            finished_requests,
         )
         merged: dict[int, dict] = {}
         for build in (*active, *finished):
@@ -509,6 +604,7 @@ class BuildkiteClient:
 
             chunks: list[bytes] = []
             received = 0
+            stream_started = self.monotonic()
             try:
                 iterator = response.iter_content(chunk_size=64 * 1024)
                 for chunk in iterator:
@@ -526,6 +622,14 @@ class BuildkiteClient:
                 raise
             except requests.exceptions.RequestException:
                 raise LogUnavailable("network_error") from None
+            finally:
+                stream_elapsed = max(0.0, self.monotonic() - stream_started)
+                with self._metrics_lock:
+                    self._metrics["stream_worker_seconds"] += stream_elapsed
+                    self._metrics["stream_max_seconds"] = max(
+                        self._metrics["stream_max_seconds"],
+                        stream_elapsed,
+                    )
             body = b"".join(chunks)
         finally:
             response.close()
@@ -965,6 +1069,15 @@ def scan_records(
                     budget_exhausted = True
             submit_available(pool)
 
+    log.info(
+        "DNS scan scheduler complete: candidates=%d submitted=%d completed=%d "
+        "deadline_exhausted=%s",
+        len(candidates),
+        next_index,
+        len(completed),
+        str(budget_exhausted).lower(),
+    )
+
     for index in sorted(completed):
         row = completed[index]
         by_identity[(row["pipeline"], row["job_id"])] = row
@@ -1022,6 +1135,13 @@ def collect(
     finished_from = iso_timestamp(query_start)
     active_created_from = iso_timestamp(target_start)
     discovered: list[dict] = []
+    discovered_builds = 0
+    discovery_started = monotonic()
+    requests_before_discovery = (
+        client.request_starts()
+        if isinstance(client, BuildkiteClient)
+        else {"build_page": 0, "job_log": 0}
+    )
     for pipeline in PIPELINES:
         builds = client.discover_builds(
             pipeline,
@@ -1029,13 +1149,30 @@ def collect(
             active_created_from=active_created_from,
             deadline=deadline,
         )
+        discovered_builds += len(builds)
         discovered.extend(discover_job_metadata({pipeline: builds}))
+    requests_after_discovery = (
+        client.request_starts()
+        if isinstance(client, BuildkiteClient)
+        else requests_before_discovery
+    )
+    log.info(
+        "DNS collection phase complete: phase=discovery elapsed_seconds=%.3f "
+        "builds=%d eligible_job_rows=%d build_page_requests=%d",
+        max(0.0, monotonic() - discovery_started),
+        discovered_builds,
+        len(discovered),
+        requests_after_discovery["build_page"]
+        - requests_before_discovery["build_page"],
+    )
     rows = _prepare_records(
         old_rows,
         discovered,
         retention_start=retention_start,
         end_exclusive=clock,
     )
+    scan_started = monotonic()
+    requests_before_scan = requests_after_discovery
     rows = scan_records(
         rows,
         client=client,
@@ -1044,6 +1181,38 @@ def collect(
         deadline=deadline,
         monotonic=monotonic,
     )
+    requests_after_scan = (
+        client.request_starts()
+        if isinstance(client, BuildkiteClient)
+        else requests_before_scan
+    )
+    log.info(
+        "DNS collection phase complete: phase=scan elapsed_seconds=%.3f "
+        "job_log_requests=%d",
+        max(0.0, monotonic() - scan_started),
+        requests_after_scan["job_log"] - requests_before_scan["job_log"],
+    )
+    if isinstance(client, BuildkiteClient):
+        telemetry = client.telemetry()
+        log.info(
+            "DNS request telemetry: build_page_requests=%d job_log_requests=%d "
+            "pacing_wait_seconds=%.3f quota_wait_seconds=%.3f "
+            "retry_sleep_worker_seconds=%.3f network_worker_seconds=%.3f "
+            "network_max_seconds=%.3f stream_worker_seconds=%.3f "
+            "stream_max_seconds=%.3f retry_requests=%d "
+            "rate_limited_responses=%d",
+            telemetry["build_page"],
+            telemetry["job_log"],
+            telemetry["pacing_wait_seconds"],
+            telemetry["quota_wait_seconds"],
+            telemetry["retry_sleep_worker_seconds"],
+            telemetry["network_worker_seconds"],
+            telemetry["network_max_seconds"],
+            telemetry["stream_worker_seconds"],
+            telemetry["stream_max_seconds"],
+            telemetry["retry_requests"],
+            telemetry["rate_limited_responses"],
+        )
 
     state = empty_state(clock, coverage_start)
     state["jobs"] = prune_state_jobs(rows, retention_start, clock)

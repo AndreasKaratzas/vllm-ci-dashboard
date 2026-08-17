@@ -1113,13 +1113,16 @@ def test_build_discovery_is_all_branch_and_includes_retried_jobs():
     ) == []
     params = session.calls[0]["params"]
     assert params["include_retried_jobs"] == "true"
+    assert params["exclude_pipeline"] == "true"
     assert "branch" not in params
     assert params["per_page"] == 100
+    assert client.request_starts() == {"build_page": 1, "job_log": 0}
 
 
 def test_discovery_bounds_active_parent_builds_and_unions_finished_cohort():
     old_created_finished_inside = _build(100, [_job(1)])
     old_created_finished_inside["created_at"] = _timestamp(hours=-800)
+    old_created_finished_inside["state"] = "blocked"
     current = _build(101, [_job(2)])
     session = _FakeSession(
         [
@@ -1141,6 +1144,7 @@ def test_discovery_bounds_active_parent_builds_and_unions_finished_cohort():
     assert {build["number"] for build in builds} == {100, 101}
     active_params, finished_params = [call["params"] for call in session.calls]
     assert active_params["state[]"] == list(collector.ACTIVE_BUILD_STATES)
+    assert "blocked" in active_params["state[]"]
     assert active_params["created_from"] == _timestamp(hours=-720)
     assert finished_params["finished_from"] == _timestamp(hours=-2)
     assert "created_from" not in finished_params
@@ -1296,6 +1300,11 @@ def test_log_fetch_reads_complete_stream_and_json_envelope():
     assert text.endswith("final line")
     assert size == len(text.encode())
     assert all(call["headers"]["Accept"] == "text/plain" for call in session.calls)
+    assert client.request_starts() == {"build_page": 0, "job_log": 2}
+    assert all(
+        isinstance(value, (int, float)) and not isinstance(value, bool)
+        for value in client.telemetry().values()
+    )
 
 
 def test_log_fetch_marks_declared_and_streamed_oversize_without_partial_scan(monkeypatch):
