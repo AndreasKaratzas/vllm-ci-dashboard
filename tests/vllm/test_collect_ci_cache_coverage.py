@@ -50,8 +50,10 @@ from collect_ci import (  # noqa: E402
     _select_latest_complete_evidence_build,
     _is_parity_excluded_group,
     _should_verify_cache_coverage,
+    collect_pipeline,
     write_amd_nightly_snapshot,
 )
+from vllm.ci.models import TestResult  # noqa: E402
 
 
 def _job(name: str, state: str = "passed", soft_failed: bool = False) -> dict:
@@ -353,6 +355,77 @@ class TestCacheCoversAllJobs:
             assert _cache_covers_all_jobs(
                 summary_only_build, jsonl, "amd", 7791
             ) is True
+
+
+class TestCanonicalResultPublication:
+    @staticmethod
+    def _build(*, state: str, job_state: str) -> dict:
+        return {
+            "number": 84160,
+            "state": state,
+            "commit": "a" * 40,
+            "created_at": "2026-08-17T06:00:00Z",
+            "jobs": [
+                {
+                    "type": "script",
+                    "id": "job-1",
+                    "name": "H100: Engine tests",
+                    "state": job_state,
+                    "retried_in_job_id": None,
+                }
+            ],
+        }
+
+    def test_running_build_does_not_write_partial_daily_jsonl(self, tmp_path):
+        summary = self._build(state="failing", job_state="passed")
+        detail = json.loads(json.dumps(summary))
+
+        with (
+            patch("collect_ci.fetch_nightly_builds", return_value=[summary]),
+            patch("collect_ci.fetch_build_detail", return_value=detail),
+            patch("collect_ci.parse_job_results") as parse_results,
+        ):
+            builds, results = collect_pipeline("upstream", 8, tmp_path)
+
+        assert builds[0]["number"] == 84160
+        assert results == {}
+        assert not (tmp_path / "test_results" / "2026-08-17_upstream.jsonl").exists()
+        parse_results.assert_not_called()
+
+    def test_terminal_build_with_running_soft_job_stays_provisional(self, tmp_path):
+        summary = self._build(state="passed", job_state="running")
+        detail = json.loads(json.dumps(summary))
+
+        with (
+            patch("collect_ci.fetch_nightly_builds", return_value=[summary]),
+            patch("collect_ci.fetch_build_detail", return_value=detail),
+            patch("collect_ci.parse_job_results") as parse_results,
+        ):
+            _, results = collect_pipeline("upstream", 8, tmp_path)
+
+        assert results == {}
+        assert not (tmp_path / "test_results" / "2026-08-17_upstream.jsonl").exists()
+        parse_results.assert_not_called()
+
+    def test_complete_build_promotes_results_to_daily_jsonl(self, tmp_path):
+        summary = self._build(state="passed", job_state="passed")
+        detail = json.loads(json.dumps(summary))
+        row = _record("H100: Engine tests", build_num=84160)
+        row["pipeline"] = "ci"
+        row["date"] = "2026-08-17"
+        parsed = TestResult(**row)
+
+        with (
+            patch("collect_ci.fetch_nightly_builds", return_value=[summary]),
+            patch("collect_ci.fetch_build_detail", return_value=detail),
+            patch("collect_ci.parse_job_results", return_value=[parsed]),
+        ):
+            _, results = collect_pipeline("upstream", 8, tmp_path)
+
+        assert results == {84160: [parsed]}
+        path = tmp_path / "test_results" / "2026-08-17_upstream.jsonl"
+        assert path.exists()
+        assert json.loads(path.read_text())["build_number"] == 84160
 
 
 class TestFrozenAmdNightlySnapshot:
