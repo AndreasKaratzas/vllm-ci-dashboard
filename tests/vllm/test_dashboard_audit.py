@@ -456,6 +456,41 @@ def test_dns_audit_accepts_a_reconciled_complete_payload(tmp_path):
     assert audit.report.metrics["dns_health"]["coverage_status"] == "complete"
 
 
+def test_dns_audit_accepts_honest_24h_incremental_bootstrap(tmp_path):
+    payload = _dns_audit_payload()
+    now = datetime.fromisoformat(payload["generated_at"].replace("Z", "+00:00"))
+    discovery_start = now - timedelta(hours=24)
+    payload["coverage"].update(
+        {
+            "status": "partial",
+            "complete": False,
+            "discovery_complete": False,
+            "discovery_start": _dns_iso(discovery_start),
+        }
+    )
+    for option in payload["window_options"]:
+        coverage = payload["windows"][option["id"]]["coverage"]
+        complete = option["hours"] <= 24
+        coverage.update(
+            {
+                "status": "complete" if complete else "partial",
+                "complete": complete,
+                "discovery_complete": complete,
+            }
+        )
+
+    _write_dns_audit_payload(tmp_path, payload)
+    audit = DashboardAudit(tmp_path)
+
+    audit.audit_dns_failures()
+
+    assert audit.report.errors == []
+    assert [finding.code for finding in audit.report.degradations] == [
+        "dns-health-partial"
+    ]
+    assert audit.report.metrics["dns_health"]["coverage_status"] == "partial"
+
+
 def test_dns_audit_accepts_fixed_getaddrinfo_signature_enums(tmp_path):
     payload = _dns_audit_payload()
     item = payload["evidence"]["items"][0]

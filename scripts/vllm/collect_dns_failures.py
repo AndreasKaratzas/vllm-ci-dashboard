@@ -64,6 +64,9 @@ DEFAULT_DISCOVER_DAYS = 30
 DEFAULT_MAX_LOGS = 500
 DEFAULT_TIME_BUDGET_SECONDS = 0
 FINALIZATION_RESERVE_SECONDS = 30
+BOOTSTRAP_DISCOVERY_HOURS = 24
+INCREMENTAL_DISCOVERY_OVERLAP_HOURS = 2
+MAX_INCREMENTAL_DISCOVERY_GAP_HOURS = 24
 MAX_DISCOVER_DAYS = RETENTION_HOURS // 24
 MAX_DISCOVERY_PAGES = 1000
 PAGE_SIZE = 100
@@ -378,6 +381,7 @@ class BuildkiteClient:
         pipeline: str,
         *,
         finished_from: str,
+        active_created_from: str | None = None,
         deadline: float | None = None,
     ) -> list[dict]:
         """Union recent active builds with all builds finished in the window.
@@ -385,14 +389,15 @@ class BuildkiteClient:
         Querying active states first and the unbounded-upper finished cohort
         second closes state transitions during pagination: a build that
         finishes between legs remains present in at least one cohort. Bound
-        the active leg to the same parent-build horizon so a historical
-        blocked-build backlog cannot consume the entire collection budget.
+        the active leg to the caller's target parent-build horizon so a
+        historical blocked-build backlog cannot consume the entire collection
+        budget, without shrinking it to the incremental finished overlap.
         """
         active = self._paginate_builds(
             pipeline,
             filters={
                 "state[]": list(ACTIVE_BUILD_STATES),
-                "created_from": finished_from,
+                "created_from": active_created_from or finished_from,
             },
             deadline=deadline,
         )
@@ -701,6 +706,57 @@ def _prepare_records(
     return sort_state_jobs(records.values())
 
 
+def _discovery_window(
+    prior_states: Iterable[dict],
+    *,
+    clock: datetime,
+    target_start: datetime,
+) -> tuple[datetime, datetime]:
+    """Return the bounded query start and honestly contiguous coverage start.
+
+    A first run intentionally bootstraps only one day, even though the durable
+    retention target is thirty days. Later exhaustive queries overlap the most
+    recent valid state and carry older coverage only across touching intervals.
+    A stale state is still useful as retained evidence, but is not a safe basis
+    for an unbounded catch-up query or a continuity claim.
+    """
+    bootstrap_start = max(
+        target_start,
+        clock - timedelta(hours=BOOTSTRAP_DISCOVERY_HOURS),
+    )
+    intervals: list[tuple[datetime, datetime]] = []
+    for state in prior_states:
+        generated_at = parse_timestamp(state["generated_at"], "generated_at")
+        discovery_start = parse_timestamp(
+            state["discovery"]["start"],
+            "discovery.start",
+        )
+        if generated_at > clock:
+            raise StateValidationError("prior state generated_at is in the future")
+        intervals.append((max(target_start, discovery_start), generated_at))
+
+    if not intervals:
+        return bootstrap_start, bootstrap_start
+
+    latest_end = max(end for _, end in intervals)
+    max_gap = timedelta(hours=MAX_INCREMENTAL_DISCOVERY_GAP_HOURS)
+    if clock - latest_end > max_gap:
+        return bootstrap_start, bootstrap_start
+
+    query_start = max(
+        target_start,
+        latest_end - timedelta(hours=INCREMENTAL_DISCOVERY_OVERLAP_HOURS),
+    )
+    coverage_start = query_start
+    # Each validated prior state describes one exhaustive half-open interval.
+    # Extend only through intervals touching the current query or one another;
+    # disconnected older state may contribute rows, never a coverage claim.
+    for start, end in sorted(intervals, key=lambda interval: interval[1], reverse=True):
+        if end >= coverage_start and start < coverage_start:
+            coverage_start = start
+    return query_start, coverage_start
+
+
 def scan_records(
     rows: Iterable[dict],
     *,
@@ -788,7 +844,7 @@ def collect(
         else None
     )
     clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).replace(microsecond=0)
-    discovery_start = clock - timedelta(days=discover_days)
+    target_start = clock - timedelta(days=discover_days)
     retention_start = clock - timedelta(hours=RETENTION_HOURS)
 
     local_state = load_state(state_path)
@@ -802,12 +858,19 @@ def collect(
         ref_state["jobs"] if ref_state else [],
     )
 
-    finished_from = iso_timestamp(discovery_start)
+    query_start, coverage_start = _discovery_window(
+        [state for state in (local_state, ref_state) if state is not None],
+        clock=clock,
+        target_start=target_start,
+    )
+    finished_from = iso_timestamp(query_start)
+    active_created_from = iso_timestamp(target_start)
     discovered: list[dict] = []
     for pipeline in PIPELINES:
         builds = client.discover_builds(
             pipeline,
             finished_from=finished_from,
+            active_created_from=active_created_from,
             deadline=deadline,
         )
         discovered.extend(discover_job_metadata({pipeline: builds}))
@@ -826,7 +889,7 @@ def collect(
         monotonic=monotonic,
     )
 
-    state = empty_state(clock, discovery_start)
+    state = empty_state(clock, coverage_start)
     state["jobs"] = prune_state_jobs(rows, retention_start, clock)
     state = validate_state(state)
     output = build_public_output(state)
@@ -850,7 +913,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--discover-days", type=int, default=DEFAULT_DISCOVER_DAYS)
+    parser.add_argument(
+        "--discover-days",
+        type=int,
+        default=DEFAULT_DISCOVER_DAYS,
+        help=(
+            "Target coverage horizon; a missing or stale state bootstraps 24h "
+            "and grows coverage through overlapping incremental runs."
+        ),
+    )
     parser.add_argument("--max-logs", type=int, default=DEFAULT_MAX_LOGS)
     parser.add_argument(
         "--time-budget-seconds",

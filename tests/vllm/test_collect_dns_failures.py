@@ -518,6 +518,7 @@ def test_later_discovery_does_not_erase_log_recovered_node(tmp_path: Path):
             pipeline: str,
             *,
             finished_from: str,
+            active_created_from: str | None = None,
             deadline: float | None = None,
         ):
             return [_build(12112, [job])] if pipeline == "amd-ci" else []
@@ -768,14 +769,15 @@ def test_discovery_bounds_active_parent_builds_and_unions_finished_cohort():
     )
     builds = client.discover_builds(
         "amd-ci",
-        finished_from=_timestamp(hours=-720),
+        finished_from=_timestamp(hours=-2),
+        active_created_from=_timestamp(hours=-720),
     )
 
     assert {build["number"] for build in builds} == {100, 101}
     active_params, finished_params = [call["params"] for call in session.calls]
     assert active_params["state[]"] == list(collector.ACTIVE_BUILD_STATES)
     assert active_params["created_from"] == _timestamp(hours=-720)
-    assert finished_params["finished_from"] == _timestamp(hours=-720)
+    assert finished_params["finished_from"] == _timestamp(hours=-2)
     assert "created_from" not in finished_params
     assert all(params["include_retried_jobs"] == "true" for params in (active_params, finished_params))
 
@@ -952,6 +954,171 @@ def test_log_fetch_marks_declared_and_streamed_oversize_without_partial_scan(mon
     assert streamed_error.value.log_bytes == 11
 
 
+class _EmptyDiscoveryClient:
+    def __init__(self):
+        self.discovery_calls: list[tuple[str, str, str | None]] = []
+
+    def discover_builds(
+        self,
+        pipeline: str,
+        *,
+        finished_from: str,
+        active_created_from: str | None = None,
+        deadline: float | None = None,
+    ):
+        self.discovery_calls.append(
+            (pipeline, finished_from, active_created_from)
+        )
+        return []
+
+    def fetch_job_log(self, metadata: dict, *, deadline: float | None = None):
+        raise AssertionError("empty discovery has no logs")
+
+
+def test_missing_state_bootstraps_one_exhaustive_day_and_reports_partial_30d(
+    tmp_path: Path,
+):
+    client = _EmptyDiscoveryClient()
+    state_path = tmp_path / "dns_health" / "scan_state.json.gz"
+    output = collector.collect(
+        client=client,
+        state_path=state_path,
+        output_path=tmp_path / "dns_failures.json",
+        discover_days=30,
+        now=NOW,
+    )
+
+    bootstrap_start = _timestamp(hours=-collector.BOOTSTRAP_DISCOVERY_HOURS)
+    assert client.discovery_calls == [
+        ("amd-ci", bootstrap_start, _timestamp(hours=-720)),
+        ("ci", bootstrap_start, _timestamp(hours=-720)),
+    ]
+    state = dns.load_state(state_path)
+    assert state is not None
+    assert state["discovery"]["start"] == bootstrap_start
+    assert output["coverage"]["status"] == "partial"
+    assert output["coverage"]["discovery_complete"] is False
+    assert output["windows"]["720h"]["coverage"]["discovery_complete"] is False
+
+
+def test_incremental_discovery_overlaps_prior_end_and_carries_contiguous_start(
+    tmp_path: Path,
+):
+    prior_end = NOW - timedelta(hours=1)
+    prior_start = NOW - timedelta(days=10)
+    state_path = tmp_path / "dns_health" / "scan_state.json.gz"
+    dns.write_state(state_path, dns.empty_state(prior_end, prior_start))
+    client = _EmptyDiscoveryClient()
+
+    collector.collect(
+        client=client,
+        state_path=state_path,
+        output_path=tmp_path / "dns_failures.json",
+        discover_days=30,
+        now=NOW,
+    )
+
+    overlap_start = dns.iso_timestamp(
+        prior_end
+        - timedelta(hours=collector.INCREMENTAL_DISCOVERY_OVERLAP_HOURS)
+    )
+    assert client.discovery_calls == [
+        ("amd-ci", overlap_start, _timestamp(hours=-720)),
+        ("ci", overlap_start, _timestamp(hours=-720)),
+    ]
+    state = dns.load_state(state_path)
+    assert state is not None
+    assert state["discovery"]["start"] == dns.iso_timestamp(prior_start)
+    assert state["discovery"]["end_exclusive"] == dns.iso_timestamp(NOW)
+
+
+def test_stale_prior_state_resets_to_bounded_bootstrap_without_claiming_history(
+    tmp_path: Path,
+):
+    prior_end = NOW - timedelta(
+        hours=collector.MAX_INCREMENTAL_DISCOVERY_GAP_HOURS + 1
+    )
+    prior_start = NOW - timedelta(days=10)
+    state_path = tmp_path / "dns_health" / "scan_state.json.gz"
+    dns.write_state(state_path, dns.empty_state(prior_end, prior_start))
+    client = _EmptyDiscoveryClient()
+
+    output = collector.collect(
+        client=client,
+        state_path=state_path,
+        output_path=tmp_path / "dns_failures.json",
+        discover_days=30,
+        now=NOW,
+    )
+
+    bootstrap_start = _timestamp(hours=-collector.BOOTSTRAP_DISCOVERY_HOURS)
+    assert {finished_from for _, finished_from, _ in client.discovery_calls} == {
+        bootstrap_start
+    }
+    assert {active_from for _, _, active_from in client.discovery_calls} == {
+        _timestamp(hours=-720)
+    }
+    state = dns.load_state(state_path)
+    assert state is not None
+    assert state["discovery"]["start"] == bootstrap_start
+    assert output["coverage"]["discovery_complete"] is False
+
+
+def test_disconnected_prior_interval_does_not_expand_contiguous_coverage():
+    newer = dns.empty_state(NOW - timedelta(hours=1), NOW - timedelta(hours=8))
+    older = dns.empty_state(NOW - timedelta(hours=12), NOW - timedelta(days=10))
+
+    query_start, coverage_start = collector._discovery_window(
+        [older, newer],
+        clock=NOW,
+        target_start=NOW - timedelta(days=30),
+    )
+
+    assert query_start == NOW - timedelta(
+        hours=1 + collector.INCREMENTAL_DISCOVERY_OVERLAP_HOURS
+    )
+    assert coverage_start == NOW - timedelta(hours=8)
+
+
+def test_carried_discovery_start_is_clamped_to_requested_target():
+    prior = dns.empty_state(NOW - timedelta(hours=1), NOW - timedelta(days=40))
+    target_start = NOW - timedelta(days=30)
+
+    _, coverage_start = collector._discovery_window(
+        [prior],
+        clock=NOW,
+        target_start=target_start,
+    )
+
+    assert coverage_start == target_start
+
+
+def test_future_prior_state_fails_closed_before_discovery_or_write(tmp_path: Path):
+    future_end = NOW + timedelta(hours=1)
+    state_path = tmp_path / "dns_health" / "scan_state.json.gz"
+    output_path = tmp_path / "dns_failures.json"
+    dns.write_state(
+        state_path,
+        dns.empty_state(future_end, future_end - timedelta(days=1)),
+    )
+    output_path.write_text("durable-public-output\n")
+    before_state = state_path.read_bytes()
+    client = _EmptyDiscoveryClient()
+
+    with pytest.raises(dns.StateValidationError, match="future"):
+        collector.collect(
+            client=client,
+            state_path=state_path,
+            output_path=output_path,
+            discover_days=30,
+            now=NOW,
+        )
+
+    assert client.discovery_calls == []
+    assert state_path.read_bytes() == before_state
+    assert output_path.read_text() == "durable-public-output\n"
+
+
 def test_time_budget_persists_progress_and_honest_pending_coverage(tmp_path: Path):
     clock = {"value": 0.0}
     jobs = [
@@ -969,6 +1136,7 @@ def test_time_budget_persists_progress_and_honest_pending_coverage(tmp_path: Pat
             pipeline: str,
             *,
             finished_from: str,
+            active_created_from: str | None = None,
             deadline: float | None = None,
         ):
             return [_build(12112, jobs)] if pipeline == "amd-ci" else []
@@ -1015,6 +1183,7 @@ def test_discovery_budget_exhaustion_does_not_replace_durable_state(tmp_path: Pa
             pipeline: str,
             *,
             finished_from: str,
+            active_created_from: str | None = None,
             deadline: float | None = None,
         ):
             raise collector.BudgetExhausted()
@@ -1032,6 +1201,35 @@ def test_discovery_budget_exhaustion_does_not_replace_durable_state(tmp_path: Pa
     assert output_path.read_text() == "durable-public-output\n"
 
 
+def test_bootstrap_discovery_budget_exhaustion_writes_no_seed(tmp_path: Path):
+    state_path = tmp_path / "dns_health" / "scan_state.json.gz"
+    output_path = tmp_path / "dns_failures.json"
+
+    class Client:
+        def discover_builds(
+            self,
+            pipeline: str,
+            *,
+            finished_from: str,
+            active_created_from: str | None = None,
+            deadline: float | None = None,
+        ):
+            raise collector.BudgetExhausted()
+
+    with pytest.raises(collector.BudgetExhausted):
+        collector.collect(
+            client=Client(),
+            state_path=state_path,
+            output_path=output_path,
+            time_budget_seconds=40,
+            now=NOW,
+            monotonic=lambda: 0.0,
+        )
+
+    assert not state_path.exists()
+    assert not output_path.exists()
+
+
 def test_dry_run_does_not_write_state_or_public_output(tmp_path: Path):
     class Client:
         def discover_builds(
@@ -1039,6 +1237,7 @@ def test_dry_run_does_not_write_state_or_public_output(tmp_path: Path):
             pipeline: str,
             *,
             finished_from: str,
+            active_created_from: str | None = None,
             deadline: float | None = None,
         ):
             return []
