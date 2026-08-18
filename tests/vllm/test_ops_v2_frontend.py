@@ -823,7 +823,7 @@ def test_nightly_assessment_uses_explicit_movement_rules():
         "heldCount: held",
         "pendingSoftCount: pendingSoft",
         "Running with failures",
-        "Confirmed incidents held",
+        "Open incidents, no current result",
         "Soft observations pending",
         "More confirmed incidents",
         "Improved",
@@ -834,7 +834,7 @@ def test_nightly_assessment_uses_explicit_movement_rules():
         "CONFIRMED INCIDENT MOVEMENT",
         "fewer confirmed incidents",
         "provisional while Buildkite is running",
-        "prior incident state is held",
+        "prior incident state is carried forward",
         "Snapshot predates the confirmed-incidents-v1 policy",
     ):
         assert contract in OPS_JS
@@ -848,7 +848,12 @@ def test_nightly_counts_are_labeled_as_exact_job_variants():
     assert "PENDING SOFT OBSERVATIONS" in OPS_JS
     assert "RESOLVED INCIDENTS" in OPS_JS
     assert "confirmed incident transitions" in OPS_JS
-    assert "Confirmed held" in OPS_JS
+    assert "{label: 'Still failing'" in OPS_JS
+    assert "{label: 'Open — no result'" in OPS_JS
+    assert "Still failing = failed again" in OPS_JS
+    assert "Open — no result = carried forward without a usable result" in OPS_JS
+    assert "Recurring confirmed" not in OPS_JS
+    assert "Confirmed held" not in OPS_JS
     assert "Raw soft observation" in OPS_JS
     assert "pairwise legacy movement is not relabeled as confirmed incident state" in OPS_JS
     assert "policyBuilds = builds.filter" in OPS_JS
