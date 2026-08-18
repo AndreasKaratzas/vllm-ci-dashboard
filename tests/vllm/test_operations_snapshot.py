@@ -853,6 +853,10 @@ def test_latest_infrastructure_blocked_nightly_is_not_dropped_or_given_stale_res
     assert latest["test_job_count"] == latest["test_jobs_blocked"] == 6
     assert latest["failed_groups"] == []
     assert latest["soft_failed_groups"] == []
+    assert latest["failure_movement"]["available"] is False
+    assert latest["failure_movement"]["new"] == []
+    assert latest["failure_movement"]["recurring"] == []
+    assert latest["failure_movement"]["fixed"] == []
     assert latest["transitions"]["fixed"] == []
     assert latest["transitions"]["not_observed"]
     assert payload["home"]["latest_amd_nightly"]["number"] == 104
@@ -977,10 +981,18 @@ def test_v2_snapshot_transition_math_links_and_queue_provenance(tmp_path):
     assert payload["generated_at"] == GENERATED_AT
     assert payload["nightly"]["pipeline_order"] == ["amd-ci", "ci"]
     assert payload["nightly"]["transition_policy_id"] == "confirmed-incidents-v1"
+    assert (
+        payload["nightly"]["failure_movement_policy_id"]
+        == "observed-failure-movement-v1"
+    )
     assert payload["nightly"]["pipelines"][0]["pipeline"] == "amd-ci"
     assert (
         payload["nightly"]["pipelines"][0]["transition_policy_id"]
         == "confirmed-incidents-v1"
+    )
+    assert (
+        payload["nightly"]["pipelines"][0]["failure_movement_policy_id"]
+        == "observed-failure-movement-v1"
     )
 
     latest = payload["nightly"]["pipelines"][0]["builds"][0]
@@ -999,11 +1011,27 @@ def test_v2_snapshot_transition_math_links_and_queue_provenance(tmp_path):
     assert all(row["soft_streak"] == 1 for row in latest["transitions"]["pending_soft"])
     assert [row["name"] for row in latest["transitions"]["fixed"]] == ["Fixed"]
     assert latest["transitions"]["preceding_build_number"] == 102
+    movement = latest["failure_movement"]
+    assert movement["available"] is True
+    assert movement["preceding_build_number"] == 102
+    assert [row["name"] for row in movement["new"]] == [
+        "Mixed soft",
+        "New hard",
+        "New soft",
+    ]
+    assert [row["name"] for row in movement["recurring"]] == ["Recurring"]
+    assert [row["name"] for row in movement["fixed"]] == ["Fixed"]
+    assert len(movement["new"]) + len(movement["recurring"]) == (
+        len(latest["failed_groups"]) + len(latest["soft_failed_groups"])
+    )
     new_hard = next(row for row in latest["transitions"]["new"] if row["name"] == "New hard")
     assert new_hard["url"].endswith("/steps/new-hard")
     assert latest["transitions"]["fixed"][0]["url"].endswith("/builds/102/steps/fixed")
     assert "soft failures confirm after two distinct eligible completed builds" in (
         payload["nightly"]["transition_basis"]
+    )
+    assert "missing and indeterminate identities are omitted" in (
+        payload["nightly"]["failure_movement_basis"]
     )
 
     assert payload["queue"]["snapshot"]["run_id"] == "current-run"
@@ -3333,6 +3361,10 @@ def test_nightly_fixed_requires_an_observed_pass():
     assert held["current_indeterminate_evidence"]["url"].endswith(
         "/builds/11/steps/held"
     )
+    movement = row["failure_movement"]
+    assert movement["new"] == []
+    assert movement["recurring"] == []
+    assert [item["name"] for item in movement["fixed"]] == ["Actually fixed"]
 
 
 def test_nightly_retry_collapse_is_order_independent_with_original_only_linkage():
@@ -3419,6 +3451,59 @@ def test_operations_and_analytics_share_strict_nightly_signal_ids():
     assert analytics_ids == operations_ids
 
 
+def test_observed_failure_movement_matches_reliability_history():
+    def job(number: int, name: str, state: str, *, soft_failed: bool = False) -> dict:
+        slug = name.lower().replace(" ", "-")
+        return _job(
+            name,
+            state,
+            f"https://buildkite.com/vllm/amd-ci/builds/{number}/steps/{slug}",
+            job_id=f"{number}-{slug}",
+            step_key=slug,
+            soft_failed=soft_failed,
+        )
+
+    previous = _build(27, "2026-04-20", [
+        job(27, "mi300_1: Soft recurring", "soft_fail", soft_failed=True),
+        job(27, "mi300_1: Fixed hard", "failed"),
+        job(27, "mi300_1: Missing now", "failed"),
+    ])
+    current = _build(28, "2026-04-21", [
+        job(28, "mi300_1: Soft recurring", "soft_fail", soft_failed=True),
+        job(28, "mi300_1: Fixed hard", "passed"),
+        job(28, "mi300_1: New hard", "failed"),
+    ])
+
+    operations_rows = {
+        row["number"]: row["failure_movement"]
+        for row in ops._nightly_pipeline(
+            "amd-ci", {"builds": [current, previous]}
+        )["builds"]
+    }
+    analytics_rows = {
+        row["build_number"]: row["failure_movement"]
+        for row in analytics.compute_nightly_change_history([current, previous])
+    }
+
+    assert operations_rows[27]["available"] is False
+    assert analytics_rows[27]["available"] is False
+    for bucket in ("new", "recurring", "fixed"):
+        assert {
+            row["group_id"] for row in operations_rows[28][bucket]
+        } == {
+            row["group_id"] for row in analytics_rows[28][bucket]
+        }
+    assert [row["name"] for row in operations_rows[28]["new"]] == [
+        "mi300_1: New hard"
+    ]
+    assert [row["name"] for row in operations_rows[28]["recurring"]] == [
+        "mi300_1: Soft recurring"
+    ]
+    assert [row["name"] for row in operations_rows[28]["fixed"]] == [
+        "mi300_1: Fixed hard"
+    ]
+
+
 def test_nightly_nonterminal_builds_hold_state_without_advancing_streak():
     name = "mi300_1: Eligibility hold"
 
@@ -3455,6 +3540,10 @@ def test_nightly_nonterminal_builds_hold_state_without_advancing_streak():
     assert running_pending["build_number"] == 17
     assert running_pending["state"] == "soft_failed"
     assert running_pending["current_indeterminate_evidence"]["build_number"] == 18
+    assert running_row["failure_movement"]["available"] is False
+    assert running_row["failure_movement"]["new"] == []
+    assert running_row["failure_movement"]["recurring"] == []
+    assert running_row["failure_movement"]["fixed"] == []
 
     unfinished_row = rows[19]
     assert unfinished_row["transition_eligible"] is False
@@ -3468,10 +3557,18 @@ def test_nightly_nonterminal_builds_hold_state_without_advancing_streak():
         ]["build_number"]
         == 19
     )
+    assert unfinished_row["failure_movement"]["available"] is False
+    assert unfinished_row["failure_movement"]["new"] == []
+    assert unfinished_row["failure_movement"]["recurring"] == []
+    assert unfinished_row["failure_movement"]["fixed"] == []
 
     assert rows[20]["transitions"]["new"][0]["soft_streak"] == 2
     assert rows[20]["transitions"]["new"][0]["transition_change"] == "confirmed"
     assert rows[20]["transitions"]["preceding_build_number"] == 17
+    assert rows[20]["failure_movement"]["preceding_build_number"] == 17
+    assert [row["name"] for row in rows[20]["failure_movement"]["recurring"]] == [
+        name
+    ]
 
 
 def test_nightly_pipeline_replays_soft_hysteresis_and_severity_changes():
@@ -3497,14 +3594,25 @@ def test_nightly_pipeline_replays_soft_hysteresis_and_severity_changes():
         build(21, "2026-04-21", "soft_fail"),
     ]})
     rows = {row["number"]: row["transitions"] for row in pipeline["builds"]}
+    movement = {row["number"]: row["failure_movement"] for row in pipeline["builds"]}
 
     assert rows[21]["pending_soft"][0]["soft_streak"] == 1
+    assert movement[21]["available"] is False
+    assert movement[21]["new"] == []
     assert rows[22]["pending_soft"][0]["observed_in_current_build"] is False
+    assert movement[22]["available"] is False
+    assert movement[22]["new"] == []
+    assert movement[22]["recurring"] == []
+    assert movement[22]["fixed"] == []
     assert rows[23]["new"][0]["transition_change"] == "confirmed"
+    assert movement[23]["preceding_build_number"] == 21
+    assert [row["name"] for row in movement[23]["recurring"]] == [name]
     assert rows[24]["recurring"][0]["transition_change"] == "escalated"
+    assert [row["name"] for row in movement[24]["recurring"]] == [name]
     assert rows[25]["recurring"][0]["transition_change"] == "deescalated"
     assert rows[25]["recurring"][0]["peak_severity"] == "hard"
     assert rows[26]["fixed"][0]["current_state"] == "passed"
+    assert [row["name"] for row in movement[26]["fixed"]] == [name]
 
 
 def test_gating_keeps_four_gpu_and_h100_mirror_evidence_distinct():

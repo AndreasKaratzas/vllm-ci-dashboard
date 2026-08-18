@@ -519,6 +519,10 @@ def test_nightly_fixed_requires_current_pass_and_preserves_both_links():
     assert held["current_indeterminate_evidence"]["url"].endswith(
         "902/steps/unknown"
     )
+    movement = row["failure_movement"]
+    assert movement["new"] == []
+    assert movement["recurring"] == []
+    assert [item["name"] for item in movement["fixed"]] == ["Actually Fixed"]
     assert row["policy_id"] == INCIDENT_TRANSITION_POLICY_ID
 
 
@@ -654,6 +658,10 @@ def test_nonterminal_and_unfinished_builds_hold_soft_state_and_evidence():
     assert running_pending["build_number"] == 1171
     assert running_pending["state"] == "soft_fail"
     assert running_pending["current_indeterminate_evidence"]["build_number"] == 1172
+    assert running_row["failure_movement"]["available"] is False
+    assert running_row["failure_movement"]["new"] == []
+    assert running_row["failure_movement"]["recurring"] == []
+    assert running_row["failure_movement"]["fixed"] == []
 
     unfinished_row = rows[1173]
     assert unfinished_row["transition_eligible"] is False
@@ -667,10 +675,18 @@ def test_nonterminal_and_unfinished_builds_hold_soft_state_and_evidence():
         ]
         == 1173
     )
+    assert unfinished_row["failure_movement"]["available"] is False
+    assert unfinished_row["failure_movement"]["new"] == []
+    assert unfinished_row["failure_movement"]["recurring"] == []
+    assert unfinished_row["failure_movement"]["fixed"] == []
 
     assert rows[1174]["new"][0]["soft_streak"] == 2
     assert rows[1174]["new"][0]["transition_change"] == "confirmed"
     assert rows[1174]["preceding_build_number"] == 1171
+    assert rows[1174]["failure_movement"]["preceding_build_number"] == 1171
+    assert [
+        row["name"] for row in rows[1174]["failure_movement"]["recurring"]
+    ] == ["Eligibility hold"]
 
 
 def test_incident_policy_holds_unobserved_state_and_tracks_severity_changes():
@@ -707,6 +723,23 @@ def test_incident_policy_holds_unobserved_state_and_tracks_severity_changes():
     assert fixed["state"]["status"] == "clear"
 
 
+def test_observed_failure_movement_fixes_one_off_soft_failure():
+    builds = [
+        _build(1191, [_job("soft", "mi300_1: One-off soft", "soft_fail", soft_failed=True)]),
+        _build(1192, [_job("pass", "mi300_1: One-off soft", "passed")], hour_offset=1),
+    ]
+
+    rows = {row["build_number"]: row for row in compute_nightly_change_history(builds)}
+
+    assert rows[1191]["failure_movement"]["available"] is False
+    assert rows[1191]["failure_movement"]["new"] == []
+    assert rows[1191]["pending_soft"]
+    assert [row["name"] for row in rows[1192]["failure_movement"]["fixed"]] == [
+        "One-off soft"
+    ]
+    assert rows[1192]["fixed"] == []
+
+
 def test_nightly_history_replays_oldest_first_with_soft_hysteresis():
     def nightly(number: int, hour: int, state: str | None) -> dict:
         jobs = [] if state is None else [
@@ -730,11 +763,29 @@ def test_nightly_history_replays_oldest_first_with_soft_hysteresis():
 
     assert by_number[1201]["new"] == []
     assert by_number[1201]["pending_soft"][0]["soft_streak"] == 1
+    assert by_number[1201]["failure_movement"]["available"] is False
+    assert by_number[1201]["failure_movement"]["new"] == []
     assert by_number[1202]["pending_soft"][0]["observed_in_current_build"] is False
+    assert by_number[1202]["failure_movement"]["new"] == []
+    assert by_number[1202]["failure_movement"]["recurring"] == []
+    assert by_number[1202]["failure_movement"]["fixed"] == []
+    assert by_number[1202]["failure_movement"]["available"] is False
     assert by_number[1203]["new"][0]["transition_change"] == "confirmed"
     assert by_number[1203]["new"][0]["soft_streak"] == 2
+    assert by_number[1203]["failure_movement"]["preceding_build_number"] == 1201
+    assert [
+        row["name"] for row in by_number[1203]["failure_movement"]["recurring"]
+    ] == [
+        "Hysteresis"
+    ]
     assert by_number[1204]["recurring"][0]["transition_change"] == "escalated"
+    assert [row["name"] for row in by_number[1204]["failure_movement"]["recurring"]] == [
+        "Hysteresis"
+    ]
     assert by_number[1205]["fixed"][0]["previous_state"] == "failed"
+    assert [row["name"] for row in by_number[1205]["failure_movement"]["fixed"]] == [
+        "Hysteresis"
+    ]
 
 
 def test_schema_reports_cohort_window_denominator_source_and_deterministic_order():

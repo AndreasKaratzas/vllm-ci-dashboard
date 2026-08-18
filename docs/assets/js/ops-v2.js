@@ -2112,8 +2112,7 @@
 
   function openBuildDetail(build, title) {
     const sourcePipeline = build.source_pipeline || 'amd-ci';
-    const transitions = build.transitions || {};
-    const confirmedPolicy = confirmedNightlyTransitions(build);
+    const failureMovement = nightlyFailureMovement(build);
     const content = n('div', 'ops-stack');
     if (build.has_test_results === false) {
       const blocked = Number(build.test_jobs_blocked || 0);
@@ -2126,44 +2125,42 @@
       ));
     }
     const rows = [];
-    if (confirmedPolicy) {
+    if (failureMovement && failureMovement.available !== false) {
       [
-        ['New confirmed', transitions.new || []],
-        ['Still failing', transitions.recurring || []],
-        ['Open — no result', (transitions.not_observed || []).concat(transitions.indeterminate || [])],
-        ['Pending soft', transitions.pending_soft || []],
-        ['Resolved', transitions.fixed || []],
+        ['New failure', failureMovement.new || []],
+        ['Recurring failure', failureMovement.recurring || []],
+        ['Fixed', failureMovement.fixed || []],
       ].forEach(function (bucket) {
         bucket[1].forEach(function (group) { rows.push(Object.assign({lifecycle: bucket[0]}, group)); });
       });
     } else {
-      content.append(n('div', 'ops-evidence-note is-warning', 'Confirmed incident transitions are unavailable because this snapshot predates the confirmed-incidents-v1 policy. Raw build outcomes remain visible below.'));
+      content.append(n('div', 'ops-evidence-note is-warning', 'Failure movement is unavailable for this build. Raw build outcomes remain visible below.'));
     }
     if (rows.length) {
       const transitionColumns = [
       {label: 'Group', sticky: true, render: function (row) { return externalLink(row.display_name || row.name, exactPipelineEvidenceUrl(row, sourcePipeline)); }},
-      {label: 'Lifecycle', render: function (row) { return linkedBadge(row.lifecycle, exactPipelineEvidenceUrl(row, sourcePipeline), null, row.lifecycle === 'New confirmed' ? 'is-danger' : row.lifecycle === 'Resolved' ? 'is-success' : 'is-warning'); }},
+      {label: 'Change', render: function (row) { return linkedBadge(row.lifecycle, exactPipelineEvidenceUrl(row, sourcePipeline), null, row.lifecycle === 'New failure' ? 'is-danger' : row.lifecycle === 'Fixed' ? 'is-success' : 'is-warning'); }},
       {label: 'Queue', render: function (row) { return n('span', 'ops-mono', value(row.queue)); }},
       ];
-      content.append(compactTablePanel('Incident transitions', integer(rows.length) + ' confirmed or pending observations', transitionColumns, rows, {
+      content.append(compactTablePanel('Failure movement', integer(rows.length) + ' observed changes', transitionColumns, rows, {
         id: 'build-transition-browser',
         limit: 30,
-        browserSubtitle: 'Confirmed, pending-soft, and resolved groups in this exact Buildkite nightly comparison',
-        searchPlaceholder: 'Filter group, lifecycle, or queue',
+        browserSubtitle: 'New failures, recurring failures, and fixes observed in this exact Buildkite nightly comparison',
+        searchPlaceholder: 'Filter group, change, or queue',
         searchText: function (row) { return [row.display_name, row.name, row.lifecycle, row.queue].join(' '); },
       }));
     }
     openDetailDrawer({
       id: 'build-' + value(build.number),
       title: title || (build.number ? 'AMD build #' + build.number : 'AMD build'),
-      subtitle: 'Build result and group lifecycle evidence',
+      subtitle: 'Build result and failure movement evidence',
       fields: [
         {label: 'State', value: value(build.state)},
         {label: 'Started', value: shortDate(build.created_at)},
         {label: 'Observed groups', value: integer(build.total_groups)},
         {label: 'Test signal', value: build.has_test_results === false ? 'Unavailable' : 'Observed'},
         {label: 'Dependency-blocked test groups', value: build.test_jobs_blocked ? integer(build.test_jobs_blocked) : null},
-        {label: 'New / still failing / open without result / pending / resolved', value: confirmedPolicy ? integer((transitions.new || []).length) + ' / ' + integer((transitions.recurring || []).length) + ' / ' + integer((transitions.not_observed || []).length + (transitions.indeterminate || []).length) + ' / ' + integer((transitions.pending_soft || []).length) + ' / ' + integer((transitions.fixed || []).length) : 'Unavailable in legacy snapshot'},
+        {label: 'New failure / recurring failure / fixed', value: failureMovement && failureMovement.available !== false ? integer((failureMovement.new || []).length) + ' / ' + integer((failureMovement.recurring || []).length) + ' / ' + integer((failureMovement.fixed || []).length) : 'Unavailable'},
       ],
       sources: exactPipelineBuildUrl(build, sourcePipeline) ? [{label: 'Open Buildkite build', url: exactPipelineBuildUrl(build, sourcePipeline)}] : [],
       content: content,
@@ -2743,15 +2740,51 @@
   }
 
   const CONFIRMED_INCIDENT_POLICY_ID = 'confirmed-incidents-v1';
+  const OBSERVED_FAILURE_MOVEMENT_ID = 'observed-failure-movement-v1';
 
   function confirmedNightlyTransitions(build) {
     const transitions = (build || {}).transitions || {};
     return transitions.policy_id === CONFIRMED_INCIDENT_POLICY_ID ? transitions : null;
   }
 
-  function confirmedNightlyCount(build, key) {
+  function nightlyFailureMovement(build) {
+    const published = (build || {}).failure_movement || {};
+    if (published.policy_id === OBSERVED_FAILURE_MOVEMENT_ID
+      && ['new', 'recurring', 'fixed'].every(function (key) { return Array.isArray(published[key]); })) {
+      return published;
+    }
+
     const transitions = confirmedNightlyTransitions(build);
-    return transitions && Array.isArray(transitions[key]) ? transitions[key].length : null;
+    if (!transitions || !['new', 'recurring', 'fixed'].every(function (key) { return Array.isArray(transitions[key]); })) return null;
+    const currentPending = (transitions.pending_soft || []).filter(function (row) {
+      return ['pending_started', 'pending_advanced'].includes(String((row || {}).transition_change || ''));
+    });
+    const newlyConfirmedRecurring = transitions.new.filter(function (row) {
+      return String((row || {}).current_severity || '') === 'soft'
+        && Number((row || {}).soft_streak || 0) > 1
+        && String((row || {}).transition_change || '') === 'confirmed';
+    });
+    const newlyObserved = transitions.new.filter(function (row) {
+      return !newlyConfirmedRecurring.includes(row);
+    });
+    const available = (build || {}).has_test_results !== false
+      && (build || {}).transition_eligible !== false
+      && Number(transitions.preceding_build_number || 0) > 0;
+    return {
+      policy_id: 'frontend-compatible-failure-movement',
+      available: available,
+      preceding_build_number: transitions.preceding_build_number,
+      new: newlyObserved.concat(currentPending),
+      recurring: (transitions.recurring || []).concat(newlyConfirmedRecurring),
+      fixed: transitions.fixed || [],
+    };
+  }
+
+  function nightlyFailureCount(build, key) {
+    const movement = nightlyFailureMovement(build);
+    return movement && movement.available !== false && Array.isArray(movement[key])
+      ? movement[key].length
+      : null;
   }
 
   function nightlyDisplayName(nightly, pipeline) {
@@ -2763,27 +2796,22 @@
   }
 
   function amdNightlyMovement(build) {
-    const transitions = (build || {}).transitions || {};
-    const policyAvailable = Boolean(confirmedNightlyTransitions(build));
-    const hasComparison = policyAvailable && Number(transitions.preceding_build_number || 0) > 0
-      && ['new', 'recurring', 'fixed'].every(function (key) { return Array.isArray(transitions[key]); });
-    const newlyIncident = Array.isArray(transitions.new) ? transitions.new.length : 0;
-    const recurring = Array.isArray(transitions.recurring) ? transitions.recurring.length : 0;
-    const held = (Array.isArray(transitions.not_observed) ? transitions.not_observed.length : 0)
-      + (Array.isArray(transitions.indeterminate) ? transitions.indeterminate.length : 0);
-    const pendingSoft = Array.isArray(transitions.pending_soft) ? transitions.pending_soft.length : 0;
-    const fixed = Array.isArray(transitions.fixed) ? transitions.fixed.length : 0;
+    const movement = nightlyFailureMovement(build);
+    const policyAvailable = Boolean(movement) && movement.available !== false;
+    const hasComparison = policyAvailable
+      && Number(movement.preceding_build_number || 0) > 0;
+    const newlyFailing = movement && Array.isArray(movement.new) ? movement.new.length : 0;
+    const recurring = movement && Array.isArray(movement.recurring) ? movement.recurring.length : 0;
+    const fixed = movement && Array.isArray(movement.fixed) ? movement.fixed.length : 0;
     return {
       policyAvailable: policyAvailable,
       hasComparison: hasComparison,
-      newCount: newlyIncident,
+      newCount: newlyFailing,
       recurringCount: recurring,
-      heldCount: held,
-      pendingSoftCount: pendingSoft,
       fixedCount: fixed,
-      currentIncidents: newlyIncident + recurring + held,
-      previousIncidents: recurring + held + fixed,
-      delta: newlyIncident - fixed,
+      currentFailures: newlyFailing + recurring,
+      previousFailures: recurring + fixed,
+      delta: newlyFailing - fixed,
     };
   }
 
@@ -2821,10 +2849,10 @@
     const hasSignal = !explicitlyNoSignal && Math.max(observedGroups, passed + soft + hard) > 0;
     const movement = amdNightlyMovement(record);
     const incidentCount = hard + soft;
-    const comparisonReliable = hasSignal && movement.hasComparison;
+    const comparisonReliable = hasSignal && movement.hasComparison
+      && movement.currentFailures === incidentCount;
 
     if (!hasSignal) {
-      const retained = movement.currentIncidents + movement.pendingSoftCount;
       return {
         label: blocked ? 'Infra blocked' : inProgress ? 'Awaiting results' : 'No test signal',
         tone: blocked ? 'is-danger' : inProgress ? 'is-info' : 'is-warning',
@@ -2832,15 +2860,9 @@
           + (blocked ? integer(blocked) + ' test groups never started' : inProgress ? 'Buildkite is running; no parsed test groups yet' : 'no parsed test groups')
           + (signalBuild && signalBuild !== pipelineBuild ? '; latest test signal #' + signalBuild : ''),
         hasSignal: false,
-        movementLabel: !movement.policyAvailable
-          ? 'Confirmation unavailable'
-          : retained
-            ? integer(movement.currentIncidents) + ' open incidents carried forward - ' + integer(movement.pendingSoftCount) + ' pending'
-            : 'No active incident state',
-        movementMeta: !movement.policyAvailable
-          ? 'Snapshot predates the confirmed incident policy'
-          : 'No test execution in the latest nightly; prior incident state is carried forward',
-        movementTone: retained ? 'is-warning' : 'is-neutral',
+        movementLabel: 'Movement unavailable',
+        movementMeta: 'No test execution in the latest nightly; no change is inferred',
+        movementTone: 'is-neutral',
         hasComparison: false,
         incidentCount: 0,
         incidentDelta: null,
@@ -2848,22 +2870,22 @@
     }
 
     let movementLabel = !movement.policyAvailable
-      ? 'Confirmation unavailable'
+      ? 'Movement unavailable'
       : movement.hasComparison ? 'Movement unavailable' : 'No prior comparison';
     let movementMeta = !movement.policyAvailable
-      ? 'Snapshot predates the confirmed-incidents-v1 policy'
+      ? 'Snapshot has no comparable failure movement'
       : movement.hasComparison
-        ? 'Transition totals do not match the latest observed signal'
+        ? 'Failure movement does not match the latest observed signal'
         : 'No comparable preceding eligible nightly';
     let movementTone = incidentCount ? 'is-warning' : 'is-neutral';
     if (comparisonReliable) {
       movementLabel = movement.delta > 0
-        ? '+' + integer(movement.delta) + ' confirmed incidents'
+        ? '+' + integer(movement.delta) + ' failures'
         : movement.delta < 0
-          ? integer(Math.abs(movement.delta)) + ' fewer confirmed incidents'
+          ? integer(Math.abs(movement.delta)) + ' fewer failures'
           : 'No net change';
-      movementMeta = integer(movement.newCount) + ' new confirmed - ' + integer(movement.recurringCount) + ' still failing - ' + integer(movement.heldCount) + ' open with no result - ' + integer(movement.pendingSoftCount) + ' pending soft - ' + integer(movement.fixedCount) + ' resolved';
-      movementTone = movement.delta > 0 ? 'is-danger' : movement.delta < 0 ? 'is-success' : movement.currentIncidents || movement.pendingSoftCount ? 'is-warning' : 'is-success';
+      movementMeta = integer(movement.newCount) + ' new - ' + integer(movement.recurringCount) + ' recurring - ' + integer(movement.fixedCount) + ' fixed';
+      movementTone = movement.delta > 0 ? 'is-danger' : movement.delta < 0 ? 'is-success' : movement.currentFailures ? 'is-warning' : 'is-success';
     }
 
     let label;
@@ -2881,21 +2903,13 @@
       label = 'Pipeline failed';
       tone = 'is-danger';
     } else if (!incidentCount) {
-      if (comparisonReliable && movement.currentIncidents) {
-        label = 'Open incidents, no current result';
-        tone = 'is-warning';
-      } else {
-        label = comparisonReliable && movement.fixedCount ? 'Recovered' : 'Healthy';
-        tone = 'is-success';
-      }
+      label = comparisonReliable && movement.fixedCount ? 'Recovered' : 'Healthy';
+      tone = 'is-success';
     } else if (!comparisonReliable) {
       label = soft && !hard ? 'Soft observations' : 'Failures observed';
       tone = 'is-warning';
-    } else if (!movement.currentIncidents && movement.pendingSoftCount && soft && !hard) {
-      label = 'Soft observations pending';
-      tone = 'is-warning';
     } else if (movement.delta > 0) {
-      label = 'More confirmed incidents';
+      label = 'More failures';
       tone = 'is-danger';
     } else if (movement.delta < 0) {
       label = 'Improved';
@@ -2971,11 +2985,11 @@
     const allFleetQueues = Object.entries(queue.queues || {}).filter(function (entry) { return !isRetiredQueue(entry[0]); });
     const allFleetWaiting = allFleetQueues.length ? allFleetQueues.reduce(function (sum, entry) { return sum + Number((entry[1] || {}).waiting || 0); }, 0) : Number(queue.total_waiting || 0);
     const allFleetRunning = allFleetQueues.length ? allFleetQueues.reduce(function (sum, entry) { return sum + Number((entry[1] || {}).running || 0); }, 0) : Number(queue.total_running || 0);
-    add(host, pageHeader('Command Center', 'Current AMD operations with retained nightly movement and direct paths to source evidence.', ops.generated_at));
+    add(host, pageHeader('Command Center', 'Current AMD operations with observed nightly failure movement and direct paths to source evidence.', ops.generated_at));
     add(host, statusStrip([
       {id: 'home-amd-nightly', label: 'LATEST AMD NIGHTLY', value: nightlyState.label, meta: nightlyState.meta, tone: nightlyState.tone, url: exactPipelineBuildUrl(build, 'amd-ci'), observed: build.created_at},
       {id: 'home-hardware-coverage', label: 'BEST-HARDWARE GATED GROUPS', value: uniqueHealth.pass_percentage === null || uniqueHealth.pass_percentage === undefined ? 'Unavailable' : Number(uniqueHealth.pass_percentage).toFixed(1) + '% passing', meta: uniqueHealth.best_hardware_unavailable ? 'Refresh for the complete policy and gate inventory' : integer(uniqueHealth.passing_groups) + ' / ' + integer(uniqueHealth.included_groups) + ' gates', tone: uniqueHealth.best_hardware_unavailable ? 'is-warning' : Number(uniqueHealth.failing_groups) ? 'is-warning' : Number(uniqueHealth.waiting_groups || 0) + Number(uniqueHealth.unknown_groups || 0) ? 'is-warning' : 'is-success', onOpen: function () { openMatrixHealthBrowser('all'); }},
-      {id: 'home-failure-lifecycle', label: 'CONFIRMED INCIDENT MOVEMENT', value: nightlyState.movementLabel, meta: nightlyState.movementMeta, tone: nightlyState.movementTone, onOpen: function () { openBuildDetail(build); }},
+      {id: 'home-failure-lifecycle', label: 'FAILURE MOVEMENT', value: nightlyState.movementLabel, meta: nightlyState.movementMeta, tone: nightlyState.movementTone, onOpen: function () { openBuildDetail(build); }},
       {id: 'home-queue-snapshot', label: 'ALL-FLEET QUEUE ACTIVITY', value: integer(allFleetWaiting) + ' waiting', meta: integer(allFleetRunning) + ' running across ' + integer(allFleetQueues.length) + ' queues', tone: allFleetWaiting ? 'is-warning' : 'is-success', observed: queue.ts, provenance: 'Same all-queue scope as destination', onOpen: function () { navigateTo('ci-queue', {queueView: 'current', queueScope: 'all'}); }},
     ]));
 
@@ -2988,14 +3002,12 @@
     ], attentionRows), 'ops-home-primary'));
 
     const recent = (amd.builds || []).slice(0, 7);
-    grid.append(panel('AMD nightly confirmed incident movement', 'Latest seven completed observations', dataTable([
+    grid.append(panel('AMD nightly failure movement', 'Latest seven completed observations', dataTable([
       {label: 'Build', render: function (r) { return externalLink('#' + r.number, exactPipelineBuildUrl(r, 'amd-ci'), 'ops-mono'); }},
       {label: 'Test signal', render: function (r) { return linkedBadge(r.has_test_results === false ? (Number(r.test_jobs_blocked || 0) ? 'Infra blocked' : 'Unavailable') : 'Observed', exactPipelineBuildUrl(r, 'amd-ci'), function () { openBuildDetail(r); }, r.has_test_results === false ? 'is-danger' : 'is-success'); }},
-      {label: 'New confirmed', numeric: true, render: function (r) { const count = confirmedNightlyCount(r, 'new'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r); }); }},
-      {label: 'Still failing', numeric: true, render: function (r) { const count = confirmedNightlyCount(r, 'recurring'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r); }); }},
-      {label: 'Open — no result', numeric: true, render: function (r) { const notObserved = confirmedNightlyCount(r, 'not_observed'); const indeterminate = confirmedNightlyCount(r, 'indeterminate'); return linkButton(notObserved === null ? '-' : integer(notObserved + indeterminate), function () { openBuildDetail(r); }); }},
-      {label: 'Pending soft', numeric: true, render: function (r) { const count = confirmedNightlyCount(r, 'pending_soft'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r); }); }},
-      {label: 'Resolved', numeric: true, render: function (r) { const count = confirmedNightlyCount(r, 'fixed'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r); }); }},
+      {label: 'New failure', numeric: true, render: function (r) { const count = nightlyFailureCount(r, 'new'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r); }); }},
+      {label: 'Recurring failure', numeric: true, render: function (r) { const count = nightlyFailureCount(r, 'recurring'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r); }); }},
+      {label: 'Fixed', numeric: true, render: function (r) { const count = nightlyFailureCount(r, 'fixed'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r); }); }},
       {label: 'Observed', render: function (r) { return shortDate(r.created_at); }},
     ], recent), 'ops-home-aside'));
     host.append(grid);
@@ -3657,12 +3669,13 @@
       {id: 'health-build', label: 'LATEST AMD NIGHTLY', value: nightlyState.label, meta: build.number ? nightlyState.meta : 'No completed build', tone: nightlyState.tone, url: exactPipelineBuildUrl(build, 'amd-ci')},
       {id: 'health-hardware', label: 'BEST-HARDWARE GATED GROUPS', value: uniqueHealth.pass_percentage === null || uniqueHealth.pass_percentage === undefined ? 'Unavailable' : Number(uniqueHealth.pass_percentage).toFixed(1) + '% passing', meta: uniqueHealth.best_hardware_unavailable ? 'Refresh for the complete policy and gate inventory' : integer(uniqueHealth.passing_groups) + ' / ' + integer(uniqueHealth.included_groups) + ' gates · ' + integer(uniqueHealth.failing_groups) + ' failing · ' + integer(Number(uniqueHealth.waiting_groups || 0) + Number(uniqueHealth.unknown_groups || 0)) + ' no signal', tone: uniqueHealth.best_hardware_unavailable ? 'is-warning' : Number(uniqueHealth.failing_groups) ? 'is-warning' : Number(uniqueHealth.waiting_groups || 0) + Number(uniqueHealth.unknown_groups || 0) ? 'is-warning' : 'is-success', onOpen: function () { openMatrixHealthBrowser('all'); }},
       {id: 'health-definitions', label: 'DEFINITION PARITY', value: integer(definitionSummary.covered_identity_families) + ' / ' + integer(definitionSummary.amd_identity_families) + ' linked', meta: 'supporting source inventory · not runtime health', tone: Number(definitionSummary.amd_only_identity_families) ? 'is-warning' : 'is-success', onOpen: function () { setRouteState('ci-health', 'healthView', 'gating', 'health_view'); }},
-      {id: 'health-nightly-transition', label: 'CONFIRMED INCIDENT MOVEMENT', value: nightlyState.movementLabel, meta: nightlyState.movementMeta, tone: nightlyState.movementTone, onOpen: function () { openBuildDetail(build); }},
+      {id: 'health-nightly-transition', label: 'FAILURE MOVEMENT', value: nightlyState.movementLabel, meta: nightlyState.movementMeta, tone: nightlyState.movementTone, onOpen: function () { openBuildDetail(build); }},
     ]));
 
     if (state.healthView === 'overview') {
       const movementBuilds = (amd.builds || []).filter(function (row) {
-        return row.has_test_results !== false && Boolean(confirmedNightlyTransitions(row));
+        const movement = nightlyFailureMovement(row);
+        return row.has_test_results !== false && Boolean(movement) && movement.available !== false;
       }).slice(0, 14).reverse();
       if (!nightlyState.hasSignal) {
         const signalNote = n('div', 'ops-evidence-note is-warning');
@@ -3688,7 +3701,7 @@
         host.append(gatePolicyNote);
       }
       const grid = n('div', 'ops-grid ops-grid-main-aside ops-health-grid');
-      const trend = chartPanel('Confirmed incident movement', 'Nightlies with test execution only; latest signal #' + value(amdHealthSummary.latest_build_number) + '. Still failing = failed again; Open — no result = carried forward without a usable result', 'health-nightly');
+      const trend = chartPanel('Nightly failure movement', 'New and recurring failures are above zero; fixes are below. Missing or skipped jobs are omitted. Latest signal #' + value(amdHealthSummary.latest_build_number) + '.', 'health-nightly');
       trend.root.classList.add('ops-health-primary');
       grid.append(trend.root);
       const amdHealth = ops.amd_test_health || {};
@@ -3716,17 +3729,20 @@
         data: {
           labels: movementBuilds.map(function (b) { return '#' + b.number; }),
           datasets: [
-            {label: 'New confirmed', data: movementBuilds.map(function (b) { return (b.transitions.new || []).length; }), backgroundColor: '#e06464'},
-            {label: 'Still failing', data: movementBuilds.map(function (b) { return (b.transitions.recurring || []).length; }), backgroundColor: '#c47732'},
-            {label: 'Open — no result', data: movementBuilds.map(function (b) { return (b.transitions.not_observed || []).length + (b.transitions.indeterminate || []).length; }), backgroundColor: '#8b96a8'},
-            {label: 'Pending soft', data: movementBuilds.map(function (b) { return (b.transitions.pending_soft || []).length; }), backgroundColor: '#e3a63a'},
-            {label: 'Resolved', data: movementBuilds.map(function (b) { return (b.transitions.fixed || []).length; }), backgroundColor: '#35bb78'},
+            {label: 'New failure', data: movementBuilds.map(function (b) { return nightlyFailureCount(b, 'new'); }), backgroundColor: '#e06464'},
+            {label: 'Recurring failure', data: movementBuilds.map(function (b) { return nightlyFailureCount(b, 'recurring'); }), backgroundColor: '#c47732'},
+            {label: 'Fixed', data: movementBuilds.map(function (b) { return -Number(nightlyFailureCount(b, 'fixed') || 0); }), backgroundColor: '#35bb78'},
           ],
         },
-        options: {scales: {x: {stacked: true}, y: {stacked: true, beginAtZero: true}}},
-        evidenceTitle: 'AMD nightly confirmed incident movement',
+        options: {
+          interaction: {mode: 'index', intersect: false},
+          scales: {x: {stacked: true}, y: {stacked: true, beginAtZero: true}},
+          plugins: {tooltip: {callbacks: {label: function (item) { return item.dataset.label + ': ' + integer(Math.abs(item.parsed.y)); }}}},
+        },
+        evidenceTitle: 'AMD nightly failure movement',
         evidence: movementBuilds.map(function (nightly) {
-          return {label: '#' + nightly.number, timestamp: nightly.created_at, url: exactPipelineBuildUrl(nightly, 'amd-ci'), valueSummary: integer((nightly.transitions.new || []).length) + ' new confirmed - ' + integer((nightly.transitions.pending_soft || []).length) + ' pending soft', details: {state: nightly.state, new_confirmed: (nightly.transitions.new || []).length, still_failing: (nightly.transitions.recurring || []).length, open_no_result: (nightly.transitions.not_observed || []).length + (nightly.transitions.indeterminate || []).length, pending_soft: (nightly.transitions.pending_soft || []).length, resolved: (nightly.transitions.fixed || []).length}};
+          const movement = nightlyFailureMovement(nightly);
+          return {label: '#' + nightly.number, timestamp: nightly.created_at, url: exactPipelineBuildUrl(nightly, 'amd-ci'), valueSummary: integer(movement.new.length) + ' new - ' + integer(movement.recurring.length) + ' recurring - ' + integer(movement.fixed.length) + ' fixed', details: {state: nightly.state, new_failure: movement.new.length, recurring_failure: movement.recurring.length, fixed: movement.fixed.length}};
         }),
       });
       return;
@@ -6588,48 +6604,61 @@
         {id: 'ci', label: 'Upstream parity'},
       ], state.analyticsPipeline, function (pipeline) { setRouteState('ci-analytics', 'analyticsPipeline', pipeline, 'analytics_pipeline'); }, 'Nightly pipeline'));
       host.append(controls);
-      const latestNightly = builds[0] || {transitions: {new: [], recurring: [], not_observed: [], indeterminate: [], pending_soft: [], fixed: []}};
-      const latestTransitions = confirmedNightlyTransitions(latestNightly);
-      const policyBuilds = builds.filter(function (buildRow) { return Boolean(confirmedNightlyTransitions(buildRow)); });
+      const latestNightly = builds[0] || {};
+      const publishedLatestMovement = nightlyFailureMovement(latestNightly);
+      const latestMovement = publishedLatestMovement && publishedLatestMovement.available !== false
+        ? publishedLatestMovement
+        : null;
+      const movementBuilds = builds.filter(function (buildRow) {
+        const movement = nightlyFailureMovement(buildRow);
+        return buildRow.has_test_results !== false
+          && Boolean(movement)
+          && movement.available !== false;
+      });
+      const chronologicalMovementBuilds = movementBuilds.slice().reverse();
       host.append(statusStrip([
         {label: 'LATEST ' + nightlyName.toUpperCase() + ' NIGHTLY', value: latestNightly.number ? '#' + latestNightly.number : '-', meta: latestNightly.created_at ? shortDate(latestNightly.created_at) : 'No completed nightly', tone: toneForState(latestNightly.state), url: latestNightly.number ? exactPipelineBuildUrl(latestNightly, state.analyticsPipeline) : null},
         {label: 'JOB VARIANTS OBSERVED', value: integer(latestNightly.total_groups), meta: 'exact jobs in the latest completed nightly', onOpen: function () { if (latestNightly.number) openBuildDetail(latestNightly, nightlyName + ' build #' + value(latestNightly.number)); }},
-        {label: 'NEW CONFIRMED INCIDENTS', value: latestTransitions ? integer((latestTransitions.new || []).length) : '-', meta: latestTransitions ? integer((latestTransitions.recurring || []).length) + ' still failing - ' + integer((latestTransitions.not_observed || []).length + (latestTransitions.indeterminate || []).length) + ' open with no result' : 'unavailable in legacy snapshot', tone: latestTransitions && (latestTransitions.new || []).length ? 'is-danger' : latestTransitions ? 'is-success' : 'is-neutral', onOpen: function () { if (latestNightly.number) openBuildDetail(latestNightly, nightlyName + ' build #' + value(latestNightly.number)); }},
-        {label: 'PENDING SOFT OBSERVATIONS', value: latestTransitions ? integer((latestTransitions.pending_soft || []).length) : '-', meta: latestTransitions ? 'requires 2 distinct completed builds' : 'unavailable in legacy snapshot', tone: latestTransitions && (latestTransitions.pending_soft || []).length ? 'is-warning' : latestTransitions ? 'is-success' : 'is-neutral', onOpen: function () { if (latestNightly.number) openBuildDetail(latestNightly, nightlyName + ' build #' + value(latestNightly.number)); }},
-        {label: 'RESOLVED INCIDENTS', value: latestTransitions ? integer((latestTransitions.fixed || []).length) : '-', meta: latestTransitions ? integer(builds.length) + ' nightlies retained' : 'unavailable in legacy snapshot', tone: latestTransitions && (latestTransitions.fixed || []).length ? 'is-success' : 'is-neutral', onOpen: function () { if (latestNightly.number) openBuildDetail(latestNightly, nightlyName + ' build #' + value(latestNightly.number)); }},
+        {label: 'NEW FAILURES', value: latestMovement ? integer(latestMovement.new.length) : '-', meta: latestMovement ? 'not failing in the preceding observed nightly' : 'unavailable in this snapshot', tone: latestMovement && latestMovement.new.length ? 'is-danger' : latestMovement ? 'is-success' : 'is-neutral', onOpen: function () { if (latestNightly.number) openBuildDetail(latestNightly, nightlyName + ' build #' + value(latestNightly.number)); }},
+        {label: 'RECURRING FAILURES', value: latestMovement ? integer(latestMovement.recurring.length) : '-', meta: latestMovement ? 'failed in the preceding observed nightly too' : 'unavailable in this snapshot', tone: latestMovement && latestMovement.recurring.length ? 'is-warning' : latestMovement ? 'is-success' : 'is-neutral', onOpen: function () { if (latestNightly.number) openBuildDetail(latestNightly, nightlyName + ' build #' + value(latestNightly.number)); }},
+        {label: 'FIXED', value: latestMovement ? integer(latestMovement.fixed.length) : '-', meta: latestMovement ? 'failed previously and passed now' : 'unavailable in this snapshot', tone: latestMovement && latestMovement.fixed.length ? 'is-success' : 'is-neutral', onOpen: function () { if (latestNightly.number) openBuildDetail(latestNightly, nightlyName + ' build #' + value(latestNightly.number)); }},
       ]));
-      const nightlyNote = n('div', 'ops-evidence-note ' + (latestTransitions ? 'is-info' : 'is-warning'));
-      add(nightlyNote, latestTransitions
-        ? [n('strong', '', state.analyticsPipeline === 'amd-ci' ? 'AMD nightly history. ' : 'Upstream parity history. '), n('span', '', state.analyticsPipeline === 'amd-ci' ? 'AMD is the default operational signal. Hard failures confirm immediately; soft failures remain pending until the same variant soft-fails on two distinct completed builds.' : 'This alternate view uses the same confirmation policy, is retained for parity checks, and does not replace AMD health.')]
-        : [n('strong', '', 'Legacy transition snapshot. '), n('span', '', 'Raw hard and soft outcomes remain available, but pairwise legacy movement is not relabeled as confirmed incident state. A fresh confirmed-incidents-v1 publication will restore this view.')]);
+      const nightlyNote = n('div', 'ops-evidence-note ' + (latestMovement ? 'is-info' : 'is-warning'));
+      add(nightlyNote, latestMovement
+        ? [
+          n('strong', '', state.analyticsPipeline === 'amd-ci' ? 'AMD nightly history. ' : 'Upstream parity history. '),
+          n('span', '', (state.analyticsPipeline === 'amd-ci'
+            ? 'AMD is the default operational signal. '
+            : 'This alternate view is retained for parity checks and does not replace AMD health. ')
+            + 'Every current hard or soft failure is counted once as new or recurring. A previous failure that passes is fixed. Missing or skipped jobs are omitted.'),
+        ]
+        : [n('strong', '', 'Failure movement unavailable. '), n('span', '', 'Refresh the operations snapshot to publish observed-failure-movement-v1 data.')]);
       host.append(nightlyNote);
-      const cp = chartPanel(nightlyName + ' confirmed incident transitions', 'Still failing = failed again; Open — no result = carried forward without a usable result', 'analytics-trend');
+      const cp = chartPanel(nightlyName + ' nightly failure movement', 'New and recurring failures are above zero; fixes are below. Missing or skipped jobs are omitted.', 'analytics-trend');
       host.append(cp.root);
       drawChart('analytics-trend', cp.canvas, {type: 'bar', data: {
-        labels: policyBuilds.slice().reverse().map(function (b) { return '#' + b.number; }),
+        labels: chronologicalMovementBuilds.map(function (b) { return '#' + b.number; }),
         datasets: [
-          {label: 'New confirmed', data: policyBuilds.slice().reverse().map(function (b) { return (b.transitions.new || []).length; }), backgroundColor: '#e06464'},
-          {label: 'Still failing', data: policyBuilds.slice().reverse().map(function (b) { return (b.transitions.recurring || []).length; }), backgroundColor: '#c47732'},
-          {label: 'Open — no result', data: policyBuilds.slice().reverse().map(function (b) { return (b.transitions.not_observed || []).length + (b.transitions.indeterminate || []).length; }), backgroundColor: '#8b96a8'},
-          {label: 'Pending soft', data: policyBuilds.slice().reverse().map(function (b) { return (b.transitions.pending_soft || []).length; }), backgroundColor: '#e3a63a'},
-          {label: 'Resolved', data: policyBuilds.slice().reverse().map(function (b) { return (b.transitions.fixed || []).length; }), backgroundColor: '#35bb78'},
+          {label: 'New failure', data: chronologicalMovementBuilds.map(function (b) { return nightlyFailureCount(b, 'new'); }), backgroundColor: '#e06464'},
+          {label: 'Recurring failure', data: chronologicalMovementBuilds.map(function (b) { return nightlyFailureCount(b, 'recurring'); }), backgroundColor: '#c47732'},
+          {label: 'Fixed', data: chronologicalMovementBuilds.map(function (b) { return -Number(nightlyFailureCount(b, 'fixed') || 0); }), backgroundColor: '#35bb78'},
         ],
-      }, options: {scales: {x: {stacked: true}, y: {stacked: true, beginAtZero: true}}},
-      evidenceTitle: nightlyName + ' confirmed incident transition history',
-      evidence: policyBuilds.slice().reverse().map(function (buildRow) { return {label: '#' + buildRow.number, timestamp: buildRow.created_at, url: exactPipelineBuildUrl(buildRow, state.analyticsPipeline), valueSummary: integer((buildRow.transitions.new || []).length) + ' new confirmed - ' + integer((buildRow.transitions.pending_soft || []).length) + ' pending soft', details: {state: buildRow.state, new_confirmed: (buildRow.transitions.new || []).length, still_failing: (buildRow.transitions.recurring || []).length, open_no_result: (buildRow.transitions.not_observed || []).length + (buildRow.transitions.indeterminate || []).length, pending_soft: (buildRow.transitions.pending_soft || []).length, resolved: (buildRow.transitions.fixed || []).length}}; })});
+      }, options: {
+        interaction: {mode: 'index', intersect: false},
+        scales: {x: {stacked: true}, y: {stacked: true, beginAtZero: true}},
+        plugins: {tooltip: {callbacks: {label: function (item) { return item.dataset.label + ': ' + integer(Math.abs(item.parsed.y)); }}}},
+      },
+      evidenceTitle: nightlyName + ' nightly failure movement',
+      evidence: chronologicalMovementBuilds.map(function (buildRow) { const movement = nightlyFailureMovement(buildRow); return {label: '#' + buildRow.number, timestamp: buildRow.created_at, url: exactPipelineBuildUrl(buildRow, state.analyticsPipeline), valueSummary: integer(movement.new.length) + ' new - ' + integer(movement.recurring.length) + ' recurring - ' + integer(movement.fixed.length) + ' fixed', details: {state: buildRow.state, new_failure: movement.new.length, recurring_failure: movement.recurring.length, fixed: movement.fixed.length}}; })});
       host.append(dataTable([
         {label: nightlyName + ' nightly', sticky: true, width: '130px', render: function (r) { return externalLink('#' + r.number, exactPipelineBuildUrl(r, state.analyticsPipeline), 'ops-mono'); }},
         {label: 'State', width: '120px', render: function (r) { return linkedBadge(r.state, exactPipelineBuildUrl(r, state.analyticsPipeline)); }},
         {label: 'Observed groups', numeric: true, width: '140px', render: function (r) { return linkButton(integer(r.total_groups), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number)); }); }},
-        {label: 'Raw hard fail', numeric: true, width: '110px', render: function (r) { return linkButton(integer((r.failed_groups || []).length), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number)); }); }},
-        {label: 'Raw soft observation', numeric: true, width: '150px', render: function (r) { return linkButton(integer((r.soft_failed_groups || []).length), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number)); }); }},
-        {label: 'New confirmed', numeric: true, width: '120px', render: function (r) { const count = confirmedNightlyCount(r, 'new'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number)); }); }},
-        {label: 'Still failing', numeric: true, width: '110px', render: function (r) { const count = confirmedNightlyCount(r, 'recurring'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number)); }); }},
-        {label: 'Open — no result', numeric: true, width: '140px', render: function (r) { const notObserved = confirmedNightlyCount(r, 'not_observed'); const indeterminate = confirmedNightlyCount(r, 'indeterminate'); return linkButton(notObserved === null ? '-' : integer(notObserved + indeterminate), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number)); }); }},
-        {label: 'Pending soft', numeric: true, width: '110px', render: function (r) { const count = confirmedNightlyCount(r, 'pending_soft'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number)); }); }},
-        {label: 'Resolved', numeric: true, width: '90px', render: function (r) { const count = confirmedNightlyCount(r, 'fixed'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number)); }); }},
+        {label: 'New failure', numeric: true, width: '120px', render: function (r) { const count = nightlyFailureCount(r, 'new'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number)); }); }},
+        {label: 'Recurring failure', numeric: true, width: '140px', render: function (r) { const count = nightlyFailureCount(r, 'recurring'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number)); }); }},
+        {label: 'Fixed', numeric: true, width: '90px', render: function (r) { const count = nightlyFailureCount(r, 'fixed'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number)); }); }},
         {label: 'Started', width: '180px', render: function (r) { return shortDate(r.created_at); }},
-      ], builds, nightlyName + ' confirmed incident history; this selector does not change canonical upstream reliability', {name: 'nightly', minWidth: '1420px'}));
+      ], builds, nightlyName + ' nightly failure movement; this selector does not change canonical upstream reliability', {name: 'nightly', minWidth: '980px'}));
       return;
     }
 
@@ -11955,6 +11984,10 @@
       definitionParityEvidence: definitionParityEvidence,
       definitionParityFilter: definitionParityFilter,
       definitionParityPresentation: definitionParityPresentation,
+      nightlyFailureMovement: nightlyFailureMovement,
+      nightlyFailureCount: nightlyFailureCount,
+      amdNightlyMovement: amdNightlyMovement,
+      amdNightlyPresentation: amdNightlyPresentation,
       capacityLargestRemainder: capacityLargestRemainder,
       capacityPairedAllocation: capacityPairedAllocation,
       capacityPlacementStrategy: capacityPlacementStrategy,

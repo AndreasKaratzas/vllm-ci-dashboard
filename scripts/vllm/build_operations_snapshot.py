@@ -24,7 +24,11 @@ from vllm.ci.incident_transitions import (  # noqa: E402
     advance_incident,
     completed_build_eligibility,
 )
-from vllm.ci.reliability_history import collapse_nightly_attempts  # noqa: E402
+from vllm.ci.reliability_history import (  # noqa: E402
+    OBSERVED_FAILURE_MOVEMENT_ID,
+    collapse_nightly_attempts,
+    compare_nightly_failures,
+)
 from vllm.collect_gating_target_candidates import hardware_fold_key  # noqa: E402
 
 
@@ -360,6 +364,8 @@ def _nightly_pipeline(pipeline: str, analytics: dict, health: dict | None = None
     incident_states: dict[str, dict] = {}
     incident_refs: dict[str, dict] = {}
     previous_eligible_build: dict | None = None
+    previous_movement_build: dict | None = None
+    previous_movement_observations: dict[str, tuple[str, dict]] | None = None
     for build in reversed(source_builds):
         build_number = _strict_int(build.get("number") or build.get("build_number"))
         transition_eligible, ineligible_reason = completed_build_eligibility(build)
@@ -370,6 +376,28 @@ def _nightly_pipeline(pipeline: str, analytics: dict, health: dict | None = None
             else build.get("jobs")
         )
         observations = _nightly_group_observations(pipeline, build)
+        movement_available = transition_eligible and has_test_results and any(
+            outcome in {"hard", "soft", "passed"}
+            for outcome, _ in observations.values()
+        )
+        transition_preceding_build_number = (
+            previous_eligible_build.get("number")
+            or previous_eligible_build.get("build_number")
+            if previous_eligible_build
+            else None
+        )
+        movement_preceding_build_number = (
+            previous_movement_build.get("number")
+            or previous_movement_build.get("build_number")
+            if previous_movement_build
+            else None
+        )
+        failure_movement = compare_nightly_failures(
+            observations,
+            previous_movement_observations,
+            preceding_build_number=movement_preceding_build_number,
+            eligible=movement_available,
+        )
         hard = {
             key: ref for key, (outcome, ref) in observations.items()
             if outcome == "hard"
@@ -486,23 +514,23 @@ def _nightly_pipeline(pipeline: str, analytics: dict, health: dict | None = None
                     str(row.get("group_id") or ""),
                 ),
             ),
+            "failure_movement": failure_movement,
             "transitions": {
                 "policy_id": INCIDENT_TRANSITION_POLICY_ID,
-                "preceding_build_number": (
-                    previous_eligible_build.get("number")
-                    or previous_eligible_build.get("build_number")
-                    if previous_eligible_build
-                    else None
-                ),
+                "preceding_build_number": transition_preceding_build_number,
                 **buckets,
             },
         })
         if transition_eligible:
             previous_eligible_build = build
+        if movement_available:
+            previous_movement_build = build
+            previous_movement_observations = observations
     rows.reverse()
     return {
         "pipeline": pipeline,
         "transition_policy_id": INCIDENT_TRANSITION_POLICY_ID,
+        "failure_movement_policy_id": OBSERVED_FAILURE_MOVEMENT_ID,
         "display_name": analytics.get("display_name") or pipeline,
         "role": "canonical_nightly_comparison" if pipeline == "amd-ci" else "upstream_parity",
         "history_window_days": min(int(analytics.get("days") or NIGHTLY_BUILD_LIMIT), NIGHTLY_BUILD_LIMIT),
@@ -6372,8 +6400,15 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
     nightly = {
         "primary_pipeline": "amd-ci",
         "transition_policy_id": INCIDENT_TRANSITION_POLICY_ID,
+        "failure_movement_policy_id": OBSERVED_FAILURE_MOVEMENT_ID,
         "pipeline_order": ["amd-ci", "ci"],
         "history_window_days": NIGHTLY_BUILD_LIMIT,
+        "failure_movement_basis": (
+            "current versus preceding eligible completed nightly with usable test "
+            "results: every observed hard or soft failure is new or recurring; an "
+            "observed pass after a failure is fixed; missing and indeterminate "
+            "identities are omitted"
+        ),
         "transition_basis": (
             "oldest-to-newest confirmed-incident replay: hard failures confirm "
             "immediately; soft failures confirm after two distinct eligible completed "

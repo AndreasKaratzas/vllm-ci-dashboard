@@ -28,6 +28,7 @@ from vllm.pipelines import SKIP_JOB_PATTERNS
 
 
 SCHEMA_VERSION = 1
+OBSERVED_FAILURE_MOVEMENT_ID = "observed-failure-movement-v1"
 OBSERVATION_LIMIT = 60
 BUILD_FETCH_PAGE_SIZE = 100
 BUILD_FETCH_MAX_PAGES = 50
@@ -954,6 +955,67 @@ def _nightly_state_map(
     return rows
 
 
+def compare_nightly_failures(
+    current: dict[str, tuple[str, dict]],
+    previous: dict[str, tuple[str, dict]] | None,
+    *,
+    preceding_build_number: Any = None,
+    eligible: bool = True,
+) -> dict[str, Any]:
+    """Return the three observable failure changes for one eligible nightly.
+
+    This deliberately ignores missing and indeterminate identities.  It is a
+    current-build presentation model, separate from the conservative incident
+    state machine that retains missing signals until an explicit pass.
+    """
+    comparison_available = eligible and previous is not None
+    current_map = current if comparison_available else {}
+    previous_map = previous or {}
+    failure_outcomes = {"hard", "soft"}
+    current_failures = {
+        key for key, (outcome, _) in current_map.items()
+        if outcome in failure_outcomes
+    }
+    previous_failures = {
+        key for key, (outcome, _) in previous_map.items()
+        if outcome in failure_outcomes
+    }
+    new_keys = current_failures - previous_failures
+    recurring_keys = current_failures & previous_failures
+    fixed_keys = {
+        key for key in previous_failures
+        if key in current_map and current_map[key][0] == "passed"
+    }
+    def sort_key(row: dict) -> tuple[str, str, str, str]:
+        return (
+            str(row.get("name") or "").casefold(),
+            str(row.get("hardware") or ""),
+            str(row.get("queue") or ""),
+            str(row.get("group_id") or ""),
+        )
+    fixed = []
+    for key in fixed_keys:
+        current_ref = current_map[key][1]
+        previous_outcome, previous_ref = previous_map[key]
+        fixed.append({
+            **current_ref,
+            "current_state": "passed",
+            "previous_state": previous_ref.get("state") or previous_outcome,
+            "previous_url": previous_ref.get("url") or "",
+        })
+    fixed.sort(key=sort_key)
+    return {
+        "policy_id": OBSERVED_FAILURE_MOVEMENT_ID,
+        "available": comparison_available,
+        "preceding_build_number": preceding_build_number,
+        "new": sorted((current_map[key][1] for key in new_keys), key=sort_key),
+        "recurring": sorted(
+            (current_map[key][1] for key in recurring_keys), key=sort_key
+        ),
+        "fixed": fixed,
+    }
+
+
 def compute_nightly_change_history(
     builds: list[dict],
     *,
@@ -968,10 +1030,34 @@ def compute_nightly_change_history(
     states: dict[str, dict] = {}
     incident_refs: dict[str, dict] = {}
     previous_eligible: dict | None = None
+    previous_movement_build: dict | None = None
+    previous_movement_map: dict[str, tuple[str, dict]] | None = None
     for current in ordered:
         current_map = _nightly_state_map(current, pipeline_slug)
         build_id = current.get("number") or current.get("build_number")
         transition_eligible, ineligible_reason = completed_build_eligibility(current)
+        movement_available = transition_eligible and any(
+            outcome in {"hard", "soft", "passed"}
+            for outcome, _ in current_map.values()
+        )
+        transition_preceding_build_number = (
+            previous_eligible.get("number")
+            or previous_eligible.get("build_number")
+            if previous_eligible
+            else None
+        )
+        movement_preceding_build_number = (
+            previous_movement_build.get("number")
+            or previous_movement_build.get("build_number")
+            if previous_movement_build
+            else None
+        )
+        failure_movement = compare_nightly_failures(
+            current_map,
+            previous_movement_map,
+            preceding_build_number=movement_preceding_build_number,
+            eligible=movement_available,
+        )
         buckets: dict[str, list[dict]] = {
             "new": [],
             "recurring": [],
@@ -1052,14 +1138,13 @@ def compute_nightly_change_history(
             "created_at": current.get("created_at") or "",
             "transition_eligible": transition_eligible,
             "transition_ineligible_reason": ineligible_reason or None,
-            "preceding_build_number": (
-                previous_eligible.get("number")
-                or previous_eligible.get("build_number")
-                if previous_eligible
-                else None
-            ),
+            "preceding_build_number": transition_preceding_build_number,
+            "failure_movement": failure_movement,
             **buckets,
         })
         if transition_eligible:
             previous_eligible = current
+        if movement_available:
+            previous_movement_build = current
+            previous_movement_map = current_map
     return list(reversed(history))

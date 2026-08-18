@@ -805,7 +805,8 @@ def test_blocked_nightly_is_separate_from_the_latest_test_signal():
         "test groups never started",
         "latest test signal #",
         "Latest nightly has no test signal.",
-        "Nightlies with test execution only; latest signal #",
+        "Latest signal #",
+        "New and recurring failures are above zero; fixes are below.",
         "No pass/fail movement is inferred.",
     ):
         assert contract in OPS_JS
@@ -816,49 +817,141 @@ def test_blocked_nightly_is_separate_from_the_latest_test_signal():
 def test_nightly_assessment_uses_explicit_movement_rules():
     for contract in (
         "const CONFIRMED_INCIDENT_POLICY_ID = 'confirmed-incidents-v1'",
+        "const OBSERVED_FAILURE_MOVEMENT_ID = 'observed-failure-movement-v1'",
         "function confirmedNightlyTransitions",
+        "function nightlyFailureMovement",
         "function amdNightlyMovement",
-        "previousIncidents: recurring + held + fixed",
-        "delta: newlyIncident - fixed",
-        "heldCount: held",
-        "pendingSoftCount: pendingSoft",
+        "currentFailures: newlyFailing + recurring",
+        "previousFailures: recurring + fixed",
+        "delta: newlyFailing - fixed",
         "Running with failures",
-        "Open incidents, no current result",
-        "Soft observations pending",
-        "More confirmed incidents",
+        "More failures",
         "Improved",
         "Changed, net even",
         "Stable failure count",
         "Recovered",
         "No net change",
-        "CONFIRMED INCIDENT MOVEMENT",
-        "fewer confirmed incidents",
+        "FAILURE MOVEMENT",
+        "fewer failures",
         "provisional while Buildkite is running",
-        "prior incident state is carried forward",
-        "Snapshot predates the confirmed-incidents-v1 policy",
+        "no change is inferred",
     ):
         assert contract in OPS_JS
-    assert "movement.currentIncidents === incidentCount" not in OPS_JS
+    assert "movement.currentFailures === incidentCount" in OPS_JS
+    assert "movement.currentIncidents" not in OPS_JS
     assert "soft ? 'Degraded'" not in OPS_JS
 
 
 def test_nightly_counts_are_labeled_as_exact_job_variants():
     assert "JOB VARIANTS OBSERVED" in OPS_JS
-    assert "NEW CONFIRMED INCIDENTS" in OPS_JS
-    assert "PENDING SOFT OBSERVATIONS" in OPS_JS
-    assert "RESOLVED INCIDENTS" in OPS_JS
-    assert "confirmed incident transitions" in OPS_JS
-    assert "{label: 'Still failing'" in OPS_JS
-    assert "{label: 'Open — no result'" in OPS_JS
-    assert "Still failing = failed again" in OPS_JS
-    assert "Open — no result = carried forward without a usable result" in OPS_JS
+    assert "NEW FAILURES" in OPS_JS
+    assert "RECURRING FAILURES" in OPS_JS
+    assert "{label: 'FIXED'" in OPS_JS
+    assert "nightly failure movement" in OPS_JS
+    assert "{label: 'New failure'" in OPS_JS
+    assert "{label: 'Recurring failure'" in OPS_JS
+    assert "{label: 'Fixed'" in OPS_JS
+    assert "Every current hard or soft failure is counted once" in OPS_JS
+    assert "Missing or skipped jobs are omitted." in OPS_JS
+    assert "return -Number(nightlyFailureCount(b, 'fixed') || 0)" in OPS_JS
     assert "Recurring confirmed" not in OPS_JS
     assert "Confirmed held" not in OPS_JS
-    assert "Raw soft observation" in OPS_JS
-    assert "pairwise legacy movement is not relabeled as confirmed incident state" in OPS_JS
-    assert "policyBuilds = builds.filter" in OPS_JS
+    assert "New confirmed" not in OPS_JS
+    assert "Still failing" not in OPS_JS
+    assert "Open — no result" not in OPS_JS
+    assert "movementBuilds = builds.filter" in OPS_JS
     assert "nightly regressions" not in OPS_JS
     assert "label: 'GROUPS OBSERVED'" not in OPS_JS
+
+
+def test_failure_movement_helper_excludes_unobserved_incident_state():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not available")
+    script = r"""
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const sandbox = {
+  window: {__OPS_V2_TEST__: true},
+  document: {addEventListener: function () {}},
+  console: console,
+  URL: URL,
+};
+vm.createContext(sandbox);
+vm.runInContext(source, sandbox, {filename: process.argv[1]});
+const helpers = sandbox.window.OpsV2Test;
+
+const legacy = {
+  has_test_results: true,
+  transition_eligible: true,
+  transitions: {
+    policy_id: 'confirmed-incidents-v1',
+    preceding_build_number: 100,
+    new: [
+      {group_id: 'hard'},
+      {group_id: 'soft-confirmed', current_severity: 'soft', soft_streak: 2, transition_change: 'confirmed'},
+    ],
+    recurring: [{group_id: 'recurring'}],
+    fixed: [{group_id: 'fixed'}],
+    pending_soft: [
+      {group_id: 'soft-started', transition_change: 'pending_started'},
+      {group_id: 'soft-advanced', transition_change: 'pending_advanced'},
+      {group_id: 'stale-pending', transition_change: 'held'},
+    ],
+    not_observed: [{group_id: 'stale-confirmed'}],
+    indeterminate: [{group_id: 'unknown-confirmed'}],
+  },
+};
+const movement = helpers.nightlyFailureMovement(legacy);
+assert.deepEqual(Array.from(movement.new, function (row) { return row.group_id; }), [
+  'hard', 'soft-started', 'soft-advanced',
+]);
+assert.deepEqual(Array.from(movement.recurring, function (row) { return row.group_id; }), [
+  'recurring', 'soft-confirmed',
+]);
+assert.deepEqual(Array.from(movement.fixed, function (row) { return row.group_id; }), ['fixed']);
+assert.equal(movement.new.some(function (row) { return row.group_id === 'stale-pending'; }), false);
+assert.equal(movement.new.some(function (row) { return row.group_id === 'stale-confirmed'; }), false);
+
+const counts = helpers.amdNightlyMovement(legacy);
+assert.equal(counts.currentFailures, 5);
+assert.equal(counts.previousFailures, 3);
+assert.equal(counts.delta, 2);
+assert.equal(counts.hasComparison, true);
+
+const published = Object.assign({}, legacy, {
+  failure_movement: {
+    policy_id: 'observed-failure-movement-v1',
+    available: true,
+    preceding_build_number: 101,
+    new: [{group_id: 'published-new'}],
+    recurring: [],
+    fixed: [{group_id: 'published-fixed'}],
+  },
+});
+assert.deepEqual(
+  Array.from(helpers.nightlyFailureMovement(published).new, function (row) { return row.group_id; }),
+  ['published-new'],
+);
+
+const unavailableBuild = Object.assign({}, legacy, {
+  has_test_results: false,
+  transition_eligible: false,
+});
+const unavailable = helpers.nightlyFailureMovement(unavailableBuild);
+assert.equal(unavailable.available, false);
+assert.equal(helpers.nightlyFailureCount(unavailableBuild, 'new'), null);
+assert.equal(helpers.amdNightlyMovement(unavailableBuild).policyAvailable, false);
+"""
+    result = subprocess.run(
+        [node, "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_coverage_matrix_supports_route_safe_platform_name_and_area_sorting():
