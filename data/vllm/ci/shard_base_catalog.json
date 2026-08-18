@@ -3,11 +3,11 @@
   "source": {
     "repository": "vllm-project/vllm",
     "branch": "main",
-    "commit_sha": "c05d923f186842d4ac35bfddafdd5aa01b6cbaf8",
-    "commit_url": "https://github.com/vllm-project/vllm/commit/c05d923f186842d4ac35bfddafdd5aa01b6cbaf8",
-    "amd_definition_url": "https://github.com/vllm-project/vllm/blob/c05d923f186842d4ac35bfddafdd5aa01b6cbaf8/.buildkite/test-amd.yaml",
-    "upstream_definitions_url": "https://github.com/vllm-project/vllm/tree/c05d923f186842d4ac35bfddafdd5aa01b6cbaf8/.buildkite/test_areas",
-    "fetched_at": "2026-08-18T11:40:21Z",
+    "commit_sha": "eab1cff5b0ca87ec415c3ca555f060933d0a6b72",
+    "commit_url": "https://github.com/vllm-project/vllm/commit/eab1cff5b0ca87ec415c3ca555f060933d0a6b72",
+    "amd_definition_url": "https://github.com/vllm-project/vllm/blob/eab1cff5b0ca87ec415c3ca555f060933d0a6b72/.buildkite/test-amd.yaml",
+    "upstream_definitions_url": "https://github.com/vllm-project/vllm/tree/eab1cff5b0ca87ec415c3ca555f060933d0a6b72/.buildkite/test_areas",
+    "fetched_at": "2026-08-18T13:09:13Z",
     "matching_rules": [
       "Retain provenance for every parsed YAML definition and report the physical AMD count separately.",
       "Coalesce only AMD architecture replicas with the same matrix canonical title, execution fingerprint, projected reference hardware, and GPU count; preserve every member definition ID, label, group, and agent pool.",
@@ -35,6 +35,7 @@
     "language models test (extended pooling)",
     "language models tests (extra standard)",
     "language models tests (hybrid)",
+    "lm eval humming f16 (a100 - temporary)",
     "lm eval humming f16 (h100 - temporary)",
     "lora",
     "moe refactor integration test (b200 - temporary)",
@@ -69,6 +70,7 @@
       "language models test (extended pooling)",
       "language models tests (extra standard)",
       "language models tests (hybrid)",
+      "lm eval humming f16 (a100 - temporary)",
       "lm eval humming f16 (h100 - temporary)",
       "lora",
       "moe refactor integration test (b200 - temporary)",
@@ -104,6 +106,15 @@
       "definition_id": ".buildkite/test-amd.yaml#75",
       "parallelism": 2,
       "optional": true
+    },
+    {
+      "base": "kernels core operation test",
+      "pipeline": "amd",
+      "label": "Kernels Core Operation Test %N",
+      "source_file": ".buildkite/test-amd.yaml",
+      "definition_id": ".buildkite/test-amd.yaml#166",
+      "parallelism": 3,
+      "optional": false
     },
     {
       "base": "kernels core operation test",
@@ -200,7 +211,7 @@
       "pipeline": "amd",
       "label": "V1 attention (H100-MI300) %N",
       "source_file": ".buildkite/test-amd.yaml",
-      "definition_id": ".buildkite/test-amd.yaml#133",
+      "definition_id": ".buildkite/test-amd.yaml#132",
       "parallelism": 2,
       "optional": true
     },
@@ -268,6 +279,15 @@
       "optional": false
     },
     {
+      "base": "lm eval humming f16 (a100 - temporary)",
+      "pipeline": "upstream",
+      "label": "LM Eval Humming f16 (A100 - TEMPORARY) %N",
+      "source_file": ".buildkite/test_areas/lm_eval.yaml",
+      "definition_id": ".buildkite/test_areas/lm_eval.yaml#lm-eval-humming-f16-a100",
+      "parallelism": 3,
+      "optional": true
+    },
+    {
       "base": "lm eval humming f16 (h100 - temporary)",
       "pipeline": "upstream",
       "label": "LM Eval Humming f16 (H100 - TEMPORARY) %N",
@@ -324,11 +344,11 @@
   ],
   "evidence": {
     "pipeline": "amd",
-    "build_number": 12128,
-    "build_commit": "c05d923f186842d4ac35bfddafdd5aa01b6cbaf8",
+    "build_number": 12186,
+    "build_commit": "eab1cff5b0ca87ec415c3ca555f060933d0a6b72",
     "build_state": "passed",
     "roster_complete": true,
-    "result_file": "2026-08-17_amd.jsonl",
+    "result_file": "2026-08-18_amd.jsonl",
     "job_names": [
       "mi250_1: Async Engine, Inputs, Utils, Worker, Config (CPU)",
       "mi250_1: Basic Models Test (Other CPU)",
@@ -436,7 +456,6 @@
       "mi300_1: Pytorch Nightly Dependency Override Check",
       "mi300_1: Quantization",
       "mi300_1: Quantized Models Test",
-      "mi300_1: ROCm AITER Ops Test",
       "mi300_1: Ray Dependency Compatibility Check",
       "mi300_1: Regression",
       "mi300_1: Rust Frontend Core Correctness",
@@ -527,6 +546,9 @@
       "mi355_1: Kernels (B200-MI355)",
       "mi355_1: Kernels Attention Test 1",
       "mi355_1: Kernels Attention Test 2",
+      "mi355_1: Kernels Core Operation Test 1",
+      "mi355_1: Kernels Core Operation Test 2",
+      "mi355_1: Kernels Core Operation Test 3",
       "mi355_1: Kernels MLA (MI355)",
       "mi355_1: Kernels MoE Test 1",
       "mi355_1: Kernels MoE Test 2",
