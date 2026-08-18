@@ -41,6 +41,8 @@ sys.path.insert(0, str(SCRIPTS))
 
 from collect_ci import (  # noqa: E402
     _cache_covers_all_jobs,
+    _cached_build_numbers,
+    _cached_job_ids,
     _cached_job_names,
     _compact_amd_build_snapshot,
     _completed_result_entries,
@@ -74,7 +76,7 @@ def _write_jsonl(path: Path, records: list[dict]) -> None:
             f.write(json.dumps(r) + "\n")
 
 
-def _record(job_name: str, build_num: int = 7791) -> dict:
+def _record(job_name: str, build_num: int = 7791, job_id: str = "") -> dict:
     return {
         "test_id": f"{job_name}::__passed__",
         "name": "__passed__ (1)",
@@ -83,7 +85,7 @@ def _record(job_name: str, build_num: int = 7791) -> dict:
         "duration_secs": 1.0,
         "failure_message": "",
         "job_name": job_name,
-        "job_id": "",
+        "job_id": job_id,
         "step_id": "",
         "build_number": build_num,
         "pipeline": "amd-ci",
@@ -133,6 +135,27 @@ class TestCachedJobNames:
             "mi250_1: LoRA",
             "mi250_1: OpenAI API",
         }
+
+    def test_returns_exact_job_attempt_ids(self, tmp_path):
+        path = tmp_path / "2026-04-18_amd.jsonl"
+        _write_jsonl(path, [
+            _record("mi250_1: LoRA", job_id="attempt-a"),
+            _record("mi250_1: LoRA", job_id="attempt-a"),
+            _record("mi250_1: LoRA", job_id="attempt-b"),
+            _record("mi250_1: Other build", build_num=7777, job_id="other"),
+        ])
+
+        assert _cached_job_ids(path, 7791) == {"attempt-a", "attempt-b"}
+
+    def test_returns_positive_build_numbers(self, tmp_path):
+        path = tmp_path / "2026-04-18_amd.jsonl"
+        _write_jsonl(path, [
+            _record("mi250_1: LoRA", build_num=7791),
+            _record("mi250_1: Other", build_num=7777),
+            {"build_number": "bad"},
+        ])
+
+        assert _cached_build_numbers(path) == {7777, 7791}
 
 
 class TestParityCandidateExclusions:
@@ -284,6 +307,7 @@ class TestCacheCoversAllJobs:
             _record("mi250_1: Basic Models Tests (Other)"),
         ])
         build = {
+            "state": "passed",
             "jobs": [
                 _job("mi250_1: LoRA"),
                 _job("mi250_1: OpenAI API correctness"),
@@ -291,6 +315,78 @@ class TestCacheCoversAllJobs:
                      state="timed_out", soft_failed=True),
             ],
         }
+        assert _cache_covers_all_jobs(build, jsonl, "amd", 7791) is True
+
+    def test_same_name_new_retry_attempt_triggers_refetch(self, tmp_path):
+        jsonl = tmp_path / "2026-04-18_amd.jsonl"
+        _write_jsonl(jsonl, [
+            _record("mi250_1: LoRA", job_id="original-attempt"),
+        ])
+        build = {
+            "number": 7791,
+            "state": "passed",
+            "jobs": [
+                {
+                    **_job("mi250_1: LoRA"),
+                    "id": "retry-attempt",
+                }
+            ],
+        }
+
+        assert _cache_covers_all_jobs(build, jsonl, "amd", 7791) is False
+
+    def test_exact_job_attempt_id_allows_cache_skip(self, tmp_path):
+        jsonl = tmp_path / "2026-04-18_amd.jsonl"
+        _write_jsonl(jsonl, [
+            _record("mi250_1: LoRA", job_id="current-attempt"),
+        ])
+        build = {
+            "number": 7791,
+            "state": "passed",
+            "jobs": [
+                {
+                    **_job("mi250_1: LoRA"),
+                    "id": "current-attempt",
+                }
+            ],
+        }
+
+        assert _cache_covers_all_jobs(build, jsonl, "amd", 7791) is True
+
+    @pytest.mark.parametrize(
+        "retry_state",
+        ["expired", "not_run", "skipped", "waiting_failed", "blocked"],
+    )
+    def test_nonparseable_terminal_retry_evicts_superseded_attempt(
+        self,
+        tmp_path,
+        retry_state,
+    ):
+        jsonl = tmp_path / "2026-04-18_amd.jsonl"
+        _write_jsonl(jsonl, [
+            _record("mi250_1: LoRA", job_id="original-attempt"),
+        ])
+        build = {
+            "number": 7791,
+            "state": "passed",
+            "jobs": [
+                {
+                    **_job("mi250_1: LoRA", state="failed"),
+                    "id": "original-attempt",
+                    "retried_in_job_id": "retry-attempt",
+                },
+                {
+                    **_job("mi250_1: LoRA", state=retry_state),
+                    "id": "retry-attempt",
+                },
+            ],
+        }
+
+        assert _cache_covers_all_jobs(build, jsonl, "amd", 7791) is False
+
+        # After the refresh removes the superseded row, a nonparseable
+        # terminal attempt is covered without forcing another refetch.
+        _write_jsonl(jsonl, [])
         assert _cache_covers_all_jobs(build, jsonl, "amd", 7791) is True
 
     def test_cache_missing_soft_fail_timeout_triggers_refetch(self, tmp_path):
@@ -305,6 +401,7 @@ class TestCacheCoversAllJobs:
             # NB: "Basic Models Tests (Other)" is absent here
         ])
         build = {
+            "state": "passed",
             "jobs": [
                 _job("mi250_1: LoRA"),
                 _job("mi250_1: OpenAI API correctness"),
@@ -324,6 +421,7 @@ class TestCacheCoversAllJobs:
             _record("mi250_1: LoRA"),
         ])
         build = {
+            "state": "passed",
             "jobs": [
                 _job("mi250_1: LoRA"),
                 _job("bootstrap"),           # skipped
@@ -333,12 +431,10 @@ class TestCacheCoversAllJobs:
         }
         assert _cache_covers_all_jobs(build, jsonl, "amd", 7791) is True
 
-    def test_retried_and_nonterminal_jobs_already_excluded(self, tmp_path):
-        # ``fetch_build_jobs`` already filters superseded retries and
-        # non-terminal jobs, so ``_cache_covers_all_jobs`` should only
-        # inspect jobs that survived that filter. We inline that contract:
-        # a retried job (``retried_in_job_id`` set) should not count as
-        # missing from the cache.
+    def test_active_nonterminal_retry_makes_cache_provisional(self, tmp_path):
+        # ``fetch_build_jobs`` excludes superseded and nonterminal attempts
+        # from parsing, but the full roster must still be complete before a
+        # cached canonical result can be reused.
         from vllm.ci.buildkite_client import fetch_build_jobs
 
         build = {
@@ -357,10 +453,12 @@ class TestCacheCoversAllJobs:
         surviving = {j["name"] for j in fetch_build_jobs(build)}
         assert surviving == {"mi250_1: LoRA"}
 
-        # With only LoRA surviving, a cache that has LoRA is complete.
+        # Cache coverage alone is insufficient while an active retry remains
+        # nonterminal: the canonical JSONL must be invalidated until it ends.
         jsonl = tmp_path / "2026-04-18_amd.jsonl"
         _write_jsonl(jsonl, [_record("mi250_1: LoRA")])
-        assert _cache_covers_all_jobs(build, jsonl, "amd", 7791) is True
+        build["state"] = "passed"
+        assert _cache_covers_all_jobs(build, jsonl, "amd", 7791) is False
 
     def test_empty_cache_is_incomplete_when_jobs_exist(self, tmp_path):
         jsonl = tmp_path / "2026-04-18_amd.jsonl"  # not created
@@ -445,6 +543,55 @@ class TestCanonicalResultPublication:
         assert builds[0]["number"] == 84160
         assert results == {}
         assert not (tmp_path / "test_results" / "2026-08-17_upstream.jsonl").exists()
+        parse_results.assert_not_called()
+
+    def test_running_retry_invalidates_its_cached_canonical_jsonl(self, tmp_path):
+        summary = self._build(state="running", job_state="running")
+        detail = json.loads(json.dumps(summary))
+        cached_path = tmp_path / "test_results" / "2026-08-17_upstream.jsonl"
+        cached = _record(
+            "H100: Engine tests",
+            build_num=84160,
+            job_id="original-attempt",
+        )
+        cached["pipeline"] = "ci"
+        cached["date"] = "2026-08-17"
+        _write_jsonl(cached_path, [cached])
+
+        with (
+            patch("collect_ci.fetch_nightly_builds", return_value=[summary]),
+            patch("collect_ci.fetch_build_detail", return_value=detail),
+            patch("collect_ci.parse_job_results") as parse_results,
+        ):
+            _, results = collect_pipeline("upstream", 8, tmp_path)
+
+        assert results == {}
+        assert not cached_path.exists()
+        parse_results.assert_not_called()
+
+    def test_terminal_nonparseable_retry_removes_superseded_cache(self, tmp_path):
+        summary = self._build(state="passed", job_state="expired")
+        summary["jobs"][0]["id"] = "retry-attempt"
+        detail = json.loads(json.dumps(summary))
+        cached_path = tmp_path / "test_results" / "2026-08-17_upstream.jsonl"
+        cached = _record(
+            "H100: Engine tests",
+            build_num=84160,
+            job_id="original-attempt",
+        )
+        cached["pipeline"] = "ci"
+        cached["date"] = "2026-08-17"
+        _write_jsonl(cached_path, [cached])
+
+        with (
+            patch("collect_ci.fetch_nightly_builds", return_value=[summary]),
+            patch("collect_ci.fetch_build_detail", return_value=detail),
+            patch("collect_ci.parse_job_results") as parse_results,
+        ):
+            _, results = collect_pipeline("upstream", 8, tmp_path)
+
+        assert results == {}
+        assert not cached_path.exists()
         parse_results.assert_not_called()
 
     def test_terminal_build_with_running_soft_job_stays_provisional(self, tmp_path):
@@ -551,7 +698,11 @@ class TestCanonicalResultPublication:
             summaries.append(summary)
 
             date = summary["created_at"][:10]
-            row = _record("H100: Engine tests", build_num=summary["number"])
+            row = _record(
+                "H100: Engine tests",
+                build_num=summary["number"],
+                job_id="job-1",
+            )
             row["pipeline"] = "ci"
             row["date"] = date
             _write_jsonl(
@@ -578,6 +729,81 @@ class TestCanonicalResultPublication:
             for build_number, rows in sorted(results.items())
         ]
         assert _completed_result_entries(entries, builds) == entries
+
+    def test_terminal_retry_with_same_name_replaces_cached_attempt(self, tmp_path):
+        summary = self._build(state="passed", job_state="passed")
+        detail = json.loads(json.dumps(summary))
+        detail["jobs"][0]["id"] = "retry-attempt"
+        cached_path = tmp_path / "test_results" / "2026-08-17_upstream.jsonl"
+        cached = _record(
+            "H100: Engine tests",
+            build_num=84160,
+            job_id="original-attempt",
+        )
+        cached["pipeline"] = "ci"
+        cached["date"] = "2026-08-17"
+        _write_jsonl(cached_path, [cached])
+
+        replacement = _record(
+            "H100: Engine tests",
+            build_num=84160,
+            job_id="retry-attempt",
+        )
+        replacement["pipeline"] = "ci"
+        replacement["date"] = "2026-08-17"
+        parsed = TestResult(**replacement)
+
+        with (
+            patch("collect_ci.fetch_nightly_builds", return_value=[summary]),
+            patch("collect_ci.fetch_build_detail", return_value=detail),
+            patch("collect_ci.parse_job_results", return_value=[parsed]) as parse_results,
+        ):
+            _, results = collect_pipeline("upstream", 8, tmp_path)
+
+        assert results == {84160: [parsed]}
+        parse_results.assert_called_once()
+        published = json.loads(cached_path.read_text())
+        assert published["job_id"] == "retry-attempt"
+
+    def test_terminal_running_terminal_lifecycle_publishes_only_new_attempt(self, tmp_path):
+        cached_path = tmp_path / "test_results" / "2026-08-17_upstream.jsonl"
+
+        def collect(build: dict, parsed_job_id: str | None = None):
+            detail = json.loads(json.dumps(build))
+            parsed_rows = []
+            if parsed_job_id is not None:
+                row = _record(
+                    "H100: Engine tests",
+                    build_num=84160,
+                    job_id=parsed_job_id,
+                )
+                row["pipeline"] = "ci"
+                row["date"] = "2026-08-17"
+                parsed_rows = [TestResult(**row)]
+            with (
+                patch("collect_ci.fetch_nightly_builds", return_value=[build]),
+                patch("collect_ci.fetch_build_detail", return_value=detail),
+                patch("collect_ci.parse_job_results", return_value=parsed_rows),
+            ):
+                return collect_pipeline("upstream", 8, tmp_path)
+
+        terminal_a = self._build(state="passed", job_state="passed")
+        terminal_a["jobs"][0]["id"] = "attempt-a"
+        _, first_results = collect(terminal_a, "attempt-a")
+        assert first_results[84160][0].job_id == "attempt-a"
+        assert json.loads(cached_path.read_text())["job_id"] == "attempt-a"
+
+        running_b = self._build(state="running", job_state="running")
+        running_b["jobs"][0]["id"] = "attempt-b"
+        _, provisional_results = collect(running_b)
+        assert provisional_results == {}
+        assert not cached_path.exists()
+
+        terminal_b = self._build(state="passed", job_state="passed")
+        terminal_b["jobs"][0]["id"] = "attempt-b"
+        _, final_results = collect(terminal_b, "attempt-b")
+        assert final_results[84160][0].job_id == "attempt-b"
+        assert json.loads(cached_path.read_text())["job_id"] == "attempt-b"
 
     def test_complete_build_promotes_results_to_daily_jsonl(self, tmp_path):
         summary = self._build(state="passed", job_state="passed")

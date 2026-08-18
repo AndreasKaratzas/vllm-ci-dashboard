@@ -199,6 +199,38 @@ def _load_cached_results(jsonl_path: Path) -> list[TestResult]:
     return loaded
 
 
+def _cached_records(jsonl_path: Path) -> list[dict]:
+    """Return valid object rows from one cached JSONL file."""
+    if not jsonl_path.exists():
+        return []
+    records = []
+    with open(jsonl_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(record, dict):
+                records.append(record)
+    return records
+
+
+def _cached_build_numbers(jsonl_path: Path) -> set[int]:
+    """Return positive build numbers represented by a cached JSONL file."""
+    numbers = set()
+    for record in _cached_records(jsonl_path):
+        try:
+            number = int(record.get("build_number") or 0)
+        except (TypeError, ValueError):
+            continue
+        if number > 0:
+            numbers.add(number)
+    return numbers
+
+
 def _cached_job_names(jsonl_path: Path, build_num: int) -> set[str]:
     """Return distinct ``job_name`` values already recorded for ``build_num``.
 
@@ -207,27 +239,26 @@ def _cached_job_names(jsonl_path: Path, build_num: int) -> set[str]:
     build's cache is complete enough to skip re-fetching — see
     ``_cache_covers_all_jobs`` for the full contract.
     """
-    if not jsonl_path.exists():
-        return set()
     names: set[str] = set()
-    with open(jsonl_path) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                d = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if d.get("build_number") != build_num:
-                # Defensive: multiple builds could in principle share a date
-                # (e.g., a retry). Only count jobs that belong to the build
-                # we're considering skipping.
-                continue
-            name = d.get("job_name")
-            if name:
-                names.add(name)
+    for record in _cached_records(jsonl_path):
+        if record.get("build_number") != build_num:
+            # Defensive: multiple builds could in principle share a date.
+            # Only count jobs that belong to the build under consideration.
+            continue
+        name = record.get("job_name")
+        if name:
+            names.add(name)
     return names
+
+
+def _cached_job_ids(jsonl_path: Path, build_num: int) -> set[str]:
+    """Return exact Buildkite job-attempt IDs cached for ``build_num``."""
+    return {
+        str(record.get("job_id") or "").strip()
+        for record in _cached_records(jsonl_path)
+        if record.get("build_number") == build_num
+        and str(record.get("job_id") or "").strip()
+    }
 
 
 def _should_verify_cache_coverage(
@@ -382,12 +413,13 @@ def _cache_covers_all_jobs(
     which then shows up as ``amd=None`` in the parity report and drops
     the group from the "Failing Tests" UI count.
 
-    Implementation: compare the set of test-job names currently in the
-    build against the set of ``job_name`` values in the cached jsonl. If
-    any current job is missing from the cache, return False so the caller
-    re-fetches and overwrites. Only counts jobs that actually ran — the
-    ``fetch_build_jobs`` filter already excludes superseded retries and
-    non-terminal jobs, which is the correct behavior here.
+    Implementation: compare exact active Buildkite job-attempt IDs against
+    the cached ``job_id`` values. A retry normally keeps the same job name but
+    receives a new ID, so name-only coverage can silently retain pre-retry
+    results. Jobs without an ID fall back to name matching for compatibility.
+    Every active completed roster attempt constrains cache identity, while
+    only states with parseable logs must have a cached row; superseded retry
+    attempts are excluded by ``_nightly_test_jobs``.
     """
     # Need the full build detail (with ``jobs`` populated) to enumerate
     # current jobs. The nightly list endpoint may return builds with only a
@@ -410,27 +442,60 @@ def _cache_covers_all_jobs(
             )
             return True
 
-    current_jobs = fetch_build_jobs(build)
-    current_names = {
-        j.get("name", "")
-        for j in current_jobs
-        if not any(skip in j.get("name", "").lower() for skip in SKIP_JOB_PATTERNS)
-    }
-    current_names.discard("")
-    if not current_names:
-        # Nothing to cover — treat as covered so we don't thrash.
-        return True
+    if not _is_complete_nightly_build(build):
+        log.info(
+            "  Build #%d: current roster is provisional; cache cannot be reused",
+            build_num,
+        )
+        return False
 
+    roster_jobs = _nightly_test_jobs(build)
+    current_roster_ids = {
+        str(job.get("id") or "").strip()
+        for job in roster_jobs
+        if str(job.get("id") or "").strip()
+    }
+    # Only these states have logs/artifacts that the parser can turn into
+    # rows. Other complete states (for example ``expired``) still matter to
+    # roster identity: a retry ending there must evict its superseded rows,
+    # but its own ID is not expected to appear in the refreshed JSONL.
+    test_jobs = [
+        job
+        for job in roster_jobs
+        if str(job.get("state") or "").casefold() in cfg.TERMINAL_STATES
+        and str(job.get("state") or "").casefold() not in cfg.BLOCKED_JOB_STATES
+    ]
+    current_ids = {
+        str(job.get("id") or "").strip()
+        for job in test_jobs
+        if str(job.get("id") or "").strip()
+    }
+    current_idless_names = {
+        str(job.get("name") or "").strip()
+        for job in test_jobs
+        if not str(job.get("id") or "").strip()
+        and str(job.get("name") or "").strip()
+    }
+    cached_ids = _cached_job_ids(jsonl_path, build_num)
     cached_names = _cached_job_names(jsonl_path, build_num)
-    missing = current_names - cached_names
-    if missing:
+    stale_ids = cached_ids - current_roster_ids
+    missing_ids = current_ids - cached_ids
+    missing_names = current_idless_names - cached_names
+    if stale_ids or missing_ids or missing_names:
         # Log a sample so the operator can see why we re-fetched. The list
         # can be long (50+) so cap at 3.
-        sample = sorted(missing)[:3]
+        sample = [
+            *(f"stale_job_id={job_id!r}" for job_id in sorted(stale_ids)),
+            *(f"job_id={job_id!r}" for job_id in sorted(missing_ids)),
+            *(f"job_name={name!r}" for name in sorted(missing_names)),
+        ][:3]
         log.info(
-            "  Build #%d: %d job(s) missing from cache (e.g. %s)",
-            build_num, len(missing),
-            ", ".join(repr(n) for n in sample),
+            "  Build #%d: cache differs from active job attempts "
+            "(%d stale, %d missing; e.g. %s)",
+            build_num,
+            len(stale_ids),
+            len(missing_ids) + len(missing_names),
+            ", ".join(sample),
         )
         return False
     return True
@@ -540,11 +605,20 @@ def collect_pipeline(
                 if loaded:
                     results_by_build[build_num] = loaded
                 continue
-            # Fall through to re-fetch. The cached jsonl will be overwritten
-            # with a superset (all jobs that existed at the time of this run).
+            if build_num in _cached_build_numbers(jsonl_path):
+                jsonl_path.unlink()
+                existing_dates.discard(date)
+                log.warning(
+                    "  Build #%d (%s): invalidated cached canonical JSONL "
+                    "because active job attempts changed",
+                    build_num,
+                    date,
+                )
+            # Fall through to refresh. A complete build will overwrite the
+            # cache; a provisional build will invalidate its canonical file.
             log.info(
-                "  Build #%d (%s): cache incomplete — re-fetching to pick up "
-                "jobs that finished after the previous collector pass",
+                "  Build #%d (%s): cache is not reusable — refreshing "
+                "canonical evidence",
                 build_num, date,
             )
 
@@ -571,6 +645,16 @@ def collect_pipeline(
             build.update(detail)
 
         if not _is_complete_nightly_build(build):
+            jsonl_path = results_dir / f"{date}_{pipeline_key}.jsonl"
+            if build_num in _cached_build_numbers(jsonl_path):
+                jsonl_path.unlink()
+                existing_dates.discard(date)
+                log.warning(
+                    "  Build #%d (%s): invalidated cached canonical JSONL "
+                    "because the build returned to a provisional state",
+                    build_num,
+                    date,
+                )
             log.info(
                 "  Build #%d (%s): provisional roster; skipping canonical "
                 "test-result publication",
