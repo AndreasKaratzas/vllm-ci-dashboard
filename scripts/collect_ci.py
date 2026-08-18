@@ -470,7 +470,7 @@ def _cache_covers_all_jobs(
         for job in test_jobs
         if str(job.get("id") or "").strip()
     }
-    current_idless_names = {
+    current_names_without_ids = {
         str(job.get("name") or "").strip()
         for job in test_jobs
         if not str(job.get("id") or "").strip()
@@ -480,7 +480,7 @@ def _cache_covers_all_jobs(
     cached_names = _cached_job_names(jsonl_path, build_num)
     stale_ids = cached_ids - current_roster_ids
     missing_ids = current_ids - cached_ids
-    missing_names = current_idless_names - cached_names
+    missing_names = current_names_without_ids - cached_names
     if stale_ids or missing_ids or missing_names:
         # Log a sample so the operator can see why we re-fetched. The list
         # can be long (50+) so cap at 3.
