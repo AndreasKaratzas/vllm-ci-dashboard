@@ -1,14 +1,14 @@
 {
   "schema_version": 2,
-  "generated_at": "2026-08-18T19:39:29Z",
+  "generated_at": "2026-08-18T20:39:17Z",
   "source": {
     "kind": "github_archive",
     "github_repo": "vllm-project/vllm",
     "ref": "main",
     "branch": "main",
-    "requested_ref": "9842d701450214d4b78cd9aefb8eee0c616bce33",
-    "commit_sha": "9842d701450214d4b78cd9aefb8eee0c616bce33",
-    "commit_url": "https://github.com/vllm-project/vllm/commit/9842d701450214d4b78cd9aefb8eee0c616bce33",
+    "requested_ref": "6a391a931a92250aa45aa711aaa3f099f5a8d05f",
+    "commit_sha": "6a391a931a92250aa45aa711aaa3f099f5a8d05f",
+    "commit_url": "https://github.com/vllm-project/vllm/commit/6a391a931a92250aa45aa711aaa3f099f5a8d05f",
     "test_areas_path": ".buildkite/test_areas",
     "capacity_config_path": "config/vllm_amd_queue_capacity.json",
     "capacity_config_schema_version": 1
@@ -495,7 +495,7 @@
   "groups": [
     {
       "key": "v1-attention-h100-mi300",
-      "label": "V1 attention (H100-MI300)",
+      "label": ":nvidia: (H100) V1 Attention Shard %N",
       "area": "Attention",
       "yaml_file": ".buildkite/test_areas/attention.yaml",
       "yaml_index": 0,
@@ -520,7 +520,7 @@
     },
     {
       "key": "basic-correctness",
-      "label": "Basic Correctness",
+      "label": ":nvidia: (H200) Basic Correctness",
       "area": "Basic Correctness",
       "yaml_file": ".buildkite/test_areas/basic_correctness.yaml",
       "yaml_index": 0,
@@ -547,7 +547,7 @@
     },
     {
       "key": "benchmarks-cli-test",
-      "label": "Benchmarks CLI Test",
+      "label": ":nvidia: (H200) Benchmarks CLI",
       "area": "Benchmarks",
       "yaml_file": ".buildkite/test_areas/benchmarks.yaml",
       "yaml_index": 0,
@@ -570,7 +570,7 @@
     },
     {
       "key": "distributed-nixlconnector-pd-accuracy-4-gpus",
-      "label": "Distributed NixlConnector PD accuracy (4 GPUs)",
+      "label": ":nvidia: (L4) Distributed NixlConnector PD accuracy",
       "area": "Disaggregated",
       "yaml_file": ".buildkite/test_areas/disaggregated.yaml",
       "yaml_index": 0,
@@ -591,7 +591,7 @@
     },
     {
       "key": "dp-ep-distributed-nixlconnector-pd-accuracy-tests-4-gpus",
-      "label": "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
+      "label": ":nvidia: (L4) DP EP Distributed NixlConnector PD accuracy",
       "area": "Disaggregated",
       "yaml_file": ".buildkite/test_areas/disaggregated.yaml",
       "yaml_index": 3,
@@ -612,7 +612,7 @@
     },
     {
       "key": "crosslayer-kv-layout-distributed-nixlconnector-pd-accuracy-tests-4-gpus",
-      "label": "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
+      "label": ":nvidia: (L4) CrossLayer KV layout Distributed NixlConnector PD accuracy",
       "area": "Disaggregated",
       "yaml_file": ".buildkite/test_areas/disaggregated.yaml",
       "yaml_index": 4,
@@ -633,7 +633,7 @@
     },
     {
       "key": "hybrid-ssm-nixlconnector-pd-accuracy-tests-4-gpus",
-      "label": "Hybrid SSM NixlConnector PD accuracy tests (4 GPUs)",
+      "label": ":nvidia: (L4) Hybrid SSM NixlConnector PD accuracy",
       "area": "Disaggregated",
       "yaml_file": ".buildkite/test_areas/disaggregated.yaml",
       "yaml_index": 5,
@@ -654,7 +654,7 @@
     },
     {
       "key": "nixlconnector-pd-spec-decode-acceptance-2-gpus",
-      "label": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
+      "label": ":nvidia: (A100) NixlConnector PD + Spec Decode acceptance",
       "area": "Disaggregated",
       "yaml_file": ".buildkite/test_areas/disaggregated.yaml",
       "yaml_index": 9,
@@ -676,7 +676,7 @@
     },
     {
       "key": "distributed-dp-tests-2-gpus",
-      "label": "Distributed DP Tests (2 GPUs)",
+      "label": ":nvidia: (L4) Distributed DP Basic",
       "area": "Distributed",
       "yaml_file": ".buildkite/test_areas/distributed.yaml",
       "yaml_index": 1,
@@ -708,7 +708,7 @@
     },
     {
       "key": "engine",
-      "label": "Engine",
+      "label": ":nvidia: (H200) Engine Core",
       "area": "Engine",
       "yaml_file": ".buildkite/test_areas/engine.yaml",
       "yaml_index": 0,
@@ -750,7 +750,7 @@
     },
     {
       "key": "engine-1-gpu",
-      "label": "Engine (1 GPU)",
+      "label": ":nvidia: (L4) V1 Engine",
       "area": "Engine",
       "yaml_file": ".buildkite/test_areas/engine.yaml",
       "yaml_index": 1,
@@ -771,7 +771,7 @@
     },
     {
       "key": "e2e-scheduling-1-gpu",
-      "label": "e2e Scheduling (1 GPU)",
+      "label": ":nvidia: (H200) E2E Scheduling",
       "area": "Engine",
       "yaml_file": ".buildkite/test_areas/engine.yaml",
       "yaml_index": 2,
@@ -791,7 +791,7 @@
     },
     {
       "key": "e2e-core-1-gpu",
-      "label": "e2e Core (1 GPU)",
+      "label": ":nvidia: (H200) E2E Core",
       "area": "Engine",
       "yaml_file": ".buildkite/test_areas/engine.yaml",
       "yaml_index": 3,
@@ -812,7 +812,7 @@
     },
     {
       "key": "v1-e2e-2-gpus",
-      "label": "V1 e2e (2 GPUs)",
+      "label": ":nvidia: (L4) V1 E2E",
       "area": "Engine",
       "yaml_file": ".buildkite/test_areas/engine.yaml",
       "yaml_index": 4,
@@ -851,7 +851,7 @@
     },
     {
       "key": "entrypoints-integration-llm",
-      "label": "Entrypoints Integration (LLM)",
+      "label": ":nvidia: (H200) Entrypoints Integration (LLM)",
       "area": "Entrypoints",
       "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
       "yaml_index": 1,
@@ -874,7 +874,7 @@
     },
     {
       "key": "entrypoints-integration-api-server",
-      "label": "Entrypoints Integration (API Server)",
+      "label": ":nvidia: (H200) Entrypoints Integration (API Server)",
       "area": "Entrypoints",
       "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
       "yaml_index": 2,
@@ -898,7 +898,7 @@
     },
     {
       "key": "entrypoints-integration-api-server-openai-part-1",
-      "label": "Entrypoints Integration (API Server OpenAI - Part 1)",
+      "label": ":nvidia: (H200) Entrypoints Integration (API Server OpenAI - Part 1)",
       "area": "Entrypoints",
       "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
       "yaml_index": 3,
@@ -923,7 +923,7 @@
     },
     {
       "key": "entrypoints-integration-api-server-openai-part-2",
-      "label": "Entrypoints Integration (API Server OpenAI - Part 2)",
+      "label": ":nvidia: (H200) Entrypoints Integration (API Server OpenAI - Part 2)",
       "area": "Entrypoints",
       "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
       "yaml_index": 4,
@@ -948,7 +948,7 @@
     },
     {
       "key": "entrypoints-integration-api-server-generate",
-      "label": "Entrypoints Integration (API Server Generate)",
+      "label": ":nvidia: (H200) Entrypoints Integration (API Server Generate)",
       "area": "Entrypoints",
       "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
       "yaml_index": 5,
@@ -974,7 +974,7 @@
     },
     {
       "key": "openai-api-correctness",
-      "label": "OpenAI API Correctness",
+      "label": ":nvidia: (H200) OpenAI API Correctness",
       "area": "Entrypoints",
       "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
       "yaml_index": 10,
@@ -1000,7 +1000,7 @@
     },
     {
       "key": "eplb-algorithm",
-      "label": "EPLB Algorithm",
+      "label": ":nvidia: (H200) EPLB Algorithm",
       "area": "Expert Parallelism",
       "yaml_file": ".buildkite/test_areas/expert_parallelism.yaml",
       "yaml_index": 0,
@@ -1022,7 +1022,7 @@
     },
     {
       "key": "kernels-attention-test",
-      "label": "Kernels Attention Test %N",
+      "label": ":nvidia: (L4) Attention Kernels Shard %N",
       "area": "Kernels",
       "yaml_file": ".buildkite/test_areas/kernels.yaml",
       "yaml_index": 6,
@@ -1047,7 +1047,7 @@
     },
     {
       "key": "kernels-quantization-test",
-      "label": "Kernels Quantization Test %N",
+      "label": ":nvidia: (L4) Quantization Kernels Shard %N",
       "area": "Kernels",
       "yaml_file": ".buildkite/test_areas/kernels.yaml",
       "yaml_index": 9,
@@ -1074,7 +1074,7 @@
     },
     {
       "key": "kernels-moe-test",
-      "label": "Kernels MoE Test %N",
+      "label": ":nvidia: (L4) MoE Kernels Shard %N",
       "area": "Kernels",
       "yaml_file": ".buildkite/test_areas/kernels.yaml",
       "yaml_index": 10,
@@ -1103,7 +1103,7 @@
     },
     {
       "key": "lm-eval-small-models",
-      "label": "LM Eval Small Models",
+      "label": ":nvidia: (H200) LM Eval Small Models",
       "area": "LM Eval",
       "yaml_file": ".buildkite/test_areas/lm_eval.yaml",
       "yaml_index": 0,
@@ -1129,7 +1129,7 @@
     },
     {
       "key": "lm-eval-large-models-8xh200",
-      "label": "LM Eval Large Models (8xH200)",
+      "label": ":nvidia: (H200) LM Eval Large Models",
       "area": "LM Eval",
       "yaml_file": ".buildkite/test_areas/lm_eval.yaml",
       "yaml_index": 8,
@@ -1146,7 +1146,7 @@
     },
     {
       "key": "lora",
-      "label": "LoRA %N",
+      "label": ":nvidia: (H200) LoRA Shard %N",
       "area": "LoRA",
       "yaml_file": ".buildkite/test_areas/lora.yaml",
       "yaml_index": 0,
@@ -1167,7 +1167,7 @@
     },
     {
       "key": "v1-sample-logits",
-      "label": "V1 Sample + Logits",
+      "label": ":nvidia: (H200) V1 Sample + Logits",
       "area": "Miscellaneous",
       "yaml_file": ".buildkite/test_areas/misc.yaml",
       "yaml_index": 0,
@@ -1204,7 +1204,7 @@
     },
     {
       "key": "v1-core-kv-metrics",
-      "label": "V1 Core + KV + Metrics",
+      "label": ":nvidia: (H200) V1 Core + KV + Metrics",
       "area": "Miscellaneous",
       "yaml_file": ".buildkite/test_areas/misc.yaml",
       "yaml_index": 1,
@@ -1252,7 +1252,7 @@
     },
     {
       "key": "examples",
-      "label": "Examples",
+      "label": ":nvidia: (H200) Examples",
       "area": "Miscellaneous",
       "yaml_file": ".buildkite/test_areas/misc.yaml",
       "yaml_index": 6,
@@ -1274,7 +1274,7 @@
     },
     {
       "key": "metrics-tracing-2-gpus",
-      "label": "Metrics, Tracing (2 GPUs)",
+      "label": ":nvidia: (L4) Metrics, Tracing",
       "area": "Miscellaneous",
       "yaml_file": ".buildkite/test_areas/misc.yaml",
       "yaml_index": 7,
@@ -1309,7 +1309,7 @@
     },
     {
       "key": "python-only-installation",
-      "label": "Python-only Installation",
+      "label": ":nvidia: (H200) Python-only Installation",
       "area": "Miscellaneous",
       "yaml_file": ".buildkite/test_areas/misc.yaml",
       "yaml_index": 8,
@@ -1330,7 +1330,7 @@
     },
     {
       "key": "model-executor",
-      "label": "Model Executor",
+      "label": ":nvidia: (H200) Model Executor",
       "area": "Model Executor",
       "yaml_file": ".buildkite/test_areas/model_executor.yaml",
       "yaml_index": 0,
@@ -1357,7 +1357,7 @@
     },
     {
       "key": "basic-models-tests-other",
-      "label": "Basic Models Tests (Other)",
+      "label": ":nvidia: (H200) Basic Models (Other)",
       "area": "Models - Basic",
       "yaml_file": ".buildkite/test_areas/models_basic.yaml",
       "yaml_index": 2,
@@ -1382,7 +1382,7 @@
     },
     {
       "key": "language-models-tests-standard",
-      "label": "Language Models Tests (Standard)",
+      "label": ":nvidia: (H200) Language Models (Standard)",
       "area": "Models - Language",
       "yaml_file": ".buildkite/test_areas/models_language.yaml",
       "yaml_index": 0,
@@ -1405,7 +1405,7 @@
     },
     {
       "key": "language-models-tests-extra-standard",
-      "label": "Language Models Tests (Extra Standard) %N",
+      "label": ":nvidia: (H200) Language Models (Extra Standard) Shard %N",
       "area": "Models - Language",
       "yaml_file": ".buildkite/test_areas/models_language.yaml",
       "yaml_index": 1,
@@ -1433,7 +1433,7 @@
     },
     {
       "key": "language-models-tests-hybrid",
-      "label": "Language Models Tests (Hybrid) %N",
+      "label": ":nvidia: (H200) Language Models (Hybrid) Shard %N",
       "area": "Models - Language",
       "yaml_file": ".buildkite/test_areas/models_language.yaml",
       "yaml_index": 2,
@@ -1456,7 +1456,7 @@
     },
     {
       "key": "language-models-test-extended-pooling",
-      "label": "Language Models Test (Extended Pooling) %N",
+      "label": ":nvidia: (H200) Language Models (Extended Pooling) Shard %N",
       "area": "Models - Language",
       "yaml_file": ".buildkite/test_areas/models_language.yaml",
       "yaml_index": 6,
@@ -1479,7 +1479,7 @@
     },
     {
       "key": "multi-modal-models-standard-1-qwen2",
-      "label": "Multi-Modal Models (Standard) 1: qwen2",
+      "label": ":nvidia: (H200) Multimodal Models (Standard) 1: qwen2",
       "area": "Models - Multimodal",
       "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
       "yaml_index": 0,
@@ -1502,7 +1502,7 @@
     },
     {
       "key": "multi-modal-models-standard-2-qwen3-gemma",
-      "label": "Multi-Modal Models (Standard) 2: qwen3 + gemma",
+      "label": ":nvidia: (H200) Multimodal Models (Standard) 2: qwen3 + gemma",
       "area": "Models - Multimodal",
       "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
       "yaml_index": 1,
@@ -1525,7 +1525,7 @@
     },
     {
       "key": "multi-modal-models-standard-3-llava-qwen2-vl",
-      "label": "Multi-Modal Models (Standard) 3: llava + qwen2_vl",
+      "label": ":nvidia: (H200) Multimodal Models (Standard) 3: llava + qwen2_vl",
       "area": "Models - Multimodal",
       "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
       "yaml_index": 2,
@@ -1548,7 +1548,7 @@
     },
     {
       "key": "multi-modal-models-standard-4-other-whisper",
-      "label": "Multi-Modal Models (Standard) 4: other + whisper",
+      "label": ":nvidia: (H200) Multimodal Models (Standard) 4: other + whisper",
       "area": "Models - Multimodal",
       "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
       "yaml_index": 3,
@@ -1571,7 +1571,7 @@
     },
     {
       "key": "multi-modal-accuracy-eval-small-models",
-      "label": "Multi-Modal Accuracy Eval (Small Models)",
+      "label": ":nvidia: (H200) Multimodal Accuracy Eval (Small Models)",
       "area": "Models - Multimodal",
       "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
       "yaml_index": 6,
@@ -1594,7 +1594,7 @@
     },
     {
       "key": "multi-modal-models-extended-generation-1",
-      "label": "Multi-Modal Models (Extended Generation 1)",
+      "label": ":nvidia: (H200) Multimodal Models (Extended Generation 1)",
       "area": "Models - Multimodal",
       "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
       "yaml_index": 7,
@@ -1618,7 +1618,7 @@
     },
     {
       "key": "multi-modal-models-extended-ppl",
-      "label": "Multi-Modal Models (PPL)",
+      "label": ":nvidia: (H200) Multimodal Models (PPL)",
       "area": "Models - Multimodal",
       "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
       "yaml_index": 8,
@@ -1638,7 +1638,7 @@
     },
     {
       "key": "multi-modal-models-extended-pooling",
-      "label": "Multi-Modal Models (Extended Pooling)",
+      "label": ":nvidia: (H200) Multimodal Models (Extended Pooling)",
       "area": "Models - Multimodal",
       "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
       "yaml_index": 11,
@@ -1661,7 +1661,7 @@
     },
     {
       "key": "pytorch-nightly-dependency-override-check",
-      "label": "Pytorch Nightly Dependency Override Check",
+      "label": ":nvidia: (H200) PyTorch Nightly Dependency Override Check",
       "area": "PyTorch",
       "yaml_file": ".buildkite/test_areas/pytorch.yaml",
       "yaml_index": 5,
@@ -1681,7 +1681,7 @@
     },
     {
       "key": "samplers-test",
-      "label": "Samplers Test",
+      "label": ":nvidia: (H200) Samplers",
       "area": "Samplers",
       "yaml_file": ".buildkite/test_areas/samplers.yaml",
       "yaml_index": 0,
@@ -1709,7 +1709,7 @@
     },
     {
       "key": "v1-spec-decode",
-      "label": "V1 Spec Decode",
+      "label": ":nvidia: (H200) V1 Spec Decode",
       "area": "Spec Decode",
       "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
       "yaml_index": 0,
@@ -1737,7 +1737,7 @@
     },
     {
       "key": "spec-decode-eagle-1-deepseek-qwen",
-      "label": "Spec Decode Eagle 1: DeepSeek + Qwen",
+      "label": ":nvidia: (H200) Spec Decode Eagle 1: DeepSeek + Qwen",
       "area": "Spec Decode",
       "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
       "yaml_index": 1,
@@ -1762,7 +1762,7 @@
     },
     {
       "key": "spec-decode-eagle-2-llama3-qwen-vl-other",
-      "label": "Spec Decode Eagle 2: Llama 3 + Qwen VL + Other",
+      "label": ":nvidia: (H200) Spec Decode Eagle 2: Llama 3 + Qwen VL + Other",
       "area": "Spec Decode",
       "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
       "yaml_index": 2,
@@ -1787,7 +1787,7 @@
     },
     {
       "key": "spec-decode-speculators-mtp",
-      "label": "Spec Decode Speculators + MTP",
+      "label": ":nvidia: (H200) Spec Decode Speculators + MTP",
       "area": "Spec Decode",
       "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
       "yaml_index": 4,
@@ -1813,7 +1813,7 @@
     },
     {
       "key": "spec-decode-ngram-suffix",
-      "label": "Spec Decode Ngram + Suffix",
+      "label": ":nvidia: (H200) Spec Decode N-Gram + Suffix",
       "area": "Spec Decode",
       "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
       "yaml_index": 6,
@@ -1838,7 +1838,7 @@
     },
     {
       "key": "spec-decode-draft-model",
-      "label": "Spec Decode Draft Model",
+      "label": ":nvidia: (H200) Spec Decode Draft Model",
       "area": "Spec Decode",
       "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
       "yaml_index": 7,
@@ -1863,7 +1863,7 @@
     },
     {
       "key": "spec-decode-deepseek-mtp-parallel-load-2xb200-2xmi300",
-      "label": "Spec Decode DeepSeek MTP Parallel Load (2xB200-2xMI300)",
+      "label": ":nvidia: (B200) Spec Decode DeepSeek MTP Parallel Load",
       "area": "Spec Decode",
       "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
       "yaml_index": 10,
@@ -1893,7 +1893,7 @@
     },
     {
       "key": "spec-decode-dflash-nightly",
-      "label": "Spec Decode AL DFlash Nightly",
+      "label": ":nvidia: (H200) Spec Decode AL DFlash Nightly",
       "area": "Spec Decode",
       "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
       "yaml_index": 11,
@@ -1924,7 +1924,7 @@
     },
     {
       "key": "spec-decode-dspark-nightly",
-      "label": "Spec Decode AL DSpark Nightly",
+      "label": ":nvidia: (H200) Spec Decode AL DSpark Nightly",
       "area": "Spec Decode",
       "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
       "yaml_index": 12,
@@ -1959,7 +1959,7 @@
     },
     {
       "key": "weight-loading-multiple-gpu",
-      "label": "Weight Loading Multiple GPU",
+      "label": ":nvidia: (L4) Weight Loading Multi-GPU",
       "area": "Weight Loading",
       "yaml_file": ".buildkite/test_areas/weight_loading.yaml",
       "yaml_index": 0,
