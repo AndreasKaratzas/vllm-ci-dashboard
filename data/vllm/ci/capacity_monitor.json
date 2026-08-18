@@ -1,14 +1,14 @@
 {
   "schema_version": 2,
-  "generated_at": "2026-08-18T22:40:23Z",
+  "generated_at": "2026-08-18T23:35:14Z",
   "source": {
     "kind": "github_archive",
     "github_repo": "vllm-project/vllm",
     "ref": "main",
     "branch": "main",
-    "requested_ref": "aa6abec49a7ed7e40ee4c2a07586d0d83887fa2a",
-    "commit_sha": "aa6abec49a7ed7e40ee4c2a07586d0d83887fa2a",
-    "commit_url": "https://github.com/vllm-project/vllm/commit/aa6abec49a7ed7e40ee4c2a07586d0d83887fa2a",
+    "requested_ref": "ef47a897e2ad9a404cce9c9e7df15934deb8ffbe",
+    "commit_sha": "ef47a897e2ad9a404cce9c9e7df15934deb8ffbe",
+    "commit_url": "https://github.com/vllm-project/vllm/commit/ef47a897e2ad9a404cce9c9e7df15934deb8ffbe",
     "test_areas_path": ".buildkite/test_areas",
     "capacity_config_path": "config/vllm_amd_queue_capacity.json",
     "capacity_config_schema_version": 1
@@ -113,16 +113,16 @@
         "eight_gpu_node_equivalents": 27.5
       }
     },
-    "gated_group_count": 58,
-    "capacity_scoped_group_count": 58,
-    "gated_job_count": 71,
-    "gated_gpu_demand": 96,
-    "total_dependency_files": 83499,
-    "total_dependency_lines": 27824205,
-    "unique_dependency_files": 4384,
-    "average_dependency_files_per_group": 1439.6,
-    "average_dependency_lines_per_group": 479727.7,
-    "queues_with_gated_work": 5
+    "gated_group_count": 73,
+    "capacity_scoped_group_count": 73,
+    "gated_job_count": 89,
+    "gated_gpu_demand": 123,
+    "total_dependency_files": 105649,
+    "total_dependency_lines": 35399247,
+    "unique_dependency_files": 4562,
+    "average_dependency_files_per_group": 1447.2,
+    "average_dependency_lines_per_group": 484921.2,
+    "queues_with_gated_work": 7
   },
   "families": [
     {
@@ -136,9 +136,9 @@
       "future_max_concurrent_jobs": 122,
       "future_gpu_capacity": 222,
       "future_eight_gpu_node_equivalents": 27.75,
-      "gated_groups": 5,
-      "gated_jobs": 5,
-      "gated_gpu_demand": 5
+      "gated_groups": 6,
+      "gated_jobs": 6,
+      "gated_gpu_demand": 7
     },
     {
       "family": "MI300",
@@ -151,9 +151,9 @@
       "future_max_concurrent_jobs": 335,
       "future_gpu_capacity": 424,
       "future_eight_gpu_node_equivalents": 53.0,
-      "gated_groups": 53,
-      "gated_jobs": 66,
-      "gated_gpu_demand": 91
+      "gated_groups": 59,
+      "gated_jobs": 72,
+      "gated_gpu_demand": 105
     },
     {
       "family": "MI325",
@@ -181,9 +181,9 @@
       "future_max_concurrent_jobs": 277,
       "future_gpu_capacity": 352,
       "future_eight_gpu_node_equivalents": 44.0,
-      "gated_groups": 0,
-      "gated_jobs": 0,
-      "gated_gpu_demand": 0
+      "gated_groups": 8,
+      "gated_jobs": 11,
+      "gated_gpu_demand": 11
     }
   ],
   "queues": [
@@ -203,8 +203,8 @@
       "gated_groups": 5,
       "gated_jobs": 5,
       "dependency_file_count": 4637,
-      "dependency_lines": 1553001,
-      "max_group_dependency_lines": 1020698
+      "dependency_lines": 1553139,
+      "max_group_dependency_lines": 1020744
     },
     {
       "id": "amd_mi250_2",
@@ -219,11 +219,11 @@
       "max_agents": 24,
       "gpu_capacity": 48,
       "eight_gpu_node_equivalents": 6.0,
-      "gated_groups": 0,
-      "gated_jobs": 0,
-      "dependency_file_count": 0,
-      "dependency_lines": 0,
-      "max_group_dependency_lines": 0
+      "gated_groups": 1,
+      "gated_jobs": 1,
+      "dependency_file_count": 35,
+      "dependency_lines": 3097,
+      "max_group_dependency_lines": 3097
     },
     {
       "id": "amd_mi250_4",
@@ -276,11 +276,11 @@
       "max_agents": 296,
       "gpu_capacity": 296,
       "eight_gpu_node_equivalents": 37.0,
-      "gated_groups": 42,
-      "gated_jobs": 55,
-      "dependency_file_count": 70107,
-      "dependency_lines": 23346376,
-      "max_group_dependency_lines": 1024381
+      "gated_groups": 44,
+      "gated_jobs": 57,
+      "dependency_file_count": 70437,
+      "dependency_lines": 23481187,
+      "max_group_dependency_lines": 1024427
     },
     {
       "id": "amd_mi300_2",
@@ -295,11 +295,11 @@
       "max_agents": 18,
       "gpu_capacity": 36,
       "eight_gpu_node_equivalents": 4.5,
-      "gated_groups": 6,
-      "gated_jobs": 6,
-      "dependency_file_count": 8615,
-      "dependency_lines": 2880252,
-      "max_group_dependency_lines": 1000954
+      "gated_groups": 8,
+      "gated_jobs": 8,
+      "dependency_file_count": 10179,
+      "dependency_lines": 3373248,
+      "max_group_dependency_lines": 1001000
     },
     {
       "id": "amd_mi300_4",
@@ -314,11 +314,11 @@
       "max_agents": 19,
       "gpu_capacity": 76,
       "eight_gpu_node_equivalents": 9.5,
-      "gated_groups": 4,
-      "gated_jobs": 4,
-      "dependency_file_count": 140,
-      "dependency_lines": 44576,
-      "max_group_dependency_lines": 11144
+      "gated_groups": 6,
+      "gated_jobs": 6,
+      "dependency_file_count": 655,
+      "dependency_lines": 174461,
+      "max_group_dependency_lines": 120715
     },
     {
       "id": "amd_mi300_8",
@@ -428,11 +428,11 @@
       "max_agents": 240,
       "gpu_capacity": 240,
       "eight_gpu_node_equivalents": 30.0,
-      "gated_groups": 0,
-      "gated_jobs": 0,
-      "dependency_file_count": 0,
-      "dependency_lines": 0,
-      "max_group_dependency_lines": 0
+      "gated_groups": 8,
+      "gated_jobs": 11,
+      "dependency_file_count": 19706,
+      "dependency_lines": 6814115,
+      "max_group_dependency_lines": 1022629
     },
     {
       "id": "amd_mi355_2",
@@ -538,7 +538,7 @@
         "tests/basic_correctness/test_mem.py"
       ],
       "dependency_file_count": 2858,
-      "dependency_lines": 1001230,
+      "dependency_lines": 1001276,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/",
         "tests/basic_correctness/test_basic_correctness",
@@ -563,7 +563,7 @@
         "tests/benchmarks/"
       ],
       "dependency_file_count": 2875,
-      "dependency_lines": 1004229,
+      "dependency_lines": 1004275,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -786,7 +786,7 @@
         "tests/v1/e2e/general/"
       ],
       "dependency_file_count": 363,
-      "dependency_lines": 150933,
+      "dependency_lines": 150979,
       "missing_dependencies": []
     },
     {
@@ -807,7 +807,7 @@
         "vllm/platforms/rocm.py"
       ],
       "dependency_file_count": 364,
-      "dependency_lines": 152088,
+      "dependency_lines": 152134,
       "missing_dependencies": []
     },
     {
@@ -844,10 +844,52 @@
         "tests/v1/e2e/spec_decode/"
       ],
       "dependency_file_count": 2157,
-      "dependency_lines": 718913,
+      "dependency_lines": 718959,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
+    },
+    {
+      "key": "v1-e2e-4xh100",
+      "label": ":nvidia: (H100) V1 E2E Hybrid Chunked Prefill",
+      "area": "Engine",
+      "yaml_file": ".buildkite/test_areas/engine.yaml",
+      "yaml_index": 5,
+      "device": "mi300_4",
+      "queue": "amd_mi300_4",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 35,
+      "optional": true,
+      "source_file_dependencies": [
+        "vllm/v1/attention/backends/utils.py",
+        "vllm/v1/worker/gpu_model_runner.py",
+        "tests/v1/e2e/test_hybrid_chunked_prefill.py"
+      ],
+      "dependency_file_count": 3,
+      "dependency_lines": 9170,
+      "missing_dependencies": []
+    },
+    {
+      "key": "entrypoints-unit-tests",
+      "label": ":nvidia: (H200) Entrypoints Unit",
+      "area": "Entrypoints",
+      "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
+      "yaml_index": 0,
+      "device": "mi355_1",
+      "queue": "amd_mi355_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 35,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/entrypoints",
+        "tests/entrypoints/unit_tests",
+        "tests/entrypoints/weight_transfer"
+      ],
+      "dependency_file_count": 215,
+      "dependency_lines": 45013,
+      "missing_dependencies": []
     },
     {
       "key": "entrypoints-integration-llm",
@@ -867,7 +909,7 @@
         "tests/entrypoints/llm"
       ],
       "dependency_file_count": 2867,
-      "dependency_lines": 1002511,
+      "dependency_lines": 1002557,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -891,7 +933,7 @@
         "tests/entrypoints/scale_out"
       ],
       "dependency_file_count": 2912,
-      "dependency_lines": 1011054,
+      "dependency_lines": 1011100,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -915,7 +957,7 @@
         "tests/entrypoints/test_chat_utils"
       ],
       "dependency_file_count": 2932,
-      "dependency_lines": 1024381,
+      "dependency_lines": 1024427,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/",
         "tests/entrypoints/test_chat_utils"
@@ -940,7 +982,7 @@
         "tests/entrypoints/test_chat_utils"
       ],
       "dependency_file_count": 2932,
-      "dependency_lines": 1024381,
+      "dependency_lines": 1024427,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/",
         "tests/entrypoints/test_chat_utils"
@@ -967,7 +1009,53 @@
         "tests/entrypoints/generate"
       ],
       "dependency_file_count": 2886,
-      "dependency_lines": 1008052,
+      "dependency_lines": 1008098,
+      "missing_dependencies": [
+        "!vllm/distributed/kv_transfer/"
+      ]
+    },
+    {
+      "key": "entrypoints-integration-responses-api",
+      "label": ":nvidia: (H200) Entrypoints Integration (Responses API)",
+      "area": "Entrypoints",
+      "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
+      "yaml_index": 6,
+      "device": "mi355_1",
+      "queue": "amd_mi355_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 50,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/",
+        "!vllm/distributed/kv_transfer/",
+        "tests/entrypoints/openai/responses"
+      ],
+      "dependency_file_count": 2878,
+      "dependency_lines": 1008261,
+      "missing_dependencies": [
+        "!vllm/distributed/kv_transfer/"
+      ]
+    },
+    {
+      "key": "entrypoints-integration-multimodal",
+      "label": ":nvidia: (H200) Entrypoints Integration (Multimodal)",
+      "area": "Entrypoints",
+      "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
+      "yaml_index": 8,
+      "device": "mi355_1",
+      "queue": "amd_mi355_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 55,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/",
+        "!vllm/distributed/kv_transfer/",
+        "tests/entrypoints/multimodal"
+      ],
+      "dependency_file_count": 2878,
+      "dependency_lines": 1004160,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1166,6 +1254,28 @@
       "missing_dependencies": []
     },
     {
+      "key": "lora-tp-distributed",
+      "label": ":nvidia: (L4) LoRA TP (Distributed)",
+      "area": "LoRA",
+      "yaml_file": ".buildkite/test_areas/lora.yaml",
+      "yaml_index": 1,
+      "device": "mi300_4",
+      "queue": "amd_mi300_4",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 55,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/lora",
+        "vllm/model_executor/layers/fused_moe/",
+        "vllm/platforms/rocm.py",
+        "tests/lora"
+      ],
+      "dependency_file_count": 512,
+      "dependency_lines": 120715,
+      "missing_dependencies": []
+    },
+    {
       "key": "v1-sample-logits",
       "label": ":nvidia: (H200) V1 Sample + Logits",
       "area": "Miscellaneous",
@@ -1197,7 +1307,7 @@
         "tests/v1/test_outputs.py"
       ],
       "dependency_file_count": 2057,
-      "dependency_lines": 692901,
+      "dependency_lines": 692947,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1245,7 +1355,7 @@
         "tests/entrypoints/openai/correctness/test_lmeval.py"
       ],
       "dependency_file_count": 2344,
-      "dependency_lines": 811077,
+      "dependency_lines": 811200,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1302,7 +1412,7 @@
         "tests/tracing/"
       ],
       "dependency_file_count": 2078,
-      "dependency_lines": 697369,
+      "dependency_lines": 697415,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1327,6 +1437,43 @@
       "dependency_file_count": 3,
       "dependency_lines": 2906,
       "missing_dependencies": []
+    },
+    {
+      "key": "async-engine-inputs-utils-worker",
+      "label": ":nvidia: (H200) Async Engine, Inputs, Utils, Worker",
+      "area": "Miscellaneous",
+      "yaml_file": ".buildkite/test_areas/misc.yaml",
+      "yaml_index": 9,
+      "device": "mi355_1",
+      "queue": "amd_mi355_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 40,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/assets/",
+        "vllm/config/",
+        "vllm/distributed/",
+        "!vllm/distributed/kv_transfer/",
+        "vllm/engine/",
+        "vllm/inputs/",
+        "vllm/model_executor/",
+        "vllm/multimodal/",
+        "vllm/platforms/",
+        "vllm/sampling_params.py",
+        "vllm/tokenizers/",
+        "vllm/transformers_utils/",
+        "vllm/utils/",
+        "vllm/v1/",
+        "tests/detokenizer",
+        "tests/multimodal",
+        "tests/utils_"
+      ],
+      "dependency_file_count": 2140,
+      "dependency_lines": 711059,
+      "missing_dependencies": [
+        "!vllm/distributed/kv_transfer/"
+      ]
     },
     {
       "key": "model-executor",
@@ -1356,6 +1503,30 @@
       "missing_dependencies": []
     },
     {
+      "key": "model-runner-v2-distributed-2-gpus",
+      "label": ":nvidia: (L4) Model Runner V2 Distributed",
+      "area": "Model Runner V2",
+      "yaml_file": ".buildkite/test_areas/model_runner_v2.yaml",
+      "yaml_index": 2,
+      "device": "mi300_2",
+      "queue": "amd_mi300_2",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 45,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/v1/worker/gpu/",
+        "vllm/v1/worker/gpu_worker.py",
+        "tests/basic_correctness/test_basic_correctness.py",
+        "tests/v1/distributed/test_async_llm_dp.py",
+        "tests/v1/distributed/test_eagle_dp.py",
+        "vllm/platforms/rocm.py"
+      ],
+      "dependency_file_count": 82,
+      "dependency_lines": 22679,
+      "missing_dependencies": []
+    },
+    {
       "key": "basic-models-tests-other",
       "label": ":nvidia: (H200) Basic Models (Other)",
       "area": "Models - Basic",
@@ -1375,10 +1546,38 @@
         "tests/models/test_registry.py"
       ],
       "dependency_file_count": 2860,
-      "dependency_lines": 1001593,
+      "dependency_lines": 1001639,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
+    },
+    {
+      "key": "distributed-model-tests-2-gpus",
+      "label": ":nvidia: (L4) Distributed Models",
+      "area": "Models - Distributed",
+      "yaml_file": ".buildkite/test_areas/models_distributed.yaml",
+      "yaml_index": 0,
+      "device": "mi300_2",
+      "queue": "amd_mi300_2",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 75,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/model_executor/model_loader/sharded_state_loader.py",
+        "vllm/model_executor/models/",
+        "vllm/model_executor/layers/",
+        "vllm/v1/attention/backends/",
+        "vllm/v1/attention/selector.py",
+        "vllm/_aiter_ops.py",
+        "vllm/platforms/rocm.py",
+        "tests/basic_correctness/",
+        "tests/model_executor/model_loader/test_sharded_state_loader.py",
+        "tests/models/"
+      ],
+      "dependency_file_count": 1482,
+      "dependency_lines": 470179,
+      "missing_dependencies": []
     },
     {
       "key": "language-models-tests-standard",
@@ -1398,7 +1597,7 @@
         "tests/models/language"
       ],
       "dependency_file_count": 2911,
-      "dependency_lines": 1008041,
+      "dependency_lines": 1008087,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1449,7 +1648,30 @@
         "tests/models/language/generation"
       ],
       "dependency_file_count": 2865,
-      "dependency_lines": 1002593,
+      "dependency_lines": 1002639,
+      "missing_dependencies": [
+        "!vllm/distributed/kv_transfer/"
+      ]
+    },
+    {
+      "key": "language-models-test-extended-generation",
+      "label": ":nvidia: (H200) Language Models (Extended Generation)",
+      "area": "Models - Language",
+      "yaml_file": ".buildkite/test_areas/models_language.yaml",
+      "yaml_index": 4,
+      "device": "mi355_1",
+      "queue": "amd_mi355_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 70,
+      "optional": true,
+      "source_file_dependencies": [
+        "vllm/",
+        "!vllm/distributed/kv_transfer/",
+        "tests/models/language/generation"
+      ],
+      "dependency_file_count": 2865,
+      "dependency_lines": 1002639,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1472,7 +1694,7 @@
         "tests/models/language/pooling"
       ],
       "dependency_file_count": 2881,
-      "dependency_lines": 1004286,
+      "dependency_lines": 1004332,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1495,7 +1717,7 @@
         "tests/models/multimodal"
       ],
       "dependency_file_count": 2951,
-      "dependency_lines": 1020698,
+      "dependency_lines": 1020744,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1518,7 +1740,7 @@
         "tests/models/multimodal"
       ],
       "dependency_file_count": 2951,
-      "dependency_lines": 1020698,
+      "dependency_lines": 1020744,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1541,7 +1763,7 @@
         "tests/models/multimodal"
       ],
       "dependency_file_count": 2951,
-      "dependency_lines": 1020698,
+      "dependency_lines": 1020744,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1564,7 +1786,31 @@
         "tests/models/multimodal"
       ],
       "dependency_file_count": 2951,
-      "dependency_lines": 1020698,
+      "dependency_lines": 1020744,
+      "missing_dependencies": [
+        "!vllm/distributed/kv_transfer/"
+      ]
+    },
+    {
+      "key": "multi-modal-processor",
+      "label": ":nvidia: (H200) Multimodal Processor",
+      "area": "Models - Multimodal",
+      "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
+      "yaml_index": 5,
+      "device": "mi355_1",
+      "queue": "amd_mi355_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 115,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/",
+        "!vllm/distributed/kv_transfer/",
+        "tests/models/multimodal",
+        "tests/models/registry.py"
+      ],
+      "dependency_file_count": 2952,
+      "dependency_lines": 1022629,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1589,7 +1835,7 @@
         "vllm/model_executor/model_loader/"
       ],
       "dependency_file_count": 73,
-      "dependency_lines": 30381,
+      "dependency_lines": 30422,
       "missing_dependencies": []
     },
     {
@@ -1611,7 +1857,7 @@
         "tests/models/multimodal/test_mapping.py"
       ],
       "dependency_file_count": 2890,
-      "dependency_lines": 1010440,
+      "dependency_lines": 1010486,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1633,8 +1879,54 @@
         "tests/models/multimodal/generation_ppl_test/"
       ],
       "dependency_file_count": 2860,
-      "dependency_lines": 1001009,
+      "dependency_lines": 1001055,
       "missing_dependencies": []
+    },
+    {
+      "key": "multi-modal-models-extended-generation-2",
+      "label": ":nvidia: (H200) Multimodal Models (Extended Generation 2) Shard %N",
+      "area": "Models - Multimodal",
+      "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
+      "yaml_index": 9,
+      "device": "mi355_1",
+      "queue": "amd_mi355_1",
+      "in_capacity_scope": true,
+      "parallelism": 4,
+      "timeout_in_minutes": 100,
+      "optional": true,
+      "source_file_dependencies": [
+        "vllm/",
+        "!vllm/distributed/kv_transfer/",
+        "tests/models/multimodal/generation"
+      ],
+      "dependency_file_count": 2889,
+      "dependency_lines": 1010177,
+      "missing_dependencies": [
+        "!vllm/distributed/kv_transfer/"
+      ]
+    },
+    {
+      "key": "multi-modal-models-extended-generation-3",
+      "label": ":nvidia: (H200) Multimodal Models (Extended Generation 3)",
+      "area": "Models - Multimodal",
+      "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
+      "yaml_index": 10,
+      "device": "mi355_1",
+      "queue": "amd_mi355_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 90,
+      "optional": true,
+      "source_file_dependencies": [
+        "vllm/",
+        "!vllm/distributed/kv_transfer/",
+        "tests/models/multimodal/generation"
+      ],
+      "dependency_file_count": 2889,
+      "dependency_lines": 1010177,
+      "missing_dependencies": [
+        "!vllm/distributed/kv_transfer/"
+      ]
     },
     {
       "key": "multi-modal-models-extended-pooling",
@@ -1654,10 +1946,51 @@
         "tests/models/multimodal/pooling"
       ],
       "dependency_file_count": 2873,
-      "dependency_lines": 1003599,
+      "dependency_lines": 1003645,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
+    },
+    {
+      "key": "plugin-tests-2-gpus",
+      "label": ":nvidia: (L4) Plugin Integration",
+      "area": "Plugins",
+      "yaml_file": ".buildkite/test_areas/plugins.yaml",
+      "yaml_index": 0,
+      "device": "mi250_2",
+      "queue": "amd_mi250_2",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 50,
+      "optional": false,
+      "source_file_dependencies": [
+        "vllm/plugins/",
+        "tests/plugins/",
+        "vllm/platforms/rocm.py"
+      ],
+      "dependency_file_count": 35,
+      "dependency_lines": 3097,
+      "missing_dependencies": []
+    },
+    {
+      "key": "pytorch-compilation-unit-tests",
+      "label": ":nvidia: (H200) PyTorch Compilation",
+      "area": "PyTorch",
+      "yaml_file": ".buildkite/test_areas/pytorch.yaml",
+      "yaml_index": 0,
+      "device": "mi300_1",
+      "queue": "amd_mi300_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 90,
+      "optional": false,
+      "source_file_dependencies": [
+        "csrc/",
+        "vllm/platforms/rocm.py"
+      ],
+      "dependency_file_count": 305,
+      "dependency_lines": 125596,
+      "missing_dependencies": []
     },
     {
       "key": "pytorch-nightly-dependency-override-check",
@@ -1732,7 +2065,7 @@
         "tests/v1/spec_decode"
       ],
       "dependency_file_count": 2057,
-      "dependency_lines": 687688,
+      "dependency_lines": 687734,
       "missing_dependencies": []
     },
     {
@@ -1862,6 +2195,28 @@
       "missing_dependencies": []
     },
     {
+      "key": "speculators-correctness",
+      "label": ":nvidia: (H100) Speculators Correctness Nightly",
+      "area": "Spec Decode",
+      "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
+      "yaml_index": 9,
+      "device": "mi300_1",
+      "queue": "amd_mi300_1",
+      "in_capacity_scope": true,
+      "parallelism": 1,
+      "timeout_in_minutes": 40,
+      "optional": true,
+      "source_file_dependencies": [
+        "vllm/v1/spec_decode/",
+        "vllm/v1/worker/gpu/spec_decode/dflash/",
+        "vllm/model_executor/models/qwen3_dflash.py",
+        "tests/v1/spec_decode/test_speculators_correctness.py"
+      ],
+      "dependency_file_count": 25,
+      "dependency_lines": 8177,
+      "missing_dependencies": []
+    },
+    {
       "key": "spec-decode-deepseek-mtp-parallel-load-2xb200-2xmi300",
       "label": ":nvidia: (B200) Spec Decode DeepSeek MTP Parallel Load",
       "area": "Spec Decode",
@@ -1975,7 +2330,7 @@
         "tests/weight_loading"
       ],
       "dependency_file_count": 2863,
-      "dependency_lines": 1000954,
+      "dependency_lines": 1001000,
       "missing_dependencies": [
         "!vllm/distributed/kv_transfer/"
       ]
@@ -1992,15 +2347,15 @@
     "declared_total_groups": 157,
     "planning_headroom_groups": 3,
     "note": "147 existing + 10 new = 157 declared groups; target 160 includes 3 groups of planning headroom.",
-    "base_groups": 58,
-    "scale": 2.7586,
-    "projected_total_jobs": 195.9,
-    "projected_total_gpus": 264.8,
-    "projected_eight_gpu_node_equivalents": 33.1,
-    "projected_dependency_lines": 76756428,
-    "projected_capacity_ratio": 0.2097,
-    "future_slot_capacity_ratio": 0.2669,
-    "future_gpu_capacity_ratio": 0.2653,
+    "base_groups": 73,
+    "scale": 2.1918,
+    "projected_total_jobs": 195.1,
+    "projected_total_gpus": 269.6,
+    "projected_eight_gpu_node_equivalents": 33.7,
+    "projected_dependency_lines": 77587391,
+    "projected_capacity_ratio": 0.2089,
+    "future_slot_capacity_ratio": 0.2658,
+    "future_gpu_capacity_ratio": 0.2701,
     "future_capacity": {
       "queue_count": 12,
       "concurrent_jobs": 734,
@@ -2008,13 +2363,13 @@
       "eight_gpu_node_equivalents": 124.75
     },
     "bottleneck_queue": "amd_mi300_8",
-    "bottleneck_capacity_ratio": 1.3793,
+    "bottleneck_capacity_ratio": 1.0959,
     "queues_over_capacity": [
       "amd_mi300_8"
     ],
     "queues_requiring_migration": [],
-    "projected_gap_jobs": 0.8,
-    "projected_gap_gpus": 6.4,
+    "projected_gap_jobs": 0.2,
+    "projected_gap_gpus": 1.6,
     "queues": [
       {
         "id": "amd_mi250_1",
@@ -2030,12 +2385,12 @@
         "eight_gpu_node_equivalents": 9.75,
         "future_max_concurrent_jobs": 78,
         "future_gpu_capacity": 78,
-        "projected_jobs": 13.8,
-        "projected_gpu_demand": 13.8,
-        "projected_eight_gpu_node_equivalents": 1.73,
-        "projected_dependency_lines": 4284141,
-        "projected_capacity_ratio": 0.1768,
-        "projected_future_capacity_ratio": 0.1768,
+        "projected_jobs": 11.0,
+        "projected_gpu_demand": 11.0,
+        "projected_eight_gpu_node_equivalents": 1.38,
+        "projected_dependency_lines": 3404140,
+        "projected_capacity_ratio": 0.1405,
+        "projected_future_capacity_ratio": 0.1405,
         "projected_gap_jobs": 0.0,
         "projected_gap_gpus": 0.0,
         "requires_migration": false
@@ -2054,12 +2409,12 @@
         "eight_gpu_node_equivalents": 6.0,
         "future_max_concurrent_jobs": 24,
         "future_gpu_capacity": 48,
-        "projected_jobs": 0.0,
-        "projected_gpu_demand": 0.0,
-        "projected_eight_gpu_node_equivalents": 0.0,
-        "projected_dependency_lines": 0,
-        "projected_capacity_ratio": 0.0,
-        "projected_future_capacity_ratio": 0.0,
+        "projected_jobs": 2.2,
+        "projected_gpu_demand": 4.4,
+        "projected_eight_gpu_node_equivalents": 0.55,
+        "projected_dependency_lines": 6788,
+        "projected_capacity_ratio": 0.0913,
+        "projected_future_capacity_ratio": 0.0913,
         "projected_gap_jobs": 0.0,
         "projected_gap_gpus": 0.0,
         "requires_migration": false
@@ -2126,12 +2481,12 @@
         "eight_gpu_node_equivalents": 37.0,
         "future_max_concurrent_jobs": 296,
         "future_gpu_capacity": 296,
-        "projected_jobs": 151.7,
-        "projected_gpu_demand": 151.7,
-        "projected_eight_gpu_node_equivalents": 18.96,
-        "projected_dependency_lines": 64403796,
-        "projected_capacity_ratio": 0.5126,
-        "projected_future_capacity_ratio": 0.5126,
+        "projected_jobs": 124.9,
+        "projected_gpu_demand": 124.9,
+        "projected_eight_gpu_node_equivalents": 15.61,
+        "projected_dependency_lines": 51465615,
+        "projected_capacity_ratio": 0.4221,
+        "projected_future_capacity_ratio": 0.4221,
         "projected_gap_jobs": 0.0,
         "projected_gap_gpus": 0.0,
         "requires_migration": false
@@ -2150,12 +2505,12 @@
         "eight_gpu_node_equivalents": 4.5,
         "future_max_concurrent_jobs": 18,
         "future_gpu_capacity": 36,
-        "projected_jobs": 16.6,
-        "projected_gpu_demand": 33.1,
-        "projected_eight_gpu_node_equivalents": 4.14,
-        "projected_dependency_lines": 7945523,
-        "projected_capacity_ratio": 0.9195,
-        "projected_future_capacity_ratio": 0.9195,
+        "projected_jobs": 17.5,
+        "projected_gpu_demand": 35.1,
+        "projected_eight_gpu_node_equivalents": 4.39,
+        "projected_dependency_lines": 7393420,
+        "projected_capacity_ratio": 0.9741,
+        "projected_future_capacity_ratio": 0.9741,
         "projected_gap_jobs": 0.0,
         "projected_gap_gpus": 0.0,
         "requires_migration": false
@@ -2174,12 +2529,12 @@
         "eight_gpu_node_equivalents": 9.5,
         "future_max_concurrent_jobs": 19,
         "future_gpu_capacity": 76,
-        "projected_jobs": 11.0,
-        "projected_gpu_demand": 44.1,
-        "projected_eight_gpu_node_equivalents": 5.51,
-        "projected_dependency_lines": 122968,
-        "projected_capacity_ratio": 0.5808,
-        "projected_future_capacity_ratio": 0.5808,
+        "projected_jobs": 13.2,
+        "projected_gpu_demand": 52.6,
+        "projected_eight_gpu_node_equivalents": 6.58,
+        "projected_dependency_lines": 382380,
+        "projected_capacity_ratio": 0.6921,
+        "projected_future_capacity_ratio": 0.6921,
         "projected_gap_jobs": 0.0,
         "projected_gap_gpus": 0.0,
         "requires_migration": false
@@ -2198,14 +2553,14 @@
         "eight_gpu_node_equivalents": 2.0,
         "future_max_concurrent_jobs": 2,
         "future_gpu_capacity": 16,
-        "projected_jobs": 2.8,
-        "projected_gpu_demand": 22.1,
-        "projected_eight_gpu_node_equivalents": 2.76,
+        "projected_jobs": 2.2,
+        "projected_gpu_demand": 17.5,
+        "projected_eight_gpu_node_equivalents": 2.19,
         "projected_dependency_lines": 0,
-        "projected_capacity_ratio": 1.3793,
-        "projected_future_capacity_ratio": 1.3793,
-        "projected_gap_jobs": 0.8,
-        "projected_gap_gpus": 6.4,
+        "projected_capacity_ratio": 1.0959,
+        "projected_future_capacity_ratio": 1.0959,
+        "projected_gap_jobs": 0.2,
+        "projected_gap_gpus": 1.6,
         "requires_migration": false
       },
       {
@@ -2318,12 +2673,12 @@
         "eight_gpu_node_equivalents": 30.0,
         "future_max_concurrent_jobs": 240,
         "future_gpu_capacity": 240,
-        "projected_jobs": 0.0,
-        "projected_gpu_demand": 0.0,
-        "projected_eight_gpu_node_equivalents": 0.0,
-        "projected_dependency_lines": 0,
-        "projected_capacity_ratio": 0.0,
-        "projected_future_capacity_ratio": 0.0,
+        "projected_jobs": 24.1,
+        "projected_gpu_demand": 24.1,
+        "projected_eight_gpu_node_equivalents": 3.01,
+        "projected_dependency_lines": 14935047,
+        "projected_capacity_ratio": 0.1005,
+        "projected_future_capacity_ratio": 0.1005,
         "projected_gap_jobs": 0.0,
         "projected_gap_gpus": 0.0,
         "requires_migration": false
