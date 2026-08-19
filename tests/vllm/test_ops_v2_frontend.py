@@ -2477,7 +2477,7 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
     ):
         assert retired_contract not in OPS_JS
     assert 'assets/css/ops-v2.css?v=11' in INDEX
-    assert 'assets/js/ops-v2.js?v=18' in INDEX
+    assert 'assets/js/ops-v2.js?v=19' in INDEX
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
     assert "policy.passing_groups) + ' / ' + integer(policy.included_groups)" in OPS_JS
     assert "openMatrixHealthBrowser('all')" in OPS_JS
@@ -2490,6 +2490,44 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
         ".ops-page .ops-unique-health-segment.is-mixed",
     ):
         assert selector in OPS_CSS
+
+
+def test_upstream_scheduled_gating_surfaces_groups_queues_and_waits():
+    for contract in (
+        "function upstreamScheduledGating",
+        "((ops || {}).gating || {}).upstream_scheduled || {}",
+        "function scheduledGatingPresentation",
+        "function openUpstreamScheduledGatingDetail",
+        "home-upstream-scheduled-gating",
+        "health-upstream-scheduled-gating",
+        "UPSTREAM SCHEDULED GATING",
+        "GATED TEST GROUPS",
+        "integer(summary.gated) + ' / ' + integer(summary.total)",
+        "integer(summary.passing) + ' / ' + integer(summary.gated)",
+        "USED / CONFIGURED QUEUES",
+        "summary.configured_queue_count",
+        "Number(row.gated || 0) > 0",
+        "used of",
+        "Gated groups by Buildkite queue",
+        "scheduledGatingWait(row).p50",
+        "scheduledGatingWait(row).p95",
+        "QUEUE WAIT P50 / P95",
+        "Retained nightly and daily runs",
+        "Only main-branch Full CI run - nightly and Full CI run - daily builds are included.",
+        "data/vllm/ci/operations_v2/gating.json",
+        "data/vllm/ci/capacity_monitor.json",
+        "Open scheduled-gating JSON",
+        "Open configured-group JSON",
+    ):
+        assert contract in OPS_JS
+
+    assert (
+        "https://buildkite.com/vllm/ci/builds?query=full+ci+run+-+"
+        in OPS_JS
+    )
+    assert "Open nightly + daily Buildkite filter" in OPS_JS
+    assert "full+ci+run+-+nightly" not in OPS_JS
+    assert "full+ci+run+-+daily" not in OPS_JS
 
 
 def test_retired_mi355b_queues_are_excluded_on_every_frontend_path():

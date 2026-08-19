@@ -5,6 +5,8 @@ To add a new project, create a similar file under scripts/<project>/pipelines.py
 with its own PIPELINES dict.
 """
 
+import re
+
 # vLLM Buildkite build names to monitor.
 #
 # Keep the AMD pattern exact: "AMD Full CI Run - TheRock nightly" is a
@@ -12,6 +14,27 @@ with its own PIPELINES dict.
 # health, analytics, or matrix views.
 AMD_NIGHTLY_NAME_PATTERN = r"^AMD Full CI Run\s*-\s*nightly(?:\s|$)"
 UPSTREAM_NIGHTLY_NAME_PATTERN = r"^Full CI run\s*-\s*nightly(?:\s|$)"
+
+# Upstream's scheduled gating builds use two distinct messages. Keep this
+# broader classifier separate from ``UPSTREAM_NIGHTLY_NAME_PATTERN`` so daily
+# builds can be identified without becoming canonical nightlies elsewhere.
+UPSTREAM_SCHEDULED_GATING_NAME_PATTERN = (
+    r"^Full CI run\s*-\s*(nightly|daily)(?:\s|$)"
+)
+SCHEDULED_GATING_KINDS = frozenset({"nightly", "daily"})
+
+
+def upstream_scheduled_gating_kind(message: object) -> str | None:
+    """Return the exact upstream scheduled gating kind, if present."""
+    if not isinstance(message, str):
+        return None
+    match = re.search(
+        UPSTREAM_SCHEDULED_GATING_NAME_PATTERN,
+        message,
+        flags=re.IGNORECASE,
+    )
+    return match.group(1).lower() if match else None
+
 
 NIGHTLY_NAME_PATTERNS_BY_SLUG = {
     "amd-ci": AMD_NIGHTLY_NAME_PATTERN,

@@ -1,10 +1,15 @@
 import hashlib
 import json
+import re
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from vllm.ci import analytics_cache as cache
+from vllm.pipelines import (
+    UPSTREAM_NIGHTLY_NAME_PATTERN,
+    upstream_scheduled_gating_kind,
+)
 
 
 NOW = datetime(2026, 8, 17, 12, tzinfo=timezone.utc)
@@ -12,6 +17,25 @@ NOW = datetime(2026, 8, 17, 12, tzinfo=timezone.utc)
 
 def test_private_cache_retains_an_enforced_production_scale_cap():
     assert cache._MAX_CACHE_BYTES == 256 * 1024 * 1024
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("Full CI run - nightly", "nightly"),
+        ("full ci RUN - DAILY scheduled", "daily"),
+        ("Full CI run-daily", "daily"),
+        ("Full CI run - dailyish", None),
+        ("prefix Full CI run - daily", None),
+        ("Full CI run - weekly", None),
+        ("AMD Full CI Run - nightly", None),
+        (None, None),
+    ],
+)
+def test_upstream_scheduled_gating_kind_is_strict(message, expected):
+    assert upstream_scheduled_gating_kind(message) == expected
+    if expected == "daily":
+        assert re.search(UPSTREAM_NIGHTLY_NAME_PATTERN, message, re.IGNORECASE) is None
 
 
 def _build(
@@ -220,6 +244,7 @@ def test_projection_is_allowlisted_and_strips_pii(tmp_path):
     job = build["jobs"][0]
 
     assert build["canonical_nightly"] is True
+    assert build["scheduled_gating_kind"] == "nightly"
     assert job["q"] == "gpu_1_queue"
     assert job["step"] == {"id": "step-101", "key": "gpu-test"}
     assert job["retry_source"] == {"job_id": "source-101"}
@@ -243,9 +268,34 @@ def test_projection_is_allowlisted_and_strips_pii(tmp_path):
         "started_at",
         "finished_at",
         "canonical_nightly",
+        "scheduled_gating_kind",
         "jobs_complete",
         "jobs",
     }
+
+
+def test_upstream_daily_kind_round_trips_without_becoming_canonical_nightly(tmp_path):
+    daily = _build()
+    daily["message"] = "Full CI run - daily by private@example.com"
+
+    path = _write(tmp_path, builds=[daily])
+    projected = json.loads(path.read_text())["builds"][0]
+    loaded = _load(tmp_path)
+
+    assert projected["scheduled_gating_kind"] == "daily"
+    assert projected["canonical_nightly"] is False
+    assert "message" not in projected
+    assert loaded.valid is True
+    assert loaded.builds[0]["scheduled_gating_kind"] == "daily"
+
+
+@pytest.mark.parametrize("kind", ["weekly", "Daily", "", None, 1])
+def test_scheduled_gating_kind_rejects_values_outside_the_allowlist(tmp_path, kind):
+    build = _build()
+    build["scheduled_gating_kind"] = kind
+
+    with pytest.raises(cache.CacheValidationError, match="allowlisted upstream kind"):
+        _write(tmp_path, builds=[build])
 
 
 def test_merge_is_fresh_wins_deduplicated_sorted_and_pruned():

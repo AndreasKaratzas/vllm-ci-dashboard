@@ -106,6 +106,12 @@ CACHE_NIGHTLY_MESSAGE = {
     "amd-ci": "AMD Full CI Run - nightly",
     "ci": "Full CI run - nightly",
 }
+CACHE_SCHEDULED_GATING_MESSAGE = {
+    "ci": {
+        "nightly": CACHE_NIGHTLY_MESSAGE["ci"],
+        "daily": "Full CI run - daily",
+    },
+}
 RETRY_FIELDS = (
     "retried",
     "retried_in_job_id",
@@ -1048,24 +1054,37 @@ def _reliability_builds_with_cache_aliases(
     builds: list[dict],
     pipeline_slug: str,
 ) -> list[dict]:
-    """Restore the one semantic field compact cache rows intentionally replace.
+    """Restore semantic messages that compact cache rows intentionally replace.
 
     The private cache records ``canonical_nightly`` instead of retaining every
-    build message. Reliability history still accepts raw Buildkite rows and
-    classifies their messages with the configured regex, so give only flagged
-    cached rows a known matching compatibility message on a shallow copy.
+    build message. It also records the allowlisted upstream scheduled gating
+    kind. Reliability history still accepts raw Buildkite rows, so give only
+    classified cached rows a known compatibility message on a shallow copy.
     """
-    nightly_message = CACHE_NIGHTLY_MESSAGE.get(pipeline_slug, "")
     compatible = []
     for build in builds:
-        if (
-            nightly_message
-            and build.get("canonical_nightly") is True
-            and not build.get("message")
-        ):
-            build = {**build, "message": nightly_message}
+        compatibility_message = _cache_compatibility_message(build, pipeline_slug)
+        if compatibility_message and not build.get("message"):
+            build = {**build, "message": compatibility_message}
         compatible.append(build)
     return compatible
+
+
+def _cache_compatibility_message(build: dict, pipeline_slug: str) -> str:
+    scheduled_kind = build.get("scheduled_gating_kind")
+    scheduled_message = (
+        CACHE_SCHEDULED_GATING_MESSAGE.get(pipeline_slug, {}).get(
+            scheduled_kind,
+            "",
+        )
+        if isinstance(scheduled_kind, str)
+        else ""
+    )
+    if scheduled_message:
+        return scheduled_message
+    if build.get("canonical_nightly") is True:
+        return CACHE_NIGHTLY_MESSAGE.get(pipeline_slug, "")
+    return ""
 
 
 def _full_cached_fetch(
@@ -1405,9 +1424,10 @@ def summarize_pipeline_builds(pipeline_slug, builds_raw, nightly_only=False, nam
         created = b.get("created_at", "")
         finished = b.get("finished_at", "")
         wall_mins = duration_mins(created, finished)
-        raw_message = b.get("message") or ""
-        if not raw_message and b.get("canonical_nightly") is True:
-            raw_message = CACHE_NIGHTLY_MESSAGE.get(pipeline_slug, "")
+        raw_message = b.get("message") or _cache_compatibility_message(
+            b,
+            pipeline_slug,
+        )
         message = raw_message[:100]
         author = (b.get("creator") or {}).get("name", "") or (b.get("author") or {}).get("name", "")
 

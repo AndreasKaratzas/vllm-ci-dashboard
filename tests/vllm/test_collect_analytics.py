@@ -461,6 +461,33 @@ class TestWindowedAnalytics:
         )
         assert reliability["cohort"]["canonical_nightly_build_count"] == 1
 
+    def test_cached_upstream_daily_restores_message_but_stays_out_of_nightly(self):
+        cached = _raw_api_build(43)
+        cached.pop("message")
+        cached["canonical_nightly"] = False
+        cached["scheduled_gating_kind"] = "daily"
+
+        compatible = ca._reliability_builds_with_cache_aliases([cached], "ci")
+        assert compatible[0]["message"] == "Full CI run - daily"
+        assert "message" not in cached
+
+        nightly = ca.summarize_pipeline_builds(
+            "ci",
+            compatible,
+            nightly_only=True,
+            name_pattern=ca.NIGHTLY_NAME_PATTERNS_BY_SLUG["ci"],
+        )
+        assert nightly == []
+
+        all_main = ca.build_all_main_reliability(
+            compatible,
+            pipeline_slug="ci",
+            window_days=30,
+            nightly_pattern=ca.NIGHTLY_NAME_PATTERNS_BY_SLUG["ci"],
+        )
+        assert all_main["builds"][0]["message"] == "Full CI run - daily"
+        assert all_main["builds"][0]["is_canonical_nightly"] is False
+
 
 class TestIncrementalAnalyticsCache:
     def test_steady_state_uses_overlapping_created_and_finished_legs(

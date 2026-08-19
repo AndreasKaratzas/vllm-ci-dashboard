@@ -21,7 +21,11 @@ from pathlib import Path
 from typing import Literal
 
 from vllm.ci.utils import queue_from_rules
-from vllm.pipelines import NIGHTLY_NAME_PATTERNS_BY_SLUG
+from vllm.pipelines import (
+    NIGHTLY_NAME_PATTERNS_BY_SLUG,
+    SCHEDULED_GATING_KINDS,
+    upstream_scheduled_gating_kind,
+)
 
 CACHE_SCHEMA_VERSION = 1
 CACHE_KIND = "vllm-ci-analytics-build-cache"
@@ -282,6 +286,10 @@ def _sanitize_build(build: object, pipeline: str, nightly_pattern: str) -> dict:
         if value is not None:
             row[key] = value
 
+    message = build.get("message")
+    if message is not None and not isinstance(message, str):
+        raise CacheValidationError("malformed_types", "build.message must be a string")
+
     if "canonical_nightly" in build:
         canonical_nightly = build.get("canonical_nightly")
         if not isinstance(canonical_nightly, bool):
@@ -290,13 +298,27 @@ def _sanitize_build(build: object, pipeline: str, nightly_pattern: str) -> dict:
                 "canonical_nightly must be boolean",
             )
     else:
-        message = build.get("message")
-        if message is not None and not isinstance(message, str):
-            raise CacheValidationError("malformed_types", "build.message must be a string")
         canonical_nightly = bool(
             nightly_pattern and re.search(nightly_pattern, message or "", re.IGNORECASE)
         )
     row["canonical_nightly"] = canonical_nightly
+
+    scheduled_gating_kind = None
+    if "scheduled_gating_kind" in build:
+        scheduled_gating_kind = build.get("scheduled_gating_kind")
+        if (
+            pipeline != "ci"
+            or not isinstance(scheduled_gating_kind, str)
+            or scheduled_gating_kind not in SCHEDULED_GATING_KINDS
+        ):
+            raise CacheValidationError(
+                "malformed_types",
+                "scheduled_gating_kind must be an allowlisted upstream kind",
+            )
+    elif pipeline == "ci":
+        scheduled_gating_kind = upstream_scheduled_gating_kind(message)
+    if scheduled_gating_kind:
+        row["scheduled_gating_kind"] = scheduled_gating_kind
 
     raw_jobs = build.get("jobs")
     if raw_jobs is None:

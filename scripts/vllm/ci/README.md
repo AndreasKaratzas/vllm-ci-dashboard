@@ -82,6 +82,46 @@ All files are written to `data/vllm/ci/`:
 | `quarantine.json` | Rendered quarantine/allowlist state |
 | `test_results/{date}_{pipeline}.jsonl` | Per-test results (one JSON per line) |
 
+### Upstream scheduled-gating contract
+
+The browser-ready contract for scheduled upstream gating is generated at
+`data/vllm/ci/operations_v2/gating.json#/gating/upstream_scheduled`. Dashboard
+code should consume that projection instead of rebuilding the group-to-job
+join or counting raw Buildkite jobs.
+
+The cohort is deliberately narrow: only `ci` pipeline builds on `main` whose
+message matches the `Full CI run - nightly` or `Full CI run - daily` marker are
+eligible (the classifier permits a whitespace-delimited suffix). Arbitrary
+`main` builds are excluded. Only terminal passed/failed builds with retained
+configured-group observations are surfaced; older catalog entries whose
+bounded observations have expired are omitted instead of being reported as
+zero gated. Retry attempts are collapsed before logical test groups are
+counted. For each selected build:
+
+- `summary.total` is the number of configured logical AMD mirror groups in
+  scope.
+- `summary.gated` is the number of those configured groups observed in the
+  build.
+- `summary.passing` is the number of observed groups whose selected final jobs
+  all pass.
+- `summary.queue_count` counts queues that gated at least one group in that
+  build, while `summary.configured_queue_count` records the full configured
+  queue inventory.
+- `queue_wait_mins` summarizes wait time from `runnable_at` to `started_at` as
+  `p50`, `p95`, `max`, and `sample_count`.
+- Each entry in `queues` repeats the logical-group counts, a `used` flag, and
+  `queue_wait_mins` for one Buildkite queue, so queue-level gating and latency
+  use the same selected job population as the build summary.
+
+`build_operations_snapshot.py` assembles the projection from
+`capacity_monitor.json`, which supplies the configured logical-group inventory
+and expected queues, and the validated
+`analytics.json#/ci/all_main_reliability` aggregate, which supplies retained
+build messages plus bounded group observations with outcomes, stable step keys,
+retry evidence, and queue timestamps. The public shard is the authoritative
+joined contract; the full analytics payload and the monolithic
+`operations_v2.json` build input remain private.
+
 ### Pass-rate contracts
 
 Pass rates carry an explicit percentage and denominator label so consumers do

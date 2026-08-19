@@ -37,6 +37,9 @@
     workloadMapping: 'data/vllm/ci/workload_mapping.json',
     perf: 'data/vllm/perf_eval/perf_eval.json',
     amdPipeline: 'https://buildkite.com/vllm/amd-ci',
+    upstreamScheduledGating: 'data/vllm/ci/operations_v2/gating.json',
+    upstreamGatingCapacity: 'data/vllm/ci/capacity_monitor.json',
+    upstreamScheduledBuilds: 'https://buildkite.com/vllm/ci/builds?query=full+ci+run+-+',
   };
   const CHART_LIBRARY_URL = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js';
   const state = {
@@ -225,8 +228,8 @@
   function toneForState(s) {
     const stateName = String(s || '').toLowerCase();
     if (['passed', 'green', 'healthy', 'fixed', 'success'].includes(stateName)) return 'is-success';
-    if (['failed', 'hard', 'incident', 'error', 'red', 'critical', 'surge', 'broken'].includes(stateName)) return 'is-danger';
-    if (['soft', 'soft_fail', 'soft_failed', 'warning', 'attention', 'elevated', 'waiting'].includes(stateName)) return 'is-warning';
+    if (['failed', 'failing', 'hard', 'incident', 'error', 'red', 'critical', 'surge', 'broken'].includes(stateName)) return 'is-danger';
+    if (['soft', 'soft_fail', 'soft_failed', 'soft_failing', 'warning', 'attention', 'elevated', 'waiting'].includes(stateName)) return 'is-warning';
     if (['new', 'info', 'recurring'].includes(stateName)) return 'is-info';
     return 'is-neutral';
   }
@@ -2974,9 +2977,197 @@
     }
   }
 
+  function upstreamScheduledGating(ops) {
+    return ((ops || {}).gating || {}).upstream_scheduled || {};
+  }
+
+  function scheduledGatingSummary(run) {
+    return (run || {}).summary || {};
+  }
+
+  function scheduledGatingKind(run) {
+    return String((run || {}).kind || (run || {}).build_kind || 'scheduled').toLowerCase();
+  }
+
+  function scheduledGatingBuildNumber(run) {
+    const row = run || {};
+    return row.build_number !== undefined ? row.build_number : row.number;
+  }
+
+  function scheduledGatingBuildState(run) {
+    const row = run || {};
+    return row.build_state || row.state || 'unknown';
+  }
+
+  function scheduledGatingBuildUrl(run) {
+    const row = run || {};
+    const exact = exactPipelineBuildUrl(row, 'ci');
+    return exact || buildUrl('ci', scheduledGatingBuildNumber(row));
+  }
+
+  function scheduledGatingWait(row) {
+    return (row || {}).queue_wait_mins || (row || {}).wait_mins || {};
+  }
+
+  function scheduledWaitSampleCount(wait) {
+    const stats = wait || {};
+    const count = stats.sample_count !== undefined ? stats.sample_count : stats.count;
+    return Number.isFinite(Number(count)) ? Number(count) : null;
+  }
+
+  function scheduledGatingQueues(run) {
+    const queues = (run || {}).queues;
+    if (Array.isArray(queues)) return queues;
+    if (!queues || typeof queues !== 'object') return [];
+    return Object.entries(queues).map(function (entry) {
+      return Object.assign({queue: entry[0]}, entry[1] || {});
+    });
+  }
+
+  function scheduledGatingRuns(block) {
+    const configured = (block || {}).recent || (block || {}).recent_runs;
+    if (Array.isArray(configured) && configured.length) return configured;
+    const byKind = (block || {}).latest_by_kind || {};
+    return Object.values(byKind).filter(Boolean).sort(function (left, right) {
+      return String((right || {}).created_at || (right || {}).observed_at || '').localeCompare(String((left || {}).created_at || (left || {}).observed_at || ''));
+    });
+  }
+
+  function scheduledGatingPresentation(block) {
+    const data = block || {};
+    const run = data.latest || {};
+    const summary = scheduledGatingSummary(run);
+    if (data.available === false || !Object.keys(run).length) {
+      return {
+        value: 'Unavailable',
+        meta: 'No retained Full CI run - nightly or daily build',
+        tone: 'is-warning',
+      };
+    }
+    const queues = scheduledGatingQueues(run);
+    const names = queues.filter(function (row) {
+      return Number(row.gated || 0) > 0;
+    }).map(function (row) { return row.queue || row.name || row.id; }).filter(Boolean);
+    const missing = Number(summary.missing || 0);
+    const failing = Number(summary.failing || summary.failed || 0);
+    const soft = Number(summary.soft_failing || summary.soft_failed || summary.soft || 0);
+    const pending = Number(summary.pending || summary.waiting || 0);
+    const buildNumber = scheduledGatingBuildNumber(run);
+    return {
+      value: integer(summary.gated) + ' / ' + integer(summary.total) + ' gated',
+      meta: integer(summary.passing) + ' passing - ' + scheduledGatingKind(run) + (buildNumber ? ' #' + buildNumber : '') + ' - ' + (names.length ? names.join(', ') : 'no observed queues'),
+      tone: failing ? 'is-danger' : soft || pending || missing ? 'is-warning' : 'is-success',
+    };
+  }
+
+  function openUpstreamScheduledGatingDetail(block) {
+    const data = block || {};
+    const latest = data.latest || {};
+    const summary = scheduledGatingSummary(latest);
+    const latestWait = scheduledGatingWait(latest);
+    const queues = scheduledGatingQueues(latest);
+    const usedQueues = queues.filter(function (row) { return Number(row.gated || 0) > 0; });
+    const content = n('div', 'ops-stack');
+    const note = n('div', 'ops-evidence-note is-info');
+    add(note, [
+      n('strong', '', 'Exact upstream scheduled cohort. '),
+      n('span', '', 'Only main-branch Full CI run - nightly and Full CI run - daily builds are included. Logical AMD mirror groups are joined by stable Buildkite step key, retry attempts are collapsed, and queue wait is measured from runnable_at to started_at.'),
+    ]);
+    content.append(note);
+
+    const evidenceSummary = n('div', 'ops-evidence-summary');
+    add(evidenceSummary, [
+      evidenceSummaryItem('GATED TEST GROUPS', integer(summary.gated) + ' / ' + integer(summary.total), Number(summary.missing || 0) ? 'is-warning' : ''),
+      evidenceSummaryItem('PASSING', integer(summary.passing) + ' / ' + integer(summary.gated), Number(summary.failing || summary.failed || 0) ? 'is-danger' : 'is-success'),
+      evidenceSummaryItem('USED / CONFIGURED QUEUES', integer(summary.queue_count !== undefined ? summary.queue_count : usedQueues.length) + ' / ' + integer(summary.configured_queue_count !== undefined ? summary.configured_queue_count : queues.length)),
+      evidenceSummaryItem('QUEUE WAIT P50 / P95', duration(latestWait.p50) + ' / ' + duration(latestWait.p95), Number(latestWait.p95 || 0) >= 30 ? 'is-warning' : ''),
+    ]);
+    content.append(evidenceSummary);
+
+    const queueColumns = [
+      {label: 'Queue', sticky: true, width: '180px', render: function (row) { return n('span', 'ops-mono', value(row.queue || row.name || row.id)); }},
+      {label: 'Use', width: '100px', render: function (row) { return badge(Number(row.gated || 0) > 0 ? 'used' : 'not used', Number(row.gated || 0) > 0 ? 'is-success' : 'is-neutral'); }},
+      {label: 'Gated / total', numeric: true, width: '130px', render: function (row) { return integer(row.gated) + ' / ' + integer(row.total); }},
+      {label: 'Passing', numeric: true, width: '100px', render: function (row) { return integer(row.passing); }},
+      {label: 'Fail / soft', numeric: true, width: '120px', render: function (row) { return integer(row.failing !== undefined ? row.failing : row.failed) + ' / ' + integer(row.soft_failing !== undefined ? row.soft_failing : row.soft_failed); }},
+      {label: 'Selected jobs', numeric: true, width: '130px', render: function (row) { return integer(row.selected_jobs !== undefined ? row.selected_jobs : row.job_count); }},
+      {label: 'Wait p50', numeric: true, width: '105px', render: function (row) { return duration(scheduledGatingWait(row).p50); }},
+      {label: 'Wait p95', numeric: true, width: '105px', render: function (row) { return duration(scheduledGatingWait(row).p95); }},
+      {label: 'Wait max', numeric: true, width: '105px', render: function (row) { return duration(scheduledGatingWait(row).max); }},
+      {label: 'Samples', numeric: true, width: '95px', render: function (row) { return integer(scheduledWaitSampleCount(scheduledGatingWait(row))); }},
+    ];
+    content.append(panel(
+      'Gated groups by Buildkite queue',
+      integer(usedQueues.length) + ' used of ' + integer(queues.length) + ' configured queues in ' + scheduledGatingKind(latest) + ' #' + value(scheduledGatingBuildNumber(latest)),
+      dataTable(queueColumns, queues, integer(queues.length) + ' configured AMD gating queues', {name: 'scheduled-gating-queues', minWidth: '1190px'})
+    ));
+
+    const runs = scheduledGatingRuns(data);
+    if (runs.length) {
+      content.append(panel('Retained nightly and daily runs', integer(runs.length) + ' exact scheduled builds', dataTable([
+        {label: 'Build', sticky: true, width: '110px', render: function (row) { return externalLink('#' + value(scheduledGatingBuildNumber(row)), scheduledGatingBuildUrl(row), 'ops-mono'); }},
+        {label: 'Cohort', width: '100px', render: function (row) { return badge(scheduledGatingKind(row), 'is-info'); }},
+        {label: 'State', width: '110px', render: function (row) { return linkedBadge(scheduledGatingBuildState(row), scheduledGatingBuildUrl(row)); }},
+        {label: 'Gated / total', numeric: true, width: '130px', render: function (row) { const counts = scheduledGatingSummary(row); return integer(counts.gated) + ' / ' + integer(counts.total); }},
+        {label: 'Passing', numeric: true, width: '100px', render: function (row) { return integer(scheduledGatingSummary(row).passing); }},
+        {label: 'Queues', numeric: true, width: '90px', render: function (row) { const counts = scheduledGatingSummary(row); return integer(counts.queue_count !== undefined ? counts.queue_count : scheduledGatingQueues(row).length); }},
+        {label: 'Wait p50', numeric: true, width: '105px', render: function (row) { return duration(scheduledGatingWait(row).p50); }},
+        {label: 'Wait p95', numeric: true, width: '105px', render: function (row) { return duration(scheduledGatingWait(row).p95); }},
+        {label: 'Observed', width: '170px', render: function (row) { return shortDate(row.created_at || row.observed_at); }},
+      ], runs, integer(runs.length) + ' retained Full CI scheduled builds', {name: 'scheduled-gating-runs', minWidth: '1020px'})));
+    }
+
+    const groups = Array.isArray(latest.groups) ? latest.groups : [];
+    if (groups.length) {
+      content.append(compactTablePanel('Logical gating groups', integer(groups.length) + ' groups matched by stable Buildkite step key', [
+        {label: 'Test group', sticky: true, width: '320px', render: function (row) { const url = exactPipelineEvidenceUrl(row, 'ci') || row.job_url || row.url; return externalLink(row.label || row.name || row.key, url); }},
+        {label: 'Result', width: '120px', render: function (row) { return linkedBadge(value(row.state, 'missing'), exactPipelineEvidenceUrl(row, 'ci') || row.job_url || row.url); }},
+        {label: 'Queue', width: '170px', render: function (row) { return n('span', 'ops-mono', value(row.queue || (row.queues || []).join(', '))); }},
+        {label: 'Selected jobs', numeric: true, width: '130px', render: function (row) { return integer(row.selected_jobs !== undefined ? row.selected_jobs : row.job_count); }},
+        {label: 'Wait p50', numeric: true, width: '105px', render: function (row) { return duration(scheduledGatingWait(row).p50); }},
+        {label: 'Wait p95', numeric: true, width: '105px', render: function (row) { return duration(scheduledGatingWait(row).p95); }},
+      ], groups, {
+        id: 'upstream-scheduled-gating-groups',
+        limit: 18,
+        alwaysBrowse: true,
+        browserSubtitle: 'Configured AMD mirrors observed in the selected upstream nightly or daily build',
+        searchPlaceholder: 'Filter group, result, or queue',
+        searchText: function (row) { return [row.label, row.name, row.key, row.state, row.queue, (row.queues || []).join(' ')].join(' '); },
+        geometry: {name: 'scheduled-gating-groups', minWidth: '950px'},
+      }));
+    }
+
+    openDetailDrawer({
+      id: 'upstream-scheduled-gating',
+      title: 'Upstream scheduled gating',
+      subtitle: 'vllm/ci - nightly and daily only',
+      description: data.available === false
+        ? 'No retained main-branch nightly or daily Buildkite build can be joined to the configured AMD mirror inventory.'
+        : 'Configured logical AMD mirror groups, their latest scheduled outcomes, the queues they gate on, and queue-wait samples.',
+      fields: [
+        {label: 'Selected build', value: scheduledGatingKind(latest) + ' #' + value(scheduledGatingBuildNumber(latest))},
+        {label: 'Result', value: scheduledGatingBuildState(latest)},
+        {label: 'Configured groups', value: integer(summary.total)},
+        {label: 'Observed gated groups', value: integer(summary.gated)},
+        {label: 'Passing groups', value: integer(summary.passing)},
+        {label: 'Selected job executions', value: integer(summary.selected_jobs !== undefined ? summary.selected_jobs : summary.job_count)},
+        {label: 'Queue-wait samples', value: integer(scheduledWaitSampleCount(latestWait))},
+      ],
+      sources: [
+        {label: 'Open scheduled-gating JSON', url: SOURCE_ASSETS.upstreamScheduledGating},
+        {label: 'Open configured-group JSON', url: SOURCE_ASSETS.upstreamGatingCapacity},
+        scheduledGatingBuildUrl(latest) ? {label: 'Open selected Buildkite build', url: scheduledGatingBuildUrl(latest)} : null,
+        {label: 'Open nightly + daily Buildkite filter', url: SOURCE_ASSETS.upstreamScheduledBuilds},
+      ],
+      content: content,
+    });
+  }
+
   async function renderHome(host, ops) {
     const amd = latestAmd(ops);
     const build = (amd.builds || [])[0] || {};
+    const scheduledGating = upstreamScheduledGating(ops);
+    const scheduledGatingState = scheduledGatingPresentation(scheduledGating);
     const amdHealthSummary = ((ops.amd_test_health || {}).summary) || {};
     const nightlyState = amdNightlyPresentation(build, amdHealthSummary);
     const matrix = (ops.gating || {}).matrix_summary || {};
@@ -2989,6 +3180,7 @@
     add(host, statusStrip([
       {id: 'home-amd-nightly', label: 'LATEST AMD NIGHTLY', value: nightlyState.label, meta: nightlyState.meta, tone: nightlyState.tone, url: exactPipelineBuildUrl(build, 'amd-ci'), observed: build.created_at},
       {id: 'home-hardware-coverage', label: 'BEST-HARDWARE GATED GROUPS', value: uniqueHealth.pass_percentage === null || uniqueHealth.pass_percentage === undefined ? 'Unavailable' : Number(uniqueHealth.pass_percentage).toFixed(1) + '% passing', meta: uniqueHealth.best_hardware_unavailable ? 'Refresh for the complete policy and gate inventory' : integer(uniqueHealth.passing_groups) + ' / ' + integer(uniqueHealth.included_groups) + ' gates', tone: uniqueHealth.best_hardware_unavailable ? 'is-warning' : Number(uniqueHealth.failing_groups) ? 'is-warning' : Number(uniqueHealth.waiting_groups || 0) + Number(uniqueHealth.unknown_groups || 0) ? 'is-warning' : 'is-success', onOpen: function () { openMatrixHealthBrowser('all'); }},
+      {id: 'home-upstream-scheduled-gating', label: 'UPSTREAM SCHEDULED GATING', value: scheduledGatingState.value, meta: scheduledGatingState.meta, tone: scheduledGatingState.tone, onOpen: function () { openUpstreamScheduledGatingDetail(scheduledGating); }},
       {id: 'home-failure-lifecycle', label: 'FAILURE MOVEMENT', value: nightlyState.movementLabel, meta: nightlyState.movementMeta, tone: nightlyState.movementTone, onOpen: function () { openBuildDetail(build); }},
       {id: 'home-queue-snapshot', label: 'ALL-FLEET QUEUE ACTIVITY', value: integer(allFleetWaiting) + ' waiting', meta: integer(allFleetRunning) + ' running across ' + integer(allFleetQueues.length) + ' queues', tone: allFleetWaiting ? 'is-warning' : 'is-success', observed: queue.ts, provenance: 'Same all-queue scope as destination', onOpen: function () { navigateTo('ci-queue', {queueView: 'current', queueScope: 'all'}); }},
     ]));
@@ -3655,6 +3847,8 @@
     const amd = latestAmd(ops);
     const build = (amd.builds || [])[0] || {};
     const gating = ops.gating || {};
+    const scheduledGating = upstreamScheduledGating(ops);
+    const scheduledGatingState = scheduledGatingPresentation(scheduledGating);
     const definitionSummary = ((ops.definition_parity || {}).summary) || {};
     const matrix = gating.matrix_summary || {};
     const uniqueHealth = matrixHealthPolicy(matrix);
@@ -3663,11 +3857,12 @@
     const amdSoft = Number(amdLatestStates.soft || 0);
     const amdHard = Number(amdLatestStates.hard || 0);
     const nightlyState = amdNightlyPresentation(build, amdHealthSummary);
-    add(host, pageHeader('CI Health', 'One best-hardware gated-group percentage, with exact AMD route evidence and definition parity as a separate supporting inventory.', ops.generated_at));
+    add(host, pageHeader('CI Health', 'Best-hardware health plus exact upstream nightly/daily gating-group counts, queues, waits, and Buildkite evidence.', ops.generated_at));
     healthTabs(host);
     host.append(statusStrip([
       {id: 'health-build', label: 'LATEST AMD NIGHTLY', value: nightlyState.label, meta: build.number ? nightlyState.meta : 'No completed build', tone: nightlyState.tone, url: exactPipelineBuildUrl(build, 'amd-ci')},
       {id: 'health-hardware', label: 'BEST-HARDWARE GATED GROUPS', value: uniqueHealth.pass_percentage === null || uniqueHealth.pass_percentage === undefined ? 'Unavailable' : Number(uniqueHealth.pass_percentage).toFixed(1) + '% passing', meta: uniqueHealth.best_hardware_unavailable ? 'Refresh for the complete policy and gate inventory' : integer(uniqueHealth.passing_groups) + ' / ' + integer(uniqueHealth.included_groups) + ' gates · ' + integer(uniqueHealth.failing_groups) + ' failing · ' + integer(Number(uniqueHealth.waiting_groups || 0) + Number(uniqueHealth.unknown_groups || 0)) + ' no signal', tone: uniqueHealth.best_hardware_unavailable ? 'is-warning' : Number(uniqueHealth.failing_groups) ? 'is-warning' : Number(uniqueHealth.waiting_groups || 0) + Number(uniqueHealth.unknown_groups || 0) ? 'is-warning' : 'is-success', onOpen: function () { openMatrixHealthBrowser('all'); }},
+      {id: 'health-upstream-scheduled-gating', label: 'UPSTREAM SCHEDULED GATING', value: scheduledGatingState.value, meta: scheduledGatingState.meta, tone: scheduledGatingState.tone, onOpen: function () { openUpstreamScheduledGatingDetail(scheduledGating); }},
       {id: 'health-definitions', label: 'DEFINITION PARITY', value: integer(definitionSummary.covered_identity_families) + ' / ' + integer(definitionSummary.amd_identity_families) + ' linked', meta: 'supporting source inventory · not runtime health', tone: Number(definitionSummary.amd_only_identity_families) ? 'is-warning' : 'is-success', onOpen: function () { setRouteState('ci-health', 'healthView', 'gating', 'health_view'); }},
       {id: 'health-nightly-transition', label: 'FAILURE MOVEMENT', value: nightlyState.movementLabel, meta: nightlyState.movementMeta, tone: nightlyState.movementTone, onOpen: function () { openBuildDetail(build); }},
     ]));

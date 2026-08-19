@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import sys
 from collections import Counter, defaultdict
@@ -28,8 +29,13 @@ from vllm.ci.reliability_history import (  # noqa: E402
     OBSERVED_FAILURE_MOVEMENT_ID,
     collapse_nightly_attempts,
     compare_nightly_failures,
+    validate_all_main_reliability,
 )
 from vllm.collect_gating_target_candidates import hardware_fold_key  # noqa: E402
+from vllm.pipelines import (  # noqa: E402
+    UPSTREAM_SCHEDULED_GATING_NAME_PATTERN,
+    upstream_scheduled_gating_kind,
+)
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -42,6 +48,14 @@ NIGHTLY_BUILD_LIMIT = 30
 RANKING_LIMIT = 20
 CHANGE_LIMIT = 20
 GROUP_HISTORY_LIMIT = 60
+UPSTREAM_SCHEDULED_RECENT_LIMIT = 30
+UPSTREAM_SCHEDULED_QUERY_URL = (
+    "https://buildkite.com/vllm/ci/builds?query=full+ci+run+-+"
+)
+UPSTREAM_SCHEDULED_MESSAGES = {
+    "nightly": "Full CI run - nightly",
+    "daily": "Full CI run - daily",
+}
 AMD_TEST_HISTORY_LIMIT = 30
 AMD_TEST_RESULTS_GLOB = "test_results/*_amd.jsonl"
 AMD_TEST_PIPELINE = "amd-ci"
@@ -3449,6 +3463,467 @@ def _gating(
     }
 
 
+def _upstream_scheduled_message_kind(value: Any) -> str | None:
+    """Return the exact scheduled cohort kind without changing nightly scope."""
+    return upstream_scheduled_gating_kind(value)
+
+
+def _upstream_scheduled_source_validation(
+    pipeline_analytics: Any,
+) -> tuple[bool, str, list, dict]:
+    """Validate and reconstruct scheduled builds from strict all-main history."""
+    if not isinstance(pipeline_analytics, dict):
+        return False, "ci_analytics_missing", [], {}
+    collector = pipeline_analytics.get("all_main_reliability")
+    if not isinstance(collector, dict):
+        return False, "all_main_reliability_missing_or_malformed", [], {}
+    if not validate_all_main_reliability(collector, "ci"):
+        return False, "all_main_reliability_not_trustworthy", [], collector
+    source = collector.get("provenance") or {}
+    query = source.get("query") or {}
+    if query.get("include_retried_jobs") is not True:
+        return False, "all_main_reliability_retry_history_incomplete", [], collector
+
+    catalog_by_number = {
+        int(build["number"]): {**build, "jobs": []}
+        for build in collector.get("builds") or []
+    }
+    scheduled_numbers = {
+        number
+        for number, build in catalog_by_number.items()
+        if _upstream_scheduled_message_kind(build.get("message")) is not None
+    }
+    retained_observation_rows = 0
+    for group in collector.get("groups") or []:
+        step_key = str(group.get("step_key") or "")
+        if not step_key:
+            continue
+        raw_name = str(group.get("raw_name") or group.get("name") or "unknown")
+        queue = str(group.get("queue") or "")
+        for observation in group.get("observations") or []:
+            if observation.get("eligible_for_reliability") is not True:
+                continue
+            number = _strict_int(observation.get("build_number"))
+            if number not in scheduled_numbers:
+                continue
+            retry_evidence = observation.get("retry_evidence")
+            retry_evidence = (
+                retry_evidence if isinstance(retry_evidence, dict) else {}
+            )
+            result = str(observation.get("result") or "")
+            terminal_state = str(observation.get("terminal_state") or "")
+            if not terminal_state:
+                terminal_state = {
+                    "passed": "passed",
+                    "failed": "failed",
+                    "soft_fail": "soft_fail",
+                }.get(result, "unknown")
+            catalog_by_number[number]["jobs"].append({
+                "job_id": str(observation.get("job_id") or ""),
+                "step_id": str(observation.get("step_id") or ""),
+                "raw_name": raw_name,
+                "name": raw_name,
+                "step_key": step_key,
+                "state": terminal_state,
+                "soft_failed": bool(observation.get("soft_failed"))
+                or result == "soft_fail",
+                "q": queue,
+                "queue_wait_mins": observation.get("queue_wait_mins"),
+                "runnable_at": str(observation.get("runnable_at") or ""),
+                "started_at": str(observation.get("started_at") or ""),
+                "finished_at": str(observation.get("finished_at") or ""),
+                "url": str(observation.get("job_url") or ""),
+                **{
+                    key: retry_evidence.get(key)
+                    for key in RETRY_EVIDENCE_FIELDS
+                    if key != "step_key" and retry_evidence.get(key) not in (None, "")
+                },
+            })
+            retained_observation_rows += 1
+
+    return True, "", list(catalog_by_number.values()), {
+        "schema_version": collector.get("schema_version"),
+        "cohort": collector.get("cohort") or {},
+        "denominator": collector.get("denominator") or {},
+        "source": source,
+        "retention": {
+            "observation_limit_per_group": source.get(
+                "observation_limit_per_group"
+            ),
+            "observation_retention": source.get("observation_retention"),
+            "retained_scheduled_observation_rows": retained_observation_rows,
+        },
+    }
+
+
+def _upstream_scheduled_capacity_groups(capacity: Any) -> list[dict]:
+    """Return one configured semantic group per exact derived AMD step key."""
+    if not isinstance(capacity, dict) or not isinstance(capacity.get("groups"), list):
+        return []
+    by_step_key: dict[str, dict] = {}
+    for source in capacity["groups"]:
+        if not isinstance(source, dict) or source.get("in_capacity_scope") is not True:
+            continue
+        key = source.get("key")
+        if not isinstance(key, str) or not key:
+            continue
+        step_key = f"amd-{key}"
+        if step_key in by_step_key:
+            continue
+        queue = source.get("queue")
+        by_step_key[step_key] = {
+            "key": key,
+            "label": str(source.get("label") or key),
+            "area": str(source.get("area") or "other"),
+            "step_key": step_key,
+            "queue": queue if isinstance(queue, str) and queue else "unknown",
+        }
+    return sorted(
+        by_step_key.values(),
+        key=lambda row: (
+            str(row.get("queue") or ""),
+            str(row.get("label") or "").casefold(),
+            str(row.get("step_key") or ""),
+        ),
+    )
+
+
+def _upstream_scheduled_build_is_trusted(build: Any) -> bool:
+    if not isinstance(build, dict) or not isinstance(build.get("jobs"), list):
+        return False
+    number = _strict_int(build.get("number") or build.get("build_number"))
+    return bool(
+        number is not None
+        and build.get("branch") == "main"
+        and str(build.get("state") or "").lower() in TRUSTWORTHY_BUILD_STATES
+        and build.get("finished_at")
+        and _pipeline_build_url_matches(
+            build.get("url") or build.get("web_url"), "ci", number
+        )
+    )
+
+
+def _upstream_scheduled_wait(job: dict) -> float | None:
+    for key in ("queue_wait_mins", "wait_mins"):
+        value = _number(job.get(key))
+        if value is not None and math.isfinite(value) and value >= 0:
+            return value
+    return None
+
+
+def _upstream_scheduled_wait_summary(values: list[float]) -> dict:
+    ordered = sorted(values)
+    return {
+        "p50": round(median(ordered), 1) if ordered else None,
+        "p95": _percentile(ordered, 95),
+        "max": round(max(ordered), 1) if ordered else None,
+        "sample_count": len(ordered),
+    }
+
+
+def _upstream_scheduled_state(selections: list[dict]) -> str:
+    outcomes = {str(row.get("outcome") or "indeterminate") for row in selections}
+    if "hard" in outcomes:
+        return "failing"
+    if "soft" in outcomes:
+        return "soft_failing"
+    if "indeterminate" in outcomes:
+        return "pending"
+    return "passing" if outcomes == {"passed"} else "pending"
+
+
+def _upstream_scheduled_summary(
+    groups: list[dict], configured_queue_count: int
+) -> dict:
+    states = Counter(str(row.get("state") or "missing") for row in groups)
+    used_queues = {
+        str(row.get("queue") or "unknown")
+        for row in groups
+        if str(row.get("state") or "missing") != "missing"
+    }
+    return {
+        "gated": len(groups) - int(states["missing"]),
+        "total": len(groups),
+        "passing": int(states["passing"]),
+        "failing": int(states["failing"]),
+        "soft_failing": int(states["soft_failing"]),
+        "pending": int(states["pending"]),
+        "missing": int(states["missing"]),
+        "job_attempts": sum(int(row.get("job_attempts") or 0) for row in groups),
+        "selected_jobs": sum(int(row.get("selected_jobs") or 0) for row in groups),
+        "queue_count": len(used_queues),
+        "configured_queue_count": configured_queue_count,
+    }
+
+
+def _upstream_scheduled_run(build: dict, configured_groups: list[dict]) -> dict:
+    configured_by_step = {
+        str(group["step_key"]): group for group in configured_groups
+    }
+    matching_jobs = []
+    attempts_by_step: Counter = Counter()
+    for source in build.get("jobs") or []:
+        if not isinstance(source, dict):
+            continue
+        nested_step = source.get("step")
+        nested_key = nested_step.get("key") if isinstance(nested_step, dict) else ""
+        raw_step_key = source.get("step_key") or nested_key
+        step_key = raw_step_key if isinstance(raw_step_key, str) else ""
+        if step_key not in configured_by_step:
+            continue
+        attempts_by_step[step_key] += 1
+        matching_jobs.append({**source, "step_key": step_key})
+    selected_by_step: dict[str, list[dict]] = defaultdict(list)
+    for selected in collapse_nightly_attempts(matching_jobs, "ci").values():
+        step_key = str((selected.get("identity") or {}).get("step_key") or "")
+        if step_key in configured_by_step:
+            selected_by_step[step_key].append(selected)
+
+    group_rows = []
+    all_waits = []
+    outcome_rank = {"hard": 3, "soft": 2, "indeterminate": 1, "passed": 0}
+    for configured in configured_groups:
+        step_key = str(configured["step_key"])
+        selections = sorted(
+            selected_by_step.get(step_key) or [],
+            key=lambda row: (
+                outcome_rank.get(str(row.get("outcome") or "indeterminate"), 1),
+                str((row.get("job") or {}).get("finished_at") or ""),
+                str((row.get("job") or {}).get("job_id") or ""),
+            ),
+            reverse=True,
+        )
+        state = _upstream_scheduled_state(selections) if selections else "missing"
+        job_rows = []
+        waits = []
+        for selected in selections:
+            job = selected.get("job") or {}
+            identity = selected.get("identity") or {}
+            wait = _upstream_scheduled_wait(job)
+            if wait is not None:
+                waits.append(wait)
+                all_waits.append(wait)
+            job_rows.append({
+                "name": str(job.get("raw_name") or job.get("name") or "unknown"),
+                "state": str(job.get("state") or "unknown"),
+                "outcome": str(selected.get("outcome") or "indeterminate"),
+                "queue": str(identity.get("queue") or job.get("q") or "unknown"),
+                "job_id": str(job.get("job_id") or job.get("id") or ""),
+                "url": _job_url("ci", build, job),
+                "queue_wait_mins": wait,
+            })
+        group_rows.append({
+            **configured,
+            "state": state,
+            "url": job_rows[0]["url"] if job_rows else "",
+            "job_attempts": int(attempts_by_step[step_key]),
+            "selected_jobs": len(job_rows),
+            "queue_wait_mins": _upstream_scheduled_wait_summary(waits),
+            "observed_queues": sorted({
+                str(row.get("queue") or "unknown") for row in job_rows
+            }),
+            "jobs": job_rows,
+        })
+
+    queues = []
+    configured_queues = sorted({str(row.get("queue") or "unknown") for row in group_rows})
+    for queue in configured_queues:
+        queue_groups = [row for row in group_rows if row.get("queue") == queue]
+        queue_waits = [
+            wait
+            for row in queue_groups
+            for job in row.get("jobs") or []
+            if (wait := _upstream_scheduled_wait(job)) is not None
+        ]
+        queue_summary = _upstream_scheduled_summary(queue_groups, 1)
+        queue_summary.pop("queue_count", None)
+        queue_summary.pop("configured_queue_count", None)
+        queues.append({
+            "queue": queue,
+            **queue_summary,
+            "used": bool(queue_summary["gated"]),
+            "queue_wait_mins": _upstream_scheduled_wait_summary(queue_waits),
+        })
+
+    message = str(build.get("message") or "")
+    number = _strict_int(build.get("number") or build.get("build_number"))
+    return {
+        "kind": _upstream_scheduled_message_kind(message),
+        "number": number,
+        "message": message,
+        "build_state": str(build.get("state") or "unknown").lower(),
+        "created_at": str(build.get("created_at") or ""),
+        "finished_at": str(build.get("finished_at") or ""),
+        "commit": str(build.get("commit") or build.get("commit_sha") or ""),
+        "url": _build_url("ci", build),
+        "summary": _upstream_scheduled_summary(group_rows, len(configured_queues)),
+        "queue_wait_mins": _upstream_scheduled_wait_summary(all_waits),
+        "queues": queues,
+        "groups": group_rows,
+    }
+
+
+def _compact_upstream_scheduled_run(run: dict | None) -> dict | None:
+    if not isinstance(run, dict):
+        return None
+    return {
+        key: run.get(key)
+        for key in (
+            "kind", "number", "message", "build_state", "created_at",
+            "finished_at", "commit", "url", "summary", "queue_wait_mins", "queues",
+        )
+    }
+
+
+def _upstream_scheduled_gating(
+    pipeline_analytics: Any,
+    capacity: Any,
+) -> dict:
+    """Aggregate exact upstream daily/nightly runs against configured AMD groups."""
+    configured_groups = _upstream_scheduled_capacity_groups(capacity)
+    configured_queues = sorted({row["queue"] for row in configured_groups})
+    accepted, reason, source_builds, source_provenance = (
+        _upstream_scheduled_source_validation(pipeline_analytics)
+    )
+    configured_step_keys = {str(row["step_key"]) for row in configured_groups}
+    trusted_by_number: dict[int, dict] = {}
+    invalid_build_rows = 0
+    duplicate_build_rows = 0
+    matching_builds_without_retained_observations = 0
+    if accepted and configured_groups:
+        for build in source_builds:
+            if not _upstream_scheduled_build_is_trusted(build):
+                invalid_build_rows += 1
+                continue
+            if _upstream_scheduled_message_kind(build.get("message")) is None:
+                continue
+            retained_step_keys = {
+                str(job.get("step_key") or "")
+                for job in build.get("jobs") or []
+                if isinstance(job, dict)
+            }
+            if not (configured_step_keys & retained_step_keys):
+                matching_builds_without_retained_observations += 1
+                continue
+            number = _strict_int(build.get("number") or build.get("build_number"))
+            if number in trusted_by_number:
+                duplicate_build_rows += 1
+                existing = trusted_by_number[number]
+                rank = (
+                    str(build.get("finished_at") or ""),
+                    str(build.get("created_at") or ""),
+                    len(build.get("jobs") or []),
+                )
+                existing_rank = (
+                    str(existing.get("finished_at") or ""),
+                    str(existing.get("created_at") or ""),
+                    len(existing.get("jobs") or []),
+                )
+                if rank <= existing_rank:
+                    continue
+            trusted_by_number[number] = build
+
+    builds = sorted(
+        trusted_by_number.values(),
+        key=lambda build: (
+            str(build.get("created_at") or ""),
+            int(build.get("number") or build.get("build_number") or 0),
+        ),
+        reverse=True,
+    )
+    runs = [_upstream_scheduled_run(build, configured_groups) for build in builds]
+    latest = runs[0] if runs else None
+    latest_by_kind = {
+        kind: next((run for run in runs if run.get("kind") == kind), None)
+        for kind in ("nightly", "daily")
+    }
+    unavailable_reason = "" if runs else (
+        reason
+        if not accepted
+        else (
+            "configured_gating_groups_missing"
+            if not configured_groups
+            else "no_matching_scheduled_builds"
+        )
+    )
+    return {
+        "available": bool(runs),
+        "unavailable_reason": unavailable_reason or None,
+        "scope": {
+            "pipeline": "ci",
+            "branch": "main",
+            "kinds": ["nightly", "daily"],
+            "configured_group_count": len(configured_groups),
+            "configured_queue_count": len(configured_queues),
+            "configured_queues": configured_queues,
+            "group_match": "job.step_key == 'amd-' + capacity_monitor.groups[].key",
+            "in_scope_rule": "capacity_monitor.groups[].in_capacity_scope is true",
+        },
+        "query": {
+            "url": UPSTREAM_SCHEDULED_QUERY_URL,
+            "buildkite_query": "full ci run - ",
+            "exact_message_pattern": UPSTREAM_SCHEDULED_GATING_NAME_PATTERN,
+            "exact_messages": dict(UPSTREAM_SCHEDULED_MESSAGES),
+        },
+        "source": {
+            "pipeline": "ci",
+            "builds_path": SOURCE_FILES["analytics"],
+            "builds_key": "ci.all_main_reliability.builds",
+            "observations_key": "ci.all_main_reliability.groups[].observations",
+            "builds_provenance_key": "ci.all_main_reliability.provenance",
+            "groups_path": SOURCE_FILES["capacity_monitor"],
+            "groups_key": "groups",
+            "accepted": accepted,
+            "reason": reason or None,
+        },
+        "definitions": {
+            "total": "Unique configured in-scope semantic groups, deduplicated by derived step_key.",
+            "gated": "Configured semantic groups with at least one retry-collapsed selected job in the run.",
+            "passing": "Gated groups whose selected final jobs all passed.",
+            "failing": "Gated groups with at least one selected hard-failing final job.",
+            "soft_failing": "Gated non-hard-failing groups with at least one selected soft-failing final job.",
+            "pending": "Gated groups with indeterminate selected jobs and no hard or soft failure.",
+            "missing": "Configured semantic groups with no selected job matching the exact derived step_key.",
+            "job_attempts": "Raw matching job attempts before retry collapse.",
+            "selected_jobs": "Final strict job identities selected by collapse_nightly_attempts before semantic-group aggregation.",
+            "queue_count": "Configured queues with at least one gated semantic group in the selected run.",
+            "configured_queue_count": "All distinct queues assigned to configured in-scope semantic groups, including queues unused by the selected run.",
+            "queue_used": "Per-queue used is true when at least one configured semantic group was observed in that run.",
+            "queue_wait_mins": "Selected final-job queue waits; p50, p95, max, and sample_count exclude missing or invalid values.",
+            "group_state_precedence": "failing, then soft_failing, then pending, then passing across selected shards.",
+        },
+        "provenance": {
+            "accepted": accepted,
+            "reason": reason or None,
+            "schema_version": source_provenance.get("schema_version"),
+            "cohort": source_provenance.get("cohort") or {},
+            "denominator": source_provenance.get("denominator") or {},
+            "retention": source_provenance.get("retention") or {},
+            "collector_source": source_provenance.get("source") or {},
+            "main_build_rows": len(source_builds),
+            "trusted_matching_builds": len(builds),
+            "matching_builds_without_retained_observations": (
+                matching_builds_without_retained_observations
+            ),
+            "invalid_build_rows_ignored": invalid_build_rows,
+            "duplicate_matching_build_rows_ignored": duplicate_build_rows,
+            "recent_limit": UPSTREAM_SCHEDULED_RECENT_LIMIT,
+            "retention_note": (
+                "Runs are reconstructed from the strict exhaustive all-main build catalog "
+                "and its bounded newest-first per-group observations. Scheduled builds with "
+                "no retained configured-group observation are omitted rather than reported "
+                "as zero gated."
+            ),
+        },
+        "latest": latest,
+        "latest_by_kind": latest_by_kind,
+        "recent": [
+            _compact_upstream_scheduled_run(run)
+            for run in runs[:UPSTREAM_SCHEDULED_RECENT_LIMIT]
+        ],
+    }
+
+
 def _job_source_counts(queue_jobs: dict) -> dict:
     return dict(sorted(Counter(
         str(job.get("source") or "unknown")
@@ -6428,6 +6903,10 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         reliability,
         definition_parity,
     )
+    gating["upstream_scheduled"] = _upstream_scheduled_gating(
+        analytics.get("ci") or {},
+        loaded.get("capacity_monitor") or {},
+    )
     ownership = loaded.get("ci_ownership") or {}
     ownership = (
         ownership
@@ -6732,6 +7211,7 @@ def _operations_shell(payload: dict) -> dict:
     ]
     amd_health = payload.get("amd_test_health") or {}
     gating = payload.get("gating") or {}
+    upstream_scheduled = gating.get("upstream_scheduled") or {}
     definition_parity = payload.get("definition_parity") or {}
     queue = payload.get("queue") or {}
     return {
@@ -6740,7 +7220,25 @@ def _operations_shell(payload: dict) -> dict:
     } | {
         "nightly": nightly,
         "amd_test_health": {"summary": amd_health.get("summary") or {}},
-        "gating": {"matrix_summary": gating.get("matrix_summary") or {}},
+        "gating": {
+            "matrix_summary": gating.get("matrix_summary") or {},
+            "upstream_scheduled": {
+                key: upstream_scheduled.get(key)
+                for key in (
+                    "available", "unavailable_reason", "scope", "query", "source",
+                )
+            } | {
+                "latest": _compact_upstream_scheduled_run(
+                    upstream_scheduled.get("latest")
+                ),
+                "latest_by_kind": {
+                    kind: _compact_upstream_scheduled_run(
+                        (upstream_scheduled.get("latest_by_kind") or {}).get(kind)
+                    )
+                    for kind in ("nightly", "daily")
+                },
+            },
+        },
         "definition_parity": {
             "summary": definition_parity.get("summary") or {},
             "source": definition_parity.get("source") or {},

@@ -2677,6 +2677,310 @@ def test_upstream_reliability_rejects_untrusted_legacy_main_builds():
     assert reliability["denominator"]["builds"] == 0
 
 
+def test_upstream_scheduled_gating_exact_cohort_retry_shards_and_queue_waits():
+    def scheduled_build(number: int, message: str, jobs: list[dict]) -> dict:
+        return {
+            "number": number,
+            "branch": "main",
+            "state": "failed" if any(job.get("state") == "failed" for job in jobs) else "passed",
+            "message": message,
+            "created_at": f"2026-04-{number - 880:02d}T09:00:00Z",
+            "finished_at": f"2026-04-{number - 880:02d}T10:30:00Z",
+            "web_url": f"https://buildkite.com/vllm/ci/builds/{number}",
+            "jobs": jobs,
+        }
+
+    def job(
+        job_id: str,
+        name: str,
+        step_key: str,
+        state: str,
+        queue: str,
+        wait: float,
+        **extra,
+    ) -> dict:
+        return {
+            "type": "script",
+            "id": job_id,
+            "job_id": job_id,
+            "raw_name": name,
+            "name": name,
+            "step_key": step_key,
+            "state": state,
+            "q": queue,
+            "queue_wait_mins": wait,
+            "runnable_at": "2026-04-21T09:00:00Z",
+            "started_at": f"2026-04-21T09:{int(wait):02d}:00Z",
+            "finished_at": f"2026-04-21T10:{len(job_id):02d}:00Z",
+            **extra,
+        }
+
+    nightly = scheduled_build(901, "Full CI run - nightly", [
+        job(
+            "alpha-old",
+            "Alpha shard 1/2",
+            "amd-alpha",
+            "failed",
+            "queue-a",
+            9,
+            retried=True,
+            retried_in_job_id="alpha-new",
+        ),
+        job(
+            "alpha-new",
+            "Alpha shard 1/2",
+            "amd-alpha",
+            "passed",
+            "queue-a",
+            5,
+            retries_count=1,
+            retry_source="manual",
+        ),
+        job("alpha-two", "Alpha shard 2/2", "amd-alpha", "passed", "queue-a", 15),
+        job("beta", "Beta", "amd-beta", "failed", "queue-a", 20),
+        job("unconfigured", "Not configured", "amd-extra", "failed", "queue-z", 99),
+    ])
+    nightly["jobs"].append({"step": "malformed-unconfigured-step"})
+    daily = scheduled_build(900, "Full CI run - daily", [
+        job("alpha-daily", "Alpha", "amd-alpha", "soft_fail", "queue-a", 2),
+        job("beta-daily", "Beta", "amd-beta", "running", "queue-a", 3),
+        job("gamma-daily", "Gamma", "amd-gamma", "passed", "queue-b", 4),
+    ])
+    lookalikes = [
+        scheduled_build(904, "Full CI run torch nightly", []),
+        scheduled_build(903, "Full CI run - weekly", []),
+        scheduled_build(902, "Full CI run - nightly-ish", []),
+        scheduled_build(899, "Prefix Full CI run - daily", []),
+    ]
+    unobserved_scheduled = scheduled_build(905, "Full CI run - daily", [])
+    builds = [
+        unobserved_scheduled, lookalikes[0], nightly, lookalikes[1], daily,
+        *lookalikes[2:],
+    ]
+    collector = analytics.build_all_main_reliability(
+        builds,
+        pipeline_slug="ci",
+        window_days=30,
+        generated_at="2026-04-25T12:00:00Z",
+        nightly_pattern="nightly",
+        observation_limit=60,
+        collection_provenance={
+            "created_from": "2026-03-26T12:00:00Z",
+            "pages_fetched": 1,
+            "termination_reason": "short_page",
+            "exhaustive": True,
+        },
+    )
+    pipeline_analytics = {
+        "all_main_reliability": collector,
+    }
+    capacity = {"groups": [
+        {
+            "key": "alpha",
+            "label": "Alpha",
+            "area": "A",
+            "queue": "queue-a",
+            "in_capacity_scope": True,
+        },
+        {
+            "key": "alpha",
+            "label": "Duplicate Alpha",
+            "queue": "queue-a",
+            "in_capacity_scope": True,
+        },
+        {
+            "key": "beta",
+            "label": "Beta",
+            "area": "B",
+            "queue": "queue-a",
+            "in_capacity_scope": True,
+        },
+        {
+            "key": "gamma",
+            "label": "Gamma",
+            "area": "C",
+            "queue": "queue-b",
+            "in_capacity_scope": True,
+        },
+        {
+            "key": "not-in-scope",
+            "label": "Excluded",
+            "queue": "queue-z",
+            "in_capacity_scope": False,
+        },
+    ]}
+
+    result = ops._upstream_scheduled_gating(pipeline_analytics, capacity)
+
+    assert result["available"] is True
+    assert result["source"]["accepted"] is True
+    assert result["source"]["builds_key"] == "ci.all_main_reliability.builds"
+    assert result["source"]["observations_key"] == (
+        "ci.all_main_reliability.groups[].observations"
+    )
+    assert result["query"] == {
+        "url": "https://buildkite.com/vllm/ci/builds?query=full+ci+run+-+",
+        "buildkite_query": "full ci run - ",
+        "exact_message_pattern": ops.UPSTREAM_SCHEDULED_GATING_NAME_PATTERN,
+        "exact_messages": {
+            "nightly": "Full CI run - nightly",
+            "daily": "Full CI run - daily",
+        },
+    }
+    assert result["scope"]["configured_group_count"] == 3
+    assert result["scope"]["configured_queue_count"] == 2
+    assert result["provenance"][
+        "matching_builds_without_retained_observations"
+    ] == 1
+    assert result["latest_by_kind"]["nightly"]["number"] == 901
+    assert result["latest_by_kind"]["daily"]["number"] == 900
+    assert [run["number"] for run in result["recent"]] == [901, 900]
+
+    latest = result["latest"]
+    assert latest["number"] == 901
+    assert latest["summary"] == {
+        "gated": 2,
+        "total": 3,
+        "passing": 1,
+        "failing": 1,
+        "soft_failing": 0,
+        "pending": 0,
+        "missing": 1,
+        "job_attempts": 4,
+        "selected_jobs": 3,
+        "queue_count": 1,
+        "configured_queue_count": 2,
+    }
+    assert latest["queue_wait_mins"] == {
+        "p50": 15.0,
+        "p95": 19.5,
+        "max": 20.0,
+        "sample_count": 3,
+    }
+    groups = {row["key"]: row for row in latest["groups"]}
+    assert set(groups) == {"alpha", "beta", "gamma"}
+    assert groups["alpha"]["state"] == "passing"
+    assert groups["alpha"]["job_attempts"] == 3
+    assert groups["alpha"]["selected_jobs"] == 2
+    assert {row["job_id"] for row in groups["alpha"]["jobs"]} == {
+        "alpha-new", "alpha-two",
+    }
+    assert groups["beta"]["state"] == "failing"
+    assert groups["beta"]["url"].endswith("?jid=beta&tab=output")
+    assert groups["gamma"]["state"] == "missing"
+    queues = {row["queue"]: row for row in latest["queues"]}
+    assert queues["queue-a"]["gated"] == 2
+    assert queues["queue-a"]["total"] == 2
+    assert queues["queue-a"]["selected_jobs"] == 3
+    assert queues["queue-a"]["used"] is True
+    assert queues["queue-a"]["queue_wait_mins"] == latest["queue_wait_mins"]
+    assert queues["queue-b"]["missing"] == 1
+    assert queues["queue-b"]["used"] is False
+    assert queues["queue-b"]["queue_wait_mins"]["sample_count"] == 0
+    assert result["latest_by_kind"]["daily"]["summary"] == {
+        "gated": 2,
+        "total": 3,
+        "passing": 1,
+        "failing": 0,
+        "soft_failing": 1,
+        "pending": 0,
+        "missing": 1,
+        "job_attempts": 2,
+        "selected_jobs": 2,
+        "queue_count": 2,
+        "configured_queue_count": 2,
+    }
+
+
+def test_upstream_scheduled_gating_fails_closed_and_shell_omits_detail():
+    capacity = {"groups": [{
+        "key": "alpha",
+        "label": "Alpha",
+        "queue": "queue-a",
+        "in_capacity_scope": True,
+    }]}
+    valid_empty_collector = analytics.build_all_main_reliability(
+        [],
+        pipeline_slug="ci",
+        window_days=30,
+        generated_at=GENERATED_AT,
+        nightly_pattern="nightly",
+        collection_provenance={
+            "created_from": "2026-03-23T12:00:00Z",
+            "pages_fetched": 0,
+            "termination_reason": "empty_page",
+            "exhaustive": True,
+        },
+    )
+    invalid_branch_collector = json.loads(json.dumps(valid_empty_collector))
+    invalid_branch_collector["provenance"]["query"]["branch"] = "feature"
+    incomplete_retry_collector = json.loads(json.dumps(valid_empty_collector))
+    incomplete_retry_collector["provenance"]["query"][
+        "include_retried_jobs"
+    ] = False
+    malformed_sources = [
+        None,
+        {"all_main_reliability": "not-an-object"},
+        {"all_main_reliability": invalid_branch_collector},
+        {"all_main_reliability": incomplete_retry_collector},
+    ]
+    for source in malformed_sources:
+        result = ops._upstream_scheduled_gating(source, capacity)
+        assert result["available"] is False
+        assert result["source"]["accepted"] is False
+        assert result["latest"] is None
+        assert result["latest_by_kind"] == {"nightly": None, "daily": None}
+        assert result["recent"] == []
+        assert result["scope"]["configured_group_count"] == 1
+
+    valid_empty_source = {"all_main_reliability": valid_empty_collector}
+    missing_groups = ops._upstream_scheduled_gating(valid_empty_source, {})
+    assert missing_groups["available"] is False
+    assert missing_groups["unavailable_reason"] == "configured_gating_groups_missing"
+    assert missing_groups["source"]["accepted"] is True
+    assert missing_groups["latest"] is None
+
+    detailed = {
+        "available": True,
+        "unavailable_reason": None,
+        "scope": {"configured_group_count": 1},
+        "query": {"url": ops.UPSTREAM_SCHEDULED_QUERY_URL},
+        "source": {"accepted": True},
+        "latest": {
+            "kind": "daily",
+            "number": 901,
+            "summary": {"gated": 1, "total": 1, "passing": 1},
+            "queue_wait_mins": {"p50": 2.0, "p95": 2.0, "max": 2.0, "sample_count": 1},
+            "queues": [{"queue": "queue-a", "gated": 1, "total": 1}],
+            "groups": [{"key": "alpha"}],
+        },
+        "latest_by_kind": {
+            "nightly": None,
+            "daily": {
+                "kind": "daily",
+                "number": 901,
+                "summary": {"gated": 1, "total": 1, "passing": 1},
+                "queue_wait_mins": {
+                    "p50": 2.0, "p95": 2.0, "max": 2.0, "sample_count": 1,
+                },
+                "queues": [{"queue": "queue-a", "gated": 1, "total": 1}],
+                "groups": [{"key": "alpha"}],
+            },
+        },
+        "recent": [{"number": 901}],
+    }
+    shell = ops._operations_shell({
+        "gating": {"matrix_summary": {}, "upstream_scheduled": detailed},
+    })["gating"]["upstream_scheduled"]
+
+    assert shell["latest"]["summary"]["gated"] == 1
+    assert shell["latest"]["queues"][0]["queue"] == "queue-a"
+    assert shell["latest_by_kind"]["daily"]["number"] == 901
+    assert "groups" not in shell["latest"]
+    assert "groups" not in shell["latest_by_kind"]["daily"]
+    assert "recent" not in shell
+
+
 def test_gating_pass_without_upstream_history_is_not_consistently_passing():
     targets = {"groups": [{"id": 1, "label": "Upstream absent"}]}
     matrix = {
