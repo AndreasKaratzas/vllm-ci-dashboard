@@ -1,8 +1,25 @@
 {
-  "generated_at": "2026-08-19T00:05:47Z",
+  "generated_at": "2026-08-19T01:55:33Z",
   "window_builds": 10,
-  "total_flaky": 7,
+  "total_flaky": 9,
   "tests": [
+    {
+      "test_id": "mi355_1: Multi-Modal Models (Extended Pooling)::__job_level__",
+      "label": "flaky",
+      "pass_rate": 0.25,
+      "appearances": 4,
+      "last_seen": "2026-08-02",
+      "first_failure": "2026-08-02",
+      "failure_streak": 1,
+      "history": [
+        "F",
+        "F",
+        "P",
+        "F"
+      ],
+      "module": "mi355_1: Multi-Modal Models (Extended Pooling)",
+      "mean_duration": 0.0
+    },
     {
       "test_id": "mi355_1: Multi-Modal Models (Standard) 1: qwen2::__job_level__",
       "label": "flaky",
@@ -123,6 +140,23 @@
         "P"
       ],
       "module": "mi250_1: Python-only Installation",
+      "mean_duration": 0.0
+    },
+    {
+      "test_id": "mi325_1: Python-only Installation::__job_level__",
+      "label": "flaky",
+      "pass_rate": 0.75,
+      "appearances": 4,
+      "last_seen": "2026-07-23",
+      "first_failure": null,
+      "failure_streak": 0,
+      "history": [
+        "P",
+        "F",
+        "P",
+        "P"
+      ],
+      "module": "mi325_1: Python-only Installation",
       "mean_duration": 0.0
     }
   ]
