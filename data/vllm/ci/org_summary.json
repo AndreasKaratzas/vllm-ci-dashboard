@@ -1,7 +1,7 @@
 {
   "schema_id": "oss-project-ci-summary",
   "schema_version": 2,
-  "generated_at": "2026-08-20T22:12:52Z",
+  "generated_at": "2026-08-20T23:50:46Z",
   "project": {
     "id": "vllm",
     "name": "vLLM",
@@ -133,24 +133,24 @@
     "current": {
       "available": true,
       "reason": null,
-      "observed_at": "2026-08-20T21:50:45Z",
-      "waiting_jobs": 6,
-      "running_jobs": 320,
-      "queues_with_waiting_jobs": 2,
+      "observed_at": "2026-08-20T23:38:17Z",
+      "waiting_jobs": 0,
+      "running_jobs": 73,
+      "queues_with_waiting_jobs": 0,
       "zombie_waiting_jobs": 0,
       "zombie_running_jobs": 0,
       "count_source": "cluster_metrics",
       "maximum_across_queues_wait_minutes": {
-        "p50": 0.5,
-        "p95": 0.6,
-        "max": 0.6
+        "p50": 0.0,
+        "p95": 0.0,
+        "max": 0.0
       }
     },
     "by_queue": [
       {
         "queue": "amd_mi250_1",
         "waiting_jobs": 0,
-        "running_jobs": 30,
+        "running_jobs": 2,
         "zombie_waiting_jobs": 0,
         "zombie_running_jobs": 0,
         "current_wait_minutes": {
@@ -164,7 +164,7 @@
       {
         "queue": "amd_mi250_2",
         "waiting_jobs": 0,
-        "running_jobs": 2,
+        "running_jobs": 0,
         "zombie_waiting_jobs": 0,
         "zombie_running_jobs": 0,
         "current_wait_minutes": {
@@ -178,7 +178,7 @@
       {
         "queue": "amd_mi250_4",
         "waiting_jobs": 0,
-        "running_jobs": 2,
+        "running_jobs": 0,
         "zombie_waiting_jobs": 0,
         "zombie_running_jobs": 0,
         "current_wait_minutes": {
@@ -206,35 +206,35 @@
       {
         "queue": "amd_mi300_1",
         "waiting_jobs": 0,
-        "running_jobs": 208,
+        "running_jobs": 61,
         "zombie_waiting_jobs": 0,
         "zombie_running_jobs": 0,
         "current_wait_minutes": {
-          "p50": 0.3,
-          "p95": 0.3,
-          "max": 0.3
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": 0.0
         },
         "count_source": "cluster_metrics",
         "wait_source": "cluster_metrics"
       },
       {
         "queue": "amd_mi300_2",
-        "waiting_jobs": 3,
-        "running_jobs": 20,
+        "waiting_jobs": 0,
+        "running_jobs": 4,
         "zombie_waiting_jobs": 0,
         "zombie_running_jobs": 0,
         "current_wait_minutes": {
-          "p50": 0.5,
-          "p95": 0.6,
-          "max": 0.6
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": 0.0
         },
         "count_source": "cluster_metrics",
         "wait_source": "cluster_metrics"
       },
       {
         "queue": "amd_mi300_4",
-        "waiting_jobs": 3,
-        "running_jobs": 20,
+        "waiting_jobs": 0,
+        "running_jobs": 0,
         "zombie_waiting_jobs": 0,
         "zombie_running_jobs": 0,
         "current_wait_minutes": {
@@ -248,7 +248,7 @@
       {
         "queue": "amd_mi300_8",
         "waiting_jobs": 0,
-        "running_jobs": 1,
+        "running_jobs": 0,
         "zombie_waiting_jobs": 0,
         "zombie_running_jobs": 0,
         "current_wait_minutes": {
@@ -262,7 +262,7 @@
       {
         "queue": "amd_mi355_1",
         "waiting_jobs": 0,
-        "running_jobs": 33,
+        "running_jobs": 6,
         "zombie_waiting_jobs": 0,
         "zombie_running_jobs": 0,
         "current_wait_minutes": {
@@ -276,7 +276,7 @@
       {
         "queue": "amd_mi355_2",
         "waiting_jobs": 0,
-        "running_jobs": 4,
+        "running_jobs": 0,
         "zombie_waiting_jobs": 0,
         "zombie_running_jobs": 0,
         "current_wait_minutes": {
@@ -318,21 +318,21 @@
     ],
     "recent_completed_window": {
       "available": true,
-      "generated_at": "2026-08-20T21:05:42Z",
-      "start": "2026-08-20T19:05:42Z",
-      "end_exclusive": "2026-08-20T21:05:42Z",
+      "generated_at": "2026-08-20T23:03:45Z",
+      "start": "2026-08-20T21:03:45Z",
+      "end_exclusive": "2026-08-20T23:03:45Z",
       "hours": 2,
-      "incoming_jobs": 971,
-      "served_jobs": 970,
-      "completed_jobs": 800,
-      "green_jobs": 691,
-      "green_rate_pct": 86.7,
+      "incoming_jobs": 1182,
+      "served_jobs": 1183,
+      "completed_jobs": 2153,
+      "green_jobs": 1224,
+      "green_rate_pct": 62.006,
       "served_job_wait_minutes": {
-        "sample_count": 970,
-        "p50": 0.362,
-        "p95": 2.681,
-        "average": 0.865,
-        "max": 14.829
+        "sample_count": 1183,
+        "p50": 0.129,
+        "p95": 1.227,
+        "average": 0.616,
+        "max": 23.246
       },
       "coverage": {
         "status": "partial_observation",
@@ -353,31 +353,31 @@
   "sources": {
     "operations": {
       "path": "operations_v2_manifest.json",
-      "generated_at": "2026-08-20T22:12:52Z"
+      "generated_at": "2026-08-20T23:50:46Z"
     },
     "ci_health": {
       "path": "ci_health.json",
-      "generated_at": "2026-08-20T21:54:18Z"
+      "generated_at": "2026-08-20T23:41:59Z"
     },
     "amd_test_matrix": {
       "path": "amd_test_matrix.json",
-      "generated_at": "2026-08-20T21:59:46Z"
+      "generated_at": "2026-08-20T23:47:36Z"
     },
     "gating_targets": {
       "path": "gating_targets.json",
-      "generated_at": "2026-08-20T21:51:35Z"
+      "generated_at": "2026-08-20T23:39:03Z"
     },
     "capacity_monitor": {
       "path": "capacity_monitor.json",
-      "generated_at": "2026-08-20T21:51:34Z"
+      "generated_at": "2026-08-20T23:39:03Z"
     },
     "queue_timeseries": {
       "path": "queue_timeseries.jsonl",
-      "generated_at": "2026-08-20T21:50:45Z"
+      "generated_at": "2026-08-20T23:38:17Z"
     },
     "queue_lifecycle": {
       "path": "queue_lifecycle.json",
-      "generated_at": "2026-08-20T21:05:42Z"
+      "generated_at": "2026-08-20T23:03:45Z"
     }
   }
 }

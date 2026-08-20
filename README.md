@@ -1,6 +1,6 @@
 # Project Dashboard
 
-Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-08-20 22:02 UTC**
+Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-08-20 23:50 UTC**
 
 ## Overview
 
@@ -105,13 +105,6 @@ artifacts. Canonical deployments replace `gh-pages`, so retired artifacts are
 purged instead of surviving indefinitely. Do not hand-edit or delete generated
 data solely because its commit timestamp is old; the dashboard audit validates
 that every high-value input still has a producer and consumer.
-
-Organization-wide OSS rollups should consume the small, versioned
-[`org_summary.json`](https://andreaskaratzas.github.io/vllm-ci-dashboard/data/vllm/ci/org_summary.json)
-artifact. It is regenerated with every Operations snapshot and keeps observed
-logical test groups, exact job variants, runtime gates, reviewed gating targets,
-and queue activity as separate populations.
-Those denominators are intentionally not interchangeable.
 
 Runtime target results follow a fail-closed identity chain: exact build-pinned
 AMD matrix labels first, then current upstream-to-AMD definition-parity aliases.
