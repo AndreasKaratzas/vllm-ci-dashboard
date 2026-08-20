@@ -3054,10 +3054,6 @@
         tone: 'is-warning',
       };
     }
-    const queues = scheduledGatingQueues(run);
-    const names = queues.filter(function (row) {
-      return Number(row.gated || 0) > 0;
-    }).map(function (row) { return row.queue || row.name || row.id; }).filter(Boolean);
     const missing = Number(summary.missing || 0);
     const failing = Number(summary.failing || summary.failed || 0);
     const soft = Number(summary.soft_failing || summary.soft_failed || summary.soft || 0);
@@ -3065,7 +3061,7 @@
     const buildNumber = scheduledGatingBuildNumber(run);
     return {
       value: integer(summary.gated) + ' / ' + integer(summary.total) + ' gated',
-      meta: integer(summary.passing) + ' passing - ' + scheduledGatingKind(run) + (buildNumber ? ' #' + buildNumber : '') + ' - ' + (names.length ? names.join(', ') : 'no observed queues'),
+      meta: scheduledGatingKind(run) + (buildNumber ? ' #' + buildNumber : ''),
       tone: failing ? 'is-danger' : soft || pending || missing ? 'is-warning' : 'is-success',
     };
   }

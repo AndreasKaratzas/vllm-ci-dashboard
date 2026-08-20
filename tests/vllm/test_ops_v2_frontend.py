@@ -2504,7 +2504,7 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
     ):
         assert retired_contract not in OPS_JS
     assert 'assets/css/ops-v2.css?v=11' in INDEX
-    assert 'assets/js/ops-v2.js?v=20' in INDEX
+    assert 'assets/js/ops-v2.js?v=21' in INDEX
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
     assert "gated groups passing" not in OPS_JS
     assert "openMatrixHealthBrowser('all')" in OPS_JS
@@ -2555,6 +2555,17 @@ def test_upstream_scheduled_gating_surfaces_groups_queues_and_waits():
     assert "Open nightly + daily Buildkite filter" in OPS_JS
     assert "full+ci+run+-+nightly" not in OPS_JS
     assert "full+ci+run+-+daily" not in OPS_JS
+
+    presentation = OPS_JS.split(
+        "function scheduledGatingPresentation", 1
+    )[1].split("function openUpstreamScheduledGatingDetail", 1)[0]
+    assert (
+        "meta: scheduledGatingKind(run) + "
+        "(buildNumber ? ' #' + buildNumber : '')"
+        in presentation
+    )
+    assert "summary.passing" not in presentation
+    assert "names.join" not in presentation
 
 
 def test_retired_mi355b_queues_are_excluded_on_every_frontend_path():
