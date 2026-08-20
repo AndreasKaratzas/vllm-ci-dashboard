@@ -1440,6 +1440,10 @@ def build_matrix(
         for arch in architectures
         if row["cells"][arch].get("raw_variant_count", row["cells"][arch].get("variant_count", 0)) > 1
     )
+    configured_definition_cases = len(rows)
+    deduplicated_configured_cases = configured_definition_cases - sum(
+        len(group["member_ids"]) - 1 for group in duplicate_groups
+    )
     hardware_cells = sum(row["coverage_count"] for row in rows)
     latest_matched_cells = sum(row["nightly_coverage_count"] for row in rows)
     failure_states = {"failed", "timed_out", "broken", "soft_fail"}
@@ -1487,11 +1491,27 @@ def build_matrix(
             "latest_build_message": latest_build.get("message") if latest_build else None,
         },
         "summary": {
-            "unique_groups": len(rows),
+            # Keep the legacy names for existing consumers. The explicit case
+            # names and count bases below distinguish configured inventory from
+            # unique logical test groups observed in a runtime build.
+            "unique_groups": configured_definition_cases,
             "latest_build_number": latest_build.get("number") if latest_build else None,
-            "definition_rows": len(rows),
-            "reduced_unique_groups": len(rows)
-            - sum(len(group["member_ids"]) - 1 for group in duplicate_groups),
+            "definition_rows": configured_definition_cases,
+            "reduced_unique_groups": deduplicated_configured_cases,
+            "configured_definition_cases": configured_definition_cases,
+            "deduplicated_configured_cases": deduplicated_configured_cases,
+            "test_group_count_basis": {
+                "configured_definition_cases": (
+                    "configured AMD YAML test-definition rows before "
+                    "command-equivalent redundancy is collapsed; this is "
+                    "configuration inventory, not observed runtime results"
+                ),
+                "deduplicated_configured_cases": (
+                    "configured AMD definition cases after command-equivalent "
+                    "redundancy clusters are collapsed; this is not the unique "
+                    "observed runtime test-group count"
+                ),
+            },
             "duplicate_clusters": len(duplicate_groups),
             "duplicate_definition_rows": sum(
                 len(group["member_ids"]) for group in duplicate_groups

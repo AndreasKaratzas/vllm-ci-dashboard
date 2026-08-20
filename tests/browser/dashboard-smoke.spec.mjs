@@ -367,14 +367,14 @@ test('CI analytics separates logical test groups from exact job variants', async
   await expect(cards).toHaveCount(4);
   await expect(cards.locator('.ops-stat-label')).toHaveText([
     'LATEST AMD NIGHTLY',
-    'LATEST TEST GROUPS',
+    'LATEST UNIQUE TEST GROUPS',
     'LATEST JOB VARIANTS',
     'FAILURE OBSERVATIONS',
   ]);
 
-  const testGroups = cards.filter({ hasText: 'LATEST TEST GROUPS' });
+  const testGroups = cards.filter({ hasText: 'LATEST UNIQUE TEST GROUPS' });
   const jobVariants = cards.filter({ hasText: 'LATEST JOB VARIANTS' });
-  await expect(testGroups.locator('.ops-stat-meta')).toContainText(/passing on any observed AMD route - \d+ non-passing/);
+  await expect(testGroups.locator('.ops-stat-meta')).toContainText(/green on any observed AMD route - \d+ non-green/);
   await expect(jobVariants.locator('.ops-stat-meta')).toContainText(/passing - \d+ non-passing exact jobs/);
 
   const testGroupCount = Number(await testGroups.locator('.ops-stat-value').innerText());

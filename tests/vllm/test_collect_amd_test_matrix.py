@@ -820,6 +820,20 @@ steps:
     assert matrix["summary"]["latest_build_number"] == 9001
     assert matrix["summary"]["definition_rows"] == 5
     assert matrix["summary"]["reduced_unique_groups"] == 3
+    assert matrix["summary"]["configured_definition_cases"] == 5
+    assert matrix["summary"]["deduplicated_configured_cases"] == 3
+    assert matrix["summary"]["test_group_count_basis"] == {
+        "configured_definition_cases": (
+            "configured AMD YAML test-definition rows before command-equivalent "
+            "redundancy is collapsed; this is configuration inventory, not observed "
+            "runtime results"
+        ),
+        "deduplicated_configured_cases": (
+            "configured AMD definition cases after command-equivalent redundancy "
+            "clusters are collapsed; this is not the unique observed runtime "
+            "test-group count"
+        ),
+    }
 
     policies = matrix["summary"]["health_policies"]
     assert policies["reduced_ignore_mi355"] == {
@@ -877,6 +891,8 @@ steps:
     )
     assert matrix["duplicate_groups"] == []
     assert matrix["summary"]["reduced_unique_groups"] == 5
+    assert matrix["summary"]["configured_definition_cases"] == 5
+    assert matrix["summary"]["deduplicated_configured_cases"] == 5
 
 
 def test_best_hardware_policy_splits_sensitive_mi355_and_uses_best_generic_status():

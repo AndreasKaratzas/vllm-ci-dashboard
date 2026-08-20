@@ -260,7 +260,7 @@ if (testAssertionPassRatePct({}, 'percent') !== null) {
         text = (JS / "ci-health.js").read_text()
         assert "const amdTotalGroups=a.unique_test_groups||mergedAmdGroups||0" in text
         assert "const amdPassAny=a.test_groups_passing_or ?? passingGroups.length" in text
-        assert "card('Test Groups',`${amdPassAny}/${amdTotalGroups}`" in text
+        assert "card('Unique Test Groups',`${amdPassAny}/${amdTotalGroups}`" in text
         assert "const coverageGroups=mergedGroups" in text
         assert "const hasUpstreamCoverage=g=>!!g.upstream||g.status==='upstream_only'" in text
         assert "bothGroups=coverageGroups.filter" in text

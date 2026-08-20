@@ -632,7 +632,7 @@ class TestFrontendFiles:
 
     def test_amd_hw_matrix_summary_uses_operational_labels(self):
         js = (DOCS / "assets" / "js" / "ci-analytics.js").read_text()
-        for label in ["Test Families", "Nightly Matched", "Passing HW Jobs", "Needs Attention"]:
+        for label in ["Configured AMD Definitions", "Nightly Matched", "Passing HW Jobs", "Needs Attention"]:
             assert label in js, f"AMD HW Matrix summary missing operational label: {label}"
         for stale in ["Unique YAML Groups", "Full Coverage", "Coverage Gaps", "Only gaps"]:
             assert stale not in js, f"AMD HW Matrix should not expose confusing stale label: {stale}"
@@ -645,11 +645,14 @@ class TestFrontendFiles:
 
     def test_group_trends_uses_amd_matrix_for_current_amd_groups(self):
         js = (DOCS / "assets" / "js" / "ci-analytics.js").read_text()
-        assert "Current YAML Groups" in js, (
-            "AMD group trend summary should use the AMD HW Matrix row count for current groups"
+        assert "Current AMD Definitions" in js, (
+            "AMD group trend summary should name the AMD HW Matrix row count as definitions"
         )
-        assert "hardware jobs in AMD HW Matrix" in js, (
-            "AMD current group card should explain the matrix-derived hardware-job count"
+        assert "deduplicated configured cases" in js, (
+            "AMD definition cards should explain the separately deduplicated configured-case count"
+        )
+        assert "configured hardware routes" in js, (
+            "AMD current definition card should explain its hardware-route count"
         )
 
     def test_green_of_target_opens_full_target_coverage(self):

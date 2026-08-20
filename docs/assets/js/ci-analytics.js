@@ -87,8 +87,17 @@
     failingCells = summary.failing_cells ?? failingCells;
     waitingCells = summary.waiting_cells ?? waitingCells;
     unknownCells = summary.unknown_cells ?? unknownCells;
+    const configuredDefinitionCases = summary.configured_definition_cases
+      ?? summary.definition_rows
+      ?? summary.unique_groups
+      ?? rows.length;
+    const deduplicatedConfiguredCases = summary.deduplicated_configured_cases
+      ?? summary.reduced_unique_groups
+      ?? configuredDefinitionCases;
     return {
-      families: summary.unique_groups ?? rows.length,
+      configuredDefinitionCases,
+      deduplicatedConfiguredCases,
+      redundancyClusters: summary.duplicate_clusters ?? 0,
       architectures: summary.architecture_count ?? architectures.length,
       hardwareCells,
       matchedCells,
@@ -847,10 +856,10 @@
       return c;
     };
     summRow.append(mc(
-      matrixSummary ? 'Current YAML Groups' : 'Current Groups',
-      matrixSummary ? matrixSummary.families : latest.groups.size,
+      matrixSummary ? 'Current AMD Definitions' : 'Current Groups',
+      matrixSummary ? matrixSummary.configuredDefinitionCases : latest.groups.size,
       matrixSummary
-        ? `${matrixSummary.hardwareCells} hardware jobs in AMD HW Matrix`
+        ? `${matrixSummary.deduplicatedConfiguredCases} deduplicated configured cases · ${matrixSummary.hardwareCells} configured hardware routes`
         : latest.date,
       C.b,
       matrixGroups || [...latest.groups]
@@ -1143,9 +1152,9 @@
 
     const summaryRow = h('div',{style:{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'12px',marginBottom:'16px'}});
     summaryRow.append(metricCard(
-      'Test Families',
-      matrixSummary.families,
-      `${matrixSummary.architectures || archCount} architectures · ${matrixSummary.hardwareCells} hardware jobs`,
+      'Configured AMD Definitions',
+      matrixSummary.configuredDefinitionCases,
+      `${matrixSummary.deduplicatedConfiguredCases} after collapsing ${matrixSummary.redundancyClusters} redundancy clusters · ${matrixSummary.architectures || archCount} architectures · ${matrixSummary.hardwareCells} hardware routes`,
       C.b
     ));
     summaryRow.append(metricCard(

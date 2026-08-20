@@ -1694,7 +1694,7 @@
     const amdAssertions=executedAssertionCount(a);
     const sfInfo=a.jobs_soft_failed?` &bull; ${a.jobs_soft_failed} soft-failed`:'';
     const runInfo=a.is_running?` &bull; <span style="color:${C.y}">&#9888; running</span>`:'';
-    row.append(card('AMD test assertion pass rate',amdAssertionRate==null?'-':pct(amdAssertionRate,1),`Build #${a.build_number} &bull; ${fmtInt(amdAssertions)} executed assertions &bull; ${amdGroupCount} runtime groups${sfInfo}${runInfo}`,amdAssertionRate==null?C.m:rc(amdAssertionRate),
+    row.append(card('AMD test assertion pass rate',amdAssertionRate==null?'-':pct(amdAssertionRate,1),`Build #${a.build_number} &bull; ${fmtInt(amdAssertions)} executed assertions &bull; ${amdGroupCount} unique observed test groups${sfInfo}${runInfo}`,amdAssertionRate==null?C.m:rc(amdAssertionRate),
       ()=>{ if(a.build_url) window.open(a.build_url,'_blank'); }));
 
     // Test Failures card -> overlay with failing groups (split AMD / upstream)
@@ -1726,11 +1726,11 @@
         amdPartial>0?`<span style="color:${C.y}">${amdPartial} partial</span>`:'',
         amdFailAll>0?`<span style="color:${C.r}">${amdFailAll} failing</span>`:'',
       ].filter(Boolean).join(' &bull; ');
-      row.append(card('Test Groups',`${amdPassAny}/${amdTotalGroups}`,sub,rc(groupRate),
-        ()=>showGroupOverlay_health('All Test Groups (AMD)',allAmdGroups,C.b,null,null,true)));
+      row.append(card('Unique Test Groups',`${amdPassAny}/${amdTotalGroups}`,sub,rc(groupRate),
+        ()=>showGroupOverlay_health('Unique Test Groups (AMD)',allAmdGroups,C.b,null,null,true)));
     } else {
-      row.append(card('Test Groups',mergedAmdGroups||a.test_groups,`${a.jobs_passed||0} jobs passed`,C.b,
-        ()=>showGroupOverlay_health('All Test Groups (AMD)',allAmdGroups,C.b,null,null,true)));
+      row.append(card('Unique Test Groups',mergedAmdGroups||a.test_groups,`${a.jobs_passed||0} jobs passed`,C.b,
+        ()=>showGroupOverlay_health('Unique Test Groups (AMD)',allAmdGroups,C.b,null,null,true)));
     }
 
     // Parity card -> overlay with 3-tab parity breakdown
@@ -1745,7 +1745,7 @@
       const upGroups=u.unique_test_groups||0;
       const upstreamAssertionRate=testAssertionRate(u);
       const upstreamAssertions=executedAssertionCount(u);
-      row.append(card('Upstream test assertion pass rate',upstreamAssertionRate==null?'-':pct(upstreamAssertionRate,1),`Build #${u.build_number} &bull; ${fmtInt(upstreamAssertions)} executed assertions &bull; ${upGroups} runtime groups`,upstreamAssertionRate==null?C.m:rc(upstreamAssertionRate)));
+      row.append(card('Upstream test assertion pass rate',upstreamAssertionRate==null?'-':pct(upstreamAssertionRate,1),`Build #${u.build_number} &bull; ${fmtInt(upstreamAssertions)} executed assertions &bull; ${upGroups} unique observed test groups`,upstreamAssertionRate==null?C.m:rc(upstreamAssertionRate)));
     }
 
     box.append(row);

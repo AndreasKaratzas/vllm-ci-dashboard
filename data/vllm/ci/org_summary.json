@@ -1,6 +1,6 @@
 {
   "schema_id": "oss-project-ci-summary",
-  "schema_version": 1,
+  "schema_version": 2,
   "generated_at": "2026-08-20T22:12:52Z",
   "project": {
     "id": "vllm",
@@ -22,16 +22,7 @@
       "mixed_by_hardware": 1,
       "green_rate_pct": 98.7,
       "green_policy": "passes_on_any_observed_amd_hardware_route",
-      "count_basis": "same-build normalized logical test-group identity"
-    },
-    "configured_amd_definitions": {
-      "available": true,
-      "reason": null,
-      "build_number": 12275,
-      "total": 166,
-      "reduced_unique_total": 161,
-      "duplicate_clusters": 5,
-      "count_basis": "configured AMD test-definition identity"
+      "count_basis": "unique logical test groups observed in this build; hardware-route copies and configured %N shard jobs are counted once per normalized group"
     },
     "exact_job_variants_latest_amd": {
       "available": true,
@@ -351,8 +342,7 @@
     }
   },
   "definitions": {
-    "test_group": "A normalized logical test identity. Hardware replicas and configured shards can collapse into one observed group.",
-    "configured_amd_definition": "A logical definition in the build-pinned AMD test configuration, including definitions that emitted no parsed result.",
+    "test_group": "A unique logical test-group identity observed in a run. Hardware-route copies and configured %N shard jobs collapse into that one observed group; configured-definition inventories are separate.",
     "job_variant": "One exact Buildkite job name; replicas and shards remain separate.",
     "runtime_gate": "One best-hardware policy group. It is green when any owned hardware cell passes, except explicitly MI355-sensitive groups use their dedicated route.",
     "scheduled_gating_group": "One unique in-capacity-scope scheduled group, deduplicated by its derived step key. It is gated when the run selected at least one retry-collapsed job and green when all selected final jobs passed.",

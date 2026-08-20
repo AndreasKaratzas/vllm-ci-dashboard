@@ -1093,7 +1093,12 @@ def _latest_amd_test_group_counts(
         "pass_rate_pct": None,
         "source": source,
         "passing_policy": "passes_on_any_observed_hardware",
-        "count_basis": "same-build normalized logical test-group identity",
+        "count_basis": (
+            "unique logical test-group identities observed in this AMD nightly; "
+            "hardware-specific executions and configured %N shard jobs count "
+            "once per normalized group; configured-definition inventories are "
+            "separate"
+        ),
     }
     if job_variant_build_number is None:
         return {**base, "reason": "latest_job_variant_build_unavailable"}
@@ -3630,8 +3635,21 @@ def _gating(
                 "unit": "latest parity audit rows",
             },
             "matrix_group_counts": {
-                "value": int(matrix_summary.get("unique_groups") or len(matrix.get("rows") or [])),
-                "unit": "configured AMD groups",
+                "value": int(
+                    matrix_summary.get("configured_definition_cases")
+                    or matrix_summary.get("definition_rows")
+                    or matrix_summary.get("unique_groups")
+                    or len(matrix.get("rows") or [])
+                ),
+                "unit": "configured AMD definition cases",
+            },
+            "matrix_deduplicated_case_counts": {
+                "value": int(
+                    matrix_summary.get("deduplicated_configured_cases")
+                    or matrix_summary.get("reduced_unique_groups")
+                    or 0
+                ),
+                "unit": "deduplicated configured AMD cases; not observed runtime test groups",
             },
             "matrix_cell_states": {"value": matrix_cells, "unit": "configured AMD hardware cells"},
             # Compatibility alias retained for older clients; the unit is explicit.
@@ -7500,10 +7518,10 @@ def _org_source(payload: dict, name: str) -> dict:
 def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dict:
     """Build the stable, compact CI contract used by organization rollups.
 
-    The document deliberately keeps observed logical groups, configured
-    definitions, runtime gates, reviewed targets, and exact Buildkite jobs in
-    separate namespaces. They are different populations and must not be added
-    together or used as interchangeable denominators.
+    The document deliberately keeps observed logical groups, runtime gates,
+    reviewed targets, and exact Buildkite jobs in separate namespaces. They
+    are different populations and must not be added together or used as
+    interchangeable denominators.
     """
     queue_lifecycle = queue_lifecycle or {}
     amd_summary = ((payload.get("amd_test_health") or {}).get("summary") or {})
@@ -7613,7 +7631,7 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
 
     return {
         "schema_id": "oss-project-ci-summary",
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": payload.get("generated_at"),
         "project": {
             "id": "vllm",
@@ -7652,28 +7670,11 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
                     else None
                 ),
                 "green_policy": "passes_on_any_observed_amd_hardware_route",
-                "count_basis": "same-build normalized logical test-group identity",
-            },
-            "configured_amd_definitions": {
-                "available": matrix_available,
-                "reason": None if matrix_available else "amd_build_mismatch",
-                "build_number": matrix_build,
-                "total": (
-                    _org_int(matrix.get("definition_rows"))
-                    if matrix_available
-                    else None
+                "count_basis": (
+                    "unique logical test groups observed in this build; "
+                    "hardware-route copies and configured %N shard jobs are "
+                    "counted once per normalized group"
                 ),
-                "reduced_unique_total": (
-                    _org_int(matrix.get("reduced_unique_groups"))
-                    if matrix_available
-                    else None
-                ),
-                "duplicate_clusters": (
-                    _org_int(matrix.get("duplicate_clusters"))
-                    if matrix_available
-                    else None
-                ),
-                "count_basis": "configured AMD test-definition identity",
             },
             "exact_job_variants_latest_amd": {
                 "available": exact_total is not None,
@@ -7847,12 +7848,10 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
         },
         "definitions": {
             "test_group": (
-                "A normalized logical test identity. Hardware replicas and configured "
-                "shards can collapse into one observed group."
-            ),
-            "configured_amd_definition": (
-                "A logical definition in the build-pinned AMD test configuration, "
-                "including definitions that emitted no parsed result."
+                "A unique logical test-group identity observed in a run. "
+                "Hardware-route copies and configured %N shard jobs collapse into "
+                "that one observed group; configured-definition inventories are "
+                "separate."
             ),
             "job_variant": (
                 "One exact Buildkite job name; replicas and shards remain separate."

@@ -200,7 +200,7 @@ def test_org_summary_projects_distinct_counts_and_latest_nightly() -> None:
     summary = ops.build_org_summary(_payload(), _lifecycle())
 
     assert summary["schema_id"] == "oss-project-ci-summary"
-    assert summary["schema_version"] == 1
+    assert summary["schema_version"] == 2
     assert summary["project"]["id"] == "vllm"
 
     logical = summary["test_groups"]["observed_latest_amd"]
@@ -209,14 +209,17 @@ def test_org_summary_projects_distinct_counts_and_latest_nightly() -> None:
         148,
         2,
     )
+    assert "configured %N shard jobs" in logical["count_basis"]
+    assert "configured-definition inventories are separate" in summary["definitions"][
+        "test_group"
+    ]
     variants = summary["test_groups"]["exact_job_variants_latest_amd"]
     assert (variants["total"], variants["green"], variants["non_green"]) == (
         236,
         232,
         4,
     )
-    configured = summary["test_groups"]["configured_amd_definitions"]
-    assert configured["total"] == 166
+    assert "configured_amd_definitions" not in summary["test_groups"]
 
     best = summary["gating"]["best_hardware_runtime"]
     assert (best["total"], best["green"], best["non_green"]) == (166, 163, 3)
@@ -267,9 +270,6 @@ def test_org_summary_fails_closed_when_amd_builds_do_not_align() -> None:
     assert observed["available"] is False
     assert observed["reason"] == "build_mismatch"
     assert observed["total"] is None
-    configured = summary["test_groups"]["configured_amd_definitions"]
-    assert configured["available"] is False
-    assert configured["total"] is None
     best = summary["gating"]["best_hardware_runtime"]
     assert best["available"] is False
     assert best["green"] is None
@@ -336,6 +336,7 @@ def test_published_org_summary_has_consistent_denominators() -> None:
 
     logical = summary["test_groups"]["observed_latest_amd"]
     variants = summary["test_groups"]["exact_job_variants_latest_amd"]
+    assert "configured_amd_definitions" not in summary["test_groups"]
     assert logical["available"] is True
     assert logical["green_on_all_observed_hardware"] <= logical["green"] <= logical["total"]
     assert logical["green_on_all_observed_hardware"] + logical["mixed_by_hardware"] == logical["green"]

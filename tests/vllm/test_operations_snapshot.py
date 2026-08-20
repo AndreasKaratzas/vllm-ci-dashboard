@@ -232,7 +232,16 @@ def _fixture_data(tmp_path: Path) -> Path:
     })
     _write_json(tmp_path / "amd_test_matrix.json", {
         "generated_at": "2026-04-22T10:04:00Z",
-        "summary": {"unique_groups": 2, "hardware_cells": 4, "passing_cells": 3, "failing_cells": 1},
+        "summary": {
+            "unique_groups": 2,
+            "definition_rows": 2,
+            "reduced_unique_groups": 2,
+            "configured_definition_cases": 2,
+            "deduplicated_configured_cases": 2,
+            "hardware_cells": 4,
+            "passing_cells": 3,
+            "failing_cells": 1,
+        },
         "rows": [
             {
                 "canonical_title": "Fixed",
@@ -656,7 +665,12 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
             "pass_rate_pct": 66.7,
             "source": "ci_health.amd.latest_test_signal_build",
             "passing_policy": "passes_on_any_observed_hardware",
-            "count_basis": "same-build normalized logical test-group identity",
+            "count_basis": (
+                "unique logical test-group identities observed in this AMD nightly; "
+                "hardware-specific executions and configured %N shard jobs count "
+                "once per normalized group; configured-definition inventories are "
+                "separate"
+            ),
             "reason": None,
         },
         "observation_state_counts": {
@@ -2528,6 +2542,16 @@ def test_reliability_only_marks_mixed_pass_failure_jobs_flaky(tmp_path):
     assert payload["reliability"]["denominator"]["unknown_observations_excluded"] == 1
     assert payload["gating"]["denominators"]["target_signal_counts"]["value"] == 2
     assert payload["gating"]["denominators"]["matrix_cell_states"]["value"] == 4
+    assert payload["gating"]["denominators"]["matrix_group_counts"] == {
+        "value": 2,
+        "unit": "configured AMD definition cases",
+    }
+    assert payload["gating"]["denominators"]["matrix_deduplicated_case_counts"] == {
+        "value": 2,
+        "unit": (
+            "deduplicated configured AMD cases; not observed runtime test groups"
+        ),
+    }
     assert all("owner" not in row for row in payload["gating"]["active_target_groups"])
 
     gating = {row["label"]: row for row in payload["gating"]["active_target_groups"]}

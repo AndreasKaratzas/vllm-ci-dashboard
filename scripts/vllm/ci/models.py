@@ -6,6 +6,11 @@ from typing import Optional
 
 PASS_RATE_CONTRACT_VERSION = 1
 TEST_PASS_RATE_BASIS = "pytest_assertions_excluding_skipped"
+OBSERVED_UNIQUE_TEST_GROUPS_COUNT_BASIS = (
+    "unique logical test-group identities observed in this build; "
+    "hardware-specific executions and configured %N shard jobs count once per "
+    "normalized group; configured-definition inventories are separate"
+)
 
 
 @dataclass
@@ -75,7 +80,7 @@ class BuildSummary:
     has_test_results: bool = False # at least one parsed test-result row exists
     is_running: bool = False       # True if build still has non-terminal jobs
     test_groups: int = 0           # number of JSONL entries (job-level groups)
-    unique_test_groups: int = 0    # unique test group names (HW-stripped)
+    unique_test_groups: int = 0    # observed logical groups (HW routes/shards collapsed)
     test_groups_passing_or: int = 0  # groups passing on ANY hardware (OR logic)
     test_groups_passing_all: int = 0  # groups passing on ALL hardware (strict)
     test_groups_partial: int = 0     # groups that differ across hardware
@@ -126,6 +131,12 @@ class BuildSummary:
             "is_running": self.is_running,
             "test_groups": self.test_groups,
             "unique_test_groups": self.unique_test_groups,
+            # Explicit alias for consumers that need to distinguish observed
+            # runtime identities from configured definition-row counts.
+            "observed_unique_test_groups": self.unique_test_groups,
+            "observed_unique_test_groups_count_basis": (
+                OBSERVED_UNIQUE_TEST_GROUPS_COUNT_BASIS
+            ),
             "test_groups_passing_or": self.test_groups_passing_or,
             "test_groups_passing_all": self.test_groups_passing_all,
             "test_groups_partial": self.test_groups_partial,
