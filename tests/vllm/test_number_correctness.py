@@ -496,6 +496,17 @@ class TestExtractHardwareFunction:
         assert _extract_hardware(":amd: (MI355) Some Test") == "mi355"
         assert _extract_hardware(":computer: (CPU) Some Test") == "cpu"
 
+    def test_standardized_nvidia_decorator(self):
+        from vllm.ci.analyzer import _extract_hardware
+
+        assert _extract_hardware(":nvidia: (H200) Basic Correctness") == "h200"
+        assert _extract_hardware(":nvidia: (L4) Distributed Models") == "l4"
+        assert _extract_hardware(":nvidia: (GH200) Some Test") == "gh200"
+        assert _extract_hardware(":nvidia: (MITHRIL) Some Test") == "mithril"
+        assert _extract_hardware(
+            "gpu_1: :nvidia: (H200) Basic Correctness"
+        ) == "h200"
+
     def test_upstream_gpu_tag(self):
         from vllm.ci.analyzer import _extract_hardware
         assert _extract_hardware("Some Test (H100)") == "h100"
@@ -550,6 +561,12 @@ def test_standardized_decorators_collapse_logical_groups_and_shards(monkeypatch)
     ) == "attention kernels shard"
     assert analyzer._normalize_job_name(
         ":computer: (CPU) Attention Kernels Shard"
+    ) == "attention kernels shard"
+    assert analyzer._normalize_job_name(
+        "gpu_1: :nvidia: (H200) Attention Kernels Shard 1"
+    ) == "attention kernels shard"
+    assert analyzer._normalize_job_name(
+        ":nvidia: (L4) Attention Kernels Shard %N"
     ) == "attention kernels shard"
 
     results = [

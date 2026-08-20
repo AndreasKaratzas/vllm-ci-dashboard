@@ -32,7 +32,11 @@ STANDARD_AMD_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 STANDARD_PLATFORM_PREFIX_RE = re.compile(
-    r"^:(?:amd|computer):\s*\(\s*(?:mi\d{3,4}b?|cpu)\s*\)\s*",
+    r"^:(?:amd|nvidia|computer):\s*\(\s*[a-z0-9][a-z0-9._-]*\s*\)\s*",
+    re.IGNORECASE,
+)
+STANDARD_GPU_PLATFORM_PREFIX_RE = re.compile(
+    r"^:(?:amd|nvidia):\s*\(\s*(?:(?=[a-z0-9._-]*\d)[a-z0-9][a-z0-9._-]*|mithril)\s*\)\s*",
     re.IGNORECASE,
 )
 AMD_DEVICE_SUFFIX_RE = re.compile(r"\s*\((mi\d{3,4}b?_\d+)\)\s*$", re.IGNORECASE)
@@ -96,13 +100,13 @@ def is_amd_mirror_job(job: dict[str, Any]) -> bool:
 
 def is_gpu_like_job(job: dict[str, Any]) -> bool:
     decorated = str(job.get("raw_name") or job.get("name") or "")
-    standard_amd_gpu = bool(STANDARD_AMD_PREFIX_RE.match(decorated))
+    standard_gpu = bool(STANDARD_GPU_PLATFORM_PREFIX_RE.match(decorated))
     raw = clean_job_label(decorated)
     queue = str(job.get("q") or "")
     haystack = f"{raw} {queue}"
     if CPU_OR_NON_GPU_RE.search(haystack):
         return False
-    return standard_amd_gpu or bool(GPU_QUEUE_RE.search(haystack))
+    return standard_gpu or bool(GPU_QUEUE_RE.search(haystack))
 
 
 def exclusion_reasons(label: str, queue: str = "") -> list[str]:

@@ -102,6 +102,71 @@ def test_shard_base_catalog_preserves_pipeline_provenance(monkeypatch):
     assert config_parity.extract_shard_bases() == catalog["normalization_bases"]
 
 
+def test_standardized_nvidia_decorators_restore_definition_matches():
+    amd_basic = config_parity._parse_step(
+        {
+            "label": ":amd: (MI300) Basic Correctness",
+            "commands": ["pytest tests/basic"],
+        },
+        ".buildkite/test-amd.yaml",
+        "basic",
+    )
+    nvidia_basic = config_parity._parse_step(
+        {
+            "label": ":nvidia: (H200) Basic Correctness",
+            "commands": ["pytest tests/basic"],
+        },
+        ".buildkite/test_areas/basic.yaml",
+        "basic",
+    )
+    amd_distributed = config_parity._parse_step(
+        {
+            "label": ":amd: (MI300) Distributed Models",
+            "commands": ["pytest tests/distributed"],
+            "num_devices": 2,
+        },
+        ".buildkite/test-amd.yaml",
+        "distributed",
+        yaml_index=1,
+    )
+    nvidia_distributed = config_parity._parse_step(
+        {
+            "label": ":nvidia: (L4) Distributed Models",
+            "commands": ["pytest tests/distributed"],
+            "num_devices": 2,
+        },
+        ".buildkite/test_areas/distributed.yaml",
+        "distributed",
+    )
+
+    assert nvidia_basic.normalized_label == "basic correctness"
+    assert nvidia_distributed.normalized_label == "distributed models"
+    assert nvidia_basic.identity_key == amd_basic.identity_key
+    assert nvidia_distributed.identity_key == amd_distributed.identity_key
+
+    matches, amd_only, nvidia_only = _match_config_steps(
+        [amd_basic, amd_distributed],
+        [nvidia_basic, nvidia_distributed],
+        [],
+    )
+
+    assert {
+        (match.amd_step.label, match.nvidia_step.label)
+        for match in matches
+    } == {
+        (
+            ":amd: (MI300) Basic Correctness",
+            ":nvidia: (H200) Basic Correctness",
+        ),
+        (
+            ":amd: (MI300) Distributed Models",
+            ":nvidia: (L4) Distributed Models",
+        ),
+    }
+    assert amd_only == []
+    assert nvidia_only == []
+
+
 def _snapshot_archive() -> bytes:
     stream = io.BytesIO()
     with tarfile.open(fileobj=stream, mode="w:gz") as archive:

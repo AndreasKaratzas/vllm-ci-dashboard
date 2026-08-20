@@ -37,6 +37,7 @@ from vllm.ci.analytics_cache import (  # noqa: E402
     merge_builds,
     write_build_cache,
 )
+from vllm.ci.analyzer import _parse_job_execution_label  # noqa: E402
 from vllm.ci.incident_transitions import INCIDENT_TRANSITION_POLICY_ID  # noqa: E402
 from vllm.ci.models import PASS_RATE_CONTRACT_VERSION  # noqa: E402
 from vllm.ci.utils import (  # noqa: E402
@@ -311,35 +312,27 @@ def queue_from_rules(rules):
 
 
 def normalize_job(name):
-    """Strip hardware prefix for cross-build comparison."""
-    # Result JSONL can contain the Buildkite queue prefix outside the
-    # standardized YAML decorator, e.g. ``mi300_1: :amd: (MI300) Foo``.
-    # Remove the outer prefix first so both layers are normalized.
-    name = re.sub(r'^(mi\d+_\d+|gpu_\d+|amd_\w+):\s*', '', name, flags=re.IGNORECASE)
-    name = re.sub(
-        r'^:(?:amd|computer):\s*\(\s*(?:mi\d{3,4}b?|cpu)\s*\)\s*',
-        '',
-        name,
-        flags=re.IGNORECASE,
-    )
-    return name.strip()
+    """Strip execution queue and platform decorator for build comparison."""
+    logical_label, _, _ = _parse_job_execution_label(name)
+    return logical_label.strip()
 
 
 def queue_from_result_job_name(name):
-    """Derive an AMD queue from a parsed JSONL job name when metadata is absent."""
-    match = re.match(
-        r"^:amd:\s*\(\s*(mi\d{3,4}b?)\s*\)\s*",
-        name or "",
-        flags=re.IGNORECASE,
-    )
-    if match:
-        return "amd_" + match.group(1).lower()
+    """Derive a hardware queue from a parsed result when metadata is absent."""
+    # A concrete AMD queue includes the device width and is more specific than
+    # the standardized decorator retained inside a nested result label.
     match = re.match(r"^(mi\d+_\d+):\s*", name or "", flags=re.IGNORECASE)
     if match:
         return "amd_" + match.group(1).lower()
     match = re.match(r"^(amd[-_\w]+):\s*", name or "", flags=re.IGNORECASE)
     if match:
         return match.group(1).lower()
+
+    _, platform, hardware = _parse_job_execution_label(name)
+    if platform == "amd" and hardware:
+        return "amd_" + hardware
+    if platform == "nvidia" and hardware:
+        return "nvidia_" + hardware
     return None
 
 

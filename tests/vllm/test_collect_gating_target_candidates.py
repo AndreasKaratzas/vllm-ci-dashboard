@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from vllm import collect_gating_targets
 from vllm import collect_gating_target_candidates as collector
 
 
@@ -26,6 +27,45 @@ def test_standardized_amd_jobs_remain_mirror_candidates() -> None:
     assert collector.clean_job_label(job["raw_name"]) == "Basic Correctness"
     assert collector.is_amd_mirror_job(job) is True
     assert collector.is_gpu_like_job(job) is True
+
+
+def test_standardized_nvidia_jobs_are_clean_gpu_candidates_not_amd_mirrors() -> None:
+    for device in ("H100", "H200", "L4", "A100", "B200", "GH200"):
+        job = {"raw_name": f":nvidia: ({device}) Basic Correctness", "q": ""}
+
+        assert collector.clean_job_label(job["raw_name"]) == "Basic Correctness"
+        assert collector.is_amd_mirror_job(job) is False
+        assert collector.is_gpu_like_job(job) is True
+
+
+def test_decorated_nvidia_build_matches_every_canonical_target() -> None:
+    groups = collect_gating_targets.load_targets()
+    upstream_build = {
+        "number": 100,
+        "web_url": "https://buildkite.com/vllm/ci/builds/100",
+        "jobs": [
+            {
+                "raw_name": f":nvidia: (H200) {target['label']}",
+                "q": "",
+                "state": "passed",
+                "job_id": f"job-{target['id']}",
+            }
+            for target in groups
+        ],
+    }
+
+    rows, summary = collector.collect_upstream_candidates(
+        upstream_build,
+        None,
+        {"groups": groups},
+        {"pull_requests": []},
+    )
+
+    assert summary["canonical_target_count"] == 125
+    assert summary["canonical_match_count"] == 125
+    assert summary["missing_from_upstream_count"] == 0
+    assert summary["new_candidate_count"] == 0
+    assert {row["decision"] for row in rows} == {"canonical"}
 
 
 def test_hardware_fold_key_preserves_gpu_counts() -> None:

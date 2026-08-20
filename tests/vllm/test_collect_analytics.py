@@ -28,6 +28,18 @@ def test_standardized_platform_labels_normalize_and_preserve_queue_family():
     assert ca.queue_from_result_job_name(
         "mi300_1: :amd: (MI300) Attention Kernels"
     ) == "amd_mi300_1"
+    assert ca.normalize_job(
+        "gpu_1: :nvidia: (H200) Basic Correctness"
+    ) == "Basic Correctness"
+    assert ca.queue_from_result_job_name(
+        "gpu_1: :nvidia: (H200) Basic Correctness"
+    ) == "nvidia_h200"
+    assert ca.normalize_job(
+        ":nvidia: (L4) Distributed Models"
+    ) == "Distributed Models"
+    assert ca.queue_from_result_job_name(
+        ":nvidia: (L4) Distributed Models"
+    ) == "nvidia_l4"
 
 
 def test_analytics_writer_uses_compact_json(tmp_path):

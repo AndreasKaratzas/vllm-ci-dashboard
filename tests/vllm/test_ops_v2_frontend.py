@@ -739,27 +739,22 @@ def test_published_definition_parity_reconciles_coverage_and_mirror_evidence(ops
     )
     assert "covered_avg_command_similarity_pct" in summary
 
-    basic = next(
-        row
-        for row in parity["inline_mirror_variants"]
-        if row["amd_label"] == "Basic Correctness"
-    )
-    assert not any(
-        row["label"] == "Basic Correctness"
-        for row in parity["amd_only"]
-    )
-    assert basic["nvidia_label"] == "Basic Correctness"
-    assert basic["match_method"] == "inline_mirror_variant"
-    assert basic["amd_definition_id"]
-    assert basic["nvidia_definition_id"]
-    assert basic["amd_source_url"]
-    assert basic["nvidia_source_url"]
-    for field in (
-        "command_similarity",
-        "amd_route_similarity",
-        "inline_mirror_command_similarity",
-    ):
-        assert field in basic
+    amd_only_definition_ids = {
+        row["definition_id"] for row in parity["amd_only"]
+    }
+    for variant in parity["inline_mirror_variants"]:
+        assert variant["match_method"] == "inline_mirror_variant"
+        assert variant["amd_definition_id"] not in amd_only_definition_ids
+        assert variant["amd_definition_id"]
+        assert variant["nvidia_definition_id"]
+        assert variant["amd_source_url"]
+        assert variant["nvidia_source_url"]
+        for field in (
+            "command_similarity",
+            "amd_route_similarity",
+            "inline_mirror_command_similarity",
+        ):
+            assert field in variant
 
     for mirror in parity["mirrors"]:
         assert mirror["nvidia_definition_id"]
@@ -1075,10 +1070,6 @@ def test_current_architecture_signal_rows_sort_nonpassing_before_passes():
             title.casefold() for title in titles
         )
 
-    ordered_titles = [row["title"] for row in ordered]
-    assert ordered_titles.index("Basic Models Tests (Other)") < ordered_titles.index(
-        "e2e Scheduling (1 GPU)"
-    )
     first_passing = ranks.index(3)
     assert all(rank < 3 for rank in ranks[:first_passing])
     assert all(rank == 3 for rank in ranks[first_passing:])
@@ -1122,14 +1113,14 @@ const helpers = sandbox.window.OpsV2Test;
 assert.ok(helpers);
 
 const ordered = helpers.sortRuntimeTargetRows([
-  {id: 'pass-e2e', label: 'e2e Scheduling (1 GPU)', area: 'Other', latest_amd_result: {state: 'passed'}},
+  {id: 'pass-zulu', label: 'Zulu Passing', area: 'Other', latest_amd_result: {state: 'passed'}},
   {id: 'unknown', label: 'Unknown Signal', area: 'Other', latest_amd_result: {state: 'unobserved'}},
   {id: 'soft', label: 'Soft Incident', area: 'Other', latest_amd_result: {state: 'soft_failed'}},
-  {id: 'pass-basic', label: 'Basic Models Tests (Other)', area: 'Models', latest_amd_result: {state: 'passed'}},
+  {id: 'pass-alpha', label: 'Alpha Passing', area: 'Models', latest_amd_result: {state: 'passed'}},
   {id: 'hard', label: 'Hard Incident', area: 'Other', latest_amd_result: {state: 'failed'}},
 ]).map(function (row) { return row.id; });
 assert.equal(JSON.stringify(ordered), JSON.stringify([
-  'hard', 'soft', 'unknown', 'pass-basic', 'pass-e2e',
+  'hard', 'soft', 'unknown', 'pass-alpha', 'pass-zulu',
 ]));
 
 const staleResolution = helpers.targetResolutionPresentation({

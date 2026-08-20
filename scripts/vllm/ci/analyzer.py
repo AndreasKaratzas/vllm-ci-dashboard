@@ -60,13 +60,35 @@ _JOB_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 # Standardized upstream labels introduced by vLLM #52976 use architecture
-# decorators such as ``:amd: (MI300)`` and ``:computer: (CPU)`` instead of an
-# internal queue prefix.  The decorator identifies execution hardware, not the
-# logical test group, so normalization must remove it before shard handling.
+# decorators such as ``:amd: (MI300)``, ``:nvidia: (H200)``, and
+# ``:computer: (CPU)`` instead of an internal queue prefix. The hardware token
+# is deliberately future-friendly: current labels include short names such as
+# L4 plus named pools such as MITHRIL and DGX, while future device names may not
+# fit the older H/A/B/L numeric families.
 _STANDARD_JOB_DECORATOR_RE = re.compile(
-    r'^:(?:amd|computer):\s*\(\s*(mi\d{3,4}b?|cpu)\s*\)\s*',
+    r'^:(?P<platform>amd|nvidia|computer):\s*'
+    r'\(\s*(?P<hardware>[a-z0-9][a-z0-9._-]*)\s*\)\s*',
     re.IGNORECASE,
 )
+
+
+def _parse_job_execution_label(name: str) -> tuple[str, str, str]:
+    """Return logical label, standardized platform, and hardware token.
+
+    Parsed result rows can retain the physical Buildkite queue outside the
+    standardized label, for example ``gpu_1: :nvidia: (H200) Foo``. Remove
+    that outer queue before looking for the decorator so all runtime consumers
+    interpret the same label shape.
+    """
+    label = _JOB_PREFIX_RE.sub('', str(name or ''), count=1)
+    match = _STANDARD_JOB_DECORATOR_RE.match(label)
+    if not match:
+        return label, '', ''
+    return (
+        label[match.end():],
+        match.group('platform').lower(),
+        match.group('hardware').lower(),
+    )
 
 
 def _normalize_job_name(name: str) -> str:
@@ -74,7 +96,8 @@ def _normalize_job_name(name: str) -> str:
 
     Strips:
     - Hardware prefixes like 'mi250_1: ', 'gpu_1: '
-    - Standard platform decorators like ':amd: (MI300) ' and ':computer: (CPU) '
+    - Standard platform decorators like ':amd: (MI300) ',
+      ':nvidia: (H200) ', and ':computer: (CPU) '
     - Hardware tags in parens like (H100), (mi325), (B200-MI355)
     - Trailing '# comment'
     - '%N' parallelism marker
@@ -86,12 +109,7 @@ def _normalize_job_name(name: str) -> str:
 
     Adapted from vllm_ci_parity.py normalize_label().
     """
-    # Parsed Buildkite rows can retain both layers, for example
-    # ``mi300_1: :amd: (MI300) Attention Kernels Shard 1``.  Strip the
-    # execution-queue prefix first so the standardized label decorator is at
-    # the start of the remaining string and can be removed as well.
-    s = _JOB_PREFIX_RE.sub('', name)
-    s = _STANDARD_JOB_DECORATOR_RE.sub('', s)
+    s, _, _ = _parse_job_execution_label(name)
     s = re.sub(r'#.*$', '', s).strip()
     s = re.sub(r'\s*%N\s*$', '', s).strip()
     # Convert SINGLE-HW GPU-count tags to plain GPU count:
@@ -1111,20 +1129,23 @@ def _extract_hardware(job_name: str) -> str:
 
     AMD style: 'mi250_1: Test Name' -> 'mi250'
     Standard AMD style: ':amd: (MI355) Test Name' -> 'mi355'
+    Standard NVIDIA style: ':nvidia: (H200) Test Name' -> 'h200'
     Standard CPU style: ':computer: (CPU) Test Name' -> 'cpu'
     Upstream style: 'Test Name (H100)' -> 'h100'
                     'Test Name (2xB200)' -> 'b200'
                     'Test Name (H100-MI250)' -> 'h100'
     No tag (upstream default): -> 'h100' (default NVIDIA queue)
     """
-    # Standardized AMD architecture decorator.
-    m = _STANDARD_JOB_DECORATOR_RE.match(job_name)
-    if m:
-        return m.group(1).lower()
     # Internal AMD queue prefix.
     m = _HW_FAMILY_RE.match(job_name)
     if m:
         return m.group(1).lower()
+    # Standardized architecture decorator. Parse after removing a possible
+    # outer queue so ``gpu_1: :nvidia: (L4) Foo`` retains the actual device
+    # instead of falling through to the historical H100 default.
+    _, _, decorated_hardware = _parse_job_execution_label(job_name)
+    if decorated_hardware:
+        return decorated_hardware
     # Upstream GPU tag in parens
     m = _UPSTREAM_HW_RE.search(job_name)
     if m:
