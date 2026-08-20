@@ -22,6 +22,12 @@ def test_standardized_platform_labels_normalize_and_preserve_queue_family():
     assert ca.queue_from_result_job_name(
         ":amd: (MI355) Attention Kernels"
     ) == "amd_mi355"
+    assert ca.normalize_job(
+        "mi300_1: :amd: (MI300) Attention Kernels"
+    ) == "Attention Kernels"
+    assert ca.queue_from_result_job_name(
+        "mi300_1: :amd: (MI300) Attention Kernels"
+    ) == "amd_mi300_1"
 
 
 def test_analytics_writer_uses_compact_json(tmp_path):

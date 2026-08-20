@@ -751,7 +751,12 @@ def _amd_test_job_labels(exact_job_name: str) -> tuple[str, str, str, str]:
     if match:
         hardware_variant = match.group("hardware_variant").lower()
         hardware = hardware_variant.split("_", 1)[0]
-        display_name = match.group("display_name")
+        # Parsed test-result names may preserve the standardized YAML label
+        # inside the Buildkite queue prefix.  Keep the exact name as identity,
+        # but do not leak the nested decorator into the dashboard label.
+        display_name = STANDARD_PLATFORM_PREFIX_RE.sub(
+            "", match.group("display_name"), count=1
+        ).strip()
         return display_name, hardware, hardware_variant, f"amd_{hardware_variant}"
     standard = STANDARD_PLATFORM_PREFIX_RE.match(exact_job_name)
     if standard:

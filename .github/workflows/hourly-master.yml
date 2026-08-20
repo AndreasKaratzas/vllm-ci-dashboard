@@ -1259,6 +1259,15 @@ jobs:
               ...candidatePublicationSurfaces,
               ...selectedPublicationSurfaces,
             ])].sort();
+            // A publication surface is routing information, not an incident
+            // identity. Multiple unrelated validator conditions can affect the
+            // same surface, so key publication incidents by their stable finding
+            // codes. Fall back to surfaces only when a producer omitted codes.
+            const publicationConditionCodes = [...new Set(
+              publicationFindings
+                .map(finding => String(finding && finding.code || '').trim())
+                .filter(Boolean),
+            )].sort();
             const liveFailureNodes = [...new Set(
               liveAuditOutput.split('\n').map(line => {
                 const clean = stripAnsi(line).trim();
@@ -1276,9 +1285,13 @@ jobs:
               ...(hasTestFailure
                 ? normalizedFailureNodes.map(node => `deterministic:${node}`) : []),
               ...((selectorOutcome === 'failure' || selectorDegraded)
-                ? (publicationSurfaceSignals.length
-                  ? publicationSurfaceSignals.map(surface => `publication:${surface}`)
-                  : ['publication:unknown'])
+                ? (publicationConditionCodes.length
+                  ? publicationConditionCodes.map(
+                    code => `publication-finding:${code}`,
+                  )
+                  : publicationSurfaceSignals.length
+                    ? publicationSurfaceSignals.map(surface => `publication:${surface}`)
+                    : ['publication:unknown'])
                 : []),
               ...(hasLiveAuditFailure
                 ? [
@@ -1302,7 +1315,7 @@ jobs:
               `validation:${normalizeDiagnostic(summary)}`;
             const fingerprint = crypto
               .createHash('sha256')
-              .update(`hourly-ci-v3\n${fingerprintSource}`)
+              .update(`hourly-ci-v4\n${fingerprintSource}`)
               .digest('hex')
               .slice(0, 16);
             const previousFingerprintSource = detailedFingerprintEvidence.join('\n') ||
@@ -1325,7 +1338,9 @@ jobs:
             const fingerprintMarker = `<!-- hourly-ci-fingerprint:${fingerprint} -->`;
             const previousFingerprintMarker = `<!-- hourly-ci-fingerprint:${previousFingerprint} -->`;
             const legacyFingerprintMarker = `<!-- hourly-ci-fingerprint:${legacyFingerprint} -->`;
-            const fingerprintVersionMarker = '<!-- hourly-ci-fingerprint-version:3 -->';
+            const fingerprintVersionMarker = '<!-- hourly-ci-fingerprint-version:4 -->';
+            const surfaceOnlyFingerprintVersionMarker =
+              '<!-- hourly-ci-fingerprint-version:3 -->';
             const recoveryMarker = '<!-- hourly-ci-recovery-streak:0 -->';
             const recoveredMarker = '<!-- hourly-ci-recovered -->';
             const title = `Hourly validation failure [${fingerprint.slice(0, 8)}] — ${date}`;
@@ -1472,14 +1487,26 @@ jobs:
                   return finding.surface ? [finding.surface] : [];
                 }),
               ].map(surface => String(surface || '').trim()).filter(Boolean))].sort();
+              const publicationConditionCodes = [...new Set(
+                publicationRows
+                  .filter(finding => finding && typeof finding === 'object')
+                  .map(finding => String(finding.code || '').trim())
+                  .filter(Boolean),
+              )].sort();
               const hasPublicationSignal =
                 /## (?:Publication Selection Failure|Degraded Publication)/.test(issueBody) ||
                 /\*\*Publication selector:\*\* outcome=`failure`/.test(issueBody) ||
                 publicationSurfaces.length > 0;
               if (hasPublicationSignal) {
-                evidence.push(...(
-                  publicationSurfaces.length ? publicationSurfaces : ['unknown']
-                ).map(surface => `publication:${surface}`));
+                if (publicationConditionCodes.length) {
+                  evidence.push(...publicationConditionCodes.map(
+                    code => `publication-finding:${code}`,
+                  ));
+                } else {
+                  evidence.push(...(
+                    publicationSurfaces.length ? publicationSurfaces : ['unknown']
+                  ).map(surface => `publication:${surface}`));
+                }
               }
 
               const liveRows = jsonSection(
@@ -1505,6 +1532,9 @@ jobs:
             const sameSignalEvidence = (left, right) => left !== null &&
               left.length === right.length &&
               left.every((value, index) => value === right[index]);
+            const hasSurfaceOnlyV3PublicationIdentity = issueBody =>
+              issueBody.includes(surfaceOnlyFingerprintVersionMarker) &&
+              /## (?:Publication Selection Failure|Degraded Publication)/.test(issueBody);
 
             const allIssues = await github.paginate(github.rest.issues.listForRepo, {
               owner: context.repo.owner, repo: context.repo.repo,
@@ -1565,6 +1595,11 @@ jobs:
               return issueBody.includes(ownershipMarker) &&
                 fingerprintPattern.test(issueBody) &&
                 !issueBody.includes(fingerprintVersionMarker) &&
+                // v3 intentionally grouped all publication failures for the
+                // same surfaces. Those mixed-history tickets cannot be safely
+                // migrated into one code-scoped v4 incident. Deterministic and
+                // live-audit-only v3 incidents already had precise identities.
+                !hasSurfaceOnlyV3PublicationIdentity(issueBody) &&
                 sameSignalEvidence(
                   legacyStableSignalEvidence(issueBody), signalEvidence,
                 );
@@ -1704,7 +1739,7 @@ jobs:
               await github.rest.issues.createComment({
                 owner: context.repo.owner, repo: context.repo.repo,
                 issue_number: issue.number,
-                body: `Publication validation passed in ${requiredRecoveryRuns} consecutive published runs. Closing.\n\n**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                body: `This incident's validation condition was absent in ${requiredRecoveryRuns} consecutive fully successful publication runs. Closing this ticket; unrelated validation conditions remain independently tracked.\n\n**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
               });
               await github.rest.issues.update({
                 owner: context.repo.owner, repo: context.repo.repo,

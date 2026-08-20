@@ -312,13 +312,16 @@ def queue_from_rules(rules):
 
 def normalize_job(name):
     """Strip hardware prefix for cross-build comparison."""
+    # Result JSONL can contain the Buildkite queue prefix outside the
+    # standardized YAML decorator, e.g. ``mi300_1: :amd: (MI300) Foo``.
+    # Remove the outer prefix first so both layers are normalized.
+    name = re.sub(r'^(mi\d+_\d+|gpu_\d+|amd_\w+):\s*', '', name, flags=re.IGNORECASE)
     name = re.sub(
         r'^:(?:amd|computer):\s*\(\s*(?:mi\d{3,4}b?|cpu)\s*\)\s*',
         '',
         name,
         flags=re.IGNORECASE,
     )
-    name = re.sub(r'^(mi\d+_\d+|gpu_\d+|amd_\w+):\s*', '', name, flags=re.IGNORECASE)
     return name.strip()
 
 

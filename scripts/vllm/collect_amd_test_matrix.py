@@ -915,6 +915,10 @@ def _arch_sort_key(arch: str) -> int:
 
 def _normalize_job_name(name: str) -> str:
     name = re.sub(r"^(mi\d+_\d+|gpu_\d+|amd_\w+):\s*", "", name or "", flags=re.I)
+    # Buildkite runtime names can wrap a standardized YAML label in the
+    # internal queue prefix (``mi300_1: :amd: (MI300) ...``).  Remove both
+    # layers before comparing YAML templates with concrete shard jobs.
+    name = DEVICE_LABEL_PREFIX_RE.sub("", name, count=1)
     return MULTISPACE_RE.sub(" ", name).strip().lower()
 
 

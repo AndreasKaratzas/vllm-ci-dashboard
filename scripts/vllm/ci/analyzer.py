@@ -86,8 +86,12 @@ def _normalize_job_name(name: str) -> str:
 
     Adapted from vllm_ci_parity.py normalize_label().
     """
-    s = _STANDARD_JOB_DECORATOR_RE.sub('', name)
-    s = _JOB_PREFIX_RE.sub('', s)
+    # Parsed Buildkite rows can retain both layers, for example
+    # ``mi300_1: :amd: (MI300) Attention Kernels Shard 1``.  Strip the
+    # execution-queue prefix first so the standardized label decorator is at
+    # the start of the remaining string and can be removed as well.
+    s = _JOB_PREFIX_RE.sub('', name)
+    s = _STANDARD_JOB_DECORATOR_RE.sub('', s)
     s = re.sub(r'#.*$', '', s).strip()
     s = re.sub(r'\s*%N\s*$', '', s).strip()
     # Convert SINGLE-HW GPU-count tags to plain GPU count:

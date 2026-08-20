@@ -202,6 +202,62 @@ def test_strip_shard_index_unifies_template_and_numeric_runtime_labels():
     )
 
 
+def test_strip_shard_index_unifies_nested_runtime_prefix_and_decorated_template():
+    shard_bases = ["attention kernels shard"]
+
+    assert strip_shard_index(
+        ":amd: (MI300) Attention Kernels Shard %N", shard_bases
+    ) == "attention kernels shard"
+    assert strip_shard_index(
+        "mi300_1: :amd: (MI300) Attention Kernels Shard 2", shard_bases
+    ) == "attention kernels shard"
+
+
+def test_matrix_matches_nested_runtime_prefix_for_decorated_shards():
+    steps, architectures = parse_steps("""
+steps:
+  - label: ":amd: (MI300) Attention Kernels Shard %N"
+    agent_pool: mi300_1
+    parallelism: 2
+""")
+    build = {
+        "number": 12275,
+        "web_url": "https://buildkite.com/vllm/amd-ci/builds/12275",
+        "jobs": [
+            {
+                "id": f"mi300-attention-{shard}",
+                "type": "script",
+                "name": (
+                    "mi300_1: :amd: (MI300) "
+                    f"Attention Kernels Shard {shard}"
+                ),
+                "state": "passed",
+                "agent_query_rules": ["queue=amd_mi300_1"],
+            }
+            for shard in range(2)
+        ],
+    }
+    shard_bases = ["attention kernels shard"]
+    latest_job_index = build_buildkite_job_index(build, shard_bases)
+
+    matrix = build_matrix(
+        steps=steps,
+        architectures=architectures,
+        latest_job_index=latest_job_index,
+        latest_build=build,
+        parity_exact_index={},
+        parity_norm_index={},
+        shard_bases=shard_bases,
+        yaml_url="https://example.invalid/test-amd.yaml",
+    )
+
+    cell = matrix["rows"][0]["cells"]["mi300"]
+    assert cell["latest_matched"] is True
+    assert cell["variants"][0]["latest_match_count"] == 2
+    assert matrix["summary"]["hardware_cells"] == 1
+    assert matrix["summary"]["latest_matched_cells"] == 1
+
+
 def test_matrix_matches_literal_percent_n_jobs_for_mi300_and_mi355():
     steps, architectures = parse_steps("""
 steps:

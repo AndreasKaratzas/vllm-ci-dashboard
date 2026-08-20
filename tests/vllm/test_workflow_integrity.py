@@ -857,12 +857,18 @@ class TestHourlyMasterWorkflow:
         assert "Live publication audit findings" in script
         assert "Failing deterministic tests" in script
         assert "deterministic:${node}" in script
+        assert "const publicationConditionCodes" in script
+        assert "publicationConditionCodes.length" in script
+        assert "publication-finding:${code}" in script
         assert "publication:${surface}" in script
         assert "live-audit:${code}" in script
         assert "live-contract:${node}" in script
-        assert "hourly-ci-v3\\n${fingerprintSource}" in script
+        assert "hourly-ci-v4\\n${fingerprintSource}" in script
         assert "hourly-ci-v2\\n${previousFingerprintSource}" in script
+        assert "<!-- hourly-ci-fingerprint-version:4 -->" in script
+        assert "const surfaceOnlyFingerprintVersionMarker" in script
         assert "<!-- hourly-ci-fingerprint-version:3 -->" in script
+        assert "const hasSurfaceOnlyV3PublicationIdentity" in script
         assert "was manually closed" in script
         assert "leaving it suppressed until the signal recovers" in script
         assert ".replace(/\\b\\d+(?:\\.\\d+)?\\b/g, '<number>')" in script
@@ -904,6 +910,10 @@ class TestHourlyMasterWorkflow:
         assert "left.length === right.length" in script
         assert "left.every((value, index) => value === right[index])" in script
         assert "!issueBody.includes(fingerprintVersionMarker)" in script
+        # Surface-only v3 incidents may already contain several unrelated
+        # conditions and therefore must not be migrated into a v4 code-scoped
+        # incident. Otherwise an old shipped-work ticket can be reused again.
+        assert "!hasSurfaceOnlyV3PublicationIdentity(issueBody)" in script
         assert "legacyStableSignalEvidence(issueBody), signalEvidence" in script
         # If duplicate legacy issues exist, a manual close wins the migration
         # choice so an unrelated open/recovered duplicate cannot bypass it.
@@ -966,6 +976,8 @@ class TestHourlyMasterWorkflow:
         assert "nextRecoveryStreak < requiredRecoveryRuns" in script
         assert "const recoveredBody = nextBody.includes(recoveredMarker)" in script
         assert "issue_number: issue.number, body: recoveredBody, state: 'closed'" in script
+        assert "This incident's validation condition was absent" in script
+        assert "unrelated validation conditions remain independently tracked" in script
         closed_recovered = (
             "if (issue.state === 'closed' && body.includes(recoveredMarker)) continue"
         )

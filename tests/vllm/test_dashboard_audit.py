@@ -1129,6 +1129,58 @@ def test_complete_same_commit_unused_shard_base_is_a_degradation(tmp_path):
     ]
 
 
+def test_nested_decorated_runtime_shard_satisfies_shard_base_audit(tmp_path):
+    ci = tmp_path / "data/vllm/ci"
+    results = ci / "test_results"
+    results.mkdir(parents=True)
+    result_name = "2026-08-20_amd.jsonl"
+    runtime_name = (
+        "mi300_1: :amd: (MI300) Attention Kernels Shard 1"
+    )
+    (results / result_name).write_text(
+        json.dumps({"job_name": runtime_name}) + "\n"
+    )
+    (ci / "shard_bases.json").write_text(
+        json.dumps(["attention kernels shard"])
+    )
+    (ci / "shard_base_catalog.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source": {"commit_sha": "a" * 40},
+                "normalization_bases": ["attention kernels shard"],
+                "pipelines": {
+                    "amd": ["attention kernels shard"],
+                    "upstream": [],
+                },
+                "evidence": {
+                    "pipeline": "amd",
+                    "build_number": 12275,
+                    "build_commit": "a" * 40,
+                    "build_state": "passed",
+                    "result_file": result_name,
+                    "roster_complete": True,
+                    "job_names": [runtime_name],
+                },
+                "definitions": [
+                    {
+                        "base": "attention kernels shard",
+                        "pipeline": "amd",
+                        "optional": False,
+                    }
+                ],
+            }
+        )
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_shard_bases()
+
+    assert "shard-bases-unused" not in {
+        finding.code for finding in audit.report.findings
+    }
+
+
 def _manifest_descriptor(path: Path) -> dict[str, object]:
     payload = path.read_bytes()
     return {

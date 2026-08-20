@@ -533,10 +533,12 @@ def test_standardized_decorators_collapse_logical_groups_and_shards(monkeypatch)
     from vllm.ci.models import TestResult
 
     monkeypatch.setattr(analyzer, "_SHARD_BASES", ["attention kernels shard"])
-    mi300 = ":amd: (MI300) Attention Kernels Shard 2"
-    mi355 = ":amd: (MI355) Attention Kernels Shard 1"
+    mi300_shard_1 = "mi300_1: :amd: (MI300) Attention Kernels Shard 1"
+    mi300_shard_2 = "mi300_1: :amd: (MI300) Attention Kernels Shard 2"
+    mi355 = "mi355_1: :amd: (MI355) Attention Kernels Shard 1"
 
-    assert analyzer._normalize_job_name(mi300) == "attention kernels shard"
+    assert analyzer._normalize_job_name(mi300_shard_1) == "attention kernels shard"
+    assert analyzer._normalize_job_name(mi300_shard_2) == "attention kernels shard"
     assert analyzer._normalize_job_name(mi355) == "attention kernels shard"
     assert analyzer._normalize_job_name(
         ":amd: (MI355) Attention Kernels Shard %N"
@@ -560,14 +562,15 @@ def test_standardized_decorators_collapse_logical_groups_and_shards(monkeypatch)
             pipeline="amd-ci",
             date="2026-08-20",
         )
-        for index, job_name in enumerate((mi300, mi355), 1)
+        for index, job_name in enumerate((mi300_shard_1, mi300_shard_2, mi355), 1)
     ]
     summary = analyzer.compute_build_summary(
         {
             "number": 500,
             "state": "passed",
             "jobs": [
-                {"name": mi300, "state": "passed"},
+                {"name": mi300_shard_1, "state": "passed"},
+                {"name": mi300_shard_2, "state": "passed"},
                 {"name": mi355, "state": "passed"},
             ],
         },
@@ -580,6 +583,13 @@ def test_standardized_decorators_collapse_logical_groups_and_shards(monkeypatch)
     assert summary.test_groups_passing_all == 1
     assert summary.by_hardware["mi300"]["groups"] == 1
     assert summary.by_hardware["mi355"]["groups"] == 1
+
+    parity = analyzer.compute_parity(results, [])
+    parity_hardware_totals = defaultdict(int)
+    for group in parity["job_groups"]:
+        for hardware in group.get("hardware") or []:
+            parity_hardware_totals[hardware] += 1
+    assert parity_hardware_totals == {"mi300": 1, "mi355": 1}
 
 
 class TestNightlyDateFunction:

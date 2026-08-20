@@ -852,6 +852,14 @@ def test_amd_test_health_requires_same_build_for_logical_group_counts(tmp_path):
         "cpu",
         "cpu",
     )
+    assert ops._amd_test_job_labels(
+        "mi355_2: :amd: (MI355) Attention Kernels Shard 1"
+    ) == (
+        "Attention Kernels Shard 1",
+        "mi355",
+        "mi355_2",
+        "amd_mi355_2",
+    )
     _write_json(tmp_path / "analytics.json", {
         "amd-ci": {
             "builds": [{
