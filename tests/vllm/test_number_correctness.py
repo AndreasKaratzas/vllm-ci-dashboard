@@ -451,20 +451,21 @@ class TestUpstreamHardwareTracking:
             "The _extract_hardware() function may not detect (H100), (B200) etc."
         )
 
-    def test_upstream_h100_is_largest_group(self):
-        """H100 should be the default/largest upstream hardware group."""
+    def test_upstream_tracks_multiple_gpu_families(self):
+        """Explicit decorators must not collapse every upstream job to H100."""
         health = _load_json("ci_health.json")
         up = health.get("upstream", {}).get("latest_build", {})
         bh = up.get("by_hardware", {})
-        if "h100" not in bh:
-            pytest.skip("no h100 data yet")
-        h100 = bh["h100"]
-        for hw, data in bh.items():
-            if hw in ("unknown", "cpu", "h100"):
-                continue
-            assert h100.get("groups", 0) >= data.get("groups", 0), (
-                f"H100 ({h100.get('groups')}) has fewer groups than {hw} ({data.get('groups')})"
-            )
+        gpu_groups = {
+            hw: data.get("groups", 0)
+            for hw, data in bh.items()
+            if hw not in ("unknown", "cpu") and data.get("groups", 0) > 0
+        }
+        assert len(gpu_groups) >= 2, (
+            "Upstream hardware collapsed into fewer than two GPU families: "
+            f"{gpu_groups}. Standardized NVIDIA decorators may be defaulting "
+            "to one legacy hardware bucket."
+        )
 
     def test_parity_report_has_upstream_hardware(self):
         """Parity report groups must have upstream hardware tags."""
