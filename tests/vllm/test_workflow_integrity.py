@@ -180,6 +180,11 @@ class TestWorkflowYAML:
                 assert validation and validation.get("id") == "post-deploy-validation", (
                     f"{f.name} has a corruption redeploy but no id on post-deploy validation"
                 )
+                validation_script = validation.get("run", "")
+                assert "origin/gh-pages:data/vllm/ci/org_summary.json" in validation_script
+                assert "python -m json.tool" in validation_script
+                assert "_site/data/vllm/ci/org_summary.json" in validation_script
+                assert "cmp -s" in validation_script
 
                 redeploy = next(
                     step
@@ -1007,6 +1012,7 @@ class TestHourlyMasterWorkflow:
         assert pull < rebuild < render < audit < stage < budget < amend < push
         staged_outputs = script[stage:budget]
         assert "data/site/projects.json" in staged_outputs
+        assert "data/vllm/ci/org_summary.json" in staged_outputs
         assert "data/vllm/ci/operations_v2.json" not in staged_outputs
         assert "data/vllm/ci/operations_v2_manifest.json" in staged_outputs
         assert "data/vllm/ci/operations_v2/" not in staged_outputs

@@ -73,6 +73,7 @@ def _write(path: Path, text: str = "{}\n") -> None:
 
 def _operation_generated_files() -> list[str]:
     return [
+        "vllm/ci/org_summary.json",
         "vllm/ci/operations_v2_manifest.json",
         "vllm/ci/queue_history_chart.json",
     ] + [
@@ -631,6 +632,7 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
     assert ANALYTICS_PATH not in required
     assert ANALYTICS_PATH not in manifest["generated_files"]
     assert PUBLICATION_STATUS_OUTPUT in manifest["generated_files"]
+    assert "vllm/ci/org_summary.json" in manifest["generated_files"]
 
     forbidden = {
         "vllm/ci/.cache/builds_amd.json",
@@ -683,6 +685,7 @@ def test_production_manifest_matches_current_operation_sections() -> None:
         for descriptor in operation_manifest["sections"].values()
     }
     operation_outputs = operation_sections | {
+        "vllm/ci/org_summary.json",
         "vllm/ci/operations_v2_manifest.json",
         "vllm/ci/queue_history_chart.json",
     }

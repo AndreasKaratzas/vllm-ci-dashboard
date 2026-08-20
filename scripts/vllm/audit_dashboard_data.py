@@ -38,6 +38,7 @@ from vllm.publication_surfaces import (  # noqa: E402
     fallback_dependency_closure,
     ignored_watcher_state_paths,
 )
+from vllm.build_operations_snapshot import build_org_summary  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -598,7 +599,10 @@ DATA_SPECS: tuple[DataSpec, ...] = (
     DataSpec(
         "data/vllm/ci/queue_lifecycle.json",
         ("scripts/vllm/collect_queue_lifecycle.py",),
-        ("docs/assets/js/ops-v2.js",),
+        (
+            "scripts/vllm/build_operations_snapshot.py",
+            "docs/assets/js/ops-v2.js",
+        ),
         (
             "schema_version",
             "generated_at",
@@ -652,8 +656,32 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         "data/vllm/ci/operations_v2_manifest.json",
         ("scripts/vllm/build_operations_snapshot.py",),
         ("docs/assets/js/ops-v2.js",),
-        ("schema_version", "bundle_version", "generated_at", "shell", "sections"),
+        (
+            "schema_version",
+            "bundle_version",
+            "generated_at",
+            "shell",
+            "organization_summary",
+            "sections",
+        ),
         "Fast operational shell and lazy evidence-section manifest",
+    ),
+    DataSpec(
+        "data/vllm/ci/org_summary.json",
+        ("scripts/vllm/build_operations_snapshot.py",),
+        ("README.md",),
+        (
+            "schema_id",
+            "schema_version",
+            "generated_at",
+            "project",
+            "test_groups",
+            "gating",
+            "queues",
+            "definitions",
+            "sources",
+        ),
+        "Stable compact CI contract for organization-wide OSS rollups",
     ),
     DataSpec(
         "data/vllm/ci/ready_tickets.json",
@@ -1700,6 +1728,12 @@ class DashboardAudit:
                     continue
                 relative = f"vllm/ci/{descriptor['path']}"
                 published_sizes[relative] = _safe_int(descriptor.get("bytes"))
+            org_descriptor = _mapping(
+                operations_manifest.get("organization_summary")
+            )
+            if org_descriptor.get("path"):
+                relative = f"vllm/ci/{org_descriptor['path']}"
+                published_sizes[relative] = _safe_int(org_descriptor.get("bytes"))
 
         for relative, size in sorted(published_sizes.items()):
             if size > PUBLIC_FILE_HARD_BYTES:
@@ -3417,6 +3451,61 @@ class DashboardAudit:
                 "operations shell and compatibility snapshot have different generation timestamps",
                 relpath,
             )
+
+        summary_descriptor = _mapping(manifest.get("organization_summary"))
+        summary_relative = str(summary_descriptor.get("path") or "")
+        summary_path = manifest_path.parent / summary_relative
+        if summary_relative != "org_summary.json":
+            self.error(
+                "operations-bundle-org-summary-descriptor",
+                "operations manifest must point to org_summary.json",
+                relpath,
+            )
+        elif not summary_path.exists():
+            self.error(
+                "operations-bundle-org-summary-missing",
+                "organization summary is missing",
+                relpath,
+            )
+        else:
+            summary = self.load_json(self.rel(summary_path), {})
+            lifecycle = self.load_json(
+                "data/vllm/ci/queue_lifecycle.json",
+                {},
+            )
+            expected_summary = build_org_summary(
+                _mapping(monolith),
+                _mapping(lifecycle),
+            )
+            if summary != expected_summary:
+                self.error(
+                    "operations-bundle-org-summary-projection",
+                    (
+                        "org_summary.json does not match the authoritative "
+                        "Operations and queue-lifecycle inputs"
+                    ),
+                    relpath,
+                )
+            summary_size = summary_path.stat().st_size
+            if _safe_int(summary_descriptor.get("bytes")) != summary_size:
+                self.error(
+                    "operations-bundle-org-summary-size",
+                    (
+                        "organization summary reports "
+                        f"{summary_descriptor.get('bytes')} bytes but file size is "
+                        f"{summary_size}"
+                    ),
+                    relpath,
+                )
+            if summary_size > 65_536:
+                self.error(
+                    "operations-bundle-org-summary-budget",
+                    (
+                        f"organization summary is {summary_size} bytes; "
+                        "budget is 65536 bytes"
+                    ),
+                    relpath,
+                )
 
         expected = {
             "nightly",

@@ -136,6 +136,18 @@ jobs:
             echo "::error::$CORRUPT files corrupted on gh-pages! Redeploying without keep_files..."
             exit 1
           fi
+
+          DEPLOYED_ORG_SUMMARY="$RUNNER_TEMP/deployed-org-summary.json"
+          if ! git show origin/gh-pages:data/vllm/ci/org_summary.json \
+            > "$DEPLOYED_ORG_SUMMARY" 2>/dev/null; then
+            echo "::error::Published org_summary.json is missing."
+            exit 1
+          fi
+          python -m json.tool "$DEPLOYED_ORG_SUMMARY" >/dev/null
+          cmp -s _site/data/vllm/ci/org_summary.json "$DEPLOYED_ORG_SUMMARY" || {
+            echo "::error::Published org_summary.json differs from the assembled site."
+            exit 1
+          }
           echo "All data files clean."
 
       - name: Redeploy if corrupted

@@ -995,6 +995,7 @@ jobs:
             python scripts/render.py
             python scripts/vllm/audit_dashboard_data.py
             git add \
+              data/vllm/ci/org_summary.json \
               data/vllm/ci/operations_v2_manifest.json \
               data/vllm/ci/queue_history_chart.json \
               data/site/projects.json \
@@ -1058,9 +1059,26 @@ jobs:
             # Force a clean redeploy by removing keep_files behavior
             # The concurrency group should prevent this, but if it happens, fix it
             exit 1
-          else
-            echo "All data files clean."
           fi
+
+          DEPLOYED_ORG_SUMMARY="$RUNNER_TEMP/deployed-org-summary.json"
+          if ! git show origin/gh-pages:data/vllm/ci/org_summary.json \
+            > "$DEPLOYED_ORG_SUMMARY" 2>/dev/null; then
+            echo "::error::Published org_summary.json is missing."
+            CORRUPT=$((CORRUPT + 1))
+          elif ! python -m json.tool "$DEPLOYED_ORG_SUMMARY" >/dev/null; then
+            echo "::error::Published org_summary.json is not valid JSON."
+            CORRUPT=$((CORRUPT + 1))
+          elif ! cmp -s \
+            _site/data/vllm/ci/org_summary.json "$DEPLOYED_ORG_SUMMARY"; then
+            echo "::error::Published org_summary.json differs from the assembled site."
+            CORRUPT=$((CORRUPT + 1))
+          fi
+
+          if [ "$CORRUPT" -gt 0 ]; then
+            exit 1
+          fi
+          echo "All data files are clean and org_summary.json matches the assembled site."
 
       - name: Redeploy if corrupted
         if: failure() && steps.post-deploy-validation.outcome == 'failure' && hashFiles('_site/index.html') != ''

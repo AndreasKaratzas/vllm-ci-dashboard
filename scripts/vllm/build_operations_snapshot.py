@@ -44,6 +44,8 @@ DEFAULT_OUTPUT_NAME = "operations_v2.json"
 OPERATIONS_MANIFEST_NAME = "operations_v2_manifest.json"
 OPERATIONS_BUNDLE_DIR_NAME = "operations_v2"
 QUEUE_HISTORY_CHART_NAME = "queue_history_chart.json"
+ORG_SUMMARY_NAME = "org_summary.json"
+QUEUE_LIFECYCLE_NAME = "queue_lifecycle.json"
 NIGHTLY_BUILD_LIMIT = 30
 RANKING_LIMIT = 20
 CHANGE_LIMIT = 20
@@ -7463,6 +7465,436 @@ def _encoded_json(payload: Any) -> str:
     return json.dumps(payload, separators=(",", ":"), ensure_ascii=True) + "\n"
 
 
+def _org_int(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _org_float(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _seconds_to_minutes(value: Any) -> float | None:
+    seconds = _org_float(value)
+    return round(seconds / 60.0, 3) if seconds is not None else None
+
+
+def _org_source(payload: dict, name: str) -> dict:
+    source = ((payload.get("sources") or {}).get(name) or {})
+    return {
+        "path": source.get("path"),
+        "generated_at": source.get("timestamp"),
+    }
+
+
+def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dict:
+    """Build the stable, compact CI contract used by organization rollups.
+
+    The document deliberately keeps observed logical groups, configured
+    definitions, runtime gates, reviewed targets, and exact Buildkite jobs in
+    separate namespaces. They are different populations and must not be added
+    together or used as interchangeable denominators.
+    """
+    queue_lifecycle = queue_lifecycle or {}
+    amd_summary = ((payload.get("amd_test_health") or {}).get("summary") or {})
+    logical = amd_summary.get("latest_test_group_counts") or {}
+    logical_build = _org_int(logical.get("build_number"))
+    latest_variant_build = _org_int(amd_summary.get("latest_build_number"))
+    job_variant_build = _org_int(logical.get("job_variant_build_number"))
+    test_signal_build = _org_int(logical.get("test_signal_build_number"))
+    aligned_logical_builds = {
+        value
+        for value in (
+            logical_build,
+            latest_variant_build,
+            job_variant_build,
+            test_signal_build,
+        )
+        if value is not None
+    }
+    logical_available = bool(logical.get("available")) and (
+        len(aligned_logical_builds) == 1
+        and None not in (
+            logical_build,
+            latest_variant_build,
+            job_variant_build,
+            test_signal_build,
+        )
+    )
+    logical_reason = logical.get("reason")
+    if not logical_available and not logical_reason:
+        logical_reason = "build_mismatch" if len(aligned_logical_builds) > 1 else "unavailable"
+    job_states = amd_summary.get("latest_job_variant_state_counts") or {}
+
+    gating = payload.get("gating") or {}
+    matrix = gating.get("matrix_summary") or {}
+    policies = matrix.get("health_policies") or {}
+    best_hardware = policies.get("best_hardware") or {}
+    matrix_build = _org_int(matrix.get("latest_build_number"))
+    matrix_available = bool(matrix) and logical_available and matrix_build == logical_build
+    target_summary = gating.get("target_summary") or {}
+    scheduled = gating.get("upstream_scheduled") or {}
+    nightly = ((scheduled.get("latest_by_kind") or {}).get("nightly") or {})
+    nightly_summary = nightly.get("summary") or {}
+
+    queue_snapshot = ((payload.get("queue") or {}).get("snapshot") or {})
+    target_scope = queue_snapshot.get("target_queue_scope") or {}
+    target_totals = ((queue_snapshot.get("scope_totals") or {}).get("target") or {})
+    queue_map = queue_snapshot.get("queues") or {}
+    queue_ids = sorted(str(name) for name in (target_scope.get("queue_ids") or []))
+    queue_rows = []
+    for queue_id in queue_ids:
+        row = queue_map.get(queue_id) or {}
+        queue_rows.append({
+            "queue": queue_id,
+            "waiting_jobs": _org_int(row.get("waiting")),
+            "running_jobs": _org_int(row.get("running")),
+            "zombie_waiting_jobs": _org_int(row.get("zombie_waiting")),
+            "zombie_running_jobs": _org_int(row.get("zombie_running")),
+            "current_wait_minutes": {
+                "p50": _org_float(row.get("p50_wait")),
+                "p95": _org_float(row.get("p95_wait")),
+                "max": _org_float(row.get("max_wait")),
+            },
+            "count_source": row.get("count_source"),
+            "wait_source": row.get("wait_source"),
+        })
+
+    def maximum(field: str) -> float | None:
+        values = [
+            value
+            for row in queue_rows
+            if (value := _org_float(row["current_wait_minutes"].get(field)))
+            is not None
+        ]
+        return max(values) if values else None
+
+    lifecycle_totals = queue_lifecycle.get("totals") or {}
+    lifecycle_wait = lifecycle_totals.get("queue_wait_seconds") or {}
+    lifecycle_window = queue_lifecycle.get("window") or {}
+    lifecycle_coverage = queue_lifecycle.get("coverage") or {}
+    lifecycle_available = bool(lifecycle_window and lifecycle_wait)
+    current_queue_available = bool(
+        queue_snapshot.get("ts")
+        and queue_ids
+        and target_scope.get("all_rows_present") is True
+        and _org_int(target_totals.get("waiting")) is not None
+        and _org_int(target_totals.get("running")) is not None
+    )
+
+    exact_total = _org_int(amd_summary.get("latest_job_variant_count"))
+    exact_passing = _org_int(job_states.get("passed"))
+    exact_non_passing = (
+        exact_total - exact_passing
+        if exact_total is not None and exact_passing is not None
+        else None
+    )
+    best_total = _org_int(
+        best_hardware.get("included_groups")
+        if best_hardware.get("included_groups") is not None
+        else best_hardware.get("health_group_count")
+    )
+    best_green = _org_int(best_hardware.get("passing_groups"))
+    best_not_green = (
+        best_total - best_green
+        if best_total is not None and best_green is not None
+        else None
+    )
+
+    return {
+        "schema_id": "oss-project-ci-summary",
+        "schema_version": 1,
+        "generated_at": payload.get("generated_at"),
+        "project": {
+            "id": "vllm",
+            "name": "vLLM",
+            "repository": "https://github.com/vllm-project/vllm",
+            "dashboard": "https://andreaskaratzas.github.io/vllm-ci-dashboard/",
+            "summary_url": (
+                "https://andreaskaratzas.github.io/vllm-ci-dashboard/"
+                "data/vllm/ci/org_summary.json"
+            ),
+        },
+        "test_groups": {
+            "observed_latest_amd": {
+                "available": logical_available,
+                "reason": None if logical_available else logical_reason,
+                "build_number": logical_build,
+                "build_url": amd_summary.get("latest_build_url"),
+                "total": _org_int(logical.get("total")) if logical_available else None,
+                "green": _org_int(logical.get("passing")) if logical_available else None,
+                "non_green": (
+                    _org_int(logical.get("non_passing"))
+                    if logical_available
+                    else None
+                ),
+                "green_on_all_observed_hardware": (
+                    _org_int(logical.get("passing_all"))
+                    if logical_available
+                    else None
+                ),
+                "mixed_by_hardware": (
+                    _org_int(logical.get("partial")) if logical_available else None
+                ),
+                "green_rate_pct": (
+                    _org_float(logical.get("pass_rate_pct"))
+                    if logical_available
+                    else None
+                ),
+                "green_policy": "passes_on_any_observed_amd_hardware_route",
+                "count_basis": "same-build normalized logical test-group identity",
+            },
+            "configured_amd_definitions": {
+                "available": matrix_available,
+                "reason": None if matrix_available else "amd_build_mismatch",
+                "build_number": matrix_build,
+                "total": (
+                    _org_int(matrix.get("definition_rows"))
+                    if matrix_available
+                    else None
+                ),
+                "reduced_unique_total": (
+                    _org_int(matrix.get("reduced_unique_groups"))
+                    if matrix_available
+                    else None
+                ),
+                "duplicate_clusters": (
+                    _org_int(matrix.get("duplicate_clusters"))
+                    if matrix_available
+                    else None
+                ),
+                "count_basis": "configured AMD test-definition identity",
+            },
+            "exact_job_variants_latest_amd": {
+                "available": exact_total is not None,
+                "build_number": _org_int(amd_summary.get("latest_build_number")),
+                "total": exact_total,
+                "green": exact_passing,
+                "non_green": exact_non_passing,
+                "state_counts": {
+                    "passed": exact_passing,
+                    "soft_failed": _org_int(job_states.get("soft")),
+                    "hard_failed": _org_int(job_states.get("hard")),
+                    "unknown": _org_int(job_states.get("unknown")),
+                },
+                "count_basis": "exact Buildkite job name",
+            },
+        },
+        "gating": {
+            "best_hardware_runtime": {
+                "available": bool(best_hardware) and matrix_available,
+                "reason": (
+                    None
+                    if best_hardware and matrix_available
+                    else "amd_build_mismatch"
+                ),
+                "build_number": matrix_build,
+                "total": best_total if matrix_available else None,
+                "green": best_green if matrix_available else None,
+                "non_green": best_not_green if matrix_available else None,
+                "failing": (
+                    _org_int(best_hardware.get("failing_groups"))
+                    if matrix_available
+                    else None
+                ),
+                "waiting": (
+                    _org_int(best_hardware.get("waiting_groups"))
+                    if matrix_available
+                    else None
+                ),
+                "no_signal": (
+                    _org_int(best_hardware.get("unknown_groups"))
+                    if matrix_available
+                    else None
+                ),
+                "green_rate_pct": (
+                    _org_float(best_hardware.get("pass_percentage"))
+                    if matrix_available
+                    else None
+                ),
+                "green_policy": (
+                    best_hardware.get("status_rule") if matrix_available else None
+                ),
+                "denominator_policy": (
+                    best_hardware.get("denominator_rule") if matrix_available else None
+                ),
+            },
+            "upstream_scheduled_nightly": {
+                "available": bool(nightly),
+                "pipeline": "ci",
+                "kind": "nightly",
+                "build_number": _org_int(nightly.get("number")),
+                "build_url": nightly.get("url"),
+                "build_state": nightly.get("build_state"),
+                "commit": nightly.get("commit"),
+                "finished_at": nightly.get("finished_at"),
+                "configured": _org_int(nightly_summary.get("total")),
+                "gated": _org_int(nightly_summary.get("gated")),
+                "green": _org_int(nightly_summary.get("passing")),
+                "non_green": (
+                    _org_int(nightly_summary.get("gated"))
+                    - _org_int(nightly_summary.get("passing"))
+                    if _org_int(nightly_summary.get("gated")) is not None
+                    and _org_int(nightly_summary.get("passing")) is not None
+                    else None
+                ),
+                "failing": _org_int(nightly_summary.get("failing")),
+                "soft_failing": _org_int(nightly_summary.get("soft_failing")),
+                "pending": _org_int(nightly_summary.get("pending")),
+                "missing": _org_int(nightly_summary.get("missing")),
+                "queues_configured": _org_int(
+                    nightly_summary.get("configured_queue_count")
+                ),
+                "queues_with_gated_work": _org_int(nightly_summary.get("queue_count")),
+                "selected_job_wait_minutes": {
+                    "p50": _org_float((nightly.get("queue_wait_mins") or {}).get("p50")),
+                    "p95": _org_float((nightly.get("queue_wait_mins") or {}).get("p95")),
+                    "max": _org_float((nightly.get("queue_wait_mins") or {}).get("max")),
+                },
+            },
+            "reviewed_targets": {
+                "available": bool(target_summary),
+                "total": _org_int(target_summary.get("target_group_count")),
+                "current_gating_signal": target_summary.get("by_gating_signal") or {},
+                "target_readiness_signal": target_summary.get("by_target_signal") or {},
+                "platform_readiness_signal": target_summary.get("by_pf_signal") or {},
+                "signal_scope": "reviewed configuration intent, not runtime health",
+            },
+        },
+        "queues": {
+            "scope": {
+                "id": target_scope.get("id"),
+                "queue_count": _org_int(target_scope.get("queue_count")),
+                "families": target_scope.get("families") or [],
+                "gpu_widths": target_scope.get("gpu_widths") or [],
+                "queue_ids": queue_ids,
+            },
+            "current": {
+                "available": current_queue_available,
+                "reason": None if current_queue_available else "target_scope_unavailable",
+                "observed_at": queue_snapshot.get("ts"),
+                "waiting_jobs": (
+                    _org_int(target_totals.get("waiting"))
+                    if current_queue_available
+                    else None
+                ),
+                "running_jobs": (
+                    _org_int(target_totals.get("running"))
+                    if current_queue_available
+                    else None
+                ),
+                "queues_with_waiting_jobs": (
+                    sum(1 for row in queue_rows if (row.get("waiting_jobs") or 0) > 0)
+                    if current_queue_available
+                    else None
+                ),
+                "zombie_waiting_jobs": (
+                    sum(row.get("zombie_waiting_jobs") or 0 for row in queue_rows)
+                    if current_queue_available
+                    else None
+                ),
+                "zombie_running_jobs": (
+                    sum(row.get("zombie_running_jobs") or 0 for row in queue_rows)
+                    if current_queue_available
+                    else None
+                ),
+                "count_source": (
+                    target_totals.get("count_source")
+                    if current_queue_available
+                    else None
+                ),
+                "maximum_across_queues_wait_minutes": {
+                    "p50": maximum("p50") if current_queue_available else None,
+                    "p95": maximum("p95") if current_queue_available else None,
+                    "max": maximum("max") if current_queue_available else None,
+                },
+            },
+            "by_queue": queue_rows,
+            "recent_completed_window": {
+                "available": lifecycle_available,
+                "generated_at": queue_lifecycle.get("generated_at"),
+                "start": lifecycle_window.get("start"),
+                "end_exclusive": lifecycle_window.get("end_exclusive"),
+                "hours": _org_int(lifecycle_window.get("hours")),
+                "incoming_jobs": _org_int(lifecycle_totals.get("incoming")),
+                "served_jobs": _org_int(lifecycle_totals.get("served")),
+                "completed_jobs": _org_int(lifecycle_totals.get("completed")),
+                "green_jobs": _org_int(lifecycle_totals.get("passed")),
+                "green_rate_pct": _org_float(lifecycle_totals.get("pass_rate_pct")),
+                "served_job_wait_minutes": {
+                    "sample_count": _org_int(lifecycle_wait.get("count")),
+                    "p50": _seconds_to_minutes(lifecycle_wait.get("p50")),
+                    "p95": _seconds_to_minutes(lifecycle_wait.get("p95")),
+                    "average": _seconds_to_minutes(lifecycle_wait.get("avg")),
+                    "max": _seconds_to_minutes(lifecycle_wait.get("max")),
+                },
+                "coverage": {
+                    "status": lifecycle_coverage.get("status"),
+                    "complete": bool(lifecycle_coverage.get("complete")),
+                    "reason": lifecycle_coverage.get("reason"),
+                },
+            },
+        },
+        "definitions": {
+            "test_group": (
+                "A normalized logical test identity. Hardware replicas and configured "
+                "shards can collapse into one observed group."
+            ),
+            "configured_amd_definition": (
+                "A logical definition in the build-pinned AMD test configuration, "
+                "including definitions that emitted no parsed result."
+            ),
+            "job_variant": (
+                "One exact Buildkite job name; replicas and shards remain separate."
+            ),
+            "runtime_gate": (
+                "One best-hardware policy group. It is green when any owned hardware "
+                "cell passes, except explicitly MI355-sensitive groups use their "
+                "dedicated route."
+            ),
+            "scheduled_gating_group": (
+                "One unique in-capacity-scope scheduled group, deduplicated by its "
+                "derived step key. It is gated when the run selected at least one "
+                "retry-collapsed job and green when all selected final jobs passed."
+            ),
+            "gating_target": (
+                "A reviewed upstream semantic test group that ROCm CI owners intend "
+                "AMD CI to cover and potentially enforce. It records configuration "
+                "intent, not proof that the group currently gates or passes."
+            ),
+            "queue_waiting_job": "A Buildkite job in the SCHEDULED state.",
+            "queue_running_job": (
+                "A Buildkite job assigned, accepted, running, canceling, or timing out."
+            ),
+        },
+        "sources": {
+            "operations": {
+                "path": "operations_v2_manifest.json",
+                "generated_at": payload.get("generated_at"),
+            },
+            "ci_health": _org_source(payload, "ci_health"),
+            "amd_test_matrix": _org_source(payload, "amd_test_matrix"),
+            "gating_targets": _org_source(payload, "gating_targets"),
+            "capacity_monitor": _org_source(payload, "capacity_monitor"),
+            "queue_timeseries": _org_source(payload, "queue_timeseries"),
+            "queue_lifecycle": {
+                "path": QUEUE_LIFECYCLE_NAME,
+                "generated_at": queue_lifecycle.get("generated_at"),
+            },
+        },
+    }
+
+
 def write_snapshot_bundle(
     output: Path,
     payload: dict,
@@ -7493,12 +7925,29 @@ def write_snapshot_bundle(
         if stale not in expected_paths:
             stale.unlink()
 
+    org_summary = build_org_summary(
+        payload,
+        _load_json(output.parent / QUEUE_LIFECYCLE_NAME),
+    )
+    org_summary_path = output.parent / ORG_SUMMARY_NAME
+    org_summary_encoded = json.dumps(
+        org_summary,
+        indent=2,
+        ensure_ascii=True,
+    ) + "\n"
+    org_summary_path.write_text(org_summary_encoded)
+
     manifest = {
         "schema_version": payload.get("schema_version"),
         "bundle_version": 1,
         "generated_at": payload.get("generated_at"),
         "monolith": output.name if write_monolith else None,
         "shell": _operations_shell(payload),
+        "organization_summary": {
+            "path": ORG_SUMMARY_NAME,
+            "bytes": len(org_summary_encoded.encode("utf-8")),
+            "schema_version": org_summary["schema_version"],
+        },
         "sections": section_manifest,
     }
     manifest_path = output.parent / OPERATIONS_MANIFEST_NAME
@@ -7516,6 +7965,10 @@ def write_snapshot_bundle(
         print(
             f"Wrote {manifest_path} ({len(manifest_encoded.encode('utf-8'))} bytes, "
             f"{len(section_manifest)} lazy sections)"
+        )
+        print(
+            f"Wrote {org_summary_path} "
+            f"({len(org_summary_encoded.encode('utf-8'))} bytes)"
         )
     return manifest
 

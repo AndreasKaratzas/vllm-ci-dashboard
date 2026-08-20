@@ -1,0 +1,393 @@
+{
+  "schema_id": "oss-project-ci-summary",
+  "schema_version": 1,
+  "generated_at": "2026-08-20T22:12:52Z",
+  "project": {
+    "id": "vllm",
+    "name": "vLLM",
+    "repository": "https://github.com/vllm-project/vllm",
+    "dashboard": "https://andreaskaratzas.github.io/vllm-ci-dashboard/",
+    "summary_url": "https://andreaskaratzas.github.io/vllm-ci-dashboard/data/vllm/ci/org_summary.json"
+  },
+  "test_groups": {
+    "observed_latest_amd": {
+      "available": true,
+      "reason": null,
+      "build_number": 12275,
+      "build_url": "https://buildkite.com/vllm/amd-ci/builds/12275",
+      "total": 150,
+      "green": 148,
+      "non_green": 2,
+      "green_on_all_observed_hardware": 147,
+      "mixed_by_hardware": 1,
+      "green_rate_pct": 98.7,
+      "green_policy": "passes_on_any_observed_amd_hardware_route",
+      "count_basis": "same-build normalized logical test-group identity"
+    },
+    "configured_amd_definitions": {
+      "available": true,
+      "reason": null,
+      "build_number": 12275,
+      "total": 166,
+      "reduced_unique_total": 161,
+      "duplicate_clusters": 5,
+      "count_basis": "configured AMD test-definition identity"
+    },
+    "exact_job_variants_latest_amd": {
+      "available": true,
+      "build_number": 12275,
+      "total": 236,
+      "green": 232,
+      "non_green": 4,
+      "state_counts": {
+        "passed": 232,
+        "soft_failed": 4,
+        "hard_failed": 0,
+        "unknown": 0
+      },
+      "count_basis": "exact Buildkite job name"
+    }
+  },
+  "gating": {
+    "best_hardware_runtime": {
+      "available": true,
+      "reason": null,
+      "build_number": 12275,
+      "total": 166,
+      "green": 163,
+      "non_green": 3,
+      "failing": 3,
+      "waiting": 0,
+      "no_signal": 0,
+      "green_rate_pct": 98.2,
+      "green_policy": "pass when any owned hardware cell passes",
+      "denominator_policy": "all expected health groups, including waiting and unknown"
+    },
+    "upstream_scheduled_nightly": {
+      "available": true,
+      "pipeline": "ci",
+      "kind": "nightly",
+      "build_number": 84753,
+      "build_url": "https://buildkite.com/vllm/ci/builds/84753",
+      "build_state": "failed",
+      "commit": "d626108b1841888ec90aced33367149a6bbc7e4b",
+      "finished_at": "2026-08-20T16:05:35.202Z",
+      "configured": 73,
+      "gated": 73,
+      "green": 73,
+      "non_green": 0,
+      "failing": 0,
+      "soft_failing": 0,
+      "pending": 0,
+      "missing": 0,
+      "queues_configured": 7,
+      "queues_with_gated_work": 7,
+      "selected_job_wait_minutes": {
+        "p50": 0.4,
+        "p95": 0.5,
+        "max": 1.9
+      }
+    },
+    "reviewed_targets": {
+      "available": true,
+      "total": 125,
+      "current_gating_signal": {
+        "green": 45,
+        "red": 80
+      },
+      "target_readiness_signal": {
+        "gray": 3,
+        "green": 108,
+        "red": 14
+      },
+      "platform_readiness_signal": {
+        "green": 80,
+        "purple": 1,
+        "red": 31,
+        "yellow": 13
+      },
+      "signal_scope": "reviewed configuration intent, not runtime health"
+    }
+  },
+  "queues": {
+    "scope": {
+      "id": "amd_mi250_mi300_mi355",
+      "queue_count": 12,
+      "families": [
+        "MI250",
+        "MI300",
+        "MI355"
+      ],
+      "gpu_widths": [
+        1,
+        2,
+        4,
+        8
+      ],
+      "queue_ids": [
+        "amd_mi250_1",
+        "amd_mi250_2",
+        "amd_mi250_4",
+        "amd_mi250_8",
+        "amd_mi300_1",
+        "amd_mi300_2",
+        "amd_mi300_4",
+        "amd_mi300_8",
+        "amd_mi355_1",
+        "amd_mi355_2",
+        "amd_mi355_4",
+        "amd_mi355_8"
+      ]
+    },
+    "current": {
+      "available": true,
+      "reason": null,
+      "observed_at": "2026-08-20T21:50:45Z",
+      "waiting_jobs": 6,
+      "running_jobs": 320,
+      "queues_with_waiting_jobs": 2,
+      "zombie_waiting_jobs": 0,
+      "zombie_running_jobs": 0,
+      "count_source": "cluster_metrics",
+      "maximum_across_queues_wait_minutes": {
+        "p50": 0.5,
+        "p95": 0.6,
+        "max": 0.6
+      }
+    },
+    "by_queue": [
+      {
+        "queue": "amd_mi250_1",
+        "waiting_jobs": 0,
+        "running_jobs": 30,
+        "zombie_waiting_jobs": 0,
+        "zombie_running_jobs": 0,
+        "current_wait_minutes": {
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        },
+        "count_source": "cluster_metrics",
+        "wait_source": "cluster_metrics"
+      },
+      {
+        "queue": "amd_mi250_2",
+        "waiting_jobs": 0,
+        "running_jobs": 2,
+        "zombie_waiting_jobs": 0,
+        "zombie_running_jobs": 0,
+        "current_wait_minutes": {
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        },
+        "count_source": "cluster_metrics",
+        "wait_source": "cluster_metrics"
+      },
+      {
+        "queue": "amd_mi250_4",
+        "waiting_jobs": 0,
+        "running_jobs": 2,
+        "zombie_waiting_jobs": 0,
+        "zombie_running_jobs": 0,
+        "current_wait_minutes": {
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        },
+        "count_source": "cluster_metrics",
+        "wait_source": "cluster_metrics"
+      },
+      {
+        "queue": "amd_mi250_8",
+        "waiting_jobs": 0,
+        "running_jobs": 0,
+        "zombie_waiting_jobs": 0,
+        "zombie_running_jobs": 0,
+        "current_wait_minutes": {
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        },
+        "count_source": "cluster_metrics",
+        "wait_source": "cluster_metrics"
+      },
+      {
+        "queue": "amd_mi300_1",
+        "waiting_jobs": 0,
+        "running_jobs": 208,
+        "zombie_waiting_jobs": 0,
+        "zombie_running_jobs": 0,
+        "current_wait_minutes": {
+          "p50": 0.3,
+          "p95": 0.3,
+          "max": 0.3
+        },
+        "count_source": "cluster_metrics",
+        "wait_source": "cluster_metrics"
+      },
+      {
+        "queue": "amd_mi300_2",
+        "waiting_jobs": 3,
+        "running_jobs": 20,
+        "zombie_waiting_jobs": 0,
+        "zombie_running_jobs": 0,
+        "current_wait_minutes": {
+          "p50": 0.5,
+          "p95": 0.6,
+          "max": 0.6
+        },
+        "count_source": "cluster_metrics",
+        "wait_source": "cluster_metrics"
+      },
+      {
+        "queue": "amd_mi300_4",
+        "waiting_jobs": 3,
+        "running_jobs": 20,
+        "zombie_waiting_jobs": 0,
+        "zombie_running_jobs": 0,
+        "current_wait_minutes": {
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        },
+        "count_source": "cluster_metrics",
+        "wait_source": "cluster_metrics"
+      },
+      {
+        "queue": "amd_mi300_8",
+        "waiting_jobs": 0,
+        "running_jobs": 1,
+        "zombie_waiting_jobs": 0,
+        "zombie_running_jobs": 0,
+        "current_wait_minutes": {
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        },
+        "count_source": "cluster_metrics",
+        "wait_source": "cluster_metrics"
+      },
+      {
+        "queue": "amd_mi355_1",
+        "waiting_jobs": 0,
+        "running_jobs": 33,
+        "zombie_waiting_jobs": 0,
+        "zombie_running_jobs": 0,
+        "current_wait_minutes": {
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        },
+        "count_source": "cluster_metrics",
+        "wait_source": "cluster_metrics"
+      },
+      {
+        "queue": "amd_mi355_2",
+        "waiting_jobs": 0,
+        "running_jobs": 4,
+        "zombie_waiting_jobs": 0,
+        "zombie_running_jobs": 0,
+        "current_wait_minutes": {
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        },
+        "count_source": "cluster_metrics",
+        "wait_source": "cluster_metrics"
+      },
+      {
+        "queue": "amd_mi355_4",
+        "waiting_jobs": 0,
+        "running_jobs": 0,
+        "zombie_waiting_jobs": 0,
+        "zombie_running_jobs": 0,
+        "current_wait_minutes": {
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        },
+        "count_source": "cluster_metrics",
+        "wait_source": "cluster_metrics"
+      },
+      {
+        "queue": "amd_mi355_8",
+        "waiting_jobs": 0,
+        "running_jobs": 0,
+        "zombie_waiting_jobs": 0,
+        "zombie_running_jobs": 0,
+        "current_wait_minutes": {
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": 0.0
+        },
+        "count_source": "cluster_metrics",
+        "wait_source": "cluster_metrics"
+      }
+    ],
+    "recent_completed_window": {
+      "available": true,
+      "generated_at": "2026-08-20T21:05:42Z",
+      "start": "2026-08-20T19:05:42Z",
+      "end_exclusive": "2026-08-20T21:05:42Z",
+      "hours": 2,
+      "incoming_jobs": 971,
+      "served_jobs": 970,
+      "completed_jobs": 800,
+      "green_jobs": 691,
+      "green_rate_pct": 86.7,
+      "served_job_wait_minutes": {
+        "sample_count": 970,
+        "p50": 0.362,
+        "p95": 2.681,
+        "average": 0.865,
+        "max": 14.829
+      },
+      "coverage": {
+        "status": "partial_observation",
+        "complete": false,
+        "reason": "All organization-wide cohort pages and target queue IDs were collected, but page-number drift and jobs belonging to parent builds created before the bounded source horizon cannot be proven absent. Direct observed event timestamps remain exact."
+      }
+    }
+  },
+  "definitions": {
+    "test_group": "A normalized logical test identity. Hardware replicas and configured shards can collapse into one observed group.",
+    "configured_amd_definition": "A logical definition in the build-pinned AMD test configuration, including definitions that emitted no parsed result.",
+    "job_variant": "One exact Buildkite job name; replicas and shards remain separate.",
+    "runtime_gate": "One best-hardware policy group. It is green when any owned hardware cell passes, except explicitly MI355-sensitive groups use their dedicated route.",
+    "scheduled_gating_group": "One unique in-capacity-scope scheduled group, deduplicated by its derived step key. It is gated when the run selected at least one retry-collapsed job and green when all selected final jobs passed.",
+    "gating_target": "A reviewed upstream semantic test group that ROCm CI owners intend AMD CI to cover and potentially enforce. It records configuration intent, not proof that the group currently gates or passes.",
+    "queue_waiting_job": "A Buildkite job in the SCHEDULED state.",
+    "queue_running_job": "A Buildkite job assigned, accepted, running, canceling, or timing out."
+  },
+  "sources": {
+    "operations": {
+      "path": "operations_v2_manifest.json",
+      "generated_at": "2026-08-20T22:12:52Z"
+    },
+    "ci_health": {
+      "path": "ci_health.json",
+      "generated_at": "2026-08-20T21:54:18Z"
+    },
+    "amd_test_matrix": {
+      "path": "amd_test_matrix.json",
+      "generated_at": "2026-08-20T21:59:46Z"
+    },
+    "gating_targets": {
+      "path": "gating_targets.json",
+      "generated_at": "2026-08-20T21:51:35Z"
+    },
+    "capacity_monitor": {
+      "path": "capacity_monitor.json",
+      "generated_at": "2026-08-20T21:51:34Z"
+    },
+    "queue_timeseries": {
+      "path": "queue_timeseries.jsonl",
+      "generated_at": "2026-08-20T21:50:45Z"
+    },
+    "queue_lifecycle": {
+      "path": "queue_lifecycle.json",
+      "generated_at": "2026-08-20T21:05:42Z"
+    }
+  }
+}
