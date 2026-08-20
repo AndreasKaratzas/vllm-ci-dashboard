@@ -427,7 +427,13 @@ def extract_shard_base_catalog() -> dict:
         for step in steps:
             if not step.parallelism or step.parallelism <= 1 or "%N" not in step.label:
                 continue
-            base = step.label.replace("%N", "").strip().lower()
+            # Store the same logical identity used for runtime result rows.
+            # Standardized labels such as ``:amd: (MI300) Foo %N`` carry an
+            # execution decorator that must not leak into the shard base or
+            # concrete ``Foo 1`` / ``Foo 2`` jobs will fail to collapse.
+            base = _normalize_job_name(
+                step.label.replace("%N", "").strip()
+            )
             pipeline_bases[pipeline].add(base)
             definitions.append(
                 {

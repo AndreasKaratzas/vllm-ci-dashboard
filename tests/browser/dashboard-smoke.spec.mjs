@@ -334,6 +334,55 @@ test.describe('public dashboard routes', () => {
   }
 });
 
+test('CI health separates the gating total from the passing rate', async ({ page }) => {
+  await page.goto('/?ops_health_view=overview#ci-health', { waitUntil: 'domcontentloaded' });
+
+  const health = page.locator('#tab-ci-health .ops-unique-health');
+  await expect(health.locator('.ops-unique-health-rate span')).toHaveText('Passing');
+
+  const stats = health.locator('.ops-unique-health-stat');
+  await expect(stats).toHaveCount(4);
+  await expect(stats.locator('span')).toHaveText([
+    'Gating test groups',
+    'Passing',
+    'Failing',
+    'No signal',
+  ]);
+
+  const totalStat = stats.filter({ hasText: 'Gating test groups' });
+  const total = Number(await totalStat.locator('strong').innerText());
+  expect(total).toBeGreaterThan(0);
+  await totalStat.click();
+
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('heading', { name: 'Best-hardware gated groups' })).toBeVisible();
+  await expect(dialog).toContainText(`${total} best-hardware gates`);
+});
+
+test('CI analytics separates logical test groups from exact job variants', async ({ page }) => {
+  await page.goto('/?ops_analytics_view=groups#ci-analytics', { waitUntil: 'domcontentloaded' });
+
+  const summary = page.locator('#tab-ci-analytics .ops-status-strip').first();
+  const cards = summary.locator('.ops-status-item');
+  await expect(cards).toHaveCount(4);
+  await expect(cards.locator('.ops-stat-label')).toHaveText([
+    'LATEST AMD NIGHTLY',
+    'LATEST TEST GROUPS',
+    'LATEST JOB VARIANTS',
+    'FAILURE OBSERVATIONS',
+  ]);
+
+  const testGroups = cards.filter({ hasText: 'LATEST TEST GROUPS' });
+  const jobVariants = cards.filter({ hasText: 'LATEST JOB VARIANTS' });
+  await expect(testGroups.locator('.ops-stat-meta')).toContainText(/passing on any observed AMD route - \d+ non-passing/);
+  await expect(jobVariants.locator('.ops-stat-meta')).toContainText(/passing - \d+ non-passing exact jobs/);
+
+  const testGroupCount = Number(await testGroups.locator('.ops-stat-value').innerText());
+  const jobVariantCount = Number(await jobVariants.locator('.ops-stat-value').innerText());
+  expect(testGroupCount).toBeGreaterThan(0);
+  expect(jobVariantCount).toBeGreaterThan(testGroupCount);
+});
+
 test('protected control deep links load their deferred runtime immediately', async ({ browser }) => {
   const routes = [
     { tab: 'ci-testbuild', heading: 'Test Build', state: 'Sign in required' },

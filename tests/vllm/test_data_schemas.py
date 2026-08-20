@@ -1202,7 +1202,12 @@ class TestCiOwnership:
             <= set(row)
             for row in d["areas"]
         )
-        assert all(len(row["owners"]) == 3 for row in d["areas"])
+        assert all(1 <= len(row["owners"]) <= 3 for row in d["areas"])
+        assert all(
+            len({owner["rank"] for owner in row["owners"]})
+            == len(row["owners"])
+            for row in d["areas"]
+        )
         assert not any(
             "availability" in owner
             for row in d["areas"]

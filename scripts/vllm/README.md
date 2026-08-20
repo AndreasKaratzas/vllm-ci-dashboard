@@ -32,9 +32,9 @@ All scripts read the `BUILDKITE_TOKEN` from environment variables. This is manag
 The CI ownership watcher reads its only availability input from the committed
 regional working-hour profiles in `config/vllm_ci_ownership.json`. EU follows
 09:00–17:00 Serbia time (`Europe/Belgrade`) and NA follows 09:00–17:00 Chicago
-time (`America/Chicago`), Monday through Friday. Assignment walks ranks 1→2→3
-and falls back to the CI lead when no ranked owner is in hours or the schedule
-cannot be evaluated safely.
+time (`America/Chicago`), Monday through Friday. Assignment walks each area's
+configured ranks in ascending order and falls back to the CI lead when no ranked
+owner is in hours or the schedule cannot be evaluated safely.
 
 Ready Tickets reads upstream vLLM Project #39 as public, read-only evidence; it
 does not mutate that Project's issues, comments, or fields. Its sole writable
@@ -173,10 +173,11 @@ definition-parity source files, then reviewed aliases/overrides. Ambiguous or
 unmapped rows remain unassigned and visible; they are never routed through a
 lossy category guess. A hard result confirms immediately, while the same soft
 result must recur on two distinct completed builds; pending soft evidence stays
-visible without opening an issue. Issue assignment walks ranks 1→2→3, verifies repository
-assignability, and falls back to the CI lead. Every confirmed-incident issue tags the
-selected owner and verified assignee, then CCs each remaining ranked area owner
-once. The shared issue client rejects any repository other than the dashboard.
+visible without opening an issue. Issue assignment walks each configured rank in
+ascending order, verifies repository assignability, and falls back to the CI lead.
+Every confirmed-incident issue tags the selected owner and verified assignee,
+then CCs each remaining ranked area owner once. The shared issue client rejects
+any repository other than the dashboard.
 
 `scripts/build_site.py --cache-bust-index` assembles `docs/` and `data/`
 into `_site/` using `config/public_data_manifest.json`; unlisted collector

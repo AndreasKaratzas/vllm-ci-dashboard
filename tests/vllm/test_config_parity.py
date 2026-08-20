@@ -49,7 +49,7 @@ def _step(
 
 def test_shard_base_catalog_preserves_pipeline_provenance(monkeypatch):
     amd = _step(
-        "AMD model tests %N",
+        ":amd: (MI300) AMD model tests %N",
         "amd-model-tests",
         ["pytest tests/models"],
         ".buildkite/test-amd.yaml",
@@ -95,6 +95,10 @@ def test_shard_base_catalog_preserves_pipeline_provenance(monkeypatch):
         "parallelism": 4,
         "optional": True,
     }
+    assert catalog["definitions"][0]["base"] == "amd model tests"
+    assert catalog["definitions"][0]["label"] == (
+        ":amd: (MI300) AMD model tests %N"
+    )
     assert config_parity.extract_shard_bases() == catalog["normalization_bases"]
 
 

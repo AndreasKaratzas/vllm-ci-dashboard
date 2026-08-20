@@ -132,6 +132,11 @@ SOURCE_FILES = {
 MULTISPACE_RE = re.compile(r"\s+")
 AMD_PREFIX_RE = re.compile(r"^AMD:\s*", re.IGNORECASE)
 INTERNAL_AMD_PREFIX_RE = re.compile(r"^mi\d{3,4}b?_\d+:\s*", re.IGNORECASE)
+STANDARD_PLATFORM_PREFIX_RE = re.compile(
+    r"^:(?:amd|computer):\s*"
+    r"\(\s*(?P<hardware>mi\d{3,4}b?|cpu)\s*\)\s*",
+    re.IGNORECASE,
+)
 AMD_DEVICE_SUFFIX_RE = re.compile(r"\s*\((mi\d{3,4}b?_\d+)\)\s*$", re.IGNORECASE)
 SHARD_TEMPLATE_SUFFIX_RE = re.compile(r"\s*%N\s*$", re.IGNORECASE)
 AMD_TARGET_SUFFIX_RE = re.compile(
@@ -510,6 +515,18 @@ def _nightly_pipeline(pipeline: str, analytics: dict, health: dict | None = None
             "transition_ineligible_reason": ineligible_reason or None,
             "test_job_count": int(health_build.get("test_job_count") or 0),
             "test_jobs_blocked": int(health_build.get("test_jobs_blocked") or 0),
+            "unique_test_groups": int(
+                health_build.get("unique_test_groups") or 0
+            ),
+            "test_groups_passing_or": int(
+                health_build.get("test_groups_passing_or") or 0
+            ),
+            "test_groups_passing_all": int(
+                health_build.get("test_groups_passing_all") or 0
+            ),
+            "test_groups_partial": int(
+                health_build.get("test_groups_partial") or 0
+            ),
             "failed_groups": sorted(
                 hard.values(),
                 key=lambda row: (
@@ -647,6 +664,7 @@ def _strict_group_label(value: Any) -> str:
     text = MULTISPACE_RE.sub(" ", str(value or "").strip())
     text = AMD_PREFIX_RE.sub("", text)
     text = INTERNAL_AMD_PREFIX_RE.sub("", text)
+    text = STANDARD_PLATFORM_PREFIX_RE.sub("", text)
     text = AMD_DEVICE_SUFFIX_RE.sub("", text)
     return MULTISPACE_RE.sub(" ", text).strip()
 
@@ -668,6 +686,16 @@ def _strict_int(value: Any) -> int | None:
     except (TypeError, ValueError, OverflowError):
         return None
     return number if number > 0 else None
+
+
+def _strict_nonnegative_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if number >= 0 else None
 
 
 def _pipeline_url_parts(value: Any, pipeline_slug: str) -> tuple[int, list[str], dict] | None:
@@ -720,12 +748,18 @@ def _amd_test_group_id(exact_job_name: str, pipeline_slug: str = AMD_TEST_PIPELI
 
 def _amd_test_job_labels(exact_job_name: str) -> tuple[str, str, str, str]:
     match = AMD_TEST_JOB_PREFIX_RE.match(exact_job_name)
-    if not match:
-        return exact_job_name, "unknown", "unknown", ""
-    hardware_variant = match.group("hardware_variant").lower()
-    hardware = hardware_variant.split("_", 1)[0]
-    display_name = match.group("display_name")
-    return display_name, hardware, hardware_variant, f"amd_{hardware_variant}"
+    if match:
+        hardware_variant = match.group("hardware_variant").lower()
+        hardware = hardware_variant.split("_", 1)[0]
+        display_name = match.group("display_name")
+        return display_name, hardware, hardware_variant, f"amd_{hardware_variant}"
+    standard = STANDARD_PLATFORM_PREFIX_RE.match(exact_job_name)
+    if standard:
+        hardware = standard.group("hardware").lower()
+        display_name = exact_job_name[standard.end():].strip()
+        queue = "cpu" if hardware == "cpu" else f"amd_{hardware}"
+        return display_name, hardware, hardware, queue
+    return exact_job_name, "unknown", "unknown", ""
 
 
 def _amd_test_result_count(row: dict) -> int:
@@ -939,6 +973,11 @@ def _amd_test_observation(bucket: dict, metadata: dict) -> dict:
         state_metadata or job_metadata_rows or [{}],
         key=lambda job: str(job.get("finished_at") or job.get("started_at") or ""),
     )
+    metadata_queue = str(job_metadata.get("q") or "").strip().lower()
+    if AMD_QUEUE_RE.match(metadata_queue):
+        queue = metadata_queue
+        hardware_variant = metadata_queue.removeprefix("amd_")
+        hardware = hardware_variant.split("_", 1)[0]
     evidence = _amd_test_evidence_row(bucket["evidence_rows"], job_metadata)
     build_url = _amd_test_build_url(build_number, metadata)
     job_url = _amd_test_job_url(build_number, evidence, job_metadata)
@@ -1007,7 +1046,97 @@ def _amd_test_sort_key(row: dict) -> tuple[int, str]:
     )
 
 
-def _amd_test_health(data_dir: Path, amd_analytics: Any) -> dict:
+def _latest_amd_test_group_counts(
+    latest_job_variant_build: dict,
+    amd_ci_health: Any,
+) -> dict:
+    """Project logical test-group counts for the exact same nightly build.
+
+    Parsed result rows are keyed by exact Buildkite job name and therefore
+    count hardware and shard variants.  ``ci_health`` is the authoritative
+    logical-group aggregation.  Never combine those independently moving
+    sources unless their build numbers match.
+    """
+    source = "ci_health.amd.latest_test_signal_build"
+    job_variant_build_number = _strict_int(
+        latest_job_variant_build.get("build_number")
+        or latest_job_variant_build.get("number")
+    )
+    signal = (
+        amd_ci_health.get("latest_test_signal_build")
+        if isinstance(amd_ci_health, dict)
+        else None
+    )
+    signal = signal if isinstance(signal, dict) else {}
+    signal_build_number = _strict_int(
+        signal.get("build_number") or signal.get("number")
+    )
+
+    base = {
+        "available": False,
+        "build_number": None,
+        "job_variant_build_number": job_variant_build_number,
+        "test_signal_build_number": signal_build_number,
+        "total": None,
+        "passing": None,
+        "non_passing": None,
+        "passing_all": None,
+        "partial": None,
+        "pass_percentage": None,
+        "pass_rate_pct": None,
+        "source": source,
+        "passing_policy": "passes_on_any_observed_hardware",
+        "count_basis": "same-build normalized logical test-group identity",
+    }
+    if job_variant_build_number is None:
+        return {**base, "reason": "latest_job_variant_build_unavailable"}
+    if signal_build_number is None:
+        return {**base, "reason": "latest_test_signal_build_unavailable"}
+    if signal_build_number != job_variant_build_number:
+        return {**base, "reason": "build_mismatch"}
+
+    values = {
+        "total": _strict_nonnegative_int(signal.get("unique_test_groups")),
+        "passing": _strict_nonnegative_int(signal.get("test_groups_passing_or")),
+        "passing_all": _strict_nonnegative_int(
+            signal.get("test_groups_passing_all")
+        ),
+        "partial": _strict_nonnegative_int(signal.get("test_groups_partial")),
+    }
+    if any(value is None for value in values.values()):
+        return {**base, "reason": "invalid_group_counts"}
+
+    total = int(values["total"])
+    passing = int(values["passing"])
+    passing_all = int(values["passing_all"])
+    partial = int(values["partial"])
+    if not (
+        0 <= passing_all <= passing <= total
+        and 0 <= partial <= passing
+        and passing_all + partial == passing
+    ):
+        return {**base, "reason": "inconsistent_group_counts"}
+    pass_percentage = round(passing / total * 100, 1) if total else None
+    return {
+        **base,
+        "available": True,
+        "reason": None,
+        "build_number": job_variant_build_number,
+        "total": total,
+        "passing": passing,
+        "non_passing": total - passing,
+        "passing_all": passing_all,
+        "partial": partial,
+        "pass_percentage": pass_percentage,
+        "pass_rate_pct": pass_percentage,
+    }
+
+
+def _amd_test_health(
+    data_dir: Path,
+    amd_analytics: Any,
+    amd_ci_health: Any = None,
+) -> dict:
     grouped, load_stats = _load_amd_test_result_groups(data_dir)
     metadata_by_build = _amd_test_metadata_builds(amd_analytics)
     observations_by_group: dict[str, list[dict]] = defaultdict(list)
@@ -1034,6 +1163,14 @@ def _amd_test_health(data_dir: Path, amd_analytics: Any) -> dict:
         incidents = soft_failed + hard_failed
         unknown = state_counts["unknown"]
         latest = source_observations[-1]
+        hardware = str(latest.get("hardware") or hardware)
+        hardware_variant = str(latest.get("hardware_variant") or hardware_variant)
+        queue = str(latest.get("queue") or queue)
+        queues = sorted({
+            str(observation.get("queue"))
+            for observation in source_observations
+            if observation.get("queue")
+        })
         current_pass_streak = 0
         for observation in reversed(source_observations):
             if observation["state"] != "passed":
@@ -1049,7 +1186,7 @@ def _amd_test_health(data_dir: Path, amd_analytics: Any) -> dict:
             "hardware": hardware,
             "hardware_variant": hardware_variant,
             "queue": queue,
-            "queues": [queue] if queue else [],
+            "queues": queues or ([queue] if queue else []),
             "runs": runs,
             "passed": passed,
             "soft_failed": soft_failed,
@@ -1111,6 +1248,15 @@ def _amd_test_health(data_dir: Path, amd_analytics: Any) -> dict:
             "hard_failed": hard_failed,
             "incidents": incidents,
             "unknown": unknown,
+            # Explicit names for clients that need exact Buildkite job
+            # variants.  Keep the historical ``*_groups`` aliases below for
+            # compatibility with already-published snapshots.
+            "observed_job_variants": len(source_observations),
+            "passed_job_variants": passed,
+            "soft_failed_job_variants": soft_failed,
+            "hard_failed_job_variants": hard_failed,
+            "incident_job_variants": incidents,
+            "unknown_job_variants": unknown,
             "observed_groups": len(source_observations),
             "passed_groups": passed,
             "soft_failed_groups": soft_failed,
@@ -1119,6 +1265,12 @@ def _amd_test_health(data_dir: Path, amd_analytics: Any) -> dict:
             "unknown_groups": unknown,
             "pass_rate_pct": _amd_test_pass_rate(passed, incidents),
             "state_counts": {
+                "passed": passed,
+                "soft": soft_failed,
+                "hard": hard_failed,
+                "unknown": unknown,
+            },
+            "job_variant_state_counts": {
                 "passed": passed,
                 "soft": soft_failed,
                 "hard": hard_failed,
@@ -1155,6 +1307,10 @@ def _amd_test_health(data_dir: Path, amd_analytics: Any) -> dict:
         for row in observations_by_build.get(latest.get("build_number"), [])
         if row["hardware"] != "unknown"
     )
+    latest_test_group_counts = _latest_amd_test_group_counts(
+        latest,
+        amd_ci_health,
+    )
     summary = {
         "build_count": len(builds),
         # This is the historical union of exact Buildkite job names, not the
@@ -1163,18 +1319,34 @@ def _amd_test_health(data_dir: Path, amd_analytics: Any) -> dict:
         "retained_group_count": len(catalog),
         "group_count": len(catalog),
         "union_group_count": len(catalog),
+        "retained_job_variant_count": len(catalog),
         "latest_group_count": int(latest.get("observed") or 0),
+        "latest_job_variant_count": int(latest.get("observed") or 0),
         "latest_build_number": latest.get("build_number"),
         "latest_build_url": latest.get("build_url"),
         "latest_url": latest.get("url"),
         "latest_observed_at": latest.get("observed_at"),
         "latest_state_counts": latest_counts,
+        "latest_job_variant_state_counts": latest_counts,
         "latest_passed_group_count": int(latest_counts.get("passed") or 0),
         "latest_soft_failed_group_count": int(latest_counts.get("soft") or 0),
         "latest_hard_failed_group_count": int(latest_counts.get("hard") or 0),
         "latest_incident_group_count": int(latest_counts.get("soft") or 0)
         + int(latest_counts.get("hard") or 0),
         "latest_unknown_group_count": int(latest_counts.get("unknown") or 0),
+        "latest_passed_job_variant_count": int(latest_counts.get("passed") or 0),
+        "latest_soft_failed_job_variant_count": int(
+            latest_counts.get("soft") or 0
+        ),
+        "latest_hard_failed_job_variant_count": int(
+            latest_counts.get("hard") or 0
+        ),
+        "latest_incident_job_variant_count": int(latest_counts.get("soft") or 0)
+        + int(latest_counts.get("hard") or 0),
+        "latest_unknown_job_variant_count": int(
+            latest_counts.get("unknown") or 0
+        ),
+        "latest_test_group_counts": latest_test_group_counts,
         "observation_state_counts": {
             "passed": observation_state_counts["passed"],
             "soft": observation_state_counts["soft"],
@@ -1223,6 +1395,7 @@ def _amd_test_health(data_dir: Path, amd_analytics: Any) -> dict:
             "source_paths": {
                 "test_results": AMD_TEST_RESULTS_GLOB,
                 "nightly_metadata": SOURCE_FILES["analytics"],
+                "logical_test_groups": SOURCE_FILES["ci_health"],
             },
             "test_results": {
                 "glob": AMD_TEST_RESULTS_GLOB,
@@ -1238,6 +1411,17 @@ def _amd_test_health(data_dir: Path, amd_analytics: Any) -> dict:
                 "unjoined_group_observations": sum(len(rows) for rows in observations_by_build.values())
                 - joined_observation_count,
                 "role": "authoritative Buildkite terminal job outcome and timing",
+            },
+            "logical_test_groups": {
+                "path": SOURCE_FILES["ci_health"],
+                "source_key": "amd.latest_test_signal_build",
+                "joined": bool(latest_test_group_counts.get("available")),
+                "join_key": "build_number",
+                "reason": latest_test_group_counts.get("reason"),
+                "role": (
+                    "same-build normalized logical test-group totals and "
+                    "any-hardware passing counts"
+                ),
             },
             "classification": {
                 "passed": "analytics job state is passed",
@@ -6869,7 +7053,11 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
     upstream_parity = _nightly_pipeline(
         "ci", analytics.get("ci") or {}, ci_health.get("upstream") or {},
     )
-    amd_test_health = _amd_test_health(data_dir, analytics.get("amd-ci") or {})
+    amd_test_health = _amd_test_health(
+        data_dir,
+        analytics.get("amd-ci") or {},
+        ci_health.get("amd") or {},
+    )
     amd_agent_health = _amd_agent_health(data_dir)
     pipeline_blocks = [amd_nightly, upstream_parity]
     nightly = {

@@ -14,6 +14,16 @@ from vllm import collect_analytics as ca
 NOW = datetime(2026, 4, 20, 12, 0, 0, tzinfo=timezone.utc)
 
 
+def test_standardized_platform_labels_normalize_and_preserve_queue_family():
+    assert ca.normalize_job(":amd: (MI300) Attention Kernels") == (
+        "Attention Kernels"
+    )
+    assert ca.normalize_job(":computer: (CPU) CPU Unit Tests") == "CPU Unit Tests"
+    assert ca.queue_from_result_job_name(
+        ":amd: (MI355) Attention Kernels"
+    ) == "amd_mi355"
+
+
 def test_analytics_writer_uses_compact_json(tmp_path):
     output = tmp_path / "analytics.json"
     ca.write_analytics(output, {"pipeline": {"builds": [1, 2]}})

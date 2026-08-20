@@ -1,6 +1,10 @@
 """Static contracts for the public publication-status banner."""
 
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -16,7 +20,7 @@ def test_publication_status_banner_is_global_accessible_and_cache_busted() -> No
     assert INDEX.index(banner) < INDEX.index('id="tab-projects"')
     assert 'aria-live="polite"' in INDEX
     assert 'aria-atomic="true"' in INDEX
-    assert "assets/js/publication-status.js?v=1" in INDEX
+    assert "assets/js/publication-status.js?v=2" in INDEX
 
 
 def test_publication_status_script_handles_every_nonhealthy_mode() -> None:
@@ -24,7 +28,46 @@ def test_publication_status_script_handles_every_nonhealthy_mode() -> None:
     for mode in ("degraded", "fallback", "mixed", "blocked"):
         assert f"{mode}: Object.freeze" in SCRIPT
     assert "Publication status unavailable" in SCRIPT
+    assert "Dashboard snapshot is stale" in SCRIPT
+    assert "HEALTHY_MAX_AGE_MS = 3 * 60 * 60 * 1000" in SCRIPT
     assert "no-store" in SCRIPT
+
+
+def test_healthy_publication_older_than_three_hours_renders_stale() -> None:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not available")
+    script = r"""
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const sandbox = {
+  window: {},
+  document: {readyState: 'loading', addEventListener: function () {}},
+  Date: Date,
+};
+vm.createContext(sandbox);
+vm.runInContext(source, sandbox, {filename: process.argv[1]});
+const viewFor = sandbox.window.PublicationStatusBanner.viewFor;
+const now = Date.parse('2026-08-20T16:00:00Z');
+assert.equal(viewFor({
+  mode: 'current', status: 'healthy', generated_at: '2026-08-20T14:00:00Z',
+}, now), null);
+assert.equal(viewFor({
+  mode: 'current', status: 'healthy', generated_at: '2026-08-20T12:00:00Z',
+}, now).title, 'Dashboard snapshot is stale');
+assert.equal(viewFor({
+  mode: 'current', status: 'healthy', generated_at: 'not-a-time',
+}, now).title, 'Publication status unavailable');
+"""
+    result = subprocess.run(
+        [node, "-e", script, str(ROOT / "docs" / "assets" / "js" / "publication-status.js")],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_publication_status_rendering_does_not_inject_remote_content() -> None:

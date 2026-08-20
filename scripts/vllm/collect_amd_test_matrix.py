@@ -71,6 +71,10 @@ HW_ARCH_RE = re.compile(r"mi\d{3}", re.I)
 TRAILING_PARENS_RE = re.compile(r"\s*\(([^)]*)\)\s*$")
 SIMPLE_HARDWARE_PAYLOAD_RE = re.compile(r"[a-z0-9-]+", re.I)
 AMD_VARIANT_TOKEN_RE = re.compile(r"mi(?:250|300|325|355)\b", re.I)
+DEVICE_LABEL_PREFIX_RE = re.compile(
+    r"^:(?:amd|computer):\s*\((?:mi\d{3,4}b?|cpu)\)\s*",
+    re.I,
+)
 CORE_AMD_ARCHITECTURES = frozenset({"mi250", "mi300", "mi325"})
 INCIDENT_STATES = frozenset({
     "failed", "timed_out", "broken", "soft_fail", "soft_failed"
@@ -82,21 +86,21 @@ WAITING_STATES = frozenset({"running", "scheduled", "assigned"})
 # kernels and must therefore remain a separate health gate.  Every other MI355
 # definition is folded into its logical family and uses best-hardware status.
 MI355_SENSITIVE_RULES = (
-    ("Attention Benchmarks Smoke Test", "MI355-only ROCm/AITER attention backend benchmark"),
-    ("Distributed Tests (2xH100-2xMI)", "MI355-only AITER custom all-reduce and quick-reduce coverage"),
-    ("GPQA Eval (GPT-OSS) (2xB200-2xMI)", "gfx950-specific model configuration"),
+    ("Attention Benchmark Smoke", "MI355-only ROCm/AITER attention backend benchmark"),
+    ("Distributed Features", "MI355-only AITER custom all-reduce and quick-reduce coverage"),
+    ("GPQA Eval (GPT-OSS)", "gfx950-specific model configuration"),
     ("LM Eval Qwen3-5 Models", "MI355-specific Qwen3.5 model configuration"),
     ("Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy", "MI355-specific two-GPU EPLB topology"),
-    ("LM Eval Large Models (8xB200-8xMI)", "gfx950-specific large-model configuration"),
+    ("LM Eval Large Models", "gfx950-specific large-model configuration"),
     ("Kernels", "MI355-only attention selector and ROCm AITER MLA smoke coverage"),
-    ("Kernels MLA", "architecture-sensitive ROCm AITER MLA gate"),
-    ("Kernels Attention Test", "architecture-sensitive attention-kernel gate"),
-    ("Kernels MoE Test", "architecture-sensitive MoE-kernel gate"),
-    ("Kernels Quantization Test", "architecture-sensitive quantization-kernel gate"),
-    ("Kernels FP8 MoE Test (2xH100-2xMI)", "architecture-sensitive FP8 MoE-kernel gate"),
-    ("Quantized Models Test", "architecture-sensitive quantized-model gate"),
+    ("MLA Kernels", "architecture-sensitive ROCm AITER MLA gate"),
+    ("Attention Kernels Shard", "architecture-sensitive attention-kernel gate"),
+    ("MoE Kernels Shard", "architecture-sensitive MoE-kernel gate"),
+    ("Quantization Kernels", "architecture-sensitive quantization-kernel gate"),
+    ("DeepEP FP8 MoE Kernels", "architecture-sensitive FP8 MoE-kernel gate"),
+    ("Quantized Models", "architecture-sensitive quantized-model gate"),
     ("Quantization", "architecture-sensitive quantization integration gate"),
-    ("V1 attention", "architecture-sensitive V1 attention gate"),
+    ("V1 Attention Shard", "architecture-sensitive V1 attention gate"),
 )
 
 # These command differences are semantically immaterial for health identity.
@@ -106,7 +110,7 @@ GENERIC_MI355_ALIAS_REASONS = {
     "Entrypoints Integration (API Server OpenAI - Part 1)": (
         "same test selection; only a trailing slash differs"
     ),
-    "Language Models Test (Extended Generation)": (
+    "Language Models (Extended Generation)": (
         "same test-family target; dependency revision is not a separate gate"
     ),
 }
@@ -145,6 +149,11 @@ def link_label(label: str) -> str:
 
 def canonical_title(label: str) -> str:
     text = link_label(label)
+    # Since vLLM #52976, AMD definitions use
+    # ``:amd: (<device>) <purpose>``.  The decorator is execution metadata,
+    # not part of the logical family identity.  Keep it in ``link_label`` so
+    # exact Buildkite matching and evidence URLs remain unchanged.
+    text = DEVICE_LABEL_PREFIX_RE.sub("", text, count=1).strip()
     match = TRAILING_PARENS_RE.search(text)
     if match:
         payload = match.group(1).strip()

@@ -217,10 +217,12 @@ def validate_ownership_config(payload: Any) -> dict:
             )
         chain.sort(key=lambda row: row["rank"])
         ranks = [row["rank"] for row in chain]
-        if ranks != [1, 2, 3]:
-            raise ValueError(f"{raw_area} must define exactly ranks 1, 2, and 3")
-        if len({row["github_login"].casefold() for row in chain}) != 3:
-            raise ValueError(f"{raw_area} must have three distinct owners")
+        if not 1 <= len(chain) <= 3:
+            raise ValueError(f"{raw_area} must define between one and three owners")
+        if len(set(ranks)) != len(ranks):
+            raise ValueError(f"{raw_area} must use distinct ranks")
+        if len({row["github_login"].casefold() for row in chain}) != len(chain):
+            raise ValueError(f"{raw_area} must have distinct owners")
         areas[area] = chain
 
     area_aliases: dict[str, str] = {}

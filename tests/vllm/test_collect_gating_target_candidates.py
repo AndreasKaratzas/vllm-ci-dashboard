@@ -15,6 +15,17 @@ def test_hardware_fold_key_collapses_hardware_only_duplicates() -> None:
     assert collector.hardware_fold_key("Distributed Tests (2xH100-2xMI300)") == collector.hardware_fold_key(
         "Distributed Tests (2 GPUs)(B200)"
     )
+    assert collector.hardware_fold_key(
+        ":amd: (MI355) Attention Kernels"
+    ) == collector.hardware_fold_key("Attention Kernels (B200)")
+
+
+def test_standardized_amd_jobs_remain_mirror_candidates() -> None:
+    job = {"raw_name": ":amd: (MI300) Basic Correctness"}
+
+    assert collector.clean_job_label(job["raw_name"]) == "Basic Correctness"
+    assert collector.is_amd_mirror_job(job) is True
+    assert collector.is_gpu_like_job(job) is True
 
 
 def test_hardware_fold_key_preserves_gpu_counts() -> None:

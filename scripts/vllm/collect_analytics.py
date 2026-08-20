@@ -312,12 +312,25 @@ def queue_from_rules(rules):
 
 def normalize_job(name):
     """Strip hardware prefix for cross-build comparison."""
+    name = re.sub(
+        r'^:(?:amd|computer):\s*\(\s*(?:mi\d{3,4}b?|cpu)\s*\)\s*',
+        '',
+        name,
+        flags=re.IGNORECASE,
+    )
     name = re.sub(r'^(mi\d+_\d+|gpu_\d+|amd_\w+):\s*', '', name, flags=re.IGNORECASE)
     return name.strip()
 
 
 def queue_from_result_job_name(name):
     """Derive an AMD queue from a parsed JSONL job name when metadata is absent."""
+    match = re.match(
+        r"^:amd:\s*\(\s*(mi\d{3,4}b?)\s*\)\s*",
+        name or "",
+        flags=re.IGNORECASE,
+    )
+    if match:
+        return "amd_" + match.group(1).lower()
     match = re.match(r"^(mi\d+_\d+):\s*", name or "", flags=re.IGNORECASE)
     if match:
         return "amd_" + match.group(1).lower()

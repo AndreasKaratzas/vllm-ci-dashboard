@@ -59,6 +59,14 @@ _JOB_PREFIX_RE = re.compile(
     r'^(mi\d+_\d+|mi\d+|gpu_\d+|amd_\w+):\s*',
     re.IGNORECASE,
 )
+# Standardized upstream labels introduced by vLLM #52976 use architecture
+# decorators such as ``:amd: (MI300)`` and ``:computer: (CPU)`` instead of an
+# internal queue prefix.  The decorator identifies execution hardware, not the
+# logical test group, so normalization must remove it before shard handling.
+_STANDARD_JOB_DECORATOR_RE = re.compile(
+    r'^:(?:amd|computer):\s*\(\s*(mi\d{3,4}b?|cpu)\s*\)\s*',
+    re.IGNORECASE,
+)
 
 
 def _normalize_job_name(name: str) -> str:
@@ -66,6 +74,7 @@ def _normalize_job_name(name: str) -> str:
 
     Strips:
     - Hardware prefixes like 'mi250_1: ', 'gpu_1: '
+    - Standard platform decorators like ':amd: (MI300) ' and ':computer: (CPU) '
     - Hardware tags in parens like (H100), (mi325), (B200-MI355)
     - Trailing '# comment'
     - '%N' parallelism marker
@@ -77,7 +86,8 @@ def _normalize_job_name(name: str) -> str:
 
     Adapted from vllm_ci_parity.py normalize_label().
     """
-    s = _JOB_PREFIX_RE.sub('', name)
+    s = _STANDARD_JOB_DECORATOR_RE.sub('', name)
+    s = _JOB_PREFIX_RE.sub('', s)
     s = re.sub(r'#.*$', '', s).strip()
     s = re.sub(r'\s*%N\s*$', '', s).strip()
     # Convert SINGLE-HW GPU-count tags to plain GPU count:
@@ -1070,12 +1080,18 @@ def _extract_hardware(job_name: str) -> str:
     """Extract hardware family from job name.
 
     AMD style: 'mi250_1: Test Name' -> 'mi250'
+    Standard AMD style: ':amd: (MI355) Test Name' -> 'mi355'
+    Standard CPU style: ':computer: (CPU) Test Name' -> 'cpu'
     Upstream style: 'Test Name (H100)' -> 'h100'
                     'Test Name (2xB200)' -> 'b200'
                     'Test Name (H100-MI250)' -> 'h100'
     No tag (upstream default): -> 'h100' (default NVIDIA queue)
     """
-    # AMD prefix
+    # Standardized AMD architecture decorator.
+    m = _STANDARD_JOB_DECORATOR_RE.match(job_name)
+    if m:
+        return m.group(1).lower()
+    # Internal AMD queue prefix.
     m = _HW_FAMILY_RE.match(job_name)
     if m:
         return m.group(1).lower()

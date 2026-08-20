@@ -169,7 +169,13 @@ def _parity_row(amd_job_name, hw, url, failed=0):
     }
 
 
-def test_canonical_title_strips_hardware_suffix_only():
+def test_canonical_title_strips_device_prefix_and_hardware_suffix():
+    assert canonical_title(":amd: (MI355) Attention Kernels Shard %N") == (
+        "Attention Kernels Shard"
+    )
+    assert canonical_title(":computer: (CPU) Basic Models Other") == (
+        "Basic Models Other"
+    )
     assert canonical_title("Kernels (B200-MI355)") == "Kernels"
     assert canonical_title("LM Eval Small Models (2xB200-2xMI355)") == (
         "LM Eval Small Models (2xB200-2xMI)"
@@ -795,10 +801,10 @@ steps:
 def test_best_hardware_policy_splits_sensitive_mi355_and_uses_best_generic_status():
     steps, architectures = parse_steps("""
 steps:
-  - label: Kernels Attention Test %N
+  - label: ":amd: (MI300) Attention Kernels Shard"
     agent_pool: mi300_1
     commands: [pytest -v -s kernels/attention]
-  - label: Kernels Attention Test %N
+  - label: ":amd: (MI355) Attention Kernels Shard"
     agent_pool: mi355_1
     commands: [pytest -v -s kernels/attention]
   - label: Generic Test
@@ -813,18 +819,18 @@ steps:
             "builds": [{
                 "number": 11994,
                 "jobs": [
-                    {"name": "Kernels Attention Test", "state": "passed", "q": "amd_mi300_1"},
-                    {"name": "Kernels Attention Test", "state": "failed", "q": "amd_mi355_1"},
+                    {"name": ":amd: (MI300) Attention Kernels Shard", "state": "passed", "q": "amd_mi300_1"},
+                    {"name": ":amd: (MI355) Attention Kernels Shard", "state": "failed", "q": "amd_mi355_1"},
                     {"name": "Generic Test", "state": "failed", "q": "amd_mi300_1"},
                     {"name": "Generic Test", "state": "passed", "q": "amd_mi355_1"},
                 ],
             }]
         }
     }
-    index, latest = build_latest_job_index(analytics, ["kernels attention test"])
+    index, latest = build_latest_job_index(analytics, [])
     matrix = build_matrix(
         steps, architectures, index, latest, {}, {},
-        ["kernels attention test"], "https://example.invalid/test-amd.yaml",
+        [], "https://example.invalid/test-amd.yaml",
     )
 
     groups = matrix["health_groups"]
@@ -839,7 +845,7 @@ steps:
     assert sensitive["architectures"] == ["mi355"]
     generic_attention = next(
         group for group in groups
-        if group["title"] == "Kernels Attention Test"
+        if group["title"] == "Attention Kernels Shard"
         and group["gate_kind"] == "generic_best_hardware"
     )
     assert generic_attention["status"] == "passing"
@@ -865,16 +871,16 @@ steps:
 def test_best_hardware_policy_semantically_collapses_explicit_generic_aliases():
     steps, architectures = parse_steps("""
 steps:
-  - label: Entrypoints Integration (API Server OpenAI - Part 1)
+  - label: ":amd: (MI300) Entrypoints Integration (API Server OpenAI - Part 1)"
     agent_pool: mi300_1
     commands: [pytest entrypoints/openai/]
-  - label: Entrypoints Integration (API Server OpenAI - Part 1)
+  - label: ":amd: (MI355) Entrypoints Integration (API Server OpenAI - Part 1)"
     agent_pool: mi355_1
     commands: [pytest entrypoints/openai]
-  - label: Language Models Test (Extended Generation)
+  - label: ":amd: (MI300) Language Models (Extended Generation)"
     agent_pool: mi300_1
     commands: [install mamba-old, pytest models/language/generation]
-  - label: Language Models Test (Extended Generation)
+  - label: ":amd: (MI355) Language Models (Extended Generation)"
     agent_pool: mi355_1
     commands: [install mamba-new, pytest models/language/generation]
 """)
@@ -903,22 +909,94 @@ def test_best_hardware_policy_declares_exactly_fifteen_mi355_sensitive_rules():
     from vllm.collect_amd_test_matrix import MI355_SENSITIVE_RULES
 
     expected_titles = {
-        "Attention Benchmarks Smoke Test",
-        "Distributed Tests (2xH100-2xMI)",
-        "GPQA Eval (GPT-OSS) (2xB200-2xMI)",
+        "Attention Benchmark Smoke",
+        "Distributed Features",
+        "GPQA Eval (GPT-OSS)",
         "LM Eval Qwen3-5 Models",
         "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy",
-        "LM Eval Large Models (8xB200-8xMI)",
+        "LM Eval Large Models",
         "Kernels",
-        "Kernels MLA",
-        "Kernels Attention Test",
-        "Kernels MoE Test",
-        "Kernels Quantization Test",
-        "Kernels FP8 MoE Test (2xH100-2xMI)",
-        "Quantized Models Test",
+        "MLA Kernels",
+        "Attention Kernels Shard",
+        "MoE Kernels Shard",
+        "Quantization Kernels",
+        "DeepEP FP8 MoE Kernels",
+        "Quantized Models",
         "Quantization",
-        "V1 attention",
+        "V1 Attention Shard",
     }
     assert len(MI355_SENSITIVE_RULES) == 15
     assert {title for title, _ in MI355_SENSITIVE_RULES} == expected_titles
     assert all(reason for _, reason in MI355_SENSITIVE_RULES)
+
+
+def test_current_decorated_labels_materialize_every_sensitive_rule_and_alias():
+    sensitive_titles = (
+        "Attention Benchmark Smoke",
+        "Distributed Features",
+        "GPQA Eval (GPT-OSS)",
+        "LM Eval Qwen3-5 Models",
+        "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy",
+        "LM Eval Large Models",
+        "Kernels",
+        "MLA Kernels",
+        "Attention Kernels Shard",
+        "MoE Kernels Shard",
+        "Quantization Kernels",
+        "DeepEP FP8 MoE Kernels",
+        "Quantized Models",
+        "Quantization",
+        "V1 Attention Shard",
+    )
+    lines = ["steps:"]
+    for index, title in enumerate(sensitive_titles):
+        for architecture in ("MI300", "MI355"):
+            lines.extend((
+                f"  - label: {json.dumps(f':amd: ({architecture}) {title}')}",
+                f"    agent_pool: {architecture.lower()}_1",
+                f"    commands: [pytest tests/current_sensitive_gate_{index}_{architecture.lower()}.py]",
+            ))
+    lines.extend((
+        '  - label: ":amd: (MI300) Entrypoints Integration (API Server OpenAI - Part 1)"',
+        "    agent_pool: mi300_1",
+        "    commands: [pytest entrypoints/openai/]",
+        '  - label: ":amd: (MI355) Entrypoints Integration (API Server OpenAI - Part 1)"',
+        "    agent_pool: mi355_1",
+        "    commands: [pytest entrypoints/openai]",
+        '  - label: ":amd: (MI300) Language Models (Extended Generation)"',
+        "    agent_pool: mi300_1",
+        "    commands: [install mamba-old, pytest models/language/generation]",
+        '  - label: ":amd: (MI355) Language Models (Extended Generation)"',
+        "    agent_pool: mi355_1",
+        "    commands: [install mamba-new, pytest models/language/generation]",
+    ))
+
+    steps, architectures = parse_steps("\n".join(lines))
+    matrix = build_matrix(
+        steps, architectures, {}, None, {}, {}, [],
+        "https://example.invalid/current-test-amd.yaml",
+    )
+    classification = matrix["best_hardware_policy"]["mi355_classification"]
+    rows_by_id = {row["id"]: row for row in matrix["rows"]}
+    separate = {
+        rows_by_id[item["row_id"]]["canonical_title"]
+        for item in classification
+        if item["classification"] == "separate_gate"
+    }
+    assert separate == set(sensitive_titles)
+    assert all(
+        item["label"].startswith(":amd: (MI355) ")
+        for item in classification
+    )
+
+    aliases = {
+        "Entrypoints Integration (API Server OpenAI - Part 1)",
+        "Language Models (Extended Generation)",
+    }
+    alias_groups = [
+        group for group in matrix["health_groups"]
+        if group["title"] in aliases
+    ]
+    assert {group["title"] for group in alias_groups} == aliases
+    assert all(group["architectures"] == ["mi300", "mi355"] for group in alias_groups)
+    assert all(group["gate_kind"] == "generic_best_hardware" for group in alias_groups)

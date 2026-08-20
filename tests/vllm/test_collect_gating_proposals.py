@@ -273,15 +273,16 @@ def test_default_tracked_authors_include_amd_gating_owners():
     assert {
         "AndreasKaratzas",
         "micah-wil",
-        "charlifu",
         "divakar-amd",
         "mawong-amd",
         "Fangzhou-Ai",
         "aarushjain29",
         "stefankoncarevic",
-        "djramic",
         "okorzh-amd",
     } <= set(cgp.TRACKED_AUTHORS)
+    assert {"charlifu", "djramic", "music-dino", "peizhang56"}.isdisjoint(
+        cgp.TRACKED_AUTHORS
+    )
 
 
 def _search_key(author: str, page: int = 1):
@@ -353,6 +354,38 @@ def test_collect_gating_proposals_retains_previous_author_rows_when_search_fails
     assert payload["collection"]["errors"][0]["scope"] == "search"
     assert payload["collection"]["retained_pr_count"] == 1
     assert payload["pull_requests"][0]["number"] == 44969
+
+
+def test_collect_gating_proposals_drops_retired_authors_from_cached_rows():
+    previous = previous_payload_for_partial_scan()
+    previous["pull_requests"][0]["author"] = "charlifu"
+    previous["collection"] = {
+        "candidate_cache": {
+            "pull_requests": [
+                {
+                    "number": 44969,
+                    "author": "charlifu",
+                    "has_new_mirrors": True,
+                }
+            ]
+        }
+    }
+    mapping = {
+        _search_key("AndreasKaratzas"): requests.HTTPError("search unavailable"),
+    }
+
+    payload = cgp.collect_gating_proposals(
+        "vllm-project/vllm",
+        ["AndreasKaratzas"],
+        client=FakeClient(mapping),
+        previous=previous,
+        since_date="",
+    )
+
+    assert payload["collection"]["complete"] is False
+    assert payload["collection"]["candidate_cache"]["pr_count"] == 0
+    assert payload["collection"]["retained_pr_count"] == 0
+    assert payload["pull_requests"] == []
 
 
 def test_collect_gating_proposals_follows_previous_proposals_but_drops_them_on_clean_rescan():

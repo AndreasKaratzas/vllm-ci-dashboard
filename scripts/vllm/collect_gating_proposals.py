@@ -34,17 +34,13 @@ TRACKED_AUTHORS = (
     "AndreasKaratzas",
     "Fangzhou-Ai",
     "aarushjain29",
-    "charlifu",
-    "djramic",
     "divakar-amd",
     "fxmarty-amd",
     "gchinora",
     "gyohuangxin",
     "mawong-amd",
     "micah-wil",
-    "music-dino",
     "okorzh-amd",
-    "peizhang56",
     "stefankoncarevic",
 )
 
@@ -361,6 +357,7 @@ def merge_previous_on_partial_scan(
     generated_at: str,
     failed_pr_numbers: set[int],
     errored_authors: set[str],
+    allowed_authors: set[str],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     if not isinstance(previous, dict):
         return proposals, []
@@ -372,9 +369,14 @@ def merge_previous_on_partial_scan(
             continue
         number = _pr_number(previous_pr)
         author = clean_text(previous_pr.get("author"))
+        author_key = author.casefold()
+        if author_key not in allowed_authors:
+            continue
         if number is not None and number in current_numbers:
             continue
-        if (number is not None and number in failed_pr_numbers) or (author and author in errored_authors):
+        if (number is not None and number in failed_pr_numbers) or (
+            author_key and author_key in errored_authors
+        ):
             retained_pr = copy.deepcopy(previous_pr)
             retained_pr["retained_from_previous_scan"] = True
             retained_pr["retained_at"] = generated_at
@@ -503,11 +505,18 @@ def collect_gating_proposals(
         since_date=since_date,
         state="open",
     )
-    errored_authors = {clean_text(error.get("author")) for error in errors if error.get("scope") == "search"}
+    allowed_authors = {clean_text(author).casefold() for author in authors}
+    allowed_authors.discard("")
+    errored_authors = {
+        clean_text(error.get("author")).casefold()
+        for error in errors
+        if error.get("scope") == "search"
+    }
     errored_authors.discard("")
     previous_candidates = [
         row for row in previous_candidate_rows(previous)
-        if clean_text(row.get("author")) not in errored_authors
+        if clean_text(row.get("author")).casefold() in allowed_authors
+        and clean_text(row.get("author")).casefold() not in errored_authors
     ]
     candidates = merge_candidate_rows(fresh_candidates, previous_candidates)
     proposals: list[dict[str, Any]] = []
@@ -539,6 +548,7 @@ def collect_gating_proposals(
             generated_at=generated_at,
             failed_pr_numbers=failed_pr_numbers,
             errored_authors=errored_authors,
+            allowed_authors=allowed_authors,
         )
 
     return {

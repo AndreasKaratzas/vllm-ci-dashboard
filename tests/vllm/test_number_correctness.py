@@ -69,15 +69,13 @@ class TestGroupCountCorrectness:
         health = _load_json("ci_health.json")
         results, fname = _load_test_results()
 
-        from vllm.ci.analyzer import _normalize_job_name
+        from vllm.ci.analyzer import _extract_hardware, _normalize_job_name
 
         # Extract per-HW groups from JSONL (same logic as compute_build_summary)
-        hw_re = re.compile(r'^(mi\d+)_\d+:', re.IGNORECASE)
         hw_groups = defaultdict(set)
         for r in results:
             job_name = r.get("job_name", "")
-            m = hw_re.match(job_name)
-            hw = m.group(1).lower() if m else "unknown"
+            hw = _extract_hardware(job_name)
             norm = _normalize_job_name(job_name)
             hw_groups[hw].add(norm)
 
@@ -141,13 +139,13 @@ class TestGroupCountCorrectness:
         health = _load_json("ci_health.json")
         results, fname = _load_test_results()
 
-        hw_re = re.compile(r'^(mi\d+)_\d+:', re.IGNORECASE)
+        from vllm.ci.analyzer import _extract_hardware
+
         hw_counts = defaultdict(lambda: {"passed": 0, "failed": 0, "skipped": 0})
 
         for r in results:
             job_name = r.get("job_name", "")
-            m = hw_re.match(job_name)
-            hw = m.group(1).lower() if m else "unknown"
+            hw = _extract_hardware(job_name)
             name = r.get("name", "")
             status = r.get("status", "")
             count_match = re.search(r"\((\d+)\)", name)
@@ -486,6 +484,13 @@ class TestExtractHardwareFunction:
         assert _extract_hardware("mi325_4: Another Test") == "mi325"
         assert _extract_hardware("mi355_2: Test (B200-MI355)") == "mi355"
 
+    def test_standardized_platform_decorator(self):
+        from vllm.ci.analyzer import _extract_hardware
+
+        assert _extract_hardware(":amd: (MI300) Some Test") == "mi300"
+        assert _extract_hardware(":amd: (MI355) Some Test") == "mi355"
+        assert _extract_hardware(":computer: (CPU) Some Test") == "cpu"
+
     def test_upstream_gpu_tag(self):
         from vllm.ci.analyzer import _extract_hardware
         assert _extract_hardware("Some Test (H100)") == "h100"
@@ -521,6 +526,60 @@ class TestExtractHardwareFunction:
         from vllm.ci.analyzer import _extract_hardware
         assert _extract_hardware("Test (2xB200)") == "b200"
         assert _extract_hardware("Test (4xH100)") == "h100"
+
+
+def test_standardized_decorators_collapse_logical_groups_and_shards(monkeypatch):
+    from vllm.ci import analyzer
+    from vllm.ci.models import TestResult
+
+    monkeypatch.setattr(analyzer, "_SHARD_BASES", ["attention kernels shard"])
+    mi300 = ":amd: (MI300) Attention Kernels Shard 2"
+    mi355 = ":amd: (MI355) Attention Kernels Shard 1"
+
+    assert analyzer._normalize_job_name(mi300) == "attention kernels shard"
+    assert analyzer._normalize_job_name(mi355) == "attention kernels shard"
+    assert analyzer._normalize_job_name(
+        ":amd: (MI355) Attention Kernels Shard %N"
+    ) == "attention kernels shard"
+    assert analyzer._normalize_job_name(
+        ":computer: (CPU) Attention Kernels Shard"
+    ) == "attention kernels shard"
+
+    results = [
+        TestResult(
+            test_id=f"group-{index}",
+            name="__passed__ (1)",
+            classname="group",
+            status="passed",
+            duration_secs=1,
+            failure_message="",
+            job_name=job_name,
+            job_id=f"job-{index}",
+            step_id=f"step-{index}",
+            build_number=500,
+            pipeline="amd-ci",
+            date="2026-08-20",
+        )
+        for index, job_name in enumerate((mi300, mi355), 1)
+    ]
+    summary = analyzer.compute_build_summary(
+        {
+            "number": 500,
+            "state": "passed",
+            "jobs": [
+                {"name": mi300, "state": "passed"},
+                {"name": mi355, "state": "passed"},
+            ],
+        },
+        results,
+        "amd",
+    )
+
+    assert summary.unique_test_groups == 1
+    assert summary.test_groups_passing_or == 1
+    assert summary.test_groups_passing_all == 1
+    assert summary.by_hardware["mi300"]["groups"] == 1
+    assert summary.by_hardware["mi355"]["groups"] == 1
 
 
 class TestNightlyDateFunction:

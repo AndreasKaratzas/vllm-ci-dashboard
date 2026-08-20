@@ -2,7 +2,13 @@
   'use strict';
 
   const STATUS_URL = 'data/vllm/ci/publication_status.json';
+  const HEALTHY_MAX_AGE_MS = 3 * 60 * 60 * 1000;
   const MODE_VIEWS = Object.freeze({
+    stale: Object.freeze({
+      tone: 'is-critical',
+      title: 'Dashboard snapshot is stale',
+      message: 'No successful dashboard refresh has been published in the last three hours. Build and test states may have changed since this snapshot.',
+    }),
     degraded: Object.freeze({
       tone: 'is-warning',
       title: 'Live data is degraded',
@@ -30,9 +36,15 @@
     }),
   });
 
-  function viewFor(payload) {
+  function viewFor(payload, nowMs) {
     if (!payload || typeof payload !== 'object') return MODE_VIEWS.unavailable;
-    if (payload.mode === 'current' && payload.status === 'healthy') return null;
+    if (payload.mode === 'current' && payload.status === 'healthy') {
+      const generatedAt = safeTimestamp(payload.generated_at);
+      if (!generatedAt) return MODE_VIEWS.unavailable;
+      const current = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+      if (current - Date.parse(generatedAt) > HEALTHY_MAX_AGE_MS) return MODE_VIEWS.stale;
+      return null;
+    }
     if (payload.mode === 'current' && payload.status === 'degraded') {
       return MODE_VIEWS.degraded;
     }

@@ -74,17 +74,16 @@ class TestRoster:
         logins = {e.github_login for e in ENGINEERS}
         assert {
             "aarushjain29",
-            "charlifu",
-            "djramic",
             "divakar-amd",
             "fxmarty-amd",
             "gchinora",
             "mawong-amd",
             "micah-wil",
-            "music-dino",
-            "peizhang56",
             "stefankoncarevic",
         } <= logins
+        assert {"charlifu", "djramic", "music-dino", "peizhang56"}.isdisjoint(
+            logins
+        )
         assert "gyohuangxin" not in logins
         assert "micah-williamson" not in logins
 

@@ -263,10 +263,10 @@ def test_pass_rate_copy_names_each_observation_denominator():
     assert "MEDIAN RETAINED-RUN PASS RATE" in OPS_JS
     assert "RETAINED-RUN PASS RATE" in OPS_JS
     assert "Retained-run pass rate" in OPS_JS
-    assert "observed_group_pass_rate" in OPS_JS
+    assert "job_variant_pass_rate" in OPS_JS
     assert "MEDIAN PASS RATE" not in OPS_JS
     assert "RETAINED PASS RATE" not in OPS_JS
-    assert "details: {observed_groups:" in OPS_JS
+    assert "details: {observed_job_variants:" in OPS_JS
 
 
 def test_test_group_history_switches_cohorts_with_clickable_outcome_evidence():
@@ -410,15 +410,24 @@ def test_current_amd_health_and_platform_comparison_reconcile(ops_data):
     assert comparison["summary"]["amd"]["child_retry_attempts"] <= comparison["summary"]["amd"]["retry_involved_attempts"]
 
 
-def test_amd_health_keeps_latest_and_historical_job_variant_counts_distinct():
+def test_amd_health_separates_same_build_test_groups_and_job_variants():
     segment = OPS_JS[
         OPS_JS.index("function renderAmdHealth"):
         OPS_JS.index("const AGENT_WINDOW_DAYS")
     ]
     for contract in (
-        "retained_group_count || summary.union_group_count || summary.group_count",
+        "summary.latest_job_variant_state_counts || summary.latest_state_counts",
+        "summary.latest_job_variant_count !== undefined",
+        "const latestTestGroups = summary.latest_test_group_counts || {}",
+        "latestTestGroups.available === true",
+        "logicalBuild === Number(latestBuild)",
+        "label: 'LATEST TEST GROUPS'",
+        "same-build logical counts unavailable",
+        "logicalPassing) + ' passing on any observed AMD route - ' + integer(logicalNonPassing) + ' non-passing'",
+        "summary.retained_job_variant_count || summary.retained_group_count",
         "label: 'LATEST JOB VARIANTS'",
-        "value: integer(summary.latest_group_count)",
+        "value: integer(latestVariantCount)",
+        "integer(passing) + ' passing - ' + integer(nonPassing) + ' non-passing exact jobs'",
         "older variants retained only for history",
         "const currentVariants = currentPassing.concat(currentIncidents, currentUnknown)",
         "openAmdCatalog('Latest AMD job variants'",
@@ -429,7 +438,19 @@ def test_amd_health_keeps_latest_and_historical_job_variant_counts_distinct():
     ):
         assert contract in segment
 
-    assert "integer(summary.latest_group_count) + ' / ' + integer(summary.group_count)" not in segment
+    for misleading in (
+        "label: 'PASSING NOW'",
+        "of observed groups",
+        "AMD groups passing now",
+        "AMD job groups",
+        "exact job groups",
+        "Search AMD test groups",
+        "Filter AMD test groups",
+        "Raw groups with a soft or hard result",
+        "AMD test group'",
+    ):
+        assert misleading not in segment
+
     assert "currentIncidents.length + missing.length" not in segment
     assert "!['soft', 'hard', 'missing'].includes(latest)" not in OPS_JS
 
@@ -944,6 +965,20 @@ const unavailable = helpers.nightlyFailureMovement(unavailableBuild);
 assert.equal(unavailable.available, false);
 assert.equal(helpers.nightlyFailureCount(unavailableBuild, 'new'), null);
 assert.equal(helpers.amdNightlyMovement(unavailableBuild).policyAvailable, false);
+
+const waitingBuild = {number: 12228, state: 'running', has_test_results: false};
+const now = Date.parse('2026-08-20T16:00:00Z');
+const freshWaiting = helpers.amdNightlyPresentation(
+  waitingBuild, {}, '2026-08-20T14:00:00Z', now,
+);
+assert.equal(freshWaiting.label, 'Awaiting results');
+assert.equal(freshWaiting.meta.includes('Buildkite is running'), true);
+const staleWaiting = helpers.amdNightlyPresentation(
+  waitingBuild, {}, '2026-08-20T12:00:00Z', now,
+);
+assert.equal(staleWaiting.label, 'Snapshot stale');
+assert.equal(staleWaiting.tone, 'is-warning');
+assert.equal(staleWaiting.meta, '#12228 - Last published while Buildkite was running; no parsed test groups in this snapshot');
 """
     result = subprocess.run(
         [node, "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
@@ -2448,7 +2483,8 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
         "function openMatrixGroupEvidence",
         "BEST-HARDWARE GATED GROUPS",
         "Best-hardware gated-group health",
-        "gated groups passing",
+        "{mode: 'all', label: 'Gating test groups', count: policy.included_groups, tone: 'is-neutral'}",
+        "n('span', '', 'Passing')",
         "generic best-of-hardware families",
         "explicit MI355-sensitive obligations",
         "health_groups",
@@ -2477,9 +2513,9 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
     ):
         assert retired_contract not in OPS_JS
     assert 'assets/css/ops-v2.css?v=11' in INDEX
-    assert 'assets/js/ops-v2.js?v=19' in INDEX
+    assert 'assets/js/ops-v2.js?v=20' in INDEX
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
-    assert "policy.passing_groups) + ' / ' + integer(policy.included_groups)" in OPS_JS
+    assert "gated groups passing" not in OPS_JS
     assert "openMatrixHealthBrowser('all')" in OPS_JS
     assert "shell.setAttribute('role', 'dialog')" in OPS_JS
     assert "shell.setAttribute('aria-modal', 'true')" in OPS_JS

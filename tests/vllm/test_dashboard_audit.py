@@ -1694,6 +1694,82 @@ def test_operations_audit_rejects_mixed_latest_and_retained_amd_counts(tmp_path)
     assert "operations-amd-latest-catalog-count" in codes
 
 
+def test_operations_audit_rejects_cross_build_logical_group_counts(tmp_path):
+    ci = tmp_path / "data/vllm/ci"
+    ci.mkdir(parents=True)
+    (ci / "operations_v2.json").write_text(json.dumps({
+        "schema_version": 2,
+        "amd_test_health": {
+            "available": True,
+            "summary": {
+                "build_count": 1,
+                "retained_group_count": 2,
+                "group_count": 2,
+                "union_group_count": 2,
+                "retained_job_variant_count": 2,
+                "latest_group_count": 2,
+                "latest_job_variant_count": 2,
+                "latest_build_number": 10,
+                "latest_state_counts": {
+                    "passed": 2,
+                    "soft": 0,
+                    "hard": 0,
+                    "unknown": 0,
+                },
+                "latest_job_variant_state_counts": {
+                    "passed": 2,
+                    "soft": 0,
+                    "hard": 0,
+                    "unknown": 0,
+                },
+                "latest_test_group_counts": {
+                    "available": True,
+                    "build_number": 9,
+                    "job_variant_build_number": 10,
+                    "test_signal_build_number": 9,
+                    "total": 3,
+                    "passing": 3,
+                    "non_passing": 1,
+                    "passing_all": 2,
+                    "partial": 1,
+                    "pass_percentage": 100.0,
+                    "source": "ci_health.amd.latest_test_signal_build",
+                    "reason": None,
+                },
+            },
+            "builds": [{
+                "build_number": 10,
+                "observed": 2,
+                "observed_job_variants": 2,
+                "state_counts": {
+                    "passed": 2,
+                    "soft": 0,
+                    "hard": 0,
+                    "unknown": 0,
+                },
+                "job_variant_state_counts": {
+                    "passed": 2,
+                    "soft": 0,
+                    "hard": 0,
+                    "unknown": 0,
+                },
+            }],
+            "group_catalog": [
+                {"id": "current-a", "latest_build_number": 10},
+                {"id": "current-b", "latest_build_number": 10},
+            ],
+        },
+    }))
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_operations_v2()
+    codes = {finding.code for finding in audit.report.errors}
+
+    assert "operations-amd-logical-group-build-mismatch" in codes
+    assert "operations-amd-logical-group-counts" in codes
+    assert "operations-amd-logical-groups-exceed-job-variants" in codes
+
+
 def test_operations_audit_reconciles_platform_comparison_counts(tmp_path):
     ci = tmp_path / "data/vllm/ci"
     ci.mkdir(parents=True)

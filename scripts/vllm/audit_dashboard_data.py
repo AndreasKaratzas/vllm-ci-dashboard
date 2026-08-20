@@ -1827,6 +1827,9 @@ class DashboardAudit:
 
         amd_test_health = _mapping(payload.get("amd_test_health"))
         amd_health_summary = _mapping(amd_test_health.get("summary"))
+        amd_latest_logical_counts = _mapping(
+            amd_health_summary.get("latest_test_group_counts")
+        )
         amd_health_builds = _rows(amd_test_health.get("builds"))
         amd_health_catalog = _rows(amd_test_health.get("group_catalog"))
         if amd_test_health:
@@ -1854,6 +1857,17 @@ class DashboardAudit:
                         ),
                         relpath,
                     )
+            if (
+                "retained_job_variant_count" in amd_health_summary
+                and _safe_int(
+                    amd_health_summary.get("retained_job_variant_count")
+                ) != retained_count
+            ):
+                self.error(
+                    "operations-amd-retained-job-variant-alias",
+                    "retained job-variant count disagrees with the legacy catalog count",
+                    relpath,
+                )
 
             if _safe_int(amd_health_summary.get("build_count")) != len(amd_health_builds):
                 self.error(
@@ -1868,6 +1882,29 @@ class DashboardAudit:
 
             latest_counts = _mapping(amd_health_summary.get("latest_state_counts"))
             latest_count = _safe_int(amd_health_summary.get("latest_group_count"))
+            latest_job_variant_count = _safe_int(
+                amd_health_summary.get("latest_job_variant_count"),
+                latest_count,
+            )
+            latest_job_variant_counts = _mapping(
+                amd_health_summary.get("latest_job_variant_state_counts")
+            )
+            if latest_job_variant_count != latest_count:
+                self.error(
+                    "operations-amd-latest-job-variant-alias",
+                    "latest job-variant count disagrees with latest_group_count",
+                    relpath,
+                )
+            if latest_job_variant_counts and any(
+                _safe_int(latest_job_variant_counts.get(state))
+                != _safe_int(latest_counts.get(state))
+                for state in ("passed", "soft", "hard", "unknown")
+            ):
+                self.error(
+                    "operations-amd-latest-job-variant-state-alias",
+                    "latest job-variant state counts disagree with legacy state counts",
+                    relpath,
+                )
             latest_state_total = sum(
                 _safe_int(latest_counts.get(state))
                 for state in ("passed", "soft", "hard", "unknown")
@@ -1885,6 +1922,124 @@ class DashboardAudit:
             latest_build_number = _safe_int(
                 amd_health_summary.get("latest_build_number")
             )
+            logical_counts = amd_latest_logical_counts
+            if logical_counts:
+                required_logical_fields = {
+                    "available",
+                    "build_number",
+                    "job_variant_build_number",
+                    "test_signal_build_number",
+                    "total",
+                    "passing",
+                    "non_passing",
+                    "passing_all",
+                    "partial",
+                    "pass_percentage",
+                    "source",
+                    "reason",
+                }
+                missing_logical_fields = required_logical_fields - set(logical_counts)
+                if missing_logical_fields:
+                    self.error(
+                        "operations-amd-logical-group-shape",
+                        (
+                            "latest logical test-group counts omit "
+                            f"{sorted(missing_logical_fields)}"
+                        ),
+                        relpath,
+                    )
+                if logical_counts.get("source") != (
+                    "ci_health.amd.latest_test_signal_build"
+                ):
+                    self.error(
+                        "operations-amd-logical-group-source",
+                        "latest logical test groups must come from the test-signal build",
+                        relpath,
+                    )
+                if _safe_int(
+                    logical_counts.get("job_variant_build_number")
+                ) != latest_build_number:
+                    self.error(
+                        "operations-amd-logical-group-job-build",
+                        "logical group counts do not identify the latest job-variant build",
+                        relpath,
+                    )
+                if logical_counts.get("available") is True:
+                    logical_build = _safe_int(logical_counts.get("build_number"))
+                    signal_build = _safe_int(
+                        logical_counts.get("test_signal_build_number")
+                    )
+                    if not (
+                        logical_build
+                        == signal_build
+                        == latest_build_number
+                    ):
+                        self.error(
+                            "operations-amd-logical-group-build-mismatch",
+                            (
+                                "available logical test-group counts must match the "
+                                "latest exact job-variant build"
+                            ),
+                            relpath,
+                        )
+                    logical_total = _safe_int(logical_counts.get("total"), -1)
+                    logical_passing = _safe_int(logical_counts.get("passing"), -1)
+                    logical_non_passing = _safe_int(
+                        logical_counts.get("non_passing"), -1
+                    )
+                    logical_passing_all = _safe_int(
+                        logical_counts.get("passing_all"), -1
+                    )
+                    logical_partial = _safe_int(
+                        logical_counts.get("partial"), -1
+                    )
+                    if not (
+                        0 <= logical_passing_all <= logical_passing <= logical_total
+                        and logical_non_passing == logical_total - logical_passing
+                        and logical_passing_all + logical_partial == logical_passing
+                    ):
+                        self.error(
+                            "operations-amd-logical-group-counts",
+                            "latest logical test-group counts are internally inconsistent",
+                            relpath,
+                        )
+                    if logical_total > latest_job_variant_count:
+                        self.error(
+                            "operations-amd-logical-groups-exceed-job-variants",
+                            (
+                                f"logical test groups={logical_total} exceed exact "
+                                f"job variants={latest_job_variant_count}"
+                            ),
+                            relpath,
+                        )
+                    expected_percentage = (
+                        round(logical_passing / logical_total * 100, 1)
+                        if logical_total > 0
+                        else None
+                    )
+                    declared_percentage = logical_counts.get("pass_percentage")
+                    if (
+                        expected_percentage is None
+                        and declared_percentage is not None
+                    ) or (
+                        expected_percentage is not None
+                        and not math.isclose(
+                            _safe_float(declared_percentage, -1.0),
+                            expected_percentage,
+                            abs_tol=0.05,
+                        )
+                    ):
+                        self.error(
+                            "operations-amd-logical-group-percentage",
+                            "logical test-group pass percentage disagrees with its counts",
+                            relpath,
+                        )
+                elif logical_counts.get("build_number") is not None:
+                    self.error(
+                        "operations-amd-logical-group-unavailable-build",
+                        "unavailable logical test-group counts must not claim a build",
+                        relpath,
+                    )
             current_catalog_rows = sum(
                 _safe_int(_mapping(row).get("latest_build_number"))
                 == latest_build_number
@@ -1920,6 +2075,34 @@ class DashboardAudit:
                 observed = _safe_int(
                     build.get("observed") or build.get("observed_groups")
                 )
+                if (
+                    "observed_job_variants" in build
+                    and _safe_int(build.get("observed_job_variants")) != observed
+                ):
+                    self.error(
+                        "operations-amd-build-job-variant-alias",
+                        (
+                            f"AMD build #{build.get('build_number')} job-variant "
+                            "count disagrees with its legacy observed count"
+                        ),
+                        relpath,
+                    )
+                job_variant_state_counts = _mapping(
+                    build.get("job_variant_state_counts")
+                )
+                if job_variant_state_counts and any(
+                    _safe_int(job_variant_state_counts.get(state))
+                    != _safe_int(state_counts.get(state))
+                    for state in ("passed", "soft", "hard", "unknown")
+                ):
+                    self.error(
+                        "operations-amd-build-job-variant-state-alias",
+                        (
+                            f"AMD build #{build.get('build_number')} job-variant "
+                            "state counts disagree with legacy state counts"
+                        ),
+                        relpath,
+                    )
                 if observed != state_total:
                     self.error(
                         "operations-amd-build-state-count",
@@ -2599,6 +2782,51 @@ class DashboardAudit:
             {},
         )
         canonical_rows = _rows(canonical.get("builds"))
+        if amd_latest_logical_counts.get("available") is True:
+            logical_build_number = _safe_int(
+                amd_latest_logical_counts.get("build_number")
+            )
+            logical_nightly = next(
+                (
+                    _mapping(row)
+                    for row in canonical_rows
+                    if _safe_int(_mapping(row).get("number"))
+                    == logical_build_number
+                ),
+                {},
+            )
+            if not logical_nightly:
+                self.error(
+                    "operations-amd-logical-group-nightly-missing",
+                    (
+                        f"logical test-group build #{logical_build_number} is absent "
+                        "from canonical AMD nightly history"
+                    ),
+                    relpath,
+                )
+            else:
+                logical_nightly_fields = {
+                    "unique_test_groups": "total",
+                    "test_groups_passing_or": "passing",
+                    "test_groups_passing_all": "passing_all",
+                    "test_groups_partial": "partial",
+                }
+                if any(
+                    _safe_int(logical_nightly.get(nightly_field), -1)
+                    != _safe_int(
+                        amd_latest_logical_counts.get(logical_field), -1
+                    )
+                    for nightly_field, logical_field
+                    in logical_nightly_fields.items()
+                ):
+                    self.error(
+                        "operations-amd-logical-group-nightly-counts",
+                        (
+                            "logical test-group summary disagrees with the same "
+                            "canonical AMD nightly build"
+                        ),
+                        relpath,
+                    )
         expected_nightlies = min(30, _safe_int(canonical.get("builds_available")))
         if len(canonical_rows) != expected_nightlies:
             self.error(
@@ -3045,9 +3273,15 @@ class DashboardAudit:
             "canonical_targets": expected_canonical,
             "active_targets_outside_canonical": expected_outside_canonical,
             "amd_latest_job_variants": _safe_int(
-                amd_health_summary.get("latest_group_count")
+                amd_health_summary.get("latest_job_variant_count")
+                or amd_health_summary.get("latest_group_count")
             ),
             "amd_retained_job_variants": len(amd_health_catalog),
+            "amd_latest_test_groups": _safe_int(
+                _mapping(
+                    amd_health_summary.get("latest_test_group_counts")
+                ).get("total")
+            ),
             "linked_active_targets": linked_gating,
             "mixed_outcome_candidates": len(candidates),
             "reliability_groups": len(catalog),

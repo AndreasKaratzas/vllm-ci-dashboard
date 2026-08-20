@@ -478,6 +478,17 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
             ],
         },
     })
+    _write_json(tmp_path / "ci_health.json", {
+        "amd": {
+            "latest_test_signal_build": {
+                "build_number": 301,
+                "unique_test_groups": 3,
+                "test_groups_passing_or": 2,
+                "test_groups_passing_all": 2,
+                "test_groups_partial": 0,
+            },
+        },
+    })
     _write_jsonl(tmp_path / "test_results" / "2026-04-21_amd.jsonl", [
         {
             "name": "__passed__ (3)",
@@ -602,7 +613,9 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
         "retained_group_count": 5,
         "group_count": 5,
         "union_group_count": 5,
+        "retained_job_variant_count": 5,
         "latest_group_count": 3,
+        "latest_job_variant_count": 3,
         "latest_build_number": 301,
         "latest_build_url": "https://buildkite.com/vllm/amd-ci/builds/301",
         "latest_url": "https://buildkite.com/vllm/amd-ci/builds/301",
@@ -613,11 +626,39 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
             "hard": 1,
             "unknown": 0,
         },
+        "latest_job_variant_state_counts": {
+            "passed": 1,
+            "soft": 1,
+            "hard": 1,
+            "unknown": 0,
+        },
         "latest_passed_group_count": 1,
         "latest_soft_failed_group_count": 1,
         "latest_hard_failed_group_count": 1,
         "latest_incident_group_count": 2,
         "latest_unknown_group_count": 0,
+        "latest_passed_job_variant_count": 1,
+        "latest_soft_failed_job_variant_count": 1,
+        "latest_hard_failed_job_variant_count": 1,
+        "latest_incident_job_variant_count": 2,
+        "latest_unknown_job_variant_count": 0,
+        "latest_test_group_counts": {
+            "available": True,
+            "build_number": 301,
+            "job_variant_build_number": 301,
+            "test_signal_build_number": 301,
+            "total": 3,
+            "passing": 2,
+            "non_passing": 1,
+            "passing_all": 2,
+            "partial": 0,
+            "pass_percentage": 66.7,
+            "pass_rate_pct": 66.7,
+            "source": "ci_health.amd.latest_test_signal_build",
+            "passing_policy": "passes_on_any_observed_hardware",
+            "count_basis": "same-build normalized logical test-group identity",
+            "reason": None,
+        },
         "observation_state_counts": {
             "passed": 3,
             "soft": 1,
@@ -711,6 +752,13 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
     assert latest_build["hard_failed"] == 1
     assert latest_build["incidents"] == 2
     assert latest_build["unknown"] == 0
+    assert latest_build["observed_job_variants"] == 3
+    assert latest_build["passed_job_variants"] == 1
+    assert latest_build["soft_failed_job_variants"] == 1
+    assert latest_build["hard_failed_job_variants"] == 1
+    assert latest_build["incident_job_variants"] == 2
+    assert latest_build["unknown_job_variants"] == 0
+    assert latest_build["job_variant_state_counts"] == latest_build["state_counts"]
     assert latest_build["observed_groups"] == 3
     assert latest_build["passed_groups"] == 1
     assert latest_build["soft_failed_groups"] == 1
@@ -796,6 +844,90 @@ def test_amd_test_catalog_prefers_newer_build_over_late_retry_of_older_build(tmp
     ) == health["summary"]["latest_group_count"]
 
 
+def test_amd_test_health_requires_same_build_for_logical_group_counts(tmp_path):
+    group_name = ":amd: (MI355) Attention Kernels Shard 2"
+    assert ops._amd_test_job_labels(":computer: (CPU) CPU Unit Tests") == (
+        "CPU Unit Tests",
+        "cpu",
+        "cpu",
+        "cpu",
+    )
+    _write_json(tmp_path / "analytics.json", {
+        "amd-ci": {
+            "builds": [{
+                "number": 400,
+                "created_at": "2026-08-05T09:00:00Z",
+                "web_url": "https://buildkite.com/vllm/amd-ci/builds/400",
+                "jobs": [{
+                    "raw_name": group_name,
+                    "job_id": "standard-label-job",
+                    "state": "passed",
+                    "q": "amd_mi355_1",
+                }],
+            }],
+        },
+    })
+    _write_json(tmp_path / "ci_health.json", {
+        "amd": {
+            "latest_test_signal_build": {
+                "build_number": 399,
+                "unique_test_groups": 157,
+                "test_groups_passing_or": 156,
+                "test_groups_passing_all": 155,
+                "test_groups_partial": 1,
+            },
+        },
+    })
+    _write_jsonl(tmp_path / "test_results" / "2026-08-05_amd.jsonl", [{
+        "name": "__passed__ (1)",
+        "status": "passed",
+        "job_name": group_name,
+        "job_id": "standard-label-job",
+        "build_number": 400,
+        "pipeline": "amd-ci",
+        "date": "2026-08-05",
+    }])
+
+    health = ops.build_snapshot(tmp_path, generated_at=GENERATED_AT)["amd_test_health"]
+    counts = health["summary"]["latest_test_group_counts"]
+    group = health["group_catalog"][0]
+
+    assert counts["available"] is False
+    assert counts["reason"] == "build_mismatch"
+    assert counts["job_variant_build_number"] == 400
+    assert counts["test_signal_build_number"] == 399
+    assert counts["total"] is None
+    assert health["summary"]["latest_job_variant_count"] == 1
+    assert group["exact_job_name"] == group_name
+    assert group["display_name"] == "Attention Kernels Shard 2"
+    assert group["hardware"] == "mi355"
+    assert group["hardware_variant"] == "mi355_1"
+    assert group["queue"] == "amd_mi355_1"
+
+    _write_json(tmp_path / "ci_health.json", {
+        "amd": {
+            "latest_test_signal_build": {
+                "build_number": 400,
+                "unique_test_groups": 157,
+                "test_groups_passing_or": 156,
+                "test_groups_passing_all": 155,
+                "test_groups_partial": 1,
+            },
+        },
+    })
+    counts = ops.build_snapshot(
+        tmp_path,
+        generated_at=GENERATED_AT,
+    )["amd_test_health"]["summary"]["latest_test_group_counts"]
+
+    assert counts["available"] is True
+    assert counts["build_number"] == 400
+    assert counts["total"] == 157
+    assert counts["passing"] == 156
+    assert counts["non_passing"] == 1
+    assert counts["pass_percentage"] == 99.4
+
+
 def test_amd_test_health_is_unavailable_for_missing_or_corrupt_results(tmp_path):
     missing = ops.build_snapshot(tmp_path, generated_at=GENERATED_AT)["amd_test_health"]
 
@@ -805,6 +937,11 @@ def test_amd_test_health_is_unavailable_for_missing_or_corrupt_results(tmp_path)
     assert missing["summary"]["retained_group_count"] == 0
     assert missing["summary"]["group_count"] == 0
     assert missing["summary"]["latest_build_number"] is None
+    assert missing["summary"]["latest_job_variant_count"] == 0
+    assert missing["summary"]["latest_test_group_counts"]["available"] is False
+    assert missing["summary"]["latest_test_group_counts"]["reason"] == (
+        "latest_job_variant_build_unavailable"
+    )
     assert missing["builds"] == []
     assert missing["group_catalog"] == []
 

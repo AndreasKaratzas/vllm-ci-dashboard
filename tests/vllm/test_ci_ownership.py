@@ -67,57 +67,96 @@ def test_committed_rotation_matches_the_31_requested_rank_chains():
     config = load_ownership_config(ROOT / "config" / "vllm_ci_ownership.json")
     assert config["policy"]["mentions"] is True
     expected = {
-        "attention": ["djramic", "aarushjain29", "peizhang56"],
-        "basic_correctness": ["gchinora", "music-dino", "divakar-amd"],
-        "benchmarks": ["aarushjain29", "gchinora", "djramic"],
-        "compile": ["charlifu", "stefankoncarevic", "mawong-amd"],
-        "cuda": ["gchinora", "aarushjain29", "music-dino"],
-        "disaggregated": ["divakar-amd", "stefankoncarevic", "djramic"],
-        "distributed": ["charlifu", "stefankoncarevic", "aarushjain29"],
-        "docker": ["mawong-amd", "peizhang56", "divakar-amd"],
-        "e2e_integration": ["music-dino", "aarushjain29", "mawong-amd"],
+        "attention": ["aarushjain29"],
+        "basic_correctness": ["gchinora", "divakar-amd"],
+        "benchmarks": ["aarushjain29", "gchinora"],
+        "compile": ["stefankoncarevic", "mawong-amd"],
+        "cuda": ["gchinora", "aarushjain29"],
+        "disaggregated": ["divakar-amd", "stefankoncarevic"],
+        "distributed": ["stefankoncarevic", "aarushjain29"],
+        "docker": ["mawong-amd", "divakar-amd"],
+        "e2e_integration": ["aarushjain29", "mawong-amd"],
         "engine": ["micah-wil", "divakar-amd", "stefankoncarevic"],
-        "entrypoints": ["AndreasKaratzas", "charlifu", "stefankoncarevic"],
-        "expert_parallelism": ["divakar-amd", "charlifu", "gchinora"],
-        "fault_tolerance": ["djramic", "gchinora", "mawong-amd"],
-        "kernels": ["stefankoncarevic", "micah-wil", "djramic"],
-        "lm_eval": ["peizhang56", "fxmarty-amd", "music-dino"],
-        "lora": ["divakar-amd", "music-dino", "mawong-amd"],
+        "entrypoints": ["AndreasKaratzas", "stefankoncarevic"],
+        "expert_parallelism": ["divakar-amd", "gchinora"],
+        "fault_tolerance": ["gchinora", "mawong-amd"],
+        "kernels": ["stefankoncarevic", "micah-wil"],
+        "lm_eval": ["fxmarty-amd"],
+        "lora": ["divakar-amd", "mawong-amd"],
         "misc": ["AndreasKaratzas", "micah-wil", "gchinora"],
-        "model_executor": ["gchinora", "charlifu", "aarushjain29"],
-        "model_runner_v2": ["djramic", "stefankoncarevic", "music-dino"],
-        "models_basic": ["aarushjain29", "peizhang56", "micah-wil"],
-        "models_distributed": ["aarushjain29", "gchinora", "charlifu"],
+        "model_executor": ["gchinora", "aarushjain29"],
+        "model_runner_v2": ["stefankoncarevic"],
+        "models_basic": ["aarushjain29", "micah-wil"],
+        "models_distributed": ["aarushjain29", "gchinora"],
         "models_language": ["mawong-amd", "AndreasKaratzas", "stefankoncarevic"],
-        "models_multimodal": ["mawong-amd", "AndreasKaratzas", "music-dino"],
-        "plugins": ["peizhang56", "aarushjain29", "charlifu"],
-        "pytorch": ["charlifu", "djramic", "micah-wil"],
+        "models_multimodal": ["mawong-amd", "AndreasKaratzas"],
+        "plugins": ["aarushjain29"],
+        "pytorch": ["micah-wil"],
         "quantization": ["fxmarty-amd", "micah-wil", "AndreasKaratzas"],
-        "ray_compat": ["divakar-amd", "music-dino", "AndreasKaratzas"],
-        "rust_frontend": ["aarushjain29", "mawong-amd", "peizhang56"],
-        "samplers": ["AndreasKaratzas", "divakar-amd", "djramic"],
-        "spec_decode": ["AndreasKaratzas", "stefankoncarevic", "peizhang56"],
-        "weight_loading": ["micah-wil", "gchinora", "charlifu"],
+        "ray_compat": ["divakar-amd", "AndreasKaratzas"],
+        "rust_frontend": ["aarushjain29", "mawong-amd"],
+        "samplers": ["AndreasKaratzas", "divakar-amd"],
+        "spec_decode": ["AndreasKaratzas", "stefankoncarevic"],
+        "weight_loading": ["micah-wil", "gchinora"],
     }
 
     assert {
         area: [owner["github_login"] for owner in chain]
         for area, chain in config["areas"].items()
     } == expected
+    assert {
+        area: [owner["rank"] for owner in chain]
+        for area, chain in config["areas"].items()
+    } == {
+        "attention": [2],
+        "basic_correctness": [1, 3],
+        "benchmarks": [1, 2],
+        "compile": [2, 3],
+        "cuda": [1, 2],
+        "disaggregated": [1, 2],
+        "distributed": [2, 3],
+        "docker": [1, 3],
+        "e2e_integration": [2, 3],
+        "engine": [1, 2, 3],
+        "entrypoints": [1, 3],
+        "expert_parallelism": [1, 3],
+        "fault_tolerance": [2, 3],
+        "kernels": [1, 2],
+        "lm_eval": [2],
+        "lora": [1, 3],
+        "misc": [1, 2, 3],
+        "model_executor": [1, 3],
+        "model_runner_v2": [2],
+        "models_basic": [1, 3],
+        "models_distributed": [1, 2],
+        "models_language": [1, 2, 3],
+        "models_multimodal": [1, 2],
+        "plugins": [2],
+        "pytorch": [3],
+        "quantization": [1, 2, 3],
+        "ray_compat": [1, 3],
+        "rust_frontend": [1, 2],
+        "samplers": [1, 2],
+        "spec_decode": [1, 2],
+        "weight_loading": [1, 2],
+    }
     assert {owner["github_login"] for owner in config["owners"]} == {
         "AndreasKaratzas",
         "aarushjain29",
-        "charlifu",
-        "djramic",
         "divakar-amd",
         "fxmarty-amd",
         "gchinora",
         "mawong-amd",
         "micah-wil",
-        "music-dino",
-        "peizhang56",
         "stefankoncarevic",
     }
+    retired = {"charlifu", "djramic", "music-dino", "peizhang56"}
+    assert retired.isdisjoint(owner["github_login"] for owner in config["owners"])
+    assert retired.isdisjoint(
+        owner["github_login"]
+        for chain in config["areas"].values()
+        for owner in chain
+    )
     assert config["working_hours_profiles"] == {
         "EU": {
             "timezone": "Europe/Belgrade",
@@ -141,16 +180,12 @@ def test_committed_rotation_matches_the_31_requested_rank_chains():
         for owner in config["owners"]
     } == {
         "gchinora": "EU",
-        "charlifu": "NA",
         "aarushjain29": "NA",
         "stefankoncarevic": "EU",
         "fxmarty-amd": "EU",
-        "music-dino": "EU",
-        "djramic": "EU",
         "divakar-amd": "NA",
         "micah-wil": "NA",
         "mawong-amd": "NA",
-        "peizhang56": "NA",
         "AndreasKaratzas": "NA",
     }
 
@@ -173,15 +208,32 @@ def test_committed_regional_hours_drive_ranked_availability():
     }
     assert availability["gchinora"]["status"] == "available"
     assert availability["stefankoncarevic"]["status"] == "available"
-    assert availability["charlifu"]["status"] == "unavailable"
     assert availability["micah-wil"]["status"] == "unavailable"
 
 
-def test_config_requires_complete_distinct_rank_chain():
+def test_config_accepts_one_to_three_distinct_ranked_owners():
     payload = _config()
     payload["areas"]["kernels"] = payload["areas"]["kernels"][:2]
+    assert len(validate_ownership_config(payload)["areas"]["kernels"]) == 2
 
-    with pytest.raises(ValueError, match="exactly ranks 1, 2, and 3"):
+    payload["areas"]["kernels"] = payload["areas"]["kernels"][:1]
+    assert len(validate_ownership_config(payload)["areas"]["kernels"]) == 1
+
+
+def test_config_rejects_empty_duplicate_rank_or_duplicate_owner_chains():
+    payload = _config()
+    payload["areas"]["kernels"] = []
+    with pytest.raises(ValueError, match="between one and three owners"):
+        validate_ownership_config(payload)
+
+    payload = _config()
+    payload["areas"]["kernels"][1]["rank"] = 1
+    with pytest.raises(ValueError, match="distinct ranks"):
+        validate_ownership_config(payload)
+
+    payload = _config()
+    payload["areas"]["kernels"][1]["github_login"] = "primary"
+    with pytest.raises(ValueError, match="distinct owners"):
         validate_ownership_config(payload)
 
 

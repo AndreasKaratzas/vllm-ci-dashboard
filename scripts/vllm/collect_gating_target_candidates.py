@@ -27,6 +27,14 @@ PROPOSALS = OUTPUT / "gating_proposals.json"
 MULTISPACE_RE = re.compile(r"\s+")
 AMD_PREFIX_RE = re.compile(r"^AMD:\s*", re.IGNORECASE)
 INTERNAL_AMD_PREFIX_RE = re.compile(r"^mi\d{3,4}b?_\d+:\s*", re.IGNORECASE)
+STANDARD_AMD_PREFIX_RE = re.compile(
+    r"^:amd:\s*\(\s*mi\d{3,4}b?\s*\)\s*",
+    re.IGNORECASE,
+)
+STANDARD_PLATFORM_PREFIX_RE = re.compile(
+    r"^:(?:amd|computer):\s*\(\s*(?:mi\d{3,4}b?|cpu)\s*\)\s*",
+    re.IGNORECASE,
+)
 AMD_DEVICE_SUFFIX_RE = re.compile(r"\s*\((mi\d{3,4}b?_\d+)\)\s*$", re.IGNORECASE)
 SHARD_TEMPLATE_SUFFIX_RE = re.compile(r"\s*%N\s*$", re.IGNORECASE)
 GPU_QUEUE_RE = re.compile(r"(^|[^a-z0-9])gpu([_-]|$)|\bgpus?\b|h100|h200|a100|b200|gh200|mithril", re.IGNORECASE)
@@ -60,6 +68,7 @@ def clean_job_label(value: Any) -> str:
     text = clean_text(value)
     text = AMD_PREFIX_RE.sub("", text)
     text = INTERNAL_AMD_PREFIX_RE.sub("", text)
+    text = STANDARD_PLATFORM_PREFIX_RE.sub("", text)
     text = AMD_DEVICE_SUFFIX_RE.sub("", text)
     return clean_text(text.replace(r"\%N", "%N"))
 
@@ -82,16 +91,18 @@ def hardware_fold_key(value: Any) -> str:
 
 def is_amd_mirror_job(job: dict[str, Any]) -> bool:
     raw = str(job.get("raw_name") or job.get("name") or "")
-    return bool(AMD_PREFIX_RE.match(raw))
+    return bool(AMD_PREFIX_RE.match(raw) or STANDARD_AMD_PREFIX_RE.match(raw))
 
 
 def is_gpu_like_job(job: dict[str, Any]) -> bool:
-    raw = clean_job_label(job.get("raw_name") or job.get("name") or "")
+    decorated = str(job.get("raw_name") or job.get("name") or "")
+    standard_amd_gpu = bool(STANDARD_AMD_PREFIX_RE.match(decorated))
+    raw = clean_job_label(decorated)
     queue = str(job.get("q") or "")
     haystack = f"{raw} {queue}"
     if CPU_OR_NON_GPU_RE.search(haystack):
         return False
-    return bool(GPU_QUEUE_RE.search(haystack))
+    return standard_amd_gpu or bool(GPU_QUEUE_RE.search(haystack))
 
 
 def exclusion_reasons(label: str, queue: str = "") -> list[str]:
