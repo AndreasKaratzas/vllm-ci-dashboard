@@ -60,6 +60,23 @@ def _load_test_results():
     return results, amd_files[0].name
 
 
+def _load_upstream_test_results():
+    """Load all JSONL test results for the latest upstream date."""
+    results_dir = DATA / "test_results"
+    if not results_dir.exists():
+        pytest.skip("no test_results directory")
+    upstream_files = sorted(results_dir.glob("*_upstream.jsonl"), reverse=True)
+    if not upstream_files:
+        pytest.skip("no upstream JSONL files")
+    results = []
+    with upstream_files[0].open() as handle:
+        for line in handle:
+            line = line.strip()
+            if line:
+                results.append(json.loads(line))
+    return results, upstream_files[0].name
+
+
 @pytest.mark.live_data
 class TestGroupCountCorrectness:
     """Validate that per-hardware group counts match the raw test results."""
@@ -451,20 +468,57 @@ class TestUpstreamHardwareTracking:
             "The _extract_hardware() function may not detect (H100), (B200) etc."
         )
 
-    def test_upstream_tracks_multiple_gpu_families(self):
-        """Explicit decorators must not collapse every upstream job to H100."""
+    def test_upstream_hardware_group_counts_match_jsonl(self):
+        """Published hardware groups must match the latest upstream evidence."""
         health = _load_json("ci_health.json")
-        up = health.get("upstream", {}).get("latest_build", {})
-        bh = up.get("by_hardware", {})
-        gpu_groups = {
-            hw: data.get("groups", 0)
-            for hw, data in bh.items()
-            if hw not in ("unknown", "cpu") and data.get("groups", 0) > 0
+        results, fname = _load_upstream_test_results()
+
+        from vllm.ci.analyzer import _extract_hardware, _normalize_job_name
+
+        # Parse standardized NVIDIA decorators independently from the analyzer.
+        # This keeps the live contract capable of detecting a regression where
+        # H200/L4/etc. decorators silently fall back to the legacy H100 bucket.
+        queue_prefix = re.compile(
+            r"^(?:mi\d+(?:_\d+)?|gpu_\d+|amd_[^:]+):\s*",
+            re.IGNORECASE,
+        )
+        nvidia_decorator = re.compile(
+            r"^:nvidia:\s*\(([^)]+)\)\s*",
+            re.IGNORECASE,
+        )
+        expected_groups = defaultdict(set)
+        build_numbers = set()
+        for result in results:
+            job_name = result.get("job_name", "")
+            without_queue = queue_prefix.sub("", job_name, count=1)
+            match = nvidia_decorator.match(without_queue)
+            hardware = (
+                match.group(1).strip().casefold()
+                if match
+                else _extract_hardware(job_name)
+            )
+            expected_groups[hardware].add(_normalize_job_name(job_name))
+            build_numbers.add(result.get("build_number"))
+
+        latest = health.get("upstream", {}).get("latest_test_signal_build", {})
+        health_build = latest.get("build_number")
+        assert build_numbers == {health_build}, (
+            f"Upstream JSONL {fname} contains builds "
+            f"{sorted(str(number) for number in build_numbers)} but "
+            f"ci_health latest test signal is build {health_build}"
+        )
+
+        published_groups = {
+            hardware: data.get("groups", 0)
+            for hardware, data in latest.get("by_hardware", {}).items()
         }
-        assert len(gpu_groups) >= 2, (
-            "Upstream hardware collapsed into fewer than two GPU families: "
-            f"{gpu_groups}. Standardized NVIDIA decorators may be defaulting "
-            "to one legacy hardware bucket."
+        expected_counts = {
+            hardware: len(groups)
+            for hardware, groups in expected_groups.items()
+        }
+        assert published_groups == expected_counts, (
+            f"ci_health upstream hardware groups {published_groups} do not match "
+            f"the independently classified groups in {fname}: {expected_counts}"
         )
 
     def test_parity_report_has_upstream_hardware(self):
@@ -472,8 +526,11 @@ class TestUpstreamHardwareTracking:
         parity = _load_json("parity_report.json")
         upstream_hw_groups = [
             g for g in parity.get("job_groups", [])
-            if g.get("upstream") and g.get("hardware")
-            and any(hw not in ("unknown", "cpu") for hw in g["hardware"])
+            if g.get("upstream") and g.get("upstream_hardware")
+            and any(
+                hw not in ("unknown", "cpu")
+                for hw in g["upstream_hardware"]
+            )
         ]
         assert len(upstream_hw_groups) >= 5, (
             f"Only {len(upstream_hw_groups)} parity groups have upstream GPU hardware tags. "
