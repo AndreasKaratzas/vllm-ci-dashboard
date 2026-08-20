@@ -305,14 +305,19 @@ class TestParityReportConsistency:
 
     def test_hw_failure_counts_are_subset_of_total_failures(self):
         """Per-HW failure counts for AMD hardware must not exceed AMD total failures.
-        hw_failures may also contain upstream hardware (h100, b200) — skip those."""
-        AMD_HW = {"mi250", "mi325", "mi355", "cpu"}
+        Legacy hw_failures may also contain upstream hardware — skip those."""
+        AMD_HW = {"mi250", "mi300", "mi325", "mi355", "cpu"}
         parity = _load_json("parity_report.json")
         for g in parity.get("job_groups", []):
             if not g.get("amd"):
                 continue
             total_fail = g["amd"].get("failed", 0) + g["amd"].get("error", 0)
-            hw_failures = g.get("hw_failures") or {}
+            amd_hw_failures = g.get("amd_hw_failures")
+            hw_failures = (
+                amd_hw_failures
+                if isinstance(amd_hw_failures, dict)
+                else (g.get("hw_failures") or {})
+            )
             for hw, count in hw_failures.items():
                 if hw not in AMD_HW:
                     continue  # upstream hw failures checked separately
@@ -1107,7 +1112,12 @@ class TestNoStaleFailuresFromBackfill:
             if amd_failed == 0:
                 continue
             # Check if ALL hw_failures come from backfilled hardware
-            hwf = g.get("hw_failures") or {}
+            amd_hw_failures = g.get("amd_hw_failures")
+            hwf = (
+                amd_hw_failures
+                if isinstance(amd_hw_failures, dict)
+                else (g.get("hw_failures") or {})
+            )
             bf_hw = set(g.get("hw_backfilled", {}).keys())
             # If all failing hardware is backfilled, these are stale failures
             failing_hw = {hw for hw, c in hwf.items() if c > 0}

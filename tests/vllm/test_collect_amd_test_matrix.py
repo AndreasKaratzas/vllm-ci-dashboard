@@ -20,6 +20,7 @@ from vllm.collect_amd_test_matrix import (
     load_frozen_build_snapshot,
     longest_shared_title_substring,
     merge_latest_job_indexes,
+    _parity_state_for_arch,
     parse_steps,
     strip_shard_index,
     yaml_url_for_build,
@@ -315,6 +316,30 @@ def test_aggregate_state_prioritizes_failures():
     assert aggregate_state(["passed", "soft_fail"]) == "soft_fail"
     assert aggregate_state(["running", "soft_failed"]) == "soft_failed"
     assert aggregate_state(["scheduled", "passed"]) == "scheduled"
+
+
+def test_parity_state_ignores_upstream_incidents_on_same_amd_hardware():
+    row = {
+        "amd": {"total": 1, "passed": 1},
+        "hardware": ["mi300"],
+        "amd_hardware": ["mi300"],
+        "upstream_hardware": ["mi300"],
+        "hw_failures": {"mi300": 2},
+        "amd_hw_failures": {},
+        "upstream_hw_failures": {"mi300": 2},
+        "hw_canceled": {"mi300": 1},
+        "amd_hw_canceled": {},
+        "upstream_hw_canceled": {"mi300": 1},
+    }
+
+    assert _parity_state_for_arch(row, "mi300", None) == "passed"
+
+    legacy = {
+        "amd": {"total": 1, "failed": 1},
+        "hardware": ["mi300"],
+        "hw_failures": {"mi300": 1},
+    }
+    assert _parity_state_for_arch(legacy, "mi300", None) == "failed"
 
 
 def test_build_matrix_trusts_passed_buildkite_state_over_stale_hw_failures():

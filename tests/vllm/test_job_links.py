@@ -64,6 +64,51 @@ def make_result(job_name, status="passed", name="__passed__ (1)", pipeline="amd-
 class TestJobLinkGeneration:
     """Test that _compute_job_group_parity generates job_links for all groups."""
 
+    def test_hardware_and_incidents_remain_scoped_to_their_pipeline_side(self):
+        amd = [
+            make_result(
+                "mi300_1: :amd: (MI300) Shared Group",
+                pipeline="amd-ci",
+                status="passed",
+            )
+        ]
+        upstream = [
+            make_result(
+                ":amd: (MI300) Shared Group",
+                pipeline="ci",
+                status="failed",
+                name="upstream_failure",
+                job_id="upstream-shared",
+            ),
+            make_result(
+                ":amd: (MI355) Upstream Mirror Only",
+                pipeline="ci",
+                status="canceled",
+                name="__job_level__",
+                job_id="upstream-only",
+            ),
+        ]
+
+        groups = _compute_job_group_parity(amd, upstream)
+        shared = next(group for group in groups if group["name"] == "shared group")
+        upstream_only = next(
+            group for group in groups
+            if group["name"] == "upstream mirror only"
+        )
+
+        assert shared["hardware"] == ["mi300"]
+        assert shared["amd_hardware"] == ["mi300"]
+        assert shared["upstream_hardware"] == ["mi300"]
+        assert shared["hw_failures"] == {"mi300": 1}
+        assert shared["amd_hw_failures"] == {}
+        assert shared["upstream_hw_failures"] == {"mi300": 1}
+
+        assert upstream_only["hardware"] == ["mi355"]
+        assert upstream_only["amd_hardware"] == []
+        assert upstream_only["upstream_hardware"] == ["mi355"]
+        assert upstream_only["amd_hw_canceled"] == {}
+        assert upstream_only["upstream_hw_canceled"] == {"mi355": 1}
+
     def test_yaml_gpu_count_override_matches_metadata_only_upstream_label(self):
         """YAML num_devices should match upstream labels that omit GPU count."""
         amd_label = "DeepSeek V2-Lite Accuracy (4xH100-4xMI300)"

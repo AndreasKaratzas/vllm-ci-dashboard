@@ -868,6 +868,28 @@ def _merge_with_previous(
     return merged, latest[1], latest[0], backfilled
 
 
+def _extend_parity_side_hardware(
+    group: dict,
+    side: str,
+    hardware: set[str],
+) -> set[str]:
+    """Add hardware evidence to one parity source side.
+
+    The merged ``hardware`` list is intentionally not used as the prior set:
+    an upstream ``:amd:`` mirror can use the same MI architecture as an
+    amd-ci job, and both sides must still retain their independent evidence.
+    Returns architectures newly observed on the requested side.
+    """
+    if side not in {"amd", "upstream"}:
+        raise ValueError(f"Unsupported parity side: {side}")
+    field = f"{side}_hardware"
+    current_value = group.get(field)
+    current = set(current_value) if isinstance(current_value, list) else set()
+    added = set(hardware) - current
+    group[field] = sorted(current | set(hardware))
+    return added
+
+
 def _compact_amd_build_snapshot(build: dict) -> dict:
     """Return the PII-free AMD build fields needed by the matrix collector."""
     build_fields = (
@@ -1251,8 +1273,14 @@ def main():
                             "upstream_job_name": None,
                             "amd": None,
                             "upstream": None,
+                            "amd_hardware": sorted(hw_set),
+                            "upstream_hardware": [],
                             "hardware": sorted(hw_set),
+                            "amd_hw_failures": {},
+                            "upstream_hw_failures": {},
                             "hw_failures": None,
+                            "amd_hw_canceled": {},
+                            "upstream_hw_canceled": {},
                             "hw_canceled": None,
                             "failure_tests": [],
                             "job_links": [],
@@ -1278,9 +1306,11 @@ def main():
                                     break
                         if target is not None:
                             current_hw = set(target.get("hardware") or [])
-                            new_hw = hw_set - current_hw
+                            new_hw = _extend_parity_side_hardware(
+                                target, "amd", hw_set
+                            )
+                            target["hardware"] = sorted(current_hw | hw_set)
                             if new_hw:
-                                target["hardware"] = sorted(current_hw | new_hw)
                                 hw_bf = target.get("hw_backfilled") or {}
                                 for hw in new_hw:
                                     hw_bf[hw] = True
@@ -1331,8 +1361,14 @@ def main():
                             "upstream_job_name": None,
                             "amd": None,
                             "upstream": None,
+                            "amd_hardware": [],
+                            "upstream_hardware": [hw],
                             "hardware": [hw],
+                            "amd_hw_failures": {},
+                            "upstream_hw_failures": {},
                             "hw_failures": None,
+                            "amd_hw_canceled": {},
+                            "upstream_hw_canceled": {},
                             "hw_canceled": None,
                             "failure_tests": [],
                             "job_links": [],
@@ -1342,12 +1378,22 @@ def main():
                         })
                         existing_groups.add(norm)
                     else:
+                        target = None
                         for g in parity["job_groups"]:
                             if g["name"] == norm:
-                                current_hw = set(g.get("hardware") or [])
-                                if hw not in current_hw:
-                                    g["hardware"] = sorted(current_hw | {hw})
+                                target = g
                                 break
+                        if target is None:
+                            for g in parity["job_groups"]:
+                                if _parity_key(g["name"]) == pk:
+                                    target = g
+                                    break
+                        if target is not None:
+                            current_hw = set(target.get("hardware") or [])
+                            _extend_parity_side_hardware(
+                                target, "upstream", {hw}
+                            )
+                            target["hardware"] = sorted(current_hw | {hw})
 
             parity["amd_build"] = amd_build_num
             parity["upstream_build"] = up_build_num

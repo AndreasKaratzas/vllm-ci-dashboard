@@ -2241,6 +2241,77 @@ def test_dashboard_audit_rejects_one_group_cross_view_hardware_drift(tmp_path):
     assert "parity-matrix-hardware-failing" in error_codes
 
 
+def test_dashboard_audit_uses_only_amd_side_parity_hardware_and_incidents(
+    tmp_path,
+):
+    ci = tmp_path / "data/vllm/ci"
+    ci.mkdir(parents=True)
+    (ci / "parity_report.json").write_text(
+        json.dumps(
+            {
+                "job_groups": [
+                    {
+                        "name": "shared same-hardware group",
+                        "hardware": ["mi300"],
+                        "amd_hardware": ["mi300"],
+                        "upstream_hardware": ["mi300"],
+                        "amd": {"total": 1, "passed": 1},
+                        "upstream": {"total": 1, "failed": 1},
+                        "hw_failures": {"mi300": 1},
+                        "amd_hw_failures": {},
+                        "upstream_hw_failures": {"mi300": 1},
+                        "hw_canceled": {"mi300": 1},
+                        "amd_hw_canceled": {},
+                        "upstream_hw_canceled": {"mi300": 1},
+                    },
+                    {
+                        "name": "upstream AMD mirror only",
+                        "hardware": ["mi355"],
+                        "amd_hardware": [],
+                        "upstream_hardware": ["mi355"],
+                        "amd": None,
+                        "upstream": {"total": 1, "passed": 1},
+                        "hw_failures": {},
+                        "amd_hw_failures": {},
+                        "upstream_hw_failures": {},
+                        "hw_canceled": {},
+                        "amd_hw_canceled": {},
+                        "upstream_hw_canceled": {},
+                    },
+                ]
+            }
+        )
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_parity_hardware_matches_matrix(
+        {},
+        {
+            "by_arch": {
+                "mi300": {
+                    "total": 1,
+                    "passing": 1,
+                    "failing": 0,
+                    "waiting": 0,
+                    "unknown": 0,
+                    "matched": 1,
+                }
+            }
+        },
+    )
+
+    assert not audit.report.errors
+    assert audit.report.metrics["parity_hardware"] == {
+        "mi300": {
+            "passing": 1,
+            "failing": 0,
+            "pending": 0,
+            "canceled": 0,
+            "total": 1,
+        }
+    }
+
+
 def test_dashboard_audit_compares_health_with_observed_matrix_cells(tmp_path):
     ci = tmp_path / "data/vllm/ci"
     ci.mkdir(parents=True)

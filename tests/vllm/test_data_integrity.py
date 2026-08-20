@@ -216,6 +216,73 @@ class TestParityReport:
                     f"'{g['name']}' hw_failures is {type(hwf).__name__}, expected dict or null"
                 )
 
+    def test_side_hardware_and_incidents_are_internally_consistent(self, parity):
+        """Explicit source-side fields must remain subsets of the merged view."""
+        bad = []
+        for g in parity["job_groups"]:
+            merged_hardware = set(g.get("hardware") or [])
+            side_hardware_sets = {}
+            for side in ("amd", "upstream"):
+                side_hardware = g.get(f"{side}_hardware")
+                if side_hardware is None:
+                    continue  # Legacy parity snapshots predate source-side fields.
+                if not isinstance(side_hardware, list):
+                    bad.append(
+                        f"'{g['name']}' {side}_hardware is "
+                        f"{type(side_hardware).__name__}, expected list"
+                    )
+                    continue
+                side_hardware_set = set(side_hardware)
+                side_hardware_sets[side] = side_hardware_set
+                if not side_hardware_set.issubset(merged_hardware):
+                    bad.append(
+                        f"'{g['name']}' {side}_hardware {side_hardware_set} "
+                        f"is not a subset of hardware {merged_hardware}"
+                    )
+                for suffix in ("failures", "canceled"):
+                    incidents = g.get(f"{side}_hw_{suffix}")
+                    if incidents is None:
+                        continue
+                    if not isinstance(incidents, dict):
+                        bad.append(
+                            f"'{g['name']}' {side}_hw_{suffix} is "
+                            f"{type(incidents).__name__}, expected dict"
+                        )
+                        continue
+                    unexpected = set(incidents) - side_hardware_set
+                    if unexpected:
+                        bad.append(
+                            f"'{g['name']}' {side}_hw_{suffix} has {unexpected} "
+                            f"outside {side}_hardware {side_hardware_set}"
+                        )
+            if set(side_hardware_sets) == {"amd", "upstream"}:
+                expected_hardware = set().union(*side_hardware_sets.values())
+                if merged_hardware != expected_hardware:
+                    bad.append(
+                        f"'{g['name']}' hardware {merged_hardware} does not equal "
+                        f"source-side union {expected_hardware}"
+                    )
+                for suffix in ("failures", "canceled"):
+                    side_maps = [
+                        g.get(f"{side}_hw_{suffix}")
+                        for side in ("amd", "upstream")
+                    ]
+                    if not all(isinstance(value, dict) for value in side_maps):
+                        continue
+                    expected_incidents = {}
+                    for side_map in side_maps:
+                        for hw, count in side_map.items():
+                            expected_incidents[hw] = (
+                                expected_incidents.get(hw, 0) + count
+                            )
+                    merged_incidents = g.get(f"hw_{suffix}") or {}
+                    if merged_incidents != expected_incidents:
+                        bad.append(
+                            f"'{g['name']}' hw_{suffix} {merged_incidents} "
+                            f"does not equal source-side sum {expected_incidents}"
+                        )
+        assert not bad, "Invalid source-side hardware fields:\n" + "\n".join(bad[:10])
+
     def test_groups_have_error_field(self, parity):
         """Groups with errors must have the 'error' field so it can be folded into 'failed'."""
         for g in parity["job_groups"]:
@@ -286,16 +353,21 @@ class TestParityReport:
     def test_failing_groups_have_links_for_failing_hw(self, parity):
         """AMD groups with hw_failures should have AMD job links for each failing hw.
 
-        Only checks AMD-side hardware (mi250, mi325, mi355). Upstream hardware
+        Only checks AMD-side hardware (mi250, mi300, mi325, mi355). Upstream hardware
         (h100, b200, etc.) failures may not have AMD links if the group is
         upstream-only or the failure is on the upstream side.
         """
-        AMD_HW = {"mi250", "mi325", "mi355", "cpu"}
+        AMD_HW = {"mi250", "mi300", "mi325", "mi355", "cpu"}
         bad = []
         for g in parity["job_groups"]:
             if not g.get("amd"):
                 continue  # upstream-only groups don't need AMD links
-            hwf = g.get("hw_failures") or {}
+            amd_hw_failures = g.get("amd_hw_failures")
+            hwf = (
+                amd_hw_failures
+                if isinstance(amd_hw_failures, dict)
+                else (g.get("hw_failures") or {})
+            )
             if not hwf:
                 continue
             amd_links = [jl for jl in g.get("job_links", []) if jl and jl.get("side") == "amd"]

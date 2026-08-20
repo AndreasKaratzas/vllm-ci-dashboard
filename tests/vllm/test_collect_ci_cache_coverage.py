@@ -48,6 +48,7 @@ from collect_ci import (  # noqa: E402
     _completed_result_entries,
     _find_false_normalization_merges,
     _find_missing_parity_groups,
+    _extend_parity_side_hardware,
     _is_complete_nightly_build,
     _select_shard_evidence_build,
     _select_latest_complete_evidence_build,
@@ -91,6 +92,21 @@ def _record(job_name: str, build_num: int = 7791, job_id: str = "") -> dict:
         "pipeline": "amd-ci",
         "date": "2026-04-18",
     }
+
+
+def test_parity_side_hardware_extends_even_when_merged_hardware_already_exists():
+    group = {
+        "hardware": ["mi300"],
+        "amd_hardware": ["mi300"],
+        "upstream_hardware": [],
+    }
+
+    added = _extend_parity_side_hardware(group, "upstream", {"mi300"})
+
+    assert added == {"mi300"}
+    assert group["amd_hardware"] == ["mi300"]
+    assert group["upstream_hardware"] == ["mi300"]
+    assert group["hardware"] == ["mi300"]
 
 
 class TestCachedJobNames:

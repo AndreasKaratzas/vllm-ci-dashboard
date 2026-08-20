@@ -5341,7 +5341,25 @@ class DashboardAudit:
             return
         parity_stats: dict[str, dict[str, int]] = {}
         for group in parity.get("job_groups") or []:
-            for hw in group.get("hardware") or []:
+            amd_hardware = group.get("amd_hardware")
+            hardware = (
+                amd_hardware
+                if isinstance(amd_hardware, list)
+                else (group.get("hardware") or [])
+            )
+            amd_hw_failures = group.get("amd_hw_failures")
+            hw_failures = (
+                amd_hw_failures
+                if isinstance(amd_hw_failures, dict)
+                else (group.get("hw_failures") or {})
+            )
+            amd_hw_canceled = group.get("amd_hw_canceled")
+            hw_canceled = (
+                amd_hw_canceled
+                if isinstance(amd_hw_canceled, dict)
+                else (group.get("hw_canceled") or {})
+            )
+            for hw in hardware:
                 if not re.match(r"^mi\d+", str(hw), flags=re.I):
                     continue
                 stats = parity_stats.setdefault(
@@ -5349,8 +5367,8 @@ class DashboardAudit:
                     {"passing": 0, "failing": 0, "pending": 0, "canceled": 0, "total": 0},
                 )
                 pending = bool(group.get("backfilled") or (group.get("hw_backfilled") or {}).get(hw))
-                failed = (group.get("hw_failures") or {}).get(hw, 0) > 0
-                canceled = (group.get("hw_canceled") or {}).get(hw, 0) > 0 and not failed
+                failed = hw_failures.get(hw, 0) > 0
+                canceled = hw_canceled.get(hw, 0) > 0 and not failed
                 if pending:
                     stats["pending"] += 1
                 elif failed:

@@ -553,17 +553,30 @@ function _paritySideForHw(group, hw) {
   return _isAmdHwKey(hw) ? 'amd' : 'upstream';
 }
 
-function _parityHwFailureCount(group, hw) {
-  var count = ((group && group.hw_failures) || {})[hw] || 0;
+function _parityHwFailureCount(group, hw, side) {
+  var resolvedSide = side || _paritySideForHw(group, hw);
+  if (typeof parityHwFailureCountForSide === 'function') {
+    return parityHwFailureCountForSide(group, hw, resolvedSide);
+  }
+  var field = resolvedSide + '_hw_failures';
+  var counts = group && Object.prototype.hasOwnProperty.call(group, field)
+    ? (group[field] || {}) : ((group && group.hw_failures) || {});
+  var count = counts[hw] || 0;
   if (!count) return 0;
-  return _parityHardFailCount(group, _paritySideForHw(group, hw)) > 0 ? count : 0;
+  return _parityHardFailCount(group, resolvedSide) > 0 ? count : 0;
 }
 
-function _parityHwCanceledCount(group, hw) {
-  var count = ((group && group.hw_canceled) || {})[hw] || 0;
-  if (!count || _parityHwFailureCount(group, hw) > 0) return 0;
-  var side = _paritySideForHw(group, hw);
-  var data = (group && group[side]) || {};
+function _parityHwCanceledCount(group, hw, side) {
+  var resolvedSide = side || _paritySideForHw(group, hw);
+  if (typeof parityHwCanceledCountForSide === 'function') {
+    return parityHwCanceledCountForSide(group, hw, resolvedSide);
+  }
+  var field = resolvedSide + '_hw_canceled';
+  var counts = group && Object.prototype.hasOwnProperty.call(group, field)
+    ? (group[field] || {}) : ((group && group.hw_canceled) || {});
+  var count = counts[hw] || 0;
+  if (!count || _parityHwFailureCount(group, hw, resolvedSide) > 0) return 0;
+  var data = (group && group[resolvedSide]) || {};
   return (data.canceled || 0) > 0 ? count : 0;
 }
 
@@ -571,22 +584,31 @@ function _parityHwGroupMap(parity) {
   var merged = parity && parity.job_groups
     ? (typeof mergeShardedGroups === 'function' ? mergeShardedGroups(parity.job_groups) : parity.job_groups)
     : [];
+  if (typeof buildParityHardwareGroupMap === 'function') {
+    return buildParityHardwareGroupMap(merged, 'amd');
+  }
   var map = {};
   for (var i = 0; i < merged.length; i++) {
     var g = merged[i];
     if (!g || (!g.amd && !g.upstream && !g.backfilled && !g.hw_backfilled)) continue;
-    var hardware = g.hardware || [];
+    var hasExplicitAmdHardware = g && Object.prototype.hasOwnProperty.call(g, 'amd_hardware');
+    var hardware = typeof parityHardwareForSide === 'function'
+      ? parityHardwareForSide(g, 'amd')
+      : (hasExplicitAmdHardware
+        ? (Array.isArray(g.amd_hardware) ? g.amd_hardware : [])
+        : (g.hardware || []).filter(function(hw) { return _paritySideForHw(g, hw) === 'amd'; }));
     for (var j = 0; j < hardware.length; j++) {
       var hw = hardware[j];
-      if (!_isAmdHwKey(hw)) continue;
       if (!map[hw]) map[hw] = { passing: [], failing: [], pending: [], canceled: [] };
-      var pending = g.backfilled || (g.hw_backfilled && g.hw_backfilled[hw]);
+      var pending = typeof parityHardwarePendingForSide === 'function'
+        ? parityHardwarePendingForSide(g, hw, 'amd')
+        : (g.backfilled || (g.hw_backfilled && g.hw_backfilled[hw]));
       if (pending) {
         map[hw].pending.push(g);
         continue;
       }
-      var failed = _parityHwFailureCount(g, hw) > 0;
-      var canceled = _parityHwCanceledCount(g, hw) > 0;
+      var failed = _parityHwFailureCount(g, hw, 'amd') > 0;
+      var canceled = _parityHwCanceledCount(g, hw, 'amd') > 0;
       if (failed) map[hw].failing.push(g);
       else if (canceled) map[hw].canceled.push(g);
       else map[hw].passing.push(g);

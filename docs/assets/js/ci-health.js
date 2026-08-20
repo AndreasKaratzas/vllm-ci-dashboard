@@ -138,18 +138,30 @@
     return /^mi/i.test(String(hw || '')) ? 'amd' : 'upstream';
   }
 
-  function parityHwFailureCount(group, hw) {
-    const count = ((group?.hw_failures || {})[hw]) || 0;
+  function parityHwFailureCount(group, hw, side) {
+    const resolvedSide = side || paritySideForHw(group, hw);
+    if (typeof parityHwFailureCountForSide === 'function') {
+      return parityHwFailureCountForSide(group, hw, resolvedSide);
+    }
+    const field = `${resolvedSide}_hw_failures`;
+    const counts = group && Object.prototype.hasOwnProperty.call(group, field)
+      ? (group[field] || {}) : (group?.hw_failures || {});
+    const count = counts[hw] || 0;
     if (!count) return 0;
-    const side = paritySideForHw(group, hw);
-    return parityHardFailCount(group, side) > 0 ? count : 0;
+    return parityHardFailCount(group, resolvedSide) > 0 ? count : 0;
   }
 
-  function parityHwCanceledCount(group, hw) {
-    const count = ((group?.hw_canceled || {})[hw]) || 0;
-    if (!count || parityHwFailureCount(group, hw) > 0) return 0;
-    const side = paritySideForHw(group, hw);
-    const data = group?.[side] || {};
+  function parityHwCanceledCount(group, hw, side) {
+    const resolvedSide = side || paritySideForHw(group, hw);
+    if (typeof parityHwCanceledCountForSide === 'function') {
+      return parityHwCanceledCountForSide(group, hw, resolvedSide);
+    }
+    const field = `${resolvedSide}_hw_canceled`;
+    const counts = group && Object.prototype.hasOwnProperty.call(group, field)
+      ? (group[field] || {}) : (group?.hw_canceled || {});
+    const count = counts[hw] || 0;
+    if (!count || parityHwFailureCount(group, hw, resolvedSide) > 0) return 0;
+    const data = group?.[resolvedSide] || {};
     return (data.canceled || 0) > 0 ? count : 0;
   }
 
@@ -1741,7 +1753,7 @@
 
   // ═══════════════════════ HARDWARE BREAKDOWN (consolidated) ═══════════════════════
 
-  function _buildHwTable(hws, hwNames, hwGroupMap, currentBuildUrl) {
+  function _buildHwTable(hws, hwNames, hwGroupMap, currentBuildUrl, side) {
     const tbl=h('table',{style:{width:'100%',borderCollapse:'collapse'}});
     tbl.append(h('thead',{},[h('tr',{},[
       h('th',{text:'Hardware',style:ts()}),
@@ -1765,7 +1777,7 @@
       const tr=h('tr',{style:{cursor:'pointer',transition:'background .15s'}});
       tr.onmouseenter=()=>{tr.style.background=C.bd+'44'};
       tr.onmouseleave=()=>{tr.style.background=''};
-      tr.onclick=()=>showHwGroupOverlay(hw,hwNames[hw]||hw.toUpperCase(),hwGroupMap[hw],c,currentBuildUrl);
+      tr.onclick=()=>showHwGroupOverlay(hw,hwNames[hw]||hw.toUpperCase(),hwGroupMap[hw],c,currentBuildUrl,side);
       tr.append(h('td',{text:hwNames[hw]||String(hw||'unknown').toUpperCase(),style:{...td(),fontWeight:'700',textDecoration:'underline',color:C.b}}));
       tr.append(h('td',{style:td()},[ bar(gRate,'120px') ]));
       tr.append(h('td',{text:String(gPass),style:{...tdo('center'),color:C.g,fontWeight:'600'}}));
@@ -1786,24 +1798,29 @@
 
     // Pre-compute per-hardware groups from parity data
     const allMerged=parity?.job_groups?(typeof mergeShardedGroups==='function'?mergeShardedGroups(parity.job_groups):parity.job_groups):[];
-    const hwGroupMap={};
-    for(const g of allMerged){
-      if(!g.amd&&!g.upstream&&!g.backfilled&&!g.hw_backfilled) continue;
-      for(const hw of (g.hardware||[])){
-        if(!hwGroupMap[hw]) hwGroupMap[hw]={passing:[],failing:[],pending:[],canceled:[]};
-        // Per-HW pending: group-level backfilled OR this specific HW is backfilled
-        const hwPending=g.backfilled||(g.hw_backfilled&&g.hw_backfilled[hw]);
-        if(hwPending){
-          hwGroupMap[hw].pending.push(g);
-        } else {
-          const hwFail=parityHwFailureCount(g, hw)>0;
-          const hwCancel=parityHwCanceledCount(g, hw)>0;
-          if(hwFail) hwGroupMap[hw].failing.push(g);
-          else if(hwCancel) hwGroupMap[hw].canceled.push(g);
-          else hwGroupMap[hw].passing.push(g);
+    const legacyHardwareGroupMap=side=>{
+      const map={};
+      for(const g of allMerged){
+        const field=`${side}_hardware`;
+        const explicit=g&&Object.prototype.hasOwnProperty.call(g,field);
+        const hardware=explicit?(Array.isArray(g[field])?g[field]:[]):(g.hardware||[]).filter(hw=>paritySideForHw(g,hw)===side);
+        for(const hw of hardware){
+          if(!map[hw]) map[hw]={passing:[],failing:[],pending:[],canceled:[]};
+          const pending=side==='amd'
+            ? !!(g.backfilled||(g.hw_backfilled&&g.hw_backfilled[hw]))
+            : !!(g.backfilled&&!g.upstream);
+          if(pending) map[hw].pending.push(g);
+          else if(parityHwFailureCount(g,hw,side)>0) map[hw].failing.push(g);
+          else if(parityHwCanceledCount(g,hw,side)>0) map[hw].canceled.push(g);
+          else map[hw].passing.push(g);
         }
       }
-    }
+      return map;
+    };
+    const amdHwGroupMap=typeof buildParityHardwareGroupMap==='function'
+      ? buildParityHardwareGroupMap(allMerged,'amd') : legacyHardwareGroupMap('amd');
+    const upstreamHwGroupMap=typeof buildParityHardwareGroupMap==='function'
+      ? buildParityHardwareGroupMap(allMerged,'upstream') : legacyHardwareGroupMap('upstream');
 
     // amd-ci runtime hardware breakdown
     if(health?.amd?.latest_build?.by_hardware) {
@@ -1813,7 +1830,7 @@
         const det=h('details',{open:true,style:{marginBottom:'20px',background:C.bg,border:`1px solid ${C.bd}`,borderRadius:'8px'}});
         det.append(h('summary',{html:'<span style="color:#da3633;font-weight:700">amd-ci</span> Runtime Hardware Breakdown',style:{padding:'12px 16px',cursor:'pointer',fontSize:'14px',fontWeight:'600'}}));
         const inner=h('div',{style:{padding:'0 16px 16px'}});
-        inner.append(_buildHwTable(hws, hwNames, hwGroupMap, health?.amd?.latest_build?.build_url));
+        inner.append(_buildHwTable(hws, hwNames, amdHwGroupMap, health?.amd?.latest_build?.build_url, 'amd'));
         det.append(inner);
         box.append(det);
       }
@@ -1834,11 +1851,11 @@
         det.append(h('summary',{html:'<span style="color:#1f6feb;font-weight:700">External Upstream</span> Hardware Breakdown',style:{padding:'12px 16px',cursor:'pointer',fontSize:'14px',fontWeight:'600'}}));
         const inner=h('div',{style:{padding:'0 16px 16px'}});
         if(others.length) {
-          inner.append(_buildHwTable(others, hwNames, hwGroupMap, upBuildUrl));
+          inner.append(_buildHwTable(others, hwNames, upstreamHwGroupMap, upBuildUrl, 'upstream'));
         }
         if(b200.length) {
           inner.append(h('div',{html:'<strong style="color:#d2a8ff">B200 Queue</strong>',style:{marginTop:'12px',marginBottom:'6px',fontSize:'13px'}}));
-          inner.append(_buildHwTable(b200, hwNames, hwGroupMap, upBuildUrl));
+          inner.append(_buildHwTable(b200, hwNames, upstreamHwGroupMap, upBuildUrl, 'upstream'));
         }
         det.append(inner);
         box.append(det);
@@ -1847,7 +1864,7 @@
   }
 
   // Hardware group overlay — shows all groups for a specific hardware
-  function showHwGroupOverlay(hw,hwLabel,groups,counts,currentBuildUrl){
+  function showHwGroupOverlay(hw,hwLabel,groups,counts,currentBuildUrl,side){
     if(!groups) groups={passing:[],failing:[],pending:[],canceled:[]};
     const pending=groups.pending||[];
     const canceled=groups.canceled||[];
@@ -1900,10 +1917,7 @@
       const isGroupPending=pending.includes(g);
       const isGroupCanceled=canceled.includes(g);
       const isFail=!isGroupPending&&!isGroupCanceled&&groups.failing.includes(g);
-      const hwFails=isGroupPending?0:parityHwFailureCount(g, hw);
-      // For AMD hardware, show AMD test counts. For upstream hardware (h100, b200, etc.), show upstream counts.
-      const isAmdHw=hw.startsWith('mi')||hw==='cpu';
-      const a=isGroupPending?{}:(isAmdHw?(g.amd||g.upstream||{}):(g.upstream||g.amd||{}));
+      const a=isGroupPending?{}:((g[side])||(side==='amd'?g.upstream:g.amd)||{});
       const tr=h('tr',{style:{borderBottom:`1px solid ${C.bd}`}});
       tr.append(h('td',{text:String(idx),style:{...tdo('center'),color:C.m,fontSize:'12px'}}));
 
@@ -1929,7 +1943,7 @@
       if((isGroupPending||isGroupCanceled)&&currentBuildUrl){
         linkCell.append(h('a',{text:'Buildkite',href:currentBuildUrl,target:'_blank',style:{color:C.y,fontSize:'12px',textDecoration:'none',padding:'2px 8px',background:C.y+'15',borderRadius:'3px',border:`1px solid ${C.y}33`}}));
       } else {
-        const hwLinks=(g.job_links||[]).filter(l=>l.hw===hw);
+        const hwLinks=(g.job_links||[]).filter(l=>l.hw===hw&&(!side||l.side===side));
         if(hwLinks.length){
           for(const l of hwLinks){
             linkCell.append(h('a',{text:'Buildkite',href:l.url,target:'_blank',style:{color:C.b,fontSize:'12px',textDecoration:'none',padding:'2px 8px',background:C.b+'15',borderRadius:'3px',border:`1px solid ${C.b}33`}}));
@@ -2120,10 +2134,13 @@
         else if(!af&&uf){st='AMD advantage';sc=C.b}
         else{st='Both fail';sc=C.o}
 
-        // Hardware column — show all hardware this TG runs on
-        const hwList = g.hardware || [];
+        // This is the AMD regression view: show only amd-ci hardware.  Upstream
+        // CI can also run MI devices, so the legacy MI-prefix heuristic is not
+        // sufficient when the payload supplies an explicit side split.
+        const hwList = typeof parityHardwareForSide==='function'
+          ? parityHardwareForSide(g,'amd') : (g.hardware || []).filter(hw=>/^mi/i.test(String(hw||'')));
         const hwHtml = hwList.length ? hwList.map(hw => {
-          const failCnt = parityHwFailureCount(g, hw);
+          const failCnt = parityHwFailureCount(g, hw, 'amd');
           if (failCnt) return `<span style="background:${C.r}22;color:${C.r};padding:3px 8px;border-radius:3px;font-size:13px;margin:1px;font-weight:600">${hw}: ${failCnt}f</span>`;
           return `<span style="color:${C.g};font-size:13px;margin:1px">${hw}</span>`;
         }).join(' ') : '<span style="color:'+C.m+'">—</span>';
@@ -2147,6 +2164,8 @@
           const detailRow = h('tr',{style:{display:'none'}});
           const detailCell = h('td',{colspan:'6',style:{padding:'12px 16px',background:C.bg2,borderBottom:`1px solid ${C.bd}`}});
           const dc = h('div',{style:{fontSize:'13px'}});
+          const hwf = typeof parityHwCountsForSide==='function'
+            ? parityHwCountsForSide(g,'amd','failures') : (g.hw_failures || {});
 
           // HW failure breakdown
           if (hwf && typeof hwf==='object' && Object.keys(hwf).length) {
@@ -2157,7 +2176,7 @@
           }
 
           // Job links — only for AMD hardware that has failures
-          const amdLinks = (g.job_links||[]).filter(jl=>jl&&jl.side==='amd'&&parityHwFailureCount(g, jl.hw)>0);
+          const amdLinks = (g.job_links||[]).filter(jl=>jl&&jl.side==='amd'&&parityHwFailureCount(g, jl.hw, 'amd')>0);
           if (amdLinks.length) {
             dc.append(h('div',{text:'View logs on Buildkite:',style:{color:C.m,fontWeight:'600',marginBottom:'6px'}}));
             const linkRow = h('div',{style:{display:'flex',gap:'8px',flexWrap:'wrap'}});

@@ -753,8 +753,18 @@ def _parity_state_for_arch(
         return analytics_state
     if analytics_state == "passed":
         return "passed"
-    hw_failures = row.get("hw_failures") or {}
-    hw_canceled = row.get("hw_canceled") or {}
+    amd_hw_failures = row.get("amd_hw_failures")
+    hw_failures = (
+        amd_hw_failures
+        if isinstance(amd_hw_failures, dict)
+        else (row.get("hw_failures") or {})
+    )
+    amd_hw_canceled = row.get("amd_hw_canceled")
+    hw_canceled = (
+        amd_hw_canceled
+        if isinstance(amd_hw_canceled, dict)
+        else (row.get("hw_canceled") or {})
+    )
     if hw_failures.get(arch, 0) > 0:
         return "soft_fail" if analytics_state == "soft_fail" else "failed"
     if hw_canceled.get(arch, 0) > 0:

@@ -680,6 +680,149 @@ function _isAmdHardware(hw) {
   return /^mi\d+/i.test(String(hw || ''));
 }
 
+function _hasParityField(group, field) {
+  return !!group && Object.prototype.hasOwnProperty.call(group, field);
+}
+
+function _uniqueParityHardware(values) {
+  if (!Array.isArray(values)) return [];
+  return values.filter(function(value, index, all) {
+    return typeof value === 'string' && value && all.indexOf(value) === index;
+  });
+}
+
+/**
+ * Return only the hardware owned by one parity side.
+ *
+ * New parity payloads carry an explicit split because upstream CI can itself
+ * run MI hardware.  An explicit empty list is meaningful and must not fall
+ * back to the legacy union.  Older payloads are classified from job links
+ * first, then from the available side/result data, and finally by the old
+ * MI-prefix convention.
+ */
+function parityHardwareForSide(group, side) {
+  if (!group || (side !== 'amd' && side !== 'upstream')) return [];
+  var explicitField = side + '_hardware';
+  if (_hasParityField(group, explicitField)) {
+    return _uniqueParityHardware(group[explicitField]);
+  }
+
+  var hardware = _uniqueParityHardware(group.hardware);
+  var links = Array.isArray(group.job_links) ? group.job_links : [];
+  var otherSide = side === 'amd' ? 'upstream' : 'amd';
+  return hardware.filter(function(hw) {
+    var linkedSides = [];
+    for (var i = 0; i < links.length; i++) {
+      var link = links[i] || {};
+      if (link.hw === hw && (link.side === 'amd' || link.side === 'upstream')
+          && linkedSides.indexOf(link.side) < 0) {
+        linkedSides.push(link.side);
+      }
+    }
+    if (linkedSides.length) return linkedSides.indexOf(side) >= 0;
+    if (group[side] && !group[otherSide]) return true;
+    if (!group[side] && group[otherSide]) return false;
+    if (side === 'amd' && group.hw_backfilled && group.hw_backfilled[hw]) return true;
+    return _isAmdHardware(hw) ? side === 'amd' : side === 'upstream';
+  });
+}
+
+function parityHwCountsForSide(group, side, kind) {
+  if (!group || (side !== 'amd' && side !== 'upstream')) return {};
+  var explicitField = side + '_hw_' + kind;
+  if (_hasParityField(group, explicitField)) {
+    var explicit = group[explicitField];
+    return explicit && typeof explicit === 'object' && !Array.isArray(explicit) ? explicit : {};
+  }
+
+  var legacy = group['hw_' + kind];
+  if (!legacy || typeof legacy !== 'object' || Array.isArray(legacy)) return {};
+  var sideHardware = parityHardwareForSide(group, side);
+  var out = {};
+  for (var hw in legacy) {
+    if (sideHardware.indexOf(hw) >= 0) out[hw] = legacy[hw];
+  }
+  return out;
+}
+
+function parityHardFailCountForSide(group, side) {
+  var data = (group && group[side]) || {};
+  return (data.failed || 0) + (data.error || 0);
+}
+
+function parityHwFailureCountForSide(group, hw, side) {
+  var count = parityHwCountsForSide(group, side, 'failures')[hw] || 0;
+  return count && parityHardFailCountForSide(group, side) > 0 ? count : 0;
+}
+
+function parityHwCanceledCountForSide(group, hw, side) {
+  var count = parityHwCountsForSide(group, side, 'canceled')[hw] || 0;
+  if (!count || parityHwFailureCountForSide(group, hw, side) > 0) return 0;
+  var data = (group && group[side]) || {};
+  return (data.canceled || 0) > 0 ? count : 0;
+}
+
+function parityHardwarePendingForSide(group, hw, side) {
+  if (!group) return false;
+  if (side === 'amd') {
+    return !!(group.backfilled || (group.hw_backfilled && group.hw_backfilled[hw]));
+  }
+  // Some scheduled upstream-only rows historically use ``backfilled`` too.
+  // A paired row with a real upstream result must not inherit AMD pending state.
+  return !!(group.backfilled && !group.upstream);
+}
+
+function buildParityHardwareGroupMap(groups, side) {
+  var map = {};
+  for (var i = 0; i < (groups || []).length; i++) {
+    var group = groups[i] || {};
+    var hardware = parityHardwareForSide(group, side);
+    for (var j = 0; j < hardware.length; j++) {
+      var hw = hardware[j];
+      if (!map[hw]) map[hw] = { passing: [], failing: [], pending: [], canceled: [] };
+      if (parityHardwarePendingForSide(group, hw, side)) {
+        map[hw].pending.push(group);
+      } else if (parityHwFailureCountForSide(group, hw, side) > 0) {
+        map[hw].failing.push(group);
+      } else if (parityHwCanceledCountForSide(group, hw, side) > 0) {
+        map[hw].canceled.push(group);
+      } else {
+        map[hw].passing.push(group);
+      }
+    }
+  }
+  return map;
+}
+
+function _mergeExplicitHardwareList(base, group, field) {
+  if (!_hasParityField(group, field)) return;
+  if (!_hasParityField(base, field)) base[field] = [];
+  if (Array.isArray(group[field])) base[field] = base[field].concat(group[field]);
+}
+
+function _mergeExplicitCountMap(base, group, field) {
+  if (!_hasParityField(group, field)) return;
+  if (!_hasParityField(base, field)) base[field] = {};
+  var counts = group[field];
+  if (!counts || typeof counts !== 'object' || Array.isArray(counts)) return;
+  for (var hw in counts) base[field][hw] = (base[field][hw] || 0) + counts[hw];
+}
+
+function _mergeDedupedUpstreamCountMap(base, group, field, seen) {
+  if (!_hasParityField(group, field)) return;
+  if (!_hasParityField(base, field)) base[field] = {};
+  var counts = group[field];
+  if (!counts || typeof counts !== 'object' || Array.isArray(counts)) return;
+  var upstreamKey = group.upstream_job_name || '';
+  for (var hw in counts) {
+    var dedupeKey = field + '|' + upstreamKey + '|' + hw;
+    if (!upstreamKey || !seen[dedupeKey]) {
+      if (upstreamKey) seen[dedupeKey] = true;
+      base[field][hw] = (base[field][hw] || 0) + counts[hw];
+    }
+  }
+}
+
 function _dedupeListPush(list, seen, key, value) {
   if (!key || seen[key]) return;
   seen[key] = true;
@@ -716,11 +859,19 @@ function mergeShardedGroups(groups) {
     if (g.hardware) base.hardware = base.hardware.concat(g.hardware);
     if (g.hw_failures) { for (var hw in g.hw_failures) base.hw_failures[hw] = (base.hw_failures[hw] || 0) + g.hw_failures[hw]; }
     if (g.hw_canceled) { for (var hw in g.hw_canceled) base.hw_canceled[hw] = (base.hw_canceled[hw] || 0) + g.hw_canceled[hw]; }
+    _mergeExplicitHardwareList(base, g, 'amd_hardware');
+    _mergeExplicitHardwareList(base, g, 'upstream_hardware');
+    _mergeExplicitCountMap(base, g, 'amd_hw_failures');
+    _mergeExplicitCountMap(base, g, 'upstream_hw_failures');
+    _mergeExplicitCountMap(base, g, 'amd_hw_canceled');
+    _mergeExplicitCountMap(base, g, 'upstream_hw_canceled');
     if (g.job_links) base.job_links = base.job_links.concat(g.job_links);
     if (g.failure_tests) base.failure_tests = base.failure_tests.concat(g.failure_tests);
   }
   for (var key in baseMap) {
     baseMap[key].hardware = baseMap[key].hardware.filter(function(v, i, a) { return a.indexOf(v) === i; });
+    if (_hasParityField(baseMap[key], 'amd_hardware')) baseMap[key].amd_hardware = _uniqueParityHardware(baseMap[key].amd_hardware);
+    if (_hasParityField(baseMap[key], 'upstream_hardware')) baseMap[key].upstream_hardware = _uniqueParityHardware(baseMap[key].upstream_hardware);
   }
   return Object.values(baseMap);
 }
@@ -786,6 +937,12 @@ function mergeParityGroups(groups) {
       }
     }
     if (g.hardware) base.hardware = base.hardware.concat(g.hardware);
+    _mergeExplicitHardwareList(base, g, 'amd_hardware');
+    _mergeExplicitHardwareList(base, g, 'upstream_hardware');
+    _mergeExplicitCountMap(base, g, 'amd_hw_failures');
+    _mergeExplicitCountMap(base, g, 'amd_hw_canceled');
+    _mergeDedupedUpstreamCountMap(base, g, 'upstream_hw_failures', base._seenUpHwFailures);
+    _mergeDedupedUpstreamCountMap(base, g, 'upstream_hw_canceled', base._seenUpHwCanceled);
     if (g.hw_failures) {
       var upHwFailKey = g.upstream_job_name || '';
       for (var hwf in g.hw_failures) {
@@ -832,6 +989,8 @@ function mergeParityGroups(groups) {
   for (var idx = 0; idx < merged.length; idx++) {
     var row = merged[idx];
     row.hardware = row.hardware.filter(function(v, i, a) { return a.indexOf(v) === i; });
+    if (_hasParityField(row, 'amd_hardware')) row.amd_hardware = _uniqueParityHardware(row.amd_hardware);
+    if (_hasParityField(row, 'upstream_hardware')) row.upstream_hardware = _uniqueParityHardware(row.upstream_hardware);
     delete row._seenAliases;
     delete row._seenLinks;
     delete row._seenFailures;
@@ -889,7 +1048,8 @@ function showGroupOverlay(dataId, category) {
       bg = 'rgba(218,54,51,.18)';
       fg = '#ff4d4d';
       label = 'Failing';
-      if (g && g._hw && g.hw_failures && g.hw_failures[g._hw]) label += ' (' + g.hw_failures[g._hw] + ')';
+      var failCount = g && g._hw ? parityHwFailureCountForSide(g, g._hw, 'amd') : 0;
+      if (failCount) label += ' (' + failCount + ')';
     } else if (status === 'pending') {
       bg = 'rgba(210,153,34,.18)';
       fg = '#d29922';

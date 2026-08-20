@@ -798,18 +798,34 @@ def _compute_job_group_parity(
         # AMD sibling such as "V1 e2e (4 GPUs)" from making the passed
         # "V1 e2e (4xH100-4xMI300)" row look failed merely because both match
         # the same upstream parity key.
+        amd_side_hw = set(amd_hw_all.get(amd_key, set())) if amd_orig else set()
+        upstream_side_hw = (
+            set(upstream_hw_all.get(up_key, set())) if up_orig else set()
+        )
+        amd_side_hwf = (
+            dict(amd_hw_failures.get(amd_key, {})) if amd_orig else {}
+        )
+        upstream_side_hwf = (
+            dict(upstream_hw_failures.get(up_key, {})) if up_orig else {}
+        )
+        amd_side_hwc = (
+            dict(amd_hw_canceled.get(amd_key, {})) if amd_orig else {}
+        )
+        upstream_side_hwc = (
+            dict(upstream_hw_canceled.get(up_key, {})) if up_orig else {}
+        )
         merged_hw = set()
         merged_hwf: dict[str, int] = {}
         merged_hwc: dict[str, int] = {}
         if amd_orig:
-            merged_hw |= amd_hw_all.get(amd_key, set())
-            merged_hwf.update(amd_hw_failures.get(amd_key, {}))
-            merged_hwc.update(amd_hw_canceled.get(amd_key, {}))
+            merged_hw |= amd_side_hw
+            merged_hwf.update(amd_side_hwf)
+            merged_hwc.update(amd_side_hwc)
         if up_orig:
-            merged_hw |= upstream_hw_all.get(up_key, set())
-            for hw, c in upstream_hw_failures.get(up_key, {}).items():
+            merged_hw |= upstream_side_hw
+            for hw, c in upstream_side_hwf.items():
                 merged_hwf[hw] = merged_hwf.get(hw, 0) + c
-            for hw, c in upstream_hw_canceled.get(up_key, {}).items():
+            for hw, c in upstream_side_hwc.items():
                 merged_hwc[hw] = merged_hwc.get(hw, 0) + c
         merged_links = job_links.get(amd_key, [])
         if up_key != amd_key:
@@ -841,8 +857,18 @@ def _compute_job_group_parity(
             "upstream_job_name": up_orig,
             "amd": amd_g if amd_g else None,
             "upstream": up_g if up_g else None,
+            # ``hardware`` remains the external-parity union used by the
+            # secondary comparison UI.  Preserve each source side explicitly
+            # so AMD-nightly matrix/health consumers never count an upstream
+            # ``:amd:`` mirror as standalone amd-ci evidence.
+            "amd_hardware": sorted(amd_side_hw),
+            "upstream_hardware": sorted(upstream_side_hw),
             "hardware": sorted(merged_hw),
+            "amd_hw_failures": amd_side_hwf,
+            "upstream_hw_failures": upstream_side_hwf,
             "hw_failures": merged_hwf if merged_hwf else None,
+            "amd_hw_canceled": amd_side_hwc,
+            "upstream_hw_canceled": upstream_side_hwc,
             "hw_canceled": merged_hwc if merged_hwc else None,
             "failure_tests": merged_failures[:20],
             "job_links": merged_links,
