@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-19T11:38:14Z",
+  "generated_at": "2026-08-20T20:45:20Z",
   "source": {
     "config_path": "config/vllm_amd_gating_targets.json",
     "description": "Canonical AMD gating target list supplied by the ROCm CI owners."
@@ -46,7 +46,7 @@
   "groups": [
     {
       "id": 1,
-      "label": "Distributed Torchrun + Shutdown Tests (2 GPUs)",
+      "label": "Distributed Torchrun + Shutdown",
       "area": "distributed",
       "gating_signal": "red",
       "pf_signal": "red",
@@ -59,7 +59,7 @@
     },
     {
       "id": 2,
-      "label": "Distributed Torchrun + Examples (4 GPUs)",
+      "label": "Distributed Torchrun + Examples",
       "area": "distributed",
       "gating_signal": "red",
       "pf_signal": "red",
@@ -85,7 +85,7 @@
     },
     {
       "id": 4,
-      "label": "Pipeline + Context Parallelism (4 GPUs)",
+      "label": "Pipeline + Context Parallelism",
       "area": "distributed",
       "gating_signal": "red",
       "pf_signal": "red",
@@ -98,7 +98,7 @@
     },
     {
       "id": 5,
-      "label": "RayExecutorV2 (4 GPUs)",
+      "label": "RayExecutorV2",
       "area": "distributed",
       "gating_signal": "red",
       "pf_signal": "red",
@@ -124,7 +124,7 @@
     },
     {
       "id": 7,
-      "label": "Kernels Core Operation Test",
+      "label": "Core Operation Kernels Shard %N",
       "area": "kernels",
       "gating_signal": "red",
       "pf_signal": "red",
@@ -163,7 +163,7 @@
     },
     {
       "id": 10,
-      "label": "Basic Models Tests (Initialization)",
+      "label": "Basic Models (Initialization)",
       "area": "models-language",
       "gating_signal": "red",
       "pf_signal": "red",
@@ -176,7 +176,7 @@
     },
     {
       "id": 11,
-      "label": "Basic Models Tests (Other)",
+      "label": "Basic Models (Other)",
       "area": "models-language",
       "gating_signal": "red",
       "pf_signal": "red",
@@ -189,7 +189,7 @@
     },
     {
       "id": 12,
-      "label": "Distributed Model Tests (2 GPUs)",
+      "label": "Distributed Models",
       "area": "distributed",
       "gating_signal": "red",
       "pf_signal": "red",
@@ -202,7 +202,7 @@
     },
     {
       "id": 13,
-      "label": "Language Models Tests (Extra Standard) %N",
+      "label": "Language Models (Extra Standard) Shard %N",
       "area": "models-language",
       "gating_signal": "red",
       "pf_signal": "red",
@@ -280,7 +280,7 @@
     },
     {
       "id": 19,
-      "label": "DeepSeek V2-Lite Prefetch Offload Accuracy (H100)",
+      "label": "DeepSeek V2-Lite Prefetch Offload Accuracy",
       "area": "other",
       "gating_signal": "red",
       "pf_signal": "red",
@@ -293,7 +293,7 @@
     },
     {
       "id": 20,
-      "label": "e2e Core (1 GPU)",
+      "label": "E2E Core",
       "area": "other",
       "gating_signal": "red",
       "pf_signal": "red",
@@ -306,7 +306,7 @@
     },
     {
       "id": 21,
-      "label": "Elastic EP Scaling Test",
+      "label": "Elastic EP Scaling",
       "area": "other",
       "gating_signal": "red",
       "pf_signal": "red",
@@ -319,7 +319,7 @@
     },
     {
       "id": 22,
-      "label": "Kernels Attention Test %N",
+      "label": "Attention Kernels Shard %N",
       "area": "kernels",
       "gating_signal": "red",
       "pf_signal": "red",
@@ -332,7 +332,7 @@
     },
     {
       "id": 23,
-      "label": "Kernels MoE Test %N",
+      "label": "MoE Kernels Shard %N",
       "area": "kernels",
       "gating_signal": "red",
       "pf_signal": "red",
@@ -358,7 +358,7 @@
     },
     {
       "id": 25,
-      "label": "LoRA %N",
+      "label": "LoRA Shard %N",
       "area": "lora",
       "gating_signal": "red",
       "pf_signal": "red",
@@ -384,7 +384,7 @@
     },
     {
       "id": 27,
-      "label": "Basic Models Tests (Extra Initialization) %N",
+      "label": "Basic Models (Extra Initialization) Shard %N",
       "area": "models-language",
       "gating_signal": "red",
       "pf_signal": "red",
@@ -397,7 +397,7 @@
     },
     {
       "id": 28,
-      "label": "Multi-Modal Models (Standard) 4: other + whisper",
+      "label": "Multimodal Models (Standard) 4: other + whisper",
       "area": "models-multimodal",
       "gating_signal": "red",
       "pf_signal": "red",
@@ -410,7 +410,7 @@
     },
     {
       "id": 29,
-      "label": "PyTorch Compilation Passes Unit Tests",
+      "label": "PyTorch Compilation Passes",
       "area": "pytorch",
       "gating_signal": "red",
       "pf_signal": "red",
@@ -449,7 +449,7 @@
     },
     {
       "id": 32,
-      "label": "Hybrid SSM NixlConnector PD prefix cache test (2 GPUs)",
+      "label": "Hybrid SSM NixlConnector PD prefix cache",
       "area": "other",
       "gating_signal": "red",
       "pf_signal": "yellow",
@@ -462,7 +462,7 @@
     },
     {
       "id": 33,
-      "label": "MultiConnector (Nixl+Offloading) PD accuracy (2 GPUs)",
+      "label": "MultiConnector (Nixl+Offloading) PD accuracy",
       "area": "other",
       "gating_signal": "red",
       "pf_signal": "yellow",
@@ -475,7 +475,7 @@
     },
     {
       "id": 34,
-      "label": "MultiConnector (Nixl+Offloading) PD edge cases (2 GPUs)",
+      "label": "MultiConnector (Nixl+Offloading) PD edge cases",
       "area": "other",
       "gating_signal": "red",
       "pf_signal": "yellow",
@@ -501,7 +501,7 @@
     },
     {
       "id": 36,
-      "label": "Deepseek V4 Kernel Test (H100)",
+      "label": "DeepSeek V4 Kernels",
       "area": "kernels",
       "gating_signal": "red",
       "pf_signal": "yellow",
@@ -514,7 +514,7 @@
     },
     {
       "id": 37,
-      "label": "Kernels Attention DiffKV Test (H100)",
+      "label": "Attention DiffKV Kernels",
       "area": "kernels",
       "gating_signal": "red",
       "pf_signal": "yellow",
@@ -540,7 +540,7 @@
     },
     {
       "id": 39,
-      "label": "Kernels FusedMoE Layer Test (2 H100s)",
+      "label": "FusedMoE Layer Kernels",
       "area": "kernels",
       "gating_signal": "red",
       "pf_signal": "yellow",
@@ -618,7 +618,7 @@
     },
     {
       "id": 45,
-      "label": "2 Node Test (4 GPUs)",
+      "label": "Distributed 2-Node",
       "area": "distributed",
       "gating_signal": "red",
       "pf_signal": "purple",
@@ -631,7 +631,7 @@
     },
     {
       "id": 46,
-      "label": "Benchmarks CLI Test",
+      "label": "Benchmarks CLI",
       "area": "other",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -644,7 +644,7 @@
     },
     {
       "id": 47,
-      "label": "Attention Benchmarks Smoke Test (B200)",
+      "label": "Attention Benchmark Smoke",
       "area": "other",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -657,7 +657,7 @@
     },
     {
       "id": 48,
-      "label": "Distributed Compile Unit Tests (2xH100)",
+      "label": "Distributed Compile",
       "area": "distributed",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -670,7 +670,7 @@
     },
     {
       "id": 49,
-      "label": "Fusion E2E Quick (H100)",
+      "label": "Fusion E2E Quick",
       "area": "fusion",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -683,7 +683,7 @@
     },
     {
       "id": 50,
-      "label": "Fusion E2E Config Sweep (H100)",
+      "label": "Fusion E2E Config Sweep",
       "area": "fusion",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -722,7 +722,7 @@
     },
     {
       "id": 53,
-      "label": "Distributed DP Tests (2 GPUs)",
+      "label": "Distributed DP Basic",
       "area": "distributed",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -735,7 +735,7 @@
     },
     {
       "id": 54,
-      "label": "Distributed Compile + RPC Tests (2 GPUs)",
+      "label": "Distributed Compile + RPC",
       "area": "distributed",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -748,7 +748,7 @@
     },
     {
       "id": 55,
-      "label": "Distributed DP Tests (4 GPUs)",
+      "label": "Distributed DP Extended",
       "area": "distributed",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -761,7 +761,7 @@
     },
     {
       "id": 56,
-      "label": "Distributed Compile + Comm (4 GPUs)",
+      "label": "Distributed Compile + Comm",
       "area": "distributed",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -787,7 +787,7 @@
     },
     {
       "id": 58,
-      "label": "DeepSeek V2-Lite Sync EPLB Accuracy (4xH100)",
+      "label": "DeepSeek V2-Lite Sync EPLB Accuracy",
       "area": "engine",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -800,7 +800,7 @@
     },
     {
       "id": 59,
-      "label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy (4xH100)",
+      "label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy",
       "area": "engine",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -813,7 +813,7 @@
     },
     {
       "id": 60,
-      "label": "V1 e2e (2 GPUs)",
+      "label": "V1 E2E",
       "area": "engine",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -839,7 +839,7 @@
     },
     {
       "id": 62,
-      "label": "V1 e2e (4xH100)",
+      "label": "V1 E2E Hybrid Chunked Prefill",
       "area": "engine",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -865,7 +865,7 @@
     },
     {
       "id": 64,
-      "label": "LM Eval Large Models (4xH100)",
+      "label": "LM Eval Large Models",
       "area": "lm-eval",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -878,7 +878,7 @@
     },
     {
       "id": 65,
-      "label": "GPQA Eval (GPT-OSS) (2xH100)",
+      "label": "GPQA Eval (GPT-OSS)",
       "area": "lm-eval",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -917,7 +917,7 @@
     },
     {
       "id": 68,
-      "label": "Metrics, Tracing (2 GPUs)",
+      "label": "Metrics, Tracing",
       "area": "misc",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -943,7 +943,7 @@
     },
     {
       "id": 70,
-      "label": "Batch Invariance (A100)",
+      "label": "Batch Invariance",
       "area": "other",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -956,7 +956,7 @@
     },
     {
       "id": 71,
-      "label": "Acceptance Length Test (Large Models)",
+      "label": "Acceptance Length (Large Models)",
       "area": "models-language",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -982,7 +982,7 @@
     },
     {
       "id": 73,
-      "label": "Language Models Test (Extended Generation)",
+      "label": "Language Models (Extended Generation)",
       "area": "models-language",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -995,7 +995,7 @@
     },
     {
       "id": 74,
-      "label": "Language Models Test (PPL)",
+      "label": "Language Models (PPL)",
       "area": "models-language",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -1008,7 +1008,7 @@
     },
     {
       "id": 75,
-      "label": "Multi-Modal Accuracy Eval (Small Models)",
+      "label": "Multimodal Accuracy Eval (Small Models)",
       "area": "models-multimodal",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -1021,7 +1021,7 @@
     },
     {
       "id": 76,
-      "label": "PyTorch Compilation Unit Tests",
+      "label": "PyTorch Compilation",
       "area": "pytorch",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -1047,7 +1047,7 @@
     },
     {
       "id": 78,
-      "label": "Pytorch Nightly Dependency Override Check",
+      "label": "PyTorch Nightly Dependency Override Check",
       "area": "pytorch",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -1073,7 +1073,7 @@
     },
     {
       "id": 80,
-      "label": "Weight Loading Multiple GPU",
+      "label": "Weight Loading Multi-GPU",
       "area": "misc",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -1086,7 +1086,7 @@
     },
     {
       "id": 81,
-      "label": "Cudagraph",
+      "label": "CUDAGraph",
       "area": "kernels",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1099,7 +1099,7 @@
     },
     {
       "id": 82,
-      "label": "Distributed NixlConnector PD accuracy (4 GPUs)",
+      "label": "Distributed NixlConnector PD accuracy",
       "area": "distributed",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1112,7 +1112,7 @@
     },
     {
       "id": 83,
-      "label": "DP EP Distributed NixlConnector PD accuracy tests (4 GPUs)",
+      "label": "DP EP Distributed NixlConnector PD accuracy",
       "area": "distributed",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1125,7 +1125,7 @@
     },
     {
       "id": 84,
-      "label": "CrossLayer KV layout Distributed NixlConnector PD accuracy tests (4 GPUs)",
+      "label": "CrossLayer KV layout Distributed NixlConnector PD accuracy",
       "area": "distributed",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1138,7 +1138,7 @@
     },
     {
       "id": 85,
-      "label": "Hybrid SSM NixlConnector PD accuracy tests (4 GPUs)",
+      "label": "Hybrid SSM NixlConnector PD accuracy",
       "area": "other",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1151,7 +1151,7 @@
     },
     {
       "id": 86,
-      "label": "NixlConnector PD + Spec Decode acceptance (2 GPUs)",
+      "label": "NixlConnector PD + Spec Decode acceptance",
       "area": "spec-decode",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1177,7 +1177,7 @@
     },
     {
       "id": 88,
-      "label": "Entrypoints Unit Tests",
+      "label": "Entrypoints Unit",
       "area": "entrypoints",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1216,7 +1216,7 @@
     },
     {
       "id": 91,
-      "label": "Kernels Mamba Test",
+      "label": "Mamba Kernels",
       "area": "kernels",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1229,7 +1229,7 @@
     },
     {
       "id": 92,
-      "label": "Kernels Helion Test",
+      "label": "Helion Kernels Shard %N",
       "area": "kernels",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1268,7 +1268,7 @@
     },
     {
       "id": 95,
-      "label": "Language Models Tests (Standard)",
+      "label": "Language Models (Standard)",
       "area": "models-language",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1281,7 +1281,7 @@
     },
     {
       "id": 96,
-      "label": "Language Models Test (MTEB)",
+      "label": "Language Models (MTEB)",
       "area": "models-language",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1294,7 +1294,7 @@
     },
     {
       "id": 97,
-      "label": "Multi-Modal Processor",
+      "label": "Multimodal Processor",
       "area": "models-multimodal",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1320,7 +1320,7 @@
     },
     {
       "id": 99,
-      "label": "Multi-Modal Models (Extended Generation 3)",
+      "label": "Multimodal Models (Extended Generation 3)",
       "area": "models-multimodal",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1333,7 +1333,7 @@
     },
     {
       "id": 100,
-      "label": "Plugin Tests (2 GPUs)",
+      "label": "Plugin Integration",
       "area": "misc",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1346,7 +1346,7 @@
     },
     {
       "id": 101,
-      "label": "Quantized Models Test",
+      "label": "Quantized Models",
       "area": "quantization",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1372,7 +1372,7 @@
     },
     {
       "id": 103,
-      "label": "V1 attention (H100-MI300)",
+      "label": "V1 Attention Shard %N",
       "area": "engine",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1385,7 +1385,7 @@
     },
     {
       "id": 104,
-      "label": "Engine (1 GPU)",
+      "label": "V1 Engine",
       "area": "engine",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1398,7 +1398,7 @@
     },
     {
       "id": 105,
-      "label": "e2e Scheduling (1 GPU)",
+      "label": "E2E Scheduling",
       "area": "other",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1489,7 +1489,7 @@
     },
     {
       "id": 112,
-      "label": "Kernels Quantization Test %N",
+      "label": "Quantization Kernels Shard %N",
       "area": "kernels",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1528,7 +1528,7 @@
     },
     {
       "id": 115,
-      "label": "Language Models Tests (Hybrid) %N",
+      "label": "Language Models (Hybrid) Shard %N",
       "area": "models-language",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1554,7 +1554,7 @@
     },
     {
       "id": 117,
-      "label": "Multi-Modal Models (Standard) 1: qwen2",
+      "label": "Multimodal Models (Standard) 1: qwen2",
       "area": "models-multimodal",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1567,7 +1567,7 @@
     },
     {
       "id": 118,
-      "label": "Multi-Modal Models (Standard) 2: qwen3 + gemma",
+      "label": "Multimodal Models (Standard) 2: qwen3 + gemma",
       "area": "models-multimodal",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1580,7 +1580,7 @@
     },
     {
       "id": 119,
-      "label": "Multi-Modal Models (Standard) 3: llava + qwen2_vl",
+      "label": "Multimodal Models (Standard) 3: llava + qwen2_vl",
       "area": "models-multimodal",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1593,7 +1593,7 @@
     },
     {
       "id": 120,
-      "label": "Multi-Modal Models (Extended Generation 1)",
+      "label": "Multimodal Models (Extended Generation 1)",
       "area": "models-multimodal",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1606,7 +1606,7 @@
     },
     {
       "id": 121,
-      "label": "Multi-Modal Models (Extended Pooling)",
+      "label": "Multimodal Models (Extended Pooling)",
       "area": "models-multimodal",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1619,7 +1619,7 @@
     },
     {
       "id": 122,
-      "label": "Samplers Test",
+      "label": "Samplers",
       "area": "misc",
       "gating_signal": "green",
       "pf_signal": "green",
@@ -1645,7 +1645,7 @@
     },
     {
       "id": 124,
-      "label": "Spec Decode Ngram + Suffix",
+      "label": "Spec Decode N-Gram + Suffix",
       "area": "spec-decode",
       "gating_signal": "green",
       "pf_signal": "green",
