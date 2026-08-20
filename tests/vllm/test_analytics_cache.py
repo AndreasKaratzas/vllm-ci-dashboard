@@ -14,6 +14,8 @@ from vllm.pipelines import (
 
 NOW = datetime(2026, 8, 17, 12, tzinfo=timezone.utc)
 
+# cspell:ignore dailyish
+
 
 def test_private_cache_retains_an_enforced_production_scale_cap():
     assert cache._MAX_CACHE_BYTES == 256 * 1024 * 1024
