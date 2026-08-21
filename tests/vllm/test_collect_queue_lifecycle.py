@@ -392,6 +392,74 @@ def test_partial_first_hour_does_not_count_events_before_retention_start():
     assert first["totals"]["served"] == 1
 
 
+def test_daily_wait_vectors_cover_each_utc_date_and_bucket_by_started_at():
+    retention_start = NOW - timedelta(days=7)
+    rows = []
+    for job in (
+        _job(
+            uuid="cross-midnight",
+            runnable_at="2026-08-09T23:55:00Z",
+            started_at="2026-08-10T00:05:00Z",
+            finished_at="2026-08-10T01:05:00Z",
+        ),
+        _job(
+            uuid="same-day",
+            runnable_at="2026-08-10T12:00:00Z",
+            started_at="2026-08-10T12:05:00Z",
+            finished_at="2026-08-10T13:05:00Z",
+        ),
+        _job(
+            uuid="missing-runnable",
+            runnable_at=None,
+            started_at="2026-08-10T14:00:00Z",
+            finished_at="2026-08-10T15:00:00Z",
+        ),
+        _job(
+            uuid="started-before-retention",
+            runnable_at="2026-08-04T19:50:00Z",
+            started_at="2026-08-04T19:59:00Z",
+            finished_at="2026-08-04T20:30:00Z",
+        ),
+    ):
+        rows.extend(_observations_for(job, start=retention_start))
+
+    summary = lifecycle.build_summary(
+        list(reversed(rows)), now=NOW, collection=None, previous_provenance={}
+    )
+    daily = summary["daily_wait_times"]
+    assert set(daily) == {"unit", "day_timezone", "attributed_by", "days"}
+    assert daily["unit"] == "seconds"
+    assert daily["day_timezone"] == "UTC"
+    assert daily["attributed_by"] == "timestamps.started_at"
+    assert [row["date"] for row in daily["days"]] == [
+        "2026-08-04",
+        "2026-08-05",
+        "2026-08-06",
+        "2026-08-07",
+        "2026-08-08",
+        "2026-08-09",
+        "2026-08-10",
+        "2026-08-11",
+    ]
+    by_date = {row["date"]: row for row in daily["days"]}
+    assert by_date["2026-08-10"]["served_job_wait_seconds"] == [300.0, 600.0]
+    assert by_date["2026-08-10"]["sample_count"] == 2
+    assert by_date["2026-08-09"]["served_job_wait_seconds"] == []
+    assert by_date["2026-08-09"]["sample_count"] == 0
+    assert by_date["2026-08-04"] == {
+        "date": "2026-08-04",
+        "start": "2026-08-04T20:00:00Z",
+        "end_exclusive": "2026-08-05T00:00:00Z",
+        "partial": True,
+        "sample_count": 0,
+        "served_job_wait_seconds": [],
+    }
+    assert by_date["2026-08-10"]["partial"] is False
+    assert by_date["2026-08-11"]["start"] == "2026-08-11T00:00:00Z"
+    assert by_date["2026-08-11"]["end_exclusive"] == "2026-08-11T20:00:00Z"
+    assert by_date["2026-08-11"]["partial"] is True
+
+
 def test_summary_separates_complete_api_collection_from_event_exhaustiveness():
     summary = lifecycle.build_summary(
         [_observation()],

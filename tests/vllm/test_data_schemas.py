@@ -682,6 +682,7 @@ class TestQueueLifecycle:
                 "totals",
                 "queues",
                 "hourly",
+                "daily_wait_times",
                 "coverage",
                 "provenance",
                 "retention",
@@ -692,6 +693,56 @@ class TestQueueLifecycle:
         assert d["scope"]["queues"] == self.TARGET_QUEUES
         assert set(d["queues"]) == set(self.TARGET_QUEUES)
         assert isinstance(d["coverage"].get("complete"), bool)
+
+    def test_daily_wait_vectors(self):
+        d = _load_json_or_skip("queue_lifecycle.json")
+        daily = d["daily_wait_times"]
+
+        assert set(daily) == {"unit", "day_timezone", "attributed_by", "days"}
+        assert daily["unit"] == "seconds"
+        assert daily["day_timezone"] == "UTC"
+        assert daily["attributed_by"] == "timestamps.started_at"
+        assert isinstance(daily["days"], list) and daily["days"]
+
+        retention_start = _parse_utc(d["retention"]["event_start"])
+        retention_end = _parse_utc(d["retention"]["end_exclusive"])
+        cursor = retention_start.replace(hour=0, minute=0, second=0, microsecond=0)
+        expected_dates = []
+        while cursor < retention_end:
+            expected_dates.append(cursor.date().isoformat())
+            cursor += timedelta(days=1)
+        assert [row["date"] for row in daily["days"]] == expected_dates
+
+        cursor = retention_start.replace(hour=0, minute=0, second=0, microsecond=0)
+        for index, row in enumerate(daily["days"]):
+            assert set(row) == {
+                "date",
+                "start",
+                "end_exclusive",
+                "partial",
+                "sample_count",
+                "served_job_wait_seconds",
+            }
+            calendar_end = cursor + timedelta(days=1)
+            expected_start = max(cursor, retention_start)
+            expected_end = min(calendar_end, retention_end)
+            assert _parse_utc(row["start"]) == expected_start
+            assert _parse_utc(row["end_exclusive"]) == expected_end
+            assert row["partial"] is (
+                expected_start != cursor or expected_end != calendar_end
+            )
+            values = row["served_job_wait_seconds"]
+            assert isinstance(values, list)
+            assert row["sample_count"] == len(values)
+            assert values == sorted(values)
+            assert all(
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and math.isfinite(value)
+                and value >= 0
+                for value in values
+            ), f"daily_wait_times.days[{index}] contains an invalid wait"
+            cursor = calendar_end
 
     def test_event_counts_and_distributions_are_typed(self):
         d = _load_json_or_skip("queue_lifecycle.json")

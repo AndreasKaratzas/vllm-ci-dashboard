@@ -106,6 +106,14 @@ purged instead of surviving indefinitely. Do not hand-edit or delete generated
 data solely because its commit timestamp is old; the dashboard audit validates
 that every high-value input still has a producer and consumer.
 
+Organization-wide OSS rollups should consume the versioned
+[`org_summary.json`](https://andreaskaratzas.github.io/vllm-ci-dashboard/data/vllm/ci/org_summary.json)
+artifact. It keeps observed logical test groups, exact job variants, runtime
+gates, reviewed gating targets, and queue activity as separate populations.
+Queue latency is published as one entry per UTC day containing the vector of
+directly observed served-job wait durations for that day, rather than a
+single daily average or percentile.
+
 Runtime target results follow a fail-closed identity chain: exact build-pinned
 AMD matrix labels first, then current upstream-to-AMD definition-parity aliases.
 Only reviewed labels ending in `%N` may absorb numbered runtime shards; unrelated

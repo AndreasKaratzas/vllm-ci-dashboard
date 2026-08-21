@@ -1017,6 +1017,59 @@ def _hour_floor(value: datetime) -> datetime:
     return value.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0)
 
 
+def _day_floor(value: datetime) -> datetime:
+    return value.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _daily_wait_times(
+    observations: list[dict], retention_start: datetime, end_exclusive: datetime
+) -> dict:
+    """Return every observed served-job wait, partitioned by UTC start day.
+
+    Queue wait becomes a complete observation at ``started_at``.  Ledger files
+    cannot be used as the day boundary because they are partitioned by each
+    job's earliest retained lifecycle event, which may be ``runnable_at`` on
+    the preceding day.  Sorting the values makes this distribution vector
+    deterministic without publishing job identities or event timestamps.
+    """
+    waits_by_day: dict[str, list[float]] = {}
+    for row in observations:
+        started_at = row["timestamps"].get("started_at")
+        if not _timestamp_in_window(started_at, retention_start, end_exclusive):
+            continue
+        queue_wait = (row.get("durations_seconds") or {}).get("queue_wait")
+        if queue_wait is None:
+            continue
+        day = _require_datetime(started_at, "started_at").date().isoformat()
+        waits_by_day.setdefault(day, []).append(float(queue_wait))
+
+    days: list[dict] = []
+    cursor = _day_floor(retention_start)
+    while cursor < end_exclusive:
+        calendar_end = cursor + timedelta(days=1)
+        observed_start = max(cursor, retention_start)
+        observed_end = min(calendar_end, end_exclusive)
+        waits = sorted(waits_by_day.get(cursor.date().isoformat(), []))
+        days.append(
+            {
+                "date": cursor.date().isoformat(),
+                "start": _utc_iso(observed_start),
+                "end_exclusive": _utc_iso(observed_end),
+                "partial": observed_start != cursor or observed_end != calendar_end,
+                "sample_count": len(waits),
+                "served_job_wait_seconds": waits,
+            }
+        )
+        cursor = calendar_end
+
+    return {
+        "unit": "seconds",
+        "day_timezone": "UTC",
+        "attributed_by": "timestamps.started_at",
+        "days": days,
+    }
+
+
 def _hourly_buckets(
     observations: list[dict], retention_start: datetime, end_exclusive: datetime
 ) -> list[dict]:
@@ -1237,6 +1290,7 @@ def build_summary(
         "totals": totals,
         "queues": queues,
         "hourly": _hourly_buckets(observations, retention_start, now),
+        "daily_wait_times": _daily_wait_times(observations, retention_start, now),
         "coverage": coverage,
         "provenance": {
             "provider": "Buildkite REST organization builds API",
@@ -1245,6 +1299,10 @@ def build_summary(
                 "served": "builds[].jobs[].started_at",
                 "completed": "builds[].jobs[].finished_at",
                 "queue_wait_seconds": "started_at - runnable_at; null unless both direct timestamps exist",
+                "daily_wait_times": (
+                    "every non-null queue_wait_seconds observation grouped by the UTC date "
+                    "of started_at"
+                ),
                 "runtime_seconds": "finished_at - started_at; null unless both direct timestamps exist",
                 "queue": "builds[].jobs[].cluster_queue_id resolved through the cluster queues endpoint",
             },

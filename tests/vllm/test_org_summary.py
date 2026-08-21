@@ -169,6 +169,10 @@ def _payload() -> dict:
 def _lifecycle() -> dict:
     return {
         "generated_at": GENERATED_AT,
+        "scope": {
+            "queues": ["amd_mi300_1", "amd_mi355_1"],
+            "families": ["MI300", "MI355"],
+        },
         "window": {
             "start": "2026-08-20T20:00:00Z",
             "end_exclusive": "2026-08-20T22:00:00Z",
@@ -188,10 +192,52 @@ def _lifecycle() -> dict:
                 "max": 889.759,
             },
         },
+        "daily_wait_times": {
+            "unit": "seconds",
+            "day_timezone": "UTC",
+            "attributed_by": "timestamps.started_at",
+            "days": [
+                {
+                    "date": "2026-08-19",
+                    "start": "2026-08-19T22:00:00Z",
+                    "end_exclusive": "2026-08-20T00:00:00Z",
+                    "partial": True,
+                    "sample_count": 1,
+                    "served_job_wait_seconds": [21.737],
+                },
+                {
+                    "date": "2026-08-20",
+                    "start": "2026-08-20T00:00:00Z",
+                    "end_exclusive": "2026-08-20T22:00:00Z",
+                    "partial": True,
+                    "sample_count": 3,
+                    "served_job_wait_seconds": [51.884, 160.863, 889.759],
+                },
+            ],
+        },
+        "hourly": [
+            {
+                "start": "2026-08-19T22:00:00Z",
+                "end_exclusive": "2026-08-20T22:00:00Z",
+                "partial": True,
+                "totals": {"queue_wait_seconds": {"count": 4}},
+            },
+        ],
         "coverage": {
             "status": "partial_observation",
             "complete": False,
             "reason": "Direct event timestamps are exact but not provably exhaustive.",
+            "metric_exhaustiveness": {
+                "served": {
+                    "complete": False,
+                    "exact_for_observed_events": True,
+                },
+            },
+        },
+        "retention": {
+            "days": 1,
+            "event_start": "2026-08-19T22:00:00Z",
+            "end_exclusive": "2026-08-20T22:00:00Z",
         },
     }
 
@@ -200,7 +246,7 @@ def test_org_summary_projects_distinct_counts_and_latest_nightly() -> None:
     summary = ops.build_org_summary(_payload(), _lifecycle())
 
     assert summary["schema_id"] == "oss-project-ci-summary"
-    assert summary["schema_version"] == 2
+    assert summary["schema_version"] == 3
     assert summary["project"]["id"] == "vllm"
 
     logical = summary["test_groups"]["observed_latest_amd"]
@@ -212,6 +258,9 @@ def test_org_summary_projects_distinct_counts_and_latest_nightly() -> None:
     assert "configured %N shard jobs" in logical["count_basis"]
     assert "configured-definition inventories are separate" in summary["definitions"][
         "test_group"
+    ]
+    assert "not averages or percentiles" in summary["definitions"][
+        "served_job_wait_sample"
     ]
     variants = summary["test_groups"]["exact_job_variants_latest_amd"]
     assert (variants["total"], variants["green"], variants["non_green"]) == (
@@ -233,7 +282,7 @@ def test_org_summary_projects_distinct_counts_and_latest_nightly() -> None:
     assert summary["gating"]["reviewed_targets"]["total"] == 125
 
 
-def test_org_summary_uses_target_queue_scope_and_lifecycle_wait() -> None:
+def test_org_summary_projects_daily_wait_vectors_and_rolling_counts() -> None:
     summary = ops.build_org_summary(_payload(), _lifecycle())
 
     current = summary["queues"]["current"]
@@ -250,13 +299,132 @@ def test_org_summary_uses_target_queue_scope_and_lifecycle_wait() -> None:
 
     recent = summary["queues"]["recent_completed_window"]
     assert recent["coverage"]["status"] == "partial_observation"
-    assert recent["served_job_wait_minutes"] == {
-        "sample_count": 970,
-        "p50": 0.362,
-        "p95": 2.681,
-        "average": 0.865,
-        "max": 14.829,
+    assert (recent["incoming_jobs"], recent["served_jobs"]) == (971, 970)
+    assert "served_job_wait_minutes" not in recent
+
+    daily = summary["queues"]["daily_served_job_waits"]
+    assert daily == {
+        "available": True,
+        "reason": None,
+        "source_generated_at": GENERATED_AT,
+        "timezone": "UTC",
+        "unit": "seconds",
+        "sample_order": "ascending",
+        "sample_definition": (
+            "started_at - runnable_at; no sample is emitted unless both direct "
+            "Buildkite timestamps exist"
+        ),
+        "population": (
+            "one observed Buildkite job attempt in queues.scope, assigned to the "
+            "UTC date containing started_at; retries remain separate"
+        ),
+        "retention": {
+            "kind": "rolling",
+            "days": 1,
+            "start": "2026-08-19T22:00:00Z",
+            "end_exclusive": "2026-08-20T22:00:00Z",
+        },
+        "coverage": {
+            "status": "partial_observation",
+            "complete": False,
+            "exact_for_observed_samples": True,
+            "reason": (
+                "Direct event timestamps are exact but not provably exhaustive."
+            ),
+        },
+        "days": _lifecycle()["daily_wait_times"]["days"],
     }
+
+
+def test_org_summary_marks_daily_waits_unavailable_without_dropping_rolling_counts() -> None:
+    lifecycle = _lifecycle()
+    lifecycle.pop("daily_wait_times")
+
+    queues = ops.build_org_summary(_payload(), lifecycle)["queues"]
+
+    assert queues["daily_served_job_waits"]["available"] is False
+    assert queues["daily_served_job_waits"]["reason"] == (
+        "daily_wait_times_unavailable"
+    )
+    assert queues["daily_served_job_waits"]["days"] == []
+    assert queues["recent_completed_window"]["served_jobs"] == 970
+
+
+def test_org_summary_rejects_noncontiguous_daily_wait_vectors() -> None:
+    lifecycle = _lifecycle()
+    lifecycle["daily_wait_times"]["days"][1]["date"] = "2026-08-21"
+
+    waits = ops.build_org_summary(_payload(), lifecycle)["queues"][
+        "daily_served_job_waits"
+    ]
+
+    assert waits["available"] is False
+    assert waits["reason"] == "invalid_daily_wait_times"
+    assert waits["days"] == []
+
+
+def test_org_summary_rejects_a_malformed_daily_wait_vector() -> None:
+    lifecycle = _lifecycle()
+    day = lifecycle["daily_wait_times"]["days"][1]
+    day["served_job_wait_seconds"] = list(
+        reversed(day["served_job_wait_seconds"])
+    )
+
+    daily = ops.build_org_summary(_payload(), lifecycle)["queues"][
+        "daily_served_job_waits"
+    ]
+
+    assert daily["available"] is False
+    assert daily["reason"] == "invalid_daily_wait_times"
+    assert daily["days"] == []
+
+
+@pytest.mark.parametrize(
+    "case",
+    (
+        "numeric_string",
+        "wrong_retention_days",
+        "noncanonical_timestamp",
+        "extra_day",
+        "hourly_count_mismatch",
+        "inexact_observed_samples",
+    ),
+)
+def test_org_summary_daily_wait_projection_fails_closed(case: str) -> None:
+    lifecycle = _lifecycle()
+    if case == "numeric_string":
+        lifecycle["daily_wait_times"]["days"][0]["served_job_wait_seconds"] = [
+            "21.737"
+        ]
+    elif case == "wrong_retention_days":
+        lifecycle["retention"]["days"] = 999
+    elif case == "noncanonical_timestamp":
+        lifecycle["daily_wait_times"]["days"][0]["start"] = (
+            "2026-08-19T22:00:00"
+        )
+    elif case == "extra_day":
+        lifecycle["daily_wait_times"]["days"].append({
+            "date": "2026-08-21",
+            "start": "2026-08-21T00:00:00Z",
+            "end_exclusive": "2026-08-20T22:00:00Z",
+            "partial": True,
+            "sample_count": 0,
+            "served_job_wait_seconds": [],
+        })
+    elif case == "hourly_count_mismatch":
+        lifecycle["hourly"][0]["totals"]["queue_wait_seconds"]["count"] = 3
+    else:
+        lifecycle["coverage"]["metric_exhaustiveness"]["served"][
+            "exact_for_observed_events"
+        ] = False
+
+    daily = ops.build_org_summary(_payload(), lifecycle)["queues"][
+        "daily_served_job_waits"
+    ]
+
+    assert daily["available"] is False
+    assert daily["reason"] == "invalid_daily_wait_times"
+    assert daily["days"] == []
 
 
 def test_org_summary_fails_closed_when_amd_builds_do_not_align() -> None:
@@ -286,7 +454,7 @@ def test_org_summary_fails_closed_when_target_queue_scope_is_incomplete() -> Non
     assert current["running_jobs"] is None
 
 
-def test_snapshot_bundle_writes_small_discoverable_org_summary(tmp_path) -> None:
+def test_snapshot_bundle_writes_bounded_discoverable_org_summary(tmp_path) -> None:
     output = tmp_path / "operations_v2.json"
     (tmp_path / ops.QUEUE_LIFECYCLE_NAME).write_text(json.dumps(_lifecycle()))
 
@@ -298,8 +466,22 @@ def test_snapshot_bundle_writes_small_discoverable_org_summary(tmp_path) -> None
     summary = json.loads(path.read_text())
     assert summary["generated_at"] == GENERATED_AT
     assert path.stat().st_size == descriptor["bytes"]
-    assert path.stat().st_size < 64 * 1024
+    assert path.stat().st_size < ops.ORG_SUMMARY_MAX_BYTES
+    assert descriptor["schema_version"] == 3
     assert "groups" not in summary["gating"]["upstream_scheduled_nightly"]
+
+
+def test_snapshot_bundle_rejects_an_org_summary_over_the_named_budget(
+    tmp_path, monkeypatch
+) -> None:
+    output = tmp_path / "operations_v2.json"
+    (tmp_path / ops.QUEUE_LIFECYCLE_NAME).write_text(json.dumps(_lifecycle()))
+    monkeypatch.setattr(ops, "ORG_SUMMARY_MAX_BYTES", 1)
+
+    with pytest.raises(RuntimeError, match="organization summary is .* limit is 1"):
+        ops.write_snapshot_bundle(output, _payload(), log=False)
+
+    assert not (tmp_path / ops.ORG_SUMMARY_NAME).exists()
 
 
 def test_dashboard_audit_rejects_a_drifted_org_summary(tmp_path) -> None:
@@ -319,6 +501,7 @@ def test_dashboard_audit_rejects_a_drifted_org_summary(tmp_path) -> None:
 
     path = data_dir / ops.ORG_SUMMARY_NAME
     summary = json.loads(path.read_text())
+    assert summary["schema_version"] == 3
     summary["test_groups"]["observed_latest_amd"]["total"] = 236
     path.write_text(json.dumps(summary, indent=2) + "\n")
 
@@ -361,8 +544,14 @@ def test_published_org_summary_has_consistent_denominators() -> None:
     assert current["waiting_jobs"] == sum(row["waiting_jobs"] for row in queue_rows)
     assert current["running_jobs"] == sum(row["running_jobs"] for row in queue_rows)
 
-    wait = summary["queues"]["recent_completed_window"][
-        "served_job_wait_minutes"
-    ]
-    assert 0 <= wait["p50"] <= wait["p95"] <= wait["max"]
-    assert path.stat().st_size < 64 * 1024
+    wait = summary["queues"]["daily_served_job_waits"]
+    assert wait["available"] is True
+    assert wait["unit"] == "seconds"
+    assert wait["sample_order"] == "ascending"
+    assert wait["days"]
+    for day in wait["days"]:
+        values = day["served_job_wait_seconds"]
+        assert day["sample_count"] == len(values)
+        assert values == sorted(values)
+        assert all(value >= 0 for value in values)
+    assert path.stat().st_size < ops.ORG_SUMMARY_MAX_BYTES

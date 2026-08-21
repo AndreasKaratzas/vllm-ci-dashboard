@@ -38,7 +38,10 @@ from vllm.publication_surfaces import (  # noqa: E402
     fallback_dependency_closure,
     ignored_watcher_state_paths,
 )
-from vllm.build_operations_snapshot import build_org_summary  # noqa: E402
+from vllm.build_operations_snapshot import (  # noqa: E402
+    ORG_SUMMARY_MAX_BYTES,
+    build_org_summary,
+)
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -3497,12 +3500,12 @@ class DashboardAudit:
                     ),
                     relpath,
                 )
-            if summary_size > 65_536:
+            if summary_size > ORG_SUMMARY_MAX_BYTES:
                 self.error(
                     "operations-bundle-org-summary-budget",
                     (
                         f"organization summary is {summary_size} bytes; "
-                        "budget is 65536 bytes"
+                        f"budget is {ORG_SUMMARY_MAX_BYTES} bytes"
                     ),
                     relpath,
                 )
@@ -5823,6 +5826,176 @@ class DashboardAudit:
                 f"queue lifecycle retention days must be 7, got {retention.get('days')!r}",
                 path,
             )
+        retention_start = _parse_timestamp(retention.get("event_start"))
+        retention_end = _parse_timestamp(retention.get("end_exclusive"))
+        if not retention_start or not retention_end or retention_start >= retention_end:
+            self.error(
+                "queue-lifecycle-retention-window",
+                "queue lifecycle retention must have valid increasing half-open timestamps",
+                path,
+            )
+
+        daily_wait_times = payload.get("daily_wait_times")
+        if not isinstance(daily_wait_times, dict):
+            self.error(
+                "queue-lifecycle-daily-waits-shape",
+                "daily_wait_times must be an object",
+                path,
+            )
+        else:
+                expected_metadata = {
+                    "unit": "seconds",
+                    "day_timezone": "UTC",
+                    "attributed_by": "timestamps.started_at",
+                }
+                for field, expected in expected_metadata.items():
+                    if daily_wait_times.get(field) != expected:
+                        self.error(
+                            "queue-lifecycle-daily-waits-metadata",
+                            f"daily_wait_times.{field} must be {expected!r}",
+                            path,
+                        )
+                day_rows = daily_wait_times.get("days")
+                if not isinstance(day_rows, list) or not day_rows:
+                    self.error(
+                        "queue-lifecycle-daily-waits-days",
+                        "daily_wait_times.days must be a non-empty list",
+                        path,
+                    )
+                elif retention_start and retention_end and retention_start < retention_end:
+                    cursor = retention_start.replace(hour=0, minute=0, second=0, microsecond=0)
+                    expected_dates = []
+                    while cursor < retention_end:
+                        expected_dates.append(cursor.date().isoformat())
+                        cursor += timedelta(days=1)
+                    actual_dates = [
+                        row.get("date") if isinstance(row, dict) else None for row in day_rows
+                    ]
+                    if actual_dates != expected_dates:
+                        self.error(
+                            "queue-lifecycle-daily-waits-dates",
+                            "daily_wait_times.days must contain every intersecting UTC date in order",
+                            path,
+                        )
+
+                    cursor = retention_start.replace(hour=0, minute=0, second=0, microsecond=0)
+                    total_wait_samples = 0
+                    for index, row in enumerate(day_rows):
+                        if not isinstance(row, dict):
+                            self.error(
+                                "queue-lifecycle-daily-waits-row",
+                                f"daily_wait_times.days[{index}] is not an object",
+                                path,
+                            )
+                            cursor += timedelta(days=1)
+                            continue
+                        expected_keys = {
+                            "date",
+                            "start",
+                            "end_exclusive",
+                            "partial",
+                            "sample_count",
+                            "served_job_wait_seconds",
+                        }
+                        if set(row) != expected_keys:
+                            self.error(
+                                "queue-lifecycle-daily-waits-row",
+                                f"daily_wait_times.days[{index}] has an invalid schema",
+                                path,
+                            )
+                        calendar_end = cursor + timedelta(days=1)
+                        expected_start = max(cursor, retention_start)
+                        expected_end = min(calendar_end, retention_end)
+                        row_start = _parse_timestamp(row.get("start"))
+                        row_end = _parse_timestamp(row.get("end_exclusive"))
+                        if row_start != expected_start or row_end != expected_end:
+                            self.error(
+                                "queue-lifecycle-daily-waits-window",
+                                f"daily_wait_times.days[{index}] has incorrect observed bounds",
+                                path,
+                            )
+                        expected_partial = (
+                            expected_start != cursor or expected_end != calendar_end
+                        )
+                        if row.get("partial") is not expected_partial:
+                            self.error(
+                                "queue-lifecycle-daily-waits-partial",
+                                f"daily_wait_times.days[{index}].partial is incorrect",
+                                path,
+                            )
+                        waits = row.get("served_job_wait_seconds")
+                        valid_waits = isinstance(waits, list) and all(
+                            isinstance(value, (int, float))
+                            and not isinstance(value, bool)
+                            and math.isfinite(value)
+                            and value >= 0
+                            for value in (waits or [])
+                        )
+                        if not valid_waits:
+                            self.error(
+                                "queue-lifecycle-daily-waits-vector",
+                                f"daily_wait_times.days[{index}] has invalid wait values",
+                                path,
+                            )
+                        elif waits != sorted(waits):
+                            self.error(
+                                "queue-lifecycle-daily-waits-order",
+                                f"daily_wait_times.days[{index}] wait vector is not sorted",
+                                path,
+                            )
+                        sample_count = row.get("sample_count")
+                        if (
+                            not isinstance(sample_count, int)
+                            or isinstance(sample_count, bool)
+                            or not isinstance(waits, list)
+                            or sample_count != len(waits)
+                        ):
+                            self.error(
+                                "queue-lifecycle-daily-waits-count",
+                                f"daily_wait_times.days[{index}].sample_count does not match its vector",
+                                path,
+                            )
+                        elif valid_waits:
+                            total_wait_samples += sample_count
+                        cursor = calendar_end
+
+                    served_events = _mapping(
+                        _mapping(coverage.get("timestamp_fields")).get("events_in_retention")
+                    ).get("served")
+                    if (
+                        isinstance(served_events, int)
+                        and not isinstance(served_events, bool)
+                        and total_wait_samples > served_events
+                    ):
+                        self.error(
+                            "queue-lifecycle-daily-waits-total",
+                            "daily wait samples exceed observed served events",
+                            path,
+                        )
+                    hourly_wait_samples = (
+                        sum(
+                            _safe_int(
+                                _mapping(
+                                    _mapping(_mapping(bucket).get("totals")).get(
+                                        "queue_wait_seconds"
+                                    )
+                                ).get("count")
+                            )
+                            for bucket in hourly
+                            if isinstance(bucket, dict)
+                        )
+                        if isinstance(hourly, list)
+                        else 0
+                    )
+                    if total_wait_samples != hourly_wait_samples:
+                        self.error(
+                            "queue-lifecycle-daily-waits-hourly-reconciliation",
+                            (
+                                f"daily wait vectors contain {total_wait_samples} samples, "
+                                f"but UTC hourly buckets contain {hourly_wait_samples}"
+                            ),
+                            path,
+                        )
         if not isinstance(payload.get("provenance"), dict):
             self.error("queue-lifecycle-provenance", "provenance must be an object", path)
 

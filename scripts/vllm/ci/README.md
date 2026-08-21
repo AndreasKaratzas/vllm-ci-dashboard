@@ -238,7 +238,13 @@ incoming work at REST `build.jobs[].runnable_at`, served work at
 `build.jobs[].started_at`, and completions at `build.jobs[].finished_at`. It
 derives queue wait and runtime only when both required source
 timestamps are present, and publishes exact observed rolling two-hour counts
-plus UTC hour buckets in `queue_lifecycle.json`. The supported organization
+plus UTC hour buckets in `queue_lifecycle.json`. It also publishes one
+`daily_wait_times.days` entry for every UTC date intersecting the seven-day
+retention window. Each entry contains the sorted vector of individual
+served-job wait durations in seconds, attributed to the date of the direct
+`started_at` timestamp; empty observed days remain present with an empty
+vector, and the first or last date is marked partial when its observed bounds
+do not cover a complete calendar day. The supported organization
 Builds REST endpoint does not filter job event timestamps directly. The
 collector unions builds finished inside the source window, builds created
 inside it, and active-state builds created inside the bounded parent-build

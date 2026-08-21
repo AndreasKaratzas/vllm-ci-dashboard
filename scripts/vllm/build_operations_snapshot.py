@@ -45,6 +45,7 @@ OPERATIONS_MANIFEST_NAME = "operations_v2_manifest.json"
 OPERATIONS_BUNDLE_DIR_NAME = "operations_v2"
 QUEUE_HISTORY_CHART_NAME = "queue_history_chart.json"
 ORG_SUMMARY_NAME = "org_summary.json"
+ORG_SUMMARY_MAX_BYTES = 2 * 1024 * 1024
 QUEUE_LIFECYCLE_NAME = "queue_lifecycle.json"
 NIGHTLY_BUILD_LIMIT = 30
 RANKING_LIMIT = 20
@@ -7502,17 +7503,74 @@ def _org_float(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
-def _seconds_to_minutes(value: Any) -> float | None:
-    seconds = _org_float(value)
-    return round(seconds / 60.0, 3) if seconds is not None else None
-
-
 def _org_source(payload: dict, name: str) -> dict:
     source = ((payload.get("sources") or {}).get(name) or {})
     return {
         "path": source.get("path"),
         "generated_at": source.get("timestamp"),
     }
+
+
+def _org_daily_wait_days(
+    value: Any,
+    retention_start: datetime | None,
+    retention_end: datetime | None,
+) -> list[dict] | None:
+    """Validate and project the lifecycle collector's per-day wait vectors."""
+    if (
+        not isinstance(value, list)
+        or not value
+        or retention_start is None
+        or retention_end is None
+        or retention_start >= retention_end
+    ):
+        return None
+
+    retention_start = retention_start.astimezone(timezone.utc)
+    retention_end = retention_end.astimezone(timezone.utc)
+    cursor = retention_start.replace(hour=0, minute=0, second=0, microsecond=0)
+    projected: list[dict] = []
+    for raw in value:
+        if cursor >= retention_end or not isinstance(raw, dict):
+            return None
+        day = str(raw.get("date") or "")
+        start = str(raw.get("start") or "")
+        end_exclusive = str(raw.get("end_exclusive") or "")
+        partial = raw.get("partial")
+        sample_count = raw.get("sample_count")
+        raw_waits = raw.get("served_job_wait_seconds")
+        calendar_end = cursor + timedelta(days=1)
+        expected_start = max(cursor, retention_start)
+        expected_end = min(calendar_end, retention_end)
+        if (
+            day != cursor.date().isoformat()
+            or start != _utc_iso(expected_start)
+            or end_exclusive != _utc_iso(expected_end)
+            or not isinstance(partial, bool)
+            or partial != (expected_start != cursor or expected_end != calendar_end)
+            or type(sample_count) is not int
+            or sample_count < 0
+            or not isinstance(raw_waits, list)
+            or sample_count != len(raw_waits)
+        ):
+            return None
+        waits = [float(wait) for wait in raw_waits if type(wait) in (int, float)]
+        if (
+            len(waits) != len(raw_waits)
+            or any(not math.isfinite(wait) or wait < 0 for wait in waits)
+            or waits != sorted(waits)
+        ):
+            return None
+        projected.append({
+            "date": day,
+            "start": start,
+            "end_exclusive": end_exclusive,
+            "partial": partial,
+            "sample_count": sample_count,
+            "served_job_wait_seconds": waits,
+        })
+        cursor = calendar_end
+    return projected if cursor >= retention_end else None
 
 
 def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dict:
@@ -7598,10 +7656,83 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
         return max(values) if values else None
 
     lifecycle_totals = queue_lifecycle.get("totals") or {}
-    lifecycle_wait = lifecycle_totals.get("queue_wait_seconds") or {}
     lifecycle_window = queue_lifecycle.get("window") or {}
     lifecycle_coverage = queue_lifecycle.get("coverage") or {}
-    lifecycle_available = bool(lifecycle_window and lifecycle_wait)
+    lifecycle_retention = queue_lifecycle.get("retention") or {}
+    lifecycle_scope = queue_lifecycle.get("scope") or {}
+    lifecycle_daily_waits = queue_lifecycle.get("daily_wait_times") or {}
+    lifecycle_retention_days = (
+        lifecycle_retention.get("days")
+        if type(lifecycle_retention.get("days")) is int
+        else None
+    )
+    lifecycle_retention_start = _parse_dt(lifecycle_retention.get("event_start"))
+    lifecycle_retention_end = _parse_dt(lifecycle_retention.get("end_exclusive"))
+    lifecycle_generated_at = _parse_dt(queue_lifecycle.get("generated_at"))
+    daily_wait_days = _org_daily_wait_days(
+        lifecycle_daily_waits.get("days"),
+        lifecycle_retention_start,
+        lifecycle_retention_end,
+    )
+    daily_wait_sample_count = (
+        sum(day["sample_count"] for day in daily_wait_days)
+        if daily_wait_days is not None
+        else None
+    )
+    hourly_wait_counts: list[int] = []
+    lifecycle_hourly = queue_lifecycle.get("hourly")
+    if isinstance(lifecycle_hourly, list) and lifecycle_hourly:
+        for bucket in lifecycle_hourly:
+            count = (((bucket or {}).get("totals") or {}).get("queue_wait_seconds") or {}).get(
+                "count"
+            ) if isinstance(bucket, dict) else None
+            if type(count) is not int or count < 0:
+                hourly_wait_counts = []
+                break
+            hourly_wait_counts.append(count)
+    hourly_wait_sample_count = sum(hourly_wait_counts) if hourly_wait_counts else None
+    served_samples_exact = (
+        (((lifecycle_coverage.get("metric_exhaustiveness") or {}).get("served") or {}).get(
+            "exact_for_observed_events"
+        ))
+        is True
+    )
+    lifecycle_scope_queues = sorted(
+        str(queue_id) for queue_id in (lifecycle_scope.get("queues") or [])
+    )
+    daily_wait_metadata_valid = (
+        lifecycle_daily_waits.get("unit") == "seconds"
+        and lifecycle_daily_waits.get("day_timezone") == "UTC"
+        and lifecycle_daily_waits.get("attributed_by") == "timestamps.started_at"
+        and lifecycle_retention_days is not None
+        and lifecycle_retention_days > 0
+        and lifecycle_retention_start is not None
+        and lifecycle_retention_end is not None
+        and lifecycle_retention_start < lifecycle_retention_end
+        and lifecycle_generated_at == lifecycle_retention_end
+        and lifecycle_retention_end - lifecycle_retention_start
+        == timedelta(days=lifecycle_retention_days)
+        and daily_wait_sample_count == hourly_wait_sample_count
+        and served_samples_exact
+    )
+    daily_wait_available = bool(
+        queue_lifecycle.get("generated_at")
+        and queue_ids
+        and lifecycle_scope_queues == queue_ids
+        and daily_wait_metadata_valid
+        and daily_wait_days is not None
+    )
+    if not lifecycle_daily_waits:
+        daily_wait_reason = "daily_wait_times_unavailable"
+    elif not queue_lifecycle.get("generated_at"):
+        daily_wait_reason = "queue_lifecycle_source_unavailable"
+    elif not queue_ids or lifecycle_scope_queues != queue_ids:
+        daily_wait_reason = "queue_scope_mismatch"
+    elif not daily_wait_metadata_valid or daily_wait_days is None:
+        daily_wait_reason = "invalid_daily_wait_times"
+    else:
+        daily_wait_reason = None
+    lifecycle_available = bool(lifecycle_window and lifecycle_totals)
     current_queue_available = bool(
         queue_snapshot.get("ts")
         and queue_ids
@@ -7631,7 +7762,7 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
 
     return {
         "schema_id": "oss-project-ci-summary",
-        "schema_version": 2,
+        "schema_version": 3,
         "generated_at": payload.get("generated_at"),
         "project": {
             "id": "vllm",
@@ -7832,18 +7963,44 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
                 "completed_jobs": _org_int(lifecycle_totals.get("completed")),
                 "green_jobs": _org_int(lifecycle_totals.get("passed")),
                 "green_rate_pct": _org_float(lifecycle_totals.get("pass_rate_pct")),
-                "served_job_wait_minutes": {
-                    "sample_count": _org_int(lifecycle_wait.get("count")),
-                    "p50": _seconds_to_minutes(lifecycle_wait.get("p50")),
-                    "p95": _seconds_to_minutes(lifecycle_wait.get("p95")),
-                    "average": _seconds_to_minutes(lifecycle_wait.get("avg")),
-                    "max": _seconds_to_minutes(lifecycle_wait.get("max")),
-                },
                 "coverage": {
                     "status": lifecycle_coverage.get("status"),
                     "complete": bool(lifecycle_coverage.get("complete")),
                     "reason": lifecycle_coverage.get("reason"),
                 },
+            },
+            "daily_served_job_waits": {
+                "available": daily_wait_available,
+                "reason": None if daily_wait_available else daily_wait_reason,
+                "source_generated_at": queue_lifecycle.get("generated_at"),
+                "timezone": "UTC",
+                "unit": "seconds",
+                "sample_order": "ascending",
+                "sample_definition": (
+                    "started_at - runnable_at; no sample is emitted unless both "
+                    "direct Buildkite timestamps exist"
+                ),
+                "population": (
+                    "one observed Buildkite job attempt in queues.scope, assigned "
+                    "to the UTC date containing started_at; retries remain separate"
+                ),
+                "retention": {
+                    "kind": "rolling",
+                    "days": lifecycle_retention_days,
+                    "start": lifecycle_retention.get("event_start"),
+                    "end_exclusive": lifecycle_retention.get("end_exclusive"),
+                },
+                "coverage": {
+                    "status": lifecycle_coverage.get("status"),
+                    "complete": bool(lifecycle_coverage.get("complete")),
+                    "exact_for_observed_samples": bool(
+                        (((lifecycle_coverage.get("metric_exhaustiveness") or {}).get(
+                            "served"
+                        ) or {}).get("exact_for_observed_events"))
+                    ),
+                    "reason": lifecycle_coverage.get("reason"),
+                },
+                "days": daily_wait_days if daily_wait_available else [],
             },
         },
         "definitions": {
@@ -7874,6 +8031,11 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
             "queue_waiting_job": "A Buildkite job in the SCHEDULED state.",
             "queue_running_job": (
                 "A Buildkite job assigned, accepted, running, canceling, or timing out."
+            ),
+            "served_job_wait_sample": (
+                "One observed job attempt's started_at minus runnable_at duration, "
+                "assigned to the UTC date of started_at. Daily vectors retain every "
+                "sample and duplicate value; they are not averages or percentiles."
             ),
         },
         "sources": {
@@ -7929,11 +8091,15 @@ def write_snapshot_bundle(
         _load_json(output.parent / QUEUE_LIFECYCLE_NAME),
     )
     org_summary_path = output.parent / ORG_SUMMARY_NAME
-    org_summary_encoded = json.dumps(
-        org_summary,
-        indent=2,
-        ensure_ascii=True,
-    ) + "\n"
+    # This is a machine-consumed exchange contract. Compact encoding keeps the
+    # complete daily vectors inexpensive without sampling or truncating them.
+    org_summary_encoded = _encoded_json(org_summary)
+    org_summary_bytes = len(org_summary_encoded.encode("utf-8"))
+    if org_summary_bytes > ORG_SUMMARY_MAX_BYTES:
+        raise RuntimeError(
+            f"organization summary is {org_summary_bytes} bytes; "
+            f"limit is {ORG_SUMMARY_MAX_BYTES}"
+        )
     org_summary_path.write_text(org_summary_encoded)
 
     manifest = {
@@ -7944,7 +8110,7 @@ def write_snapshot_bundle(
         "shell": _operations_shell(payload),
         "organization_summary": {
             "path": ORG_SUMMARY_NAME,
-            "bytes": len(org_summary_encoded.encode("utf-8")),
+            "bytes": org_summary_bytes,
             "schema_version": org_summary["schema_version"],
         },
         "sections": section_manifest,

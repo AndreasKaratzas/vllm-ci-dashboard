@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from vllm import audit_dashboard_data as audit_module
+from vllm import collect_queue_lifecycle as queue_lifecycle
 from vllm.audit_dashboard_data import (
     DATA_SPECS,
     ROOT,
@@ -290,6 +291,48 @@ def test_dashboard_audit_covers_core_user_facing_data_files():
         "data/vllm/ci/omni_surge_heuristic.json",
         "data/vllm/perf_eval/perf_eval.json",
     } <= covered
+
+
+def test_queue_lifecycle_audit_validates_daily_wait_vector_counts(tmp_path):
+    payload = queue_lifecycle.build_summary(
+        [],
+        now=datetime.now(timezone.utc).replace(microsecond=0),
+        collection=None,
+        previous_provenance={},
+    )
+    output = tmp_path / "data" / "vllm" / "ci" / "queue_lifecycle.json"
+    output.parent.mkdir(parents=True)
+    output.write_text(json.dumps(payload))
+
+    valid = DashboardAudit(tmp_path)
+    valid.audit_queue_lifecycle()
+    assert not {
+        finding.code
+        for finding in valid.report.errors
+        if finding.code.startswith("queue-lifecycle-daily-waits")
+    }
+
+    payload["daily_wait_times"]["days"][0]["sample_count"] = 1
+    output.write_text(json.dumps(payload))
+    invalid = DashboardAudit(tmp_path)
+    invalid.audit_queue_lifecycle()
+    assert "queue-lifecycle-daily-waits-count" in {
+        finding.code for finding in invalid.report.errors
+    }
+
+    payload = queue_lifecycle.build_summary(
+        [],
+        now=datetime.now(timezone.utc).replace(microsecond=0),
+        collection=None,
+        previous_provenance={},
+    )
+    payload.pop("daily_wait_times")
+    output.write_text(json.dumps(payload))
+    missing = DashboardAudit(tmp_path)
+    missing.audit_queue_lifecycle()
+    assert "queue-lifecycle-daily-waits-shape" in {
+        finding.code for finding in missing.report.errors
+    }
 
 
 def _dns_iso(value: datetime) -> str:
