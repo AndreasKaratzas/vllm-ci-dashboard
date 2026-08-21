@@ -19,6 +19,7 @@ import hashlib
 import json
 import math
 import re
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -32,7 +33,10 @@ from vllm.publication_surfaces import (  # noqa: E402
     LEGACY_CI_SURFACE,
     LEGACY_CI_SURFACE_SPEC,
     LEGACY_SURFACE_ALIASES,
+    PRE_ANALYTICS_CI_CORE_SURFACE_SPEC,
+    PRE_ANALYTICS_CI_GATING_SURFACE_SPEC,
     SOURCE_SURFACES,
+    SURFACE_CONTRACT_VERSION,
     SURFACE_SPECS,
     SurfaceSpec,
     fallback_dependency_closure,
@@ -40,7 +44,13 @@ from vllm.publication_surfaces import (  # noqa: E402
 )
 from vllm.build_operations_snapshot import (  # noqa: E402
     ORG_SUMMARY_MAX_BYTES,
+    ORG_SUMMARY_SCHEMA_VERSION,
+    QUEUE_LIFECYCLE_NAME,
     build_org_summary,
+)
+from vllm.ci.reliability_history import (  # noqa: E402
+    hydrate_reliability_observations,
+    validate_all_main_reliability,
 )
 
 
@@ -268,6 +278,29 @@ def _publication_expected_paths(root: Path, spec: SurfaceSpec) -> set[str]:
         if candidate.is_file()
     )
     return expected
+
+
+def _publication_head_descriptor(
+    root: Path,
+    relative: str,
+) -> dict[str, object] | None:
+    """Describe a path only when the worktree still matches committed HEAD."""
+    try:
+        committed = subprocess.run(
+            ["git", "show", f"HEAD:{relative}"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+        ).stdout
+        current = (root / relative).read_bytes()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    if current != committed:
+        return None
+    return {
+        "bytes": len(committed),
+        "sha256": hashlib.sha256(committed).hexdigest(),
+    }
 
 
 def _migrated_publication_manifest_entries(
@@ -890,6 +923,62 @@ class DashboardAudit:
         """Record a fresh, publishable defect without making the audit fail."""
         self.add("degradation", code, message, path, context=context)
 
+    def report_cross_surface_build_mismatch(
+        self,
+        code: str,
+        message: str,
+        path: str | Path,
+        *,
+        left_surface: str,
+        left_build: object,
+        right_surface: str,
+        right_build: object,
+    ) -> None:
+        """Allow only build skew proven by one directionally older LKG surface.
+
+        A split publication can intentionally combine a validated older surface
+        with a newer current surface.  The restore manifest is verified by
+        ``fallback_surfaces`` before this exception is considered.  Both-current,
+        both-restored, non-monotonic, and unparseable mismatches remain errors.
+        """
+        left_number = _safe_int(left_build, -1)
+        right_number = _safe_int(right_build, -1)
+        fallback = self.fallback_surfaces()
+        left_restored = left_surface in fallback
+        right_restored = right_surface in fallback
+        expected_skew = (
+            left_number > 0
+            and right_number > 0
+            and left_restored != right_restored
+            and (
+                (left_restored and left_number < right_number)
+                or (right_restored and right_number < left_number)
+            )
+        )
+        if not expected_skew:
+            self.error(code, message, path)
+            return
+
+        fallback_surface = left_surface if left_restored else right_surface
+        fallback_build = left_number if left_restored else right_number
+        current_surface = right_surface if left_restored else left_surface
+        current_build = right_number if left_restored else left_number
+        self.warning(
+            f"{code}-fallback-skew",
+            (
+                f"{message}; accepted because publication state attests "
+                f"{fallback_surface} build #{fallback_build} as last-known-good "
+                f"while {current_surface} advanced to build #{current_build}"
+            ),
+            path,
+            context={
+                "fallback_surface": fallback_surface,
+                "fallback_build_number": fallback_build,
+                "current_surface": current_surface,
+                "current_build_number": current_build,
+            },
+        )
+
     def fallback_surfaces(self) -> frozenset[str]:
         if self._fallback_surfaces_cache is not None:
             return self._fallback_surfaces_cache
@@ -1194,7 +1283,121 @@ class DashboardAudit:
                     "publication state lacks complete degradation or fallback "
                     "attestations"
                 )
-            fallback_surfaces = fallback_set
+            pre_analytics_contract = (
+                state.get("surface_contract_version")
+                != SURFACE_CONTRACT_VERSION
+                and bool({"ci_core", "ci_gating"} & degraded_set)
+            )
+            if pre_analytics_contract and fallback_set:
+                if "ci_core" in fallback_set and "ci_gating" not in fallback_set:
+                    return reject(
+                        "pre-analytics ci_core fallback omits its legacy gating dependent"
+                    )
+
+                # Verify every byte against the exact pre-split ownership
+                # contract before repartitioning its proof.
+                verified_entries: dict[str, dict] = {}
+                raw_valid = True
+                for surface in sorted(fallback_set):
+                    if surface == "ci_core":
+                        spec = PRE_ANALYTICS_CI_CORE_SURFACE_SPEC
+                    elif surface == "ci_gating":
+                        spec = PRE_ANALYTICS_CI_GATING_SURFACE_SPEC
+                    else:
+                        spec = SURFACE_SPECS[surface]
+                    entries = _migrated_publication_manifest_entries(
+                        surface, manifest[surface]
+                    )
+                    raw_valid = verify_manifest(
+                        surface, spec, manifest[surface]
+                    ) and raw_valid
+                    if restored_paths is not None:
+                        raw_valid = verify_restored_paths(
+                            surface,
+                            entries,
+                            restored_paths.get(surface),
+                        ) and raw_valid
+                    if isinstance(entries, dict):
+                        verified_entries[surface] = entries
+                if not raw_valid:
+                    self._fallback_surfaces_cache = frozenset()
+                    return self._fallback_surfaces_cache
+
+                partitioned: dict[str, dict] = {}
+                expanded_since: dict[str, str] = {}
+                for surface, entries in verified_entries.items():
+                    targets = (
+                        frozenset({"ci_core", "ci_analytics", "ci_gating"})
+                        if surface == "ci_core"
+                        else frozenset({surface})
+                    )
+                    source_since = fallback_since[surface]
+                    for target in targets:
+                        existing_since = expanded_since.get(target)
+                        if (
+                            existing_since is None
+                            or _parse_timestamp(source_since)
+                            < _parse_timestamp(existing_since)
+                        ):
+                            expanded_since[target] = source_since
+                    for relative, descriptor in entries.items():
+                        owners = [
+                            target
+                            for target in targets
+                            if _publication_spec_owns_path(
+                                SURFACE_SPECS[target], relative
+                            )
+                        ]
+                        if len(owners) != 1:
+                            return reject(
+                                "pre-analytics fallback path lacks one active owner"
+                            )
+                        owner = owners[0]
+                        target_entries = partitioned.setdefault(owner, {})
+                        if relative in target_entries:
+                            return reject(
+                                "pre-analytics fallback path is duplicated"
+                            )
+                        target_entries[relative] = descriptor
+
+                expanded_fallback = set(expanded_since)
+                for surface in sorted(expanded_fallback):
+                    entries = partitioned.get(surface, {})
+                    expected = (
+                        _publication_expected_paths(
+                            self.root, SURFACE_SPECS[surface]
+                        )
+                        - ignored_watcher_state_paths(surface)
+                    )
+                    missing = expected - set(entries)
+                    if surface == "ci_gating" and missing == {
+                        "data/vllm/ci/gating_nightlies.json"
+                    }:
+                        # Early schema-v2 gating-only states predate nightly's
+                        # move into this surface. Add that one proof only when
+                        # the deployed bytes still match immutable HEAD.
+                        descriptor = _publication_head_descriptor(
+                            self.root,
+                            "data/vllm/ci/gating_nightlies.json",
+                        )
+                        if descriptor is not None:
+                            entries["data/vllm/ci/gating_nightlies.json"] = (
+                                descriptor
+                            )
+                    if set(entries) != expected:
+                        return reject(
+                            f"pre-analytics fallback partition for {surface} is incomplete",
+                            code="publication-fallback-manifest-mismatch",
+                        )
+                fallback_surfaces = expanded_fallback
+                fallback_since = expanded_since
+                manifest = partitioned
+                restored_paths = {
+                    surface: sorted(entries)
+                    for surface, entries in partitioned.items()
+                }
+            else:
+                fallback_surfaces = fallback_set
             if _publication_fallback_closure(fallback_surfaces) != fallback_surfaces:
                 return reject(
                     "schema-v2 fallback omits a required dependent surface"
@@ -2525,9 +2728,10 @@ class DashboardAudit:
                     relpath,
                 )
 
-        nightly_builds = _rows(
-            _mapping(_mapping(payload.get("nightly")).get("canonical_history")).get("builds")
+        canonical_history = _mapping(
+            _mapping(payload.get("nightly")).get("canonical_history")
         )
+        nightly_builds = _rows(canonical_history.get("builds"))
         health_payload = self.load_json("data/vllm/ci/ci_health.json", {})
         health_amd = _mapping(_mapping(health_payload).get("amd"))
         latest_pipeline = _mapping(
@@ -2539,11 +2743,68 @@ class DashboardAudit:
                 latest_pipeline.get("build_number") or latest_pipeline.get("number")
             )
             if operations_number != health_number:
-                self.error(
-                    "operations-latest-nightly",
-                    f"operations latest AMD nightly #{operations_number} does not match ci_health pipeline build #{health_number}",
-                    relpath,
+                alignment = _mapping(canonical_history.get("head_alignment"))
+                analytics_payload = self.load_json(
+                    "data/vllm/ci/analytics.json", {}
                 )
+                analytics_build_numbers = {
+                    _safe_int(
+                        _mapping(row).get("number")
+                        or _mapping(row).get("build_number"),
+                        -1,
+                    )
+                    for row in _rows(
+                        _mapping(_mapping(analytics_payload).get("amd-ci")).get(
+                            "builds"
+                        )
+                    )
+                }
+                analytics_build_numbers.discard(-1)
+                expected_ahead = sorted(
+                    (
+                        number
+                        for number in analytics_build_numbers
+                        if number > health_number
+                    ),
+                    reverse=True,
+                )
+                nightly_numbers = {
+                    _safe_int(_mapping(row).get("number"), -1)
+                    for row in nightly_builds
+                }
+                proven_analytics_ahead = (
+                    health_number > 0
+                    and alignment.get("status")
+                    == "analytics_ahead_of_ci_health"
+                    and alignment.get("canonical_build_number")
+                    == operations_number
+                    and alignment.get("ci_health_build_number") == health_number
+                    and alignment.get("analytics_ahead_build_numbers")
+                    == expected_ahead
+                    and bool(expected_ahead)
+                    and operations_number == expected_ahead[0]
+                    and health_number in nightly_numbers
+                )
+                if proven_analytics_ahead:
+                    self.warning(
+                        "operations-latest-nightly-ahead",
+                        (
+                            f"analytics observed AMD build #{operations_number} "
+                            f"after ci_health stopped at #{health_number}; both "
+                            "history rows remain published until core catches up"
+                        ),
+                        relpath,
+                    )
+                else:
+                    self.error(
+                        "operations-latest-nightly",
+                        (
+                            f"operations latest AMD nightly #{operations_number} "
+                            "does not match ci_health pipeline build "
+                            f"#{health_number}"
+                        ),
+                        relpath,
+                    )
 
         gating = _mapping(payload.get("gating"))
         reviewed_targets = _rows(gating.get("target_groups"))
@@ -3489,6 +3750,60 @@ class DashboardAudit:
                     ),
                     relpath,
                 )
+            summary_mapping = _mapping(summary)
+            daily_waits = _mapping(
+                _mapping(summary_mapping.get("queues")).get(
+                    "daily_served_job_waits"
+                )
+            )
+            wait_source = _mapping(daily_waits.get("source"))
+            lifecycle_days = _rows(
+                _mapping(_mapping(lifecycle).get("daily_wait_times")).get("days")
+            )
+            indexed_days = _rows(daily_waits.get("days"))
+            if daily_waits.get("available") is True:
+                expected_index = [
+                    {
+                        key: day.get(key)
+                        for key in (
+                            "date",
+                            "start",
+                            "end_exclusive",
+                            "partial",
+                            "sample_count",
+                        )
+                    }
+                    for day in lifecycle_days
+                    if isinstance(day, dict)
+                ]
+                lifecycle_sample_count = sum(
+                    _safe_int(_mapping(day).get("sample_count"))
+                    for day in lifecycle_days
+                )
+                if (
+                    summary_mapping.get("schema_version")
+                    != ORG_SUMMARY_SCHEMA_VERSION
+                    or wait_source.get("path") != QUEUE_LIFECYCLE_NAME
+                    or wait_source.get("schema_version")
+                    != _mapping(lifecycle).get("schema_version")
+                    or wait_source.get("key") != "daily_wait_times.days"
+                    or wait_source.get("vector_key")
+                    != "served_job_wait_seconds"
+                    or daily_waits.get("source_generated_at")
+                    != _mapping(lifecycle).get("generated_at")
+                    or _safe_int(daily_waits.get("sample_count"))
+                    != lifecycle_sample_count
+                    or indexed_days != expected_index
+                ):
+                    self.error(
+                        "operations-bundle-org-summary-source",
+                        (
+                            "organization summary daily waits must reference the "
+                            "exact lifecycle vectors with matching schema, generation, "
+                            "sample count, and UTC day bounds"
+                        ),
+                        relpath,
+                    )
             summary_size = summary_path.stat().st_size
             if _safe_int(summary_descriptor.get("bytes")) != summary_size:
                 self.error(
@@ -4103,10 +4418,14 @@ class DashboardAudit:
             result_numbers = self.build_numbers_in_jsonl(latest_results)
             latest = _mapping(builds[0])
             if result_numbers and latest.get("number") not in result_numbers:
-                self.error(
+                self.report_cross_surface_build_mismatch(
                     "analytics-jsonl-build-mismatch",
                     f"{slug} latest analytics build #{latest.get('number')} does not match {latest_results.name} build numbers {sorted(result_numbers)}",
                     "data/vllm/ci/analytics.json",
+                    left_surface="ci_analytics",
+                    left_build=latest.get("number"),
+                    right_surface="ci_core",
+                    right_build=max(result_numbers),
                 )
             if result_numbers and latest.get("source") != "test_results":
                 self.warning(
@@ -4227,6 +4546,12 @@ class DashboardAudit:
                     "data/vllm/ci/analytics.json",
                 )
             else:
+                if not validate_all_main_reliability(all_main, slug):
+                    self.error(
+                        "analytics-all-main-schema",
+                        f"{slug} all-main reliability cohort fails its versioned schema contract",
+                        "data/vllm/ci/analytics.json",
+                    )
                 cohort = _mapping(all_main.get("cohort"))
                 denominator = _mapping(all_main.get("denominator"))
                 groups = _rows(all_main.get("groups"))
@@ -4296,18 +4621,29 @@ class DashboardAudit:
                         f"group denominators sum to {eligible}, cohort reports {expected_eligible}",
                         "data/vllm/ci/analytics.json",
                     )
+                raw_observations = [
+                    observation
+                    for group in groups
+                    for observation in _rows(_mapping(group).get("observations"))
+                    if isinstance(observation, dict)
+                ]
+                try:
+                    all_observations = hydrate_reliability_observations(
+                        all_main,
+                        raw_observations,
+                        pipeline_slug=slug,
+                    )
+                except (KeyError, TypeError, ValueError):
+                    all_observations = []
+                    self.error(
+                        "analytics-all-main-hydration",
+                        f"{slug} has observations that cannot be rehydrated",
+                        "data/vllm/ci/analytics.json",
+                    )
                 retained = [
                     observation
-                    for group in groups
-                    for observation in _rows(_mapping(group).get("observations"))
-                    if isinstance(observation, dict)
-                    and observation.get("eligible_for_reliability")
-                ]
-                all_observations = [
-                    observation
-                    for group in groups
-                    for observation in _rows(_mapping(group).get("observations"))
-                    if isinstance(observation, dict)
+                    for observation in all_observations
+                    if observation.get("eligible_for_reliability")
                 ]
                 cohort_build_numbers = {
                     _safe_int(_mapping(row).get("number"), -1)
@@ -5336,10 +5672,14 @@ class DashboardAudit:
         analytics_build = (((analytics.get("amd-ci") or {}).get("builds") or [{}])[0]).get("number")
         health_build = ((health.get("amd") or {}).get("latest_build") or {}).get("build_number")
         if analytics_build and source_build != analytics_build:
-            self.error(
+            self.report_cross_surface_build_mismatch(
                 "matrix-analytics-build",
                 f"matrix source build #{source_build} does not match analytics AMD latest #{analytics_build}",
                 "data/vllm/ci/amd_test_matrix.json",
+                left_surface="ci_core",
+                left_build=source_build,
+                right_surface="ci_analytics",
+                right_build=analytics_build,
             )
         if health_build and source_build != health_build:
             self.error(
@@ -7520,7 +7860,7 @@ class DashboardAudit:
             None,
         )
         private_lineage_ok = (
-            analytics_owner == "ci_core"
+            analytics_owner == "ci_analytics"
             and analytics_spec is not None
             and "scripts/vllm/collect_analytics.py" in analytics_spec.producers
         )
@@ -7528,7 +7868,7 @@ class DashboardAudit:
             self.error(
                 "private-analytics-lineage",
                 (
-                    "full analytics.json must remain selector-owned by ci_core and "
+                    "full analytics.json must remain selector-owned by ci_analytics and "
                     "covered by the private data audit"
                 ),
                 PRIVATE_ANALYTICS_DATA_PATH,
@@ -7682,7 +8022,7 @@ class DashboardAudit:
             token in analytics_collect
             for token in (
                 "id: collect-analytics",
-                "surface_is_current ci_core",
+                "surface_is_current ci_analytics",
                 'echo "cache_save=true"',
                 'echo "cache_save=false"',
             )

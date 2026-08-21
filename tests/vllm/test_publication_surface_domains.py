@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,6 +18,8 @@ from vllm.publication_surfaces import (
     LEGACY_CI_SURFACE,
     LEGACY_CI_SURFACE_SPEC,
     LEGACY_SURFACE_ALIASES,
+    CONTEXTUAL_OPERATIONS_FINDING_CODES,
+    OPERATIONS_FINDING_SURFACES,
     SOURCE_SURFACES,
     SURFACE_SPECS,
     fallback_dependency_closure,
@@ -27,7 +30,36 @@ from vllm.publication_surfaces import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CI_DOMAINS = frozenset({"ci_core", "ci_gating", "ci_changes", "ci_hotness"})
+CI_DOMAINS = frozenset({
+    "ci_core",
+    "ci_analytics",
+    "ci_gating",
+    "ci_changes",
+    "ci_hotness",
+})
+
+
+def test_every_operations_audit_code_has_explicit_source_lineage() -> None:
+    tree = ast.parse(
+        (ROOT / "scripts/vllm/audit_dashboard_data.py").read_text()
+    )
+    audit_codes = {
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and node.value.startswith("operations-")
+    }
+
+    assert audit_codes == (
+        set(OPERATIONS_FINDING_SURFACES)
+        | set(CONTEXTUAL_OPERATIONS_FINDING_CODES)
+    )
+    assert {
+        surface
+        for surfaces in OPERATIONS_FINDING_SURFACES.values()
+        for surface in surfaces
+    } <= set(SURFACE_SPECS)
 
 
 def _finding(
@@ -73,7 +105,8 @@ def test_active_surfaces_have_unique_ownership_and_cover_public_manifest() -> No
     } == set()
     assert set(SOURCE_SURFACES.values()) <= set(SURFACE_SPECS)
 
-    assert surface_for_path("data/vllm/ci/analytics.json") == "ci_core"
+    assert surface_for_path("data/vllm/ci/analytics.json") == "ci_analytics"
+    assert surface_for_path("data/vllm/ci/gating_nightlies.json") == "ci_gating"
     assert surface_for_path("data/vllm/ci/gating_targets.json") == "ci_gating"
     assert surface_for_path("data/vllm/ci/group_changes.json") == "ci_changes"
     assert surface_for_path("data/vllm/ci/hotness.json") == "ci_hotness"
@@ -181,20 +214,50 @@ def test_path_specific_findings_route_to_the_owning_domain(
 @pytest.mark.parametrize(
     ("code", "source", "expected"),
     (
-        ("operations-stale-source", "analytics", {"ci_core"}),
+        ("operations-stale-source", "analytics", {"ci_analytics"}),
         ("operations-stale-source", "gating_targets", {"ci_gating"}),
         ("operations-source-schema", "group_changes", {"ci_changes"}),
-        ("operations-gating-inconsistent", None, {"ci_core", "ci_gating"}),
-        ("operations-gating-inconsistent", "gating_targets", {"ci_gating"}),
-        ("operations-trajectory-invalid", None, {"ci_core", "ci_changes"}),
-        ("operations-trajectory-invalid", "group_changes", {"ci_changes"}),
-        ("operations-reliability-invalid", None, {"ci_core"}),
-        ("operations-nightly-invalid", None, {"ci_core"}),
-        ("operations-test-health-invalid", None, {"ci_core"}),
-        ("operations-definition-invalid", None, {"ci_core"}),
-        ("operations-ownership-invalid", None, {"ci_core"}),
+        (
+            "operations-gating-runtime-resolution",
+            None,
+            {"ci_core", "ci_gating", "queue"},
+        ),
+        (
+            "operations-gating-history-source-pipeline",
+            None,
+            {"ci_analytics", "ci_gating", "queue"},
+        ),
+        ("operations-active-target-count", None, {"ci_gating", "queue"}),
+        ("operations-canonical-target-count", None, {"ci_gating"}),
+        ("operations-trajectory-scope", None, {"ci_analytics"}),
+        (
+            "operations-latest-nightly",
+            None,
+            {"ci_analytics", "ci_core"},
+        ),
+        ("operations-latest-nightly-ahead", None, {"ci_core"}),
+        ("operations-reliability-unavailable", None, {"ci_analytics"}),
+        (
+            "operations-nightly-retention",
+            None,
+            {"ci_analytics", "ci_core"},
+        ),
+        ("operations-platform-comparison-counts", None, {"ci_analytics"}),
+        ("operations-platform-comparison-eligibility", None, {"ci_analytics"}),
+        ("operations-retry-attempt-count", None, {"ci_analytics"}),
+        ("operations-retry-recovery-count", None, {"ci_analytics"}),
+        ("operations-retry-links", None, {"ci_analytics"}),
+        ("operations-retry-source", None, {"ci_analytics"}),
+        ("operations-amd-retained-count", None, {"ci_core"}),
+        (
+            "operations-bundle-org-summary-source",
+            None,
+            {"queue_lifecycle"},
+        ),
+        ("definition-parity-command", None, {"ci_core"}),
+        ("matrix-summary-mismatch", None, {"ci_core"}),
         ("gating-target-invalid", None, {"ci_gating"}),
-        ("analytics-invalid", None, {"ci_core"}),
+        ("analytics-invalid", None, {"ci_analytics"}),
         ("dns-health-invalid", None, {"dns_health"}),
     ),
 )
@@ -206,6 +269,35 @@ def test_generic_findings_route_to_their_consuming_domains(
     assert finding_surfaces(_finding(code, source=source)) == frozenset(expected)
 
 
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    (
+        (
+            "operations-home-payload-budget",
+            {"ci_analytics", "ci_core", "queue"},
+        ),
+        (
+            "operations-health-payload-budget",
+            {"ci_analytics", "ci_core", "queue"},
+        ),
+        ("operations-queue-payload-budget", {"queue"}),
+        (
+            "operations-bundle-org-summary-budget",
+            {"ci_analytics", "ci_core", "ci_gating", "queue", "queue_lifecycle"},
+        ),
+    ),
+)
+def test_operations_manifest_budget_findings_reach_their_source_routes(
+    code: str,
+    expected: set[str],
+) -> None:
+    finding = _finding(
+        code,
+        path="data/vllm/ci/operations_v2_manifest.json",
+    )
+    assert finding_surfaces(finding) == frozenset(expected)
+
+
 def test_non_data_path_remains_a_global_failure() -> None:
     assert finding_surfaces(
         _finding(
@@ -215,11 +307,12 @@ def test_non_data_path_remains_a_global_failure() -> None:
     ) == frozenset()
 
 
-def test_fallback_dependency_closure_invalidates_gating_transitively() -> None:
-    assert FALLBACK_DEPENDENCIES == {"ci_core": frozenset({"ci_gating"})}
+def test_analytics_core_and_gating_fallbacks_are_independent() -> None:
+    assert FALLBACK_DEPENDENCIES == {}
     assert fallback_dependency_closure(set()) == frozenset()
-    assert fallback_dependency_closure("ci_core") == frozenset(
-        {"ci_core", "ci_gating"}
+    assert fallback_dependency_closure("ci_core") == frozenset({"ci_core"})
+    assert fallback_dependency_closure("ci_analytics") == frozenset(
+        {"ci_analytics"}
     )
     assert fallback_dependency_closure({"ci_gating"}) == frozenset({"ci_gating"})
     assert fallback_dependency_closure({"ci_changes", "ci_hotness"}) == frozenset(
@@ -227,7 +320,7 @@ def test_fallback_dependency_closure_invalidates_gating_transitively() -> None:
     )
     assert fallback_dependency_closure(
         fallback_dependency_closure({"ci_core"})
-    ) == frozenset({"ci_core", "ci_gating"})
+    ) == frozenset({"ci_core"})
 
 
 def test_fallback_dependency_closure_supports_multi_hop_graphs(
@@ -240,7 +333,8 @@ def test_fallback_dependency_closure_supports_multi_hop_graphs(
             "ci_core": frozenset({"ci_gating"}),
             "ci_gating": frozenset({"ci_changes"}),
             "ci_changes": frozenset({"ci_hotness"}),
-            "ci_hotness": frozenset({"ci_core"}),
+            "ci_hotness": frozenset({"ci_analytics"}),
+            "ci_analytics": frozenset({"ci_core"}),
         },
     )
     assert fallback_dependency_closure({"ci_core"}) == CI_DOMAINS

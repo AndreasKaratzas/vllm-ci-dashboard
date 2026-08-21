@@ -19,7 +19,7 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable, Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -28,6 +28,9 @@ from vllm.publication_surfaces import (  # noqa: E402
     LEGACY_CI_SURFACE,
     LEGACY_CI_SURFACE_SPEC,
     LEGACY_SURFACE_ALIASES,
+    PRE_ANALYTICS_CI_CORE_SURFACE_SPEC,
+    PRE_ANALYTICS_CI_GATING_SURFACE_SPEC,
+    SURFACE_CONTRACT_VERSION,
     SURFACE_SPECS,
     SurfaceSpec,
     fallback_dependency_closure,
@@ -41,12 +44,202 @@ DEFAULT_STATE = Path("data/vllm/ci/publication_state.json")
 FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
 FALLBACK_MAX_AGE_HOURS = 36
 DECLARED_SURFACE_NAMES = frozenset(SURFACE_SPECS)
+COLLECTOR_FAILURE_SCHEMA_VERSION = 1
+COLLECTOR_REASON_CLASSES = frozenset({
+    "payload-budget",
+    "rate-limit",
+    "timeout",
+    "schema-drift",
+    "transient-http",
+    "network",
+    "dependency-unavailable",
+    "command-error",
+})
+TRANSIENT_COLLECTOR_REASONS = frozenset({
+    "rate-limit",
+    "timeout",
+    "transient-http",
+    "network",
+})
+TRANSIENT_ALERT_PERSISTENCE_RUNS = 2
 
 
 class FallbackExpiredError(RuntimeError):
     def __init__(self, findings: list[dict]):
         super().__init__("last-known-good publication fallback exceeded its hard limit")
         self.findings = findings
+
+
+def _bounded_text(value: object, *, limit: int) -> str:
+    text = " ".join(str(value or "").split())
+    return text[:limit]
+
+
+def _safe_detail_text(value: object) -> str:
+    text = _bounded_text(value, limit=1000)
+    text = re.sub(r"https?://\S+", "<url>", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"(?i)\b(?:authorization|token|password|secret|api[_-]?key)\b"
+        r"\s*[:=]\s*\S+",
+        "<redacted>",
+        text,
+    )
+    text = re.sub(r"(?i)\bbearer\s+\S+", "Bearer <redacted>", text)
+    text = re.sub(
+        r"(?i)\b(?:github_pat_|gh[pousr]_|bkua_|bkup_)[A-Za-z0-9_]+",
+        "<redacted-token>",
+        text,
+    )
+    return text
+
+
+def _safe_collector_details(value: object) -> dict[str, Any]:
+    """Keep small diagnostic primitives; command output is never trusted."""
+    if not isinstance(value, Mapping):
+        return {}
+    remaining = [256]
+
+    def safe(raw: object, depth: int) -> Any:
+        if remaining[0] <= 0:
+            return None
+        remaining[0] -= 1
+        if isinstance(raw, bool) or raw is None:
+            return raw
+        if isinstance(raw, int) and not isinstance(raw, bool):
+            return raw
+        if isinstance(raw, float):
+            return round(raw, 3)
+        if isinstance(raw, str):
+            return _safe_detail_text(raw)
+        if isinstance(raw, Mapping) and depth < 4:
+            nested = {}
+            for raw_key, raw_value in list(raw.items())[:64]:
+                key = _bounded_text(raw_key, limit=64)
+                if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", key):
+                    continue
+                nested[key] = safe(raw_value, depth + 1)
+                if remaining[0] <= 0:
+                    break
+            return nested
+        return None
+
+    return safe(value, 0) or {}
+
+
+def _normalize_collector_failure(value: object) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError("collector failure records must be JSON objects")
+    if value.get("schema_version") != COLLECTOR_FAILURE_SCHEMA_VERSION:
+        raise ValueError("collector failure record has an unsupported schema_version")
+    surface = _bounded_text(value.get("surface"), limit=64)
+    if surface not in SURFACE_SPECS:
+        raise ValueError(f"collector failure references unknown surface {surface!r}")
+    collector = _bounded_text(value.get("collector"), limit=160)
+    step = _bounded_text(value.get("step"), limit=200)
+    reason_class = _bounded_text(value.get("reason_class"), limit=64)
+    if not collector or not re.fullmatch(r"[A-Za-z0-9_.:/-]+", collector):
+        raise ValueError("collector failure has an invalid collector identity")
+    if not step:
+        raise ValueError("collector failure has an empty workflow step")
+    if reason_class not in COLLECTOR_REASON_CLASSES:
+        raise ValueError(
+            f"collector failure has unsupported reason_class {reason_class!r}"
+        )
+    exit_code = value.get("exit_code")
+    if (
+        not isinstance(exit_code, int)
+        or isinstance(exit_code, bool)
+        or exit_code < 1
+        or exit_code > 255
+    ):
+        raise ValueError("collector failure has an invalid exit_code")
+    return {
+        "schema_version": COLLECTOR_FAILURE_SCHEMA_VERSION,
+        "surface": surface,
+        "collector": collector,
+        "step": step,
+        "reason_class": reason_class,
+        "exit_code": exit_code,
+        "details": _safe_collector_details(value.get("details")),
+    }
+
+
+def load_collector_failures(path: Path) -> list[dict[str, Any]]:
+    """Load the workflow's bounded JSONL failure ledger."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise ValueError(f"collector failure file is unreadable: {exc}") from exc
+    records = []
+    for line_number, raw in enumerate(lines, start=1):
+        if not raw.strip():
+            continue
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"collector failure file line {line_number} is not valid JSON"
+            ) from exc
+        records.append(_normalize_collector_failure(value))
+    return records
+
+
+def _collector_failure_persistence_identity(record: Mapping[str, Any]) -> str:
+    """Group one collector step across transient transport classifications.
+
+    The incident finding still carries ``reason_class`` so its diagnostics and
+    ticket fingerprint stay precise. Persistence is intentionally keyed to the
+    producer step: one continuous outage can alternate between timeout,
+    network, and transient HTTP symptoms without becoming a series of false
+    first observations.
+    """
+    source = "\n".join(
+        str(record.get(key) or "")
+        for key in ("surface", "collector", "step")
+    )
+    return hashlib.sha256(source.encode()).hexdigest()[:20]
+
+
+def _collector_incident_policy(
+    records: list[dict[str, Any]],
+    previous: dict | None,
+    *,
+    has_untyped_forced_surface: bool,
+) -> tuple[dict[str, Any], dict[str, int]]:
+    previous_streaks = (previous or {}).get("collector_failure_streaks") or {}
+    if not isinstance(previous_streaks, dict):
+        previous_streaks = {}
+    streaks: dict[str, int] = {}
+    immediate = has_untyped_forced_surface
+    persisted = False
+    transient = False
+    for record in records:
+        identity = _collector_failure_persistence_identity(record)
+        prior = previous_streaks.get(identity)
+        prior_count = prior if isinstance(prior, int) and prior > 0 else 0
+        streaks[identity] = max(streaks.get(identity, 0), prior_count + 1)
+        reason = record["reason_class"]
+        if reason in TRANSIENT_COLLECTOR_REASONS:
+            transient = True
+            if streaks[identity] >= TRANSIENT_ALERT_PERSISTENCE_RUNS:
+                persisted = True
+        else:
+            immediate = True
+    alert = bool(immediate or persisted)
+    if immediate:
+        reason = "deterministic-or-unclassified-collector-failure"
+    elif persisted:
+        reason = "transient-collector-failure-persisted"
+    elif transient:
+        reason = "transient-collector-failure-first-observation"
+    else:
+        reason = "no-collector-failure"
+    return ({
+        "alert": alert,
+        "reason": reason,
+        "transient_persistence_runs_required": TRANSIENT_ALERT_PERSISTENCE_RUNS,
+        "max_observed_streak": max(streaks.values(), default=0),
+    }, streaks)
 
 
 def _utc_now() -> str:
@@ -233,6 +426,189 @@ def _partition_baseline_manifest(
     return partitioned
 
 
+def _pre_analytics_expansion(surface: str) -> frozenset[str]:
+    if surface == "ci_core":
+        return frozenset({"ci_core", "ci_analytics", "ci_gating"})
+    return frozenset({surface})
+
+
+def _expanded_earliest_clock(
+    raw_since: Mapping[str, str],
+    surfaces: Iterable[str],
+) -> dict[str, str]:
+    expanded: dict[str, str] = {}
+    for surface in surfaces:
+        value = raw_since[surface]
+        for target in _pre_analytics_expansion(surface):
+            current = expanded.get(target)
+            if current is None or (_parse_utc(value) or datetime.max.replace(
+                tzinfo=timezone.utc
+            )) < (_parse_utc(current) or datetime.max.replace(tzinfo=timezone.utc)):
+                expanded[target] = value
+    return expanded
+
+
+def _baseline_descriptor(root: Path, ref: str, relative: str) -> dict[str, Any]:
+    try:
+        payload = _run_git(root, "show", f"{ref}:{relative}")
+    except subprocess.CalledProcessError:
+        raise RuntimeError(
+            f"validated baseline is missing migration path {relative}"
+        ) from None
+    return {
+        "bytes": len(payload),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
+
+
+def _migrate_pre_analytics_v2_state(
+    root: Path,
+    ref: str,
+    payload: dict,
+) -> dict:
+    """Validate and split the pre-ci_analytics schema-v2 transaction."""
+    mode = payload.get("mode")
+    degraded = payload.get("degraded_surfaces")
+    fresh = payload.get("fresh_degraded_surfaces")
+    fallback = payload.get("fallback_surfaces")
+    degraded_since = payload.get("degraded_since")
+    fallback_since = payload.get("fallback_since")
+    allowed = set(SURFACE_SPECS)
+    if (
+        mode not in {"current", "degraded", "fallback", "mixed"}
+        or not isinstance(degraded, list)
+        or not isinstance(fresh, list)
+        or not isinstance(fallback, list)
+        or any(
+            not isinstance(surface, str) or surface not in allowed
+            for surface in [*degraded, *fresh, *fallback]
+        )
+        or len(set(degraded)) != len(degraded)
+        or len(set(fresh)) != len(fresh)
+        or len(set(fallback)) != len(fallback)
+        or set(fresh) & set(fallback)
+        or set(degraded) != set(fresh) | set(fallback)
+        or not isinstance(degraded_since, dict)
+        or set(degraded_since) != set(degraded)
+        or any(_parse_utc(value) is None for value in degraded_since.values())
+        or not isinstance(fallback_since, dict)
+        or set(fallback_since) != set(fallback)
+        or any(_parse_utc(value) is None for value in fallback_since.values())
+        or mode != _publication_mode(set(fresh), set(fallback))
+        or ("ci_core" in fallback and "ci_gating" not in fallback)
+    ):
+        raise RuntimeError("validated baseline publication state is inconsistent")
+
+    manifest = payload.get("restored_manifest")
+    restored_paths = payload.get("restored_paths")
+    if not fallback:
+        if manifest not in (None, {}) or restored_paths not in (None, {}):
+            raise RuntimeError("non-fallback baseline state declares restored content")
+        expanded_fresh_clock = _expanded_earliest_clock(
+            degraded_since, fresh
+        )
+        return {
+            **payload,
+            "surface_contract_version": SURFACE_CONTRACT_VERSION,
+            "mode": _publication_mode(set(expanded_fresh_clock), set()),
+            "degraded_surfaces": sorted(expanded_fresh_clock),
+            "fresh_degraded_surfaces": sorted(expanded_fresh_clock),
+            "fallback_surfaces": [],
+            "degraded_since": expanded_fresh_clock,
+            "fallback_since": {},
+            "restored_paths": {},
+            "restored_manifest": {},
+        }
+    if not isinstance(manifest, dict) or set(manifest) != set(fallback):
+        raise RuntimeError("fallback baseline state has an incomplete restore manifest")
+    if restored_paths is not None and (
+        not isinstance(restored_paths, dict) or set(restored_paths) != set(fallback)
+    ):
+        raise RuntimeError("fallback baseline state has incomplete restored paths")
+
+    validated: dict[str, dict] = {}
+    for surface in fallback:
+        if surface == "ci_core":
+            spec = PRE_ANALYTICS_CI_CORE_SURFACE_SPEC
+        elif surface == "ci_gating":
+            spec = PRE_ANALYTICS_CI_GATING_SURFACE_SPEC
+        else:
+            spec = SURFACE_SPECS[surface]
+        entries = _validate_baseline_manifest(
+            root, ref, surface, spec, manifest[surface]
+        )
+        if restored_paths is not None and _migrated_restored_paths(
+            surface, restored_paths.get(surface)
+        ) != sorted(entries):
+            raise RuntimeError(
+                f"fallback baseline restored paths for {surface} are inconsistent"
+            )
+        validated[surface] = entries
+
+    expanded_fallback = {
+        target for surface in fallback for target in _pre_analytics_expansion(surface)
+    }
+    partitioned = {surface: {} for surface in expanded_fallback}
+    for old_surface, entries in validated.items():
+        targets = _pre_analytics_expansion(old_surface)
+        for relative, descriptor in entries.items():
+            owners = [
+                target
+                for target in targets
+                if _spec_owns_path(SURFACE_SPECS[target], relative)
+            ]
+            if len(owners) != 1:
+                raise RuntimeError(
+                    "pre-analytics fallback path does not have one active owner: "
+                    f"{relative}"
+                )
+            owner = owners[0]
+            if relative in partitioned[owner]:
+                raise RuntimeError(
+                    f"pre-analytics fallback path is duplicated: {relative}"
+                )
+            partitioned[owner][relative] = descriptor
+
+    for surface, entries in partitioned.items():
+        expected = _baseline_expected_paths(root, ref, SURFACE_SPECS[surface])
+        missing = expected - set(entries)
+        allowed_missing = set()
+        if surface == "ci_gating":
+            allowed_missing = missing & {"data/vllm/ci/gating_nightlies.json"}
+        if missing != allowed_missing:
+            raise RuntimeError(
+                f"pre-analytics fallback partition for {surface} is inconsistent"
+            )
+        for relative in sorted(allowed_missing):
+            entries[relative] = _baseline_descriptor(root, ref, relative)
+        if set(entries) != expected:
+            raise RuntimeError(
+                f"pre-analytics fallback partition for {surface} is inconsistent"
+            )
+
+    expanded_degraded_clock = _expanded_earliest_clock(
+        degraded_since, degraded
+    )
+    expanded_fallback_clock = _expanded_earliest_clock(
+        fallback_since, fallback
+    )
+    expanded_fresh = set(expanded_degraded_clock) - set(expanded_fallback_clock)
+    return {
+        **payload,
+        "surface_contract_version": SURFACE_CONTRACT_VERSION,
+        "mode": _publication_mode(expanded_fresh, set(expanded_fallback_clock)),
+        "degraded_surfaces": sorted(expanded_degraded_clock),
+        "fresh_degraded_surfaces": sorted(expanded_fresh),
+        "fallback_surfaces": sorted(expanded_fallback_clock),
+        "degraded_since": expanded_degraded_clock,
+        "fallback_since": expanded_fallback_clock,
+        "restored_paths": {
+            surface: sorted(entries) for surface, entries in partitioned.items()
+        },
+        "restored_manifest": partitioned,
+    }
+
+
 def _expand_clock(
     raw_since: dict[str, str],
     expansions: dict[str, frozenset[str]],
@@ -288,6 +664,14 @@ def _baseline_publication_state(
     ):
         raise RuntimeError("validated baseline publication state is inconsistent")
 
+    if (
+        schema_version == 2
+        and _uses_declared_surface_domain()
+        and payload.get("surface_contract_version") != SURFACE_CONTRACT_VERSION
+        and {"ci_core", "ci_gating"} & set(degraded)
+    ):
+        return _migrate_pre_analytics_v2_state(root, ref, payload)
+
     manifest = payload.get("restored_manifest")
     restored_paths = payload.get("restored_paths")
     if schema_version == 1:
@@ -307,6 +691,7 @@ def _baseline_publication_state(
             return {
                 **payload,
                 "schema_version": 2,
+                "surface_contract_version": SURFACE_CONTRACT_VERSION,
                 "mode": "current",
                 "degraded_surfaces": [],
                 "fresh_degraded_surfaces": [],
@@ -361,6 +746,7 @@ def _baseline_publication_state(
         return {
             **payload,
             "schema_version": 2,
+            "surface_contract_version": SURFACE_CONTRACT_VERSION,
             "mode": "fallback",
             "degraded_surfaces": sorted(fallback),
             "fresh_degraded_surfaces": [],
@@ -430,6 +816,7 @@ def _baseline_publication_state(
         migrated_paths[surface] = sorted(entries)
     return {
         **payload,
+        "surface_contract_version": SURFACE_CONTRACT_VERSION,
         "restored_paths": migrated_paths,
         "restored_manifest": validated_manifest,
     }
@@ -632,9 +1019,51 @@ def _emit_outputs(state: dict) -> None:
     output_path = os.getenv("GITHUB_OUTPUT", "").strip()
     degraded = bool(state.get("degraded_surfaces"))
     blocked = state.get("mode") == "blocked"
+    incident_policy = state.get("collector_incident_policy") or {}
+    typed_surfaces = {
+        str(record.get("surface") or "")
+        for record in (state.get("collector_failures") or [])
+        if isinstance(record, dict) and record.get("surface")
+    }
+    unexpected_finding = False
+    for key in (
+        "candidate_errors",
+        "candidate_degradations",
+        "final_errors",
+        "final_degradations",
+    ):
+        for record in state.get(key) or []:
+            if not isinstance(record, dict):
+                unexpected_finding = True
+                continue
+            if record.get("code") == "publication-collector-failed":
+                continue
+            finding_surfaces = {
+                str(surface)
+                for surface in (record.get("surfaces") or [])
+                if str(surface)
+            }
+            if not typed_surfaces or not finding_surfaces <= typed_surfaces:
+                unexpected_finding = True
+    alertable_degradation = bool(
+        blocked
+        or unexpected_finding
+        or (
+            degraded
+            and incident_policy.get("alert", True) is not False
+        )
+    )
     lines = [
         f"degraded={'true' if degraded else 'false'}",
         f"blocked={'true' if blocked else 'false'}",
+        (
+            "alertable_degradation="
+            + ("true" if alertable_degradation else "false")
+        ),
+        (
+            "transient_alert_suppressed="
+            + ("true" if degraded and not alertable_degradation else "false")
+        ),
         f"degraded_surfaces={','.join(state.get('degraded_surfaces') or [])}",
         (
             "fresh_degraded_surfaces="
@@ -668,6 +1097,7 @@ def select_publication(
     state_path: Path,
     *,
     forced_degraded: Iterable[str] = (),
+    collector_failures: Iterable[Mapping[str, Any]] = (),
 ) -> dict:
     baseline_ref = baseline_ref.strip().lower()
     if not FULL_SHA_RE.fullmatch(baseline_ref):
@@ -685,7 +1115,15 @@ def select_publication(
             previous_state_loaded = True
         return previous_state
 
-    forced = {str(surface).strip() for surface in forced_degraded if str(surface).strip()}
+    normalized_failures = [
+        _normalize_collector_failure(record) for record in collector_failures
+    ]
+    typed_surfaces = {record["surface"] for record in normalized_failures}
+    forced = {
+        str(surface).strip()
+        for surface in forced_degraded
+        if str(surface).strip()
+    } | typed_surfaces
     unknown_forced = forced - set(SURFACE_SPECS)
     if unknown_forced:
         raise ValueError(f"unknown forced publication surfaces: {sorted(unknown_forced)}")
@@ -696,17 +1134,9 @@ def select_publication(
     fresh_degraded: set[str] = set()
     fallback: set[str] = _closed_fallback_surfaces(forced)
     restored: dict[str, list[str]] = {}
-    for surface in sorted(forced):
-        candidate_errors.append({
-            "severity": "error",
-            "code": "publication-collector-failed",
-            "message": f"{surface} collection failed before publication validation",
-            "path": "",
-            "context": {"surface": surface},
-            "surfaces": [surface],
-        })
     state = {
         "schema_version": 2,
+        "surface_contract_version": SURFACE_CONTRACT_VERSION,
         "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "baseline_ref": baseline_ref,
         "mode": "current",
@@ -716,6 +1146,16 @@ def select_publication(
         "degraded_since": {},
         "fallback_since": {},
         "fallback_max_age_hours": FALLBACK_MAX_AGE_HOURS,
+        "collector_failures": [],
+        "collector_failure_streaks": {},
+        "collector_incident_policy": {
+            "alert": True,
+            "reason": "non-collector-publication-finding",
+            "transient_persistence_runs_required": (
+                TRANSIENT_ALERT_PERSISTENCE_RUNS
+            ),
+            "max_observed_streak": 0,
+        },
         "candidate_errors": candidate_errors,
         "candidate_degradations": candidate_degradations,
         "final_errors": [],
@@ -725,6 +1165,59 @@ def select_publication(
     }
 
     try:
+        previous_for_policy = prior_state() if forced else None
+        incident_policy, collector_streaks = _collector_incident_policy(
+            normalized_failures,
+            previous_for_policy,
+            has_untyped_forced_surface=bool(forced - typed_surfaces),
+        )
+        if forced:
+            state["collector_incident_policy"] = incident_policy
+        state["collector_failure_streaks"] = collector_streaks
+        for record in normalized_failures:
+            persistence_runs = collector_streaks[
+                _collector_failure_persistence_identity(record)
+            ]
+            recorded_failure = {
+                **record,
+                "persistence_runs": persistence_runs,
+            }
+            state["collector_failures"].append(recorded_failure)
+            candidate_errors.append({
+                "severity": "error",
+                "code": "publication-collector-failed",
+                "message": (
+                    f"{record['step']} ({record['collector']}) failed with "
+                    f"{record['reason_class']}; {record['surface']} will use its "
+                    "validated baseline"
+                ),
+                "path": "",
+                "context": {
+                    "surface": record["surface"],
+                    "collector": record["collector"],
+                    "step": record["step"],
+                    "reason_class": record["reason_class"],
+                    "exit_code": record["exit_code"],
+                    "details": record["details"],
+                    "persistence_runs": persistence_runs,
+                },
+                "surfaces": [record["surface"]],
+            })
+        for surface in sorted(forced - typed_surfaces):
+            candidate_errors.append({
+                "severity": "error",
+                "code": "publication-collector-failed",
+                "message": (
+                    f"{surface} collection failed before publication validation"
+                ),
+                "path": "",
+                "context": {
+                    "surface": surface,
+                    "reason_class": "command-error",
+                },
+                "surfaces": [surface],
+            })
+        state["candidate_errors"] = candidate_errors
         # Parse all source files first. This catches truncated/missing collector
         # output without depending on the derived Operations bundle being
         # buildable. Forced collector failures join the same transaction set.
@@ -782,13 +1275,20 @@ def select_publication(
                     preflight=preflight[surface],
                 )
 
+            # The semantic audit below sees an intentional mixed-generation
+            # tree. Persist and hash-attest the already restored transactions
+            # before allowing narrowly scoped fallback-aware invariants.
+            state["restored_paths"] = dict(restored)
+            state["restored_manifest"] = _surface_manifest(root, restored)
+            _write_state(state_path, state)
+
         # Build the candidate read model after any command-level or parse-level
         # quarantine, then use the full cross-surface audit to discover semantic
         # transaction failures such as matrix/health count drift.
         _rebuild_operations(root)
         candidate = DashboardAudit(
             root,
-            allow_publication_fallback=False,
+            allow_publication_fallback=bool(restored),
             publication_state_path=state_path,
         ).run()
         unrouted = []
@@ -944,6 +1444,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="",
         help="Comma-separated form of --force-degraded-surface for workflow plumbing",
     )
+    parser.add_argument(
+        "--collector-failures-file",
+        default="",
+        help=(
+            "JSONL records describing typed collector failures; their surfaces "
+            "are restored in addition to explicitly forced surfaces"
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -960,11 +1468,18 @@ def main(argv: list[str] | None = None) -> int:
             for surface in args.force_degraded_surfaces.split(",")
             if surface.strip()
         )
+        collector_failures = []
+        if args.collector_failures_file.strip():
+            failures_path = Path(args.collector_failures_file)
+            if not failures_path.is_absolute():
+                failures_path = root / failures_path
+            collector_failures = load_collector_failures(failures_path)
         select_publication(
             root,
             args.baseline_ref,
             state_path,
             forced_degraded=forced,
+            collector_failures=collector_failures,
         )
     except Exception as exc:
         print(f"Publication selection failed: {exc}", file=sys.stderr)

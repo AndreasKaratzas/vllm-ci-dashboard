@@ -122,6 +122,14 @@ retry evidence, and queue timestamps. The public shard is the authoritative
 joined contract; the full analytics payload and the monolithic
 `operations_v2.json` build input remain private.
 
+`all_main_reliability` schema v2 normalizes its retained observations: build
+metadata and base URLs live once in the authoritative `builds` catalog, while
+observations retain build/job/step identifiers and exceptional URL overrides.
+The Operations builder, audits, and alert watchers bulk-hydrate the legacy
+presentation fields before use. This preserves the existing popup payload while
+keeping the private monolith under its 64 MiB operating budget. Schema-v1
+last-known-good data remains readable during migration.
+
 ### Pass-rate contracts
 
 Pass rates carry an explicit percentage and denominator label so consumers do
@@ -408,5 +416,10 @@ cached `last_full_at` reaches 24 hours old. This guarantees that the first
 snapshot saved under each immutable daily key is complete. A failed analytics
 collection does not save the new daily key; cache transport failures are
 non-fatal and collection continues from Buildkite.
+An incremental materialization that grows by at least 20% and 8 MiB is treated
+as suspicious and receives one exhaustive reconciliation before any cache
+replacement. Analytics and the independently consumed gating-nightly seed are
+written atomically; gating is written first so a later analytics budget failure
+does not withhold valid fresh gating evidence.
 This directory is private, gitignored, never published, and never restored
 from gh-pages. Delete the local directory to force a cache-free fetch.

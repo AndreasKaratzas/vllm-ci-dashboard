@@ -116,26 +116,38 @@ reconciled instead of freezing an incremental snapshot for that day.
 
 Cache restore or save transport failures are non-fatal optimizations: the
 collector continues against Buildkite. If analytics collection itself fails,
-the `ci_core` publication surface falls back to its validated baseline and the
+the `ci_analytics` publication surface falls back to its validated baseline and the
 workflow does not save a cache for the new day, so the next run retries from
 the prior safe snapshot. The directory is gitignored, covered by the public
 manifest's never-publish policy, never staged, and never seeded from gh-pages.
 
+The private reliability ledger uses schema v2: each retained observation keeps
+stable build/job/step identifiers while build URL, commit, message, and creation
+time are stored once in the build catalog. Server-side consumers hydrate the
+legacy presentation fields before building Operations data or watcher evidence,
+so browser cards and popups retain the same contract. The writer is atomic and
+enforces a 64 MiB normal operating budget (well below GitHub's 100 MiB blob
+limit), reporting per-component bytes and any emergency evidence compaction.
+An incremental cache projection that grows by both at least 20% and 8 MiB is
+discarded and reconciled once from the exhaustive source before it can replace
+the cache.
+
 ## Bounded last-known-good publication
 
-The hourly workflow splits CI into four atomic publication surfaces: core
-health (collection, analytics, matrix, ownership, and nightly evidence),
-gating configuration, test-group changes, and workload hotness. Queue,
+The hourly workflow splits CI into five atomic publication surfaces: core
+health/matrix/ownership, private analytics/reliability, gating configuration
+and nightly evidence, test-group changes, and workload hotness. Queue,
 lifecycle, agent-health, GitHub-home, Ready Tickets, perf-eval, and test-build
-inputs remain separate surfaces. Gating depends on CI core evidence, so a core
-fallback also invalidates gating; changes and hotness can remain current. A
-routed degradation keeps fresh candidate bytes and publishes an explicit
-warning. A collector failure or hard routed audit error instead rejects that
-surface's entire candidate transaction. The selector restores the whole failed
-surface from the main commit captured before collection, rebuilds the derived
-Operations data, and runs the complete audit again. Unknown findings, code or
-workflow defects, an invalid baseline, and any post-restore error remain hard
-deployment stops.
+inputs remain separate surfaces. An analytics capacity failure can therefore
+retain reliability history without rolling back unrelated health, matrix,
+ownership, or gating data; if the analytics command fails before producing a
+fresh nightly seed, gating is quarantined too. A routed degradation keeps fresh
+candidate bytes and publishes an explicit warning. A collector failure or hard
+routed audit error instead rejects that surface's entire candidate transaction.
+The selector restores the whole failed surface from the main commit captured
+before collection, rebuilds the derived Operations data, and runs the complete
+audit again. Unknown findings, code or workflow defects, an invalid baseline,
+and any post-restore error remain hard deployment stops.
 
 Attested fallback state is committed privately in
 `data/vllm/ci/publication_state.json`; restore paths and hashes never enter the
@@ -145,7 +157,11 @@ degradation remains publishable and keeps its fingerprinted CI incident open.
 `build_site.py` emits a sanitized `publication_status.json` so the dashboard
 can identify fresh degradation, fallback, mixed, and blocked states without
 exposing private restore metadata. Repeated runs of the same incident do not
-post duplicate comments.
+post duplicate comments. Collector failures carry a bounded typed reason into
+the incident fingerprint; a first transient network/HTTP failure uses the
+validated baseline without opening a ticket, while deterministic failures and
+two consecutive transient failures alert. Six consecutive healthy hourly
+publications are required before an incident closes and rearms.
 
 The legacy manual `ci-collect.yml` workflow is validation-only. It can exercise
 the focused collectors and show the resulting workspace changes, but its token

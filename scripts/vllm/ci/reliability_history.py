@@ -27,9 +27,10 @@ from vllm.constants import BK_ORG, is_excluded_queue
 from vllm.pipelines import SKIP_JOB_PATTERNS
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 OBSERVED_FAILURE_MOVEMENT_ID = "observed-failure-movement-v1"
 OBSERVATION_LIMIT = 60
+BUILD_MESSAGE_MAX_CHARS = 4096
 BUILD_FETCH_PAGE_SIZE = 100
 BUILD_FETCH_MAX_PAGES = 50
 TRUSTWORTHY_BUILD_STATES = frozenset({"passed", "failed"})
@@ -41,6 +42,20 @@ KNOWN_TERMINAL_JOB_STATES = frozenset({
 })
 RETRY_FIELDS = (
     "retried", "retried_in_job_id", "retries_count", "retry_source", "retry_type",
+)
+
+# Schema v1 repeated these build-catalog and derivable-link values for every
+# retained observation.  Schema v2 stores only the foreign keys needed to
+# reconstruct them.  Keeping the list explicit also lets validation reject a
+# stale or tampered compatibility value instead of silently trusting it.
+LEGACY_OBSERVATION_DERIVED_FIELDS = (
+    "source_pipeline",
+    "build_url",
+    "build_commit",
+    "build_message",
+    "build_created_at",
+    "job_url",
+    "step_url",
 )
 
 _HW_PREFIX_RE = re.compile(r"^(mi\d+[a-z]?_\d+|gpu_\d+|amd_\w+):\s*", re.IGNORECASE)
@@ -118,6 +133,165 @@ def buildkite_job_url_matches(value: Any, pipeline_slug: str, build_number: Any 
     return bool(parts[2])
 
 
+def _pipeline_slug_from_reliability(reliability: dict) -> str:
+    provenance = reliability.get("provenance")
+    cohort = reliability.get("cohort")
+    for source in (provenance, cohort):
+        if not isinstance(source, dict):
+            continue
+        pipeline = source.get("pipeline")
+        if isinstance(pipeline, str) and pipeline:
+            return pipeline
+    return ""
+
+
+def resolve_reliability_build(
+    reliability: dict,
+    build_number: Any,
+) -> dict | None:
+    """Resolve an observation's authoritative build-catalog row.
+
+    The public resolver intentionally accepts both schema-v1 and schema-v2
+    payloads so callers can use one migration path for last-known-good data.
+    """
+    number = _build_number(build_number)
+    if number is None or not isinstance(reliability, dict):
+        return None
+    for build in reliability.get("builds") or []:
+        if isinstance(build, dict) and _build_number(build.get("number")) == number:
+            return build
+    return None
+
+
+def _observation_urls(build_url: str, observation: dict) -> tuple[str, str]:
+    job_id = str(observation.get("job_id") or "")
+    step_id = str(observation.get("step_id") or "")
+    step_url = (
+        f"{build_url}/steps/canvas?sid={step_id}&tab=output"
+        if build_url and step_id
+        else ""
+    )
+    if build_url and job_id:
+        job_url = f"{build_url}/steps/canvas?jid={job_id}&tab=output"
+    else:
+        job_url = step_url or build_url
+    # Buildkite script jobs normally have a job ID. Preserve the rare legacy
+    # fallback only when its web URL cannot be reconstructed from IDs.
+    override = observation.get("job_url_override")
+    if isinstance(override, str) and override:
+        job_url = override
+    return job_url, step_url
+
+
+def _hydrate_reliability_observation(
+    reliability: dict,
+    observation: dict,
+    *,
+    build: dict,
+    pipeline_slug: str,
+) -> dict:
+    """Internal O(1) hydrator used when a build index is already available."""
+    hydrated = dict(observation)
+    hydrated.pop("job_url_override", None)
+    build_url = str(build.get("url") or "")
+    job_url, step_url = _observation_urls(build_url, observation)
+    hydrated.update({
+        "source_pipeline": pipeline_slug,
+        "build_url": build_url,
+        "build_commit": str(build.get("commit") or ""),
+        "build_message": str(build.get("message") or ""),
+        "build_created_at": str(build.get("created_at") or ""),
+        "job_url": job_url,
+        "step_url": step_url,
+    })
+
+    retry = observation.get("retry_evidence")
+    if isinstance(retry, dict):
+        hydrated_retry = dict(retry)
+        hydrated_retry.pop("retried_in_job_url", None)
+        retried_in = str(hydrated_retry.get("retried_in_job_id") or "")
+        if retried_in and build_url:
+            hydrated_retry["retried_in_job_url"] = (
+                f"{build_url}/steps/canvas?jid={retried_in}&tab=output"
+            )
+        hydrated["retry_evidence"] = hydrated_retry
+    return hydrated
+
+
+def hydrate_reliability_observation(
+    reliability: dict,
+    observation: dict,
+    *,
+    pipeline_slug: str | None = None,
+) -> dict:
+    """Return one normalized observation in the legacy presentation shape.
+
+    Schema v2 persists build/job/step identifiers and keeps build metadata in
+    the authoritative build catalog.  This helper reconstructs the exact
+    schema-v1 fields used by popup and server-side render consumers without
+    mutating either input.  It also safely canonicalizes schema-v1 rows during
+    migration rather than trusting their duplicated values.
+
+    Raises ``KeyError`` when the observation does not reference a cataloged
+    build and ``ValueError`` when the source pipeline cannot be determined.
+    """
+    if not isinstance(reliability, dict) or not isinstance(observation, dict):
+        raise TypeError("reliability and observation must be dictionaries")
+    build = resolve_reliability_build(reliability, observation.get("build_number"))
+    if build is None:
+        raise KeyError(f"unknown reliability build {observation.get('build_number')!r}")
+    pipeline = pipeline_slug or _pipeline_slug_from_reliability(reliability)
+    if not pipeline:
+        raise ValueError("reliability pipeline is unavailable")
+    return _hydrate_reliability_observation(
+        reliability,
+        observation,
+        build=build,
+        pipeline_slug=pipeline,
+    )
+
+
+def hydrate_reliability_observations(
+    reliability: dict,
+    observations: list[dict],
+    *,
+    pipeline_slug: str | None = None,
+) -> list[dict]:
+    """Hydrate a sequence with one build-catalog index construction.
+
+    Prefer this bulk form for dashboard generation and audits with thousands
+    of observations. It has the same validation/error behavior and preserves
+    input order without mutating the payload.
+    """
+    if not isinstance(reliability, dict) or not isinstance(observations, list):
+        raise TypeError("reliability must be a dictionary and observations a list")
+    pipeline = pipeline_slug or _pipeline_slug_from_reliability(reliability)
+    if not pipeline:
+        raise ValueError("reliability pipeline is unavailable")
+    build_by_number: dict[int, dict] = {}
+    for build in reliability.get("builds") or []:
+        if not isinstance(build, dict):
+            continue
+        number = _build_number(build.get("number"))
+        if number is not None:
+            build_by_number[number] = build
+    hydrated = []
+    for observation in observations:
+        if not isinstance(observation, dict):
+            raise TypeError("every reliability observation must be a dictionary")
+        number = _build_number(observation.get("build_number"))
+        build = build_by_number.get(number) if number is not None else None
+        if build is None:
+            raise KeyError(f"unknown reliability build {observation.get('build_number')!r}")
+        hydrated.append(_hydrate_reliability_observation(
+            reliability,
+            observation,
+            build=build,
+            pipeline_slug=pipeline,
+        ))
+    return hydrated
+
+
 def validate_all_main_reliability(
     payload: Any,
     pipeline_slug: str,
@@ -125,6 +299,13 @@ def validate_all_main_reliability(
     require_exhaustive: bool = True,
 ) -> bool:
     if not isinstance(payload, dict):
+        return False
+    schema_version = payload.get("schema_version", 1)
+    if (
+        isinstance(schema_version, bool)
+        or not isinstance(schema_version, int)
+        or schema_version not in {1, SCHEMA_VERSION}
+    ):
         return False
     cohort = payload.get("cohort")
     provenance = payload.get("provenance")
@@ -157,20 +338,31 @@ def validate_all_main_reliability(
         or (require_exhaustive and cohort.get("exhaustive") is not True)
     ):
         return False
-    build_numbers: set[int] = set()
+    build_by_number: dict[int, dict] = {}
     for build in builds:
         if not isinstance(build, dict):
             return False
         number = _build_number(build.get("number"))
         if (
             number is None
+            or number in build_by_number
             or build.get("branch") != "main"
             or str(build.get("state") or "").lower() not in TRUSTWORTHY_BUILD_STATES
             or not build.get("finished_at")
             or not buildkite_build_url_matches(build.get("url"), pipeline_slug, number)
+            or (
+                schema_version == SCHEMA_VERSION
+                and (
+                    any(
+                        not isinstance(build.get(field), str)
+                        for field in ("commit", "message", "created_at")
+                    )
+                    or len(build.get("message") or "") > BUILD_MESSAGE_MAX_CHARS
+                )
+            )
         ):
             return False
-        build_numbers.add(number)
+        build_by_number[number] = build
     for group in groups:
         if not isinstance(group, dict) or not isinstance(group.get("observations"), list):
             return False
@@ -187,17 +379,58 @@ def validate_all_main_reliability(
             if not isinstance(observation, dict):
                 return False
             number = _build_number(observation.get("build_number"))
+            job_id = observation.get("job_id")
+            step_id = observation.get("step_id")
             if (
-                number not in build_numbers
-                or observation.get("source_pipeline") != pipeline_slug
-                or not buildkite_build_url_matches(observation.get("build_url"), pipeline_slug, number)
-                or not buildkite_job_url_matches(observation.get("job_url"), pipeline_slug, number)
+                number not in build_by_number
+                or not isinstance(job_id, str)
+                or not isinstance(step_id, str)
+                or not (job_id or step_id)
                 or (
-                    observation.get("step_url")
-                    and not buildkite_job_url_matches(observation.get("step_url"), pipeline_slug, number)
+                    "job_url_override" in observation
+                    and (
+                        not isinstance(observation["job_url_override"], str)
+                        or not buildkite_job_url_matches(
+                            observation["job_url_override"], pipeline_slug, number
+                        )
+                    )
                 )
             ):
                 return False
+            hydrated = _hydrate_reliability_observation(
+                payload,
+                observation,
+                build=build_by_number[number],
+                pipeline_slug=pipeline_slug,
+            )
+            # Schema v1 requires the complete denormalized presentation shape.
+            # Schema v2 normally omits it, but accepts a hydrated compatibility
+            # row only when every duplicated value agrees with the catalog.
+            for field in LEGACY_OBSERVATION_DERIVED_FIELDS:
+                if schema_version == 1 and field not in observation:
+                    return False
+                if field in observation and observation[field] != hydrated[field]:
+                    return False
+            if (
+                not buildkite_build_url_matches(hydrated["build_url"], pipeline_slug, number)
+                or not buildkite_job_url_matches(hydrated["job_url"], pipeline_slug, number)
+                or (
+                    hydrated["step_url"]
+                    and not buildkite_job_url_matches(
+                        hydrated["step_url"], pipeline_slug, number
+                    )
+                )
+            ):
+                return False
+            retry = observation.get("retry_evidence")
+            if retry is not None and not isinstance(retry, dict):
+                return False
+            if isinstance(retry, dict) and "retried_in_job_url" in retry:
+                hydrated_retry = hydrated.get("retry_evidence") or {}
+                if retry["retried_in_job_url"] != hydrated_retry.get(
+                    "retried_in_job_url"
+                ):
+                    return False
     return True
 
 
@@ -524,6 +757,16 @@ def _trusted_build_rank(build: dict) -> tuple:
     )
 
 
+def _bounded_build_message(value: Any) -> tuple[str, int | None]:
+    """Bound pathological catalog values while preserving normal titles."""
+    message = str(value or "")
+    if len(message) <= BUILD_MESSAGE_MAX_CHARS:
+        return message, None
+    # Keep the stored value within the declared bound, including the visible
+    # truncation marker. Normal Buildkite titles are preserved byte-for-byte.
+    return message[:BUILD_MESSAGE_MAX_CHARS - 1] + "…", len(message)
+
+
 def _observation(pipeline_slug: str, build: dict, job: dict, test_durations: dict) -> dict:
     number = int(build.get("number") or 0)
     state = str(job.get("state") or "unknown").lower()
@@ -534,18 +777,10 @@ def _observation(pipeline_slug: str, build: dict, job: dict, test_durations: dic
     wall = duration_mins(started_at, finished_at)
     wait = duration_mins(runnable_at, started_at)
     e2e = duration_mins(runnable_at, finished_at)
-    attempt_url, step_url = _job_urls(pipeline_slug, build, job)
     row = {
-        "source_pipeline": pipeline_slug,
         "build_number": number,
-        "build_url": _build_url(pipeline_slug, build),
-        "build_commit": str(build.get("commit") or ""),
-        "build_message": str(build.get("message") or ""),
-        "build_created_at": str(build.get("created_at") or ""),
         "job_id": str(job.get("id") or job.get("job_id") or ""),
         "step_id": str((job.get("step") or {}).get("id") or job.get("step_id") or ""),
-        "job_url": attempt_url,
-        "step_url": step_url,
         "observed_at": finished_at or started_at or str(build.get("finished_at") or build.get("created_at") or ""),
         "started_at": started_at,
         "finished_at": finished_at,
@@ -559,6 +794,10 @@ def _observation(pipeline_slug: str, build: dict, job: dict, test_durations: dic
         "queue_wait_mins": round(wait, 1) if wait is not None else None,
         "end_to_end_mins": round(e2e, 1) if e2e is not None else None,
     }
+    attempt_url, _ = _job_urls(pipeline_slug, build, job)
+    derived_attempt_url, _ = _observation_urls(_build_url(pipeline_slug, build), row)
+    if attempt_url and attempt_url != derived_attempt_url:
+        row["job_url_override"] = attempt_url
     if exclusion_reason:
         row["exclusion_reason"] = exclusion_reason
     for key in ("tests", "passed_tests", "failed_tests", "skipped_tests"):
@@ -566,10 +805,6 @@ def _observation(pipeline_slug: str, build: dict, job: dict, test_durations: dic
             row[key] = job[key]
     retry = _retry_evidence(job)
     if retry:
-        retried_in = str(retry.get("retried_in_job_id") or "")
-        build_url = _build_url(pipeline_slug, build)
-        if retried_in and build_url:
-            retry["retried_in_job_url"] = f"{build_url}/steps/canvas?jid={retried_in}&tab=output"
         row["retry_evidence"] = retry
     return row
 
@@ -610,9 +845,10 @@ def build_all_main_reliability(
     retry_observations = 0
 
     for build in trusted:
-        message = str(build.get("message") or "")
-        is_nightly = bool(nightly_re and nightly_re.search(message))
-        build_catalog.append({
+        raw_message = str(build.get("message") or "")
+        message, original_message_chars = _bounded_build_message(raw_message)
+        is_nightly = bool(nightly_re and nightly_re.search(raw_message))
+        catalog_build = {
             "number": int(build.get("number") or 0),
             "url": _build_url(pipeline_slug, build),
             "commit": str(build.get("commit") or ""),
@@ -623,7 +859,11 @@ def build_all_main_reliability(
             "started_at": str(build.get("started_at") or ""),
             "finished_at": str(build.get("finished_at") or ""),
             "is_canonical_nightly": is_nightly,
-        })
+        }
+        if original_message_chars is not None:
+            catalog_build["message_truncated"] = True
+            catalog_build["message_original_chars"] = original_message_chars
+        build_catalog.append(catalog_build)
         seen_jobs: set[str] = set()
         for job in build.get("jobs") or []:
             if not _is_test_job(job) or not _is_terminal_job(job):
@@ -793,6 +1033,13 @@ def build_all_main_reliability(
             "retry_source": "explicit Buildkite retry fields only",
             "queue_scope_source": "vllm.constants.is_excluded_queue",
             "queue_scope_policy": "excluded queues are removed before group and denominator accounting",
+            "observation_schema": (
+                "normalized build_number/job_id/step_id references; hydrate from builds catalog"
+            ),
+            "build_catalog_authoritative_fields": [
+                "url", "commit", "message", "created_at",
+            ],
+            "build_message_max_chars": BUILD_MESSAGE_MAX_CHARS,
             "observation_limit_per_group": max(1, int(observation_limit)),
             "observation_retention": (
                 "newest eligible reliability observations first, then newest excluded observations"
@@ -819,10 +1066,12 @@ def compact_main_builds(reliability: dict) -> list[dict]:
     callers that need the old in-memory shape while migrating.
     """
     builds: dict[int, dict] = {}
+    catalog_by_number: dict[int, dict] = {}
     for source in reliability.get("builds") or []:
         number = int(source.get("number") or 0)
         if not number:
             continue
+        catalog_by_number[number] = source
         builds[number] = {
             "number": number,
             "state": source.get("state") or "unknown",
@@ -838,12 +1087,26 @@ def compact_main_builds(reliability: dict) -> list[dict]:
         }
 
     for group in reliability.get("groups") or []:
-        for observation in group.get("observations") or []:
-            if not observation.get("eligible_for_reliability"):
+        for stored_observation in group.get("observations") or []:
+            if not stored_observation.get("eligible_for_reliability"):
                 continue
-            number = int(observation.get("build_number") or 0)
+            number = int(stored_observation.get("build_number") or 0)
             if not number:
                 continue
+            source = catalog_by_number.get(number)
+            pipeline_slug = _pipeline_slug_from_reliability(reliability) or str(
+                stored_observation.get("source_pipeline") or ""
+            )
+            observation = (
+                _hydrate_reliability_observation(
+                    reliability,
+                    stored_observation,
+                    build=source,
+                    pipeline_slug=pipeline_slug,
+                )
+                if source is not None and pipeline_slug
+                else dict(stored_observation)
+            )
             build = builds.setdefault(number, {
                 "number": number,
                 "state": "unknown",

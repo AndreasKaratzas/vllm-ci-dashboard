@@ -9,6 +9,10 @@ from pathlib import Path
 
 from vllm import build_operations_snapshot as ops
 from vllm import collect_analytics as analytics
+from vllm.ci.reliability_history import (
+    hydrate_reliability_observations,
+    validate_all_main_reliability,
+)
 
 
 GENERATED_AT = "2026-04-22T12:00:00Z"
@@ -1024,6 +1028,87 @@ def test_latest_infrastructure_blocked_nightly_is_not_dropped_or_given_stale_res
         "severity": "critical",
         "count": 6,
     }
+
+
+def test_nightly_pipeline_projects_newer_core_references_over_analytics_lkg():
+    analytics_build = _build(100, "2026-04-20", [])
+    latest_signal = {
+        "build_number": 101,
+        "created_at": "2026-04-21T09:00:00Z",
+        "finished_at": "2026-04-21T10:00:00Z",
+        "state": "passed",
+        "has_test_results": True,
+        "unique_test_groups": 3,
+        "test_groups_passing_or": 2,
+        "test_groups_passing_all": 1,
+        "test_groups_partial": 1,
+    }
+    latest_pipeline = {
+        "build_number": 102,
+        "created_at": "2026-04-22T09:00:00Z",
+        "state": "failed",
+        "has_test_results": False,
+        "test_jobs_blocked": 4,
+    }
+
+    pipeline = ops._nightly_pipeline(
+        "amd-ci",
+        {"builds": [analytics_build]},
+        {
+            "builds": [latest_pipeline, latest_signal],
+            "latest_pipeline_build": latest_pipeline,
+            "latest_test_signal_build": latest_signal,
+        },
+    )
+
+    assert [row["number"] for row in pipeline["builds"]] == [102, 101, 100]
+    assert pipeline["builds"][0]["test_jobs_blocked"] == 4
+    signal_row = pipeline["builds"][1]
+    assert signal_row["unique_test_groups"] == 3
+    assert signal_row["test_groups_passing_or"] == 2
+    assert signal_row["test_groups_passing_all"] == 1
+    assert signal_row["test_groups_partial"] == 1
+
+
+def test_nightly_pipeline_marks_analytics_head_ahead_of_older_core():
+    core_head = {
+        "build_number": 102,
+        "created_at": "2026-04-21T09:00:00Z",
+        "finished_at": "2026-04-21T10:00:00Z",
+        "state": "passed",
+        "has_test_results": True,
+    }
+    analytics_head = _build(
+        103,
+        "2026-04-22",
+        [
+            _job(
+                "New analytics result",
+                "failed",
+                "https://buildkite.com/vllm/amd-ci/builds/103/steps/new-result",
+            )
+        ],
+    )
+
+    pipeline = ops._nightly_pipeline(
+        "amd-ci",
+        {"builds": [analytics_head, _build(102, "2026-04-21", [])]},
+        {
+            "builds": [core_head],
+            "latest_pipeline_build": core_head,
+            "latest_test_signal_build": core_head,
+        },
+    )
+
+    assert [row["number"] for row in pipeline["builds"]] == [103, 102]
+    assert pipeline["head_alignment"] == {
+        "status": "analytics_ahead_of_ci_health",
+        "canonical_build_number": 103,
+        "ci_health_build_number": 102,
+        "analytics_ahead_build_numbers": [103],
+    }
+    [popup_row] = pipeline["builds"][0]["failed_groups"]
+    assert popup_row["url"].endswith("/builds/103/steps/new-result")
 
 
 def test_attention_uses_current_hardness_instead_of_newness():
@@ -3791,6 +3876,8 @@ def test_collector_catalog_recovers_amd_hardware_from_queue_when_source_is_unkno
             "eligible_for_reliability": True,
             "result": "passed",
             "build_number": 104,
+            "job_id": "mi325",
+            "step_id": "mi325-step",
             "build_url": "https://buildkite.com/vllm/ci/builds/104",
             "job_url": (
                 "https://buildkite.com/vllm/ci/builds/104/steps/canvas"
@@ -3801,12 +3888,79 @@ def test_collector_catalog_recovers_amd_hardware_from_queue_when_source_is_unkno
     }
 
     catalog, _, _ = ops._collector_main_catalog(
-        {"groups": [source]},
+        {
+            "schema_version": 2,
+            "builds": [{
+                "number": 104,
+                "url": "https://buildkite.com/vllm/ci/builds/104",
+                "commit": "abc104",
+                "message": "Full CI run - nightly",
+                "branch": "main",
+                "state": "passed",
+                "created_at": "2026-04-22T09:00:00Z",
+                "started_at": "2026-04-22T09:01:00Z",
+                "finished_at": "2026-04-22T10:00:00Z",
+                "is_canonical_nightly": True,
+            }],
+            "groups": [source],
+        },
         pipeline_slug="ci",
     )
 
     assert catalog[0]["hardware"] == "mi325"
     assert catalog[0]["queues"] == ["amd_mi325_1"]
+
+
+def test_normalized_reliability_produces_identical_popup_catalog_to_legacy():
+    build = _retarget_build(
+        _build(
+            105,
+            "2026-04-22",
+            [
+                _job(
+                    "mi300_1: Popup parity",
+                    "failed",
+                    "https://buildkite.com/vllm/ci/builds/105/steps/popup-parity",
+                    job_id="popup-attempt",
+                    step_id="popup-step",
+                    step_key="popup-parity",
+                    q="gpu_1_queue",
+                )
+            ],
+            pipeline="ci",
+        ),
+        "ci",
+    )
+    build["commit"] = "0123456789abcdef"
+    build["message"] = "Full CI run - nightly popup parity"
+    normalized = analytics.build_all_main_reliability(
+        [build],
+        pipeline_slug="ci",
+        window_days=30,
+        generated_at=GENERATED_AT,
+        nightly_pattern="nightly",
+    )
+    legacy = json.loads(json.dumps(normalized))
+    legacy["schema_version"] = 1
+    for group in legacy["groups"]:
+        group["observations"] = hydrate_reliability_observations(
+            normalized,
+            group["observations"],
+            pipeline_slug="ci",
+        )
+
+    assert validate_all_main_reliability(normalized, "ci")
+    assert validate_all_main_reliability(legacy, "ci")
+    normalized_catalog = ops._collector_main_catalog(normalized, pipeline_slug="ci")
+    legacy_catalog = ops._collector_main_catalog(legacy, pipeline_slug="ci")
+
+    assert normalized_catalog == legacy_catalog
+    popup_observation = normalized_catalog[0][0]["observations"][0]
+    assert popup_observation["message"] == build["message"]
+    assert popup_observation["commit"] == build["commit"]
+    assert popup_observation["build_url"].endswith("/ci/builds/105")
+    assert "jid=popup-attempt" in popup_observation["job_url"]
+    assert "sid=popup-step" in popup_observation["step_url"]
 
 
 def test_nightly_fixed_requires_an_observed_pass():

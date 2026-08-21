@@ -32,7 +32,10 @@ from vllm.ci.managed_issue import (  # noqa: E402
     repo_owner,
     validate_target_repo,
 )
-from vllm.ci.reliability_history import validate_all_main_reliability  # noqa: E402
+from vllm.ci.reliability_history import (  # noqa: E402
+    hydrate_reliability_observations,
+    validate_all_main_reliability,
+)
 
 
 logging.basicConfig(
@@ -242,6 +245,7 @@ def _observation_rank(row: dict) -> tuple[str, str, str]:
 
 
 def _observations_by_build(reliability: dict) -> dict[int, dict[str, dict]]:
+    pipeline_slug = str((reliability.get("cohort") or {}).get("pipeline") or "")
     candidates: dict[int, dict[str, list[dict]]] = {}
     for group in reliability.get("groups") or []:
         if not isinstance(group, dict):
@@ -249,9 +253,18 @@ def _observations_by_build(reliability: dict) -> dict[int, dict[str, dict]]:
         group_id = str(group.get("group_id") or "")
         if not group_id:
             continue
-        for observation in group.get("observations") or []:
-            if not isinstance(observation, dict):
-                continue
+        observations = [
+            row
+            for row in group.get("observations") or []
+            if isinstance(row, dict)
+        ]
+        if reliability.get("schema_version") == 2:
+            observations = hydrate_reliability_observations(
+                reliability,
+                observations,
+                pipeline_slug=pipeline_slug,
+            )
+        for observation in observations:
             result = str(observation.get("result") or "")
             number = observation.get("build_number")
             if (

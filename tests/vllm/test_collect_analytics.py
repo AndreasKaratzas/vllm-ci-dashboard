@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 from datetime import datetime, timedelta, timezone
@@ -44,16 +45,19 @@ def test_standardized_platform_labels_normalize_and_preserve_queue_family():
 
 def test_analytics_writer_uses_compact_json(tmp_path):
     output = tmp_path / "analytics.json"
-    ca.write_analytics(output, {"pipeline": {"builds": [1, 2]}})
+    diagnostics = ca.write_analytics(output, {"pipeline": {"builds": [1, 2]}})
 
     assert output.read_text() == '{"pipeline":{"builds":[1,2]}}\n'
+    assert diagnostics["serialized_bytes"] == output.stat().st_size
+    assert diagnostics["previous_bytes"] == 0
+    assert diagnostics["component_bytes"]["pipeline"]["components"]["builds"] == 5
 
 
 def test_analytics_writer_removes_legacy_reliability_copy(tmp_path):
     output = tmp_path / "analytics.json"
     authoritative = {"groups": [{"observations": [{"job_id": "kept"}]}]}
 
-    ca.write_analytics(output, {
+    diagnostics = ca.write_analytics(output, {
         "ci": {
             "all_main_reliability": authoritative,
             "main_builds": [{"jobs": [{"job_id": "duplicate"}]}],
@@ -67,6 +71,7 @@ def test_analytics_writer_removes_legacy_reliability_copy(tmp_path):
     assert block["main_retry_analysis"] == {"available": True}
     assert "main_builds" not in block
     assert "main_builds_provenance" not in block
+    assert "reason_class" not in diagnostics
 
 
 def test_analytics_writer_rejects_over_budget_payload_without_replacing_baseline(
@@ -81,17 +86,184 @@ def test_analytics_writer_rejects_over_budget_payload_without_replacing_baseline
         ca.write_analytics(output, {"ci": {"sentinel": "x" * 64}})
 
     assert output.read_bytes() == before
+    assert exc_info.value.provenance["collector"] == "ci_analytics"
+    assert exc_info.value.provenance["reason_class"] == "payload-budget"
     assert exc_info.value.provenance["serialized_bytes"] > 32
     assert exc_info.value.provenance["max_bytes"] == 32
     assert (
         exc_info.value.provenance["github_blob_limit_bytes"]
         == ca.GITHUB_BLOB_MAX_BYTES
     )
+    assert exc_info.value.provenance["effective_target_bytes"] == 32
 
 
 def test_private_analytics_budget_has_github_headroom():
+    assert ca.PRIVATE_ANALYTICS_TARGET_BYTES == 64 * 1024 * 1024
     assert ca.PRIVATE_ANALYTICS_MAX_BYTES == 90 * 1024 * 1024
+    assert ca.PRIVATE_ANALYTICS_TARGET_BYTES < ca.PRIVATE_ANALYTICS_MAX_BYTES
     assert ca.PRIVATE_ANALYTICS_MAX_BYTES < ca.GITHUB_BLOB_MAX_BYTES
+
+
+def test_analytics_atomic_replace_failure_preserves_monolith(
+    monkeypatch, tmp_path
+):
+    output = tmp_path / "analytics.json"
+    ca.write_analytics(output, {"ci": {"sentinel": "baseline"}})
+    baseline = output.read_bytes()
+    real_replace = ca.os.replace
+
+    def fail_monolith_replace(source, destination):
+        if ca.Path(destination) == output:
+            raise OSError("injected atomic replacement failure")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(ca.os, "replace", fail_monolith_replace)
+
+    with pytest.raises(OSError, match="injected atomic replacement failure"):
+        ca.write_analytics(output, {"ci": {"sentinel": "candidate"}})
+
+    assert output.read_bytes() == baseline
+    assert not list(tmp_path.glob(".analytics.json.*.tmp"))
+
+
+def test_analytics_diagnostics_report_one_run_delta(monkeypatch, tmp_path):
+    output = tmp_path / "analytics.json"
+    output.write_text('{"ci":{"sentinel":"old"}}\n')
+    previous_bytes = output.stat().st_size
+
+    diagnostics = ca.write_analytics(output, {
+        "ci": {"sentinel": "new", "builds": [1, 2, 3]},
+    })
+
+    assert diagnostics["previous_bytes"] == previous_bytes
+    assert diagnostics["delta_bytes"] == output.stat().st_size - previous_bytes
+    assert diagnostics["component_bytes"]["ci"]["bytes"] > 0
+    assert diagnostics["component_bytes"]["ci"]["components"]["builds"] == 7
+
+
+def test_pathological_catalog_messages_are_bounded_without_changing_normal_titles(
+    tmp_path,
+):
+    normal_title = "n" * 300
+    pathological_title = "p" * (ca.CATALOG_MESSAGE_MAX_CHARS + 50)
+    payload = {
+        "ci": {
+            "all_main_reliability": {
+                "builds": [
+                    {"number": 1, "message": normal_title},
+                    {"number": 2, "message": pathological_title},
+                ],
+                "groups": [],
+            },
+        },
+    }
+
+    diagnostics = ca.write_analytics(tmp_path / "analytics.json", payload)
+    stored = json.loads((tmp_path / "analytics.json").read_text())
+
+    assert stored["ci"]["all_main_reliability"]["builds"][0]["message"] == normal_title
+    assert stored["ci"]["all_main_reliability"]["builds"][1]["message"] == (
+        pathological_title[:ca.CATALOG_MESSAGE_MAX_CHARS - 1] + "…"
+    )
+    assert diagnostics["catalog_messages_truncated"] == 1
+
+
+def test_production_scale_reliability_is_deterministically_compacted_to_target(
+    monkeypatch, tmp_path
+):
+    shared_detail = "evidence-" + "x" * 160
+    groups = []
+    for group_number in range(840):
+        observations = [
+            {
+                "build_number": observation_number + 1,
+                "job_id": f"job-{group_number}-{observation_number}",
+                "observed_at": f"2026-04-{(observation_number % 28) + 1:02d}T12:00:00Z",
+                "eligible_for_reliability": True,
+                "detail": shared_detail,
+            }
+            for observation_number in range(60)
+        ]
+        groups.append({
+            "group_id": f"group-{group_number}",
+            "observation_count": 60,
+            "retained_observation_count": 60,
+            "retained_eligible_observation_count": 60,
+            "observations_truncated": False,
+            "observations": observations,
+        })
+    payload = {
+        "ci": {
+            "all_main_reliability": {
+                "builds": [],
+                "groups": groups,
+            },
+        },
+    }
+    monkeypatch.setattr(ca, "PRIVATE_ANALYTICS_TARGET_BYTES", 4 * 1024 * 1024)
+
+    bounded, serialized, diagnostics = ca._prepare_private_analytics(
+        tmp_path / "analytics.json",
+        payload,
+    )
+
+    retained = bounded["ci"]["all_main_reliability"]["groups"][0]
+    assert diagnostics["original_observations"]["ci"] == 50_400
+    assert 0 < diagnostics["retained_observations"]["ci"] < 50_400
+    assert diagnostics["observations_removed"] == (
+        50_400 - diagnostics["retained_observations"]["ci"]
+    )
+    assert diagnostics["serialized_bytes"] == len(serialized.encode("utf-8"))
+    assert diagnostics["serialized_bytes"] <= 4 * 1024 * 1024
+    assert len(retained["observations"]) == diagnostics["applied_observation_cap"]
+    assert retained["observations_truncated"] is True
+    assert len(payload["ci"]["all_main_reliability"]["groups"][0]["observations"]) == 60
+
+
+def test_emergency_cap_prioritizes_eligible_evidence_before_newer_exclusions():
+    observations = [
+        {
+            "build_number": 104,
+            "job_id": "newest-excluded",
+            "observed_at": "2026-04-24T12:00:00Z",
+            "eligible_for_reliability": False,
+        },
+        {
+            "build_number": 103,
+            "job_id": "newer-eligible",
+            "observed_at": "2026-04-23T12:00:00Z",
+            "eligible_for_reliability": True,
+        },
+        {
+            "build_number": 102,
+            "job_id": "older-eligible",
+            "observed_at": "2026-04-22T12:00:00Z",
+            "eligible_for_reliability": True,
+        },
+    ]
+    payload = {
+        "ci": {
+            "all_main_reliability": {
+                "groups": [{
+                    "group_id": "mixed-retention",
+                    "observations": observations,
+                }],
+            },
+        },
+    }
+
+    bounded, removed = ca._cap_reliability_observations(payload, 2)
+
+    retained_group = bounded["ci"]["all_main_reliability"]["groups"][0]
+    assert removed == 1
+    assert [
+        row["job_id"] for row in retained_group["observations"]
+    ] == ["newer-eligible", "older-eligible"]
+    assert retained_group["retained_eligible_observation_count"] == 2
+    assert retained_group["observations_truncated"] is True
+    assert payload["ci"]["all_main_reliability"]["groups"][0]["observations"] == (
+        observations
+    )
 
 
 def _iso(dt: datetime) -> str:
@@ -200,6 +372,117 @@ def _write_test_build_cache(
         complete_from=watermark - timedelta(days=window_days),
     )
     return cache_dir
+
+
+def _legacy_reliability_payload(observation_count: int = 1) -> dict:
+    raw = _raw_api_build(901, marker="legacy-migration")
+    normalized = ca.build_all_main_reliability(
+        [raw],
+        pipeline_slug="ci",
+        window_days=30,
+        collection_provenance={"exhaustive": True},
+    )
+    stored = normalized["groups"][0]["observations"][0]
+    hydrated = ca.hydrate_reliability_observations(
+        normalized,
+        [stored],
+        pipeline_slug="ci",
+    )[0]
+    legacy = copy.deepcopy(normalized)
+    legacy["schema_version"] = 1
+    legacy["groups"][0]["observations"] = [
+        copy.deepcopy(hydrated)
+        for _ in range(observation_count)
+    ]
+    return legacy
+
+
+def test_oversized_preserved_v1_reliability_migrates_losslessly_before_budget(
+    monkeypatch, tmp_path
+):
+    legacy = _legacy_reliability_payload(observation_count=2_000)
+    payload = {"ci": {"all_main_reliability": legacy}}
+    migrated_payload, _ = ca._migrate_preserved_reliability_v1(payload)
+    migrated_bytes = ca._compact_json_bytes(migrated_payload) + 1
+    legacy_bytes = ca._compact_json_bytes(payload) + 1
+    assert migrated_bytes < legacy_bytes
+    target_bytes = migrated_bytes + (legacy_bytes - migrated_bytes) // 2
+    monkeypatch.setattr(ca, "PRIVATE_ANALYTICS_TARGET_BYTES", target_bytes)
+
+    bounded, serialized, diagnostics = ca._prepare_private_analytics(
+        tmp_path / "analytics.json",
+        payload,
+    )
+
+    migrated = bounded["ci"]["all_main_reliability"]
+    source_rows = legacy["groups"][0]["observations"]
+    migrated_rows = migrated["groups"][0]["observations"]
+    assert migrated["schema_version"] == ca.RELIABILITY_SCHEMA_VERSION == 2
+    assert len(migrated_rows) == len(source_rows) == 2_000
+    assert diagnostics["applied_observation_cap"] is None
+    assert diagnostics["observations_removed"] == 0
+    assert diagnostics["serialized_bytes"] == len(serialized.encode("utf-8"))
+    assert diagnostics["serialized_bytes"] <= target_bytes
+    assert diagnostics["legacy_reliability_migrations"]["ci"] == {
+        "source_schema_version": 1,
+        "target_schema_version": 2,
+        "builds": 1,
+        "groups": 1,
+        "observations": 2_000,
+        "hydration_parity": True,
+    }
+    assert ca.hydrate_reliability_observations(
+        migrated,
+        migrated_rows,
+        pipeline_slug="ci",
+    ) == ca.hydrate_reliability_observations(
+        legacy,
+        source_rows,
+        pipeline_slug="ci",
+    )
+    assert payload["ci"]["all_main_reliability"]["schema_version"] == 1
+
+
+def test_valid_unversioned_legacy_reliability_still_migrates_losslessly():
+    legacy = _legacy_reliability_payload()
+    legacy.pop("schema_version")
+
+    migrated_payload, diagnostics = ca._migrate_preserved_reliability_v1({
+        "ci": {"all_main_reliability": legacy},
+    })
+
+    migrated = migrated_payload["ci"]["all_main_reliability"]
+    assert migrated["schema_version"] == ca.RELIABILITY_SCHEMA_VERSION
+    assert diagnostics["ci"]["hydration_parity"] is True
+    assert ca.hydrate_reliability_observations(
+        migrated,
+        migrated["groups"][0]["observations"],
+        pipeline_slug="ci",
+    ) == ca.hydrate_reliability_observations(
+        legacy,
+        legacy["groups"][0]["observations"],
+        pipeline_slug="ci",
+    )
+
+
+def test_invalid_preserved_v1_reliability_fails_closed_without_trimming_baseline(
+    tmp_path,
+):
+    legacy = _legacy_reliability_payload()
+    legacy["groups"][0]["observations"][0]["build_message"] = "tampered"
+    output = tmp_path / "analytics.json"
+    output.write_text('{"validated":"baseline"}\n')
+    before = output.read_bytes()
+
+    with pytest.raises(ca.IncompleteAnalyticsCollection) as exc_info:
+        ca.write_analytics(output, {"ci": {"all_main_reliability": legacy}})
+
+    assert output.read_bytes() == before
+    assert exc_info.value.provenance["reason_class"] == "schema-drift"
+    assert exc_info.value.provenance["failure_kind"] == (
+        "invalid-legacy-reliability"
+    )
+    assert exc_info.value.provenance["pipeline"] == "ci"
 
 
 def test_bk_get_waits_for_longest_buildkite_rate_limit_reset(monkeypatch):
@@ -518,6 +801,63 @@ class TestWindowedAnalytics:
 
 
 class TestIncrementalAnalyticsCache:
+    def test_incremental_cache_restores_exact_previous_popup_title(
+        self, monkeypatch, tmp_path
+    ):
+        exact_title = (
+            "Full CI run - nightly — exact release qualification title "
+            "with popup-visible context"
+        )
+        full_build = _raw_api_build(71, marker="title-parity")
+        full_build["message"] = exact_title
+        previous_reliability = ca.build_all_main_reliability(
+            [full_build],
+            pipeline_slug="ci",
+            window_days=30,
+            collection_provenance={"exhaustive": True},
+        )
+        cache_dir = _write_test_build_cache(
+            tmp_path,
+            builds=[full_build],
+        )
+        monkeypatch.setattr(ca, "bk_get", lambda *args, **kwargs: [])
+
+        cached_builds, provenance = ca.fetch_pipeline_builds(
+            "ci",
+            "fake-token",
+            30,
+            cache_dir=cache_dir,
+            ref_now=NOW,
+        )
+
+        assert "message" not in cached_builds[0]
+        compatible = ca._reliability_builds_with_cache_aliases(
+            cached_builds,
+            "ci",
+            previous_reliability,
+        )
+        assert compatible[0]["message"] == exact_title
+        nightly = ca.summarize_pipeline_builds(
+            "ci",
+            compatible,
+            nightly_only=True,
+            name_pattern=ca.NIGHTLY_NAME_PATTERNS_BY_SLUG["ci"],
+        )
+        assert nightly[0]["message"] == exact_title
+        refreshed = ca.build_all_main_reliability(
+            compatible,
+            pipeline_slug="ci",
+            window_days=30,
+            collection_provenance=provenance,
+        )
+        assert refreshed["builds"][0]["message"] == exact_title
+        hydrated = ca.hydrate_reliability_observations(
+            refreshed,
+            refreshed["groups"][0]["observations"],
+            pipeline_slug="ci",
+        )
+        assert hydrated[0]["build_message"] == exact_title
+
     def test_steady_state_uses_overlapping_created_and_finished_legs(
         self, monkeypatch, tmp_path
     ):
@@ -732,6 +1072,74 @@ class TestIncrementalAnalyticsCache:
         attempt = provenance["cache"]["incremental_attempt"]
         assert attempt["failure"] == "incremental_pagination_incomplete"
         assert [params.get("created_from") for params in calls] == [overlap, None, cutoff]
+
+    def test_suspicious_incremental_growth_reconciles_once_before_cache_write(
+        self, monkeypatch, tmp_path
+    ):
+        watermark = NOW - timedelta(hours=1)
+        cache_dir = _write_test_build_cache(
+            tmp_path,
+            builds=[_raw_api_build(1)],
+            watermark=watermark,
+        )
+        cache_path = cache_dir / "ci.json"
+        before = cache_path.read_bytes()
+        overlap = (watermark - ca.ANALYTICS_CACHE_OVERLAP).isoformat()
+        cutoff = (NOW - timedelta(days=30)).isoformat()
+        full = _raw_api_build(40, marker="reconciled-full")
+        calls = []
+
+        def fake_get(path, token, params=None):
+            params = dict(params or {})
+            calls.append(params)
+            if params.get("created_from") == overlap:
+                return [_raw_api_build(2), _raw_api_build(3)]
+            if params.get("finished_from") == overlap:
+                return []
+            if params.get("created_from") == cutoff:
+                return [full]
+            raise AssertionError(params)
+
+        monkeypatch.setattr(ca, "bk_get", fake_get)
+        monkeypatch.setattr(
+            ca,
+            "ANALYTICS_CACHE_SUSPICIOUS_GROWTH_MIN_BYTES",
+            1,
+        )
+        monkeypatch.setattr(
+            ca,
+            "ANALYTICS_CACHE_SUSPICIOUS_GROWTH_RATIO",
+            1.01,
+        )
+
+        builds, provenance = ca.fetch_pipeline_builds(
+            "ci",
+            "fake-token",
+            30,
+            cache_dir=cache_dir,
+            ref_now=NOW,
+        )
+
+        assert [build["number"] for build in builds] == [40]
+        assert provenance["fetch_mode"] == "full_after_incremental"
+        attempt = provenance["cache"]["incremental_attempt"]
+        assert attempt["failure"] == "suspicious_incremental_materialization"
+        assert attempt["materialized_delta_bytes"] > 0
+        assert attempt["cache_written"] is False
+        assert cache_path.read_bytes() != before
+        reloaded = ca.load_build_cache(
+            cache_dir,
+            "ci",
+            cutoff=NOW - timedelta(days=30),
+            window_days=30,
+            ref_now=NOW,
+        )
+        assert [build["number"] for build in reloaded.builds] == [40]
+        assert [params.get("created_from") for params in calls] == [
+            overlap,
+            None,
+            cutoff,
+        ]
 
     def test_incomplete_full_fetch_raises_and_leaves_cache_unchanged(
         self, monkeypatch, tmp_path
@@ -961,6 +1369,39 @@ class TestWindowedAnalyticsMain:
         assert payload["amd-ci"] == preserved_amd
         assert payload["ci"]["pipeline"] == "ci"
         assert payload["ci"]["builds"][0]["number"] == 88
+
+    def test_gating_nightlies_publish_before_private_analytics_budget_failure(
+        self, monkeypatch, tmp_path
+    ):
+        build = _build(88, 0.5, [_job("Fresh gating job", 10)])
+        monkeypatch.delenv("BUILDKITE_TOKEN", raising=False)
+        monkeypatch.setattr(
+            ca,
+            "load_test_result_builds",
+            lambda *args, **kwargs: [build],
+        )
+
+        def fail_private_analytics(*args, **kwargs):
+            raise ca.IncompleteAnalyticsCollection("injected payload budget failure")
+
+        monkeypatch.setattr(ca, "write_analytics", fail_private_analytics)
+        monkeypatch.setattr(ca.sys, "argv", [
+            "collect_analytics.py",
+            "--days", "30",
+            "--pipeline", "ci",
+            "--output", str(tmp_path),
+        ])
+
+        with pytest.raises(
+            ca.IncompleteAnalyticsCollection,
+            match="injected payload budget failure",
+        ):
+            ca.main()
+
+        gating = json.loads((tmp_path / "gating_nightlies.json").read_text())
+        assert gating["ci"]["builds"][0]["number"] == 88
+        assert gating["ci"]["builds"][0]["jobs"][0]["name"] == "Fresh gating job"
+        assert not (tmp_path / "analytics.json").exists()
 
     def test_main_emits_all_main_reliability_for_both_and_retries_only_upstream(self, monkeypatch, tmp_path):
         messages = {

@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 from vllm import audit_dashboard_data as audit_module
+from vllm import publication_surfaces as surfaces_module
 from vllm import select_publication_surfaces as selector_module
 from vllm.audit_dashboard_data import DashboardAudit, Finding
 from vllm.publication_surfaces import (
@@ -19,6 +20,8 @@ from vllm.publication_surfaces import (
     CI_CORE_WATCHER_STATE_PATHS,
     GLOBAL_DATA_PATHS,
     LEGACY_CI_SURFACE_SPEC,
+    PRE_ANALYTICS_CI_CORE_SURFACE_SPEC,
+    PRE_ANALYTICS_CI_GATING_SURFACE_SPEC,
     SOURCE_SURFACES,
     SURFACE_SPECS,
     SurfaceSpec,
@@ -26,10 +29,22 @@ from vllm.publication_surfaces import (
     public_manifest_ownership_path,
     surface_for_path,
 )
-from vllm.select_publication_surfaces import restore_surface
+from vllm.select_publication_surfaces import load_collector_failures, restore_surface
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_surface_contract_version_has_one_owner() -> None:
+    assert surfaces_module.SURFACE_CONTRACT_VERSION == 3
+    assert (
+        selector_module.SURFACE_CONTRACT_VERSION
+        == surfaces_module.SURFACE_CONTRACT_VERSION
+    )
+    assert (
+        audit_module.SURFACE_CONTRACT_VERSION
+        == surfaces_module.SURFACE_CONTRACT_VERSION
+    )
 
 
 def test_surface_ownership_is_unique_and_covers_public_source_manifest() -> None:
@@ -328,10 +343,306 @@ def test_forced_degraded_surface_restores_a_clean_candidate(
     assert set(state["fallback_since"]) == {"ci"}
     assert set(state["restored_manifest"]) == {"ci"}
     assert state["candidate_errors"][0]["code"] == "publication-collector-failed"
-    assert audit_runs == [False, False, True]
+    assert audit_runs == [False, True, True]
 
 
-def test_legacy_ci_state_migrates_clocks_and_closes_core_dependency(
+def test_collector_failure_jsonl_is_typed_bounded_and_secret_safe(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "collector-failures.jsonl"
+    path.write_text(
+        json.dumps({
+            "schema_version": 1,
+            "surface": "ci_analytics",
+            "collector": "collect_analytics.py",
+            "step": "Collect CI analytics",
+            "reason_class": "payload-budget",
+            "exit_code": 1,
+            "details": {
+                "summary": (
+                    "token=do-not-publish https://buildkite.example/failure "
+                    "payload exceeds budget"
+                ),
+                "observed_bytes": 99_219_601,
+                "max_bytes": 94_371_840,
+                "component_bytes": {
+                    "ci": {
+                        "bytes": 80_000_000,
+                        "components": {
+                            "all_main_reliability": 54_500_000,
+                        },
+                    },
+                },
+            },
+        })
+        + "\n"
+    )
+
+    [record] = load_collector_failures(path)
+
+    assert record["collector"] == "collect_analytics.py"
+    assert record["step"] == "Collect CI analytics"
+    assert record["reason_class"] == "payload-budget"
+    assert record["details"]["observed_bytes"] == 99_219_601
+    assert record["details"]["component_bytes"]["ci"]["components"] == {
+        "all_main_reliability": 54_500_000,
+    }
+    assert "do-not-publish" not in record["details"]["summary"]
+    assert "buildkite.example" not in record["details"]["summary"]
+
+
+def test_typed_analytics_failure_restores_only_analytics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    paths = {
+        "ci_core": repo / "data/core.json",
+        "ci_analytics": repo / "data/analytics.json",
+        "ci_gating": repo / "data/gating.json",
+    }
+    for surface, path in paths.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"surface": surface, "version": "baseline"}))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "validated split baseline")
+    baseline = _git(repo, "rev-parse", "HEAD")
+    for surface, path in paths.items():
+        path.write_text(json.dumps({"surface": surface, "version": "candidate"}))
+
+    class CleanAudit:
+        def __init__(self, *args, **kwargs):
+            self.report = SimpleNamespace(errors=[], degradations=[])
+
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def run(self) -> SimpleNamespace:
+            return SimpleNamespace(errors=[], degradations=[])
+
+    monkeypatch.setattr(
+        selector_module,
+        "SURFACE_SPECS",
+        {
+            surface: SurfaceSpec(
+                required_paths=(path.relative_to(repo).as_posix(),)
+            )
+            for surface, path in paths.items()
+        },
+    )
+    monkeypatch.setattr(selector_module, "DashboardAudit", CleanAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    output = tmp_path / "github-output.txt"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+
+    state = selector_module.select_publication(
+        repo,
+        baseline,
+        repo / "publication-state.json",
+        collector_failures=({
+            "schema_version": 1,
+            "surface": "ci_analytics",
+            "collector": "collect_analytics.py",
+            "step": "Collect CI analytics",
+            "reason_class": "payload-budget",
+            "exit_code": 1,
+            "details": {
+                "observed_bytes": 99_219_601,
+                "max_bytes": 94_371_840,
+            },
+        },),
+    )
+
+    assert json.loads(paths["ci_analytics"].read_text())["version"] == "baseline"
+    assert json.loads(paths["ci_core"].read_text())["version"] == "candidate"
+    assert json.loads(paths["ci_gating"].read_text())["version"] == "candidate"
+    assert state["fallback_surfaces"] == ["ci_analytics"]
+    assert state["collector_incident_policy"]["alert"] is True
+    finding = state["candidate_errors"][0]
+    assert finding["context"]["collector"] == "collect_analytics.py"
+    assert finding["context"]["reason_class"] == "payload-budget"
+    assert "alertable_degradation=true" in output.read_text()
+
+
+@pytest.mark.parametrize(
+    ("fallback_surface", "advanced_surface"),
+    (
+        ("ci_analytics", "ci_core"),
+        ("ci_core", "ci_analytics"),
+    ),
+)
+def test_selector_keeps_attested_analytics_core_build_skew_isolated(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fallback_surface: str,
+    advanced_surface: str,
+) -> None:
+    repo = tmp_path / "repo"
+    relative_paths = {
+        "ci_analytics": "data/vllm/ci/analytics.json",
+        "ci_core": "data/vllm/ci/amd_test_matrix.json",
+    }
+    paths = {
+        surface: repo / relative
+        for surface, relative in relative_paths.items()
+    }
+    for surface, path in paths.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"surface": surface, "build": 100}))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "config", "commit.gpgsign", "false")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "validated split build baseline")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    for surface, path in paths.items():
+        build = 101 if surface == advanced_surface else 100
+        path.write_text(json.dumps({"surface": surface, "build": build}))
+
+    specs = {
+        surface: SurfaceSpec(required_paths=(relative_paths[surface],))
+        for surface in relative_paths
+    }
+    audit_runs: list[tuple[bool, list[str], list[str]]] = []
+
+    class BuildAlignmentAudit(DashboardAudit):
+        def __init__(self, *args, allow_publication_fallback: bool, **kwargs):
+            super().__init__(
+                *args,
+                allow_publication_fallback=allow_publication_fallback,
+                **kwargs,
+            )
+            self._allow_fallback = allow_publication_fallback
+
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def run(self):
+            analytics_build = self.load_json(
+                relative_paths["ci_analytics"], {}
+            ).get("build")
+            core_build = self.load_json(
+                relative_paths["ci_core"], {}
+            ).get("build")
+            if analytics_build != core_build:
+                self.report_cross_surface_build_mismatch(
+                    "matrix-analytics-build",
+                    (
+                        f"matrix source build #{core_build} does not match "
+                        f"analytics AMD latest #{analytics_build}"
+                    ),
+                    relative_paths["ci_core"],
+                    left_surface="ci_core",
+                    left_build=core_build,
+                    right_surface="ci_analytics",
+                    right_build=analytics_build,
+                )
+            audit_runs.append((
+                self._allow_fallback,
+                [finding.code for finding in self.report.errors],
+                [finding.code for finding in self.report.warnings],
+            ))
+            return self.report
+
+    monkeypatch.setattr(selector_module, "SURFACE_SPECS", specs)
+    monkeypatch.setattr(audit_module, "SURFACE_SPECS", specs)
+    monkeypatch.setattr(surfaces_module, "SURFACE_SPECS", specs)
+    monkeypatch.setattr(selector_module, "DashboardAudit", BuildAlignmentAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    state = selector_module.select_publication(
+        repo,
+        baseline,
+        repo / "data/vllm/ci/publication_state.json",
+        forced_degraded=(fallback_surface,),
+    )
+
+    assert state["mode"] == "fallback"
+    assert state["fallback_surfaces"] == [fallback_surface]
+    assert state["final_errors"] == []
+    assert json.loads(paths[fallback_surface].read_text())["build"] == 100
+    assert json.loads(paths[advanced_surface].read_text())["build"] == 101
+    assert audit_runs == [
+        (
+            True,
+            [],
+            ["matrix-analytics-build-fallback-skew"],
+        ),
+        (
+            True,
+            [],
+            ["matrix-analytics-build-fallback-skew"],
+        ),
+    ]
+
+
+def test_transient_collector_alert_requires_two_consecutive_fallbacks() -> None:
+    failure = {
+        "surface": "ci_analytics",
+        "collector": "collect_analytics.py",
+        "step": "Collect CI analytics",
+        "reason_class": "rate-limit",
+    }
+    first, first_streaks = selector_module._collector_incident_policy(
+        [failure], None, has_untyped_forced_surface=False
+    )
+    second, second_streaks = selector_module._collector_incident_policy(
+        [failure], {"collector_failure_streaks": first_streaks},
+        has_untyped_forced_surface=False,
+    )
+    recovered, recovered_streaks = selector_module._collector_incident_policy(
+        [], {"collector_failure_streaks": second_streaks},
+        has_untyped_forced_surface=False,
+    )
+    after_recovery, _ = selector_module._collector_incident_policy(
+        [failure], {"collector_failure_streaks": recovered_streaks},
+        has_untyped_forced_surface=False,
+    )
+
+    assert first["alert"] is False
+    assert first["max_observed_streak"] == 1
+    assert second["alert"] is True
+    assert second["max_observed_streak"] == 2
+    assert recovered_streaks == {}
+    assert after_recovery["alert"] is False
+    assert after_recovery["max_observed_streak"] == 1
+
+
+def test_transient_collector_persistence_survives_reason_reclassification() -> None:
+    first_failure = {
+        "surface": "ci_analytics",
+        "collector": "collect_analytics.py",
+        "step": "Collect CI analytics",
+        "reason_class": "timeout",
+    }
+    reclassified_failure = {
+        **first_failure,
+        "reason_class": "transient-http",
+    }
+
+    first, first_streaks = selector_module._collector_incident_policy(
+        [first_failure], None, has_untyped_forced_surface=False
+    )
+    second, second_streaks = selector_module._collector_incident_policy(
+        [reclassified_failure],
+        {"collector_failure_streaks": first_streaks},
+        has_untyped_forced_surface=False,
+    )
+
+    assert first["alert"] is False
+    assert second["alert"] is True
+    assert second["reason"] == "transient-collector-failure-persisted"
+    assert second["max_observed_streak"] == 2
+    assert len(first_streaks) == len(second_streaks) == 1
+
+
+def test_legacy_ci_state_migrates_clocks_without_restoring_independent_domains(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -347,7 +658,13 @@ def test_legacy_ci_state_migrates_clocks_and_closes_core_dependency(
 
     child_paths = {
         surface: SURFACE_SPECS[surface].required_paths[0]
-        for surface in ("ci_core", "ci_gating", "ci_changes", "ci_hotness")
+        for surface in (
+            "ci_core",
+            "ci_analytics",
+            "ci_gating",
+            "ci_changes",
+            "ci_hotness",
+        )
     }
     for surface, relative in child_paths.items():
         (repo / relative).write_text(
@@ -375,7 +692,7 @@ def test_legacy_ci_state_migrates_clocks_and_closes_core_dependency(
         forced_degraded=("ci_core",),
     )
 
-    fallback = {"ci_core", "ci_gating"}
+    fallback = {"ci_core"}
     assert set(state["fallback_surfaces"]) == fallback
     assert "ci" not in state["degraded_surfaces"]
     assert state["degraded_since"] == {
@@ -389,7 +706,7 @@ def test_legacy_ci_state_migrates_clocks_and_closes_core_dependency(
     for surface in fallback:
         relative = child_paths[surface]
         assert (repo / relative).read_bytes() == baseline_bytes[relative]
-    for surface in {"ci_changes", "ci_hotness"}:
+    for surface in {"ci_analytics", "ci_gating", "ci_changes", "ci_hotness"}:
         relative = child_paths[surface]
         assert json.loads((repo / relative).read_text()) == {
             "selection": "candidate",
@@ -433,6 +750,7 @@ def test_legacy_ci_state_drops_independently_mutated_watcher_ledger(
     assert migrated is not None
     assert set(migrated["fallback_surfaces"]) == {
         "ci_core",
+        "ci_analytics",
         "ci_gating",
         "ci_changes",
         "ci_hotness",
@@ -451,6 +769,66 @@ def test_legacy_ci_state_drops_independently_mutated_watcher_ledger(
     assert "publication-fallback-manifest-mismatch" not in {
         finding.code for finding in audit.report.errors
     }
+
+
+def test_pre_analytics_schema_v2_fallback_proof_and_clock_are_split(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path, baseline_bytes = _write_legacy_ci_baseline(repo, since)
+    old_specs = {
+        "ci_core": PRE_ANALYTICS_CI_CORE_SURFACE_SPEC,
+        "ci_gating": PRE_ANALYTICS_CI_GATING_SURFACE_SPEC,
+    }
+    manifests = {
+        surface: {
+            relative: _manifest_descriptor(baseline_bytes[relative])
+            for relative in spec.required_paths
+        }
+        for surface, spec in old_specs.items()
+    }
+    state_path.write_text(json.dumps({
+        "schema_version": 2,
+        "generated_at": since,
+        "baseline_ref": "0" * 40,
+        "mode": "fallback",
+        "degraded_surfaces": ["ci_core", "ci_gating"],
+        "fresh_degraded_surfaces": [],
+        "fallback_surfaces": ["ci_core", "ci_gating"],
+        "degraded_since": {"ci_core": since, "ci_gating": since},
+        "fallback_since": {"ci_core": since, "ci_gating": since},
+        "fallback_max_age_hours": 36,
+        "restored_paths": {
+            surface: sorted(entries) for surface, entries in manifests.items()
+        },
+        "restored_manifest": manifests,
+    }))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "pre-analytics schema-v2 fallback")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    migrated = selector_module._baseline_publication_state(
+        repo, baseline, state_path
+    )
+
+    assert migrated is not None
+    expected = {"ci_core", "ci_analytics", "ci_gating"}
+    assert migrated["surface_contract_version"] == 3
+    assert set(migrated["fallback_surfaces"]) == expected
+    assert migrated["fallback_since"] == {
+        surface: since for surface in expected
+    }
+    assert set(migrated["restored_manifest"]) == expected
+    assert set(migrated["restored_manifest"]["ci_analytics"]) == {
+        "data/vllm/ci/analytics.json"
+    }
+    assert "data/vllm/ci/gating_nightlies.json" in migrated[
+        "restored_manifest"
+    ]["ci_gating"]
 
 
 def test_schema_v2_state_drops_independently_mutated_watcher_ledger(
@@ -632,6 +1010,7 @@ def test_clean_candidate_writes_schema_v2_current_state(
     assert source.read_text() == '{"version":"candidate"}\n'
     assert state == {
         "schema_version": 2,
+        "surface_contract_version": 3,
         "generated_at": state["generated_at"],
         "baseline_ref": baseline,
         "mode": "current",
@@ -641,6 +1020,14 @@ def test_clean_candidate_writes_schema_v2_current_state(
         "degraded_since": {},
         "fallback_since": {},
         "fallback_max_age_hours": 36,
+        "collector_failures": [],
+        "collector_failure_streaks": {},
+        "collector_incident_policy": {
+            "alert": True,
+            "reason": "non-collector-publication-finding",
+            "transient_persistence_runs_required": 2,
+            "max_observed_streak": 0,
+        },
         "candidate_errors": [],
         "candidate_degradations": [],
         "final_errors": [],
