@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from vllm import audit_dashboard_data as audit_module
+from vllm import build_operations_snapshot as operations_module
 from vllm import collect_queue_lifecycle as queue_lifecycle
 from vllm.audit_dashboard_data import (
     DATA_SPECS,
@@ -26,7 +27,13 @@ from vllm.audit_dashboard_data import (
     format_text,
     run_audit,
 )
-from vllm.publication_surfaces import LEGACY_CI_SURFACE_SPEC, SurfaceSpec
+from vllm.publication_surfaces import (
+    CI_GATING_SURFACE_SPEC,
+    LEGACY_CI_SURFACE_SPEC,
+    PRE_ANALYTICS_CI_CORE_SURFACE_SPEC,
+    PRE_ANALYTICS_CI_GATING_SURFACE_SPEC,
+    SurfaceSpec,
+)
 
 
 def _best_hardware_audit_fixture():
@@ -1249,6 +1256,329 @@ def _write_publication_state(root: Path, payload: dict) -> Path:
     return path
 
 
+def _write_attested_split_fallback_state(
+    root: Path,
+    fallback_surface: str | tuple[str, ...],
+    specs: dict[str, SurfaceSpec],
+) -> Path:
+    fallback_surfaces = (
+        (fallback_surface,)
+        if isinstance(fallback_surface, str)
+        else fallback_surface
+    )
+    manifests = {}
+    for surface in fallback_surfaces:
+        spec = specs[surface]
+        paths = set(spec.required_paths)
+        paths.update(
+            relative
+            for relative in spec.optional_paths
+            if (root / relative).is_file()
+        )
+        paths.update(
+            candidate.relative_to(root).as_posix()
+            for pattern in spec.globs
+            for candidate in root.glob(pattern)
+            if candidate.is_file()
+        )
+        manifests[surface] = {
+            relative: _manifest_descriptor(root / relative)
+            for relative in sorted(paths)
+        }
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return _write_publication_state(
+        root,
+        {
+            "schema_version": 2,
+            "surface_contract_version": audit_module.SURFACE_CONTRACT_VERSION,
+            "generated_at": now,
+            "baseline_ref": "0" * 40,
+            "mode": "fallback",
+            "degraded_surfaces": list(fallback_surfaces),
+            "fresh_degraded_surfaces": [],
+            "fallback_surfaces": list(fallback_surfaces),
+            "degraded_since": {
+                surface: now for surface in fallback_surfaces
+            },
+            "fallback_since": {
+                surface: now for surface in fallback_surfaces
+            },
+            "fallback_max_age_hours": 36,
+            "restored_manifest": manifests,
+            "restored_paths": {
+                surface: sorted(entries)
+                for surface, entries in manifests.items()
+            },
+        },
+    )
+
+
+def _write_split_build_alignment_fixtures(
+    root: Path,
+    *,
+    analytics_build: int,
+    core_build: int,
+) -> dict[str, SurfaceSpec]:
+    ci = root / "data/vllm/ci"
+    results = ci / "test_results"
+    results.mkdir(parents=True)
+
+    jobs = [{"state": "passed"} for _ in range(12)]
+
+    def analytics_row(number: int) -> dict:
+        return {
+            "number": number,
+            "source": "test_results",
+            "total_jobs": len(jobs),
+            "passed": len(jobs),
+            "failed": 0,
+            "soft_failed": 0,
+            "skipped": 0,
+            "jobs": jobs,
+        }
+
+    builds = [analytics_row(analytics_build), analytics_row(analytics_build - 1)]
+    windows = {
+        name: {"builds": builds}
+        for name in ("1d", "3d", "7d", "14d", "30d")
+    }
+    (ci / "analytics.json").write_text(
+        json.dumps({
+            slug: {
+                "builds": builds,
+                "default_window": "1d",
+                "windows": windows,
+            }
+            for slug in ("amd-ci", "ci")
+        })
+    )
+    for suffix in ("amd", "upstream"):
+        (results / f"2026-08-21_{suffix}.jsonl").write_text(
+            json.dumps({"build_number": core_build, "job_name": "smoke"})
+            + "\n"
+        )
+
+    (ci / "ci_health.json").write_text(
+        json.dumps({
+            "amd": {
+                "latest_build": {
+                    "build_number": core_build,
+                    "by_hardware": {"mi300": {"groups": 1}},
+                }
+            }
+        })
+    )
+    (ci / "parity_report.json").write_text(
+        json.dumps({
+            "job_groups": [{
+                "name": "smoke",
+                "hardware": ["mi300"],
+                "amd": {"total": 1},
+                "hw_failures": {},
+            }]
+        })
+    )
+    (ci / "amd_test_matrix.json").write_text(
+        json.dumps({
+            "source": {"latest_build_number": core_build},
+            "summary": {
+                "unique_groups": 1,
+                "architecture_count": 1,
+                "hardware_cells": 1,
+                "latest_matched_cells": 1,
+                "passing_cells": 1,
+                "failing_cells": 0,
+                "waiting_cells": 0,
+                "unknown_cells": 0,
+                "fully_shared_groups": 1,
+                "single_arch_groups": 1,
+                "multi_variant_cells": 0,
+            },
+            "architectures": [{
+                "id": "mi300",
+                "label": "MI300",
+                "group_count": 1,
+                "nightly_match_count": 1,
+            }],
+            "rows": [{
+                "title": "smoke",
+                "coverage_count": 1,
+                "nightly_coverage_count": 1,
+                "cells": {
+                    "mi300": {
+                        "exists": True,
+                        "latest_matched": True,
+                        "latest_state": "passed",
+                    }
+                },
+            }],
+        })
+    )
+
+    return {
+        "ci_analytics": SurfaceSpec(
+            required_paths=("data/vllm/ci/analytics.json",),
+        ),
+        "ci_core": SurfaceSpec(
+            required_paths=(
+                "data/vllm/ci/amd_test_matrix.json",
+                "data/vllm/ci/ci_health.json",
+                "data/vllm/ci/parity_report.json",
+            ),
+            globs=("data/vllm/ci/test_results/*.jsonl",),
+        ),
+    }
+
+
+@pytest.mark.parametrize(
+    ("fallback_surface", "analytics_build", "core_build"),
+    (
+        ("ci_analytics", 100, 101),
+        ("ci_core", 101, 100),
+    ),
+)
+def test_attested_split_fallback_allows_directional_build_skew(
+    tmp_path,
+    monkeypatch,
+    fallback_surface,
+    analytics_build,
+    core_build,
+):
+    specs = _write_split_build_alignment_fixtures(
+        tmp_path,
+        analytics_build=analytics_build,
+        core_build=core_build,
+    )
+    monkeypatch.setattr(audit_module, "SURFACE_SPECS", specs)
+    state_path = _write_attested_split_fallback_state(
+        tmp_path,
+        fallback_surface,
+        specs,
+    )
+
+    audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+    audit.audit_analytics()
+    audit.audit_amd_matrix()
+
+    target_errors = {
+        finding.code
+        for finding in audit.report.errors
+        if finding.code in {
+            "analytics-jsonl-build-mismatch",
+            "matrix-analytics-build",
+        }
+    }
+    skew_warnings = [
+        finding
+        for finding in audit.report.warnings
+        if finding.code.endswith("-fallback-skew")
+    ]
+    assert target_errors == set()
+    assert [finding.code for finding in skew_warnings].count(
+        "analytics-jsonl-build-mismatch-fallback-skew"
+    ) == 2
+    assert [finding.code for finding in skew_warnings].count(
+        "matrix-analytics-build-fallback-skew"
+    ) == 1
+    assert {
+        finding.context["fallback_surface"] for finding in skew_warnings
+    } == {fallback_surface}
+
+
+@pytest.mark.parametrize("state_kind", ("missing", "tampered", "both"))
+def test_split_build_mismatch_requires_valid_restore_attestation(
+    tmp_path,
+    monkeypatch,
+    state_kind,
+):
+    specs = _write_split_build_alignment_fixtures(
+        tmp_path,
+        analytics_build=100,
+        core_build=101,
+    )
+    monkeypatch.setattr(audit_module, "SURFACE_SPECS", specs)
+    state_path = tmp_path / "data/vllm/ci/publication_state.json"
+    if state_kind == "tampered":
+        state_path = _write_attested_split_fallback_state(
+            tmp_path,
+            "ci_analytics",
+            specs,
+        )
+        analytics_path = tmp_path / "data/vllm/ci/analytics.json"
+        analytics_path.write_text(analytics_path.read_text() + "\n")
+    elif state_kind == "both":
+        state_path = _write_attested_split_fallback_state(
+            tmp_path,
+            ("ci_analytics", "ci_core"),
+            specs,
+        )
+
+    audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+    audit.audit_analytics()
+    audit.audit_amd_matrix()
+    error_codes = [finding.code for finding in audit.report.errors]
+
+    assert error_codes.count("analytics-jsonl-build-mismatch") == 2
+    assert error_codes.count("matrix-analytics-build") == 1
+    if state_kind == "tampered":
+        assert "publication-fallback-manifest-mismatch" in error_codes
+
+
+def _write_pre_analytics_gating_only_repo(
+    root: Path,
+) -> tuple[Path, Path]:
+    entries = {}
+    nightly = root / "data/vllm/ci/gating_nightlies.json"
+    for relative in CI_GATING_SURFACE_SPEC.required_paths:
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"surface": "ci_gating", "path": relative}) + "\n")
+        if relative in PRE_ANALYTICS_CI_GATING_SURFACE_SPEC.required_paths:
+            entries[relative] = _manifest_descriptor(path)
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path = _write_publication_state(
+        root,
+        {
+            "schema_version": 2,
+            "generated_at": now,
+            "baseline_ref": "0" * 40,
+            "mode": "fallback",
+            "degraded_surfaces": ["ci_gating"],
+            "fresh_degraded_surfaces": [],
+            "fallback_surfaces": ["ci_gating"],
+            "degraded_since": {"ci_gating": now},
+            "fallback_since": {"ci_gating": now},
+            "fallback_max_age_hours": 36,
+            "restored_manifest": {"ci_gating": entries},
+            "restored_paths": {"ci_gating": sorted(entries)},
+        },
+    )
+    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "audit-test@example.com"],
+        cwd=root,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Audit Test"],
+        cwd=root,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "commit.gpgsign", "false"],
+        cwd=root,
+        check=True,
+    )
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "pre-analytics gating-only fallback"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    return state_path, nightly
+
+
 def test_schema_v2_mixed_state_expires_only_fallback_surfaces(
     tmp_path, monkeypatch
 ):
@@ -1438,7 +1768,7 @@ def test_schema_v1_legacy_ci_manifest_returns_split_child_fallbacks(tmp_path):
     audit = DashboardAudit(tmp_path, publication_state_path=state_path)
 
     assert audit.fallback_surfaces() == frozenset(
-        {"ci_core", "ci_gating", "ci_changes", "ci_hotness"}
+        {"ci_core", "ci_analytics", "ci_gating", "ci_changes", "ci_hotness"}
     )
     assert audit.report.errors == []
 
@@ -1497,7 +1827,78 @@ def test_schema_v2_rejects_legacy_ci_alias(tmp_path):
     ]
 
 
-def test_schema_v2_rejects_unclosed_core_fallback_dependency(tmp_path):
+def test_pre_analytics_schema_v2_manifest_is_verified_then_split(tmp_path):
+    manifests = {}
+    for surface, spec in (
+        ("ci_core", PRE_ANALYTICS_CI_CORE_SURFACE_SPEC),
+        ("ci_gating", PRE_ANALYTICS_CI_GATING_SURFACE_SPEC),
+    ):
+        entries = {}
+        for relative in spec.required_paths:
+            path = tmp_path / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"surface": surface, "path": relative}) + "\n")
+            entries[relative] = _manifest_descriptor(path)
+        manifests[surface] = entries
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path = _write_publication_state(
+        tmp_path,
+        {
+            "schema_version": 2,
+            "generated_at": now,
+            "baseline_ref": "0" * 40,
+            "mode": "fallback",
+            "degraded_surfaces": ["ci_core", "ci_gating"],
+            "fresh_degraded_surfaces": [],
+            "fallback_surfaces": ["ci_core", "ci_gating"],
+            "degraded_since": {"ci_core": now, "ci_gating": now},
+            "fallback_since": {"ci_core": now, "ci_gating": now},
+            "fallback_max_age_hours": 36,
+            "restored_manifest": manifests,
+            "restored_paths": {
+                surface: sorted(entries)
+                for surface, entries in manifests.items()
+            },
+        },
+    )
+
+    audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+
+    assert audit.fallback_surfaces() == frozenset(
+        {"ci_core", "ci_analytics", "ci_gating"}
+    )
+    assert audit.report.errors == []
+
+
+def test_pre_analytics_gating_only_schema_v2_uses_clean_head_nightly(tmp_path):
+    state_path, _nightly = _write_pre_analytics_gating_only_repo(tmp_path)
+
+    audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+
+    assert audit.fallback_surfaces() == frozenset({"ci_gating"})
+    assert audit.report.errors == []
+
+
+@pytest.mark.parametrize("mutation", ["modified", "missing"])
+def test_pre_analytics_gating_only_schema_v2_rejects_unproven_nightly(
+    tmp_path,
+    mutation,
+):
+    state_path, nightly = _write_pre_analytics_gating_only_repo(tmp_path)
+    if mutation == "modified":
+        nightly.write_text('{"selection":"modified"}\n')
+    else:
+        nightly.unlink()
+
+    audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+
+    assert audit.fallback_surfaces() == frozenset()
+    assert "publication-fallback-manifest-mismatch" in {
+        finding.code for finding in audit.report.errors
+    }
+
+
+def test_pre_analytics_schema_v2_rejects_unclosed_core_dependency(tmp_path):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     state_path = _write_publication_state(
         tmp_path,
@@ -1914,6 +2315,85 @@ def test_operations_audit_reconciles_platform_comparison_counts(tmp_path):
     audit.audit_operations_v2()
 
     assert "operations-platform-comparison-counts" in {
+        finding.code for finding in audit.report.errors
+    }
+
+
+def _write_analytics_ahead_operations_fixture(tmp_path: Path) -> tuple[Path, dict]:
+    ci = tmp_path / "data/vllm/ci"
+    ci.mkdir(parents=True)
+    analytics_builds = [
+        {
+            "number": 103,
+            "created_at": "2026-04-22T09:00:00Z",
+            "finished_at": "2026-04-22T10:00:00Z",
+            "state": "passed",
+            "jobs": [],
+        },
+        {
+            "number": 102,
+            "created_at": "2026-04-21T09:00:00Z",
+            "finished_at": "2026-04-21T10:00:00Z",
+            "state": "passed",
+            "jobs": [],
+        },
+    ]
+    core_head = {
+        "build_number": 102,
+        "created_at": "2026-04-21T09:00:00Z",
+        "finished_at": "2026-04-21T10:00:00Z",
+        "state": "passed",
+        "has_test_results": True,
+    }
+    analytics = {"amd-ci": {"builds": analytics_builds}}
+    health = {
+        "amd": {
+            "builds": [core_head],
+            "latest_pipeline_build": core_head,
+            "latest_test_signal_build": core_head,
+        }
+    }
+    canonical = operations_module._nightly_pipeline(
+        "amd-ci",
+        analytics["amd-ci"],
+        health["amd"],
+    )
+    (ci / "analytics.json").write_text(json.dumps(analytics))
+    (ci / "ci_health.json").write_text(json.dumps(health))
+    (ci / "operations_v2.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "nightly": {"canonical_history": canonical},
+            }
+        )
+    )
+    return ci, health
+
+
+def test_operations_audit_accepts_proven_analytics_head_ahead_of_core(tmp_path):
+    _write_analytics_ahead_operations_fixture(tmp_path)
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_operations_v2()
+
+    assert "operations-latest-nightly" not in {
+        finding.code for finding in audit.report.errors
+    }
+    assert "operations-latest-nightly-ahead" in {
+        finding.code for finding in audit.report.warnings
+    }
+
+
+def test_operations_audit_rejects_unproven_analytics_head_alignment(tmp_path):
+    ci, health = _write_analytics_ahead_operations_fixture(tmp_path)
+    health["amd"]["latest_pipeline_build"]["build_number"] = 101
+    (ci / "ci_health.json").write_text(json.dumps(health))
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_operations_v2()
+
+    assert "operations-latest-nightly" in {
         finding.code for finding in audit.report.errors
     }
 

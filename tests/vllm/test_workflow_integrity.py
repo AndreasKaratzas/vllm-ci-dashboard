@@ -442,7 +442,12 @@ class TestHourlyMasterWorkflow:
         assert "python scripts/vllm/audit_dashboard_data.py" not in script
         assert "PUBLICATION_BASELINE_REF=$BASELINE_REF" in script
         assert "PUBLICATION_FAILED_SURFACES_FILE=$FAILED_SURFACES_FILE" in script
+        assert (
+            "PUBLICATION_COLLECTOR_FAILURES_FILE=$COLLECTOR_FAILURES_FILE"
+            in script
+        )
         assert 'FAILED_SURFACES_FILE="$RUNNER_TEMP/' in script
+        assert 'COLLECTOR_FAILURES_FILE="$RUNNER_TEMP/' in script
 
     def test_external_collectors_force_atomic_surface_selection(self):
         data = _load_workflow("hourly-master.yml")
@@ -453,8 +458,20 @@ class TestHourlyMasterWorkflow:
 
         helper = baseline["run"]
         assert "run_surface_collector()" in helper
-        assert 'record_surface_failure "$surface" "$label" "$status"' in helper
+        assert '"$surface" "$label" "$status" "$diagnostic_file" "$collector"' in helper
         assert 'sort -u -o "$PUBLICATION_FAILED_SURFACES_FILE"' in helper
+        assert '"reason_class": reason_class' in helper
+        assert '"collector": re.sub' in helper
+        assert '"step": " ".join(step.split())' in helper
+        assert '"payload-budget"' in helper
+        assert '"rate-limit"' in helper
+        assert '"timeout"' in helper
+        assert '"schema-drift"' in helper
+        assert "local status=${PIPESTATUS[0]}" in helper
+        assert "mirror_surface_failure()" in helper
+        assert 'mirrored["surface"] = target_surface' in helper
+        assert 'candidate.get("reason_class")' in helper
+        assert '"component_bytes"' in helper
         for name, surface in (
             ("Sync queue data from durable live branch", "queue"),
             ("Sync issue automation state from gh-pages", "queue"),
@@ -475,6 +492,10 @@ class TestHourlyMasterWorkflow:
         assert selector.get("id") == "publication-selector"
         assert "--baseline-ref \"$PUBLICATION_BASELINE_REF\"" in selector_run
         assert "--force-degraded-surfaces \"$FORCED_SURFACES\"" in selector_run
+        assert (
+            '--collector-failures-file "$PUBLICATION_COLLECTOR_FAILURES_FILE"'
+            in selector_run
+        )
         assert 'sort -u "$PUBLICATION_FAILED_SURFACES_FILE"' in selector_run
         assert selector.get("continue-on-error") is not True
         sync_ci = steps[names.index("Sync CI data from gh-pages")]["run"]
@@ -494,13 +515,13 @@ class TestHourlyMasterWorkflow:
         names = [step.get("name") for step in steps]
         baseline = steps[names.index("Capture immutable main baseline")]["run"]
         assert (
-            "ci_core|ci_gating|ci_changes|ci_hotness|queue|queue_lifecycle|"
+            "ci_core|ci_analytics|ci_gating|ci_changes|ci_hotness|queue|queue_lifecycle|"
             "agent_health|dns_health|github_home|ready|perf_eval|test_builds"
         ) in baseline
 
         expected_collectors = {
             "Collect CI data": "ci_core",
-            "Collect CI analytics": "ci_core",
+            "Collect CI analytics": "ci_analytics",
             "Collect AMD test matrix": "ci_core",
             "Collect build-pinned CI ownership parity": "ci_core",
             "Collect AMD gating target list": "ci_gating",
@@ -541,15 +562,16 @@ class TestHourlyMasterWorkflow:
             "ci_health.json",
             "amd_test_matrix.json",
             "ownership_config_parity.json",
-            "gating_nightlies.json",
         ):
             assert filename in seed_sections["ci_core"]
+        assert "gating_nightlies.json" not in seed_sections["ci_core"]
         assert "analytics.json" not in seed_sections["ci_core"]
         assert "PUBLIC-ANALYTICS-BOUNDARY" in sync
         for filename in (
             "gating_targets.json",
             "gating_proposals.json",
             "gating_target_candidates.json",
+            "gating_nightlies.json",
         ):
             assert filename in seed_sections["ci_gating"]
         assert "group_changes.json" in seed_sections["ci_changes"]
@@ -566,7 +588,7 @@ class TestHourlyMasterWorkflow:
     def test_private_analytics_projection_has_no_public_feedback_loop(self):
         private_path = "data/vllm/ci/analytics.json"
         manifest_path = "vllm/ci/analytics.json"
-        assert surface_for_path(private_path) == "ci_core"
+        assert surface_for_path(private_path) == "ci_analytics"
 
         manifest = json.loads(
             (REPO_ROOT / "config/public_data_manifest.json").read_text()
@@ -650,7 +672,16 @@ class TestHourlyMasterWorkflow:
 
         collect = steps[collect_index]
         assert collect["id"] == "collect-analytics"
-        assert "surface_is_current ci_core" in collect["run"]
+        assert "surface_is_current ci_analytics" in collect["run"]
+        assert "GATING_NIGHTLIES_BEFORE=$(gating_nightlies_digest)" in collect["run"]
+        assert "GATING_NIGHTLIES_AFTER=$(gating_nightlies_digest)" in collect["run"]
+        assert '"$GATING_NIGHTLIES_BEFORE" = "$GATING_NIGHTLIES_AFTER"' in collect[
+            "run"
+        ]
+        assert (
+            'mirror_surface_failure \\\n    ci_analytics ci_gating "CI gating nightly evidence"'
+            in collect["run"]
+        )
         assert 'echo "cache_save=true"' in collect["run"]
         assert 'echo "cache_save=false"' in collect["run"]
 
@@ -724,9 +755,15 @@ class TestHourlyMasterWorkflow:
             ("Watch queue latency (open/close issues)", "queue"),
             ("Watch zombie queue jobs (open/close issues)", "queue"),
             ("Watch Omni workload surge (open/close issues)", "queue"),
-            ("Watch AMD main test-group failures (open/close issue)", "ci_core"),
-            ("Watch upstream CI main test-group failures (open/close issue)", "ci_core"),
-            ("Watch AMD main duration regressions (open/close issue)", "ci_core"),
+            (
+                "Watch AMD main test-group failures (open/close issue)",
+                "ci_analytics",
+            ),
+            (
+                "Watch upstream CI main test-group failures (open/close issue)",
+                "ci_analytics",
+            ),
+            ("Watch AMD main duration regressions (open/close issue)", "ci_analytics"),
             ("Watch AMD CI agent health (open/close issue)", "agent_health"),
             ("Watch AMD CI test-area regressions (ranked owners)", "ci_core"),
         )
@@ -837,11 +874,23 @@ class TestHourlyMasterWorkflow:
             for step in steps
             if step.get("name") == "Create hourly validation incident"
         )
+        assembly = next(
+            step for step in steps if step.get("name") == "Assemble site"
+        )
         script = create["with"]["script"]
         condition = create.get("if", "")
 
+        assert assembly.get("id") == "site-assembly"
         assert "steps.publication-selector.outcome == 'failure'" in condition
         assert "steps.publication-selector.outputs.degraded == 'true'" in condition
+        assert (
+            "steps.publication-selector.outputs.alertable_degradation == 'true'"
+            in condition
+        )
+        assert "steps.pages-deploy.outcome == 'failure'" in condition
+        assert "steps.site-assembly.outcome == 'failure'" in condition
+        assert "steps.post-deploy-validation.outcome == 'failure'" in condition
+        assert "failure()" in condition
         assert "steps.live-data-audit.outcome != 'success'" in condition
         assert "steps.live-data-audit.outputs.exit_code != '0'" in condition
         assert "createHash('sha256')" in script
@@ -857,14 +906,22 @@ class TestHourlyMasterWorkflow:
         assert "Publication findings" in script
         assert "publicationDiagnostics" in script
         assert "Live Publication Audit Failure" in script
+        assert "workflow:unclassified-step-failure" in script
+        assert "priorJobStatus === 'failure'" in script
         assert "liveAuditFindings" in script
         assert "liveAuditDiagnostics" in script
         assert "Live publication audit findings" in script
         assert "Failing deterministic tests" in script
         assert "deterministic:${node}" in script
         assert "const publicationConditionCodes" in script
+        assert "const publicationConditionSignals" in script
         assert "publicationConditionCodes.length" in script
+        assert "publicationConditionSignals.length" in script
+        assert "context.reason_class" in script
+        assert "context.collector" in script
+        assert "context.step" in script
         assert "publication-finding:${code}" in script
+        assert "publication-finding:${signal}" in script
         assert "publication:${surface}" in script
         assert "live-audit:${code}" in script
         assert "live-contract:${node}" in script
@@ -882,6 +939,16 @@ class TestHourlyMasterWorkflow:
         assert "allIssues.filter" in script
         assert ".sort(incidentPreference)[0] || null" in script
         assert "previousFingerprintMarker" in script
+        assert "codeOnlyFingerprintMarker" in script
+        assert (
+            "issue.state === 'open' || issueBody.includes(recoveredMarker)"
+            in script
+        )
+        assert "const resetOnlyDegradation" in script
+        assert "recovery streaks were reset without opening an incident" in script
+        assert script.index("for (const issue of ownedIssues)") < script.index(
+            "if (resetOnlyDegradation)"
+        )
         assert "legacyFingerprintMarker" in script
         assert "stablePreviousVersion" in script
         assert "legacyVersion || legacy" in script
@@ -924,6 +991,59 @@ class TestHourlyMasterWorkflow:
         # choice so an unrelated open/recovered duplicate cannot bypass it.
         assert "const suppressionRank = issue => issue.state === 'closed'" in script
 
+    def test_coarse_collector_identity_cannot_inherit_manual_suppression(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        create = next(
+            step
+            for step in steps
+            if step.get("name") == "Create hourly validation incident"
+        )
+        script = create["with"]["script"]
+
+        migration = script[
+            script.index("const codeOnlyPreviousVersion"):
+            script.index("const previousVersion")
+        ]
+        assert "issue.state === 'open'" in migration
+        assert "issueBody.includes(recoveredMarker)" in migration
+        assert "issue.state === 'closed'" not in migration
+
+    def test_suppressed_transient_breaks_the_six_run_recovery_sequence(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        create = next(
+            step
+            for step in steps
+            if step.get("name") == "Create hourly validation incident"
+        )
+        close = next(
+            step
+            for step in steps
+            if step.get("name") == "Close issue after healthy publication"
+        )
+        condition = create.get("if", "")
+        script = create["with"]["script"]
+
+        assert "steps.publication-selector.outputs.degraded == 'true'" in condition
+        reset_loop = script.index("for (const issue of ownedIssues)")
+        reset_marker = script.index(
+            "resetBody.replace(recoveryPattern, recoveryMarker)", reset_loop
+        )
+        reset_definition = script.index("const resetOnlyDegradation")
+        suppressed_return = script.index("if (resetOnlyDegradation)")
+        incident_lookup = script.index("const suppressionRank", suppressed_return)
+        assert reset_loop < reset_marker < suppressed_return < incident_lookup
+        assert "transientAlertSuppressed" in script
+        assert "!hasUnclassifiedWorkflowFailure" in script[
+            reset_definition:suppressed_return
+        ]
+        assert "return;" in script[suppressed_return:incident_lookup]
+        assert "const requiredRecoveryRuns = 6" in close["with"]["script"]
+        assert "steps.publication-selector.outputs.degraded == 'false'" in close.get(
+            "if", ""
+        )
+
     def test_hourly_open_issue_refreshes_evidence_without_notification_churn(self):
         data = _load_workflow("hourly-master.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])
@@ -964,7 +1084,7 @@ class TestHourlyMasterWorkflow:
         assert script.index("if (incidentTransition === 'reopened')") < script.index(comment)
         assert script.index(comment) < script.index("duplicate notification suppressed")
 
-    def test_hourly_issue_closure_is_owned_and_requires_two_green_runs(self):
+    def test_hourly_issue_closure_is_owned_and_requires_six_green_runs(self):
         data = _load_workflow("hourly-master.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])
         close = next(
@@ -974,7 +1094,8 @@ class TestHourlyMasterWorkflow:
         )
         script = close["with"]["script"]
 
-        assert "const requiredRecoveryRuns = 2" in script
+        assert "const requiredRecoveryRuns = 6" in script
+        assert "required healthy recovery runs" in script
         assert "github.paginate(github.rest.issues.listForRepo" in script
         assert "issues.filter" in script
         assert "body.includes(ownershipMarker) || body.includes(legacySignature)" in script

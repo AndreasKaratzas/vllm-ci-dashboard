@@ -6,6 +6,7 @@ import json
 
 import pytest
 
+from vllm import audit_dashboard_data as audit_module
 from vllm import build_operations_snapshot as ops
 from vllm.audit_dashboard_data import DashboardAudit
 
@@ -168,6 +169,7 @@ def _payload() -> dict:
 
 def _lifecycle() -> dict:
     return {
+        "schema_version": 1,
         "generated_at": GENERATED_AT,
         "scope": {
             "queues": ["amd_mi300_1", "amd_mi355_1"],
@@ -246,7 +248,7 @@ def test_org_summary_projects_distinct_counts_and_latest_nightly() -> None:
     summary = ops.build_org_summary(_payload(), _lifecycle())
 
     assert summary["schema_id"] == "oss-project-ci-summary"
-    assert summary["schema_version"] == 3
+    assert summary["schema_version"] == ops.ORG_SUMMARY_SCHEMA_VERSION == 4
     assert summary["project"]["id"] == "vllm"
 
     logical = summary["test_groups"]["observed_latest_amd"]
@@ -332,8 +334,38 @@ def test_org_summary_projects_daily_wait_vectors_and_rolling_counts() -> None:
                 "Direct event timestamps are exact but not provably exhaustive."
             ),
         },
-        "days": _lifecycle()["daily_wait_times"]["days"],
+        "sample_count": 4,
+        "days": [
+            {
+                key: day[key]
+                for key in (
+                    "date",
+                    "start",
+                    "end_exclusive",
+                    "partial",
+                    "sample_count",
+                )
+            }
+            for day in _lifecycle()["daily_wait_times"]["days"]
+        ],
+        "source": {
+            "path": ops.QUEUE_LIFECYCLE_NAME,
+            "schema_version": 1,
+            "key": "daily_wait_times.days",
+            "vector_key": "served_job_wait_seconds",
+        },
     }
+    assert all("served_job_wait_seconds" not in day for day in daily["days"])
+
+    # The schema-v4 index remains lossless: its stable source pointer resolves
+    # every exact value (including duplicates) from the public lifecycle file.
+    source = _lifecycle()
+    assert daily["source"]["key"] == "daily_wait_times.days"
+    assert daily["source"]["vector_key"] == "served_job_wait_seconds"
+    assert sum(
+        len(day[daily["source"]["vector_key"]])
+        for day in source["daily_wait_times"]["days"]
+    ) == daily["sample_count"]
 
 
 def test_org_summary_marks_daily_waits_unavailable_without_dropping_rolling_counts() -> None:
@@ -347,6 +379,7 @@ def test_org_summary_marks_daily_waits_unavailable_without_dropping_rolling_coun
         "daily_wait_times_unavailable"
     )
     assert queues["daily_served_job_waits"]["days"] == []
+    assert queues["daily_served_job_waits"]["sample_count"] is None
     assert queues["recent_completed_window"]["served_jobs"] == 970
 
 
@@ -467,21 +500,63 @@ def test_snapshot_bundle_writes_bounded_discoverable_org_summary(tmp_path) -> No
     assert summary["generated_at"] == GENERATED_AT
     assert path.stat().st_size == descriptor["bytes"]
     assert path.stat().st_size < ops.ORG_SUMMARY_MAX_BYTES
-    assert descriptor["schema_version"] == 3
+    assert descriptor["schema_version"] == ops.ORG_SUMMARY_SCHEMA_VERSION == 4
     assert "groups" not in summary["gating"]["upstream_scheduled_nightly"]
 
 
-def test_snapshot_bundle_rejects_an_org_summary_over_the_named_budget(
-    tmp_path, monkeypatch
+def test_snapshot_bundle_references_oversized_exact_wait_vectors_without_duplication(
+    tmp_path,
 ) -> None:
     output = tmp_path / "operations_v2.json"
-    (tmp_path / ops.QUEUE_LIFECYCLE_NAME).write_text(json.dumps(_lifecycle()))
+    lifecycle = _lifecycle()
+    waits = [index / 1_000 for index in range(300_000)]
+    first, second = lifecycle["daily_wait_times"]["days"]
+    first["sample_count"] = 0
+    first["served_job_wait_seconds"] = []
+    second["sample_count"] = len(waits)
+    second["served_job_wait_seconds"] = waits
+    lifecycle["hourly"][0]["totals"]["queue_wait_seconds"]["count"] = len(waits)
+    source_path = tmp_path / ops.QUEUE_LIFECYCLE_NAME
+    source_path.write_text(json.dumps(lifecycle, separators=(",", ":")))
+    assert source_path.stat().st_size > ops.ORG_SUMMARY_MAX_BYTES
+
+    manifest = ops.write_snapshot_bundle(output, _payload(), log=False)
+
+    summary_path = tmp_path / manifest["organization_summary"]["path"]
+    summary = json.loads(summary_path.read_text())
+    daily = summary["queues"]["daily_served_job_waits"]
+    assert summary_path.stat().st_size < ops.ORG_SUMMARY_MAX_BYTES
+    assert daily["sample_count"] == len(waits)
+    assert daily["source"]["path"] == ops.QUEUE_LIFECYCLE_NAME
+    assert all("served_job_wait_seconds" not in day for day in daily["days"])
+
+    referenced = json.loads(source_path.read_text())
+    exact = referenced["daily_wait_times"]["days"][1][
+        daily["source"]["vector_key"]
+    ]
+    assert exact == waits
+
+
+def test_snapshot_bundle_writes_an_org_summary_over_budget_for_audit_routing(
+    tmp_path, monkeypatch
+) -> None:
+    data_dir = tmp_path / "data" / "vllm" / "ci"
+    data_dir.mkdir(parents=True)
+    output = data_dir / "operations_v2.json"
+    (data_dir / ops.QUEUE_LIFECYCLE_NAME).write_text(json.dumps(_lifecycle()))
     monkeypatch.setattr(ops, "ORG_SUMMARY_MAX_BYTES", 1)
+    monkeypatch.setattr(audit_module, "ORG_SUMMARY_MAX_BYTES", 1)
 
-    with pytest.raises(RuntimeError, match="organization summary is .* limit is 1"):
-        ops.write_snapshot_bundle(output, _payload(), log=False)
+    ops.write_snapshot_bundle(output, _payload(), log=False)
 
-    assert not (tmp_path / ops.ORG_SUMMARY_NAME).exists()
+    summary_path = data_dir / ops.ORG_SUMMARY_NAME
+    assert summary_path.exists()
+    assert summary_path.stat().st_size > 1
+    checked = DashboardAudit(tmp_path)
+    checked.audit_operations_bundle()
+    assert "operations-bundle-org-summary-budget" in {
+        finding.code for finding in checked.report.findings
+    }
 
 
 def test_dashboard_audit_rejects_a_drifted_org_summary(tmp_path) -> None:
@@ -501,13 +576,43 @@ def test_dashboard_audit_rejects_a_drifted_org_summary(tmp_path) -> None:
 
     path = data_dir / ops.ORG_SUMMARY_NAME
     summary = json.loads(path.read_text())
-    assert summary["schema_version"] == 3
+    assert summary["schema_version"] == ops.ORG_SUMMARY_SCHEMA_VERSION == 4
     summary["test_groups"]["observed_latest_amd"]["total"] = 236
     path.write_text(json.dumps(summary, indent=2) + "\n")
 
     invalid = DashboardAudit(tmp_path)
     invalid.audit_operations_bundle()
     assert "operations-bundle-org-summary-projection" in {
+        finding.code for finding in invalid.report.findings
+    }
+
+
+@pytest.mark.parametrize("case", ("path", "key", "sample_count", "day_bounds"))
+def test_dashboard_audit_rejects_a_drifted_org_summary_wait_reference(
+    tmp_path, case: str
+) -> None:
+    data_dir = tmp_path / "data" / "vllm" / "ci"
+    data_dir.mkdir(parents=True)
+    output = data_dir / "operations_v2.json"
+    (data_dir / ops.QUEUE_LIFECYCLE_NAME).write_text(json.dumps(_lifecycle()))
+    ops.write_snapshot_bundle(output, _payload(), log=False)
+
+    path = data_dir / ops.ORG_SUMMARY_NAME
+    summary = json.loads(path.read_text())
+    waits = summary["queues"]["daily_served_job_waits"]
+    if case == "path":
+        waits["source"]["path"] = "other.json"
+    elif case == "key":
+        waits["source"]["key"] = "daily_wait_times.other"
+    elif case == "sample_count":
+        waits["sample_count"] += 1
+    else:
+        waits["days"][0]["start"] = "2026-08-19T23:00:00Z"
+    path.write_text(json.dumps(summary, separators=(",", ":")) + "\n")
+
+    invalid = DashboardAudit(tmp_path)
+    invalid.audit_operations_bundle()
+    assert "operations-bundle-org-summary-source" in {
         finding.code for finding in invalid.report.findings
     }
 
@@ -549,9 +654,22 @@ def test_published_org_summary_has_consistent_denominators() -> None:
     assert wait["unit"] == "seconds"
     assert wait["sample_order"] == "ascending"
     assert wait["days"]
-    for day in wait["days"]:
-        values = day["served_job_wait_seconds"]
+    source_path = path.parent / wait["source"]["path"]
+    source = json.loads(source_path.read_text())
+    assert wait["source"] == {
+        "path": ops.QUEUE_LIFECYCLE_NAME,
+        "schema_version": source["schema_version"],
+        "key": "daily_wait_times.days",
+        "vector_key": "served_job_wait_seconds",
+    }
+    source_days = source["daily_wait_times"]["days"]
+    assert [day["sample_count"] for day in wait["days"]] == [
+        day["sample_count"] for day in source_days
+    ]
+    for day, source_day in zip(wait["days"], source_days, strict=True):
+        values = source_day[wait["source"]["vector_key"]]
         assert day["sample_count"] == len(values)
         assert values == sorted(values)
         assert all(value >= 0 for value in values)
+    assert wait["sample_count"] == sum(day["sample_count"] for day in wait["days"])
     assert path.stat().st_size < ops.ORG_SUMMARY_MAX_BYTES

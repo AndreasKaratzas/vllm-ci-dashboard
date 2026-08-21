@@ -29,6 +29,7 @@ from vllm.ci.reliability_history import (  # noqa: E402
     OBSERVED_FAILURE_MOVEMENT_ID,
     collapse_nightly_attempts,
     compare_nightly_failures,
+    hydrate_reliability_observations,
     validate_all_main_reliability,
 )
 from vllm.collect_gating_target_candidates import hardware_fold_key  # noqa: E402
@@ -46,6 +47,7 @@ OPERATIONS_BUNDLE_DIR_NAME = "operations_v2"
 QUEUE_HISTORY_CHART_NAME = "queue_history_chart.json"
 ORG_SUMMARY_NAME = "org_summary.json"
 ORG_SUMMARY_MAX_BYTES = 2 * 1024 * 1024
+ORG_SUMMARY_SCHEMA_VERSION = 4
 QUEUE_LIFECYCLE_NAME = "queue_lifecycle.json"
 NIGHTLY_BUILD_LIMIT = 30
 RANKING_LIMIT = 20
@@ -354,6 +356,7 @@ def _nightly_pipeline(pipeline: str, analytics: dict, health: dict | None = None
         for build in analytics.get("builds") or []
         if _strict_int(build.get("number") or build.get("build_number")) is not None
     }
+    analytics_build_numbers = frozenset(source_builds_by_number)
     health_builds = {
         _strict_int(build.get("number") or build.get("build_number")): build
         for build in health.get("builds") or []
@@ -363,17 +366,35 @@ def _nightly_pipeline(pipeline: str, analytics: dict, health: dict | None = None
     latest_pipeline_number = _strict_int(
         latest_pipeline.get("number") or latest_pipeline.get("build_number")
     )
-    if latest_pipeline_number is not None and latest_pipeline_number not in source_builds_by_number:
-        source_builds_by_number[latest_pipeline_number] = {
-            "number": latest_pipeline_number,
-            "created_at": latest_pipeline.get("created_at") or "",
-            "finished_at": latest_pipeline.get("finished_at") or "",
-            "state": latest_pipeline.get("state") or "unknown",
-            "commit": latest_pipeline.get("commit") or "",
-            "message": latest_pipeline.get("message") or "",
-            "total_jobs": latest_pipeline.get("job_count") or 0,
-            "jobs": [],
+    # Analytics can intentionally be an older last-known-good transaction while
+    # ci_health remains current. Preserve both current core references in the
+    # derived nightly history so cross-generation rebuilds stay internally
+    # coherent without weakening the audit or rolling back ci_core.
+    for reference_name in (
+        "latest_pipeline_build",
+        "latest_test_signal_build",
+    ):
+        reference = health.get(reference_name) or {}
+        reference_number = _strict_int(
+            reference.get("number") or reference.get("build_number")
+        )
+        if reference_number is None:
+            continue
+        health_builds[reference_number] = {
+            **(health_builds.get(reference_number) or {}),
+            **reference,
         }
+        if reference_number not in source_builds_by_number:
+            source_builds_by_number[reference_number] = {
+                "number": reference_number,
+                "created_at": reference.get("created_at") or "",
+                "finished_at": reference.get("finished_at") or "",
+                "state": reference.get("state") or "unknown",
+                "commit": reference.get("commit") or "",
+                "message": reference.get("message") or "",
+                "total_jobs": reference.get("job_count") or 0,
+                "jobs": [],
+            }
     source_builds = sorted(
         source_builds_by_number.values(),
         key=lambda build: (
@@ -561,6 +582,31 @@ def _nightly_pipeline(pipeline: str, analytics: dict, health: dict | None = None
             previous_movement_build = build
             previous_movement_observations = observations
     rows.reverse()
+    retained_rows = rows[:NIGHTLY_BUILD_LIMIT]
+    canonical_build_number = (
+        _strict_int(retained_rows[0].get("number")) if retained_rows else None
+    )
+    analytics_ahead_build_numbers = sorted(
+        (
+            number
+            for number in analytics_build_numbers
+            if latest_pipeline_number is not None
+            and number > latest_pipeline_number
+        ),
+        reverse=True,
+    )
+    if latest_pipeline_number is None:
+        head_alignment_status = "ci_health_reference_unavailable"
+    elif canonical_build_number == latest_pipeline_number:
+        head_alignment_status = "aligned"
+    elif (
+        canonical_build_number in analytics_ahead_build_numbers
+        and canonical_build_number is not None
+        and canonical_build_number > latest_pipeline_number
+    ):
+        head_alignment_status = "analytics_ahead_of_ci_health"
+    else:
+        head_alignment_status = "inconsistent"
     return {
         "pipeline": pipeline,
         "transition_policy_id": INCIDENT_TRANSITION_POLICY_ID,
@@ -570,7 +616,13 @@ def _nightly_pipeline(pipeline: str, analytics: dict, health: dict | None = None
         "history_window_days": min(int(analytics.get("days") or NIGHTLY_BUILD_LIMIT), NIGHTLY_BUILD_LIMIT),
         "history_limit": NIGHTLY_BUILD_LIMIT,
         "builds_available": len(source_builds),
-        "builds": rows[:NIGHTLY_BUILD_LIMIT],
+        "builds": retained_rows,
+        "head_alignment": {
+            "status": head_alignment_status,
+            "canonical_build_number": canonical_build_number,
+            "ci_health_build_number": latest_pipeline_number,
+            "analytics_ahead_build_numbers": analytics_ahead_build_numbers,
+        },
     }
 
 
@@ -1530,7 +1582,17 @@ def _collector_main_is_strict(payload: Any, pipeline_slug: str) -> bool:
             return False
         if not isinstance(group.get("duration"), dict):
             return False
-        for observation in group["observations"]:
+        observations = group["observations"]
+        if payload.get("schema_version") == 2:
+            try:
+                observations = hydrate_reliability_observations(
+                    payload,
+                    observations,
+                    pipeline_slug=pipeline_slug,
+                )
+            except (KeyError, TypeError, ValueError):
+                return False
+        for observation in observations:
             if not isinstance(observation, dict):
                 return False
             number = _strict_int(observation.get("build_number"))
@@ -1851,13 +1913,24 @@ def _collector_main_catalog(
     for source in payload.get("groups") or []:
         if _is_excluded_queue(source.get("queue")):
             continue
+        source_observations = [
+            row
+            for row in source.get("observations") or []
+            if isinstance(row, dict)
+        ]
+        if payload.get("schema_version") == 2:
+            source_observations = hydrate_reliability_observations(
+                payload,
+                source_observations,
+                pipeline_slug=pipeline_slug,
+            )
         observations = []
         by_job_id = {
             str(row.get("job_id")): row
-            for row in source.get("observations") or []
+            for row in source_observations
             if row.get("job_id")
         }
-        for raw in source.get("observations") or []:
+        for raw in source_observations:
             if not raw.get("eligible_for_reliability"):
                 continue
             result = str(raw.get("result") or "")
@@ -3710,7 +3783,18 @@ def _upstream_scheduled_source_validation(
             continue
         raw_name = str(group.get("raw_name") or group.get("name") or "unknown")
         queue = str(group.get("queue") or "")
-        for observation in group.get("observations") or []:
+        observations = [
+            row
+            for row in group.get("observations") or []
+            if isinstance(row, dict)
+        ]
+        if collector.get("schema_version") == 2:
+            observations = hydrate_reliability_observations(
+                collector,
+                observations,
+                pipeline_slug="ci",
+            )
+        for observation in observations:
             if observation.get("eligible_for_reliability") is not True:
                 continue
             number = _strict_int(observation.get("build_number"))
@@ -7679,6 +7763,29 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
         if daily_wait_days is not None
         else None
     )
+    # The exact vectors already live in the public, independently bounded
+    # queue_lifecycle.json source. Keep only their validated day index here and
+    # point rollup consumers at the authoritative values. Embedding the same
+    # vectors a second time allowed a valid (<5 MiB) lifecycle artifact to grow
+    # this compact contract past its 2 MiB ceiling and abort the whole dashboard
+    # build before publication fallback could run.
+    daily_wait_day_index = (
+        [
+            {
+                key: day[key]
+                for key in (
+                    "date",
+                    "start",
+                    "end_exclusive",
+                    "partial",
+                    "sample_count",
+                )
+            }
+            for day in daily_wait_days
+        ]
+        if daily_wait_days is not None
+        else None
+    )
     hourly_wait_counts: list[int] = []
     lifecycle_hourly = queue_lifecycle.get("hourly")
     if isinstance(lifecycle_hourly, list) and lifecycle_hourly:
@@ -7762,7 +7869,7 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
 
     return {
         "schema_id": "oss-project-ci-summary",
-        "schema_version": 3,
+        "schema_version": ORG_SUMMARY_SCHEMA_VERSION,
         "generated_at": payload.get("generated_at"),
         "project": {
             "id": "vllm",
@@ -8000,7 +8107,16 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
                     ),
                     "reason": lifecycle_coverage.get("reason"),
                 },
-                "days": daily_wait_days if daily_wait_available else [],
+                "sample_count": (
+                    daily_wait_sample_count if daily_wait_available else None
+                ),
+                "days": daily_wait_day_index if daily_wait_available else [],
+                "source": {
+                    "path": QUEUE_LIFECYCLE_NAME,
+                    "schema_version": queue_lifecycle.get("schema_version"),
+                    "key": "daily_wait_times.days",
+                    "vector_key": "served_job_wait_seconds",
+                },
             },
         },
         "definitions": {
@@ -8034,8 +8150,9 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
             ),
             "served_job_wait_sample": (
                 "One observed job attempt's started_at minus runnable_at duration, "
-                "assigned to the UTC date of started_at. Daily vectors retain every "
-                "sample and duplicate value; they are not averages or percentiles."
+                "assigned to the UTC date of started_at. The referenced lifecycle "
+                "vectors retain every sample and duplicate value; they are not "
+                "averages or percentiles."
             ),
         },
         "sources": {
@@ -8091,15 +8208,11 @@ def write_snapshot_bundle(
         _load_json(output.parent / QUEUE_LIFECYCLE_NAME),
     )
     org_summary_path = output.parent / ORG_SUMMARY_NAME
-    # This is a machine-consumed exchange contract. Compact encoding keeps the
-    # complete daily vectors inexpensive without sampling or truncating them.
+    # This is a machine-consumed exchange contract. Schema v4 keeps only the
+    # validated daily index here and references the exact vectors in the public
+    # lifecycle source, avoiding a second large copy in every publication.
     org_summary_encoded = _encoded_json(org_summary)
     org_summary_bytes = len(org_summary_encoded.encode("utf-8"))
-    if org_summary_bytes > ORG_SUMMARY_MAX_BYTES:
-        raise RuntimeError(
-            f"organization summary is {org_summary_bytes} bytes; "
-            f"limit is {ORG_SUMMARY_MAX_BYTES}"
-        )
     org_summary_path.write_text(org_summary_encoded)
 
     manifest = {

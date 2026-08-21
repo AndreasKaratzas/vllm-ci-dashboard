@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from datetime import datetime, timedelta, timezone
 
 from vllm import collect_analytics as ca
@@ -11,10 +12,15 @@ from vllm.ci.incident_transitions import (
     advance_incident,
 )
 from vllm.ci.reliability_history import (
+    BUILD_MESSAGE_MAX_CHARS,
+    LEGACY_OBSERVATION_DERIVED_FIELDS,
     build_all_main_reliability,
     collapse_nightly_attempts,
     compact_main_builds,
     compute_nightly_change_history,
+    hydrate_reliability_observation,
+    hydrate_reliability_observations,
+    resolve_reliability_build,
     validate_all_main_reliability,
 )
 
@@ -347,9 +353,15 @@ def test_retry_evidence_and_attempt_links_require_explicit_buildkite_fields():
     )
 
     result = _dataset([_build(501, [failed, passed, unrelated_failure], state="failed")])
-    observations = {row["job_id"]: row for row in result["groups"][0]["observations"]}
+    stored = {row["job_id"]: row for row in result["groups"][0]["observations"]}
+    observations = {
+        job_id: hydrate_reliability_observation(result, row)
+        for job_id, row in stored.items()
+    }
     base = "https://buildkite.com/vllm/amd-ci/builds/501/steps/canvas"
 
+    assert all("job_url" not in row and "step_url" not in row for row in stored.values())
+    assert "retried_in_job_url" not in stored["failed-attempt"]["retry_evidence"]
     assert observations["failed-attempt"]["job_url"] == (
         f"{base}?jid=failed-attempt&tab=output"
     )
@@ -362,6 +374,205 @@ def test_retry_evidence_and_attempt_links_require_explicit_buildkite_fields():
     assert observations["passed-attempt"]["retry_evidence"]["retries_count"] == 1
     assert "retry_evidence" not in observations["plain-failure"]
     assert result["summary"]["retry_evidence_observations"] == 2
+
+
+def test_schema_v2_hydrates_exact_legacy_popup_fields_without_mutation():
+    message = "Merge pull request #123: preserve the popup title exactly"
+    source = _dataset([_build(
+        550,
+        [_job(
+            "popup-job",
+            "mi300_1: Popup Evidence",
+            step_id="popup-step",
+        )],
+        message=message,
+    )])
+    stored = source["groups"][0]["observations"][0]
+    before = copy.deepcopy(stored)
+
+    assert not (set(LEGACY_OBSERVATION_DERIVED_FIELDS) & stored.keys())
+    assert resolve_reliability_build(source, 550) is source["builds"][0]
+    assert resolve_reliability_build(source, 999) is None
+
+    hydrated = hydrate_reliability_observation(source, stored)
+    assert hydrate_reliability_observations(source, [stored]) == [hydrated]
+    base = "https://buildkite.com/vllm/amd-ci/builds/550"
+    assert hydrated == {
+        **stored,
+        "source_pipeline": "amd-ci",
+        "build_url": base,
+        "build_commit": "commit-550",
+        "build_message": message,
+        "build_created_at": "2026-04-20T09:00:00Z",
+        "job_url": f"{base}/steps/canvas?jid=popup-job&tab=output",
+        "step_url": f"{base}/steps/canvas?sid=popup-step&tab=output",
+    }
+    assert stored == before
+
+
+def test_schema_v2_url_reconstruction_preserves_rare_non_derivable_fallback():
+    fallback_url = (
+        "https://buildkite.com/vllm/amd-ci/builds/551/steps/legacy-command"
+    )
+    source = _dataset([_build(551, [
+        _job(
+            "",
+            "mi300_1: Legacy URL",
+            step_id="legacy-step",
+            web_url=fallback_url,
+        ),
+    ])])
+    stored = source["groups"][0]["observations"][0]
+
+    assert stored["job_id"] == ""
+    assert stored["step_id"] == "legacy-step"
+    assert stored["job_url_override"] == fallback_url
+    assert "job_url" not in stored
+    hydrated = hydrate_reliability_observation(source, stored)
+    assert "job_url_override" not in hydrated
+    assert hydrated["job_url"] == fallback_url
+    assert hydrated["step_url"].endswith(
+        "/steps/canvas?sid=legacy-step&tab=output"
+    )
+    assert validate_all_main_reliability(source, "amd-ci")
+
+
+def test_schema_v1_migration_rows_validate_and_tampering_fails_closed():
+    normalized = _dataset([_build(552, [
+        _job("migration-job", "mi300_1: Migration", step_id="migration-step"),
+    ])])
+    legacy = copy.deepcopy(normalized)
+    legacy["schema_version"] = 1
+    legacy["groups"][0]["observations"][0] = hydrate_reliability_observation(
+        normalized,
+        normalized["groups"][0]["observations"][0],
+    )
+
+    assert validate_all_main_reliability(legacy, "amd-ci")
+
+    tampered = copy.deepcopy(legacy)
+    tampered["groups"][0]["observations"][0]["build_message"] = "spoofed"
+    assert not validate_all_main_reliability(tampered, "amd-ci")
+
+    partially_hydrated = copy.deepcopy(normalized)
+    partially_hydrated["groups"][0]["observations"][0]["build_commit"] = (
+        "wrong-commit"
+    )
+    assert not validate_all_main_reliability(partially_hydrated, "amd-ci")
+
+
+def test_schema_v1_sparse_empty_catalog_remains_valid_for_fallback_migration():
+    legacy = _dataset([_build(5521, [])])
+    legacy["schema_version"] = 1
+    for field in ("commit", "message", "created_at"):
+        legacy["builds"][0].pop(field)
+
+    assert validate_all_main_reliability(legacy, "amd-ci")
+
+    normalized = copy.deepcopy(legacy)
+    normalized["schema_version"] = 2
+    assert not validate_all_main_reliability(normalized, "amd-ci")
+
+
+def test_long_build_messages_are_bounded_once_in_authoritative_catalog():
+    long_message = "pathological-title:" + ("x" * (BUILD_MESSAGE_MAX_CHARS * 3))
+    source = _dataset([_build(553, [
+        _job(f"message-job-{index}", f"mi300_1: Message Group {index}")
+        for index in range(12)
+    ], message=long_message)])
+    catalog = source["builds"][0]
+
+    assert len(catalog["message"]) == BUILD_MESSAGE_MAX_CHARS
+    assert catalog["message"].endswith("…")
+    assert catalog["message_truncated"] is True
+    assert catalog["message_original_chars"] == len(long_message)
+    assert all(
+        "build_message" not in observation
+        for group in source["groups"]
+        for observation in group["observations"]
+    )
+    assert json.dumps(source, ensure_ascii=False).count(catalog["message"]) == 1
+    assert hydrate_reliability_observation(
+        source, source["groups"][0]["observations"][0]
+    )["build_message"] == catalog["message"]
+    assert validate_all_main_reliability(source, "amd-ci")
+
+
+def test_normalized_output_is_deterministic_across_build_and_job_order():
+    first_jobs = [
+        _job("det-z", "mi300_1: Deterministic Z", minute=10),
+        _job("det-a", "mi300_1: Deterministic A", minute=0),
+    ]
+    second_jobs = [
+        _job("det-z-2", "mi300_1: Deterministic Z", minute=20),
+        _job("det-a-2", "mi300_1: Deterministic A", minute=30),
+    ]
+    forward_builds = [
+        _build(554, first_jobs),
+        _build(555, second_jobs, hour_offset=1),
+    ]
+    reversed_builds = [
+        _build(555, list(reversed(second_jobs)), hour_offset=1),
+        _build(554, list(reversed(first_jobs))),
+    ]
+
+    assert _dataset(forward_builds) == _dataset(reversed_builds)
+
+
+def test_normalized_observations_materially_reduce_serialized_size():
+    builds = []
+    message = "size-regression:" + ("m" * 1000)
+    for build_index in range(10):
+        jobs = [
+            _job(
+                f"size-{build_index}-{group_index}",
+                f"mi300_1: Size Group {group_index}",
+                step_key=f"size-group-{group_index}",
+                minute=group_index,
+            )
+            for group_index in range(20)
+        ]
+        builds.append(_build(
+            560 + build_index,
+            jobs,
+            message=message,
+            hour_offset=build_index,
+        ))
+    normalized = _dataset(builds)
+    legacy = copy.deepcopy(normalized)
+    legacy["schema_version"] = 1
+    for group_index, group in enumerate(normalized["groups"]):
+        legacy["groups"][group_index]["observations"] = [
+            hydrate_reliability_observation(normalized, row)
+            for row in group["observations"]
+        ]
+
+    normalized_bytes = len(json.dumps(
+        normalized, sort_keys=True, separators=(",", ":")
+    ).encode())
+    legacy_bytes = len(json.dumps(
+        legacy, sort_keys=True, separators=(",", ":")
+    ).encode())
+
+    assert normalized_bytes < legacy_bytes * 0.5
+    assert normalized["denominator"] == legacy["denominator"]
+    assert [
+        (
+            group["observation_count"],
+            group["retained_observation_count"],
+            group["retained_eligible_observation_count"],
+            group["observations_truncated"],
+        )
+        for group in normalized["groups"]
+    ] == [
+        (
+            group["observation_count"],
+            group["retained_observation_count"],
+            group["retained_eligible_observation_count"],
+            group["observations_truncated"],
+        )
+        for group in legacy["groups"]
+    ]
 
 
 def test_catalog_is_not_top_twenty_truncated_and_group_history_is_bounded():
@@ -797,7 +1008,7 @@ def test_schema_reports_cohort_window_denominator_source_and_deterministic_order
     forward = _dataset(builds)
     reverse = _dataset(list(reversed(builds)))
 
-    assert forward["schema_version"] == 1
+    assert forward["schema_version"] == 2
     assert forward["cohort"]["id"] == "amd-ci-main-completed-pass-fail"
     assert forward["cohort"]["name"] == (
         "amd-ci branch=main builds with state passed or failed and finished_at"

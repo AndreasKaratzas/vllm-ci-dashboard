@@ -29,7 +29,10 @@ from vllm.ci.managed_issue import (  # noqa: E402
     repo_owner,
     validate_target_repo,
 )
-from vllm.ci.reliability_history import validate_all_main_reliability  # noqa: E402
+from vllm.ci.reliability_history import (  # noqa: E402
+    hydrate_reliability_observations,
+    validate_all_main_reliability,
+)
 
 
 logging.basicConfig(
@@ -150,12 +153,21 @@ def _observation_rank(row: dict) -> tuple[str, str, str]:
     )
 
 
-def _final_successful_runs(group: dict) -> list[dict]:
+def _final_successful_runs(group: dict, reliability: dict | None = None) -> list[dict]:
     """Return one final successful attempt per build, newest first."""
     by_build: dict[int, list[dict]] = {}
-    for observation in group.get("observations") or []:
-        if not isinstance(observation, dict):
-            continue
+    observations = [
+        row
+        for row in group.get("observations") or []
+        if isinstance(row, dict)
+    ]
+    if reliability is not None and reliability.get("schema_version") == 2:
+        observations = hydrate_reliability_observations(
+            reliability,
+            observations,
+            pipeline_slug=PIPELINE,
+        )
+    for observation in observations:
         build_number = observation.get("build_number")
         result = str(observation.get("result") or "")
         if (
@@ -259,7 +271,7 @@ def evaluate_regressions(reliability: dict, state: dict) -> dict[str, dict]:
         group_id = str(group.get("group_id") or "")
         if not group_id:
             continue
-        runs = _final_successful_runs(group)
+        runs = _final_successful_runs(group, reliability)
         recent = runs[:RECENT_RUNS]
         existing = previous.get(group_id)
         existing = existing if isinstance(existing, dict) else {}

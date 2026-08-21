@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import sys
+import tempfile
 import time
 from collections import defaultdict
 from contextvars import ContextVar
@@ -35,6 +36,7 @@ from vllm.ci.analytics_cache import (  # noqa: E402
     builds_needing_refresh,
     load_build_cache,
     merge_builds,
+    sanitize_builds,
     write_build_cache,
 )
 from vllm.ci.analyzer import _parse_job_execution_label  # noqa: E402
@@ -47,13 +49,17 @@ from vllm.ci.utils import (  # noqa: E402
     queue_from_rules as _queue_from_rules,
 )
 from vllm.ci.reliability_history import (  # noqa: E402
+    BUILD_MESSAGE_MAX_CHARS,
     BUILD_FETCH_MAX_PAGES,
     BUILD_FETCH_PAGE_SIZE,
+    LEGACY_OBSERVATION_DERIVED_FIELDS,
     OBSERVATION_LIMIT,
+    SCHEMA_VERSION as RELIABILITY_SCHEMA_VERSION,
     buildkite_job_url_matches,
     build_all_main_reliability,
     compute_nightly_change_history,
     filter_reliability_builds,
+    hydrate_reliability_observations,
     validate_all_main_reliability,
 )
 from vllm.pipelines import NIGHTLY_NAME_PATTERNS_BY_SLUG  # noqa: E402
@@ -81,7 +87,20 @@ GATING_NIGHTLY_LIMIT = 30
 # artifact below that boundary with enough headroom for byte/display-unit
 # differences and fail before replacing the validated baseline.
 GITHUB_BLOB_MAX_BYTES = 100 * 1024 * 1024
+# Normal collection must fit comfortably below GitHub's blob limit.  The
+# larger compatibility ceiling remains visible as an emergency invariant, but
+# candidate monoliths are compacted to (or rejected above) this operating
+# target before they can replace the baseline.
+PRIVATE_ANALYTICS_TARGET_BYTES = 64 * 1024 * 1024
 PRIVATE_ANALYTICS_MAX_BYTES = 90 * 1024 * 1024
+# Evidence is newest-first. These deterministic levels preserve recent popup
+# history while giving the writer progressively stronger ways to stay inside
+# the normal budget if upstream cardinality grows unexpectedly.
+PRIVATE_ANALYTICS_OBSERVATION_CAPS = (48, 32, 24, 16, 12, 8, 4, 2, 1)
+# Regular build titles retain their established behavior. Only pathological
+# catalog values are bounded, far above the 100 characters rendered by the
+# existing nightly-build popup path.
+CATALOG_MESSAGE_MAX_CHARS = BUILD_MESSAGE_MAX_CHARS
 # The AMD all-main ledger exists for the hourly live alert, not long-range
 # browser analytics. Bounding it keeps analytics.json from growing needlessly.
 AMD_MAIN_OBSERVATION_LIMIT = 24
@@ -95,6 +114,12 @@ BK_GET_MAX_READ_TIMEOUT_SECONDS = 60
 BK_GET_RETRY_STATUS_CODES = frozenset({500, 502, 503, 504, 520, 522, 524})
 ANALYTICS_CACHE_OVERLAP = timedelta(hours=24)
 ANALYTICS_CACHE_FULL_REFRESH_INTERVAL = timedelta(hours=24)
+# A large one-run increase can indicate that an incremental cache merge
+# materialized duplicate history. Reconcile it once from the exhaustive source
+# before committing the cache. The absolute floor avoids retrying ordinary
+# growth in busy pipelines.
+ANALYTICS_CACHE_SUSPICIOUS_GROWTH_RATIO = 1.20
+ANALYTICS_CACHE_SUSPICIOUS_GROWTH_MIN_BYTES = 8 * 1024 * 1024
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 OUTPUT = ROOT / "data" / "vllm" / "ci"
@@ -139,6 +164,22 @@ class IncompleteAnalyticsCollection(RuntimeError):
     def __init__(self, message: str, provenance: dict | None = None):
         super().__init__(message)
         self.provenance = provenance or {}
+
+
+def _compact_json(value: Any) -> str:
+    return json.dumps(value, separators=(",", ":"), default=str)
+
+
+def _compact_json_bytes(value: Any) -> int:
+    return len(_compact_json(value).encode("utf-8"))
+
+
+def _bounded_catalog_message(value: Any) -> str:
+    """Mirror the reliability catalog's pathological-message bound."""
+    message = str(value or "")
+    if len(message) <= CATALOG_MESSAGE_MAX_CHARS:
+        return message
+    return message[:CATALOG_MESSAGE_MAX_CHARS - 1] + "…"
 
 
 def buildkite_job_url(pipeline_slug: str, build_number: int, job_id: str = "", step_id: str = "") -> str:
@@ -1062,19 +1103,33 @@ def _cache_diagnostics(
 def _reliability_builds_with_cache_aliases(
     builds: list[dict],
     pipeline_slug: str,
+    previous_reliability: dict | None = None,
 ) -> list[dict]:
     """Restore semantic messages that compact cache rows intentionally replace.
 
     The private cache records ``canonical_nightly`` instead of retaining every
     build message. It also records the allowlisted upstream scheduled gating
-    kind. Reliability history still accepts raw Buildkite rows, so give only
-    classified cached rows a known compatibility message on a shallow copy.
+    kind. Prefer the exact bounded title from the previous validated catalog;
+    the generic classified alias remains a fallback for uncataloged rows.
     """
+    previous_messages = {}
+    if validate_all_main_reliability(previous_reliability, pipeline_slug):
+        previous_messages = {
+            _safe_build_number(build): _bounded_catalog_message(
+                build.get("message")
+            )
+            for build in previous_reliability.get("builds") or []
+            if _safe_build_number(build)
+        }
     compatible = []
     for build in builds:
-        compatibility_message = _cache_compatibility_message(build, pipeline_slug)
-        if compatibility_message and not build.get("message"):
-            build = {**build, "message": compatibility_message}
+        if not build.get("message"):
+            restored_message = previous_messages.get(
+                _safe_build_number(build),
+                "",
+            ) or _cache_compatibility_message(build, pipeline_slug)
+            if restored_message:
+                build = {**build, "message": restored_message}
         compatible.append(build)
     return compatible
 
@@ -1251,6 +1306,53 @@ def _incremental_cached_fetch(
         last_full_at = _as_utc_datetime(cache.last_full_at)
         if last_full_at is None:
             diagnostics["failure"] = "cache_last_full_at_missing"
+            return None, diagnostics
+        # Compare like-for-like cache projections. Fresh Buildkite rows may
+        # contain large fields that the private cache intentionally discards;
+        # comparing those raw rows to the compact cache would manufacture a
+        # false growth signal on every incremental run.
+        cached_materialized_bytes = _compact_json_bytes(
+            sanitize_builds(cache.builds, pipeline_slug)
+        )
+        merged_materialized_bytes = _compact_json_bytes(
+            sanitize_builds(builds, pipeline_slug)
+        )
+        materialized_delta_bytes = (
+            merged_materialized_bytes - cached_materialized_bytes
+        )
+        materialized_growth_ratio = (
+            merged_materialized_bytes / cached_materialized_bytes
+            if cached_materialized_bytes
+            else None
+        )
+        diagnostics.update({
+            "cached_materialized_bytes": cached_materialized_bytes,
+            "merged_materialized_bytes": merged_materialized_bytes,
+            "materialized_delta_bytes": materialized_delta_bytes,
+            "materialized_growth_ratio": (
+                round(materialized_growth_ratio, 4)
+                if materialized_growth_ratio is not None
+                else None
+            ),
+        })
+        if (
+            cached_materialized_bytes
+            and materialized_delta_bytes
+            >= ANALYTICS_CACHE_SUSPICIOUS_GROWTH_MIN_BYTES
+            and materialized_growth_ratio
+            >= ANALYTICS_CACHE_SUSPICIOUS_GROWTH_RATIO
+        ):
+            diagnostics["failure"] = "suspicious_incremental_materialization"
+            log.warning(
+                "  incremental %s materialization grew by %d bytes (%.1f%%); "
+                "reconciling once with a full fetch",
+                pipeline_slug,
+                materialized_delta_bytes,
+                (materialized_growth_ratio - 1) * 100,
+            )
+            # Do not persist the suspicious merge. The caller performs its
+            # existing one-shot exhaustive fallback and only then replaces the
+            # validated cache.
             return None, diagnostics
         write_build_cache(
             cache_dir,
@@ -1724,6 +1826,34 @@ def gating_build_summary(build):
     return out
 
 
+def _atomic_write_text(out_path: Path, text: str) -> None:
+    """Replace ``out_path`` only after a same-directory file is durable."""
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{out_path.name}.",
+        suffix=".tmp",
+        dir=out_path.parent,
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary_path, 0o644)
+        os.replace(temporary_path, out_path)
+    except BaseException:
+        # ``fd`` belongs to the context manager once ``fdopen`` succeeds. If
+        # it failed before that point, closing it here is still safe.
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        temporary_path.unlink(missing_ok=True)
+        raise
+
+
 def write_gating_nightlies(output: Path, all_data: dict[str, dict[str, Any]], generated_at: str) -> None:
     payload = {
         "generated_at": generated_at,
@@ -1740,13 +1870,177 @@ def write_gating_nightlies(output: Path, all_data: dict[str, dict[str, Any]], ge
             ],
         }
     out_path = output / "gating_nightlies.json"
-    out_path.write_text(json.dumps(payload, separators=(",", ":"), default=str) + "\n")
+    _atomic_write_text(out_path, _compact_json(payload) + "\n")
     log.info("Wrote %s", out_path)
 
 
-def write_analytics(out_path: Path, payload: dict) -> None:
-    """Write a compact private artifact without replacing an in-budget baseline."""
+def _legacy_reliability_migration_error(
+    slug: str,
+    reason: str,
+) -> IncompleteAnalyticsCollection:
+    provenance = {
+        "collector": "ci_analytics",
+        "reason_class": "schema-drift",
+        "failure_kind": "invalid-legacy-reliability",
+        "pipeline": slug,
+        "source_schema_version": 1,
+        "target_schema_version": RELIABILITY_SCHEMA_VERSION,
+        "migration_reason": reason,
+    }
+    log.error(
+        "Private analytics reliability migration failed: %s",
+        _compact_json(provenance),
+    )
+    return IncompleteAnalyticsCollection(
+        f"Cannot losslessly migrate preserved {slug} reliability schema v1: {reason}",
+        provenance,
+    )
+
+
+def _migrate_preserved_reliability_v1(payload: dict) -> tuple[dict, dict[str, Any]]:
+    """Losslessly normalize validated schema-v1 reliability before budgeting.
+
+    First-rollout fallback can preserve the prior monolith when Buildkite is
+    unavailable. Schema v1 repeats catalog metadata and derivable URLs in every
+    observation, so carrying it through the 64 MiB writer would otherwise
+    invoke emergency history retention. Normalize those validated blocks to
+    the schema-v2 reference form first and verify canonical hydration parity.
+    """
+    migrated_payload = dict(payload)
+    diagnostics: dict[str, Any] = {}
+    for slug in PIPELINES:
+        block = migrated_payload.get(slug)
+        if not isinstance(block, dict):
+            continue
+        reliability = block.get("all_main_reliability")
+        if not isinstance(reliability, dict):
+            continue
+        source_schema_version = reliability.get("schema_version")
+        if source_schema_version not in {None, 1}:
+            continue
+        source_is_valid = validate_all_main_reliability(reliability, slug)
+        if not source_is_valid and source_schema_version is None:
+            # Small synthetic/partial payloads historically omitted a schema
+            # marker. They are not eligible for the lossless migration, but
+            # the generic writer still supports and budgets them. A real
+            # legacy ledger without a marker validates as schema v1 and takes
+            # the migration path below.
+            continue
+        if not source_is_valid:
+            raise _legacy_reliability_migration_error(
+                slug,
+                "source payload failed strict validation",
+            )
+
+        migrated_builds = []
+        for build in reliability.get("builds") or []:
+            migrated_build = dict(build)
+            for field in ("commit", "message", "created_at"):
+                migrated_build[field] = str(build.get(field) or "")
+            message = migrated_build["message"]
+            if len(message) > CATALOG_MESSAGE_MAX_CHARS:
+                # Schema v2 deliberately bounds catalog messages. Silently
+                # changing a preserved v1 title here would violate hydration
+                # parity, so leave the last-known-good monolith untouched.
+                raise _legacy_reliability_migration_error(
+                    slug,
+                    "catalog message exceeds the schema-v2 bound",
+                )
+            migrated_builds.append(migrated_build)
+
+        migrated_groups = []
+        observation_count = 0
+        for group in reliability.get("groups") or []:
+            migrated_observations = []
+            for observation in group.get("observations") or []:
+                compact_observation = {
+                    key: value
+                    for key, value in observation.items()
+                    if key not in LEGACY_OBSERVATION_DERIVED_FIELDS
+                }
+                retry = compact_observation.get("retry_evidence")
+                if isinstance(retry, dict) and "retried_in_job_url" in retry:
+                    compact_retry = dict(retry)
+                    compact_retry.pop("retried_in_job_url", None)
+                    compact_observation["retry_evidence"] = compact_retry
+                migrated_observations.append(compact_observation)
+            observation_count += len(migrated_observations)
+            migrated_groups.append({
+                **group,
+                "observations": migrated_observations,
+            })
+
+        provenance = dict(reliability.get("provenance") or {})
+        provenance.update({
+            "observation_schema": (
+                "normalized build_number/job_id/step_id references; "
+                "hydrate from builds catalog"
+            ),
+            "build_catalog_authoritative_fields": [
+                "url", "commit", "message", "created_at",
+            ],
+            "build_message_max_chars": CATALOG_MESSAGE_MAX_CHARS,
+            "migrated_from_schema_version": 1,
+        })
+        migrated_reliability = {
+            **reliability,
+            "schema_version": RELIABILITY_SCHEMA_VERSION,
+            "provenance": provenance,
+            "builds": migrated_builds,
+            "groups": migrated_groups,
+        }
+        if not validate_all_main_reliability(migrated_reliability, slug):
+            raise _legacy_reliability_migration_error(
+                slug,
+                "normalized payload failed schema-v2 validation",
+            )
+
+        # Compare one bounded group at a time. This avoids retaining a second
+        # production-sized hydrated ledger while still proving every removed
+        # value can be reconstructed exactly.
+        for source_group, migrated_group in zip(
+            reliability.get("groups") or [],
+            migrated_groups,
+            strict=True,
+        ):
+            source_hydrated = hydrate_reliability_observations(
+                reliability,
+                source_group.get("observations") or [],
+                pipeline_slug=slug,
+            )
+            migrated_hydrated = hydrate_reliability_observations(
+                migrated_reliability,
+                migrated_group.get("observations") or [],
+                pipeline_slug=slug,
+            )
+            if source_hydrated != migrated_hydrated:
+                raise _legacy_reliability_migration_error(
+                    slug,
+                    "canonical observation hydration changed",
+                )
+
+        migrated_payload[slug] = {
+            **block,
+            "all_main_reliability": migrated_reliability,
+        }
+        diagnostics[slug] = {
+            "source_schema_version": 1,
+            "target_schema_version": RELIABILITY_SCHEMA_VERSION,
+            "builds": len(migrated_builds),
+            "groups": len(migrated_groups),
+            "observations": observation_count,
+            "hydration_parity": True,
+        }
+    return migrated_payload, diagnostics
+
+
+def _bounded_private_analytics_payload(payload: dict) -> tuple[dict, dict[str, int]]:
+    """Remove legacy copies and guard only pathological catalog messages."""
     bounded_payload = dict(payload)
+    message_diagnostics = {
+        "catalog_messages_truncated": 0,
+        "catalog_message_chars_removed": 0,
+    }
     for slug in PIPELINES:
         block = bounded_payload.get(slug)
         if not isinstance(block, dict):
@@ -1756,26 +2050,291 @@ def write_analytics(out_path: Path, payload: dict) -> None:
         # duplicate shape during a targeted collection.
         bounded_block.pop("main_builds", None)
         bounded_block.pop("main_builds_provenance", None)
-        bounded_payload[slug] = bounded_block
 
-    serialized = json.dumps(
-        bounded_payload,
-        separators=(",", ":"),
-        default=str,
-    ) + "\n"
+        reliability = bounded_block.get("all_main_reliability")
+        if isinstance(reliability, dict):
+            bounded_reliability = dict(reliability)
+            catalog = []
+            catalog_changed = False
+            for build in reliability.get("builds") or []:
+                if not isinstance(build, dict):
+                    catalog.append(build)
+                    continue
+                message = build.get("message")
+                if isinstance(message, str) and len(message) > CATALOG_MESSAGE_MAX_CHARS:
+                    bounded_build = dict(build)
+                    bounded_build["message"] = _bounded_catalog_message(message)
+                    build = bounded_build
+                    catalog_changed = True
+                    message_diagnostics["catalog_messages_truncated"] += 1
+                    message_diagnostics["catalog_message_chars_removed"] += (
+                        len(message) - CATALOG_MESSAGE_MAX_CHARS
+                    )
+                catalog.append(build)
+            if catalog_changed:
+                bounded_reliability["builds"] = catalog
+
+            # Schema v2 stores the message once in the catalog. This legacy
+            # guard keeps a targeted refresh of a v1 block bounded without
+            # changing ordinary popup-visible messages.
+            groups = []
+            groups_changed = False
+            for group in reliability.get("groups") or []:
+                if not isinstance(group, dict):
+                    groups.append(group)
+                    continue
+                observations = []
+                observations_changed = False
+                for observation in group.get("observations") or []:
+                    if not isinstance(observation, dict):
+                        observations.append(observation)
+                        continue
+                    message = observation.get("build_message")
+                    if (
+                        isinstance(message, str)
+                        and len(message) > CATALOG_MESSAGE_MAX_CHARS
+                    ):
+                        observation = {
+                            **observation,
+                            "build_message": _bounded_catalog_message(message),
+                        }
+                        observations_changed = True
+                        message_diagnostics["catalog_messages_truncated"] += 1
+                        message_diagnostics["catalog_message_chars_removed"] += (
+                            len(message) - CATALOG_MESSAGE_MAX_CHARS
+                        )
+                    observations.append(observation)
+                if observations_changed:
+                    group = {**group, "observations": observations}
+                    groups_changed = True
+                groups.append(group)
+            if groups_changed:
+                bounded_reliability["groups"] = groups
+
+            if catalog_changed or groups_changed:
+                bounded_block["all_main_reliability"] = bounded_reliability
+        bounded_payload[slug] = bounded_block
+    return bounded_payload, message_diagnostics
+
+
+def _reliability_observation_counts(payload: dict) -> dict[str, int]:
+    counts = {}
+    for slug in PIPELINES:
+        reliability = ((payload.get(slug) or {}).get("all_main_reliability") or {})
+        counts[slug] = sum(
+            len(group.get("observations") or [])
+            for group in reliability.get("groups") or []
+            if isinstance(group, dict)
+        )
+    return counts
+
+
+def _reliability_observation_rank(row: Any) -> tuple[str, int, str]:
+    if not isinstance(row, dict):
+        return ("", 0, "")
+    try:
+        build_number = int(row.get("build_number") or 0)
+    except (TypeError, ValueError):
+        build_number = 0
+    return (
+        str(row.get("observed_at") or ""),
+        build_number,
+        str(row.get("job_id") or ""),
+    )
+
+
+def _cap_reliability_observations(payload: dict, limit: int) -> tuple[dict, int]:
+    """Retain eligible evidence first, then newest excluded context per group."""
+    bounded_payload = dict(payload)
+    removed = 0
+    for slug in PIPELINES:
+        block = bounded_payload.get(slug)
+        if not isinstance(block, dict):
+            continue
+        reliability = block.get("all_main_reliability")
+        if not isinstance(reliability, dict):
+            continue
+        groups = reliability.get("groups")
+        if not isinstance(groups, list):
+            continue
+        bounded_groups = []
+        changed = False
+        for group in groups:
+            if not isinstance(group, dict):
+                bounded_groups.append(group)
+                continue
+            observations = group.get("observations")
+            if not isinstance(observations, list) or len(observations) <= limit:
+                bounded_groups.append(group)
+                continue
+            newest_first = sorted(
+                observations,
+                key=_reliability_observation_rank,
+                reverse=True,
+            )
+            retained = [
+                row
+                for row in newest_first
+                if isinstance(row, dict)
+                and row.get("eligible_for_reliability") is True
+            ][:limit]
+            if len(retained) < limit:
+                retained.extend(
+                    row
+                    for row in newest_first
+                    if not (
+                        isinstance(row, dict)
+                        and row.get("eligible_for_reliability") is True
+                    )
+                )
+                retained = retained[:limit]
+            # Preserve the established newest-first presentation order after
+            # applying the eligible-first retention priority.
+            retained.sort(key=_reliability_observation_rank, reverse=True)
+            bounded_group = dict(group)
+            bounded_group["observations"] = retained
+            bounded_group["retained_observation_count"] = len(retained)
+            bounded_group["retained_eligible_observation_count"] = sum(
+                bool(row.get("eligible_for_reliability"))
+                for row in retained
+                if isinstance(row, dict)
+            )
+            bounded_group["observations_truncated"] = True
+            bounded_groups.append(bounded_group)
+            removed += len(observations) - len(retained)
+            changed = True
+        if changed:
+            bounded_reliability = {**reliability, "groups": bounded_groups}
+            bounded_payload[slug] = {
+                **block,
+                "all_main_reliability": bounded_reliability,
+            }
+    return bounded_payload, removed
+
+
+def _analytics_component_bytes(payload: dict) -> dict[str, dict[str, Any]]:
+    diagnostics = {}
+    for slug, block in payload.items():
+        if not isinstance(block, dict):
+            diagnostics[str(slug)] = {"bytes": _compact_json_bytes(block)}
+            continue
+        diagnostics[str(slug)] = {
+            "bytes": _compact_json_bytes(block),
+            "components": {
+                str(key): _compact_json_bytes(value)
+                for key, value in block.items()
+            },
+        }
+    return diagnostics
+
+
+def _prepare_private_analytics(
+    out_path: Path,
+    payload: dict,
+) -> tuple[dict, str, dict[str, Any]]:
+    """Bound a candidate to the normal budget and return storage diagnostics."""
+    migrated_payload, migration_diagnostics = _migrate_preserved_reliability_v1(
+        payload
+    )
+    bounded_payload, message_diagnostics = _bounded_private_analytics_payload(
+        migrated_payload
+    )
+    original_observations = _reliability_observation_counts(bounded_payload)
+    original_component_bytes = _analytics_component_bytes(bounded_payload)
+    original_serialized_bytes = _compact_json_bytes(bounded_payload) + 1
+    effective_target = min(
+        PRIVATE_ANALYTICS_TARGET_BYTES,
+        PRIVATE_ANALYTICS_MAX_BYTES,
+    )
+    applied_observation_cap = None
+    observations_removed = 0
+    serialized_bytes = original_serialized_bytes
+    for observation_cap in PRIVATE_ANALYTICS_OBSERVATION_CAPS:
+        if serialized_bytes <= effective_target:
+            break
+        candidate, removed = _cap_reliability_observations(
+            bounded_payload,
+            observation_cap,
+        )
+        if not removed:
+            continue
+        bounded_payload = candidate
+        observations_removed += removed
+        applied_observation_cap = observation_cap
+        serialized_bytes = _compact_json_bytes(bounded_payload) + 1
+
+    serialized = _compact_json(bounded_payload) + "\n"
     serialized_bytes = len(serialized.encode("utf-8"))
+    previous_bytes = out_path.stat().st_size if out_path.exists() else 0
+    retained_observations = _reliability_observation_counts(bounded_payload)
+    diagnostics: dict[str, Any] = {
+        "collector": "ci_analytics",
+        "artifact": str(out_path),
+        "serialized_bytes": serialized_bytes,
+        "original_serialized_bytes": original_serialized_bytes,
+        "previous_bytes": previous_bytes,
+        "delta_bytes": serialized_bytes - previous_bytes,
+        "target_bytes": PRIVATE_ANALYTICS_TARGET_BYTES,
+        "effective_target_bytes": effective_target,
+        "max_bytes": PRIVATE_ANALYTICS_MAX_BYTES,
+        "github_blob_limit_bytes": GITHUB_BLOB_MAX_BYTES,
+        "original_component_bytes": original_component_bytes,
+        "component_bytes": _analytics_component_bytes(bounded_payload),
+        "original_observations": original_observations,
+        "retained_observations": retained_observations,
+        "observations_removed": observations_removed,
+        "applied_observation_cap": applied_observation_cap,
+        "legacy_reliability_migrations": migration_diagnostics,
+        **message_diagnostics,
+    }
+    if serialized_bytes > effective_target:
+        failure_diagnostics = {
+            **diagnostics,
+            "reason_class": "payload-budget",
+        }
+        log.error(
+            "Private analytics storage budget exceeded: %s",
+            _compact_json(failure_diagnostics),
+        )
+        raise IncompleteAnalyticsCollection(
+            "Private analytics payload exceeds the 64 MiB normal operating "
+            "budget after deterministic compaction: "
+            f"{serialized_bytes} > {effective_target} bytes",
+            failure_diagnostics,
+        )
     if serialized_bytes > PRIVATE_ANALYTICS_MAX_BYTES:
+        # This should be unreachable because the effective target is never
+        # larger than the compatibility ceiling. Keep it explicit so a future
+        # configuration error still fails closed below GitHub's hard limit.
+        failure_diagnostics = {
+            **diagnostics,
+            "reason_class": "payload-budget",
+        }
+        log.error(
+            "Private analytics hard ceiling exceeded: %s",
+            _compact_json(failure_diagnostics),
+        )
         raise IncompleteAnalyticsCollection(
             "Private analytics payload exceeds the safe GitHub blob budget: "
             f"{serialized_bytes} > {PRIVATE_ANALYTICS_MAX_BYTES} bytes",
-            {
-                "artifact": str(out_path),
-                "serialized_bytes": serialized_bytes,
-                "max_bytes": PRIVATE_ANALYTICS_MAX_BYTES,
-                "github_blob_limit_bytes": GITHUB_BLOB_MAX_BYTES,
-            },
+            failure_diagnostics,
         )
-    out_path.write_text(serialized)
+    return bounded_payload, serialized, diagnostics
+
+
+def write_analytics(out_path: Path, payload: dict) -> dict[str, Any]:
+    """Atomically replace the monolith only after it fits the normal budget."""
+    out_path = Path(out_path)
+    _, serialized, diagnostics = _prepare_private_analytics(
+        out_path,
+        payload,
+    )
+    log.info(
+        "Private analytics storage: %s",
+        _compact_json(diagnostics),
+    )
+    _atomic_write_text(out_path, serialized)
+    return diagnostics
 
 
 def main():
@@ -1818,7 +2377,10 @@ def main():
         # Fetch branch=main once. Nightly regression streams remain pipeline
         # specific; strict test-group reliability is published for both pipelines.
         # Upstream CI remains the only source for flake and retry analysis.
-        previous_builds = (previous_data.get(slug) or {}).get("builds") or []
+        previous_pipeline_data = previous_data.get(slug) or {}
+        previous_builds = previous_pipeline_data.get("builds") or []
+        previous_all_main = previous_pipeline_data.get("all_main_reliability")
+        previous_retry = previous_pipeline_data.get("main_retry_analysis")
         raw_builds = []
         collection_provenance = {}
         if token:
@@ -1836,6 +2398,7 @@ def main():
         reliability_raw_builds = _reliability_builds_with_cache_aliases(
             raw_builds,
             slug,
+            previous_all_main,
         )
         buildkite_builds = (
             collect_pipeline(
@@ -1844,7 +2407,7 @@ def main():
                 args.days,
                 nightly_only=True,
                 name_pattern=NIGHTLY_NAME_PATTERNS_BY_SLUG.get(slug),
-                builds_raw=raw_builds,
+                builds_raw=reliability_raw_builds,
             )
             if token
             else []
@@ -1908,9 +2471,6 @@ def main():
             "default_window": default_window_key,
             "windows": windows,
         }
-        previous_pipeline_data = previous_data.get(slug) or {}
-        previous_all_main = previous_pipeline_data.get("all_main_reliability")
-        previous_retry = previous_pipeline_data.get("main_retry_analysis")
         preserved_retry_analysis = None
         all_main_reliability = None
         complete_retry_builds = None
@@ -1965,9 +2525,11 @@ def main():
 
     # Write output
     out_path = output / "analytics.json"
+    # CI Health consumes this slim artifact independently. Publish it first so
+    # an analytics storage-budget failure cannot withhold fresh gating data.
+    write_gating_nightlies(output, all_data, generated_at)
     write_analytics(out_path, all_data)
     log.info("Wrote %s", out_path)
-    write_gating_nightlies(output, all_data, generated_at)
 
     # Print summary
     for slug, d in all_data.items():

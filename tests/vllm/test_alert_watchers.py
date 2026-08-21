@@ -1,12 +1,19 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import copy
+from datetime import datetime, timedelta, timezone
 
 from vllm import agent_health_issue_watcher as agent
 from vllm import amd_duration_regression_watcher as duration
 from vllm import amd_main_failure_watcher as amd
 from vllm import ci_main_failure_watcher as upstream
 from vllm.ci.managed_issue import reconcile_managed_issue, validate_target_repo
+from vllm.ci.reliability_history import (
+    LEGACY_OBSERVATION_DERIVED_FIELDS,
+    build_all_main_reliability,
+    hydrate_reliability_observations,
+    validate_all_main_reliability,
+)
 
 
 class FakeIssueClient:
@@ -176,6 +183,127 @@ def _amd_reliability(builds, groups, generated_at="2026-07-17T12:10:00Z"):
         "builds": builds,
         "groups": groups,
     }
+
+
+def _raw_amd_watcher_build(
+    number,
+    created_at,
+    *,
+    result="passed",
+    wall_completion_mins=20,
+    message="normalized watcher evidence",
+):
+    runnable_at = created_at + timedelta(minutes=1)
+    started_at = created_at + timedelta(minutes=5)
+    finished_at = started_at + timedelta(minutes=wall_completion_mins)
+
+    def timestamp(value):
+        return value.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    failed = result in {"failed", "soft_fail"}
+    return {
+        "number": number,
+        "branch": "main",
+        "state": "failed" if failed else "passed",
+        "commit": f"{number:040x}",
+        "message": message,
+        "created_at": timestamp(created_at),
+        "started_at": timestamp(runnable_at),
+        "finished_at": timestamp(finished_at + timedelta(minutes=1)),
+        "web_url": f"https://buildkite.com/vllm/amd-ci/builds/{number}",
+        "jobs": [
+            {
+                "id": f"normalized-job-{number}",
+                "type": "script",
+                "name": "mi300_1: Normalized watcher group",
+                "state": "failed" if failed else "passed",
+                "soft_failed": result == "soft_fail",
+                "runnable_at": timestamp(runnable_at),
+                "started_at": timestamp(started_at),
+                "finished_at": timestamp(finished_at),
+                "agent_query_rules": ["queue=amd_mi300_1"],
+                "step": {
+                    "id": f"normalized-step-{number}",
+                    "key": "normalized-watcher-step",
+                },
+            }
+        ],
+    }
+
+
+def _normalized_watcher_reliability(builds):
+    return build_all_main_reliability(
+        builds,
+        pipeline_slug="amd-ci",
+        window_days=30,
+        generated_at="2026-07-17T12:00:00Z",
+    )
+
+
+def _legacy_watcher_reliability(normalized):
+    legacy = copy.deepcopy(normalized)
+    legacy["schema_version"] = 1
+    for normalized_group, legacy_group in zip(
+        normalized["groups"], legacy["groups"], strict=True
+    ):
+        legacy_group["observations"] = hydrate_reliability_observations(
+            normalized,
+            normalized_group["observations"],
+            pipeline_slug="amd-ci",
+        )
+    return legacy
+
+
+def test_amd_watcher_schema_v2_matches_legacy_hydrated_evidence_and_links():
+    message = "Merge queue: preserve normalized watcher popup evidence"
+    normalized = _normalized_watcher_reliability(
+        [
+            _raw_amd_watcher_build(
+                610,
+                datetime(2026, 7, 17, 9, 0, tzinfo=timezone.utc),
+                result="failed",
+                message=message,
+            )
+        ]
+    )
+    legacy = _legacy_watcher_reliability(normalized)
+
+    assert validate_all_main_reliability(normalized, "amd-ci")
+    assert validate_all_main_reliability(legacy, "amd-ci")
+    stored = normalized["groups"][0]["observations"][0]
+    assert not (set(LEGACY_OBSERVATION_DERIVED_FIELDS) & stored.keys())
+
+    normalized_evidence = amd._observations_by_build(normalized)
+    legacy_evidence = amd._observations_by_build(legacy)
+    assert normalized_evidence == legacy_evidence
+
+    normalized_state = amd.advance_incidents(normalized, amd._default_state())
+    legacy_state = amd.advance_incidents(legacy, amd._default_state())
+    assert normalized_state == legacy_state
+
+    incident = next(iter(normalized_state["active"].values()))
+    build_url = "https://buildkite.com/vllm/amd-ci/builds/610"
+    job_url = f"{build_url}/steps/canvas?jid=normalized-job-610&tab=output"
+    assert incident["build_url"] == build_url
+    assert incident["job_url"] == job_url
+    assert incident["build_commit"] == f"{610:040x}"
+    assert incident["build_message"] == message
+
+    normalized_body = amd._issue_body(
+        normalized_state["active"],
+        normalized,
+        "https://github.com/run",
+        "AndreasKaratzas",
+    )
+    legacy_body = amd._issue_body(
+        legacy_state["active"],
+        legacy,
+        "https://github.com/run",
+        "AndreasKaratzas",
+    )
+    assert normalized_body == legacy_body
+    assert f"[Normalized watcher group]({job_url})" in normalized_body
+    assert f"[#610]({build_url})" in normalized_body
 
 
 def test_amd_watcher_initializes_from_latest_build_then_resolves_on_pass():
@@ -847,6 +975,70 @@ def _duration_reliability(recent, baseline):
         [_amd_group("duration-group", observations, "Duration group")],
         generated_at="2026-07-17T12:00:00Z",
     )
+
+
+def test_duration_watcher_schema_v2_matches_legacy_hydrated_evidence_and_links():
+    first_created_at = datetime(2026, 7, 16, 0, 0, tzinfo=timezone.utc)
+    normalized = _normalized_watcher_reliability(
+        [
+            _raw_amd_watcher_build(
+                700 + index,
+                first_created_at + timedelta(hours=index),
+                wall_completion_mins=minutes,
+            )
+            for index, minutes in enumerate([100] * 6 + [120] * 3)
+        ]
+    )
+    legacy = _legacy_watcher_reliability(normalized)
+
+    assert validate_all_main_reliability(normalized, "amd-ci")
+    assert validate_all_main_reliability(legacy, "amd-ci")
+    assert all(
+        not (set(LEGACY_OBSERVATION_DERIVED_FIELDS) & observation.keys())
+        for observation in normalized["groups"][0]["observations"]
+    )
+
+    normalized_active = duration.evaluate_regressions(
+        normalized,
+        duration._default_state(),
+    )
+    legacy_active = duration.evaluate_regressions(
+        legacy,
+        duration._default_state(),
+    )
+    assert normalized_active == legacy_active
+
+    regression = next(iter(normalized_active.values()))
+    build_url = "https://buildkite.com/vllm/amd-ci/builds/708"
+    job_url = f"{build_url}/steps/canvas?jid=normalized-job-708&tab=output"
+    assert regression["baseline_mins"] == 100
+    assert regression["recent_median_mins"] == 120
+    assert regression["latest_build_url"] == build_url
+    assert regression["latest_job_url"] == job_url
+    assert [row["build_number"] for row in regression["recent_evidence"]] == [
+        708,
+        707,
+        706,
+    ]
+    assert all(row["build_url"] and row["job_url"] for row in regression["recent_evidence"])
+
+    normalized_body = duration._issue_body(
+        normalized_active,
+        normalized,
+        "https://github.com/run",
+        "AndreasKaratzas",
+    )
+    legacy_body = duration._issue_body(
+        legacy_active,
+        legacy,
+        "https://github.com/run",
+        "AndreasKaratzas",
+    )
+    assert normalized_body == legacy_body
+    assert f"[Normalized watcher group]({job_url})" in normalized_body
+    assert f"[#708]({build_url})" in normalized_body
+    assert "normalized-job-707" in normalized_body
+    assert "normalized-job-706" in normalized_body
 
 
 def test_duration_watcher_requires_three_recent_and_six_baseline_runs():
