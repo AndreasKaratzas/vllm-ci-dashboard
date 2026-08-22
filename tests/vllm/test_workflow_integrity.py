@@ -955,6 +955,37 @@ class TestHourlyMasterWorkflow:
         assert "resetBody.replace(recoveryPattern, recoveryMarker)" in script
         assert "existing.data[0]" not in script
 
+    def test_hourly_incident_identity_ignores_suppressed_transient_findings(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        create = next(
+            step
+            for step in steps
+            if step.get("name") == "Create hourly validation incident"
+        )
+        script = create["with"]["script"]
+
+        assert "const rawPublicationFindings" in script
+        assert (
+            "rawPublicationFindings.map(finding => "
+            "[JSON.stringify(finding), finding])"
+        ) in script
+        assert "const alertablePublicationFindings" in script
+        assert "return context.alertable !== false" in script
+
+        identity = script[
+            script.index("const publicationConditionCodes"):
+            script.index("const liveFailureNodes")
+        ]
+        assert identity.count("alertablePublicationFindings") == 2
+        assert "publicationFindings.map" not in identity
+
+        report = script[
+            script.index("const report = ["):
+            script.index("const contentFingerprint")
+        ]
+        assert "JSON.stringify(publicationFindings, null, 2)" in report
+
     def test_hourly_v2_migration_requires_exact_stable_report_evidence(self):
         data = _load_workflow("hourly-master.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])

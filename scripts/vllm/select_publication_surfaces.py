@@ -200,6 +200,17 @@ def _collector_failure_persistence_identity(record: Mapping[str, Any]) -> str:
     return hashlib.sha256(source.encode()).hexdigest()[:20]
 
 
+def _collector_failure_is_alertable(
+    record: Mapping[str, Any],
+    persistence_runs: int,
+) -> bool:
+    """Return whether one typed collector failure has crossed its threshold."""
+    return (
+        record.get("reason_class") not in TRANSIENT_COLLECTOR_REASONS
+        or persistence_runs >= TRANSIENT_ALERT_PERSISTENCE_RUNS
+    )
+
+
 def _collector_incident_policy(
     records: list[dict[str, Any]],
     previous: dict | None,
@@ -221,7 +232,7 @@ def _collector_incident_policy(
         reason = record["reason_class"]
         if reason in TRANSIENT_COLLECTOR_REASONS:
             transient = True
-            if streaks[identity] >= TRANSIENT_ALERT_PERSISTENCE_RUNS:
+            if _collector_failure_is_alertable(record, streaks[identity]):
                 persisted = True
         else:
             immediate = True
@@ -1178,9 +1189,14 @@ def select_publication(
             persistence_runs = collector_streaks[
                 _collector_failure_persistence_identity(record)
             ]
+            alertable = _collector_failure_is_alertable(
+                record,
+                persistence_runs,
+            )
             recorded_failure = {
                 **record,
                 "persistence_runs": persistence_runs,
+                "alertable": alertable,
             }
             state["collector_failures"].append(recorded_failure)
             candidate_errors.append({
@@ -1200,6 +1216,7 @@ def select_publication(
                     "exit_code": record["exit_code"],
                     "details": record["details"],
                     "persistence_runs": persistence_runs,
+                    "alertable": alertable,
                 },
                 "surfaces": [record["surface"]],
             })

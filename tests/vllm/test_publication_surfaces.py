@@ -391,9 +391,18 @@ def test_collector_failure_jsonl_is_typed_bounded_and_secret_safe(
     assert "buildkite.example" not in record["details"]["summary"]
 
 
+@pytest.mark.parametrize(
+    ("reason_class", "expected_alertable"),
+    (
+        ("payload-budget", True),
+        ("timeout", False),
+    ),
+)
 def test_typed_analytics_failure_restores_only_analytics(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    reason_class: str,
+    expected_alertable: bool,
 ) -> None:
     repo = tmp_path / "repo"
     paths = {
@@ -447,7 +456,7 @@ def test_typed_analytics_failure_restores_only_analytics(
             "surface": "ci_analytics",
             "collector": "collect_analytics.py",
             "step": "Collect CI analytics",
-            "reason_class": "payload-budget",
+            "reason_class": reason_class,
             "exit_code": 1,
             "details": {
                 "observed_bytes": 99_219_601,
@@ -460,11 +469,18 @@ def test_typed_analytics_failure_restores_only_analytics(
     assert json.loads(paths["ci_core"].read_text())["version"] == "candidate"
     assert json.loads(paths["ci_gating"].read_text())["version"] == "candidate"
     assert state["fallback_surfaces"] == ["ci_analytics"]
-    assert state["collector_incident_policy"]["alert"] is True
+    assert state["collector_incident_policy"]["alert"] is expected_alertable
+    assert state["collector_failures"][0]["alertable"] is expected_alertable
     finding = state["candidate_errors"][0]
     assert finding["context"]["collector"] == "collect_analytics.py"
-    assert finding["context"]["reason_class"] == "payload-budget"
-    assert "alertable_degradation=true" in output.read_text()
+    assert finding["context"]["reason_class"] == reason_class
+    assert finding["context"]["alertable"] is expected_alertable
+    expected_output = (
+        "alertable_degradation=true"
+        if expected_alertable
+        else "alertable_degradation=false"
+    )
+    assert expected_output in output.read_text()
 
 
 @pytest.mark.parametrize(

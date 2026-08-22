@@ -1427,13 +1427,28 @@ jobs:
               ...(Array.isArray(publicationState.candidate_degradations)
                 ? publicationState.candidate_degradations : []),
             ];
-            const publicationFindings = [
+            const rawPublicationFindings = [
               ...candidatePublicationFindings,
               ...(Array.isArray(publicationState.final_errors)
                 ? publicationState.final_errors : []),
               ...(Array.isArray(publicationState.final_degradations)
                 ? publicationState.final_degradations : []),
             ];
+            // Candidate and post-restore audits can report the same exact
+            // condition. Preserve distinct evidence while rendering and
+            // fingerprinting each identical finding only once.
+            const publicationFindings = [...new Map(
+              rawPublicationFindings.map(finding => [JSON.stringify(finding), finding]),
+            ).values()];
+            // First-observation transient collector fallbacks remain useful
+            // diagnostic context, but another alertable condition must not
+            // accidentally promote them into a new incident identity.
+            const alertablePublicationFindings = publicationFindings.filter(finding => {
+              if (finding.code !== 'publication-collector-failed') return true;
+              const context = finding && finding.context &&
+                typeof finding.context === 'object' ? finding.context : {};
+              return context.alertable !== false;
+            });
             const publicationDiagnostics = [...new Set(publicationFindings.map(finding => {
               const surfaces = Array.isArray(finding.surfaces) && finding.surfaces.length
                 ? ` [${finding.surfaces.join(',')}]` : '';
@@ -1503,15 +1518,16 @@ jobs:
             // same surface, so key publication incidents by their stable finding
             // codes. Fall back to surfaces only when a producer omitted codes.
             const publicationConditionCodes = [...new Set(
-              publicationFindings
+              alertablePublicationFindings
                 .map(finding => String(finding && finding.code || '').trim())
                 .filter(Boolean),
             )].sort();
             const publicationConditionSignals = [...new Set(
-              publicationFindings.map(finding => {
+              alertablePublicationFindings.map(finding => {
                 const code = String(finding && finding.code || '').trim();
                 if (!code) return '';
-                const context = finding && typeof finding.context === 'object'
+                const context = finding && finding.context &&
+                  typeof finding.context === 'object'
                   ? finding.context : {};
                 if (code !== 'publication-collector-failed') return code;
                 const typedIdentity = [
