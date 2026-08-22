@@ -1074,7 +1074,7 @@
 
 .ops-page .ops-status-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--ops-status-columns, 4), minmax(0, 1fr));
   align-items: stretch;
   min-height: 92px;
   margin-bottom: 16px;
@@ -1112,6 +1112,22 @@
   cursor: pointer;
 }
 
+.ops-page .ops-status-item:not(.ops-linked-metric) {
+  cursor: default;
+}
+
+.ops-page .ops-status-item.is-success {
+  box-shadow: inset 0 2px 0 var(--ops-success);
+}
+
+.ops-page .ops-status-item.is-warning {
+  box-shadow: inset 0 2px 0 var(--ops-warning);
+}
+
+.ops-page .ops-status-item.is-danger {
+  box-shadow: inset 0 2px 0 var(--ops-danger);
+}
+
 .ops-page .ops-status-item.ops-linked-metric:hover {
   color: var(--ops-text);
   background: var(--ops-surface-hover);
@@ -1145,6 +1161,14 @@
   overflow-wrap: anywhere;
   text-overflow: clip;
   white-space: normal;
+}
+
+.ops-page .ops-status-item .ops-stat-action {
+  margin-top: 3px;
+  color: var(--ops-teal-hover);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 14px;
 }
 
 .ops-page .ops-status-item strong {
@@ -1386,6 +1410,17 @@
   background: var(--ops-surface-inset);
   max-width: 100%;
   overflow-x: auto;
+}
+
+.ops-page .ops-health-tabs {
+  display: flex;
+  width: 100%;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ops-border-strong) transparent;
+}
+
+.ops-page .ops-health-tabs > .ops-tab {
+  flex: 0 0 auto;
 }
 
 .ops-page .ops-v2-host > .ops-segmented,
@@ -3517,6 +3552,46 @@ body.ops-overlay-open {
   color: var(--ops-text);
 }
 
+.ops-page .ops-method-details {
+  margin: 0 0 16px;
+  overflow: hidden;
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius);
+  color: var(--ops-text-muted);
+  background: var(--ops-surface-inset);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.ops-page .ops-method-details > summary {
+  padding: 8px 11px;
+  color: var(--ops-text);
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.ops-page .ops-method-details[open] > summary {
+  border-bottom: 1px solid var(--ops-divider);
+}
+
+.ops-page .ops-method-details-body {
+  padding: 8px 11px;
+}
+
+.ops-page .ops-method-details-body p {
+  margin: 0 0 6px;
+}
+
+.ops-page .ops-method-details-body p:last-child {
+  margin-bottom: 0;
+}
+
+.ops-page .ops-related-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .ops-page .ops-evidence-summary {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -4394,6 +4469,10 @@ body.ops-overlay-open {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .ops-page .ops-status-strip > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
   .ops-page .ops-cluster-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -4816,6 +4895,10 @@ body.ops-overlay-open {
     margin-left: 0;
     overflow: hidden;
     border-radius: var(--ops-radius);
+  }
+
+  .ops-page .ops-status-strip > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
   }
 
   .ops-page .ops-wait-leader-grid {
@@ -5244,6 +5327,10 @@ body.ops-overlay-open {
   .ops-page .weekly-boxes,
   .ops-page .activity-boxes {
     grid-template-columns: 1fr;
+  }
+
+  .ops-page .ops-status-strip > :last-child:nth-child(odd) {
+    grid-column: auto;
   }
 
   .ops-page .ops-detail-fields,

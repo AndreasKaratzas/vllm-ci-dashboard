@@ -55,7 +55,7 @@ def test_operational_documentation_matches_the_canonical_publication_path() -> N
         assert "PROJECTS_WRITE_TOKEN" in text
         assert "`gating_targets.json` is regenerated" in text
         assert "`operations_v2.json` is a private build input" in text
-        assert "best-hardware test-group health checks" in text
+        assert "best-hardware test-group health" in text
         assert "runtime gates" not in text
 
     assert "CI_OWNER_AVAILABILITY_JSON" not in scripts_readme

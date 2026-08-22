@@ -190,7 +190,7 @@ def render_readme(config, data):
         "Organization-wide OSS rollups should consume the versioned",
         "[`org_summary.json`](https://andreaskaratzas.github.io/vllm-ci-dashboard/data/vllm/ci/org_summary.json)",
         "artifact. It keeps observed logical test groups, exact job variants, the",
-        "reviewed upstream parity inventory, best-hardware test-group health checks, scheduled",
+        "reviewed upstream parity inventory, best-hardware test-group health, scheduled",
         "cohorts, reviewed parity targets, and queue activity as separate populations.",
         "Schema v6 exposes these as `test_groups`, `test_group_parity`, `health_checks`,",
         "`scheduled_cohorts`, and `parity_targets`; it does not combine them under a",

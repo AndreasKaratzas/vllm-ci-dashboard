@@ -41,12 +41,16 @@
     if (!hasTab(target)) target = 'projects';
     document.querySelectorAll('.nav-btn').forEach(function (button) {
       button.classList.remove('active');
+      button.removeAttribute('aria-current');
     });
     document.querySelectorAll('.tab-panel').forEach(function (panel) {
       panel.classList.remove('active');
     });
     const button = document.querySelector('.nav-btn[data-tab="' + target + '"]');
-    if (button) button.classList.add('active');
+    if (button) {
+      button.classList.add('active');
+      button.setAttribute('aria-current', 'page');
+    }
     const panel = document.getElementById('tab-' + target);
     if (panel) panel.classList.add('active');
     resetRouteScroll(panel);
@@ -61,7 +65,8 @@
     switchTab: function (target, options) {
       const next = switchTab(target);
       if (!options || options.updateHash !== false) {
-        history.replaceState(null, '', location.pathname + location.search + '#' + next);
+        const method = options && options.history === 'replace' ? 'replaceState' : 'pushState';
+        history[method](null, '', location.pathname + location.search + '#' + next);
       }
       return next;
     },
@@ -78,10 +83,18 @@
 
   const hash = location.hash.replace('#', '');
   if (hash && hasTab(hash)) switchTab(hash);
-  window.addEventListener('hashchange', function () {
-    const target = location.hash.replace('#', '');
-    if (target && hasTab(target)) switchTab(target);
-  });
+  let routeSyncPending = false;
+  function syncLocationRoute() {
+    if (routeSyncPending) return;
+    routeSyncPending = true;
+    setTimeout(function () {
+      routeSyncPending = false;
+      const target = location.hash.replace('#', '');
+      if (target && hasTab(target)) switchTab(target);
+    }, 0);
+  }
+  window.addEventListener('hashchange', syncLocationRoute);
+  window.addEventListener('popstate', syncLocationRoute);
   document.addEventListener('auth:changed', reapplyVisibility);
 
   const sidebar = document.getElementById('sidebar');

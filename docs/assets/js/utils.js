@@ -1234,6 +1234,15 @@ function showGroupOverlay(dataId, category) {
  */
 var _ciSections = [];
 
+function setCISectionExpanded(section, expanded) {
+  if (!section) return;
+  section.expanded = Boolean(expanded);
+  section.container.style.maxHeight = section.expanded ? (section.tabs.length * 40 + 10) + 'px' : '0';
+  section.container.style.opacity = section.expanded ? '1' : '0';
+  section.header.classList.toggle('ci-fw-expanded', section.expanded);
+  section.header.setAttribute('aria-expanded', section.expanded ? 'true' : 'false');
+}
+
 function registerCISection(frameworkName, tabs) {
   var nav = document.querySelector('#sidebar-nav') || document.querySelector('nav');
   if (!nav) return;
@@ -1252,6 +1261,13 @@ function registerCISection(frameworkName, tabs) {
   header.className = 'ci-framework-header';
   header.setAttribute('data-framework', frameworkName);
   var hasTabs = tabs && tabs.length > 0;
+  var sectionId = 'ci-section-' + String(frameworkName || 'framework').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  if (hasTabs) {
+    header.setAttribute('role', 'button');
+    header.setAttribute('tabindex', '0');
+    header.setAttribute('aria-expanded', 'false');
+    header.setAttribute('aria-controls', sectionId);
+  }
   header.innerHTML = '<span class="ci-fw-name">' + frameworkName + ' CI</span>' +
     (hasTabs ? '<span class="ci-fw-arrow">&#9656;</span>' : '<span class="ci-fw-empty">—</span>');
   if (toolsLabel) nav.insertBefore(header, toolsLabel);
@@ -1260,6 +1276,7 @@ function registerCISection(frameworkName, tabs) {
   // Create tab container (hidden by default)
   var tabContainer = document.createElement('div');
   tabContainer.className = 'ci-tab-group';
+  tabContainer.id = sectionId;
   tabContainer.style.maxHeight = '0';
   tabContainer.style.overflow = 'hidden';
   tabContainer.style.transition = 'max-height 0.3s ease, opacity 0.3s ease';
@@ -1310,24 +1327,21 @@ function registerCISection(frameworkName, tabs) {
   }
 
   // Header click: expand this, collapse others
-  header.addEventListener('click', function() {
+  function toggleSection() {
     if (!hasTabs) return;
     var isExpanded = sectionInfo.expanded;
     // Collapse all
     for (var i = 0; i < _ciSections.length; i++) {
-      var s = _ciSections[i];
-      s.expanded = false;
-      s.container.style.maxHeight = '0';
-      s.container.style.opacity = '0';
-      s.header.classList.remove('ci-fw-expanded');
+      setCISectionExpanded(_ciSections[i], false);
     }
     // Toggle this one
-    if (!isExpanded) {
-      sectionInfo.expanded = true;
-      tabContainer.style.maxHeight = (tabs.length * 40 + 10) + 'px';
-      tabContainer.style.opacity = '1';
-      header.classList.add('ci-fw-expanded');
-    }
+    if (!isExpanded) setCISectionExpanded(sectionInfo, true);
+  }
+  header.addEventListener('click', toggleSection);
+  header.addEventListener('keydown', function(event) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    toggleSection();
   });
 }
 
@@ -1340,10 +1354,7 @@ registerCISection('vLLM', DashboardTabs.getSectionTabs('vLLM', 'ci'));
   for (var i = 0; i < _ciSections.length; i++) {
     var s = _ciSections[i];
     if (s.name === 'vLLM' && s.tabs.length) {
-      s.expanded = true;
-      s.container.style.maxHeight = (s.tabs.length * 40 + 10) + 'px';
-      s.container.style.opacity = '1';
-      s.header.classList.add('ci-fw-expanded');
+      setCISectionExpanded(s, true);
       break;
     }
   }

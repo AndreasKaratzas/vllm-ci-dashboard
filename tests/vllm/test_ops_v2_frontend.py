@@ -20,6 +20,10 @@ LEGACY_HEALTH_JS = (
 OPS_CSS = (ROOT / "docs" / "assets" / "css" / "ops-v2.css").read_text()
 DASHBOARD_CSS = (ROOT / "docs" / "assets" / "css" / "dashboard.css").read_text()
 DASHBOARD_JS = (ROOT / "docs" / "assets" / "js" / "dashboard.js").read_text()
+DASHBOARD_NAV_JS = (
+    ROOT / "docs" / "assets" / "js" / "dashboard-nav.js"
+).read_text()
+UTILS_JS = (ROOT / "docs" / "assets" / "js" / "utils.js").read_text()
 OPS_DATA_PATH = ROOT / "data" / "vllm" / "ci" / "operations_v2.json"
 OPS_MANIFEST_PATH = ROOT / "data" / "vllm" / "ci" / "operations_v2_manifest.json"
 
@@ -224,7 +228,7 @@ def test_ci_ownership_renderer_is_reusable_and_removed_from_ci_health():
     assert "availability.fresh === true" in OPS_JS
     assert (
         "['healthView', 'health_view', "
-        "['overview', 'parity', 'targets', 'gating', 'coverage', 'diagnostics']]"
+        "['overview', 'parity', 'targets', 'coverage', 'quality', 'gating', 'diagnostics']]"
     ) in OPS_JS
     assert "{id: 'ownership', label: 'CI ownership'}" not in OPS_JS
     assert "if (state.healthView === 'ownership')" not in OPS_JS
@@ -421,9 +425,9 @@ def test_amd_health_separates_same_build_test_groups_and_job_variants():
         "const latestTestGroups = summary.latest_test_group_counts || {}",
         "latestTestGroups.available === true",
         "logicalBuild === Number(latestBuild)",
-        "label: 'LATEST UNIQUE TEST GROUPS'",
-        "same-build unique test-group counts unavailable",
-        "logicalPassing) + ' green on any observed AMD route - ' + integer(logicalNonPassing) + ' non-green'",
+        "label: 'LATEST AMD TEST GROUPS'",
+        "same-build logical test-group counts unavailable",
+        "logicalTestGroupPresentation(latestTestGroups)",
         "latestTestGroups.count_basis || 'Unique source-aligned test-group identities observed in this AMD nightly; topology-distinct routes remain separate and configured shards count once.'",
         "summary.retained_job_variant_count || summary.retained_group_count",
         "label: 'LATEST JOB VARIANTS'",
@@ -438,6 +442,12 @@ def test_amd_health_separates_same_build_test_groups_and_job_variants():
         "Not classified as current failures",
     ):
         assert contract in segment
+    for presentation_contract in (
+        "pass on every route",
+        "pass on some hardware only",
+        "non-passing everywhere",
+    ):
+        assert presentation_contract in OPS_JS
 
     for misleading in (
         "label: 'PASSING NOW'",
@@ -460,7 +470,6 @@ def test_raw_soft_results_are_presented_as_observations_not_incidents():
     for contract in (
         "Soft observations",
         "Latest AMD failure observations",
-        "NON-PASSING OBSERVATIONS",
         "FAILURE OBSERVATIONS",
         "Soft results are raw warning observations, not confirmed incidents",
         "Current AMD failures to inspect",
@@ -526,8 +535,8 @@ def test_recent_flake_and_retry_windows_are_timestamped_and_route_backed():
 
 def test_architecture_and_test_group_history_show_exact_counts_at_a_glance():
     for contract in (
-        "AMD architecture health",
-        "configured groups",
+        "AMD architecture routes",
+        "configured routes",
         "passing",
         "incident",
         "unobserved",
@@ -615,6 +624,80 @@ def test_drawers_and_route_filters_have_namespaced_query_state():
     assert "queryValue('analytics_search') !== null" in OPS_JS
 
 
+def test_ci_health_navigation_is_scoped_history_safe_and_accessible():
+    for contract in (
+        "function tabList",
+        "wrap.setAttribute('role', 'tablist')",
+        "control.setAttribute('role', 'tab')",
+        "control.setAttribute('aria-selected'",
+        "wrap.scrollLeft = Math.max(0, centered)",
+        "pendingTabFocus = items[targetIndex].id",
+        "active.focus({preventScroll: true})",
+        "pendingSegmentFocus = {group: groupLabel, id: item.id}",
+        "active.control.focus({preventScroll: true})",
+        "{id: 'coverage', label: 'AMD hardware'}",
+        "{id: 'quality', label: 'Data quality'}",
+        "['healthQualityView', 'health_quality_view', ['mapping', 'collectors']]",
+        "['gating', 'diagnostics'].includes(state.healthView)",
+        "state.healthView = 'quality'",
+        "setQueryValue(queryKey || key, next, {history: 'push'})",
+        "window.history.pushState(null, '', nextUrl.pathname",
+    ):
+        assert contract in OPS_JS
+
+    for contract in (
+        "const method = options && options.history === 'replace' ? 'replaceState' : 'pushState'",
+        "window.addEventListener('popstate', syncLocationRoute)",
+        "button.setAttribute('aria-current', 'page')",
+    ):
+        assert contract in DASHBOARD_NAV_JS
+
+    for contract in (
+        "header.setAttribute('role', 'button')",
+        "header.setAttribute('tabindex', '0')",
+        "header.setAttribute('aria-expanded', 'false')",
+        "header.addEventListener('keydown'",
+    ):
+        assert contract in UTILS_JS
+
+
+def test_ci_health_metrics_do_not_double_as_unlabeled_navigation():
+    render_health = OPS_JS[
+        OPS_JS.index("async function renderHealth")
+        : OPS_JS.index("function reliabilityIncidentRate")
+    ]
+    assert "static: true" in render_health
+    assert "LATEST UNIQUE TEST GROUPS" not in render_health
+    assert "health-upstream-scheduled-gating" not in render_health
+    assert "Open test-group analytics →" in render_health
+    assert "Open retry analysis →" in render_health
+    assert "These explicit actions switch dashboard sections" in render_health
+    assert "onOpen: function () { navigateTo('ci-analytics'" not in render_health.split(
+        "Related investigation views"
+    )[0]
+
+
+def test_ci_health_previews_remove_repeated_counts_and_redundant_columns():
+    render_health = OPS_JS[
+        OPS_JS.index("async function renderHealth")
+        : OPS_JS.index("function reliabilityIncidentRate")
+    ]
+    for contract in (
+        "const parityPreviewColumns",
+        "[parityColumns[0], parityColumns[1], parityColumns[2], parityColumns[5]]",
+        "browserColumns: parityColumns",
+        "conciseCounts: true",
+        "previewCaption: 'Preview of target groups in the selected state'",
+        "const definitionPreviewColumns",
+        "browserColumns: definitionColumns",
+        "PUBLISHED INPUTS",
+        "publishedSources,",
+    ):
+        assert contract in render_health
+    assert "integer(targetRows.length) + ' target groups in the selected result state'" not in render_health
+    assert "integer(definitions.length) + ' standalone comparison rows" not in render_health
+
+
 def test_definition_parity_is_source_scoped_and_not_presented_as_runtime_health():
     for removed_label in (
         "Current target",
@@ -625,12 +708,12 @@ def test_definition_parity_is_source_scoped_and_not_presented_as_runtime_health(
     ):
         assert removed_label not in OPS_JS
     for visible_label in (
-        "Definition mapping",
-        "AMD IDENTITY FAMILIES",
-        "LINKED / SOURCE-COVERED",
-        "AMD-ONLY FAMILIES",
-        "UPSTREAM-ONLY CANDIDATES",
-        "Definition coverage, not passing test groups.",
+        "Data quality",
+        "Source mapping",
+        "Upstream-only source definitions are shown first",
+        "Use the relationship filter to inspect linked",
+        "This matcher inventory is not runtime health or upstream logical test-group parity.",
+        "Source-mapping methodology",
         "Source-definition comparison",
         "Direct command twin",
         "Mirror-linked standalone variants",
@@ -642,17 +725,15 @@ def test_definition_parity_is_source_scoped_and_not_presented_as_runtime_health(
         assert visible_label in OPS_JS
     assert "ops.definition_parity || {}" in OPS_JS
     assert "row.match_method === 'command_twin'" in OPS_JS
-    assert "summary.amd_identity_families" in OPS_JS
-    assert "summary.covered_identity_families" in OPS_JS
     assert "summary.amd_only_identity_families" in OPS_JS
     assert "identity_family_coverage_rate_pct" not in OPS_JS
     assert "summary.covered" in OPS_JS
     assert "summary.direct_matches" in OPS_JS
     assert "summary.inline_mirror_variants" in OPS_JS
     assert "summary.additional_variants" in OPS_JS
-    assert "collision-safe parity nodes" in OPS_JS
+    assert "collision-safe source nodes" in OPS_JS
     assert (
-        "supporting source inventory does not alter either runtime health or reviewed upstream test-group parity"
+        "matcher inventory is not runtime health or upstream logical test-group parity"
         in OPS_JS
     )
     assert (
@@ -690,25 +771,20 @@ def test_reviewed_upstream_test_group_parity_is_first_class_and_action_first():
         "{id: 'parity', label: 'Upstream parity'}",
         "ops.test_group_parity || {}",
         "UPSTREAM TEST-GROUP PARITY",
-        "APPLICABLE UPSTREAM GROUPS",
-        "COVERED ON MAIN",
+        "label: 'ON MAIN'",
         "WITH PROPOSED CHANGES",
-        "REMAINING GAPS",
-        "NOT TARGETED",
-        "Reviewed logical test-group parity.",
+        "Upstream test-group parity comparison",
         "Remaining parity gaps",
         "Parity by test area",
-        "definition coverage, not observed runtime health",
-        "ROCm CI inventory (separate from parity).",
+        "Definition coverage by area; runtime pass/fail is a separate view",
+        "How these counts are derived",
         "logical AMD test groups",
-        "These inventory counts are not the",
         "Upstream CUDA to ROCm logical test-group parity",
         "Filter reviewed upstream test groups by parity state",
         "Filter reviewed upstream test groups by area",
         "healthParityState: 'action'",
         "healthParityArea: 'all'",
         "testGroupParityRows(parity, state.healthParityState, state.healthParityArea)",
-        "red/missing is the initial view",
         "is-not-targeted",
     ):
         assert contract in OPS_JS or contract in OPS_CSS
@@ -731,12 +807,12 @@ def test_reviewed_upstream_test_group_parity_is_first_class_and_action_first():
 
 def test_runtime_test_group_card_names_numerator_and_denominator():
     for contract in (
-        "LATEST UNIQUE TEST GROUPS",
+        "LATEST AMD TEST GROUPS",
         "amdHealthSummary.latest_test_group_counts || {}",
-        "integer(latestLogicalGroups.passing) + ' / ' + integer(latestLogicalGroups.total) + ' passing'",
-        "green on every observed AMD route",
-        "mixed by hardware",
-        "CONFIGURED HEALTH CHECKS",
+        "integer(passingAny) + ' / ' + integer(total) + ' passing'",
+        "pass on some hardware only",
+        "non-passing everywhere",
+        "Configured AMD test groups",
     ):
         assert contract in OPS_JS
 
@@ -823,10 +899,12 @@ def test_published_definition_parity_reconciles_coverage_and_mirror_evidence(ops
 
 def test_runtime_target_incident_attention_loads_and_filters_runtime_gating():
     for contract in (
-        "{id: 'targets', label: 'Runtime targets'}",
+        "{id: 'targets', label: 'Target health'}",
         "if (state.healthView === 'targets') return ['gating']",
         "healthView: 'targets', healthResult: 'incident'",
-        "Runtime AMD target signal, not definition parity.",
+        "This is not upstream parity.",
+        "active_outside_canonical_count",
+        "other configured groups outside the reviewed list",
         "const incidentTargets = allTargets.filter(isTargetIncident)",
         "filters[state.healthResult]",
         "openGatingDetailWithEvidence(row, ops)",
@@ -853,11 +931,10 @@ def test_runtime_target_resolution_is_explained_and_drillable():
         "source_alignment",
         "source_urls",
         "AMD matrix commit",
-        "Definition parity commit",
+        "Source-mapping commit",
         "Resolution method",
         "AMD definitions",
         "Plan note",
-        "mapping review",
     ):
         assert contract in OPS_JS
     assert "targetAssessmentText(row)" in OPS_JS
@@ -904,7 +981,6 @@ def test_nightly_assessment_uses_explicit_movement_rules():
         "Stable failure count",
         "Recovered",
         "No net change",
-        "FAILURE MOVEMENT",
         "fewer failures",
         "provisional while Buildkite is running",
         "no change is inferred",
@@ -1143,7 +1219,7 @@ def test_runtime_target_sort_uses_one_shared_in_scope_text_comparator():
     )
     targets_branch = OPS_JS[
         targets_start
-        :OPS_JS.index("if (state.healthView === 'gating')", targets_start)
+        :OPS_JS.index("if (state.healthView === 'quality')", targets_start)
     ]
     assert "sortRuntimeTargetRows(filters[state.healthResult] || allTargets)" in targets_branch
 
@@ -1197,9 +1273,9 @@ const staleResolution = helpers.targetResolutionPresentation({
   },
 });
 assert.equal(staleResolution.label, 'Target mapping needs review');
-assert.equal(staleResolution.methodLabel, 'Definition parity identity');
+assert.equal(staleResolution.methodLabel, 'Source-definition identity');
 assert.equal(staleResolution.sourceAlignment, 'different_commits');
-assert.equal(staleResolution.sourceAlignmentLabel, 'AMD matrix and definition parity use different commits');
+assert.equal(staleResolution.sourceAlignmentLabel, 'AMD matrix and source mapping use different commits');
 assert.equal(staleResolution.sourceCommits.amdMatrix, 'abcdef1234567890');
 assert.equal(staleResolution.amdDefinitionLabels.length, 1);
 assert.equal(staleResolution.candidateCount, 2);
@@ -2529,16 +2605,15 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
         "function matrixHealthCollection",
         "function openMatrixHealthBrowser",
         "function openMatrixGroupEvidence",
-        "CONFIGURED HEALTH CHECKS",
-        "Configured best-hardware health checks",
-        "{mode: 'all', label: 'Health checks', count: policy.included_groups, tone: 'is-neutral'}",
+        "Configured AMD test groups",
+        "{mode: 'all', label: 'Test groups', count: policy.included_groups, tone: 'is-neutral'}",
         "n('span', '', 'Passing')",
         "generic best-of-hardware families",
         "explicit MI355-sensitive obligations",
         "health_groups",
         "classification_reason",
-        "Filter configured health-check status",
-        "Filter configured health-check classification",
+        "Filter configured test-group status",
+        "Filter configured test-group classification",
         "Search group, reason, command, hardware, or queue",
         "filters: [",
         "Executed commands",
@@ -2547,9 +2622,10 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
         "Open latest AMD build",
         "This hardware-sensitive obligation uses its exact MI355 route",
         "This generic family passes when at least one configured AMD route passes",
-        "AMD-ONLY FAMILIES",
-        "classification inventory · not runtime failures",
-        "UPSTREAM-ONLY CANDIDATES",
+        "AMD-only families are classifications, not runtime failures",
+        "Upstream-only source definitions are shown first",
+        "matrixHealthOverview(",
+        "if (state.healthView === 'coverage')",
     ):
         assert contract in OPS_JS
     for retired_contract in (
@@ -2560,8 +2636,8 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
         "resolved groups passing",
     ):
         assert retired_contract not in OPS_JS
-    assert 'assets/css/ops-v2.css?v=12' in INDEX
-    assert 'assets/js/ops-v2.js?v=24' in INDEX
+    assert 'assets/css/ops-v2.css?v=13' in INDEX
+    assert 'assets/js/ops-v2.js?v=25' in INDEX
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
     assert "gated groups passing" not in OPS_JS
     for retired_gate_label in (
@@ -2593,9 +2669,8 @@ def test_upstream_scheduled_gating_surfaces_groups_queues_and_waits():
         "((ops || {}).gating || {}).upstream_scheduled || {}",
         "function scheduledGatingPresentation",
         "function openUpstreamScheduledGatingDetail",
-        "home-upstream-scheduled-gating",
-        "health-upstream-scheduled-gating",
-        "UPSTREAM SCHEDULED COHORT",
+        "Scheduled upstream mirror cohort",
+        "Inspect scheduled cohort",
         "SELECTED MIRROR GROUPS",
         "integer(summary.gated) + ' / ' + integer(summary.total)",
         "integer(summary.passing) + ' / ' + integer(summary.gated)",
@@ -2684,11 +2759,11 @@ def test_nightly_pipeline_selector_defaults_amd_and_is_route_backed():
     assert "analyticsPipeline: 'amd-ci'" in OPS_JS
     assert "['analyticsPipeline', 'analytics_pipeline', ['ci', 'amd-ci']]" in OPS_JS
     assert "nightlyForPipeline(ops, state.analyticsPipeline)" in OPS_JS
-    assert "{id: 'ci', label: 'Upstream parity'}" in OPS_JS
+    assert "{id: 'ci', label: 'Upstream CI'}" in OPS_JS
     assert "{id: 'amd-ci', label: 'AMD'}" in OPS_JS
     assert "'Nightly pipeline'" in OPS_JS
     assert "AMD is the default operational signal" in OPS_JS
-    assert "retained for parity checks" in OPS_JS
+    assert "This alternate upstream CI view" in OPS_JS
 
 
 def test_retry_attempts_recoveries_and_latency_use_exact_evidence():
@@ -3381,9 +3456,9 @@ def test_release_layout_scroll_accessibility_and_home_reconciliation():
     assert "Search workload trajectory test groups" in OPS_JS
     assert "ALL-FLEET QUEUE ACTIVITY" in OPS_JS
     assert "queueScope: 'all'" in OPS_JS
-    assert "CONFIGURED HEALTH CHECKS" in OPS_JS
-    assert "uniqueHealth.passing_groups" in OPS_JS
-    assert "uniqueHealth.failing_groups" in OPS_JS
+    assert "Configured AMD test groups" in OPS_JS
+    assert "matrixHealthOverview(" in OPS_JS
+    assert "if (state.healthView === 'coverage')" in OPS_JS
 
 
 def test_hotness_rates_accept_fraction_or_explicit_percent():

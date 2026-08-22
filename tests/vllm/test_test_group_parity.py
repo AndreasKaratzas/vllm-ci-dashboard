@@ -25,7 +25,7 @@ def test_reviewed_inventory_publishes_expected_counts_and_rates() -> None:
         "config/vllm_upstream_test_group_parity.json"
     )
     assert payload["source"]["main_commit"] == (
-        "7ca49fbe4bab019e55d57cdc4b7fd3d55c67c1a6"
+        "7ca49fbe4bab019e55d57cdc4b7fd3d55c67c1a6"  # Pinned commit SHA.
     )
     assert "pull_request" not in payload["source"]
     assert payload["summary"] == {

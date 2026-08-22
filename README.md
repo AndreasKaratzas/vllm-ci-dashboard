@@ -27,7 +27,7 @@ operational data are published by the scheduled/dispatch
 | View | Description |
 |------|-------------|
 | **Home** | PRs, project #39 issues, and ROCm vs upstream test parity |
-| **CI Health** | Latest exact AMD job variants by architecture, reviewed runtime targets with explicit mapping/no-definition reasons, definition parity, diagnostics, and evidence links |
+| **CI Health** | Scoped views for the latest AMD runtime, upstream logical test-group parity, target health, AMD hardware coverage, and source/collector data quality |
 | **CI Analytics** | Nightly build comparison, recent builds, group trends, AMD hardware matrix, queue comparison |
 | **Queue Monitor** | Buildkite queue workload, wait-time charts, active job overlays, admin triage, and AMD capacity projections |
 | **Hotness / Omni** | Workload trajectories; exact Omni active-job evidence, 1h–3d queue windows, queued-age bands, daily deltas, and explicit partial-attribution labels |
@@ -119,7 +119,7 @@ hard-coded pull request or expose matcher-link bookkeeping as parity.
 Organization-wide OSS rollups should consume the versioned
 [`org_summary.json`](https://andreaskaratzas.github.io/vllm-ci-dashboard/data/vllm/ci/org_summary.json)
 artifact. It keeps observed logical test groups, exact job variants, the
-reviewed upstream parity inventory, best-hardware test-group health checks, scheduled
+reviewed upstream parity inventory, best-hardware test-group health, scheduled
 cohorts, reviewed parity targets, and queue activity as separate populations.
 Schema v6 exposes these as `test_groups`, `test_group_parity`, `health_checks`,
 `scheduled_cohorts`, and `parity_targets`; it does not combine them under a

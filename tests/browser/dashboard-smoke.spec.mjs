@@ -255,9 +255,16 @@ async function routeDnsFixture(page, fixture = DNS_FIXTURE, delayMs = 0) {
 const PUBLIC_VIEWS = [
   { name: 'trajectory workload', url: '/#ci-hotness', tab: 'ci-hotness', heading: 'CI Workload Trajectory' },
   { name: 'home', url: '/#projects', tab: 'projects', heading: 'Command Center' },
-  ...['overview', 'targets', 'gating', 'coverage', 'diagnostics'].map(view => ({
+  ...[
+    ['overview', ''],
+    ['parity', ''],
+    ['targets', ''],
+    ['coverage', ''],
+    ['quality mapping', '&ops_health_quality_view=mapping'],
+    ['quality collectors', '&ops_health_quality_view=collectors'],
+  ].map(([view,extra]) => ({
     name: `health ${view}`,
-    url: `/?ops_health_view=${view}#ci-health`,
+    url: `/?ops_health_view=${view.split(' ')[0]}${extra}#ci-health`,
     tab: 'ci-health',
     heading: 'CI Health',
     watchdog: view === 'overview',
@@ -334,8 +341,8 @@ test.describe('public dashboard routes', () => {
   }
 });
 
-test('CI health separates configured checks from reviewed parity groups', async ({ page }) => {
-  await page.goto('/?ops_health_view=overview#ci-health', { waitUntil: 'domcontentloaded' });
+test('CI health keeps configured health policy in AMD hardware', async ({ page }) => {
+  await page.goto('/?ops_health_view=coverage#ci-health', { waitUntil: 'domcontentloaded' });
 
   const health = page.locator('#tab-ci-health .ops-unique-health');
   await expect(health.locator('.ops-unique-health-rate span')).toHaveText('Passing');
@@ -343,20 +350,20 @@ test('CI health separates configured checks from reviewed parity groups', async 
   const stats = health.locator('.ops-unique-health-stat');
   await expect(stats).toHaveCount(4);
   await expect(stats.locator('span')).toHaveText([
-    'Health checks',
+    'Test groups',
     'Passing',
     'Failing',
     'No signal',
   ]);
 
-  const totalStat = stats.filter({ hasText: 'Health checks' });
+  const totalStat = stats.filter({ hasText: 'Test groups' });
   const total = Number(await totalStat.locator('strong').innerText());
   expect(total).toBeGreaterThan(0);
   await totalStat.click();
 
   const dialog = page.getByRole('dialog');
-  await expect(dialog.getByRole('heading', { name: 'Configured best-hardware health checks' })).toBeVisible();
-  await expect(dialog).toContainText(`${total} configured best-hardware checks`);
+  await expect(dialog.getByRole('heading', { name: 'Configured AMD test groups' })).toBeVisible();
+  await expect(dialog).toContainText(`${total} configured AMD test groups`);
 });
 
 test('CI health upstream parity opens with the actionable list', async ({ page }) => {
@@ -364,15 +371,128 @@ test('CI health upstream parity opens with the actionable list', async ({ page }
 
   const health = page.locator('#tab-ci-health');
   await expect(health.getByRole('button', { name: /Missing \(8\)/ })).toHaveAttribute('aria-pressed', 'true');
-  const actionPanel = health.locator('.ops-panel').filter({ has: health.getByRole('heading', { name: 'Remaining parity gaps' }) });
+  const actionPanel = health.locator('.ops-panel').filter({ hasText: 'Remaining parity gaps' });
   await expect(actionPanel).toBeVisible();
   await expect(actionPanel.locator('.ops-table tbody tr')).toHaveCount(8);
+  await expect(actionPanel.locator('.ops-table th')).toHaveText([
+    '#',
+    'Upstream logical test group',
+    'Area',
+    'ROCm counterpart or assessment',
+  ]);
   await expect(health).toContainText('Kimi-Linear-48B-A3B Disaggregated DP EP');
   await expect(health).toContainText('LM Eval PCP');
 
   await health.getByRole('button', { name: /Not targeted \(28\)/ }).click();
   await expect(health.getByRole('heading', { name: 'Not targeted / unsupported groups' })).toBeVisible();
   await expect(health).toContainText('NVFP4 is NVIDIA-specific');
+});
+
+test('CI health summaries stay scoped to the selected view', async ({ page }) => {
+  await page.goto('/?ops_health_view=overview#ci-health', { waitUntil: 'domcontentloaded' });
+
+  const health = page.locator('#tab-ci-health');
+  const overviewSummary = health.locator('.ops-status-strip').first();
+  await expect(overviewSummary.locator('.ops-status-item')).toHaveCount(2);
+  await expect(overviewSummary.locator('.ops-stat-label')).toHaveText([
+    'LATEST AMD NIGHTLY',
+    'LATEST AMD TEST GROUPS',
+  ]);
+  await expect(overviewSummary.locator('button, a')).toHaveCount(0);
+
+  await health.getByRole('tab', { name: 'Upstream parity' }).click();
+  await expect(health.getByRole('tab', { name: 'Upstream parity' })).toHaveAttribute('aria-selected', 'true');
+  const paritySummary = health.locator('.ops-status-strip').first();
+  await expect(paritySummary.locator('.ops-status-item')).toHaveCount(2);
+  await expect(paritySummary.locator('.ops-stat-label')).toHaveText(['ON MAIN', 'WITH PROPOSED CHANGES']);
+  await expect(paritySummary.locator('button, a')).toHaveCount(0);
+});
+
+test('CI health navigation preserves history and labels cross-section actions', async ({ page }) => {
+  await page.goto('/?ops_health_view=overview#ci-health', { waitUntil: 'domcontentloaded' });
+  const health = page.locator('#tab-ci-health');
+
+  await health.getByRole('tab', { name: 'Data quality' }).click();
+  await health.getByRole('button', { name: 'Collector freshness' }).click();
+  await expect(page).toHaveURL(/ops_health_view=quality/);
+  await expect(page).toHaveURL(/ops_health_quality_view=collectors/);
+  await expect(health.getByRole('heading', { name: 'Related investigation views' })).toBeVisible();
+  await expect(health.getByRole('button', { name: 'Open retry analysis →' })).toBeVisible();
+
+  await page.goBack();
+  await expect(health.getByRole('button', { name: 'Source mapping' })).toHaveAttribute('aria-pressed', 'true');
+  await page.goBack();
+  await expect(health.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
+});
+
+test('CI health mobile deep links keep the active view visible', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/?ops_health_view=quality&ops_health_quality_view=collectors#ci-health', { waitUntil: 'domcontentloaded' });
+  const tabs = page.locator('#tab-ci-health .ops-health-tabs');
+  const active = tabs.getByRole('tab', { name: 'Data quality' });
+  await expect(active).toHaveAttribute('aria-selected', 'true');
+  await page.waitForTimeout(50);
+  const tabsBox = await tabs.boundingBox();
+  const activeBox = await active.boundingBox();
+  expect(activeBox.x).toBeGreaterThanOrEqual(tabsBox.x - 1);
+  expect(activeBox.x + activeBox.width).toBeLessThanOrEqual(tabsBox.x + tabsBox.width + 1);
+});
+
+test('CI health tabs retain keyboard focus after route-backed rerenders', async ({ page }) => {
+  await page.goto('/?ops_health_view=overview#ci-health', { waitUntil: 'domcontentloaded' });
+  const health = page.locator('#tab-ci-health');
+
+  const overview = health.getByRole('tab', { name: 'Overview' });
+  await overview.focus();
+  await overview.press('ArrowRight');
+  const parity = health.getByRole('tab', { name: 'Upstream parity' });
+  await expect(parity).toHaveAttribute('aria-selected', 'true');
+  await expect(parity).toBeFocused();
+
+  await parity.press('End');
+  const quality = health.getByRole('tab', { name: 'Data quality' });
+  await expect(quality).toHaveAttribute('aria-selected', 'true');
+  await expect(quality).toBeFocused();
+});
+
+test('CI health filters preserve focus without duplicate history entries', async ({ page }) => {
+  await page.goto('/?ops_health_view=parity#ci-health', { waitUntil: 'domcontentloaded' });
+  const health = page.locator('#tab-ci-health');
+  const missing = health.getByRole('button', { name: /Missing \(\d+\)/ });
+  await missing.focus();
+  const initialHistoryLength = await page.evaluate(() => history.length);
+  await missing.press('Enter');
+  await expect(missing).toBeFocused();
+  expect(await page.evaluate(() => history.length)).toBe(initialHistoryLength);
+
+  const proposed = health.getByRole('button', { name: /Proposed \(\d+\)/ });
+  await proposed.focus();
+  await proposed.press('Enter');
+  const activeProposed = health.getByRole('button', { name: /Proposed \(\d+\)/ });
+  await expect(activeProposed).toHaveAttribute('aria-pressed', 'true');
+  await expect(activeProposed).toBeFocused();
+  expect(await page.evaluate(() => history.length)).toBe(initialHistoryLength + 1);
+
+  await page.goBack();
+  await expect(health.getByRole('button', { name: /Missing \(\d+\)/ })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('CI health names the complete target and published-input populations', async ({ page }) => {
+  await page.goto('/?ops_health_view=targets#ci-health', { waitUntil: 'domcontentloaded' });
+  const health = page.locator('#tab-ci-health');
+
+  await expect(health.getByRole('button', { name: /Failing now \(\d+\)/ })).toBeVisible();
+  await health.getByText('Which target groups are included', { exact: true }).click();
+  await expect(health).toContainText(/\d+ active configured groups = \d+ reviewed targets \+ \d+ other configured groups/);
+
+  await health.getByRole('tab', { name: 'Data quality' }).click();
+  await health.getByRole('button', { name: 'Collector freshness' }).click();
+  const publishedCard = health.locator('.ops-status-item').filter({ hasText: 'PUBLISHED INPUTS' });
+  const publishedValue = await publishedCard.locator('.ops-stat-value').innerText();
+  const publishedTotal = Number(publishedValue.match(/\/\s*(\d+)/)?.[1]);
+  expect(publishedTotal).toBeGreaterThan(0);
+  await health.getByRole('button', { name: 'Browse all published inputs' }).click();
+  await expect(page.getByRole('dialog').locator('.ops-browser-count')).toHaveText(`${publishedTotal} of ${publishedTotal} rows`);
 });
 
 test('CI analytics separates logical test groups from exact job variants', async ({ page }) => {
@@ -383,17 +503,18 @@ test('CI analytics separates logical test groups from exact job variants', async
   await expect(cards).toHaveCount(4);
   await expect(cards.locator('.ops-stat-label')).toHaveText([
     'LATEST AMD NIGHTLY',
-    'LATEST UNIQUE TEST GROUPS',
+    'LATEST AMD TEST GROUPS',
     'LATEST JOB VARIANTS',
     'FAILURE OBSERVATIONS',
   ]);
 
-  const testGroups = cards.filter({ hasText: 'LATEST UNIQUE TEST GROUPS' });
+  const testGroups = cards.filter({ hasText: 'LATEST AMD TEST GROUPS' });
   const jobVariants = cards.filter({ hasText: 'LATEST JOB VARIANTS' });
-  await expect(testGroups.locator('.ops-stat-meta')).toContainText(/green on any observed AMD route - \d+ non-green/);
+  await expect(testGroups.locator('.ops-stat-value')).toContainText(/\d+ \/ \d+ passing/);
+  await expect(testGroups.locator('.ops-stat-meta')).toContainText(/\d+ pass on every route · \d+ pass on some hardware only · \d+ non-passing everywhere/);
   await expect(jobVariants.locator('.ops-stat-meta')).toContainText(/passing - \d+ non-passing exact jobs/);
 
-  const testGroupCount = Number(await testGroups.locator('.ops-stat-value').innerText());
+  const testGroupCount = Number((await testGroups.locator('.ops-stat-value').innerText()).match(/\/\s*(\d+)/)?.[1]);
   const jobVariantCount = Number(await jobVariants.locator('.ops-stat-value').innerText());
   expect(testGroupCount).toBeGreaterThan(0);
   expect(jobVariantCount).toBeGreaterThan(testGroupCount);
