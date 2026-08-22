@@ -1,6 +1,6 @@
 # Project Dashboard
 
-Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-08-22 05:57 UTC**
+Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-08-22 07:55 UTC**
 
 ## Overview
 
@@ -27,7 +27,7 @@ operational data are published by the scheduled/dispatch
 | View | Description |
 |------|-------------|
 | **Home** | PRs, project #39 issues, and ROCm vs upstream test parity |
-| **CI Health** | Scoped views for the latest AMD runtime, upstream logical test-group parity, target health, AMD hardware coverage, and source/collector data quality |
+| **CI Health** | Latest exact AMD job variants by architecture, reviewed runtime targets with explicit mapping/no-definition reasons, definition parity, diagnostics, and evidence links |
 | **CI Analytics** | Nightly build comparison, recent builds, group trends, AMD hardware matrix, queue comparison |
 | **Queue Monitor** | Buildkite queue workload, wait-time charts, active job overlays, admin triage, and AMD capacity projections |
 | **Hotness / Omni** | Workload trajectories; exact Omni active-job evidence, 1h–3d queue windows, queued-age bands, daily deltas, and explicit partial-attribution labels |
