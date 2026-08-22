@@ -144,9 +144,9 @@ jobs:
       - name: Check required files exist
         run: |
           for f in docs/index.html docs/assets/css/dashboard.css \
-                   docs/assets/js/dashboard.js docs/assets/js/ci-health.js \
-                   docs/assets/js/ci-analytics.js docs/assets/js/ci-queue.js \
-                   docs/assets/js/utils.js; do
+                   docs/assets/css/ops-v2.css docs/assets/js/utils.js \
+                   docs/assets/js/publication-status.js \
+                   docs/assets/js/dashboard-nav.js docs/assets/js/ops-v2.js; do
             if [ ! -f "$f" ]; then
               echo "❌ Missing: $f"
               exit 1

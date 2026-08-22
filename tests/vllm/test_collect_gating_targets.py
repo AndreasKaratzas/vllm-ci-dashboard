@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import re
 
 from vllm import collect_gating_targets as cgt
 
@@ -84,6 +85,7 @@ RETIRED_PRE_STANDARDIZATION_LABELS = {
     "Multi-Modal Models (Extended Pooling)",
     "Samplers Test",
     "Spec Decode Ngram + Suffix",
+    "Platform Tests (CUDA)",
 }
 
 
@@ -96,11 +98,18 @@ def test_config_has_valid_canonical_targets() -> None:
     assert duplicates == []
 
 
+def test_config_does_not_use_nvidia_hardware_aliases_as_amd_targets() -> None:
+    groups = cgt.load_targets()
+    vendor_alias = re.compile(r":nvidia:|\b(?:A100|H100|H200|B200|DGX)\b|\(L4\)", re.I)
+
+    assert [row["label"] for row in groups if vendor_alias.search(row["label"])] == []
+
+
 def test_config_does_not_restore_retired_pre_standardization_labels() -> None:
     groups = cgt.load_targets()
     labels = {row["label"] for row in groups}
 
-    assert len(RETIRED_PRE_STANDARDIZATION_LABELS) == 76
+    assert len(RETIRED_PRE_STANDARDIZATION_LABELS) == 77
     assert labels.isdisjoint(RETIRED_PRE_STANDARDIZATION_LABELS)
 
 

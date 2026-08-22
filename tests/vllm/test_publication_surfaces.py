@@ -36,7 +36,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_surface_contract_version_has_one_owner() -> None:
-    assert surfaces_module.SURFACE_CONTRACT_VERSION == 3
+    assert surfaces_module.SURFACE_CONTRACT_VERSION == 4
     assert (
         selector_module.SURFACE_CONTRACT_VERSION
         == surfaces_module.SURFACE_CONTRACT_VERSION
@@ -105,7 +105,7 @@ def test_findings_route_to_source_transactions_or_global_stop() -> None:
         "error",
         "matrix-summary-mismatch",
         "frontend contract changed",
-        "docs/assets/js/ci-hotness.js",
+        "docs/assets/js/ops-v2.js",
     )
 
     assert finding_surfaces(matrix) == frozenset({"ci_core"})
@@ -817,7 +817,7 @@ def test_pre_analytics_schema_v2_fallback_proof_and_clock_are_split(
 
     assert migrated is not None
     expected = {"ci_core", "ci_analytics", "ci_gating"}
-    assert migrated["surface_contract_version"] == 3
+    assert migrated["surface_contract_version"] == 4
     assert set(migrated["fallback_surfaces"]) == expected
     assert migrated["fallback_since"] == {
         surface: since for surface in expected
@@ -1010,7 +1010,7 @@ def test_clean_candidate_writes_schema_v2_current_state(
     assert source.read_text() == '{"version":"candidate"}\n'
     assert state == {
         "schema_version": 2,
-        "surface_contract_version": 3,
+        "surface_contract_version": 4,
         "generated_at": state["generated_at"],
         "baseline_ref": baseline,
         "mode": "current",

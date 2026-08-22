@@ -80,7 +80,7 @@ jobs:
             local diagnostic_file="${4:-}"
             local collector="${5:-workflow-step}"
             case "$surface" in
-              ci_core|ci_analytics|ci_gating|ci_changes|ci_hotness|queue|queue_lifecycle|agent_health|dns_health|github_home|ready|perf_eval|test_builds) ;;
+              ci_core|ci_analytics|ci_gating|ci_changes|ci_hotness|queue|queue_lifecycle|agent_health|dns_health|github_home|perf_eval) ;;
               *) echo "::error::Unknown publication surface: $surface"; return 2 ;;
             esac
             printf '%s\n' "$surface" >> "$PUBLICATION_FAILED_SURFACES_FILE"
@@ -225,7 +225,7 @@ jobs:
             local target_surface="$2"
             local label="$3"
             case "$target_surface" in
-              ci_core|ci_analytics|ci_gating|ci_changes|ci_hotness|queue|queue_lifecycle|agent_health|dns_health|github_home|ready|perf_eval|test_builds) ;;
+              ci_core|ci_analytics|ci_gating|ci_changes|ci_hotness|queue|queue_lifecycle|agent_health|dns_health|github_home|perf_eval) ;;
               *) echo "::error::Unknown publication surface: $target_surface"; return 2 ;;
             esac
             printf '%s\n' "$target_surface" >> "$PUBLICATION_FAILED_SURFACES_FILE"
@@ -773,29 +773,6 @@ jobs:
           run_surface_collector perf_eval "perf-eval aggregation" \
             python scripts/vllm/collect_perf_eval.py
 
-      - name: Sync test-build registry from gh-pages
-        run: |
-          source "$PUBLICATION_COLLECTOR_HELPERS"
-          sync_test_build_seed() {
-            mkdir -p data/vllm/ci/test_builds || return $?
-            LIVE=$(git show origin/gh-pages:data/vllm/ci/test_builds/index.json 2>/dev/null || true)
-            if [ -n "$LIVE" ]; then
-              printf '%s\n' "$LIVE" > data/vllm/ci/test_builds/index.json || return $?
-            fi
-          }
-          run_surface_collector test_builds "test-build registry seed" sync_test_build_seed
-
-      - name: Refresh test-build results and nightly comparisons
-        env:
-          BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
-        run: |
-          source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector test_builds "test-build registry" \
-            python scripts/vllm/collect_test_builds.py
-
-      # Ready Tickets is refreshed by ready-tickets-live.yml under the shared
-      # deploy lock. Keep the write out of this long-running collection job.
-
       # ── Phase 3: GitHub data (PRs, issues, activity, ~1min) ──
       - name: Check GitHub data freshness
         id: freshness
@@ -825,28 +802,18 @@ jobs:
                   return None
 
           prs_ts = load_ts("data/vllm/prs.json", "collected_at")
-          ready_ts = load_ts("data/vllm/ci/ready_tickets.json", "generated_at")
-          project_ts = load_ts("data/vllm/ci/project_items.json", "generated_at")
-
           prs_age_seconds = int((now - prs_ts).total_seconds()) if prs_ts else 999999
-          ready_newer = bool(prs_ts and ready_ts and ready_ts > prs_ts)
-          project_newer = bool(prs_ts and project_ts and project_ts > prs_ts)
-          stale = prs_ts is None or prs_age_seconds > 3600 or ready_newer or project_newer
+          stale = prs_ts is None or prs_age_seconds > 3600
 
           reasons = []
           if prs_ts is None:
               reasons.append("prs_missing")
           elif prs_age_seconds > 3600:
               reasons.append("prs_stale")
-          if ready_newer:
-              reasons.append("ready_tickets_newer")
-          if project_newer:
-              reasons.append("project_items_newer")
           reason = ",".join(reasons) or "fresh"
 
           print(
               f"GitHub data freshness: prs_age_seconds={prs_age_seconds}, "
-              f"ready_tickets_newer={ready_newer}, project_items_newer={project_newer}, "
               f"reason={reason}"
           )
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:

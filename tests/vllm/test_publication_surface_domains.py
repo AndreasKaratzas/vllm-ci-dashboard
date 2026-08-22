@@ -286,6 +286,10 @@ def test_generic_findings_route_to_their_consuming_domains(
             "operations-bundle-org-summary-budget",
             {"ci_analytics", "ci_core", "ci_gating", "queue", "queue_lifecycle"},
         ),
+        (
+            "operations-comparison-retry-evidence-payload-budget",
+            {"ci_analytics"},
+        ),
     ),
 )
 def test_operations_manifest_budget_findings_reach_their_source_routes(
@@ -303,7 +307,7 @@ def test_non_data_path_remains_a_global_failure() -> None:
     assert finding_surfaces(
         _finding(
             "operations-gating-inconsistent",
-            path="docs/assets/js/ci-health.js",
+            path="docs/assets/js/ops-v2.js",
         )
     ) == frozenset()
 

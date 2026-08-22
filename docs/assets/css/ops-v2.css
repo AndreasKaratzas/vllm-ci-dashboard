@@ -7,7 +7,7 @@
  *   - Reusable overlays are rooted at .ops-overlay.
  *
  * Every operational route, including Perf Eval, uses the same page contract.
- * Content selectors stay scoped so administrative legacy views remain stable.
+ * Content selectors stay scoped so shell and popup styles remain predictable.
  */
 
 /* --------------------------------------------------------------------------
@@ -284,7 +284,6 @@
   border-left-color: var(--ops-border-strong);
 }
 
-.ops-v2 #sidebar .nav-lock-chip,
 .ops-v2 #sidebar .ops-nav-count {
   margin-left: auto;
   padding: 1px 5px;
@@ -1454,7 +1453,7 @@
 .ops-page .ops-segment.is-active,
 .ops-page .ops-segment[aria-pressed="true"],
 .ops-page .ops-tab.is-active,
-.ops-page .ops-tab[aria-selected="true"] {
+.ops-page .ops-tab[aria-pressed="true"] {
   color: var(--ops-text);
   background: var(--ops-surface-raised);
   box-shadow: inset 0 0 0 1px var(--ops-border);
@@ -2694,6 +2693,260 @@
   grid-template-columns: 1fr;
   gap: 8px;
 }
+
+/* CI Health visual summaries ------------------------------------------------ */
+
+.ops-page .ops-health-hero-grid {
+  display: grid;
+  grid-template-columns: minmax(340px, 0.9fr) minmax(440px, 1.35fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.ops-page .ops-health-ring-card,
+.ops-page .ops-health-distribution {
+  min-width: 0;
+  min-height: 178px;
+  padding: 18px;
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius);
+  color: var(--ops-text);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--ops-teal-soft) 40%, transparent), transparent 58%),
+    var(--ops-surface);
+  text-align: left;
+}
+
+button.ops-health-ring-card {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+  cursor: pointer;
+}
+
+button.ops-health-ring-card:hover,
+button.ops-health-ring-card:focus-visible,
+.ops-page .ops-health-area-card:hover,
+.ops-page .ops-health-area-card:focus-visible,
+.ops-page .ops-health-attention-row:hover,
+.ops-page .ops-health-attention-row:focus-visible {
+  border-color: var(--ops-focus);
+  background-color: var(--ops-surface-hover);
+  outline: 2px solid var(--ops-focus);
+  outline-offset: 2px;
+}
+
+.ops-page .ops-health-ring-card {
+  --ops-ring-color: var(--ops-teal);
+}
+
+.ops-page .ops-health-ring-card.is-success { --ops-ring-color: var(--ops-success); }
+.ops-page .ops-health-ring-card.is-warning { --ops-ring-color: var(--ops-warning); }
+.ops-page .ops-health-ring-card.is-danger { --ops-ring-color: var(--ops-danger); }
+
+.ops-page .ops-health-ring {
+  position: relative;
+  display: flex;
+  width: 126px;
+  height: 126px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 126px;
+  border-radius: 50%;
+  background: conic-gradient(var(--ops-ring-color) calc(var(--ops-ring-progress) * 1%), var(--ops-surface-inset) 0);
+  isolation: isolate;
+}
+
+.ops-page .ops-health-ring::before {
+  position: absolute;
+  z-index: -1;
+  width: 94px;
+  height: 94px;
+  border: 1px solid var(--ops-divider);
+  border-radius: 50%;
+  background: var(--ops-surface);
+  content: "";
+}
+
+.ops-page .ops-health-ring strong {
+  color: var(--ops-ring-color);
+  font-size: 24px;
+  line-height: 28px;
+}
+
+.ops-page .ops-health-ring span {
+  color: var(--ops-text-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.ops-page .ops-health-ring-copy,
+.ops-page .ops-health-ring-copy > span {
+  display: block;
+}
+
+.ops-page .ops-health-ring-copy .ops-health-ring-title {
+  margin: 4px 0 7px;
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 24px;
+}
+
+.ops-page .ops-health-ring-copy .ops-health-ring-meta,
+.ops-page .ops-health-distribution-copy {
+  display: block;
+  margin: 0 0 10px;
+  color: var(--ops-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.ops-page .ops-health-distribution {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.ops-page .ops-health-stack,
+.ops-page .ops-health-mini-stack {
+  display: flex;
+  width: 100%;
+  height: 16px;
+  overflow: hidden;
+  border: 1px solid var(--ops-border);
+  border-radius: 999px;
+  background: var(--ops-surface-inset);
+}
+
+.ops-page .ops-health-mini-stack {
+  height: 8px;
+  margin: 10px 0;
+}
+
+.ops-page .ops-health-stack-segment.is-success { background: var(--ops-success); }
+.ops-page .ops-health-stack-segment.is-warning { background: var(--ops-warning); }
+.ops-page .ops-health-stack-segment.is-danger { background: var(--ops-danger); }
+.ops-page .ops-health-stack-segment.is-info { background: var(--ops-info); }
+.ops-page .ops-health-stack-segment.is-neutral { background: var(--ops-neutral); }
+.ops-page .ops-health-stack-segment.is-not-targeted { background: var(--ops-not-targeted); }
+
+.ops-page .ops-health-legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 5px;
+  margin-top: 12px;
+}
+
+.ops-page .ops-health-legend-item {
+  display: grid;
+  grid-template-columns: 8px auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px;
+  border: 0;
+  border-radius: var(--ops-radius-sm);
+  color: var(--ops-text-muted);
+  background: transparent;
+  text-align: left;
+}
+
+button.ops-health-legend-item { cursor: pointer; }
+button.ops-health-legend-item:hover,
+button.ops-health-legend-item:focus-visible { background: var(--ops-surface-hover); outline: 1px solid var(--ops-border-strong); }
+.ops-page .ops-health-legend-item strong { color: var(--ops-text); }
+.ops-page .ops-health-legend-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ops-neutral); }
+.ops-page .ops-health-legend-item.is-success .ops-health-legend-dot { background: var(--ops-success); }
+.ops-page .ops-health-legend-item.is-warning .ops-health-legend-dot { background: var(--ops-warning); }
+.ops-page .ops-health-legend-item.is-danger .ops-health-legend-dot { background: var(--ops-danger); }
+.ops-page .ops-health-legend-item.is-info .ops-health-legend-dot { background: var(--ops-info); }
+.ops-page .ops-health-legend-item.is-not-targeted .ops-health-legend-dot { background: var(--ops-not-targeted); }
+
+.ops-page .ops-health-area-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(245px, 1fr));
+  gap: 9px;
+}
+
+.ops-page .ops-health-area-card {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius-sm);
+  color: var(--ops-text);
+  background: var(--ops-surface-inset);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ops-page .ops-health-area-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ops-page .ops-health-area-heading span {
+  flex: 0 0 auto;
+  color: var(--ops-danger);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.ops-page .ops-health-area-preview {
+  display: flex;
+  min-height: 54px;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--ops-text-muted);
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.ops-page .ops-health-area-preview span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-page .ops-health-attention-list {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius-sm);
+}
+
+.ops-page .ops-health-attention-row {
+  display: grid;
+  grid-template-columns: 86px minmax(220px, 1fr) minmax(280px, 1.3fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 54px;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--ops-divider);
+  color: var(--ops-text);
+  background: var(--ops-surface-inset);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ops-page .ops-health-attention-row:last-child { border-bottom: 0; }
+.ops-page .ops-health-attention-state { font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.ops-page .ops-health-attention-state.is-success { color: var(--ops-success); }
+.ops-page .ops-health-attention-state.is-warning { color: var(--ops-warning); }
+.ops-page .ops-health-attention-state.is-danger { color: var(--ops-danger); }
+.ops-page .ops-health-attention-state.is-info { color: var(--ops-info); }
+.ops-page .ops-health-attention-state.is-neutral { color: var(--ops-neutral); }
+.ops-page .ops-health-attention-copy { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.ops-page .ops-health-attention-copy strong,
+.ops-page .ops-health-attention-copy small,
+.ops-page .ops-health-attention-reason { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ops-page .ops-health-attention-copy small,
+.ops-page .ops-health-attention-reason { color: var(--ops-text-muted); font-size: 11px; }
 
 /* --------------------------------------------------------------------------
    Operational page composition
@@ -4363,6 +4616,10 @@ body.ops-overlay-open {
    -------------------------------------------------------------------------- */
 
 @media (min-width: 768px) and (max-width: 1099px) {
+  .ops-page .ops-health-hero-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .ops-v2:has(#main-content > .ops-page.active) {
     --sidebar-width: var(--ops-rail-compact-width);
   }
@@ -4394,10 +4651,6 @@ body.ops-overlay-open {
     line-height: 18px;
   }
 
-  .ops-v2 #sidebar #auth-entry-control {
-    display: none !important;
-  }
-
   .ops-v2 #sidebar .sidebar-header h1,
   .ops-v2 #sidebar #last-updated,
   .ops-v2 #sidebar .ops-brand-kicker,
@@ -4407,7 +4660,6 @@ body.ops-overlay-open {
   .ops-v2 #sidebar .ops-nav-section-label,
   .ops-v2 #sidebar .ci-fw-name,
   .ops-v2 #sidebar .ci-fw-arrow,
-  .ops-v2 #sidebar .nav-lock-chip,
   .ops-v2 #sidebar .ops-nav-count,
   .ops-v2 #sidebar .nav-btn-label,
   .ops-v2 #sidebar .ops-nav-label {
@@ -4456,9 +4708,6 @@ body.ops-overlay-open {
   .ops-v2 #sidebar .ci-sub-btn[data-tab="ci-queue"]::after { content: "QUE"; }
   .ops-v2 #sidebar .ci-sub-btn[data-tab="ci-hotness"]::after { content: "TRJ"; }
   .ops-v2 #sidebar .ci-sub-btn[data-tab="ci-omni"]::after { content: "OMNI"; }
-  .ops-v2 #sidebar .ci-sub-btn[data-tab="ci-testbuild"]::after { content: "TEST"; }
-  .ops-v2 #sidebar .ci-sub-btn[data-tab="ci-ready"]::after { content: "RDY"; }
-  .ops-v2 #sidebar .ci-sub-btn[data-tab="ci-admin"]::after { content: "ADM"; }
 
   .ops-v2 #main-content:has(> .ops-page.active) {
     margin-left: var(--ops-rail-compact-width);
@@ -4603,6 +4852,40 @@ body.ops-overlay-open {
    -------------------------------------------------------------------------- */
 
 @media (max-width: 767px) {
+  .ops-page .ops-health-hero-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  button.ops-health-ring-card {
+    grid-template-columns: 96px minmax(0, 1fr);
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .ops-page .ops-health-ring {
+    width: 92px;
+    height: 92px;
+    flex-basis: 92px;
+  }
+
+  .ops-page .ops-health-ring::before {
+    width: 68px;
+    height: 68px;
+  }
+
+  .ops-page .ops-health-ring strong {
+    font-size: 18px;
+    line-height: 22px;
+  }
+
+  .ops-page .ops-health-attention-row {
+    grid-template-columns: 72px minmax(0, 1fr) auto;
+  }
+
+  .ops-page .ops-health-attention-reason {
+    display: none;
+  }
+
   .ops-page .ops-window-context {
     width: 100%;
     margin-left: 0;
@@ -5730,6 +6013,9 @@ body.ops-overlay-open {
   .ops-page .ops-button:focus-visible,
   .ops-page .ops-icon-button:focus-visible,
   .ops-page .ops-chip:focus-visible,
+  .ops-page .ops-health-ring-card:focus-visible,
+  .ops-page .ops-health-area-card:focus-visible,
+  .ops-page .ops-health-attention-row:focus-visible,
   .ops-page a:focus-visible,
   .ops-v2 #sidebar button:focus-visible {
     outline: 2px solid Highlight;

@@ -70,28 +70,18 @@ jobs:
                   return None
 
           prs_ts = load_ts("data/vllm/prs.json", "collected_at")
-          ready_ts = load_ts("data/vllm/ci/ready_tickets.json", "generated_at")
-          project_ts = load_ts("data/vllm/ci/project_items.json", "generated_at")
-
           prs_age_seconds = int((now - prs_ts).total_seconds()) if prs_ts else 999999
-          ready_newer = bool(prs_ts and ready_ts and ready_ts > prs_ts)
-          project_newer = bool(prs_ts and project_ts and project_ts > prs_ts)
-          stale = prs_ts is None or prs_age_seconds > 3600 or ready_newer or project_newer
+          stale = prs_ts is None or prs_age_seconds > 3600
 
           reasons = []
           if prs_ts is None:
               reasons.append("prs_missing")
           elif prs_age_seconds > 3600:
               reasons.append("prs_stale")
-          if ready_newer:
-              reasons.append("ready_tickets_newer")
-          if project_newer:
-              reasons.append("project_items_newer")
           reason = ",".join(reasons) or "fresh"
 
           print(
               f"GitHub data freshness: prs_age_seconds={prs_age_seconds}, "
-              f"ready_tickets_newer={ready_newer}, project_items_newer={project_newer}, "
               f"reason={reason}"
           )
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:

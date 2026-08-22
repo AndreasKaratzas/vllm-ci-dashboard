@@ -4,8 +4,8 @@
 The automatic definition matcher answers whether AMD YAML definitions can be
 linked to upstream YAML definitions.  This reviewed inventory answers a
 different question: which upstream logical CUDA test groups have complete
-ROCm coverage on main, are included in proposed changes, are intentionally
-unsupported, or still require action.
+ROCm coverage on main, are intentionally unsupported, or still require
+action.  Work that has not landed on main remains an action item.
 """
 
 from __future__ import annotations
@@ -23,11 +23,11 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 CONFIG = ROOT / "config" / "vllm_upstream_test_group_parity.json"
 OUTPUT = ROOT / "data" / "vllm" / "ci"
 
-SCHEMA_VERSION = 2
-ALL_STATES = frozenset({"existing", "proposed", "unsupported", "action"})
+SCHEMA_VERSION = 3
+ALL_STATES = frozenset({"existing", "unsupported", "action"})
 GAP_STATES = ALL_STATES - {"existing"}
-AREA_COUNT_FIELDS = ("existing", "proposed", "unsupported", "action")
-ROCM_INVENTORY_MILESTONES = ("main", "main_plus_proposed")
+AREA_COUNT_FIELDS = ("existing", "unsupported", "action")
+ROCM_INVENTORY_MILESTONES = ("main",)
 ROCM_INVENTORY_POPULATIONS = ("physical_definitions", "logical_groups")
 FULL_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 
@@ -108,7 +108,6 @@ def load_review(path: Path = CONFIG) -> dict[str, Any]:
     rocm_inventory = review.get("rocm_inventory")
     if not isinstance(rocm_inventory, dict):
         raise ValueError("rocm_inventory must be an object")
-    inventory_populations: dict[str, list[int]] = {}
     for milestone in ROCM_INVENTORY_MILESTONES:
         values = rocm_inventory.get(milestone)
         if not isinstance(values, dict):
@@ -125,13 +124,15 @@ def load_review(path: Path = CONFIG) -> dict[str, Any]:
                 "ROCm inventory must satisfy physical definitions >= logical "
                 f"groups at {milestone}"
             )
-        for population, count in counts.items():
-            inventory_populations.setdefault(population, []).append(count)
-    for population, counts in inventory_populations.items():
-        if counts != sorted(counts):
-            raise ValueError(
-                f"ROCm {population} milestones must be non-decreasing"
-            )
+    unexpected_milestones = set(rocm_inventory) - {
+        *ROCM_INVENTORY_MILESTONES,
+        "count_basis",
+    }
+    if unexpected_milestones:
+        raise ValueError(
+            "rocm_inventory contains obsolete milestones: "
+            f"{sorted(unexpected_milestones)}"
+        )
     _nonempty_string(
         rocm_inventory.get("count_basis"), "rocm_inventory.count_basis"
     )
@@ -194,8 +195,8 @@ def load_review(path: Path = CONFIG) -> dict[str, Any]:
         _nonempty_string(group.get("assessment"), f"groups[{index}].assessment")
         if "proposal_stage" in group:
             raise ValueError(
-                f"groups[{index}].proposal_stage is obsolete; proposed groups "
-                "are intentionally PR-agnostic"
+                f"groups[{index}].proposal_stage is obsolete; parity tracks "
+                "main only"
             )
         detailed_counts[area][state] += 1
 
@@ -223,10 +224,9 @@ def load_review(path: Path = CONFIG) -> dict[str, Any]:
             f"total (missing={missing}; unexpected={unexpected})"
         )
     applicable = total_groups - totals["unsupported"]
-    proposed_complete = totals["existing"] + totals["proposed"]
-    if proposed_complete + totals["action"] != applicable:
+    if totals["existing"] + totals["action"] != applicable:
         raise ValueError(
-            "applicable groups must equal proposed-complete groups plus action groups"
+            "applicable groups must equal existing groups plus action groups"
         )
     return review
 
@@ -251,11 +251,8 @@ def build_payload(
     unsupported = totals["unsupported"]
     applicable = upstream_logical - unsupported
     existing = totals["existing"]
-    proposed = totals["proposed"]
     action = totals["action"]
-    proposed_complete = existing + proposed
     main_missing = applicable - existing
-    proposed_missing = applicable - proposed_complete
 
     normalized_areas = []
     for row in areas:
@@ -263,11 +260,7 @@ def build_payload(
             **row,
             "applicable": int(row["total"]) - int(row["unsupported"]),
             "complete_on_main": int(row["existing"]),
-            "complete_with_proposed": (
-                int(row["existing"]) + int(row["proposed"])
-            ),
-            "missing_on_main": int(row["proposed"]) + int(row["action"]),
-            "remaining_after_proposed": int(row["action"]),
+            "missing_on_main": int(row["action"]),
         })
 
     source = dict(review["source"])
@@ -290,16 +283,10 @@ def build_payload(
             "upstream_logical_groups": upstream_logical,
             "applicable_groups": applicable,
             "main_complete_groups": existing,
-            "proposed_groups": proposed,
-            "main_plus_proposed_complete_groups": proposed_complete,
             "unsupported_groups": unsupported,
             "action_groups": action,
             "main_missing_groups": main_missing,
-            "main_plus_proposed_missing_groups": proposed_missing,
             "main_applicable_rate_pct": _rate(existing, applicable),
-            "main_plus_proposed_applicable_rate_pct": _rate(
-                proposed_complete, applicable
-            ),
         },
         "rocm_inventory": dict(review["rocm_inventory"]),
         "areas": normalized_areas,

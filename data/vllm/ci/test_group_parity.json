@@ -1,6 +1,6 @@
 {
-  "schema_version": 2,
-  "generated_at": "2026-08-22T09:43:57Z",
+  "schema_version": 3,
+  "generated_at": "2026-08-22T10:21:52Z",
   "reviewed_at": "2026-08-22",
   "source": {
     "repository": "vllm-project/vllm",
@@ -28,23 +28,15 @@
     "upstream_logical_groups": 191,
     "applicable_groups": 163,
     "main_complete_groups": 139,
-    "proposed_groups": 16,
-    "main_plus_proposed_complete_groups": 155,
     "unsupported_groups": 28,
-    "action_groups": 8,
+    "action_groups": 24,
     "main_missing_groups": 24,
-    "main_plus_proposed_missing_groups": 8,
-    "main_applicable_rate_pct": 85.3,
-    "main_plus_proposed_applicable_rate_pct": 95.1
+    "main_applicable_rate_pct": 85.3
   },
   "rocm_inventory": {
     "main": {
       "physical_definitions": 184,
       "logical_groups": 143
-    },
-    "main_plus_proposed": {
-      "physical_definitions": 198,
-      "logical_groups": 157
     },
     "count_basis": "ROCm logical groups; this is an inventory, not an upstream-parity numerator"
   },
@@ -53,404 +45,311 @@
       "area": "Attention",
       "total": 1,
       "existing": 1,
-      "proposed": 0,
       "unsupported": 0,
       "action": 0,
       "applicable": 1,
       "complete_on_main": 1,
-      "complete_with_proposed": 1,
-      "missing_on_main": 0,
-      "remaining_after_proposed": 0
+      "missing_on_main": 0
     },
     {
       "area": "Basic Correctness",
       "total": 1,
       "existing": 1,
-      "proposed": 0,
       "unsupported": 0,
       "action": 0,
       "applicable": 1,
       "complete_on_main": 1,
-      "complete_with_proposed": 1,
-      "missing_on_main": 0,
-      "remaining_after_proposed": 0
+      "missing_on_main": 0
     },
     {
       "area": "Benchmarks",
       "total": 2,
       "existing": 2,
-      "proposed": 0,
       "unsupported": 0,
       "action": 0,
       "applicable": 2,
       "complete_on_main": 2,
-      "complete_with_proposed": 2,
-      "missing_on_main": 0,
-      "remaining_after_proposed": 0
+      "missing_on_main": 0
     },
     {
       "area": "Compile",
       "total": 10,
       "existing": 2,
-      "proposed": 3,
       "unsupported": 5,
-      "action": 0,
+      "action": 3,
       "applicable": 5,
       "complete_on_main": 2,
-      "complete_with_proposed": 5,
-      "missing_on_main": 3,
-      "remaining_after_proposed": 0
+      "missing_on_main": 3
     },
     {
       "area": "CUDA",
       "total": 2,
       "existing": 2,
-      "proposed": 0,
       "unsupported": 0,
       "action": 0,
       "applicable": 2,
       "complete_on_main": 2,
-      "complete_with_proposed": 2,
-      "missing_on_main": 0,
-      "remaining_after_proposed": 0
+      "missing_on_main": 0
     },
     {
       "area": "Disaggregated",
       "total": 13,
       "existing": 8,
-      "proposed": 3,
       "unsupported": 1,
-      "action": 1,
+      "action": 4,
       "applicable": 12,
       "complete_on_main": 8,
-      "complete_with_proposed": 11,
-      "missing_on_main": 4,
-      "remaining_after_proposed": 1
+      "missing_on_main": 4
     },
     {
       "area": "Disaggregated Mooncake",
       "total": 1,
       "existing": 0,
-      "proposed": 0,
       "unsupported": 0,
       "action": 1,
       "applicable": 1,
       "complete_on_main": 0,
-      "complete_with_proposed": 0,
-      "missing_on_main": 1,
-      "remaining_after_proposed": 1
+      "missing_on_main": 1
     },
     {
       "area": "Distributed",
       "total": 15,
       "existing": 12,
-      "proposed": 0,
       "unsupported": 1,
       "action": 2,
       "applicable": 14,
       "complete_on_main": 12,
-      "complete_with_proposed": 12,
-      "missing_on_main": 2,
-      "remaining_after_proposed": 2
+      "missing_on_main": 2
     },
     {
       "area": "E2E Integration",
       "total": 5,
       "existing": 5,
-      "proposed": 0,
       "unsupported": 0,
       "action": 0,
       "applicable": 5,
       "complete_on_main": 5,
-      "complete_with_proposed": 5,
-      "missing_on_main": 0,
-      "remaining_after_proposed": 0
+      "missing_on_main": 0
     },
     {
       "area": "Engine",
       "total": 6,
       "existing": 6,
-      "proposed": 0,
       "unsupported": 0,
       "action": 0,
       "applicable": 6,
       "complete_on_main": 6,
-      "complete_with_proposed": 6,
-      "missing_on_main": 0,
-      "remaining_after_proposed": 0
+      "missing_on_main": 0
     },
     {
       "area": "Entrypoints",
       "total": 11,
       "existing": 11,
-      "proposed": 0,
       "unsupported": 0,
       "action": 0,
       "applicable": 11,
       "complete_on_main": 11,
-      "complete_with_proposed": 11,
-      "missing_on_main": 0,
-      "remaining_after_proposed": 0
+      "missing_on_main": 0
     },
     {
       "area": "Expert Parallelism",
       "total": 3,
       "existing": 3,
-      "proposed": 0,
       "unsupported": 0,
       "action": 0,
       "applicable": 3,
       "complete_on_main": 3,
-      "complete_with_proposed": 3,
-      "missing_on_main": 0,
-      "remaining_after_proposed": 0
+      "missing_on_main": 0
     },
     {
       "area": "Fault Tolerance",
       "total": 1,
       "existing": 0,
-      "proposed": 0,
       "unsupported": 1,
       "action": 0,
       "applicable": 0,
       "complete_on_main": 0,
-      "complete_with_proposed": 0,
-      "missing_on_main": 0,
-      "remaining_after_proposed": 0
+      "missing_on_main": 0
     },
     {
       "area": "JIT Monitor",
       "total": 1,
       "existing": 0,
-      "proposed": 0,
       "unsupported": 1,
       "action": 0,
       "applicable": 0,
       "complete_on_main": 0,
-      "complete_with_proposed": 0,
-      "missing_on_main": 0,
-      "remaining_after_proposed": 0
+      "missing_on_main": 0
     },
     {
       "area": "Kernels",
       "total": 19,
       "existing": 10,
-      "proposed": 1,
       "unsupported": 7,
-      "action": 1,
+      "action": 2,
       "applicable": 12,
       "complete_on_main": 10,
-      "complete_with_proposed": 11,
-      "missing_on_main": 2,
-      "remaining_after_proposed": 1
+      "missing_on_main": 2
     },
     {
       "area": "LM Eval",
       "total": 22,
       "existing": 6,
-      "proposed": 5,
       "unsupported": 8,
-      "action": 3,
+      "action": 8,
       "applicable": 14,
       "complete_on_main": 6,
-      "complete_with_proposed": 11,
-      "missing_on_main": 8,
-      "remaining_after_proposed": 3
+      "missing_on_main": 8
     },
     {
       "area": "LoRA",
       "total": 2,
       "existing": 2,
-      "proposed": 0,
       "unsupported": 0,
       "action": 0,
       "applicable": 2,
       "complete_on_main": 2,
-      "complete_with_proposed": 2,
-      "missing_on_main": 0,
-      "remaining_after_proposed": 0
+      "missing_on_main": 0
     },
     {
       "area": "Miscellaneous",
       "total": 11,
       "existing": 11,
-      "proposed": 0,
       "unsupported": 0,
       "action": 0,
       "applicable": 11,
       "complete_on_main": 11,
-      "complete_with_proposed": 11,
-      "missing_on_main": 0,
-      "remaining_after_proposed": 0
+      "missing_on_main": 0
     },
     {
       "area": "Model Executor",
       "total": 1,
       "existing": 1,
-      "proposed": 0,
       "unsupported": 0,
       "action": 0,
       "applicable": 1,
       "complete_on_main": 1,
-      "complete_with_proposed": 1,
-      "missing_on_main": 0,
-      "remaining_after_proposed": 0
+      "missing_on_main": 0
     },
     {
       "area": "Model Runner V2",
       "total": 5,
       "existing": 5,
-      "proposed": 0,
       "unsupported": 0,
       "action": 0,
       "applicable": 5,
       "complete_on_main": 5,
-      "complete_with_proposed": 5,
-      "missing_on_main": 0,
-      "remaining_after_proposed": 0
+      "missing_on_main": 0
     },
     {
       "area": "Models - Basic",
       "total": 5,
       "existing": 3,
-      "proposed": 2,
       "unsupported": 0,
-      "action": 0,
+      "action": 2,
       "applicable": 5,
       "complete_on_main": 3,
-      "complete_with_proposed": 5,
-      "missing_on_main": 2,
-      "remaining_after_proposed": 0
+      "missing_on_main": 2
     },
     {
       "area": "Models - Distributed",
       "total": 1,
       "existing": 1,
-      "proposed": 0,
       "unsupported": 0,
       "action": 0,
       "applicable": 1,
       "complete_on_main": 1,
-      "complete_with_proposed": 1,
-      "missing_on_main": 0,
-      "remaining_after_proposed": 0
+      "missing_on_main": 0
     },
     {
       "area": "Models - Language",
       "total": 8,
       "existing": 8,
-      "proposed": 0,
       "unsupported": 0,
       "action": 0,
       "applicable": 8,
       "complete_on_main": 8,
-      "complete_with_proposed": 8,
-      "missing_on_main": 0,
-      "remaining_after_proposed": 0
+      "missing_on_main": 0
     },
     {
       "area": "Models - Multimodal",
       "total": 11,
       "existing": 11,
-      "proposed": 0,
       "unsupported": 0,
       "action": 0,
       "applicable": 11,
       "complete_on_main": 11,
-      "complete_with_proposed": 11,
-      "missing_on_main": 0,
-      "remaining_after_proposed": 0
+      "missing_on_main": 0
     },
     {
       "area": "Plugins",
       "total": 4,
       "existing": 2,
-      "proposed": 0,
       "unsupported": 2,
       "action": 0,
       "applicable": 2,
       "complete_on_main": 2,
-      "complete_with_proposed": 2,
-      "missing_on_main": 0,
-      "remaining_after_proposed": 0
+      "missing_on_main": 0
     },
     {
       "area": "PyTorch",
       "total": 5,
       "existing": 4,
-      "proposed": 0,
       "unsupported": 1,
       "action": 0,
       "applicable": 4,
       "complete_on_main": 4,
-      "complete_with_proposed": 4,
-      "missing_on_main": 0,
-      "remaining_after_proposed": 0
+      "missing_on_main": 0
     },
     {
       "area": "Quantization",
       "total": 4,
       "existing": 2,
-      "proposed": 1,
       "unsupported": 1,
-      "action": 0,
+      "action": 1,
       "applicable": 3,
       "complete_on_main": 2,
-      "complete_with_proposed": 3,
-      "missing_on_main": 1,
-      "remaining_after_proposed": 0
+      "missing_on_main": 1
     },
     {
       "area": "Rust Frontend E2E",
       "total": 5,
       "existing": 5,
-      "proposed": 0,
       "unsupported": 0,
       "action": 0,
       "applicable": 5,
       "complete_on_main": 5,
-      "complete_with_proposed": 5,
-      "missing_on_main": 0,
-      "remaining_after_proposed": 0
+      "missing_on_main": 0
     },
     {
       "area": "Samplers",
       "total": 1,
       "existing": 1,
-      "proposed": 0,
       "unsupported": 0,
       "action": 0,
       "applicable": 1,
       "complete_on_main": 1,
-      "complete_with_proposed": 1,
-      "missing_on_main": 0,
-      "remaining_after_proposed": 0
+      "missing_on_main": 0
     },
     {
       "area": "Spec Decode",
       "total": 14,
       "existing": 13,
-      "proposed": 1,
       "unsupported": 0,
-      "action": 0,
+      "action": 1,
       "applicable": 14,
       "complete_on_main": 13,
-      "complete_with_proposed": 14,
-      "missing_on_main": 1,
-      "remaining_after_proposed": 0
+      "missing_on_main": 1
     },
     {
       "area": "Weight Loading",
       "total": 1,
       "existing": 1,
-      "proposed": 0,
       "unsupported": 0,
       "action": 0,
       "applicable": 1,
       "complete_on_main": 1,
-      "complete_with_proposed": 1,
-      "missing_on_main": 0,
-      "remaining_after_proposed": 0
+      "missing_on_main": 0
     }
   ],
   "groups": [
@@ -507,8 +406,8 @@
       "area": "Compile",
       "title": "Fusion and Compile",
       "cuda_variants": "B200",
-      "state": "proposed",
-      "assessment": "The proposed changes add a substantive ROCm AITER-MLA static-FP8 parametrization; its focused DeepSeek-V2-Lite case passed. Per-group FP8 remains CUDA-kernel-specific and NVFP4 is NVIDIA-specific."
+      "state": "action",
+      "assessment": "Missing on main. A locally validated ROCm AITER-MLA static-FP8 parametrization passed its focused DeepSeek-V2-Lite case. Per-group FP8 remains CUDA-kernel-specific and NVFP4 is NVIDIA-specific."
     },
     {
       "id": 8,
@@ -523,8 +422,8 @@
       "area": "Compile",
       "title": "Fusion E2E Quick",
       "cuda_variants": "H100 (1 GPU)",
-      "state": "proposed",
-      "assessment": "The proposed changes add the portable DeepSeek-Coder static-FP8 MLA selector to the existing MI300 group; it passed locally. CUDA's remaining DeepSeek-V3 per-group path is backend-specific."
+      "state": "action",
+      "assessment": "Missing on main. A locally validated portable DeepSeek-Coder static-FP8 MLA selector for the MI300 group passed. CUDA's remaining DeepSeek-V3 per-group path is backend-specific."
     },
     {
       "id": 10,
@@ -555,8 +454,8 @@
       "area": "Compile",
       "title": "Fusion E2E TP2 Quick",
       "cuda_variants": "H100 (2 GPUs)",
-      "state": "proposed",
-      "assessment": "The proposed MI355_2 group preserves the CUDA matrix while covering supported ROCm AITER AR+RMS paths. Strengthened Llama static-FP8, Qwen per-group-FP8, and DeepSeek-Coder AITER-MLA static-FP8 selectors all passed. DeepSeek-V3 per-group output quant and AsyncTP remain unsupported."
+      "state": "action",
+      "assessment": "Missing on main. A locally validated MI355_2 group preserves the portable CUDA matrix while covering supported ROCm AITER AR+RMS paths. Strengthened Llama static-FP8, Qwen per-group-FP8, and DeepSeek-Coder AITER-MLA static-FP8 selectors all passed. DeepSeek-V3 per-group output quant and AsyncTP remain unsupported."
     },
     {
       "id": 14,
@@ -619,8 +518,8 @@
       "area": "Disaggregated",
       "title": "DSv4-Flash Disaggregated DP EP",
       "cuda_variants": "H200 (8 GPUs)",
-      "state": "proposed",
-      "assessment": "The proposed MI355 route passed the NIXL compatibility check and its full local accuracy run."
+      "state": "action",
+      "assessment": "Missing on main. A locally validated MI355 route passed the NIXL compatibility check and its full accuracy run."
     },
     {
       "id": 22,
@@ -675,16 +574,16 @@
       "area": "Disaggregated",
       "title": "NixlConnector PD edge case",
       "cuda_variants": "L4 (2 GPUs)",
-      "state": "proposed",
-      "assessment": "A ROCm counterpart is included in the proposed changes."
+      "state": "action",
+      "assessment": "Missing on main; a ROCm counterpart has been prepared and still needs to land."
     },
     {
       "id": 29,
       "area": "Disaggregated",
       "title": "Push NixlConnector PP prefill PD accuracy",
       "cuda_variants": "L4 (4 GPUs)",
-      "state": "proposed",
-      "assessment": "A ROCm counterpart is included in the proposed changes."
+      "state": "action",
+      "assessment": "Missing on main; a ROCm counterpart has been prepared and still needs to land."
     },
     {
       "id": 30,
@@ -1147,8 +1046,8 @@
       "area": "Kernels",
       "title": "Miscellaneous Kernels",
       "cuda_variants": "B200",
-      "state": "proposed",
-      "assessment": "A ROCm counterpart is included in the proposed changes."
+      "state": "action",
+      "assessment": "Missing on main; a ROCm counterpart has been prepared and still needs to land."
     },
     {
       "id": 88,
@@ -1227,24 +1126,24 @@
       "area": "LM Eval",
       "title": "LM Eval KV-Offload",
       "cuda_variants": "H200",
-      "state": "proposed",
-      "assessment": "A ROCm counterpart is included in the proposed changes."
+      "state": "action",
+      "assessment": "Missing on main; a ROCm counterpart has been prepared and still needs to land."
     },
     {
       "id": 98,
       "area": "LM Eval",
       "title": "LM Eval KV-Offload Large",
       "cuda_variants": "H100 (4 GPUs)",
-      "state": "proposed",
-      "assessment": "A ROCm counterpart is included in the proposed changes."
+      "state": "action",
+      "assessment": "Missing on main; a ROCm counterpart has been prepared and still needs to land."
     },
     {
       "id": 99,
       "area": "LM Eval",
       "title": "LM Eval KV-Offload Medium",
       "cuda_variants": "H100 (2 GPUs)",
-      "state": "proposed",
-      "assessment": "A ROCm counterpart is included in the proposed changes."
+      "state": "action",
+      "assessment": "Missing on main; a ROCm counterpart has been prepared and still needs to land."
     },
     {
       "id": 100,
@@ -1299,8 +1198,8 @@
       "area": "LM Eval",
       "title": "LM Eval Small Models Distributed",
       "cuda_variants": "B200 (2 GPUs)",
-      "state": "proposed",
-      "assessment": "The proposed DiffusionGemma FP8 TP2 route passed its full local GSM8K run."
+      "state": "action",
+      "assessment": "Missing on main. A locally validated DiffusionGemma FP8 TP2 route passed its full GSM8K run."
     },
     {
       "id": 107,
@@ -1308,15 +1207,15 @@
       "title": "LM Eval Spec Decode",
       "cuda_variants": "B200 (4 GPUs)",
       "state": "action",
-      "assessment": "Meaningful partial coverage: a proposed MI355_4 TP4+EP fixed-length DSpark job uses FP8 indexer/KV caches and passed all 1,319 GSM8K cases at 0.9484 accuracy with 4.448 mean accepted tokens. Exact CUDA parity remains open because Blackwell MXFP4 indexer caching and adaptive verification require ROCm capabilities not yet present."
+      "assessment": "Meaningful partial coverage: a locally validated MI355_4 TP4+EP fixed-length DSpark job uses FP8 indexer/KV caches and passed all 1,319 GSM8K cases at 0.9484 accuracy with 4.448 mean accepted tokens. Exact CUDA parity remains open because Blackwell MXFP4 indexer caching and adaptive verification require ROCm capabilities not yet present."
     },
     {
       "id": 108,
       "area": "LM Eval",
       "title": "LM Eval TurboQuant KV Cache",
       "cuda_variants": "H200",
-      "state": "proposed",
-      "assessment": "A ROCm counterpart is included in the proposed changes."
+      "state": "action",
+      "assessment": "Missing on main; a ROCm counterpart has been prepared and still needs to land."
     },
     {
       "id": 109,
@@ -1539,16 +1438,16 @@
       "area": "Models - Basic",
       "title": "Inkling",
       "cuda_variants": "B200",
-      "state": "proposed",
-      "assessment": "A ROCm counterpart is included in the proposed changes."
+      "state": "action",
+      "assessment": "Missing on main; a ROCm counterpart has been prepared and still needs to land."
     },
     {
       "id": 137,
       "area": "Models - Basic",
       "title": "Kimi K3",
       "cuda_variants": "B200",
-      "state": "proposed",
-      "assessment": "A ROCm counterpart is included in the proposed changes."
+      "state": "action",
+      "assessment": "Missing on main; a ROCm counterpart has been prepared and still needs to land."
     },
     {
       "id": 138,
@@ -1795,8 +1694,8 @@
       "area": "Quantization",
       "title": "Quantized Fusions",
       "cuda_variants": "H200",
-      "state": "proposed",
-      "assessment": "A ROCm counterpart is included in the proposed changes."
+      "state": "action",
+      "assessment": "Missing on main; a ROCm counterpart has been prepared and still needs to land."
     },
     {
       "id": 169,
@@ -1883,8 +1782,8 @@
       "area": "Spec Decode",
       "title": "Spec Decode AL MTP + Other Acceptance Nightly",
       "cuda_variants": "H200",
-      "state": "proposed",
-      "assessment": "The proposed optional MI355 job runs the exact four-selector directory; its authenticated aggregate run completed 4/4 passes. Medusa reached 0.2202 versus 0.198, both Gemma4 MTP modes cleared every acceptance floor, and synthetic Eagle3 reached 1.876 versus 1.875 +/- 0.15."
+      "state": "action",
+      "assessment": "Missing on main. A locally validated optional MI355 job runs the exact four-selector directory; its authenticated aggregate run completed 4/4 passes. Medusa reached 0.2202 versus 0.198, both Gemma4 MTP modes cleared every acceptance floor, and synthetic Eagle3 reached 1.876 versus 1.875 +/- 0.15."
     },
     {
       "id": 180,

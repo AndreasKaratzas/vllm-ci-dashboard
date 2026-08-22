@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-22T09:40:52Z",
+  "generated_at": "2026-08-22T10:21:52Z",
   "source": {
     "config_path": "config/vllm_amd_gating_targets.json",
     "description": "Canonical AMD gating target list supplied by the ROCm CI owners."
@@ -72,7 +72,7 @@
     },
     {
       "id": 3,
-      "label": "Distributed Tests (4 GPUs)(A100)",
+      "label": "Distributed",
       "area": "distributed",
       "gating_signal": "red",
       "pf_signal": "red",
@@ -137,7 +137,7 @@
     },
     {
       "id": 8,
-      "label": "Kernels FP8 MoE Test (1 H100)",
+      "label": "FP8 MoE Kernels",
       "area": "kernels",
       "gating_signal": "red",
       "pf_signal": "red",
@@ -146,7 +146,7 @@
       "readiness_signal": "red",
       "target_signal": "red",
       "owner": "",
-      "note": "Covered within the broader AMD Kernels MoE Test; no one-to-one 1-GPU AMD definition."
+      "note": ""
     },
     {
       "id": 9,
@@ -345,7 +345,7 @@
     },
     {
       "id": 24,
-      "label": "Kernels FP8 MoE Test (2 H100s)",
+      "label": "DeepEP FP8 MoE Kernels",
       "area": "kernels",
       "gating_signal": "red",
       "pf_signal": "red",
@@ -696,7 +696,7 @@
     },
     {
       "id": 51,
-      "label": "Platform Tests (CUDA)",
+      "label": "CUDA Platform",
       "area": "misc",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -774,7 +774,7 @@
     },
     {
       "id": 57,
-      "label": "Distributed Tests (8 GPUs)(H100)",
+      "label": "Distributed DP + EP",
       "area": "distributed",
       "gating_signal": "red",
       "pf_signal": "green",
@@ -1164,7 +1164,7 @@
     },
     {
       "id": 87,
-      "label": "Distributed Tests (2 GPUs)(H100)",
+      "label": "Distributed Features",
       "area": "distributed",
       "gating_signal": "green",
       "pf_signal": "green",

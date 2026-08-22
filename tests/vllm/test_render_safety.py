@@ -1,20 +1,9 @@
 """
-Render safety tests — validate that parity data will not crash the JS dashboard.
+Render safety tests — validate parity data at its shared frontend boundary.
 
-These tests check the data contract between parity_report.json and the
-ci-health.js renderGroups / overlay code. They specifically guard against
-the 'Cannot read properties of undefined (reading toUpperCase)' class of
-errors that occur when data fields expected by the JS are missing or have
-wrong types.
-
-The JS code calls .toUpperCase() on:
-  - jl.hw          (job_links[].hw)       — line 339, 348 of ci-health.js
-  - hw key          (hw_failures keys)     — line 339 of ci-health.js
-  - hwNames[hw]||hw (by_hardware keys)     — line 147 of ci-health.js
-  - report.arch     (dashboard.js)         — line 402 of dashboard.js
-  - platform        (dashboard.js)         — line 892 of dashboard.js
-
-These tests ensure the data always has the required string fields.
+These tests keep the collector and shared link-helper payload safe by ensuring
+that names, hardware identifiers, failure maps, and job links have stable
+types. That contract remains useful independently of any one renderer.
 """
 import json
 import re
@@ -277,7 +266,7 @@ class TestLiveDataRenderSafety:
                     bad.append(f"{g['name']} (side={jl.get('side')}): hw={hw!r}")
         assert not bad, (
             f"{len(bad)} job_link(s) with missing/invalid 'hw' — will crash "
-            f"toUpperCase in ci-health.js:\n" + "\n".join(bad[:20])
+            "shared parity consumers:\n" + "\n".join(bad[:20])
         )
 
     def test_all_hw_failures_have_string_keys(self, parity):

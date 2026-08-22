@@ -127,12 +127,6 @@ class TestWorkflowYAML:
                 f"{f.name} writes to gh-pages but still has cancel-in-progress enabled"
             )
 
-    def test_ready_ticket_and_hourly_snapshot_writers_are_serialized(self):
-        for name in ("hourly-master.yml", "ready-tickets-live.yml"):
-            concurrency = _load_workflow(name).get("concurrency", {})
-            assert concurrency.get("group") == "gh-pages-deploy"
-            assert concurrency.get("cancel-in-progress") is False
-
     def test_repo_governance_workflow_exists_and_watches_issues_and_prs(self):
         wf = _load_workflow("repo-governance.yml")
         triggers = wf.get(True, wf.get("on", {}))
@@ -482,8 +476,6 @@ class TestHourlyMasterWorkflow:
             ("Collect AMD agent health (all builds, all branches)", "agent_health"),
             ("Sync perf-eval data from gh-pages", "perf_eval"),
             ("Ingest perf-eval artifacts from Buildkite", "perf_eval"),
-            ("Sync test-build registry from gh-pages", "test_builds"),
-            ("Refresh test-build results and nightly comparisons", "test_builds"),
             ("Collect GitHub data", "github_home"),
         ):
             assert f"run_surface_collector {surface}" in steps[names.index(name)]["run"]
@@ -516,7 +508,7 @@ class TestHourlyMasterWorkflow:
         baseline = steps[names.index("Capture immutable main baseline")]["run"]
         assert (
             "ci_core|ci_analytics|ci_gating|ci_changes|ci_hotness|queue|queue_lifecycle|"
-            "agent_health|dns_health|github_home|ready|perf_eval|test_builds"
+            "agent_health|dns_health|github_home|perf_eval"
         ) in baseline
 
         expected_collectors = {
@@ -789,10 +781,10 @@ class TestHourlyMasterWorkflow:
             "Run test suite"
         )
 
-    def test_github_freshness_watches_ready_ticket_snapshots(self):
+    def test_github_freshness_has_no_retired_ready_ticket_inputs(self):
         text = _load_workflow_text("hourly-master.yml")
-        assert "data/vllm/ci/ready_tickets.json" in text
-        assert "data/vllm/ci/project_items.json" in text
+        assert "ready_tickets" not in text
+        assert "test_builds" not in text
 
     def test_runs_pytest(self):
         text = _load_workflow_text("hourly-master.yml")
@@ -1193,12 +1185,17 @@ class TestHourlyMasterWorkflow:
         text = _load_workflow_text("hourly-master.yml")
         assert "git fetch origin gh-pages" in text or "git show origin/gh-pages" in text
 
-    def test_ready_tickets_sync_removed(self):
+    def test_retired_dashboard_control_workflows_are_removed(self):
         text = _load_workflow_text("hourly-master.yml")
-        assert "sync_ready_tickets.py" not in text, (
-            "hourly-master.yml must not invoke sync_ready_tickets.py while "
-            "upstream project #39 automation is paused"
-        )
+        for name in ("ready-tickets-live.yml", "test-build.yml", "user-signup.yml"):
+            assert not (WORKFLOWS / name).exists()
+        for retired in (
+            "sync_ready_tickets.py",
+            "collect_test_builds.py",
+            "register_test_build.py",
+            "process_signup.py",
+        ):
+            assert retired not in text
 
     def test_test_failure_issue_assigns_without_mentioning_repo_owner(self):
         text = _load_workflow_text("hourly-master.yml")
@@ -1218,16 +1215,13 @@ class TestNoOrphanedCronSchedules:
     """Ensure only the approved collectors own recurring cron schedules."""
 
     def test_only_master_has_cron(self):
-        # hourly-master.yml owns the frequent collection cadence, while the
-        # ready-ticket sync is intentionally limited to the 3x/day master-
-        # issue updater.
+        # hourly-master.yml owns the frequent collection cadence.
         allowed = {
             "health-check.yml",
             "hourly-master.yml",
             "dns-health.yml",
             "queue-monitor.yml",
             "queue-lifecycle.yml",
-            "ready-tickets-live.yml",
         }
         for f in WORKFLOWS.glob("*.yml"):
             data = yaml.safe_load(f.read_text())
@@ -1965,11 +1959,8 @@ class TestDeployDataFreshness:
         analysis data** (the files produced by ``scripts/collect_ci.py``)
         with a stale gh-pages copy.
 
-        Other datasets sync after collection and that's correct — they
-        have their own authoritative write paths:
-          - ``queue_timeseries.jsonl``: appended by queue-monitor cron
-          - ``test_builds/``: written by the browser via register_test_build
-          - ``ready_tickets*.json``: written by sync_ready_tickets.py
+        Other datasets sync after collection and that's correct — for example,
+        ``queue_timeseries.jsonl`` is appended by the queue-monitor cron.
 
         We match by **step** (parsed YAML) to catch cases where the
         filename is pulled from a shell for-loop var like ``$f``, which
@@ -2020,8 +2011,7 @@ class TestDeployDataFreshness:
             # Direct references (no loop): check the literal path.
             for m in re.finditer(r"git show origin/gh-pages:data/vllm/ci/([^\s]+)", run):
                 target = m.group(1)
-                # Allow sync into non-CI-analysis paths (test_builds/index.json,
-                # ready_tickets*.json, queue_timeseries.jsonl, etc.).
+                # Allow sync into non-CI-analysis paths such as queue history.
                 basename = Path(target).name
                 assert basename not in CI_ANALYSIS_FILES, (
                     f"Step {step.get('name')!r} syncs {target!r} from gh-pages "
@@ -2038,10 +2028,6 @@ class TestWorkflowPipInstallMatchesImports:
     """Every script a workflow invokes must have its third-party imports
     installed by the workflow's ``pip install`` step.
 
-    This pins the regression we hit on 2026-04-18: ``ready-tickets-live.yml``
-    ran ``sync_ready_tickets.py`` which imports ``yaml``, but the workflow
-    only ``pip install requests``. The live sync crashed with
-    ``ModuleNotFoundError: No module named 'yaml'`` until pyyaml was added.
     This test walks every workflow's ``pip install`` line, parses every
     invoked script's top-level imports, and fails loudly if any third-party
     import lacks an installer.
@@ -2218,58 +2204,6 @@ class TestWorkflowPipInstallMatchesImports:
             "Workflow pip install steps do not cover script imports:\n  - "
             + "\n  - ".join(failures)
         )
-
-    def test_ready_tickets_live_uses_explicit_allow_flag(self):
-        wf = _load_workflow_text("ready-tickets-live.yml")
-        assert "READY_TICKETS_ALLOW_DASHBOARD_WRITES" in wf, (
-            "ready-tickets-live.yml must set the second explicit allow flag "
-            "before sync_ready_tickets.py can update the dashboard tracker"
-        )
-        assert "READY_TICKETS_WRITE_SCOPE: 'dashboard_comment_only'" in wf, (
-            "ready-tickets-live.yml must restrict writes to the validated "
-            "dashboard-owned tracker comment"
-        )
-        assert "sync dashboard tracker" in wf.lower(), (
-            "ready-tickets-live.yml should describe the dashboard tracker "
-            "mode in its commit message or comments"
-        )
-
-    def test_ready_tickets_live_retries_publication_without_an_environment(self):
-        data = _load_workflow("ready-tickets-live.yml")
-        job = data["jobs"]["sync"]
-        assert "environment" not in job
-
-        sync = next(
-            step
-            for step in job["steps"]
-            if step.get("name") == "Refresh dashboard-owned AMD nightly tracker"
-        )
-        assert sync["env"]["DASHBOARD_COMMENT_TOKEN"] == "${{ secrets.GITHUB_TOKEN }}"
-        assert sync["env"]["READY_TICKETS_ALLOW_DASHBOARD_WRITES"] == "1"
-        assert sync["env"]["READY_TICKETS_WRITE_SCOPE"] == "dashboard_comment_only"
-
-        publish = next(
-            step
-            for step in job["steps"]
-            if step.get("name") == "Commit + push data snapshot"
-        )
-        script = publish["run"]
-        assert "for attempt in 1 2 3" in script
-        assert "git pull --rebase origin main" in script
-        assert "git rebase --abort || true" in script
-        assert "git push origin HEAD:main" in script
-        assert "Failed to publish Ready Tickets data after 3 attempts" in script
-        assert "exit 1" in script
-
-
-class TestManualHourlyUpdateFreshness:
-    """Validate the manual hourly update notices ready-ticket refreshes."""
-
-    def test_daily_update_watches_ready_ticket_snapshots(self):
-        text = _load_workflow_text("daily-update.yml")
-        assert "data/vllm/ci/ready_tickets.json" in text
-        assert "data/vllm/ci/project_items.json" in text
-
 
 class TestAlertAutomationWorkflow:
     """All state-owned alert watchers run after their authoritative collectors."""

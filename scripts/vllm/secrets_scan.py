@@ -24,8 +24,7 @@ What it looks for
     ``hf_`` — HuggingFace tokens. 34+ alphanumerics after prefix.
 
 * Hash-like strings: 40+ consecutive hex chars outside of allowlisted
-  paths (git lockfiles, benchmark data, and the hashed user entries in
-  ``data/users.json``).
+  paths (git lockfiles and generated CI data).
 
 Allowlist
 ---------
@@ -45,10 +44,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 # Paths we NEVER scan. These either contain structural hex (commit SHAs,
-# lockfile hashes) or already-hashed material that is safe by design.
+# lockfile hashes) or generated CI data with commit identifiers.
 PATH_ALLOWLIST = (
     ".git/",
-    "data/",  # hashed user entries + CI data with commit SHAs
+    "data/",  # generated CI data with commit SHAs
     "flake.lock",
     "node_modules/",
     "tests/browser/node_modules/",  # pinned third-party browser-test dependencies

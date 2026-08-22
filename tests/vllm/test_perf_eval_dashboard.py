@@ -9,7 +9,6 @@ the shape the JS depends on.
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 import pytest
@@ -26,50 +25,15 @@ class TestTabRegistration:
         assert "id: 'ci-perf-eval'" in text, "utils.js DashboardTabs must register the Perf Eval tab"
         assert "label: 'Perf Eval'" in text
 
-    def test_index_loads_module_after_utils(self):
+    def test_index_loads_active_operations_renderer_after_utils(self):
         html = (DOCS / "index.html").read_text(encoding="utf-8")
-        assert "ci-perf-eval.js" in html, "index.html must load the perf-eval view module"
-        assert html.find("utils.js") < html.find("ci-perf-eval.js"), (
-            "ci-perf-eval.js must load after utils.js (it uses the shared el()/fetchJSON helpers)"
+        assert "ops-v2.js" in html, "index.html must load the active operations renderer"
+        assert html.find("utils.js") < html.find("ops-v2.js"), (
+            "ops-v2.js must load after utils.js"
         )
 
-    def test_module_file_exists(self):
-        assert (JS / "ci-perf-eval.js").exists()
-
-
-class TestViewModule:
-    def setup_method(self):
-        self.text = (JS / "ci-perf-eval.js").read_text(encoding="utf-8")
-
-    def test_reads_perf_eval_data_file(self):
-        assert "data/vllm/perf_eval/perf_eval.json" in self.text
-
-    def test_wires_into_its_tab_panel(self):
-        assert "tab-ci-perf-eval" in self.text
-        assert "ci-perf-eval-view" in self.text
-        assert "MutationObserver" in self.text
-
-    def test_uses_shared_element_factory(self):
-        assert re.search(r"\bconst\s+h\s*=\s*el\b", self.text), "should reuse the shared el() factory"
-
-    def test_renders_direction_and_status_semantics(self):
-        # The whole point of the view: higher/lower-is-better hints + red/green.
-        assert "directionHint" in self.text
-        assert "Higher is better" in self.text and "Lower is better" in self.text
-        assert "statusColor" in self.text
-        assert "deltaBadge" in self.text
-
-    def test_surfaces_commit_and_image_provenance(self):
-        assert "provenanceLine" in self.text
-        assert "vllm_commit" in self.text
-        assert "image" in self.text
-        assert "build_url" in self.text
-
-    def test_excludes_nvidia_in_copy(self):
-        assert "NVIDIA workloads are excluded" in self.text
-
-    def test_yields_to_signal_desk_v2(self):
-        assert "window.__DASHBOARD_V2__" in self.text
+    def test_retired_perf_renderer_is_absent(self):
+        assert not (JS / "ci-perf-eval.js").exists()
 
 
 class TestV2PerfEvalView:

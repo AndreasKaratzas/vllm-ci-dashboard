@@ -45,7 +45,8 @@ def test_operational_documentation_matches_the_canonical_publication_path() -> N
         assert "scripts/vllm/build_operations_snapshot.py" in text
         assert "scripts/vllm/collect_ownership_parity.py" in text
         assert "scripts/vllm/ci_area_regression_watcher.py" in text
-        assert "Ready Tickets → CI ownership" in text
+        assert "AMD CI Operations" in text
+        assert "Ready Tickets → CI ownership" not in text
         assert "CI_OWNER_AVAILABILITY_JSON" not in text
         assert "Europe/Belgrade" in text
         assert "America/Chicago" in text
@@ -84,6 +85,8 @@ def _operation_generated_files() -> list[str]:
         for name in (
             "amd_agent_health",
             "amd_test_health",
+            "comparison",
+            "comparison_retry_evidence",
             "definition_parity",
             "diagnostics",
             "gating",
@@ -168,7 +171,7 @@ def _fixture_manifest() -> dict:
             "projector": ANALYTICS_PROJECTOR,
             "max_bytes": ANALYTICS_MAX_BYTES,
         }],
-        "optional_globs": ["vllm/ci/test_builds/*/comparison.json"],
+        "optional_globs": ["public-reports/*/comparison.json"],
         "generated_files": _operation_generated_files() + [
             PUBLICATION_STATUS_OUTPUT,
         ],
@@ -176,7 +179,7 @@ def _fixture_manifest() -> dict:
             "*/.cache/*",
             "vllm/ci/agent_health/*",
             "vllm/ci/test_results/*",
-            "vllm/ci/test_builds/*/results.jsonl",
+            "private-reports/*/results.jsonl",
             "vllm/perf_eval/events.jsonl",
             "vllm/ci/open_*_issues.json",
             "vllm/ci/*_state.json",
@@ -227,7 +230,7 @@ def _assemble_fixture(
             }
         ),
     )
-    _write(data / "vllm/ci/test_builds/example/comparison.json")
+    _write(data / "public-reports/example/comparison.json")
 
     # These represent each sensitive or retired data class that collectors
     # keep locally but the static site must never expose.
@@ -235,7 +238,7 @@ def _assemble_fixture(
         "vllm/ci/.cache/builds_amd.json",
         "vllm/ci/test_results/2026-01-01_amd.jsonl",
         "vllm/ci/agent_health/node_days.jsonl",
-        "vllm/ci/test_builds/example/results.jsonl",
+        "private-reports/example/results.jsonl",
         "vllm/ci/open_queue_issues.json",
         "vllm/ci/ready_tickets_state.json",
         "vllm/ci/retired_legacy.json",
@@ -261,7 +264,7 @@ def test_site_assembly_copies_allowlist_and_generated_sections(
     assert (output / ".nojekyll").exists()
     assert (output / "data/public.json").exists()
     assert (output / "data/optional.json").exists()
-    assert (output / "data/vllm/ci/test_builds/example/comparison.json").exists()
+    assert (output / "data/public-reports/example/comparison.json").exists()
     projected_path = output / "data" / ANALYTICS_PATH
     projected_text = projected_path.read_text()
     projected_payload = json.loads(projected_text)
@@ -610,14 +613,12 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
 
     assert {
         "site/projects.json",
-        "users.json",
         "vllm/ci/amd_test_matrix.json",
         "vllm/ci/dns_failures.json",
         "vllm/ci/gating_targets.json",
         "vllm/ci/omni_surge_heuristic.json",
         "vllm/ci/queue_lifecycle.json",
         "vllm/ci/queue_timeseries.jsonl",
-        "vllm/ci/ready_tickets.json",
         "vllm/ci/workload_mapping.json",
         "vllm/perf_eval/perf_eval.json",
         "vllm/prs.json",
@@ -637,8 +638,17 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
     assert ANALYTICS_PATH not in manifest["generated_files"]
     assert PUBLICATION_STATUS_OUTPUT in manifest["generated_files"]
     assert "vllm/ci/org_summary.json" in manifest["generated_files"]
+    assert (
+        "vllm/ci/operations_v2/comparison_retry_evidence.json"
+        in manifest["generated_files"]
+    )
 
     forbidden = {
+        "users.json",
+        "vllm/ci/engineers.enc.json",
+        "vllm/ci/kill_auth.enc.json",
+        "vllm/ci/gating_proposals.json",
+        "vllm/ci/ready_tickets.json",
         "vllm/ci/.cache/builds_amd.json",
         "vllm/ci/agent_health/node_days.jsonl",
         "vllm/ci/dns_health/scan_state.json.gz",
@@ -648,6 +658,9 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
         "vllm/ci/operations_v2.json",
         PUBLICATION_STATE_INPUT,
         "vllm/ci/test_results/2026-07-27_amd.jsonl",
+        "vllm/ci/test_builds/index.json",
+        "vllm/ci/test_builds/example/comparison.json",
+        "vllm/ci/test_builds/example/results.jsonl",
         "vllm/perf_eval/events.jsonl",
         "vllm/ci/queue_lifecycle_jobs/2026-08-11.jsonl.gz",
     }
@@ -656,6 +669,10 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
         assert not any(
             fnmatch.fnmatchcase(relative, pattern)
             for pattern in manifest["optional_globs"]
+        )
+        assert any(
+            fnmatch.fnmatchcase(relative, pattern)
+            for pattern in manifest["never_publish_patterns"]
         )
     assert any(
         fnmatch.fnmatchcase("vllm/ci/dns_health/scan_state.json.gz", pattern)

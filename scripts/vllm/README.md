@@ -36,9 +36,9 @@ time (`America/Chicago`), Monday through Friday. Assignment walks each area's
 configured ranks in ascending order and falls back to the CI lead when no ranked
 owner is in hours or the schedule cannot be evaluated safely.
 
-Ready Tickets reads upstream vLLM Project #39 as public, read-only evidence; it
-does not mutate that Project's issues, comments, or fields. Its sole writable
-Ready Tickets surface is one automation-owned managed comment on dashboard
+The project snapshot reads upstream vLLM Project #39 as public, read-only
+evidence; it does not mutate that Project's issues, comments, or fields. Its
+sole writable summary surface is one automation-owned managed comment on dashboard
 issue #255, created or updated with the repository-scoped `GITHUB_TOKEN` and
 `issues: write`.
 
@@ -137,8 +137,8 @@ the cache.
 The hourly workflow splits CI into five atomic publication surfaces: core
 health/matrix/ownership, private analytics/reliability, gating configuration
 and nightly evidence, test-group changes, and workload hotness. Queue,
-lifecycle, agent-health, GitHub-home, Ready Tickets, perf-eval, and test-build
-inputs remain separate surfaces. An analytics capacity failure can therefore
+lifecycle, agent-health, GitHub-home, and perf-eval inputs remain separate
+surfaces. An analytics capacity failure can therefore
 retain reliability history without rolling back unrelated health, matrix,
 ownership, or gating data; if the analytics command fails before producing a
 fresh nightly seed, gating is quarantined too. A routed degradation keeps fresh
@@ -168,12 +168,9 @@ the focused collectors and show the resulting workspace changes, but its token
 is read-only and it cannot commit, push, or publish around the selector and its
 private attestation state.
 
-Ready Tickets and its CI ownership subview are guarded by a freshly verified
-GitHub PAT in the browser, and their renderers do not fetch protected-view data
-before that check passes. Because the repository and Pages deployment are
-public static hosting, this is an application boundary rather than
-server-enforced confidentiality; private payloads require an authenticated
-backend or private hosting.
+Browser authentication, user signup, Test Build, Ready Tickets, and Admin have
+been retired end-to-end. They have no public route, collector, publication
+surface, or mutation workflow.
 
 Runtime target matching is intentionally conservative. Exact build-pinned matrix
 labels win; definition-parity aliases are the fallback. Only an explicit

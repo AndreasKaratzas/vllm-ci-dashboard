@@ -932,6 +932,10 @@ def test_amd_test_health_requires_same_build_for_logical_group_counts(tmp_path):
     assert group["hardware"] == "mi355"
     assert group["hardware_variant"] == "mi355_1"
     assert group["queue"] == "amd_mi355_1"
+    inventory = health["latest_logical_test_groups"]
+    assert inventory["available"] is False
+    assert inventory["reason"] == "latest_test_group_counts_unavailable"
+    assert inventory["rows"] == []
 
     _write_json(tmp_path / "ci_health.json", {
         "amd": {
@@ -944,10 +948,11 @@ def test_amd_test_health_requires_same_build_for_logical_group_counts(tmp_path):
             },
         },
     })
-    counts = ops.build_snapshot(
+    health = ops.build_snapshot(
         tmp_path,
         generated_at=GENERATED_AT,
-    )["amd_test_health"]["summary"]["latest_test_group_counts"]
+    )["amd_test_health"]
+    counts = health["summary"]["latest_test_group_counts"]
 
     assert counts["available"] is True
     assert counts["build_number"] == 400
@@ -955,6 +960,181 @@ def test_amd_test_health_requires_same_build_for_logical_group_counts(tmp_path):
     assert counts["passing"] == 156
     assert counts["non_passing"] == 1
     assert counts["pass_percentage"] == 99.4
+    inventory = health["latest_logical_test_groups"]
+    assert inventory["available"] is False
+    assert inventory["reason"] == "logical_group_reconciliation_failed"
+    assert inventory["rows"] == []
+    assert inventory["reconciliation"][
+        "matches_latest_test_group_counts"
+    ] is False
+
+
+def test_amd_test_health_publishes_reconciled_logical_group_inventory(tmp_path):
+    commit = "a" * 40
+    variants = [
+        (
+            "mi300_1: :amd: (MI300) Routed Alpha",
+            "routed-mi300",
+            "passed",
+            "passed",
+        ),
+        (
+            "mi355_1: :amd: (MI355) Routed Beta",
+            "routed-mi355",
+            "failed",
+            "failed",
+        ),
+        (
+            "mi300_1: :amd: (MI300) Attention Kernels Shard 1",
+            "attention-1",
+            "passed",
+            "passed",
+        ),
+        (
+            "mi300_1: :amd: (MI300) Attention Kernels Shard 2",
+            "attention-2",
+            "passed",
+            "passed",
+        ),
+        (
+            "mi355_1: :amd: (MI355) Broken Group",
+            "broken",
+            "failed",
+            "error",
+        ),
+    ]
+    _write_json(tmp_path / "analytics.json", {
+        "amd-ci": {
+            "builds": [{
+                "number": 500,
+                "commit": commit,
+                "created_at": "2026-08-06T09:00:00Z",
+                "web_url": "https://buildkite.com/vllm/amd-ci/builds/500",
+                "jobs": [
+                    {
+                        "raw_name": name,
+                        "job_id": job_id,
+                        "state": terminal_state,
+                        "q": (
+                            "amd_mi355_1"
+                            if name.startswith("mi355")
+                            else "amd_mi300_1"
+                        ),
+                        "finished_at": "2026-08-06T10:00:00Z",
+                    }
+                    for name, job_id, terminal_state, _ in variants
+                ],
+            }],
+        },
+    })
+    _write_json(tmp_path / "ci_health.json", {
+        "amd": {
+            "latest_test_signal_build": {
+                "build_number": 500,
+                "unique_test_groups": 3,
+                "test_groups_passing_or": 2,
+                "test_groups_passing_all": 1,
+                "test_groups_partial": 1,
+            },
+        },
+    })
+    _write_json(tmp_path / "config_parity.json", {
+        "source": {"commit_sha": commit},
+        "matches": [{
+            "amd_identity_family_key": "routed family (2 gpus)",
+            "amd_member_labels": [
+                ":amd: (MI300) Routed Alpha",
+                ":amd: (MI355) Routed Beta",
+            ],
+            "amd_member_agent_pools": ["mi300_1", "mi355_1"],
+        }],
+    })
+    _write_json(tmp_path / "shard_bases.json", [
+        "attention kernels shard",
+    ])
+    _write_jsonl(tmp_path / "test_results" / "2026-08-06_amd.jsonl", [
+        {
+            "name": f"test_{job_id}",
+            "status": test_status,
+            "job_name": name,
+            "job_id": job_id,
+            "build_number": 500,
+            "pipeline": "amd-ci",
+            "date": "2026-08-06",
+        }
+        for name, job_id, _, test_status in variants
+    ])
+
+    inventory = ops.build_snapshot(
+        tmp_path,
+        generated_at=GENERATED_AT,
+    )["amd_test_health"]["latest_logical_test_groups"]
+
+    assert inventory["available"] is True
+    assert inventory["reason"] is None
+    assert inventory["build_number"] == 500
+    assert inventory["build_commit"] == commit
+    assert inventory["definition_commit"] == commit
+    assert inventory["route_map_aligned"] is True
+    assert inventory["shard_base_count"] == 1
+    assert inventory["summary"] == {
+        "total": 3,
+        "passing": 2,
+        "passing_all": 1,
+        "partial": 1,
+        "non_passing": 1,
+        "job_variant_count": 5,
+        "state_counts": {
+            "passing_all": 1,
+            "partial": 1,
+            "non_passing": 1,
+        },
+    }
+    assert inventory["reconciliation"] == {
+        "matches_latest_test_group_counts": True,
+        "expected": {
+            "total": 3,
+            "passing": 2,
+            "passing_all": 1,
+            "partial": 1,
+            "non_passing": 1,
+        },
+        "derived": {
+            "total": 3,
+            "passing": 2,
+            "passing_all": 1,
+            "partial": 1,
+            "non_passing": 1,
+        },
+    }
+    rows = {row["logical_key"]: row for row in inventory["rows"]}
+    assert set(rows) == {
+        "attention kernels shard",
+        "broken group",
+        "routed family (2 gpus)",
+    }
+    routed = rows["routed family (2 gpus)"]
+    assert routed["label"] == "Routed family (2 gpus)"
+    assert routed["state"] == "partial"
+    assert routed["passing"] is True
+    assert routed["hardware_count"] == 2
+    assert routed["job_variant_count"] == 2
+    assert routed["hardware_states"] == [
+        {"hardware": "mi300", "state": "passing"},
+        {"hardware": "mi355", "state": "failing"},
+    ]
+    evidence = {row["exact_job_name"]: row for row in routed["job_variants"]}
+    assert evidence[variants[0][0]]["job_id"] == "routed-mi300"
+    assert evidence[variants[0][0]]["terminal_state"] == "passed"
+    assert evidence[variants[0][0]]["test_signal_state"] == "passing"
+    assert evidence[variants[1][0]]["terminal_state"] == "hard"
+    assert evidence[variants[1][0]]["test_signal_state"] == "failing"
+    assert evidence[variants[1][0]]["job_url"].endswith(
+        "?jid=routed-mi355&tab=output"
+    )
+    attention = rows["attention kernels shard"]
+    assert attention["state"] == "passing_all"
+    assert attention["job_variant_count"] == 2
 
 
 def test_amd_test_health_is_unavailable_for_missing_or_corrupt_results(tmp_path):
@@ -2817,6 +2997,382 @@ def test_platform_comparison_pairs_each_amd_variant_with_one_cuda_reference():
     assert sum(row["amd"]["child_retry_attempts"] for row in comparison["rows"]) == 1
 
 
+def test_platform_comparison_retry_ledger_reconciles_by_exact_row_identity():
+    def group(group_id, name, hardware, queue):
+        return {
+            "id": group_id,
+            "name": name,
+            "raw_names": [name],
+            "hardware": hardware,
+            "queues": [queue],
+            "runs": 10,
+            "build_count": 10,
+            "passed": 10,
+            "failed": 0,
+            "soft_failed": 0,
+            "incident_count": 0,
+            "incident_rate_pct": 0,
+            "mixed_outcomes": False,
+            "latest_state": "passed",
+            "latest_observed_at": "2026-08-07T00:00:00Z",
+            "latest_url": f"https://buildkite.com/vllm/ci/builds/1?jid={group_id}",
+            "median_dur": 5,
+            "p90_dur": 10,
+            "max_dur": 11,
+            "duration_basis": "job_wall",
+        }
+
+    retry = {
+        "available": True,
+        "retry_attempts": [
+            {"group_id": "amd-mi300", "retry_source": "manual"},
+            {"group_id": "amd-mi355", "retry_source": "manual"},
+            {"group_id": "cuda-h200", "retry_source": "manual"},
+        ],
+        "failed_then_passed_recoveries": [
+            {"group_id": "amd-mi300"},
+            {"group_id": "cuda-h200"},
+        ],
+    }
+    comparison = ops._platform_comparison(
+        [
+            group(
+                "amd-mi300",
+                "AMD: Shared Retry Test (mi300_1)",
+                "mi300",
+                "amd_mi300_1",
+            ),
+            group(
+                "amd-mi355",
+                "AMD: Shared Retry Test (mi355_1)",
+                "mi355",
+                "amd_mi355_1",
+            ),
+            group(
+                "cuda-h200",
+                "Shared Retry Test",
+                "h200",
+                "h200_35gb",
+            ),
+        ],
+        retry,
+        cohort_builds=10,
+    )
+
+    assert len(comparison["rows"]) == 2
+    assert all(row["comparison_eligible"] for row in comparison["rows"])
+    row_ids = {row["id"] for row in comparison["rows"]}
+    attempts = retry["retry_attempts"]
+    recoveries = retry["failed_then_passed_recoveries"]
+    by_group = {row["comparison_group_id"]: row for row in attempts}
+    assert by_group["amd-mi300"]["comparison_platform"] == "amd"
+    assert by_group["amd-mi300"]["comparison_key"] == "shared retry test"
+    assert by_group["amd-mi300"]["comparison_identity_method"] == (
+        "catalog_group_id"
+    )
+    assert len(by_group["amd-mi300"]["comparison_row_ids"]) == 1
+    assert set(by_group["cuda-h200"]["comparison_row_ids"]) == row_ids
+    assert by_group["cuda-h200"]["comparison_eligible_row_ids"] == (
+        by_group["cuda-h200"]["comparison_row_ids"]
+    )
+
+    for comparison_row in comparison["rows"]:
+        for platform in ("amd", "cuda"):
+            ledger_child_retries = sum(
+                bool(evidence.get("retry_source"))
+                and evidence.get("comparison_platform") == platform
+                and comparison_row["id"]
+                in evidence.get("comparison_eligible_row_ids", [])
+                for evidence in attempts
+            )
+            ledger_recoveries = sum(
+                evidence.get("comparison_platform") == platform
+                and comparison_row["id"]
+                in evidence.get("comparison_eligible_row_ids", [])
+                for evidence in recoveries
+            )
+            assert ledger_child_retries == comparison_row[platform][
+                "child_retry_attempts"
+            ]
+            assert ledger_recoveries == comparison_row[platform][
+                "recovered_chains"
+            ]
+
+
+def test_platform_comparison_coalesces_step_key_lineages_for_one_execution():
+    def group(group_id, name, hardware, queue, runs, step_key=""):
+        return {
+            "id": group_id,
+            "name": name,
+            "raw_names": [name],
+            "step_key": step_key,
+            "hardware": hardware,
+            "queues": [queue],
+            "runs": runs,
+            "build_count": runs,
+            "passed": runs,
+            "failed": 0,
+            "soft_failed": 0,
+            "incident_count": 0,
+            "incident_rate_pct": 0,
+            "mixed_outcomes": False,
+            "latest_state": "passed",
+            "latest_observed_at": "2026-08-07T00:00:00Z",
+            "latest_url": (
+                "https://buildkite.com/vllm/ci/builds/1/steps/canvas"
+                f"?jid={group_id}"
+            ),
+            "median_dur": 5,
+            "p90_dur": 10,
+            "max_dur": 11,
+            "duration_basis": "job_wall",
+        }
+
+    comparison = ops._platform_comparison(
+        [
+            group("amd-old", "AMD: Shared Test (mi300_1)", "mi300", "amd_mi300_1", 8),
+            group(
+                "amd-keyed",
+                ":amd: (MI300) Shared Test",
+                "mi300",
+                "amd_mi300_1",
+                2,
+                "amd-shared-test",
+            ),
+            group("cuda-old", "Shared Test", "h200", "h200_35gb", 7),
+            group(
+                "cuda-keyed",
+                ":nvidia: (H200) Shared Test",
+                "h200",
+                "h200_35gb",
+                3,
+                "shared-test",
+            ),
+        ],
+        {"available": True, "retry_attempts": [], "failed_then_passed_recoveries": []},
+        cohort_builds=10,
+    )
+
+    assert comparison["summary"]["matched_base_group_count"] == 1
+    assert comparison["summary"]["comparable_variant_pair_count"] == 1
+    assert len(comparison["rows"]) == 1
+    row = comparison["rows"][0]
+    assert row["label"] == "Shared Test"
+    assert row["match_status"] == "exact_cuda_pair"
+    assert row["match_basis"] == "exact_step_key"
+    assert row["comparison_eligible"] is True
+    assert row["amd"]["variant_count"] == 1
+    assert row["cuda"]["variant_count"] == 1
+    assert row["amd"]["catalog_record_count"] == 2
+    assert row["cuda"]["catalog_record_count"] == 2
+    assert row["amd"]["runs"] == row["cuda"]["runs"] == 10
+    assert row["amd"]["group_ids"] == ["amd-keyed", "amd-old"]
+    assert row["cuda"]["group_ids"] == ["cuda-keyed", "cuda-old"]
+
+
+def test_platform_comparison_uses_step_key_to_select_one_explicit_cuda_route():
+    def group(group_id, name, hardware, queue, step_key, runs=10):
+        return {
+            "id": group_id,
+            "name": name,
+            "raw_names": [name],
+            "step_key": step_key,
+            "hardware": hardware,
+            "queues": [queue],
+            "runs": runs,
+            "build_count": runs,
+            "passed": runs,
+            "failed": 0,
+            "soft_failed": 0,
+            "incident_count": 0,
+            "incident_rate_pct": 0,
+            "mixed_outcomes": False,
+            "latest_state": "passed",
+            "latest_observed_at": "2026-08-07T00:00:00Z",
+            "latest_url": f"https://buildkite.com/vllm/ci/builds/1?jid={group_id}",
+            "median_dur": 5,
+            "p90_dur": 10,
+            "max_dur": 11,
+            "duration_basis": "job_wall",
+        }
+
+    catalog = [
+        group(
+            "amd-mi300",
+            ":amd: (MI300) Attention Route",
+            "mi300",
+            "amd_mi300_1",
+            "amd-attention-route-h100",
+        ),
+        group(
+            "cuda-b200",
+            ":nvidia: (B200) Attention Route",
+            "b200",
+            "b200-k8s",
+            "attention-route-b200",
+        ),
+        group(
+            "cuda-h100",
+            ":nvidia: (H100) Attention Route",
+            "h100",
+            "mithril-h100-pool",
+            "attention-route-h100",
+        ),
+    ]
+    retry = {
+        "available": True,
+        "retry_attempts": [],
+        "failed_then_passed_recoveries": [],
+    }
+
+    comparison = ops._platform_comparison(catalog, retry, cohort_builds=10)
+    reversed_comparison = ops._platform_comparison(
+        list(reversed(catalog)),
+        retry,
+        cohort_builds=10,
+    )
+
+    assert comparison["rows"] == reversed_comparison["rows"]
+    assert comparison["summary"] == reversed_comparison["summary"]
+    row = comparison["rows"][0]
+    assert row["comparison_eligible"] is True
+    assert row["match_basis"] == "exact_step_key"
+    assert row["cuda"]["group_ids"] == ["cuda-h100"]
+    assert row["cuda"]["hardware"] == ["h100"]
+    assert comparison["summary"]["matched_cuda_variant_count"] == 1
+    assert comparison["summary"]["matched_cuda_lineage_count"] == 1
+    assert comparison["summary"]["matched_cuda"]["runs"] == 10
+
+
+def test_platform_comparison_fails_closed_for_ambiguous_and_generic_cuda_routes():
+    def group(group_id, name, hardware, queue, step_key=""):
+        return {
+            "id": group_id,
+            "name": name,
+            "raw_names": [name],
+            "step_key": step_key,
+            "hardware": hardware,
+            "queues": [queue],
+            "runs": 10,
+            "build_count": 10,
+            "passed": 10,
+            "failed": 0,
+            "soft_failed": 0,
+            "incident_count": 0,
+            "incident_rate_pct": 0,
+            "mixed_outcomes": False,
+            "latest_state": "passed",
+            "latest_observed_at": "2026-08-07T00:00:00Z",
+            "latest_url": f"https://buildkite.com/vllm/ci/builds/1?jid={group_id}",
+            "median_dur": 5,
+            "p90_dur": 10,
+            "max_dur": 11,
+            "duration_basis": "job_wall",
+        }
+
+    comparison = ops._platform_comparison(
+        [
+            group(
+                "amd-ambiguous",
+                "AMD: Ambiguous Route (mi300_1)",
+                "mi300",
+                "amd_mi300_1",
+                "amd-ambiguous-route",
+            ),
+            group(
+                "cuda-18gb",
+                "Ambiguous Route",
+                "h200",
+                "h200_18gb",
+                "ambiguous-route",
+            ),
+            group(
+                "cuda-35gb",
+                "Ambiguous Route",
+                "h200",
+                "h200_35gb",
+                "ambiguous-route",
+            ),
+            group(
+                "amd-generic",
+                "AMD: Generic Route (mi300_1)",
+                "mi300",
+                "amd_mi300_1",
+            ),
+            group(
+                "cuda-generic",
+                "Generic Route",
+                "gpu",
+                "gpu_1_queue",
+            ),
+        ],
+        {"available": True, "retry_attempts": [], "failed_then_passed_recoveries": []},
+        cohort_builds=10,
+    )
+
+    by_label = {row["label"]: row for row in comparison["rows"]}
+    ambiguous = by_label["Ambiguous Route"]
+    assert ambiguous["comparison_eligible"] is False
+    assert ambiguous["match_status"] == "ambiguous_cuda_variants"
+    assert ambiguous["cuda"]["variant_count"] == 2
+    generic = by_label["Generic Route"]
+    assert generic["comparison_eligible"] is False
+    assert generic["match_status"] == "generic_or_unsupported_gpu_reference"
+    assert comparison["summary"]["comparable_variant_pair_count"] == 0
+    assert comparison["summary"]["matched_cuda"]["runs"] == 0
+
+
+def test_platform_comparison_hardware_specific_label_requires_step_corroboration():
+    def group(group_id, name, hardware, queue, step_key=""):
+        return {
+            "id": group_id,
+            "name": name,
+            "raw_names": [name],
+            "step_key": step_key,
+            "hardware": hardware,
+            "queues": [queue],
+            "runs": 10,
+            "build_count": 10,
+            "passed": 10,
+            "failed": 0,
+            "soft_failed": 0,
+            "incident_count": 0,
+            "incident_rate_pct": 0,
+            "mixed_outcomes": False,
+            "latest_state": "passed",
+            "latest_observed_at": "2026-08-07T00:00:00Z",
+            "latest_url": f"https://buildkite.com/vllm/ci/builds/1?jid={group_id}",
+            "median_dur": 5,
+            "p90_dur": 10,
+            "max_dur": 11,
+            "duration_basis": "job_wall",
+        }
+
+    comparison = ops._platform_comparison(
+        [
+            group(
+                "amd-mi325",
+                "AMD: V1 Attention (H100-MI300) (mi325_1)",
+                "mi325",
+                "amd_mi325_1",
+            ),
+            group(
+                "cuda-h100",
+                "V1 Attention (H100-MI300)",
+                "h100",
+                "mithril-h100-pool",
+                "v1-attention-h100-mi300",
+            ),
+        ],
+        {"available": True, "retry_attempts": [], "failed_then_passed_recoveries": []},
+        cohort_builds=10,
+    )
+
+    row = comparison["rows"][0]
+    assert row["comparison_eligible"] is False
+    assert row["match_status"] == "hardware_specific_label"
+
+
 def test_upstream_reliability_fails_closed_without_a_strict_main_cohort():
     payload = ops._reliability(
         {
@@ -3781,6 +4337,32 @@ def test_unresolved_runtime_target_distinguishes_no_definition_from_stale_alias(
     assert by_id[40]["assessment"] == "no_matching_amd_definition"
     assert by_id[65]["runtime_resolution"]["status"] == "stale_target_alias"
     assert by_id[65]["assessment"] == "target_mapping_needs_review"
+
+
+def test_reviewed_target_health_does_not_merge_upstream_capacity_labels():
+    result = ops._gating(
+        {"groups": [{"id": 1, "label": "MoE Kernels Shard %N", "area": "Kernels"}]},
+        {"rows": []},
+        {"generated_at": GENERATED_AT, "rows": []},
+        {
+            "groups": [{
+                "label": ":nvidia: (L4) MoE Kernels Shard %N",
+                "area": "Kernels",
+                "in_capacity_scope": True,
+            }]
+        },
+        {},
+    )
+
+    assert [row["label"] for row in result["target_groups"]] == [
+        "MoE Kernels Shard %N"
+    ]
+    assert result["active_target_groups"] == result["target_groups"]
+    assert result["active_target_summary"]["active_outside_canonical_count"] == 0
+    assert not any(
+        str(row["label"]).startswith(":nvidia:")
+        for row in result["active_target_groups"]
+    )
 
 
 def test_group_catalog_retains_linked_terminal_main_observations(tmp_path):
@@ -4851,6 +5433,8 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
         "nightly",
         "amd_test_health",
         "amd_agent_health",
+        "comparison",
+        "comparison_retry_evidence",
         "reliability",
         "definition_parity",
         "test_group_parity",
@@ -4874,6 +5458,31 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
         section_path = output.parent / descriptor["path"]
         assert section_path.exists()
         assert section_path.stat().st_size == descriptor["bytes"]
+
+    comparison = json.loads(
+        (output.parent / manifest["sections"]["comparison"]["path"]).read_text()
+    )["reliability"]
+    assert comparison["platform_comparison"] == payload["reliability"][
+        "platform_comparison"
+    ]
+    assert "group_catalog" not in comparison
+    assert "latency_rankings" not in comparison
+    assert comparison["retry_analysis"]["evidence_deferred"] is True
+    assert "retry_attempts" not in comparison["retry_analysis"]
+    assert "failed_then_passed_recoveries" not in comparison["retry_analysis"]
+    retry_evidence = json.loads(
+        (
+            output.parent
+            / manifest["sections"]["comparison_retry_evidence"]["path"]
+        ).read_text()
+    )["reliability"]["retry_analysis"]
+    assert retry_evidence["evidence_deferred"] is False
+    assert retry_evidence["retry_attempts"] == payload["reliability"][
+        "retry_analysis"
+    ]["retry_attempts"]
+    assert manifest["sections"]["comparison"]["bytes"] < (
+        manifest["sections"]["reliability"]["bytes"]
+    )
 
     nightly = json.loads(
         (output.parent / manifest["sections"]["nightly"]["path"]).read_text()

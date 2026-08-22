@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +15,9 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent.parent
 CONFIG = ROOT / "config" / "vllm_amd_gating_targets.json"
 OUTPUT = ROOT / "data" / "vllm" / "ci"
+NVIDIA_HARDWARE_ALIAS_RE = re.compile(
+    r":nvidia:|\b(?:A100|H100|H200|B200|DGX)\b|\(L4\)", re.IGNORECASE
+)
 
 AREA_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("distributed", ("distributed", "torchrun", "pipeline", "rayexecutor", "context parallel", "comm ops", "2 node")),
@@ -57,6 +61,12 @@ def load_targets(path: Path = CONFIG) -> list[dict[str, Any]]:
         raise ValueError(f"{path} has duplicate target labels: {duplicates}")
     if any(not label for label in labels):
         raise ValueError(f"{path} has blank target labels")
+    vendor_aliases = [label for label in labels if NVIDIA_HARDWARE_ALIAS_RE.search(label)]
+    if vendor_aliases:
+        raise ValueError(
+            f"{path} uses NVIDIA hardware aliases as AMD target labels: "
+            f"{vendor_aliases}"
+        )
 
     normalized = []
     for row in groups:

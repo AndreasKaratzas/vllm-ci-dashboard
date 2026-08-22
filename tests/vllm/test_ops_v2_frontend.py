@@ -14,12 +14,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 INDEX = (ROOT / "docs" / "index.html").read_text()
 OPS_JS = (ROOT / "docs" / "assets" / "js" / "ops-v2.js").read_text()
-LEGACY_HEALTH_JS = (
-    ROOT / "docs" / "assets" / "js" / "ci-health.js"
-).read_text()
 OPS_CSS = (ROOT / "docs" / "assets" / "css" / "ops-v2.css").read_text()
 DASHBOARD_CSS = (ROOT / "docs" / "assets" / "css" / "dashboard.css").read_text()
-DASHBOARD_JS = (ROOT / "docs" / "assets" / "js" / "dashboard.js").read_text()
 DASHBOARD_NAV_JS = (
     ROOT / "docs" / "assets" / "js" / "dashboard-nav.js"
 ).read_text()
@@ -67,14 +63,19 @@ def test_v2_assets_and_mobile_shell_are_loaded():
     assert 'id="ops-nav-backdrop"' in INDEX
 
 
-def test_v2_boot_omits_retired_renderers_and_defers_control_tools():
-    active_runtime = INDEX.replace(
-        INDEX[
-            INDEX.index('<template id="ops-deferred-script-manifest">')
-            : INDEX.index('</template>') + len('</template>')
-        ],
-        '',
-    )
+def test_mobile_navigation_contains_focus_and_marks_background_inert():
+    for contract in (
+        "element.inert = Boolean(open)",
+        "event.key === 'Tab'",
+        "event.shiftKey && document.activeElement === first",
+        "document.activeElement === last",
+        "menuToggle.setAttribute('aria-expanded'",
+    ):
+        assert contract in DASHBOARD_NAV_JS
+
+
+def test_v2_boot_omits_retired_renderers_and_control_tools():
+    active_runtime = INDEX
     for retired in (
         "dashboard.js",
         "ci-health.js",
@@ -85,18 +86,17 @@ def test_v2_boot_omits_retired_renderers_and_defers_control_tools():
         "ci-omni.js",
     ):
         assert f'<script src="assets/js/{retired}' not in active_runtime
+        assert not (ROOT / "docs" / "assets" / "js" / retired).exists()
     for control in ("ci-testbuild.js", "ci-ready.js", "ci-admin.js"):
         assert f'<script src="assets/js/{control}' not in active_runtime
 
     assert INDEX.index("window.__DASHBOARD_V2__ = true") < INDEX.index("assets/js/utils.js")
     assert INDEX.index("assets/js/dashboard-nav.js") < INDEX.index("assets/js/ops-v2.js")
-    assert "ops-v2:first-render" in INDEX
-    assert "window.__loadOpsControlTools = loadTools" in INDEX
+    assert "ops-deferred-script-manifest" not in INDEX
+    assert "window.__loadOpsControlTools" not in INDEX
 
     runtime_files = (
-        "token-vault.js",
         "utils.js",
-        "auth.js",
         "publication-status.js",
         "dashboard-nav.js",
         "ops-v2.js",
@@ -228,7 +228,7 @@ def test_ci_ownership_renderer_is_reusable_and_removed_from_ci_health():
     assert "availability.fresh === true" in OPS_JS
     assert (
         "['healthView', 'health_view', "
-        "['overview', 'parity', 'targets', 'coverage', 'quality', 'gating', 'diagnostics']]"
+        "['overview', 'parity', 'targets', 'coverage']]"
     ) in OPS_JS
     assert "{id: 'ownership', label: 'CI ownership'}" not in OPS_JS
     assert "if (state.healthView === 'ownership')" not in OPS_JS
@@ -240,7 +240,7 @@ def test_ci_ownership_renderer_is_reusable_and_removed_from_ci_health():
     )
 
 
-def test_legacy_renderers_yield_to_v2():
+def test_legacy_renderers_are_removed():
     js_dir = ROOT / "docs" / "assets" / "js"
     for name in (
         "ci-health.js",
@@ -250,7 +250,7 @@ def test_legacy_renderers_yield_to_v2():
         "ci-hotness.js",
         "ci-omni.js",
     ):
-        assert "__DASHBOARD_V2__" in (js_dir / name).read_text()
+        assert not (js_dir / name).exists()
 
 
 def test_reliability_evidence_is_drillable_and_honestly_named():
@@ -341,6 +341,8 @@ def test_current_group_history_has_main_and_nightly_evidence(ops_data):
 def test_amd_health_and_platform_comparison_are_distinct_first_visit_surfaces():
     for contract in (
         "function renderAmdHealth",
+        "function openAmdLogicalCatalog",
+        "function openAmdLogicalGroupDetail",
         "function openAmdCatalog",
         "function openAmdGroupDetail",
         "AMD health by nightly",
@@ -393,6 +395,7 @@ def test_current_amd_health_and_platform_comparison_reconcile(ops_data):
     assert comparison["source_pipeline"] == "ci"
     comparison_keys = {row["comparison_key"] for row in comparison["rows"]}
     eligible = [row for row in comparison["rows"] if row["comparison_eligible"]]
+    assert eligible
     matched_keys = {row["comparison_key"] for row in eligible}
     assert comparison["summary"]["amd_base_group_count"] == len(comparison_keys)
     assert comparison["summary"].get(
@@ -406,11 +409,13 @@ def test_current_amd_health_and_platform_comparison_reconcile(ops_data):
     assert all(row["amd"]["variant_count"] > 0 for row in comparison["rows"])
     assert all(isinstance(row["match_issues"], list) for row in comparison["rows"])
     assert all(row["comparison_eligible"] == (row["match_status"] == "exact_cuda_pair") for row in comparison["rows"])
-    assert all(
-        row["amd"]["variant_count"] == row["cuda"]["variant_count"] == 1
-        for row in comparison["rows"]
-        if row["comparison_eligible"]
-    )
+    for row in eligible:
+        for side in ("amd", "cuda"):
+            signatures = {
+                (variant["hardware"], tuple(variant["queues"]))
+                for variant in row[side]["variants"]
+            }
+            assert len(signatures) == 1
     assert comparison["summary"]["amd"]["child_retry_attempts"] <= comparison["summary"]["amd"]["retry_involved_attempts"]
 
 
@@ -423,6 +428,9 @@ def test_amd_health_separates_same_build_test_groups_and_job_variants():
         "summary.latest_job_variant_state_counts || summary.latest_state_counts",
         "summary.latest_job_variant_count !== undefined",
         "const latestTestGroups = summary.latest_test_group_counts || {}",
+        "const logicalInventory = amdLogicalInventory(amdHealth)",
+        "Browse logical test groups",
+        "openAmdLogicalCatalog('Latest AMD logical test groups'",
         "latestTestGroups.available === true",
         "logicalBuild === Number(latestBuild)",
         "label: 'LATEST AMD TEST GROUPS'",
@@ -498,13 +506,11 @@ def test_current_amd_health_keeps_latest_and_retained_counts_distinct(ops_data):
 def test_flake_visualizations_compare_amd_and_exact_cuda_equivalents():
     for contract in (
         "AMD incident frequency - ",
-        "Observation window",
-        "REGRESSED VS PRIOR",
+        "Complete 30-day comparison",
         "AMD INCIDENT FREQUENCY",
         "PAIRED AMD / CUDA",
         "AMD incidents / attempts",
         "CUDA incidents / attempts",
-        "vs prior window",
         "AMD attempts / 100 builds",
         "Inspect exact AMD and CUDA variants",
     ):
@@ -516,20 +522,26 @@ def test_flake_visualizations_compare_amd_and_exact_cuda_equivalents():
     assert "percentileValue(p90Values, 0.5)" in OPS_JS
 
 
-def test_recent_flake_and_retry_windows_are_timestamped_and_route_backed():
+def test_flake_and_retry_comparison_is_fixed_to_the_complete_30_day_cohort():
     for contract in (
         "const ANALYTICS_WINDOW_HOURS = {'1h': 1, '3h': 3, '6h': 6, '24h': 24, '7d': 168, '30d': 720}",
         "function analyticsWindowBounds",
         "function platformComparisonForWindow",
         "function observationInRange",
         "analytics_window",
-        "Movement compares this window with the immediately preceding equal-length window.",
-        "Movement compares timestamped child retries with the immediately preceding equal-length window.",
+        "Complete 30-day comparison",
+        "evidence_deferred",
+        "Load exact retry attempts",
+        "comparison_eligible_row_ids",
+        "comparison_row_ids",
+        "item.comparison_platform",
         "AMD child retry share",
         "AMD recovered share",
     ):
         assert contract in OPS_JS
     assert "observed_at" in OPS_JS
+    assert "function comparisonNameKey" not in OPS_JS
+    assert "comparisonRetryIndex" not in OPS_JS
     assert ".ops-page .ops-analytics-window-toolbar" in OPS_CSS
 
 
@@ -627,19 +639,16 @@ def test_drawers_and_route_filters_have_namespaced_query_state():
 def test_ci_health_navigation_is_scoped_history_safe_and_accessible():
     for contract in (
         "function tabList",
-        "wrap.setAttribute('role', 'tablist')",
-        "control.setAttribute('role', 'tab')",
-        "control.setAttribute('aria-selected'",
+        "wrap.setAttribute('role', 'group')",
+        "control.setAttribute('aria-pressed'",
         "wrap.scrollLeft = Math.max(0, centered)",
         "pendingTabFocus = items[targetIndex].id",
         "active.focus({preventScroll: true})",
         "pendingSegmentFocus = {group: groupLabel, id: item.id}",
         "active.control.focus({preventScroll: true})",
         "{id: 'coverage', label: 'AMD hardware'}",
-        "{id: 'quality', label: 'Data quality'}",
-        "['healthQualityView', 'health_quality_view', ['mapping', 'collectors']]",
-        "['gating', 'diagnostics'].includes(state.healthView)",
-        "state.healthView = 'quality'",
+        "{id: 'targets', label: 'Target health'}",
+        "openHealthDataFreshness(ops)",
         "setQueryValue(queryKey || key, next, {history: 'push'})",
         "window.history.pushState(null, '', nextUrl.pathname",
     ):
@@ -682,16 +691,14 @@ def test_ci_health_previews_remove_repeated_counts_and_redundant_columns():
         OPS_JS.index("async function renderHealth")
         : OPS_JS.index("function reliabilityIncidentRate")
     ]
+    for helper in ("function openParityRows", "function openTargetRows"):
+        assert helper in OPS_JS
     for contract in (
-        "const parityPreviewColumns",
-        "[parityColumns[0], parityColumns[1], parityColumns[2], parityColumns[5]]",
-        "browserColumns: parityColumns",
-        "conciseCounts: true",
-        "previewCaption: 'Preview of target groups in the selected state'",
-        "const definitionPreviewColumns",
-        "browserColumns: definitionColumns",
-        "PUBLISHED INPUTS",
-        "publishedSources,",
+        "ops-health-hero-grid",
+        "Missing on main by test area",
+        "ops-health-attention-list",
+        "Tables open in a searchable popup",
+        "Data freshness",
     ):
         assert contract in render_health
     assert "integer(targetRows.length) + ' target groups in the selected result state'" not in render_health
@@ -747,14 +754,6 @@ def test_definition_parity_is_source_scoped_and_not_presented_as_runtime_health(
         "label: 'AMD DEFINITION COVERAGE', value: "
         "integer(summary.covered) + ' / ' + integer(summary.total_amd_steps)"
     ) not in OPS_JS
-    for legacy_family_field in (
-        "s.amd_identity_families",
-        "s.covered_identity_families",
-        "s.amd_only_identity_families",
-        "s.identity_family_coverage_rate_pct",
-    ):
-        assert legacy_family_field in LEGACY_HEALTH_JS
-    assert "parity nodes source-covered" in LEGACY_HEALTH_JS
     assert "parity.inline_mirror_variants" in OPS_JS
     assert "parity.additional_variants" in OPS_JS
     assert "row.amd_route_similarity" in OPS_JS
@@ -770,21 +769,16 @@ def test_reviewed_upstream_test_group_parity_is_first_class_and_action_first():
     for contract in (
         "{id: 'parity', label: 'Upstream parity'}",
         "ops.test_group_parity || {}",
-        "UPSTREAM TEST-GROUP PARITY",
-        "label: 'ON MAIN'",
-        "WITH PROPOSED CHANGES",
-        "Upstream test-group parity comparison",
-        "Remaining parity gaps",
-        "Parity by test area",
-        "Definition coverage by area; runtime pass/fail is a separate view",
-        "How these counts are derived",
+        "UPSTREAM PARITY ON MAIN",
+        "Applicable test groups covered",
+        "Missing on main by test area",
+        "Browse all ' + integer(actionTotal) + ' missing groups",
+        "Complete reviewed upstream inventory",
         "logical AMD test groups",
-        "Upstream CUDA to ROCm logical test-group parity",
-        "Filter reviewed upstream test groups by parity state",
-        "Filter reviewed upstream test groups by area",
+        "function openTestGroupParityDetail",
+        "function openParityRows",
         "healthParityState: 'action'",
         "healthParityArea: 'all'",
-        "testGroupParityRows(parity, state.healthParityState, state.healthParityArea)",
         "is-not-targeted",
     ):
         assert contract in OPS_JS or contract in OPS_CSS
@@ -793,6 +787,8 @@ def test_reviewed_upstream_test_group_parity_is_first_class_and_action_first():
         "published PR",
         "local candidate",
         "direct upstream links",
+        "WITH PROPOSED CHANGES",
+        "Proposed (",
     ):
         assert obsolete_parity_label not in OPS_JS
     for ambiguous_label in (
@@ -902,13 +898,14 @@ def test_runtime_target_incident_attention_loads_and_filters_runtime_gating():
         "{id: 'targets', label: 'Target health'}",
         "if (state.healthView === 'targets') return ['gating']",
         "healthView: 'targets', healthResult: 'incident'",
-        "This is not upstream parity.",
-        "active_outside_canonical_count",
-        "other configured groups outside the reviewed list",
+        "Array.isArray(gating.target_groups)",
+        "noDefinitionTargets",
+        "mappingReviewTargets",
+        "notObservedTargets",
         "const incidentTargets = allTargets.filter(isTargetIncident)",
         "filters[state.healthResult]",
         "openGatingDetailWithEvidence(row, ops)",
-        "non-passing latest results first",
+        "Reviewed targets needing attention",
     ):
         assert contract in OPS_JS
     assert (
@@ -1635,13 +1632,15 @@ assert.equal(helpers.definitionParityEvidence(mirrors[0]).changed, true);
 
 def test_authoritative_group_catalog_preserves_id_and_variant_identity():
     assert "Array.isArray(reliability.group_catalog)" in OPS_JS
-    assert "return reliability.group_catalog.map" in OPS_JS
+    assert "result = reliability.group_catalog.map" in OPS_JS
+    assert "reliabilityCatalogCache" in OPS_JS
+    assert "reliabilityCatalogIndexCache" in OPS_JS
     assert "'id:' + String(row.id || row.evidence_ref)" in OPS_JS
     assert "groupReliabilityByRef" in OPS_JS
     assert "groupVariantMeta" in OPS_JS
     assert "row.queues" in OPS_JS
     assert "row.shard" in OPS_JS
-    assert "byName = new Map" not in OPS_JS
+    assert "byName: new Map()" in OPS_JS
 
 
 def test_gating_drilldown_combines_every_strict_group_id_and_observation():
@@ -2636,8 +2635,8 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
         "resolved groups passing",
     ):
         assert retired_contract not in OPS_JS
-    assert 'assets/css/ops-v2.css?v=13' in INDEX
-    assert 'assets/js/ops-v2.js?v=25' in INDEX
+    assert 'assets/css/ops-v2.css?v=15' in INDEX
+    assert 'assets/js/ops-v2.js?v=28' in INDEX
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
     assert "gated groups passing" not in OPS_JS
     for retired_gate_label in (
@@ -2669,8 +2668,6 @@ def test_upstream_scheduled_gating_surfaces_groups_queues_and_waits():
         "((ops || {}).gating || {}).upstream_scheduled || {}",
         "function scheduledGatingPresentation",
         "function openUpstreamScheduledGatingDetail",
-        "Scheduled upstream mirror cohort",
-        "Inspect scheduled cohort",
         "SELECTED MIRROR GROUPS",
         "integer(summary.gated) + ' / ' + integer(summary.total)",
         "integer(summary.passing) + ' / ' + integer(summary.gated)",
@@ -2690,6 +2687,13 @@ def test_upstream_scheduled_gating_surfaces_groups_queues_and_waits():
         "Open configured-group JSON",
     ):
         assert contract in OPS_JS
+
+    render_health = OPS_JS[
+        OPS_JS.index("async function renderHealth")
+        : OPS_JS.index("function reliabilityIncidentRate")
+    ]
+    assert "Scheduled upstream mirror cohort" not in render_health
+    assert "Inspect scheduled cohort" not in render_health
 
     assert (
         "https://buildkite.com/vllm/ci/builds?query=full+ci+run+-+"
@@ -3449,9 +3453,9 @@ def test_release_layout_scroll_accessibility_and_home_reconciliation():
     assert "max-height: var(--ops-chart-height)" in OPS_CSS
     assert ".ops-page .ops-perf-provenance > *" in OPS_CSS
     assert "overflow-wrap: anywhere" in OPS_CSS
-    assert "function _resetRouteScroll" in DASHBOARD_JS
-    assert "window.scrollTo(0, 0)" in DASHBOARD_JS
-    assert "main.scrollTop = 0" in DASHBOARD_JS
+    assert "function resetRouteScroll" in DASHBOARD_NAV_JS
+    assert "window.scrollTo(0, 0)" in DASHBOARD_NAV_JS
+    assert "main.scrollTop = 0" in DASHBOARD_NAV_JS
     assert "Filter workload trajectory by workload" in OPS_JS
     assert "Search workload trajectory test groups" in OPS_JS
     assert "ALL-FLEET QUEUE ACTIVITY" in OPS_JS

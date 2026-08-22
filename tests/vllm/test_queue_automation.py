@@ -2,7 +2,7 @@
 Tests for the CI queue monitor automation pipeline.
 
 Validates that:
-1. The collect_queue_snapshot script produces valid JSONL consumable by ci-queue.js
+1. The collect_queue_snapshot script produces valid JSONL for Operations
 2. The site assembly places both docs and data correctly (no double rm -rf)
 3. The queue_timeseries.jsonl data has the correct schema
 4. The queue-monitor workflow includes a deploy step
@@ -364,124 +364,16 @@ class TestQueueLifecycleWorkflow:
 class TestQueueDashboardControls:
     """Validate the queue dashboard's visible wait controls."""
 
-    def test_jobs_over_time_defaults_to_running_workload(self):
-        js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
-        assert "let metric = 'running';" in js, (
-            "Queue dashboard should default Jobs Over Time to running workload"
-        )
 
-    def test_wait_dashboard_defaults_to_official_p95(self):
-        js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
-        assert "const DEFAULT_WAIT_METRIC = 'p95_wait';" in js, (
-            "Queue dashboard should default to Buildkite's official p95 wait"
-        )
 
-    def test_wait_dashboard_hides_unsupported_wait_metrics(self):
-        js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
-        for token in (
-            "{k:'avg_wait',label:'Avg'}",
-            "{k:'p75_wait',label:'p75'}",
-            "{k:'p90_wait',label:'p90'}",
-            "{k:'p99_wait',label:'p99'}",
-            "{key:'p75_wait',label:'p75'}",
-            "{key:'p90_wait',label:'p90'}",
-            "{key:'p99_wait',label:'p99'}",
-            "{key:'avg_wait',label:'Avg'}",
-        ):
-            assert token not in js, (
-                f"Queue dashboard should not expose removed wait metric control {token}"
-            )
 
-    def test_wait_dashboard_does_not_flatten_unsampled_backlog_to_zero(self):
-        js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
-        assert "wait_sample_count" in js
-        assert "wait_source !== 'cluster_metrics'" in js
-        assert "return null" in js, (
-            "Backlogged queues without job-level wait samples should render as "
-            "missing data, not as a false 0m wait"
-        )
 
-    def test_capacity_monitor_defaults_to_mi325_1_scope(self):
-        js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
-        assert "let selectedScopeKey = 'mi325_1';" in js
-        assert "MI325 1-GPU" in js
-        assert "Projected Target Demand Over Time" in js
-        assert "Capacity status is loading" in js
-        assert "Traffic scope" in js
-        assert "capacityIntervalHours = 168" in js
-        assert "Interval:" in js
 
-    def test_capacity_monitor_omits_dependency_score_ui(self):
-        js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
-        assert "Dependency Scope" not in js
-        assert "Largest AMD Mirror" not in js
-        assert "Projected Lines" not in js
-        assert "Assumptions:" not in js
-        assert "YAML Jobs" not in js
 
-    def test_capacity_monitor_timeseries_uses_distinct_legend_colors(self):
-        js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
-        assert "label:'Actual demand / capacity'" in js
-        assert "label:`Projected demand @ ${_fmtInt(theoreticalGroups)} groups / capacity`" in js
-        assert "label:'100% capacity'" in js
-        assert "borderColor:C.o" in js, (
-            "Incoming demand should have a fixed orange legend/line color, "
-            "not dynamic green/red segments that the legend cannot explain."
-        )
-        assert "borderColor:C.p" in js
-        assert "segment:{borderColor:ctx => _pressureColor" not in js
 
-    def test_capacity_monitor_projects_peak_demand_not_yaml_jobs(self):
-        js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
-        assert "Projected Demand" in js
-        assert "Projected @ ${_fmtInt(theoreticalGroups)}" in js
-        assert "projectedPeakDemand" in js
-        assert "Projection model:" in js
-        assert "Selected scope peak running" not in js
-        assert "configuredJobs" not in js
 
-    def test_capacity_monitor_has_executive_story_not_clipped_bar_chart(self):
-        js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
-        assert "Capacity Gap" in js
-        assert "Target Over Capacity" in js
-        assert "Queue Breakdown" in js
-        assert "Projected Target Demand Over Time" in js
-        assert "chartMax = _chartMaxPct" in js
-        assert "max:chartMax" in js
-        assert "Capacity Pressure by Queue" not in js
-        assert "0-200% Scale" not in js
 
-    def test_capacity_monitor_chart_has_interval_selector(self):
-        js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
-        for label in (
-            "'1h'",
-            "'3h'",
-            "'6h'",
-            "'12h'",
-            "'24h'",
-            "'2d'",
-            "'3d'",
-            "'5d'",
-            "'7d'",
-            "'14d'",
-            "'1m'",
-        ):
-            assert f"label:{label}" in js
-        assert "label:'3m'" not in js
-        assert "hours:2160" not in js
-        assert "snapshotsInCapacityInterval" in js
-        assert "capacityIntervalHours = iv.hours" in js
-        assert "selectedInterval.hours" in js
-        assert "selectedInterval.label" in js
-        assert "last 7 days" not in js
 
-    def test_queue_monitor_trusts_only_one_month_of_history(self):
-        js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
-        constants = ROOT / "scripts" / "vllm" / "constants.py"
-        constants_text = constants.read_text()
-        assert "QUEUE_HISTORY_TRUST_HOURS = 720" in js
-        assert "QUEUE_HISTORY_TRUST_HOURS * 3600000" in js
-        assert "QUEUE_HISTORY_RETENTION_DAYS = 30" in constants_text
 
 
 class TestCollectorPagination:
@@ -509,24 +401,11 @@ class TestCollectorPagination:
         )
 
 
-class TestCIQueueFrontend:
-    """Validate the ci-queue.js frontend can consume the data format."""
+class TestQueueViewContract:
+    """Validate the active Operations queue route is registered."""
 
-    def test_ci_queue_js_exists(self):
-        assert (DOCS / "assets" / "js" / "ci-queue.js").exists()
 
-    def test_ci_queue_fetches_correct_path(self):
-        js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
-        assert "queue_timeseries.jsonl" in js, "ci-queue.js must fetch queue_timeseries.jsonl"
 
-    def test_ci_queue_has_admin_amd_triage(self):
-        js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
-        assert "AMD Queue Triage" in js, "Queue monitor should expose an AMD triage panel"
-        assert "run_min" in js, (
-            "Queue monitor should inspect long-running jobs, not just queued jobs"
-        )
-        assert "isAdmin()" in js or "isAdminUser" in js, "AMD triage actions should be admin-gated"
-        assert "Copy curl" in js, "Queue monitor should expose a copyable Buildkite cancel command"
 
     def test_ci_queue_tab_registered(self):
         """CI queue tab can be in HTML or dynamically registered via JS."""
@@ -536,43 +415,7 @@ class TestCIQueueFrontend:
         in_js = "id: 'ci-queue'" in js
         assert in_html or in_js, "ci-queue tab not found in HTML or registerCISection"
 
-    @pytest.mark.live_data
-    def test_data_matches_js_expectations(self):
-        """Verify that the JSONL data has fields the JS actually reads."""
-        path = DATA / "vllm" / "ci" / "queue_timeseries.jsonl"
-        if not path.exists():
-            pytest.skip("no data yet")
-        lines = [l for l in path.read_text().strip().split("\n") if l.strip()]
-        if not lines:
-            pytest.skip("empty data")
-        snap = json.loads(lines[0])
-        # ci-queue.js reads: snap.ts, snap.queues, snap.total_waiting, snap.total_running
-        assert "ts" in snap
-        assert "queues" in snap
-        assert "total_waiting" in snap
-        assert "total_running" in snap
-        # For each queue, JS reads: qdata.waiting, qdata.running, qdata.p50_wait
-        for qname, qdata in snap["queues"].items():
-            assert "waiting" in qdata, f"queue '{qname}' missing 'waiting'"
-            assert "running" in qdata, f"queue '{qname}' missing 'running'"
 
-    @pytest.mark.live_data
-    def test_queue_wait_time_percentiles_present(self):
-        """ci-queue.js percentile selector reads p50/p75/p90/p99/max/avg_wait fields."""
-        path = DATA / "vllm" / "ci" / "queue_timeseries.jsonl"
-        if not path.exists():
-            pytest.skip("no data yet")
-        lines = [l for l in path.read_text().strip().split("\n") if l.strip()]
-        if not lines:
-            pytest.skip("empty data")
-        snap = json.loads(lines[-1])  # latest snapshot
-        required = {"p50_wait", "p75_wait", "p90_wait", "p99_wait", "max_wait", "avg_wait"}
-        for qname, qdata in snap["queues"].items():
-            missing = required - set(qdata.keys())
-            assert not missing, (
-                f"queue '{qname}' missing wait time percentile fields: {missing}. "
-                f"collect_queue_snapshot.py must emit all percentile fields."
-            )
 
     @pytest.mark.live_data
     def test_queue_source_percentile_ordering(self):
@@ -617,9 +460,9 @@ class TestCIQueueFrontend:
 
 
 class TestIntervalFilteringLogic:
-    """Strict tests for the interval filtering logic used in ci-queue.js.
+    """Strict tests for queue-history interval filtering.
 
-    The JS updateChart() function filters snapshots using:
+    The browser view filters snapshots using:
         lastSnapshotTs = last snapshot's timestamp
         cutoff = lastSnapshotTs - intervalHours * 3600000
         filtered = snapshots where ts >= cutoff
@@ -692,43 +535,7 @@ class TestIntervalFilteringLogic:
             if TestIntervalFilteringLogic._snapshots_in_interval(snapshots, iv["hours"]) >= 2
         ]
 
-    def test_intervals_match_js(self):
-        """Verify that our INTERVALS list matches what ci-queue.js defines."""
-        js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
-        for iv in self.INTERVALS:
-            assert f"label:'{iv['label']}'" in js or f"label: '{iv['label']}'" in js, (
-                f"Interval {iv['label']} not found in ci-queue.js"
-            )
 
-    def test_cutoff_uses_last_snapshot_not_now(self):
-        """The cutoff computation in updateChart must NOT use Date.now().
-        It must reference the last snapshot timestamp instead."""
-        js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
-        # Extract the updateChart function body
-        start = js.find("function updateChart()")
-        assert start != -1, "updateChart function not found in ci-queue.js"
-        # Find matching closing brace (count braces)
-        depth = 0
-        body_start = js.index("{", start)
-        i = body_start
-        while i < len(js):
-            if js[i] == "{":
-                depth += 1
-            elif js[i] == "}":
-                depth -= 1
-                if depth == 0:
-                    break
-            i += 1
-        fn_body = js[body_start : i + 1]
-        # Strip single-line comments before checking — comments may mention Date.now()
-        code_lines = [l for l in fn_body.split("\n") if not l.strip().startswith("//")]
-        code_only = "\n".join(code_lines)
-        assert "Date.now()" not in code_only, (
-            "updateChart must NOT use Date.now() for cutoff — use last snapshot timestamp"
-        )
-        assert "lastSnapshotTs" in fn_body or "snapshots[snapshots.length" in fn_body, (
-            "updateChart must reference the last snapshot timestamp for cutoff"
-        )
 
     @pytest.mark.live_data
     def test_every_enabled_interval_returns_data(self, snapshots):
@@ -976,35 +783,4 @@ class TestIntervalEnablementSynthetic:
         assert filtered_span_h < total_span_h, (
             f"Filtered 1h span ({filtered_span_h}h) should be less than "
             f"total span ({total_span_h}h). Banner must show filtered span."
-        )
-
-    def test_js_uses_snapshots_in_interval_for_enablement(self):
-        """The JS must use a >= 2 snapshot count check for interval enablement,
-        not just hours <= availableHours."""
-        js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
-        assert ">= 2" in js or ">=2" in js, (
-            "ci-queue.js must check for >= 2 snapshots when enabling intervals"
-        )
-
-    def test_js_info_banner_updates_in_update_chart(self):
-        """The info banner must be updated inside updateChart(), not static."""
-        js = (DOCS / "assets" / "js" / "ci-queue.js").read_text()
-        start = js.find("function updateChart()")
-        assert start != -1, "updateChart function not found"
-        # Find the function body
-        depth = 0
-        body_start = js.index("{", start)
-        i = body_start
-        while i < len(js):
-            if js[i] == "{":
-                depth += 1
-            elif js[i] == "}":
-                depth -= 1
-                if depth == 0:
-                    break
-            i += 1
-        fn_body = js[body_start : i + 1]
-        assert "infoBanner" in fn_body, (
-            "updateChart() must update the infoBanner element. "
-            "The banner should reflect the filtered data, not total."
         )

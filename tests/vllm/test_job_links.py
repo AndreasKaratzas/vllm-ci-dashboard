@@ -820,50 +820,13 @@ class TestFrontendRouting:
 # Overlay entry points: verify all 7 overlay paths use bkGroupUrl
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestOverlayLinkPresence:
-    """Verify that all overlay rendering code includes bkGroupUrl calls for
-    both AMD and upstream link icons."""
+class TestSharedOverlayLinkPresence:
+    """Verify the retained shared overlay helpers build exact job links."""
 
     JS_DIR = ROOT / "docs" / "assets" / "js"
 
     def _read_js(self, filename):
         return (self.JS_DIR / filename).read_text()
-
-    # --- dashboard.js overlays (Test Parity tab) ---
-
-    def test_parity_overlay_amd_category(self):
-        """showGroupOverlay with 'amd' category must be wired."""
-        js = self._read_js("dashboard.js")
-        assert "showGroupOverlay(" in js
-        assert "amd" in js
-
-    def test_parity_overlay_amd_hw_category(self):
-        """AMD hardware summary card must open a real overlay."""
-        js = self._read_js("dashboard.js")
-        utils = self._read_js("utils.js")
-        assert re.search(r"showGroupOverlay\([^)]*amd-hw", js), \
-            "No showGroupOverlay call with 'amd-hw' category"
-        assert "category === 'amd-hw'" in utils
-
-    def test_parity_overlay_common_category(self):
-        js = self._read_js("dashboard.js")
-        assert "common" in js
-
-    def test_parity_overlay_upstream_category(self):
-        js = self._read_js("dashboard.js")
-        # Verify the overlay is wired for the upstream category
-        assert re.search(r"showGroupOverlay\([^)]*upstream", js), \
-            "No showGroupOverlay call with 'upstream' category"
-
-    def test_parity_overlay_amd_only_category(self):
-        js = self._read_js("dashboard.js")
-        assert re.search(r"showGroupOverlay\([^)]*amd-only", js), \
-            "No showGroupOverlay call with 'amd-only' category"
-
-    def test_parity_overlay_upstream_only_category(self):
-        js = self._read_js("dashboard.js")
-        assert re.search(r"showGroupOverlay\([^)]*upstream-only", js), \
-            "No showGroupOverlay call with 'upstream-only' category"
 
     # --- utils.js: showGroupOverlay builds table with links ---
 
@@ -890,45 +853,6 @@ class TestOverlayLinkPresence:
         js = self._read_js("utils.js")
         assert "background:#1f6feb" in js
         assert "Upstream CI logs" in js
-
-    # --- ci-health.js overlays ---
-
-    def test_ci_health_overlay_uses_group_links(self):
-        """CI health overlay must use LinkRegistry.bk for group links."""
-        js = self._read_js("ci-health.js")
-        assert "LinkRegistry.bk" in js or "makeGroupLinks" in js
-
-    def test_ci_health_overlay_calls_bk_group_url_upstream(self):
-        """CI health overlay table must reference upstream pipeline."""
-        js = self._read_js("ci-health.js")
-        assert "'upstream'" in js
-
-    def test_ci_health_overlay_renders_both_icons(self):
-        """CI health overlay must render both AMD and upstream icons (inline or via makeGroupLinks)."""
-        js = self._read_js("ci-health.js")
-        utils_js = self._read_js("utils.js")
-        # Icons can be in ci-health.js directly or via makeGroupLinks in utils.js
-        has_amd = "background:#da3633" in js or "background:#da3633" in utils_js
-        has_up = "background:#1f6feb" in js or "background:#1f6feb" in utils_js
-        assert has_amd, "No AMD red icon in ci-health.js or utils.js"
-        assert has_up, "No upstream blue icon in ci-health.js or utils.js"
-
-    def test_ci_health_has_show_group_overlay_health(self):
-        """showGroupOverlay_health must exist for failing groups overlay."""
-        js = self._read_js("ci-health.js")
-        assert "showGroupOverlay_health" in js
-
-    def test_ci_health_has_show_parity_overlay(self):
-        """showParityOverlay must exist for coverage parity overlay."""
-        js = self._read_js("ci-health.js")
-        assert "showParityOverlay" in js
-
-    # --- ci-analytics.js uses bkSearchUrl ---
-
-    def test_ci_analytics_uses_group_links(self):
-        """CI analytics overlay must use LinkRegistry for group links."""
-        js = self._read_js("ci-analytics.js")
-        assert "LinkRegistry" in js
 
     # --- utils.js: makeGroupLinks ---
 

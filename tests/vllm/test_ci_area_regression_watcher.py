@@ -5,6 +5,13 @@ from datetime import datetime, timezone
 from vllm import ci_area_regression_watcher as watcher
 
 
+def test_dashboard_link_targets_active_incident_health_view() -> None:
+    assert "ops_health_view=targets" in watcher.DASHBOARD_URL
+    assert "ops_health_result=incident" in watcher.DASHBOARD_URL
+    assert watcher.DASHBOARD_URL.endswith("#ci-health")
+    assert "ci-ready" not in watcher.DASHBOARD_URL
+
+
 class AssignabilityClient:
     def __init__(self, assignable):
         self.assignable = {value.casefold() for value in assignable}

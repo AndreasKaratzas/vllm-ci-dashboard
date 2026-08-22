@@ -9,20 +9,18 @@
     Content Security Policy.
 
     The dashboard is a single static page served from GitHub Pages. A
-    network attacker who can intercept and rewrite a page load *only*
-    needs to inject one ``<script src="evil.com/…">`` to steal every
-    token the user ever pastes into this tab. CSP is what stops that:
+    network attacker who can intercept and rewrite a page load could inject
+    arbitrary scripts or falsify operational data. CSP limits the origins
+    from which this static dashboard can load code and data:
 
       - ``default-src 'self'``          — everything defaults to same-origin.
       - ``script-src 'self' cdn.jsdelivr.net 'unsafe-inline'``
           unsafe-inline covers the pre-paint theme bootstrap below; all
           real code lives in same-origin ``assets/js/*``. Chart.js is loaded
           asynchronously from jsDelivr after the operational shell renders.
-      - ``connect-src 'self' api.github.com api.buildkite.com raw.githubusercontent.com``
-          The API origins are the only token-bearing destinations. The raw
-          GitHub origin serves the public queue-data branch and receives no
-          browser credential. An injected script that tries to POST tokens to
-          ``evil.com`` gets blocked before it reaches the network.
+      - ``connect-src 'self' raw.githubusercontent.com``
+          The raw GitHub origin serves public queue snapshots. The dashboard
+          has no browser-side authentication or mutation API.
       - ``base-uri 'self'``             — stops ``<base>`` injection attacks.
       - ``form-action 'self'``          — no cross-origin form POSTs.
 
@@ -33,12 +31,11 @@
     When you add a new outbound host (e.g. a second CI backend), extend
     ``connect-src`` explicitly — do not broaden to ``*``.
   -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com https://github.com; font-src 'self' data:; connect-src 'self' https://api.github.com https://api.buildkite.com https://raw.githubusercontent.com; base-uri 'self'; form-action 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com https://github.com; font-src 'self' data:; connect-src 'self' https://raw.githubusercontent.com; base-uri 'self'; form-action 'self'">
   <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
 
-  <link rel="stylesheet" href="assets/css/dashboard.css?v=57">
-  <link rel="stylesheet" href="assets/css/ops-v2.css?v=13">
-  <link rel="stylesheet" href="assets/css/ops-control-v2.css?v=4">
+  <link rel="stylesheet" href="assets/css/dashboard.css?v=58">
+  <link rel="stylesheet" href="assets/css/ops-v2.css?v=15">
   <script>
     // Apply theme before first paint to avoid flash
     (function(){
@@ -189,85 +186,10 @@
     <p>Data collected via <a href="https://github.com/AndreasKaratzas/vllm-ci-dashboard">project-dashboard</a></p>
   </footer>
 
-  <!-- token-vault MUST load before auth.js so auth can unlock it at sign-in. -->
-  <script src="assets/js/token-vault.js?v=1"></script>
-  <script src="assets/js/utils.js?v=60"></script>
-  <script src="assets/js/auth.js?v=4"></script>
+  <script src="assets/js/utils.js?v=62"></script>
   <script src="assets/js/publication-status.js?v=2"></script>
-  <script src="assets/js/dashboard-nav.js?v=2"></script>
-  <script src="assets/js/ops-v2.js?v=25"></script>
-  <!--
-    This inert template is the source manifest for retired v1 renderers and
-    authenticated control tools. Template resources are not fetched by the
-    browser. The loader below instantiates only control scripts, after the
-    visible route settles or immediately when a control route is requested.
-  -->
-  <template id="ops-deferred-script-manifest">
-    <script src="assets/js/ci-health.js?v=64" data-runtime="retired-v1"></script>
-    <script src="assets/js/ci-analytics.js?v=54" data-runtime="retired-v1"></script>
-    <script src="assets/js/ci-perf-eval.js?v=2" data-runtime="retired-v1"></script>
-    <script src="assets/js/ci-queue.js?v=63" data-runtime="retired-v1"></script>
-    <script src="assets/js/ci-hotness.js?v=53" data-runtime="retired-v1"></script>
-    <script src="assets/js/ci-omni.js?v=53" data-runtime="retired-v1"></script>
-    <script src="assets/js/dashboard.js?v=59" data-runtime="retired-v1"></script>
-    <script src="assets/js/ci-testbuild.js?v=5" data-runtime="control"></script>
-    <script src="assets/js/ci-ready.js?v=8" data-runtime="control"></script>
-    <script src="assets/js/ci-admin.js?v=3" data-runtime="control"></script>
-  </template>
-  <script>
-    (function(){
-      var manifest = document.getElementById('ops-deferred-script-manifest');
-      var sources = Array.from(manifest.content.querySelectorAll('script[data-runtime="control"]'))
-        .map(function(script) { return script.getAttribute('src'); });
-      var loading = null;
-      function loadTools() {
-        if (loading) return loading;
-        loading = sources.reduce(function(chain, source) {
-          return chain.then(function() {
-            return new Promise(function(resolve, reject) {
-              var script = document.createElement('script');
-              script.src = source;
-              script.onload = resolve;
-              script.onerror = function() { reject(new Error('Failed to load ' + source)); };
-              document.body.appendChild(script);
-            });
-          });
-        }, Promise.resolve()).catch(function(error) {
-          if (typeof window.__recordBootIssue === 'function') {
-            window.__recordBootIssue('control tools', error.message || String(error));
-          }
-          console.error('Control tool loading failed:', error);
-        });
-        return loading;
-      }
-      function isToolTab(tab) {
-        return ['ci-testbuild', 'ci-ready', 'ci-admin'].includes(tab);
-      }
-      function deferTools() {
-        window.setTimeout(function() {
-          if (window.requestIdleCallback) {
-            window.requestIdleCallback(loadTools, {timeout: 3000});
-          } else {
-            loadTools();
-          }
-        }, 1500);
-      }
-      window.__loadOpsControlTools = loadTools;
-      var initialTab = location.hash.replace('#', '');
-      if (isToolTab(initialTab)) {
-        loadTools();
-      } else {
-        window.addEventListener('ops-v2:first-render', deferTools, {once: true});
-        window.setTimeout(function() {
-          if (!window.__opsV2FirstRenderSettled) deferTools();
-        }, 12000);
-      }
-      document.addEventListener('click', function(event) {
-        var button = event.target.closest && event.target.closest('.nav-btn');
-        if (button && isToolTab(button.getAttribute('data-tab'))) loadTools();
-      }, true);
-    })();
-  </script>
+  <script src="assets/js/dashboard-nav.js?v=4"></script>
+  <script src="assets/js/ops-v2.js?v=28"></script>
   <script>
     (function(){
       var btn = document.getElementById('theme-toggle');

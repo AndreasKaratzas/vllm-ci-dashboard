@@ -42,8 +42,6 @@ PUBLICATION_SURFACE_LABELS = frozenset({
     "Project activity",
     "Queue health",
     "Queue lifecycle",
-    "Ready tickets",
-    "Test builds",
 })
 
 Fetch = Callable[[str, int], dict[str, Any]]

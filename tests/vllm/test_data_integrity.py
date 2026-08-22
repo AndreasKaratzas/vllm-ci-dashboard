@@ -433,19 +433,7 @@ class TestFrontendFiles:
             "Test parity should render inside Home now that the static Home/Test Parity tabs are merged"
         )
 
-    @pytest.mark.parametrize("f", [
-        "dashboard.js", "ci-health.js", "ci-analytics.js",
-        "ci-queue.js", "utils.js"
-    ])
-    def test_js_exists(self, f):
-        assert (DOCS / "assets" / "js" / f).exists()
 
-    @pytest.mark.parametrize("f", [
-        "dashboard.js", "ci-health.js", "ci-analytics.js", "ci-queue.js", "utils.js"
-    ])
-    def test_js_braces_balanced(self, f):
-        c = (DOCS / "assets" / "js" / f).read_text()
-        assert c.count("{") == c.count("}"), f"{f}: unbalanced braces"
 
     def test_css_exists(self):
         assert (DOCS / "assets" / "css" / "dashboard.css").exists()
@@ -455,59 +443,9 @@ class TestFrontendFiles:
         assert "#sidebar" in css
         assert ".overlay-backdrop" in css
 
-    def test_soft_fail_treated_as_failed(self):
-        """CI Analytics must treat soft_fail as failed, not as a separate state."""
-        js = (DOCS / "assets" / "js" / "ci-analytics.js").read_text()
-        # stateColor should map soft_fail to the same color as failed
-        assert "'soft_fail')?C.r" in js or "soft_fail')?C.r" in js, (
-            "ci-analytics.js stateColor must treat soft_fail as failed (red)"
-        )
-        # Legend should NOT have a separate 'Soft Fail' entry
-        assert "'Soft Fail'" not in js, (
-            "ci-analytics.js legend should not list 'Soft Fail' as separate state"
-        )
 
-    def test_test_assertion_rates_use_explicit_fields_with_legacy_fallback(self):
-        """Every assertion-rate UI must prefer the explicit semantic field."""
-        utils = (DOCS / "assets" / "js" / "utils.js").read_text()
-        dashboard = (DOCS / "assets" / "js" / "dashboard.js").read_text()
-        health = (DOCS / "assets" / "js" / "ci-health.js").read_text()
 
-        assert "function testAssertionPassRatePct" in utils
-        assert utils.index("summary.test_pass_rate_pct") < utils.index("summary.pass_rate")
-        assert 'testAssertionPassRatePct(summary, "percent")' in utils
-        assert "testAssertionPassRatePct(summary, 'fraction')" in health
-        assert "AMD test assertion pass rate" in health
-        assert "Upstream test assertion pass rate" in health
-        assert "card('amd-ci runtime'" not in health
-        assert "card('External Upstream'" not in health
 
-        assert "function buildTestAssertionPassRateBar" in utils
-        assert "function buildPassRateBar" not in utils
-        assert 'buildTestAssertionPassRateBar("ROCm test assertions"' in dashboard
-        assert 'buildTestAssertionPassRateBar("CUDA test assertions"' in dashboard
-        assert "testAssertionCounts(rs)" in dashboard
-        assert "testAssertionCounts(cs)" in dashboard
-        assert "(ra ? 'test assertions' : 'jobs')" in dashboard
-        assert "(ca ? 'test assertions' : 'jobs')" in dashboard
-
-    def test_analytics_build_rate_names_its_terminal_nightly_denominator(self):
-        js = (DOCS / "assets" / "js" / "ci-analytics.js").read_text()
-        assert "function buildPassRatePct" in js
-        assert js.index("summary.build_pass_rate_pct") < js.index("summary.pass_rate")
-        assert "s.terminal_builds ?? s.total_builds" in js
-        assert "All-green nightly build rate" in js
-        assert "terminal nightlies" in js
-        assert "Job Pass Rate" in js
-        assert "matched hardware-job pass rate" in js
-
-    def test_overlay_tables_have_row_numbers(self):
-        """All overlay tables must have a # column for enumeration."""
-        for f in ["ci-health.js", "utils.js"]:
-            js = (DOCS / "assets" / "js" / f).read_text()
-            assert ">#</th>" in js or '"#"' in js or "'#'" in js, (
-                f"{f} overlay table must have a '#' column header for row numbering"
-            )
 
 
     def test_theme_toggle_exists(self):
@@ -522,152 +460,19 @@ class TestFrontendFiles:
         assert '[data-theme="dark"]' in css, "missing dark theme CSS variables"
         assert '[data-theme="light"]' in css, "missing light theme CSS variables"
 
-    def test_js_colors_read_css_variables(self):
-        """JS files must read theme colors from CSS variables, not hardcode them."""
-        for f in ["ci-health.js", "ci-analytics.js", "ci-queue.js"]:
-            js = (DOCS / "assets" / "js" / f).read_text()
-            assert "getComputedStyle" in js or "getPropertyValue" in js, (
-                f"{f} must read colors from CSS variables for theme support"
-            )
-        # dashboard.js uses _TC
-        js = (DOCS / "assets" / "js" / "dashboard.js").read_text()
-        assert "_TC" in js, "dashboard.js must use _TC theme constants"
 
-    def test_retired_engineer_activity_assets_are_not_loaded(self):
-        js = (DOCS / "assets" / "js" / "ci-health.js").read_text()
 
-        assert "renderEngineers" not in js
-        assert "engineer_activity.json" not in js
-        assert "pr_scores.json" not in js
 
-    def test_queue_comparison_has_data_source_link(self):
-        """Queue Comparison tab must link to Buildkite queues for traceability."""
-        js = (DOCS / "assets" / "js" / "ci-analytics.js").read_text()
-        assert "View live queues on Buildkite" in js or "bkQueuesUrl" in js or "LinkRegistry.bk.queues" in js, (
-            "Queue Comparison must have a Buildkite link for data traceability"
-        )
 
-    def test_frontend_expected_nightly_times_are_current(self):
-        """Static next-nightly indicators must match the current Buildkite slots."""
-        ci_health = (DOCS / "assets" / "js" / "ci-health.js").read_text()
-        ci_analytics = (DOCS / "assets" / "js" / "ci-analytics.js").read_text()
-        assert "Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate(),9,0)" in ci_health
-        assert "Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate(),6,0)" in ci_health
-        assert "Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate(),9,0)" in ci_analytics
 
-    def test_queue_comparison_has_time_window_selector(self):
-        """Queue Comparison must have time window buttons for date filtering."""
-        js = (DOCS / "assets" / "js" / "ci-analytics.js").read_text()
-        assert "Time window" in js or "activeDays" in js, (
-            "ci-analytics.js Queue Comparison must have a time window selector"
-        )
-        # Must have at least 3d/7d/14d/All segments
-        for label in ["3d", "7d", "14d", "All"]:
-            assert f"'{label}'" in js or f'"{label}"' in js, (
-                f"ci-analytics.js missing time window segment: {label}"
-            )
 
-    def test_pipeline_comparison_has_windowed_rankings(self):
-        """Pipeline Comparison should expose shorter windows so old hardware ages out."""
-        js = (DOCS / "assets" / "js" / "ci-analytics.js").read_text()
-        assert "Comparison window:" in js or "ANALYTICS_WINDOW_LABEL" in js, (
-            "ci-analytics.js Pipeline Comparison must expose a window selector"
-        )
-        for label in ["1d", "3d", "7d", "14d", "30d"]:
-            assert f"'{label}'" in js or f'"{label}"' in js, (
-                f"ci-analytics.js missing analytics window: {label}"
-            )
-        assert "older hardware" in js or "ages out" in js, (
-            "ci-analytics.js should explain that shorter windows forget older hardware"
-        )
 
-    def test_amd_hw_matrix_view_exists(self):
-        js = (DOCS / "assets" / "js" / "ci-analytics.js").read_text()
-        assert "AMD HW Matrix" in js, (
-            "ci-analytics.js should expose the AMD HW Matrix subview under CI Analytics"
-        )
-        assert "amd_test_matrix.json" in js, (
-            "ci-analytics.js should fetch the amd_test_matrix.json dataset"
-        )
 
-    def test_amd_hw_matrix_uses_exact_variant_urls(self):
-        js = (DOCS / "assets" / "js" / "ci-analytics.js").read_text()
-        assert "matrixVariantTargetUrl" in js, (
-            "ci-analytics.js should use exact collector-provided Buildkite URLs for AMD matrix cells"
-        )
-        assert "latest_url" in js, (
-            "ci-analytics.js should consume per-variant latest_url instead of guessing through LinkRegistry"
-        )
 
-    def test_amd_hw_matrix_alias_cells_open_overlay(self):
-        js = (DOCS / "assets" / "js" / "ci-analytics.js").read_text()
-        assert "matrixVariantEntries" in js, (
-            "ci-analytics.js should unpack collector-provided alias entries for AMD matrix cells"
-        )
-        assert "entries.length > 1" in js and "showMatrixVariantsOverlay(row, arch, entries, source)" in js, (
-            "ci-analytics.js should open an alias chooser when one matrix cell maps to multiple YAML variants"
-        )
 
-    def test_projects_hardware_summary_is_pass_rate_first(self):
-        js = (DOCS / "assets" / "js" / "dashboard.js").read_text()
-        css = (DOCS / "assets" / "css" / "dashboard.css").read_text()
-        assert "AMD hardware-group pass rate" in js, (
-            "Projects parity card should lead with AMD hardware pass rate, not a raw cell count"
-        )
-        assert "parity-hw-overall" in js and "Overall hardware-group pass rate" in js, (
-            "Projects hardware breakdown should show the overall hardware-group pass rate"
-        )
-        assert "parity-score-bar" in js and ".parity-score-bar" in css, (
-            "Projects hardware breakdown should render an overall score bar"
-        )
-        assert "AMD regressions (pass upstream, fail on AMD)" not in js, (
-            "Projects hardware breakdown should not duplicate the regression count panel"
-        )
-        assert "mini-bar-wide" in js and ".mini-bar-wide" in css, (
-            "Projects hardware bars should widen after removing the last table column"
-        )
-        assert "parity-section-heading" in js and ".parity-section-heading" in css, (
-            "Projects parity view should use a real section heading instead of a loose label"
-        )
 
-    def test_amd_hw_matrix_summary_uses_operational_labels(self):
-        js = (DOCS / "assets" / "js" / "ci-analytics.js").read_text()
-        for label in ["Configured AMD Definitions", "Nightly Matched", "Passing HW Jobs", "Needs Attention"]:
-            assert label in js, f"AMD HW Matrix summary missing operational label: {label}"
-        for stale in ["Unique YAML Groups", "Full Coverage", "Coverage Gaps", "Only gaps"]:
-            assert stale not in js, f"AMD HW Matrix should not expose confusing stale label: {stale}"
-        assert "HW Presence" in js and "Needs attention only" in js, (
-            "AMD HW Matrix controls should describe hardware presence and failing cells clearly"
-        )
-        assert "attentionFamilies" in js and "failing hardware jobs" in js, (
-            "AMD HW Matrix should distinguish affected rows from raw failing hardware-job cells"
-        )
 
-    def test_group_trends_uses_amd_matrix_for_current_amd_groups(self):
-        js = (DOCS / "assets" / "js" / "ci-analytics.js").read_text()
-        assert "Current AMD Definitions" in js, (
-            "AMD group trend summary should name the AMD HW Matrix row count as definitions"
-        )
-        assert "deduplicated configured cases" in js, (
-            "AMD definition cards should explain the separately deduplicated configured-case count"
-        )
-        assert "configured hardware routes" in js, (
-            "AMD current definition card should explain its hardware-route count"
-        )
 
-    def test_green_of_target_opens_full_target_coverage(self):
-        js = (DOCS / "assets" / "js" / "ci-health.js").read_text()
-        assert "AMD target coverage" in js and "hasCanonicalTargets ? pathRows : effectiveGreenRows" in js, (
-            "Green of target should drill into the full active target denominator, "
-            "not only the rows that are already green"
-        )
-
-    def test_gating_links_use_closest_hardware_label_match(self):
-        js = (DOCS / "assets" / "js" / "ci-health.js").read_text()
-        assert "function closestLabelMatches" in js
-        assert "labelMatchScore(label, job)" in js
-        assert "return closestLabelMatches(label, matches)" in js
-        assert "return closestLabelMatches(label, filtered)" in js
 
     @pytest.mark.live_data
     def test_queue_stats_computable_from_builds(self):
@@ -716,17 +521,6 @@ class TestFrontendFiles:
 class TestFrontendPendingGroups:
     """Validate that the frontend doesn't filter out pending/backfilled groups."""
 
-    def test_hwgroupmap_includes_backfilled_no_data_groups(self):
-        """ci-health.js hwGroupMap builder must NOT skip groups that have
-        backfilled=true but no amd/upstream data. These are scheduled jobs
-        that should appear as PENDING."""
-        js = (DOCS / "assets" / "js" / "ci-health.js").read_text()
-        # The old buggy filter was: if(!g.amd&&!g.upstream) continue;
-        # The fix adds: &&!g.backfilled&&!g.hw_backfilled
-        assert "!g.amd&&!g.upstream) continue" not in js, (
-            "ci-health.js still filters out groups with no amd/upstream data. "
-            "Groups with backfilled=true should be shown as PENDING, not hidden."
-        )
 
     @pytest.mark.live_data
     def test_parity_report_pending_groups_have_correct_count(self):

@@ -293,7 +293,7 @@ def _aggregate(records: list[dict]) -> dict:
                 "hw": hw,
                 "workload": latest["workload"],
                 "fail_rate_pct": round(fail_rate * 100, 1),
-                # Fraction retained for the legacy ci-hotness.js consumer.
+                # Fraction retained for compatibility with historical snapshots.
                 "fail_rate": round(fail_rate, 3),
                 "failures": fails,
                 "last_seen": latest["finished_at"].strftime("%Y-%m-%dT%H:%M:%SZ"),

@@ -15,9 +15,9 @@ We do two things:
 
   * Parse the real committed data file and assert it matches the
     shape the JS expects, end to end.
-  * Re-implement the JS reducer in Python against a pinned realistic
-    fixture, so a future refactor of ``ci-hotness.js`` that changes
-    what fields it reads fails here instead of in production.
+  * Re-implement the active Operations reducer in Python against a pinned
+    realistic fixture, so field-shape changes fail here instead of in
+    production.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ pytestmark = pytest.mark.live_data
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 QUEUE_TS = ROOT / "data" / "vllm" / "ci" / "queue_timeseries.jsonl"
-JS_HOTNESS = ROOT / "docs" / "assets" / "js" / "ci-hotness.js"
+OPS_JS = ROOT / "docs" / "assets" / "js" / "ops-v2.js"
 
 
 # ---------------------------------------------------------------------------
@@ -40,7 +40,7 @@ JS_HOTNESS = ROOT / "docs" / "assets" / "js" / "ci-hotness.js"
 
 
 class TestQueueTimeseriesMatchesChartContract:
-    """``loadQueueTimeseries()`` in ci-hotness.js expects newline-delimited
+    """The Operations queue-history view expects newline-delimited
     JSON where each row has:
 
         { ts: <ISO-8601>, queues: { <qname>: { waiting, running, ... } } }
@@ -184,25 +184,20 @@ class TestAmdQueueReducer:
 # ---------------------------------------------------------------------------
 
 
-class TestCiHotnessJsReadsExpectedFields:
+class TestOperationsJsReadsExpectedFields:
     """Defence against a refactor that silently renames a field read from
     queue_timeseries.jsonl or hotness.json. If one of these substrings
     disappears, someone changed the shape the chart depends on — update
     the collector or the chart together."""
 
     def test_references_queue_timeseries_keys(self):
-        src = JS_HOTNESS.read_text()
-        assert "row.queues" in src or ".queues" in src
+        src = OPS_JS.read_text()
+        assert "snap.queues" in src or ".queues" in src
         assert ".waiting" in src
         assert ".running" in src
         assert "row.ts" in src or ".ts" in src
 
-    def test_references_windowed_hotness_keys(self):
-        # Window selector + per-window aggregations are load-bearing for the
-        # tab; a rename of these keys would silently break the timeframe UI.
-        src = JS_HOTNESS.read_text()
-        for field in ("data.windows", "test_groups", "branches", "queues"):
-            assert field in src, (
-                f"ci-hotness.js no longer references {field!r} — did "
-                "collect_hotness.py change its output shape?"
-            )
+    def test_references_queue_history_source_and_range(self):
+        src = OPS_JS.read_text()
+        assert "queue_timeseries.jsonl" in src
+        assert "state.queueRange" in src

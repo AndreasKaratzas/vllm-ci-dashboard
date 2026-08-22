@@ -19,37 +19,27 @@ def test_reviewed_inventory_publishes_expected_counts_and_rates() -> None:
     review = parity.load_review()
     payload = parity.build_payload(review, generated_at=GENERATED_AT)
 
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     assert payload["generated_at"] == GENERATED_AT
     assert payload["source"]["config_path"] == (
         "config/vllm_upstream_test_group_parity.json"
     )
-    assert payload["source"]["main_commit"] == (
-        "7ca49fbe4bab019e55d57cdc4b7fd3d55c67c1a6"  # Pinned commit SHA.
-    )
+    assert payload["source"]["main_commit"] == review["source"]["main_commit"]
     assert "pull_request" not in payload["source"]
     assert payload["summary"] == {
         "upstream_physical_definitions": 201,
         "upstream_logical_groups": 191,
         "applicable_groups": 163,
         "main_complete_groups": 139,
-        "proposed_groups": 16,
-        "main_plus_proposed_complete_groups": 155,
         "unsupported_groups": 28,
-        "action_groups": 8,
+        "action_groups": 24,
         "main_missing_groups": 24,
-        "main_plus_proposed_missing_groups": 8,
         "main_applicable_rate_pct": 85.3,
-        "main_plus_proposed_applicable_rate_pct": 95.1,
     }
     assert payload["rocm_inventory"] == {
         "main": {
             "physical_definitions": 184,
             "logical_groups": 143,
-        },
-        "main_plus_proposed": {
-            "physical_definitions": 198,
-            "logical_groups": 157,
         },
         "count_basis": (
             "ROCm logical groups; this is an inventory, not an "
@@ -62,14 +52,13 @@ def test_reviewed_inventory_publishes_expected_counts_and_rates() -> None:
     assert [row["id"] for row in payload["groups"]] == list(range(1, 192))
     assert Counter(row["state"] for row in payload["groups"]) == {
         "existing": 139,
-        "proposed": 16,
         "unsupported": 28,
-        "action": 8,
+        "action": 24,
     }
 
     groups = {row["id"]: row for row in payload["groups"]}
     for group_id in (7, 9, 13, 179):
-        assert groups[group_id]["state"] == "proposed"
+        assert groups[group_id]["state"] == "action"
         assert "proposal_stage" not in groups[group_id]
     assert "DeepSeek-Coder AITER-MLA static-FP8" in groups[13]["assessment"]
     assert groups[103]["state"] == "action"
@@ -101,30 +90,31 @@ def test_review_validator_rejects_area_state_drift(tmp_path: Path) -> None:
         parity.load_review(config_path)
 
 
-def test_review_validator_rejects_rocm_inventory_population_drift(
+def test_review_validator_rejects_obsolete_rocm_inventory_milestone(
     tmp_path: Path,
 ) -> None:
     review = json.loads(parity.CONFIG.read_text())
-    review["rocm_inventory"]["main_plus_proposed"]["logical_groups"] = (
-        review["rocm_inventory"]["main"]["logical_groups"] - 1
-    )
+    review["rocm_inventory"]["main_plus_proposed"] = {
+        "physical_definitions": 198,
+        "logical_groups": 157,
+    }
     config_path = tmp_path / "parity.json"
     config_path.write_text(json.dumps(review))
 
-    with pytest.raises(ValueError, match="logical_groups milestones"):
+    with pytest.raises(ValueError, match="obsolete milestones"):
         parity.load_review(config_path)
 
 
-def test_review_validator_rejects_pr_specific_proposal_stage(
+def test_review_validator_rejects_obsolete_proposal_stage(
     tmp_path: Path,
 ) -> None:
     review = json.loads(parity.CONFIG.read_text())
-    proposed = next(row for row in review["groups"] if row["state"] == "proposed")
-    proposed["proposal_stage"] = "published_pr"
+    action = next(row for row in review["groups"] if row["state"] == "action")
+    action["proposal_stage"] = "published_pr"
     config_path = tmp_path / "parity.json"
     config_path.write_text(json.dumps(review))
 
-    with pytest.raises(ValueError, match="PR-agnostic"):
+    with pytest.raises(ValueError, match="tracks main only"):
         parity.load_review(config_path)
 
 
@@ -166,7 +156,7 @@ def test_operations_views_publish_compact_and_full_parity_projections() -> None:
     org_summary = operations.build_org_summary(operations_payload)
     assert org_summary["test_group_parity"] == {
         "available": True,
-        "schema_version": 2,
+        "schema_version": 3,
         "reviewed_at": "2026-08-22",
         "summary": parity_payload["summary"],
         "rocm_inventory": parity_payload["rocm_inventory"],

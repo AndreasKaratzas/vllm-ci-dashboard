@@ -43,8 +43,6 @@ PUBLICATION_SURFACE_LABELS = {
     "perf_eval": "Performance evaluation",
     "queue": "Queue health",
     "queue_lifecycle": "Queue lifecycle",
-    "ready": "Ready tickets",
-    "test_builds": "Test builds",
 }
 
 

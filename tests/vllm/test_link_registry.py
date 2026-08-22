@@ -25,7 +25,7 @@ DATA = ROOT / "data"
 class TestNoHardcodedURLs:
     """Ensure all external URLs go through LinkRegistry, not hardcoded strings."""
 
-    JS_FILES = ["dashboard.js", "ci-health.js", "ci-analytics.js", "ci-queue.js"]
+    JS_FILES = ["dashboard-nav.js", "publication-status.js"]
 
     # Patterns that must NOT appear in non-utils JS files
     GITHUB_URL_RE = re.compile(r"""(?:['"`])https://github\.com/""")
@@ -267,26 +267,6 @@ class TestLinkRegistryIntegration:
 
     def _read_js(self, filename):
         return (JS_DIR / filename).read_text()
-
-    def test_dashboard_uses_link_registry_for_repos(self):
-        """dashboard.js must use LinkRegistry.github.repo for repo URLs."""
-        js = self._read_js("dashboard.js")
-        assert "LinkRegistry.github.repo(" in js
-
-    def test_dashboard_uses_link_registry_atag(self):
-        """dashboard.js must use LinkRegistry.aTag for generating link HTML."""
-        js = self._read_js("dashboard.js")
-        assert "LinkRegistry.aTag(" in js
-
-    def test_ci_health_uses_link_registry(self):
-        """ci-health.js must use LinkRegistry for links."""
-        js = self._read_js("ci-health.js")
-        assert "LinkRegistry" in js
-
-    def test_ci_analytics_uses_link_registry(self):
-        """ci-analytics.js must use LinkRegistry for links."""
-        js = self._read_js("ci-analytics.js")
-        assert "LinkRegistry" in js
 
     def test_all_atag_links_have_rel_noopener(self):
         """LinkRegistry.aTag must include rel='noopener' for security."""

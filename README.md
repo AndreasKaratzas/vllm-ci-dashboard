@@ -1,6 +1,6 @@
 # Project Dashboard
 
-Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-08-22 09:51 UTC**
+Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-08-22 10:21 UTC**
 
 ## Overview
 
@@ -27,18 +27,10 @@ operational data are published by the scheduled/dispatch
 | View | Description |
 |------|-------------|
 | **Home** | PRs, project #39 issues, and ROCm vs upstream test parity |
-| **CI Health** | Latest exact AMD job variants by architecture, reviewed runtime targets with explicit mapping/no-definition reasons, definition parity, diagnostics, and evidence links |
-| **CI Analytics** | Nightly build comparison, recent builds, group trends, AMD hardware matrix, queue comparison |
-| **Queue Monitor** | Buildkite queue workload, wait-time charts, active job overlays, admin triage, and AMD capacity projections |
+| **CI Health** | Visual AMD runtime overview, main-only upstream parity, reviewed target health with explicit mapping/no-definition reasons, and architecture drilldowns |
+| **CI Analytics** | AMD test health, precomputed 30-day flake/retry/latency comparison, nightlies, DNS, and agent health |
+| **Queue Monitor** | Buildkite queue workload, wait-time charts, active job overlays, and AMD capacity projections |
 | **Hotness / Omni** | Workload trajectories; exact Omni active-job evidence, 1h–3d queue windows, queued-age bands, daily deltas, and explicit partial-attribution labels |
-| **Ready Tickets** | Signed-in AMD failure evidence plus ranked CI ownership, escalation chains, assignments, and managed regression issues |
-| **Admin** | Signed-in dashboard access administration |
-
-Ready Tickets and its CI ownership view require a freshly verified GitHub PAT
-before their data is requested or rendered. This is a client-side access
-boundary for the current static deployment, not server-side confidentiality:
-the repository and GitHub Pages artifacts are public. Private operational data
-would require an authenticated backend or private hosting.
 
 ## Markdown Dashboards
 
@@ -111,8 +103,8 @@ that every high-value input still has a producer and consumer.
 The reviewed upstream CUDA-to-ROCm test-group inventory lives in
 `config/vllm_upstream_test_group_parity.json`. Its validated public
 projection is `data/vllm/ci/test_group_parity.json`, with physical and logical
-upstream totals, applicable coverage on the reviewed main snapshot and with
-proposed changes, separate ROCm physical/logical inventory counts, area
+upstream totals, applicable coverage on the reviewed main snapshot, separate
+ROCm physical/logical inventory counts, area
 summaries, and all reviewed group rows kept distinct. It does not track a
 hard-coded pull request or expose matcher-link bookkeeping as parity.
 
@@ -148,7 +140,7 @@ attributes each definition through
 a parity snapshot pinned to that nightly's exact vLLM commit, and reconciles one state-owned issue
 per area in `AndreasKaratzas/vllm-ci-dashboard`. Current regressions, exact
 Buildkite evidence, upstream parity gaps, the ranked chain, and the actual
-GitHub assignees are shown in **Ready Tickets → CI ownership**.
+GitHub assignees are shown on the managed area issues and AMD CI Operations project.
 
 The ownership config carries two shared, DST-aware working-hours profiles.
 They are operational shifts, not claims about an engineer's home location. EU
@@ -188,23 +180,13 @@ fallback is confined to the repository/project-validated add-item script;
 install the scoped replacement and remove the legacy secret when rotation is
 complete.
 
-Ready Tickets reads the public `vllm-project` Project #39 through GitHub's
-read-only Projects REST API, so refreshing `project_items.json` does not depend
-on an Actions secret. `PROJECTS_READ_TOKEN` is optional and only raises the API
-rate limit. The scheduled workflow treats a failed Project snapshot refresh as
-an error instead of reporting a successful sync with stale evidence. Ready
-Tickets never creates or updates Project #39 issues, comments, or fields.
+The hourly GitHub collector reads public `vllm-project` Project #39 and refreshes
+`project_items.json` as a read-only fallback for the Home issue list.
+`PROJECTS_READ_TOKEN` is optional and only raises the API rate limit. Dashboard
+automation never creates or updates Project #39 issues, comments, or fields.
 
-Current AMD nightly failures share one writable
-[dashboard-owned tracker, issue #255](https://github.com/AndreasKaratzas/vllm-ci-dashboard/issues/255).
-The scheduled workflow creates or updates only its single managed automation
-comment, using the repository-scoped `GITHUB_TOKEN` with `issues: write`; no
-upstream comment token is required. Upstream vLLM issues and Project #39 remain
-read-only.
-
-The canonical operational view is **Ready Tickets → CI ownership**. Project #39
-supplies read-only issue evidence, dashboard issue #255 supplies the shared
-current-failure summary, and area issues provide the exact latest-nightly
+The canonical operational queue is the **AMD CI Operations** project and its managed area issues. Project #39
+supplies read-only issue evidence, while area issues provide the exact latest-nightly
 ownership queue. The existing `amd-main-failure` issue remains a broad all-main
 rollup; these evidence scopes are intentionally distinct.
 

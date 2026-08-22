@@ -364,71 +364,14 @@ class TestFetchAllOpenIssues:
         assert 12345 not in numbers
 
 
-class TestCollectProjectIncludesLinkedIssuePrs:
-    def test_collect_project_pulls_in_ready_ticket_linked_prs(
-        self, tmp_path, monkeypatch, patch_gh_api
-    ):
-        data_root = tmp_path / "data"
-        ready_dir = data_root / "vllm" / "ci"
-        ready_dir.mkdir(parents=True)
-        (ready_dir / "ready_tickets.json").write_text(json.dumps({
-            "issue_repo": "vllm-project/vllm",
-            "tickets": [
-                {
-                    "issue_number": 40240,
-                    "linked_prs": [
-                        {"number": 40176, "url": "https://github.com/vllm-project/vllm/pull/40176"}
-                    ],
-                }
-            ],
-        }))
-        monkeypatch.setattr(collect, "DATA", data_root)
-        monkeypatch.setattr(collect, "fetch_project_open_issues", lambda *a, **kw: [])
-        monkeypatch.setattr(collect, "fetch_project_open_issues_from_snapshot", lambda *a, **kw: [])
-
-        linked_pr = {
-            "number": 40176,
-            "title": "[ROCm] Support non-causal attention in ROCM_ATTN",
-            "state": "open",
-            "user": {"login": "micah-wil"},
-            "created_at": "2026-04-17T21:30:57Z",
-            "updated_at": "2026-04-20T22:23:00Z",
-            "html_url": "https://github.com/vllm-project/vllm/pull/40176",
-            "labels": [],
-            "draft": False,
-            "merged_at": None,
-            "body": "Fix DFlash spec decoding",
-        }
-        patch_gh_api({
-            "/repos/vllm-project/vllm/pulls/40176": linked_pr,
-        })
-        monkeypatch.setattr(collect, "fetch_open_label_prs", lambda *a, **kw: [])
-        monkeypatch.setattr(collect, "fetch_prs", lambda *a, **kw: [])
-        monkeypatch.setattr(collect, "fetch_issues", lambda *a, **kw: [])
-        monkeypatch.setattr(collect, "fetch_releases", lambda *a, **kw: [])
-
-        collect.collect_project("vllm", {
-            "repo": "vllm-project/vllm",
-            "role": "upstream_watch",
-            "track_authors": [],
-            "track_labels": ["rocm", "amd"],
-            "track_keywords": ["ROCm", "AMD", "HIP"],
-        })
-
-        payload = json.loads((data_root / "vllm" / "prs.json").read_text())
-        numbers = [pr["number"] for pr in payload["prs"]]
-        assert 40176 in numbers, (
-            "PRs explicitly linked from tracked CI issues must be present in prs.json "
-            "even when the coarse author/label/keyword filters miss them"
-        )
-
+class TestCollectProjectIncludesProjectIssues:
     def test_collect_project_pulls_in_project_snapshot_issue_with_assignee(
         self, tmp_path, monkeypatch, patch_gh_api
     ):
         data_root = tmp_path / "data"
-        ready_dir = data_root / "vllm" / "ci"
-        ready_dir.mkdir(parents=True)
-        (ready_dir / "project_items.json").write_text(json.dumps({
+        project_dir = data_root / "vllm" / "ci"
+        project_dir.mkdir(parents=True)
+        (project_dir / "project_items.json").write_text(json.dumps({
             "items_by_number": {
                 "40240": {
                     "issue_number": 40240,
@@ -484,3 +427,41 @@ class TestCollectProjectIncludesLinkedIssuePrs:
             "repo": "vllm-project/vllm",
             "linked_prs": [],
         }]
+
+    def test_live_project_issues_refresh_the_independent_snapshot(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(collect, "DATA", tmp_path / "data")
+        monkeypatch.setattr(
+            collect,
+            "now_iso",
+            lambda: "2026-08-22T10:00:00Z",
+        )
+
+        collect.write_project_items_snapshot([{
+            "number": 40240,
+            "state": "open",
+            "repo": "vllm-project/vllm",
+            "project_status": "In Progress",
+            "title": "[CI Failure]: V1 Spec Decode",
+            "html_url": "https://github.com/vllm-project/vllm/issues/40240",
+        }])
+
+        snapshot = json.loads(
+            (tmp_path / "data/vllm/ci/project_items.json").read_text()
+        )
+        assert snapshot == {
+            "generated_at": "2026-08-22T10:00:00Z",
+            "items_by_number": {
+                "40240": {
+                    "issue_number": 40240,
+                    "issue_state": "OPEN",
+                    "repo": "vllm-project/vllm",
+                    "status": "In Progress",
+                    "title": "[CI Failure]: V1 Spec Decode",
+                    "url": "https://github.com/vllm-project/vllm/issues/40240",
+                }
+            },
+            "project": "vllm-project/projects/39",
+            "project_url": "https://github.com/orgs/vllm-project/projects/39",
+        }

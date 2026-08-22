@@ -3,7 +3,6 @@
   "policy": "The site assembler publishes only the files listed here. Every other file under data/ is private collector input, state, cache, or a retired artifact.",
   "required_files": [
     "site/projects.json",
-    "users.json",
     "vllm/ci/amd_test_matrix.json",
     "vllm/ci/capacity_monitor.json",
     "vllm/ci/ci_health.json",
@@ -12,7 +11,6 @@
     "vllm/ci/failure_trends.json",
     "vllm/ci/flaky_tests.json",
     "vllm/ci/gating_nightlies.json",
-    "vllm/ci/gating_proposals.json",
     "vllm/ci/gating_target_candidates.json",
     "vllm/ci/gating_targets.json",
     "vllm/ci/group_changes.json",
@@ -23,9 +21,7 @@
     "vllm/ci/queue_jobs.json",
     "vllm/ci/queue_lifecycle.json",
     "vllm/ci/queue_timeseries.jsonl",
-    "vllm/ci/ready_tickets.json",
     "vllm/ci/shard_bases.json",
-    "vllm/ci/test_builds/index.json",
     "vllm/ci/test_group_parity.json",
     "vllm/ci/workload_mapping.json",
     "vllm/issues.json",
@@ -35,10 +31,7 @@
     "vllm/releases.json",
     "vllm/test_results.json"
   ],
-  "optional_files": [
-    "vllm/ci/engineers.enc.json",
-    "vllm/ci/kill_auth.enc.json"
-  ],
+  "optional_files": [],
   "build_inputs": [
     "vllm/ci/analytics.json",
     "vllm/ci/operations_v2.json",
@@ -51,15 +44,15 @@
       "max_bytes": 8388608
     }
   ],
-  "optional_globs": [
-    "vllm/ci/test_builds/*/comparison.json"
-  ],
+  "optional_globs": [],
   "generated_files": [
     "vllm/ci/org_summary.json",
     "vllm/ci/operations_v2_manifest.json",
     "vllm/ci/queue_history_chart.json",
     "vllm/ci/operations_v2/amd_agent_health.json",
     "vllm/ci/operations_v2/amd_test_health.json",
+    "vllm/ci/operations_v2/comparison.json",
+    "vllm/ci/operations_v2/comparison_retry_evidence.json",
     "vllm/ci/operations_v2/definition_parity.json",
     "vllm/ci/operations_v2/diagnostics.json",
     "vllm/ci/operations_v2/gating.json",
@@ -75,10 +68,15 @@
   "never_publish_patterns": [
     "*/.cache/*",
     "**/.cache/**/*",
+    "users.json",
+    "vllm/ci/engineers.enc.json",
+    "vllm/ci/kill_auth.enc.json",
+    "vllm/ci/gating_proposals.json",
+    "vllm/ci/ready_tickets.json",
+    "vllm/ci/test_builds/*",
     "vllm/ci/agent_health/*",
     "vllm/ci/dns_health/*",
     "vllm/ci/test_results/*",
-    "vllm/ci/test_builds/*/results.jsonl",
     "vllm/perf_eval/events.jsonl",
     "vllm/ci/open_*_issues.json",
     "vllm/ci/*_state.json",

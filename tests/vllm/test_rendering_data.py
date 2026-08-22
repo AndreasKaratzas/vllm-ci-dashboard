@@ -45,7 +45,7 @@ class TestProjectsTab:
 
     @pytest.mark.parametrize("required_file", ["prs.json", "issues.json"])
     def test_core_data_files_exist(self, projects, required_file):
-        """These files are loaded by dashboard.js for every project."""
+        """These files feed the active Operations home view."""
         missing = []
         for name in projects:
             if not (DATA / name / required_file).exists():

@@ -76,7 +76,7 @@ GITHUB_MENTION_RE = re.compile(
 )
 DASHBOARD_URL = (
     "https://andreaskaratzas.github.io/vllm-ci-dashboard/"
-    "?ops_ready_view=ownership#ci-ready"
+    "?ops_health_view=targets&ops_health_result=incident#ci-health"
 )
 UPSTREAM_PARITY_EXAMPLE = "https://github.com/vllm-project/vllm/pull/49340"
 COMMIT_IN_YAML_URL_RE = re.compile(

@@ -19,8 +19,7 @@ dev = [
     "types-PyYAML>=6.0.12",
     "types-requests",
     "pre-commit>=4.3.0",
-    # AES-GCM + PBKDF2 for the admin-only roster encryption CLI
-    # (scripts/vllm/encrypt_roster.py). Must match docs/assets/js/token-vault.js.
+    # Fernet encryption for private DNS collector state.
     "cryptography>=42",
 ]
 

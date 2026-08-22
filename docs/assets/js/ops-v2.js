@@ -19,6 +19,7 @@
   const QUEUE_LIFECYCLE_LIVE_BASE = 'https://raw.githubusercontent.com/AndreasKaratzas/vllm-ci-dashboard/queue-lifecycle-data/data/vllm/ci/';
   const QUEUE_DNS_LIVE_BASE = 'https://raw.githubusercontent.com/AndreasKaratzas/vllm-ci-dashboard/dns-health-data/data/vllm/ci/';
   let operationsManifestPromise = null;
+  let comparisonRetryEvidencePromise = null;
   let chartLibraryPromise = null;
   let lastQueueRefreshAt = 0;
   let lastDnsRefreshAt = 0;
@@ -26,6 +27,16 @@
   const SOURCE_ASSETS = {
     operations: 'data/vllm/ci/operations_v2_manifest.json',
     operationsManifest: 'data/vllm/ci/operations_v2_manifest.json',
+    nightly: 'data/vllm/ci/operations_v2/nightly.json',
+    amdTestHealth: 'data/vllm/ci/operations_v2/amd_test_health.json',
+    amdAgentHealth: 'data/vllm/ci/operations_v2/amd_agent_health.json',
+    reliability: 'data/vllm/ci/operations_v2/reliability.json',
+    comparison: 'data/vllm/ci/operations_v2/comparison.json',
+    comparisonRetryEvidence: 'data/vllm/ci/operations_v2/comparison_retry_evidence.json',
+    gating: 'data/vllm/ci/operations_v2/gating.json',
+    testGroupParity: 'data/vllm/ci/operations_v2/test_group_parity.json',
+    trajectory: 'data/vllm/ci/operations_v2/trajectory.json',
+    omni: 'data/vllm/ci/operations_v2/omni.json',
     queueSection: QUEUE_LIVE_BASE + 'operations_v2/queue.json',
     queueChartHistory: QUEUE_LIVE_BASE + 'queue_history_chart.json',
     queueChartHistoryFallback: 'data/vllm/ci/queue_history_chart.json',
@@ -45,7 +56,6 @@
   const CHART_LIBRARY_URL = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js';
   const state = {
     healthView: 'overview',
-    healthQualityView: 'mapping',
     healthCoverageSort: 'platform',
     healthParityState: 'action',
     healthParityArea: 'all',
@@ -54,12 +64,12 @@
     homeWork: 'issues',
     healthSearch: '',
     healthPlan: 'upstream_only',
-    healthResult: 'all',
+    healthResult: 'attention',
     analyticsSearch: '',
     analyticsGroupId: '',
     analyticsGroupCohort: 'main',
     analyticsAmdFilter: 'attention',
-    analyticsWindow: '24h',
+    analyticsWindow: '30d',
     analyticsDnsScope: 'amd',
     analyticsDnsWindow: '24h',
     agentWindow: '7d',
@@ -105,8 +115,6 @@
     'ci-health': new Set([
       'ops_health_view', 'ops_health_sort', 'ops_health_result',
       'ops_health_parity_state', 'ops_health_parity_area',
-      'ops_health_quality_view', 'ops_health_definition_filter',
-      'ops_health_definition_search',
     ]),
     'ci-analytics': new Set([
       'ops_analytics_view', 'ops_analytics_pipeline', 'ops_analytics_search',
@@ -131,9 +139,8 @@
   };
   const ROUTE_DEFAULTS = {
     health_view: 'overview',
-    health_quality_view: 'mapping',
     health_sort: 'platform',
-    health_result: 'all',
+    health_result: 'attention',
     health_parity_state: 'action',
     health_parity_area: 'all',
     health_definition_filter: 'upstream_only',
@@ -144,7 +151,7 @@
     analytics_group: '',
     analytics_cohort: 'main',
     analytics_amd_filter: 'attention',
-    analytics_window: '24h',
+    analytics_window: '30d',
     analytics_dns_scope: 'amd',
     analytics_dns_window: '24h',
     agent_window: '7d',
@@ -409,14 +416,11 @@
   function syncRouteState(tabId) {
     const specs = {
       'ci-health': [
-        ['healthView', 'health_view', ['overview', 'parity', 'targets', 'coverage', 'quality', 'gating', 'diagnostics']],
-        ['healthQualityView', 'health_quality_view', ['mapping', 'collectors']],
+        ['healthView', 'health_view', ['overview', 'parity', 'targets', 'coverage']],
         ['healthCoverageSort', 'health_sort', ['platform', 'name', 'area']],
-        ['healthResult', 'health_result', ['all', 'incident', 'unobserved', 'passed']],
-        ['healthParityState', 'health_parity_state', ['all', 'existing', 'proposed', 'unsupported', 'action']],
+        ['healthResult', 'health_result', ['attention', 'incident', 'no_definition', 'mapping_review', 'not_observed', 'passed', 'all']],
+        ['healthParityState', 'health_parity_state', ['all', 'existing', 'unsupported', 'action']],
         ['healthParityArea', 'health_parity_area', null],
-        ['healthPlan', 'health_definition_filter', ['all', 'amd', 'covered', 'direct', 'inline_variant', 'additional_variant', 'twins', 'changed', 'unlinked', 'amd_only', 'upstream_only', 'mirror_inventory']],
-        ['healthSearch', 'health_definition_search', null],
       ],
       'ci-analytics': [
         ['analyticsView', 'analytics_view', ['groups', 'flakes', 'nightlies', 'retries', 'latency', 'dns', 'agent-health']],
@@ -425,7 +429,7 @@
         ['analyticsGroupId', 'analytics_group', null],
         ['analyticsGroupCohort', 'analytics_cohort', ['main', 'nightly']],
         ['analyticsAmdFilter', 'analytics_amd_filter', ['attention', 'all', 'passing', 'incident', 'missing', 'mixed']],
-        ['analyticsWindow', 'analytics_window', ['1h', '3h', '6h', '24h', '7d', '30d']],
+        ['analyticsWindow', 'analytics_window', ['30d']],
         ['analyticsDnsScope', 'analytics_dns_scope', ['canonical', 'amd']],
         ['analyticsDnsWindow', 'analytics_dns_window', ['1h', '3h', '12h', '24h', '72h', '168h', '720h']],
         ['agentWindow', 'agent_window', ['1d', '3d', '7d', '14d', '30d', '60d']],
@@ -475,13 +479,6 @@
       const fallback = Object.prototype.hasOwnProperty.call(ROUTE_DEFAULTS, spec[1]) ? ROUTE_DEFAULTS[spec[1]] : '';
       state[spec[0]] = next && (!spec[2] || spec[2].includes(next)) ? next : fallback;
     });
-    if (tabId === 'ci-health' && ['gating', 'diagnostics'].includes(state.healthView)) {
-      const legacyView = state.healthView;
-      state.healthView = 'quality';
-      state.healthQualityView = legacyView === 'gating' ? 'mapping' : 'collectors';
-      setQueryValue('health_view', 'quality');
-      setQueryValue('health_quality_view', state.healthQualityView);
-    }
     if (tabId === 'ci-analytics' && queryValue('analytics_search') !== null) state.analyticsView = 'groups';
   }
 
@@ -792,14 +789,13 @@
 
   function tabList(items, current, onChange, ariaLabel) {
     const wrap = n('div', 'ops-tabs ops-health-tabs');
-    wrap.setAttribute('role', 'tablist');
+    wrap.setAttribute('role', 'group');
     wrap.setAttribute('aria-label', ariaLabel || 'Views');
     const controls = [];
     items.forEach(function (item, index) {
       const control = n('button', 'ops-tab' + (item.id === current ? ' is-active' : ''), item.label);
       control.type = 'button';
-      control.setAttribute('role', 'tab');
-      control.setAttribute('aria-selected', item.id === current ? 'true' : 'false');
+      control.setAttribute('aria-pressed', item.id === current ? 'true' : 'false');
       control.tabIndex = item.id === current ? 0 : -1;
       control.addEventListener('click', function () {
         if (item.id === current) return;
@@ -822,7 +818,7 @@
       controls.push(control);
       wrap.append(control);
     });
-    const active = controls.find(function (control) { return control.getAttribute('aria-selected') === 'true'; });
+    const active = controls.find(function (control) { return control.getAttribute('aria-pressed') === 'true'; });
     if (active) requestAnimationFrame(function () {
       const centered = active.offsetLeft - Math.max(0, (wrap.clientWidth - active.offsetWidth) / 2);
       wrap.scrollLeft = Math.max(0, centered);
@@ -1657,41 +1653,63 @@
     };
   }
 
+  const reliabilityCatalogCache = new WeakMap();
+  const reliabilityCatalogIndexCache = new WeakMap();
+
   function reliabilityCatalog(reliability) {
+    if (!reliability || typeof reliability !== 'object') return [];
+    if (reliabilityCatalogCache.has(reliability)) return reliabilityCatalogCache.get(reliability);
+    let result;
     if (Array.isArray(reliability.group_catalog)) {
-      return reliability.group_catalog.map(function (row) { return Object.assign({}, row); });
+      result = reliability.group_catalog.map(function (row) { return Object.assign({}, row); });
+    } else {
+      const candidates = [];
+      ['groups', 'test_groups', 'flaky_candidates'].forEach(function (key) {
+        const value = reliability[key];
+        if (Array.isArray(value)) candidates.push.apply(candidates, value);
+        else if (value && typeof value === 'object') candidates.push.apply(candidates, Object.values(value));
+      });
+      const rankings = reliability.latency_rankings || {};
+      ['by_p90_duration', 'by_median_duration', 'by_failure_rate'].forEach(function (key) {
+        if (Array.isArray(rankings[key])) candidates.push.apply(candidates, rankings[key]);
+      });
+      const byIdentity = new Map();
+      candidates.forEach(function (row) {
+        const name = row.name || row.label || row.group || row.group_name;
+        if (!name) return;
+        const variant = [row.id || row.evidence_ref, name, row.hardware || row.hw, (row.queues || []).join('|'), row.queue, row.shard, row.step_key].filter(Boolean).join('::');
+        const key = row.id || row.evidence_ref ? 'id:' + String(row.id || row.evidence_ref) : 'variant:' + normalizeLabel(variant);
+        byIdentity.set(key, Object.assign({}, byIdentity.get(key) || {}, row, {name: name}));
+      });
+      result = Array.from(byIdentity.values());
     }
-    const candidates = [];
-    ['groups', 'test_groups', 'flaky_candidates'].forEach(function (key) {
-      const value = reliability[key];
-      if (Array.isArray(value)) candidates.push.apply(candidates, value);
-      else if (value && typeof value === 'object') candidates.push.apply(candidates, Object.values(value));
+    reliabilityCatalogCache.set(reliability, result);
+    return result;
+  }
+
+  function reliabilityCatalogIndex(reliability) {
+    if (!reliability || typeof reliability !== 'object') return {byId: new Map(), byName: new Map()};
+    if (reliabilityCatalogIndexCache.has(reliability)) return reliabilityCatalogIndexCache.get(reliability);
+    const index = {byId: new Map(), byName: new Map()};
+    reliabilityCatalog(reliability).forEach(function (row) {
+      if (row.id !== null && row.id !== undefined && row.id !== '') index.byId.set(String(row.id), row);
+      const key = normalizeLabel(row.name);
+      if (!index.byName.has(key)) index.byName.set(key, []);
+      index.byName.get(key).push(row);
     });
-    const rankings = reliability.latency_rankings || {};
-    ['by_p90_duration', 'by_median_duration', 'by_failure_rate'].forEach(function (key) {
-      if (Array.isArray(rankings[key])) candidates.push.apply(candidates, rankings[key]);
-    });
-    const byIdentity = new Map();
-    candidates.forEach(function (row) {
-      const name = row.name || row.label || row.group || row.group_name;
-      if (!name) return;
-      const variant = [row.id || row.evidence_ref, name, row.hardware || row.hw, (row.queues || []).join('|'), row.queue, row.shard, row.step_key].filter(Boolean).join('::');
-      const key = row.id || row.evidence_ref ? 'id:' + String(row.id || row.evidence_ref) : 'variant:' + normalizeLabel(variant);
-      byIdentity.set(key, Object.assign({}, byIdentity.get(key) || {}, row, {name: name}));
-    });
-    return Array.from(byIdentity.values());
+    reliabilityCatalogIndexCache.set(reliability, index);
+    return index;
   }
 
   function groupReliability(reliability, name) {
     const key = normalizeLabel(name);
-    const matches = reliabilityCatalog(reliability).filter(function (row) { return normalizeLabel(row.name) === key; });
+    const matches = reliabilityCatalogIndex(reliability).byName.get(key) || [];
     return matches.length === 1 ? matches[0] : null;
   }
 
   function groupReliabilityByRef(reliability, reference, name) {
-    const rows = reliabilityCatalog(reliability);
     if (reference !== null && reference !== undefined && reference !== '') {
-      const byId = rows.find(function (row) { return String(row.id) === String(reference); });
+      const byId = reliabilityCatalogIndex(reliability).byId.get(String(reference));
       return byId || null;
     }
     return groupReliability(reliability, name);
@@ -1700,8 +1718,8 @@
   function groupReliabilityRowsByIds(reliability, references, fallbackName) {
     const ids = (references || []).filter(function (id) { return id !== null && id !== undefined && id !== ''; }).map(String);
     if (ids.length) {
-      const wanted = new Set(ids);
-      return reliabilityCatalog(reliability).filter(function (row) { return wanted.has(String(row.id)); });
+      const byId = reliabilityCatalogIndex(reliability).byId;
+      return ids.map(function (id) { return byId.get(id); }).filter(Boolean);
     }
     const fallback = groupReliability(reliability, fallbackName);
     return fallback ? [fallback] : [];
@@ -1803,6 +1821,22 @@
       return;
     }
     const name = group.name || group.label || group.group || 'Test group';
+    const content = n('div', 'ops-stack');
+    if ((reference || name) && !reliabilityCatalog(reliability).length) {
+      const loadHistory = button('Load 30-day run history', function () {
+        loadHistory.disabled = true;
+        loadHistory.textContent = 'Loading run history…';
+        loadOperationSections(ops, ['reliability']).then(function (expanded) {
+          backOverlay();
+          openGroupDetail(group, expanded, reliabilityRow);
+        }).catch(function (error) {
+          loadHistory.disabled = false;
+          loadHistory.textContent = 'Retry loading run history';
+          console.error('Reliability evidence load failed:', error);
+        });
+      }, true);
+      content.append(loadHistory);
+    }
     openDetailDrawer({
       id: 'group-' + name,
       title: name,
@@ -1816,6 +1850,7 @@
         {label: 'Queues', value: (group.queues || []).join(', ') || group.queue},
       ],
       sources: recordUrl(group) ? [{label: 'Open source evidence', url: recordUrl(group)}] : [],
+      content: content,
     });
   }
 
@@ -1966,6 +2001,21 @@
       const openHistory = button('Inspect all variants and observations', function () { openMixedOutcomeEvidence(combined); }, true);
       content.append(openHistory);
     }
+    if (!reliabilityCatalog(reliability).length) {
+      const loadHistory = button('Load full 30-day variant history', function () {
+        loadHistory.disabled = true;
+        loadHistory.textContent = 'Loading variant history…';
+        loadOperationSections(ops, ['reliability']).then(function (expanded) {
+          backOverlay();
+          openGatingDetail(group, expanded);
+        }).catch(function (error) {
+          loadHistory.disabled = false;
+          loadHistory.textContent = 'Retry loading variant history';
+          console.error('Reviewed target reliability load failed:', error);
+        });
+      }, true);
+      content.append(loadHistory);
+    }
     const plan = group.reviewed_plan || {};
     const latest = group.latest_amd_result || {};
     const main = group.main_reliability || {};
@@ -2003,36 +2053,18 @@
         gatingEvidenceUrl(group) ? {label: 'Open latest AMD evidence', url: gatingEvidenceUrl(group)} : null,
         resolution.sourceUrls.amd_matrix ? {label: 'Open AMD matrix definition source', url: resolution.sourceUrls.amd_matrix} : null,
         resolution.sourceUrls.definition_parity ? {label: 'Open definition-parity source', url: resolution.sourceUrls.definition_parity} : null,
-        {label: 'Open published reliability catalog', url: SOURCE_ASSETS.operations},
+        {label: 'Open published target data', url: SOURCE_ASSETS.upstreamScheduledGating},
       ],
       content: content,
     });
   }
 
   function openGatingDetailWithEvidence(group, ops) {
-    if (reliabilityCatalog(canonicalReliability(ops)).length) {
-      openGatingDetail(group, ops);
-      return;
-    }
-    loadOperationSections(ops, ['reliability']).then(function (expanded) {
-      openGatingDetail(group, expanded);
-    }).catch(function (error) {
-      console.error('Reviewed target reliability load failed:', error);
-      openGatingDetail(group, ops);
-    });
+    openGatingDetail(group, ops);
   }
 
   function openGroupDetailWithEvidence(group, ops) {
-    if (reliabilityCatalog(canonicalReliability(ops)).length) {
-      openGroupDetail(group, ops);
-      return;
-    }
-    loadOperationSections(ops, ['reliability']).then(function (expanded) {
-      openGroupDetail(group, expanded);
-    }).catch(function (error) {
-      console.error('Reliability evidence load failed:', error);
-      openGroupDetail(group, ops);
-    });
+    openGroupDetail(group, ops);
   }
 
   function definitionParityComparisonRows(parity) {
@@ -2333,8 +2365,8 @@
         {label: 'Count source', value: row.count_source},
       ],
       sources: row.queue_url || row.url
-        ? [{label: 'Open Buildkite queue', url: row.queue_url || row.url}, {label: 'Open published queue snapshot', url: SOURCE_ASSETS.operations}]
-        : [{label: 'Open published queue snapshot', url: SOURCE_ASSETS.operations}],
+        ? [{label: 'Open Buildkite queue', url: row.queue_url || row.url}, {label: 'Open published queue snapshot', url: SOURCE_ASSETS.queueSection}]
+        : [{label: 'Open published queue snapshot', url: SOURCE_ASSETS.queueSection}],
       content: content,
     });
   }
@@ -2778,6 +2810,7 @@
       if (state.analyticsView === 'agent-health') return ['amd_agent_health'];
       if (state.analyticsView === 'nightlies') return ['nightly'];
       if (state.analyticsView === 'dns') return [];
+      if (['flakes', 'retries', 'latency'].includes(state.analyticsView)) return ['comparison'];
       return ['reliability'];
     }
     if (tabId === 'ci-queue') return ['queue'];
@@ -2825,6 +2858,20 @@
     const combined = mergeOperationPayload({}, ops || manifest.shell);
     sections.forEach(function (section) { mergeOperationPayload(combined, section); });
     return combined;
+  }
+
+  function loadComparisonRetryEvidence() {
+    if (!comparisonRetryEvidencePromise) {
+      comparisonRetryEvidencePromise = loadOperationSections(null, ['comparison_retry_evidence']).then(function (payload) {
+        const retry = (canonicalReliability(payload).retry_analysis || {});
+        if (retry.evidence_deferred === true) throw new Error('Exact retry evidence is still deferred');
+        return retry;
+      }).catch(function (error) {
+        comparisonRetryEvidencePromise = null;
+        throw error;
+      });
+    }
+    return comparisonRetryEvidencePromise;
   }
 
   async function loadOperations(tabId) {
@@ -3777,7 +3824,6 @@
       {id: 'overview', label: 'Overview'}, {id: 'parity', label: 'Upstream parity'},
       {id: 'targets', label: 'Target health'},
       {id: 'coverage', label: 'AMD hardware'},
-      {id: 'quality', label: 'Data quality'},
     ], state.healthView, function (id) { setRouteState('ci-health', 'healthView', id, 'health_view'); }, 'CI Health view'));
   }
 
@@ -3816,7 +3862,6 @@
   function testGroupParityState(stateName) {
     const presentations = {
       existing: {label: '● Covered on main', tone: 'is-success'},
-      proposed: {label: '● Proposed addition', tone: 'is-warning'},
       unsupported: {label: '■ Not targeted / unsupported', tone: 'is-not-targeted'},
       action: {label: '● Missing / investigate', tone: 'is-danger'},
     };
@@ -3828,22 +3873,194 @@
       return (stateName === 'all' || row.state === stateName)
         && (areaName === 'all' || row.area === areaName);
     }).sort(function (left, right) {
-      const rank = {action: 0, proposed: 1, unsupported: 2, existing: 3};
+      const rank = {action: 0, unsupported: 1, existing: 2};
       return Number(rank[left.state] || 0) - Number(rank[right.state] || 0)
         || String(left.area || '').localeCompare(String(right.area || ''))
         || Number(left.id || 0) - Number(right.id || 0);
     });
   }
 
-  function testGroupParityColumns() {
+  function openTestGroupParityDetail(row, payload) {
+    const source = (payload || {}).source || {};
+    const commit = source.main_commit || source.commit_sha || '';
+    const commitUrl = source.main_commit_url || (commit ? 'https://github.com/vllm-project/vllm/commit/' + commit : '');
+    const presentation = testGroupParityState(row.state);
+    openDetailDrawer({
+      id: 'parity-group-' + row.id,
+      title: row.title || 'Upstream logical test group',
+      subtitle: 'Reviewed CUDA-to-ROCm coverage on vLLM main',
+      description: row.assessment || 'No reviewed assessment is available.',
+      fields: [
+        {label: 'Inventory number', value: row.id},
+        {label: 'Test area', value: row.area},
+        {label: 'Main status', value: presentation.label.replace(/^[●■]\s*/, '')},
+        {label: 'Upstream CUDA variants', value: row.cuda_variants},
+        {label: 'ROCm assessment', value: row.assessment},
+      ],
+      sources: [
+        commitUrl ? {label: 'Open reviewed vLLM main commit', url: commitUrl} : null,
+      ],
+    });
+  }
+
+  function testGroupParityColumns(payload) {
     return [
       {label: '#', numeric: true, width: '70px', render: function (row) { return n('span', 'ops-mono', integer(row.id)); }},
-      {label: 'Upstream logical test group', sticky: true, width: '330px', render: function (row) { return value(row.title); }},
+      {label: 'Upstream logical test group', sticky: true, width: '330px', render: function (row) { return linkButton(row.title, function () { openTestGroupParityDetail(row, payload); }); }},
       {label: 'Area', width: '180px', render: function (row) { return value(row.area); }},
       {label: 'CUDA variants', width: '180px', render: function (row) { return value(row.cuda_variants); }},
-      {label: 'State', width: '225px', render: function (row) { const presentation = testGroupParityState(row.state); return badge(presentation.label, presentation.tone); }},
-      {label: 'ROCm counterpart or assessment', width: '480px', render: function (row) { return value(row.assessment); }},
+      {label: 'Main status', width: '225px', render: function (row) { const presentation = testGroupParityState(row.state); return linkedBadge(presentation.label, null, function () { openTestGroupParityDetail(row, payload); }, presentation.tone); }},
+      {label: 'ROCm counterpart or assessment', width: '480px', render: function (row) { return linkButton(row.assessment, function () { openTestGroupParityDetail(row, payload); }); }},
     ];
+  }
+
+  function openParityRows(title, rows, payload, subtitle) {
+    openTableBrowser({
+      id: 'parity-' + String(title || 'groups').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      title: title,
+      subtitle: subtitle || integer(rows.length) + ' reviewed upstream logical test groups',
+      rows: rows,
+      columns: testGroupParityColumns(payload),
+      searchPlaceholder: 'Filter test group, area, CUDA variant, status, or assessment',
+      searchText: function (row) { return [row.id, row.title, row.area, row.cuda_variants, row.state, row.assessment].join(' '); },
+      geometry: {name: 'upstream-test-group-parity', minWidth: '1465px'},
+    });
+  }
+
+  function healthRingCard(options) {
+    const root = n(options.onOpen ? 'button' : 'section', 'ops-health-ring-card ' + (options.tone || ''));
+    if (options.onOpen) {
+      root.type = 'button';
+      root.addEventListener('click', options.onOpen);
+    }
+    const denominator = Math.max(0, Number(options.total || 0));
+    const numerator = Math.max(0, Number(options.current || 0));
+    const available = options.available !== false && denominator > 0;
+    const rate = available ? Math.min(100, numerator / denominator * 100) : 0;
+    const ring = n('span', 'ops-health-ring');
+    ring.style.setProperty('--ops-ring-progress', rate.toFixed(1));
+    add(ring, [
+      n('strong', '', available ? rate.toFixed(1) + '%' : '—'),
+      n('span', '', available ? integer(numerator) + ' / ' + integer(denominator) : 'Unavailable'),
+    ]);
+    const copy = n('span', 'ops-health-ring-copy');
+    add(copy, [
+      n('span', 'ops-eyebrow', options.eyebrow || ''),
+      n('span', 'ops-health-ring-title', options.title || ''),
+      n('span', 'ops-health-ring-meta', options.meta || ''),
+      options.onOpen ? n('span', 'ops-stat-action', options.actionLabel || 'Inspect groups →') : null,
+    ]);
+    add(root, [ring, copy]);
+    return root;
+  }
+
+  function healthDistributionCard(title, subtitle, segments) {
+    const total = (segments || []).reduce(function (sum, segment) { return sum + Number(segment.count || 0); }, 0);
+    const root = n('section', 'ops-health-distribution');
+    add(root, [n('div', 'ops-eyebrow', title), n('p', 'ops-health-distribution-copy', subtitle || '')]);
+    const track = n('div', 'ops-health-stack');
+    (segments || []).forEach(function (segment) {
+      if (!Number(segment.count || 0)) return;
+      const slice = n('span', 'ops-health-stack-segment ' + (segment.tone || ''));
+      slice.style.width = Number(segment.count || 0) / Math.max(1, total) * 100 + '%';
+      slice.title = segment.label + ': ' + integer(segment.count);
+      track.append(slice);
+    });
+    root.append(track);
+    const legend = n('div', 'ops-health-legend');
+    (segments || []).forEach(function (segment) {
+      const item = n(segment.onOpen ? 'button' : 'div', 'ops-health-legend-item ' + (segment.tone || ''));
+      if (segment.onOpen) {
+        item.type = 'button';
+        item.addEventListener('click', segment.onOpen);
+      }
+      add(item, [n('span', 'ops-health-legend-dot'), n('strong', '', integer(segment.count)), n('span', '', segment.label)]);
+      legend.append(item);
+    });
+    root.append(legend);
+    return root;
+  }
+
+  function healthAreaBoard(title, subtitle, areas, onOpen) {
+    const grid = n('div', 'ops-health-area-grid');
+    (areas || []).forEach(function (area) {
+      const control = n('button', 'ops-health-area-card');
+      control.type = 'button';
+      control.addEventListener('click', function () { onOpen(area); });
+      control.setAttribute('aria-label', area.label + ': ' + (area.segments || []).map(function (segment) {
+        return integer(segment.count) + ' ' + value(segment.label, 'groups');
+      }).join(', ') + '. Open group table.');
+      const header = n('div', 'ops-health-area-heading');
+      add(header, [n('strong', '', area.label), n('span', '', integer(area.attention) + ' need attention')]);
+      const stack = n('div', 'ops-health-mini-stack');
+      (area.segments || []).forEach(function (segment) {
+        if (!segment.count) return;
+        const slice = n('span', 'ops-health-stack-segment ' + (segment.tone || ''));
+        slice.style.width = Number(segment.count) / Math.max(1, Number(area.total || 0)) * 100 + '%';
+        slice.title = value(segment.label, 'Groups') + ': ' + integer(segment.count);
+        slice.setAttribute('aria-hidden', 'true');
+        stack.append(slice);
+      });
+      const preview = n('div', 'ops-health-area-preview');
+      (area.preview || []).slice(0, 3).forEach(function (label) { preview.append(n('span', '', label)); });
+      add(control, [header, stack, preview, n('span', 'ops-stat-action', 'Open group table →')]);
+      grid.append(control);
+    });
+    return panel(title, subtitle, grid, 'ops-health-area-panel');
+  }
+
+  function healthAreaLabel(area) {
+    const key = String(area || 'other').trim().toLowerCase().replaceAll('_', '-');
+    const labels = {
+      'lm-eval': 'LM Eval',
+      'models-language': 'Models · Language',
+      'models-multimodal': 'Models · Multimodal',
+      'pytorch': 'PyTorch',
+      'spec-decode': 'Spec Decode',
+    };
+    return labels[key] || key.split('-').map(function (word) {
+      return word ? word[0].toUpperCase() + word.slice(1) : '';
+    }).join(' ');
+  }
+
+  function openHealthDataFreshness(ops) {
+    const retiredSources = new Set(['ready_tickets']);
+    const cadenceHours = {amd_test_signal: 36, project_items: 36};
+    const rows = Object.entries((ops || {}).sources || {}).filter(function (entry) {
+      return !retiredSources.has(entry[0]);
+    }).map(function (entry) {
+      const record = entry[1] || {};
+      const observed = new Date(record.timestamp || record.generated_at || 0).getTime();
+      const expectedWithinHours = cadenceHours[entry[0]] || 6;
+      return {
+        name: entry[0].replaceAll('_', ' '),
+        timestamp: record.timestamp || record.generated_at,
+        path: record.path,
+        timestampSource: record.timestamp_source,
+        expectedWithinHours: expectedWithinHours,
+        published: record.published !== false,
+        stale: !Number.isFinite(observed) || Date.now() - observed > expectedWithinHours * 3600000,
+      };
+    }).sort(function (left, right) {
+      return Number(right.stale) - Number(left.stale) || String(left.name).localeCompare(String(right.name));
+    });
+    openTableBrowser({
+      id: 'ci-health-data-freshness',
+      title: 'CI Health data freshness',
+      subtitle: 'Collector inputs used by this snapshot; this view does not redirect to raw JSON',
+      rows: rows,
+      columns: [
+        {label: 'Input', sticky: true, width: '240px', render: function (row) { return value(row.name); }},
+        {label: 'Observed', width: '190px', render: function (row) { return shortDate(row.timestamp); }},
+        {label: 'Freshness', width: '180px', render: function (row) { return badge(row.stale ? 'outside ' + integer(row.expectedWithinHours) + 'h cadence' : age(row.timestamp), row.stale ? 'is-warning' : 'is-success'); }},
+        {label: 'Collector artifact', width: '300px', render: function (row) { return value(row.path); }},
+        {label: 'Dashboard role', width: '150px', render: function (row) { return badge(row.published ? 'published input' : 'private input', row.published ? 'is-info' : 'is-neutral'); }},
+        {label: 'Timestamp basis', width: '180px', render: function (row) { return value(row.timestampSource); }},
+      ],
+      searchPlaceholder: 'Filter collector input or artifact',
+      searchText: function (row) { return [row.name, row.path, row.timestampSource].join(' '); },
+      geometry: {name: 'ci-health-data-freshness', minWidth: '1220px'},
+    });
   }
 
   function ownershipAreaState(row) {
@@ -4030,25 +4247,17 @@
     const amd = latestAmd(ops);
     const build = (amd.builds || [])[0] || {};
     const gating = ops.gating || {};
-    const scheduledGating = upstreamScheduledGating(ops);
-    const scheduledGatingState = scheduledGatingPresentation(scheduledGating);
     const matrix = gating.matrix_summary || {};
     const uniqueHealth = matrixHealthPolicy(matrix);
     const amdHealthSummary = ((ops.amd_test_health || {}).summary) || {};
     const latestLogicalGroups = amdHealthSummary.latest_test_group_counts || {};
     const amdLatestStates = amdHealthSummary.latest_job_variant_state_counts || amdHealthSummary.latest_state_counts || {};
-    const amdSoft = Number(amdLatestStates.soft || 0);
-    const amdHard = Number(amdLatestStates.hard || 0);
-    const amdUnknown = Number(amdLatestStates.unknown || 0);
     const nightlyState = amdNightlyPresentation(build, amdHealthSummary, ops.generated_at);
     const viewDescriptions = {
       overview: 'Latest AMD nightly outcomes and failure movement. Logical test groups are separate from exact Buildkite job variants.',
-      parity: 'Reviewed upstream logical test groups covered on ROCm now and with proposed changes. Runtime pass/fail is separate.',
-      targets: 'Latest AMD runtime signal for all active configured target groups. Reviewed parity scope and scheduled upstream mirrors remain separate.',
+      parity: 'Reviewed upstream logical test-group coverage on vLLM main. Runtime pass/fail is separate.',
+      targets: 'Current AMD runtime and mapping signal for the reviewed target groups only.',
       coverage: 'Configured AMD test groups by architecture and the fixed best-hardware health policy.',
-      quality: state.healthQualityView === 'collectors'
-        ? 'Collector freshness and join integrity. Links to other dashboard sections are labeled explicitly.'
-        : 'Commit-pinned source-definition relationships. Matcher bookkeeping is not runtime health or upstream test-group parity.',
     };
     let headerAction = null;
     let observedAt = ops.generated_at;
@@ -4063,31 +4272,57 @@
       if (mainUrl) headerAction = externalLink('Open reviewed vLLM main ↗', mainUrl, 'ops-button');
       observedAt = (ops.test_group_parity || {}).reviewed_at || observedAt;
     }
-    add(host, pageHeader('CI Health', viewDescriptions[state.healthView] || viewDescriptions.overview, observedAt, headerAction));
+    const headerActions = n('div', 'ops-inline-actions');
+    if (headerAction) headerActions.append(headerAction);
+    headerActions.append(button('Data freshness', function () { openHealthDataFreshness(ops); }));
+    add(host, pageHeader('CI Health', viewDescriptions[state.healthView] || viewDescriptions.overview, observedAt, headerActions));
     healthTabs(host);
 
     if (state.healthView === 'overview') {
       const logicalGroups = logicalTestGroupPresentation(latestLogicalGroups);
-      host.append(statusStrip([
-        {
-          id: 'health-build',
-          label: 'LATEST AMD NIGHTLY',
-          value: nightlyState.label,
-          meta: build.number && nightlyState.hasSignal
-            ? '#' + integer(build.number) + ' · ' + integer(amdHard + amdSoft + amdUnknown) + ' non-passing exact job variants · ' + nightlyState.movementLabel
-            : nightlyState.meta,
-          tone: nightlyState.tone,
-          static: true,
-        },
-        {
-          id: 'health-latest-logical-groups',
-          label: 'LATEST AMD TEST GROUPS',
-          value: logicalGroups.value,
-          meta: logicalGroups.meta,
-          tone: logicalGroups.tone,
-          static: true,
-        },
-      ], 'Latest AMD runtime summary'));
+      const amdHealth = ops.amd_test_health || {};
+      const latestAmdBuild = ((amdHealth.summary || {}).latest_build_number);
+      const allAmdGroups = amdHealthGroups(amdHealth).filter(function (row) {
+        return Number(row.latest_build_number) === Number(latestAmdBuild);
+      });
+      const logicalInventory = amdLogicalInventory(amdHealth);
+      const logicalRows = logicalInventory.rows;
+      const logicalTotal = Number(latestLogicalGroups.total || 0);
+      const logicalPassing = Number(latestLogicalGroups.passing || 0);
+      const logicalPassingAll = Number(latestLogicalGroups.passing_all || 0);
+      const logicalPartial = Number(latestLogicalGroups.partial || 0);
+      const logicalNonPassing = Number(latestLogicalGroups.non_passing || 0);
+      function openLogicalRows(title, rows) {
+        openAmdLogicalCatalog(
+          title,
+          'Build-pinned logical test groups from latest observed AMD test signal #' + value(latestAmdBuild) + '; select a row for every hardware route and exact job',
+          rows,
+          logicalInventory,
+          amdHealth
+        );
+      }
+      const overviewHero = n('div', 'ops-health-hero-grid');
+      overviewHero.append(healthRingCard({
+        eyebrow: 'LATEST AMD TEST GROUPS',
+        title: 'Logical runtime health',
+        available: logicalGroups.available,
+        current: logicalPassing,
+        total: logicalTotal,
+        meta: logicalGroups.meta,
+        tone: !logicalGroups.available ? 'is-warning' : logicalPassing === logicalTotal ? 'is-success' : 'is-warning',
+        actionLabel: 'Inspect all logical test groups →',
+        onOpen: function () { openLogicalRows('Latest AMD logical test groups', logicalRows); },
+      }));
+      overviewHero.append(healthDistributionCard(
+        'LOGICAL GROUP OUTCOMES · ' + (latestAmdBuild ? '#' + integer(latestAmdBuild) : 'UNAVAILABLE'),
+        'Hardware-distinct jobs are combined only when they represent the same source-aligned test group.',
+        [
+          {label: 'pass every route', count: logicalPassingAll, tone: 'is-success', onOpen: function () { openLogicalRows('Logical groups passing every route', logicalRows.filter(function (row) { return row.state === 'passing_all'; })); }},
+          {label: 'pass some routes', count: logicalPartial, tone: 'is-warning', onOpen: function () { openLogicalRows('Logical groups with mixed hardware outcomes', logicalRows.filter(function (row) { return row.state === 'partial'; })); }},
+          {label: 'non-passing', count: logicalNonPassing, tone: 'is-danger', onOpen: function () { openLogicalRows('Logical groups without a passing route', logicalRows.filter(function (row) { return row.state === 'non_passing'; })); }},
+        ]
+      ));
+      host.append(overviewHero);
       const movementBuilds = (amd.builds || []).filter(function (row) {
         const movement = nightlyFailureMovement(row);
         return row.has_test_results !== false && Boolean(movement) && movement.available !== false;
@@ -4106,9 +4341,7 @@
       const trend = chartPanel('Nightly failure movement', 'New and recurring failures are above zero; fixes are below. Missing or skipped jobs are omitted. Latest signal #' + value(amdHealthSummary.latest_build_number) + '.', 'health-nightly');
       trend.root.classList.add('ops-health-primary');
       grid.append(trend.root);
-      const amdHealth = ops.amd_test_health || {};
-      const latestAmdBuild = ((amdHealth.summary || {}).latest_build_number);
-      const failures = amdHealthGroups(amdHealth).filter(function (row) { return ['soft', 'hard'].includes(amdLatestState(row, latestAmdBuild)); }).sort(function (a, b) {
+      const failures = allAmdGroups.filter(function (row) { return ['soft', 'hard'].includes(amdLatestState(row, latestAmdBuild)); }).sort(function (a, b) {
         return (amdLatestState(a, latestAmdBuild) === 'hard' ? 0 : 1) - (amdLatestState(b, latestAmdBuild) === 'hard' ? 0 : 1) || Number(amdGroupPassRate(a) || 0) - Number(amdGroupPassRate(b) || 0);
       });
       const overviewColumns = [
@@ -4118,7 +4351,7 @@
       ];
       const failurePanel = compactTablePanel('Latest AMD failure observations', 'Non-passing exact job variants, hardest results first', overviewColumns, failures, {
         id: 'health-current-incidents',
-        limit: 10,
+        limit: 6,
         previewCaption: 'Latest non-passing AMD job variants',
         conciseCounts: true,
         buttonLabel: 'Browse all failure observations',
@@ -4163,15 +4396,10 @@
       const upstreamTotal = Number(summary.upstream_logical_groups || 0);
       const applicableTotal = Number(summary.applicable_groups || 0);
       const mainTotal = Number(summary.main_complete_groups || 0);
-      const proposedCompleteTotal = Number(summary.main_plus_proposed_complete_groups || 0);
-      const proposedTotal = Number(summary.proposed_groups || 0);
       const unsupportedTotal = Number(summary.unsupported_groups || 0);
       const actionTotal = Number(summary.action_groups || 0);
       const mainMissingTotal = Number(summary.main_missing_groups || 0);
-      const proposedMissingTotal = Number(summary.main_plus_proposed_missing_groups || 0);
       const allRows = testGroupParityRows(parity, 'all', 'all');
-      const mainCommit = source.main_commit || source.commit_sha || '';
-      const mainUrl = source.main_commit_url || (mainCommit ? 'https://github.com/vllm-project/vllm/commit/' + mainCommit : '');
 
       if (!allRows.length || !upstreamTotal) {
         host.append(n('div', 'ops-evidence-note is-warning', 'The reviewed upstream test-group parity inventory is unavailable in this snapshot.'));
@@ -4179,100 +4407,72 @@
       }
 
       const inventoryMain = rocmInventory.main || {};
-      const inventoryProposed = rocmInventory.main_plus_proposed || {};
-      host.append(statusStrip([
-        {id: 'parity-existing', label: 'ON MAIN', value: integer(mainTotal) + ' / ' + integer(applicableTotal), meta: percent(mainTotal, applicableTotal) + ' · ' + integer(mainMissingTotal) + ' missing', tone: 'is-success', static: true},
-        {id: 'parity-proposed', label: 'WITH PROPOSED CHANGES', value: integer(proposedCompleteTotal) + ' / ' + integer(applicableTotal), meta: percent(proposedCompleteTotal, applicableTotal) + ' · ' + integer(proposedMissingTotal) + ' missing', tone: 'is-warning', static: true},
-      ], 'Upstream test-group parity comparison'));
+      const mainRows = testGroupParityRows(parity, 'existing', 'all');
+      const missingRows = testGroupParityRows(parity, 'action', 'all');
+      const unsupportedRows = testGroupParityRows(parity, 'unsupported', 'all');
+      const applicableRows = allRows.filter(function (row) { return row.state !== 'unsupported'; });
+      const hero = n('div', 'ops-health-hero-grid');
+      hero.append(healthRingCard({
+        eyebrow: 'UPSTREAM PARITY ON MAIN',
+        title: 'Applicable test groups covered',
+        current: mainTotal,
+        total: applicableTotal,
+        meta: integer(mainMissingTotal) + ' applicable groups are still missing',
+        tone: mainMissingTotal ? 'is-warning' : 'is-success',
+        onOpen: function () { openParityRows('Applicable upstream test groups', applicableRows, parity); },
+      }));
+      hero.append(healthDistributionCard(
+        'REVIEWED SCOPE · ' + integer(upstreamTotal) + ' LOGICAL GROUPS',
+        integer(unsupportedTotal) + ' hardware- or backend-specific groups are classified outside the parity denominator.',
+        [
+          {label: 'covered on main', count: mainTotal, tone: 'is-success', onOpen: function () { openParityRows('Covered on main', mainRows, parity); }},
+          {label: 'missing on main', count: actionTotal, tone: 'is-danger', onOpen: function () { openParityRows('Missing on main', missingRows, parity); }},
+          {label: 'not targeted', count: unsupportedTotal, tone: 'is-not-targeted', onOpen: function () { openParityRows('Not targeted / unsupported', unsupportedRows, parity); }},
+        ]
+      ));
+      host.append(hero);
 
-      host.append(methodDisclosure('How these counts are derived', [
-        n('span', '', 'The reviewed scope contains ' + integer(upstreamTotal) + ' upstream logical test groups. ' + integer(unsupportedTotal) + ' are explicitly not targeted, leaving ' + integer(applicableTotal) + ' applicable groups in the parity denominator.'),
-        n('span', '', 'The proposed set adds ' + integer(proposedTotal) + ' applicable counterparts. ROCm CI inventory is separate: main contains ' + integer(inventoryMain.logical_groups) + ' logical AMD test groups from ' + integer(inventoryMain.physical_definitions) + ' YAML definitions; with proposed changes it contains ' + integer(inventoryProposed.logical_groups) + ' logical groups from ' + integer(inventoryProposed.physical_definitions) + ' definitions.'),
-        mainUrl ? externalLink('Open reviewed main ' + String(mainCommit).slice(0, 12) + ' ↗', mainUrl) : null,
-      ]));
-
-      const toolbar = n('div', 'ops-toolbar');
-      toolbar.append(segmented([
-        {id: 'action', label: 'Missing (' + actionTotal + ')'},
-        {id: 'proposed', label: 'Proposed (' + proposedTotal + ')'},
-        {id: 'unsupported', label: 'Not targeted (' + unsupportedTotal + ')'},
-        {id: 'existing', label: 'On main (' + mainTotal + ')'},
-        {id: 'all', label: 'All (' + upstreamTotal + ')'},
-      ], state.healthParityState, function (nextState) {
-        setRouteState('ci-health', 'healthParityState', nextState, 'health_parity_state');
-      }, 'Filter reviewed upstream test groups by parity state'));
-      const areaFilter = n('select', 'ops-select');
-      areaFilter.setAttribute('aria-label', 'Filter reviewed upstream test groups by area');
-      [['all', 'All test areas']].concat(areas.map(function (row) { return [row.area, row.area]; })).forEach(function (pair) {
-        const option = n('option', '', pair[1]);
-        option.value = pair[0];
-        option.selected = state.healthParityArea === pair[0];
-        areaFilter.append(option);
-      });
-      areaFilter.addEventListener('change', function () {
-        setRouteState('ci-health', 'healthParityArea', areaFilter.value, 'health_parity_area');
-      });
-      toolbar.append(areaFilter);
-
-      const selectedRows = testGroupParityRows(parity, state.healthParityState, state.healthParityArea);
-      const selectedLabel = state.healthParityState === 'action'
-        ? 'Remaining parity gaps'
-        : state.healthParityState === 'unsupported'
-          ? 'Not targeted / unsupported groups'
-          : state.healthParityState === 'proposed'
-            ? 'Proposed additions'
-            : state.healthParityState === 'existing'
-              ? 'Covered on main'
-              : 'Complete reviewed inventory';
-      const parityColumns = testGroupParityColumns();
-      const parityPreviewColumns = state.healthParityState === 'all'
-        ? parityColumns
-        : [parityColumns[0], parityColumns[1], parityColumns[2], parityColumns[5]];
-      host.append(compactTablePanel(
-        selectedLabel,
-        'Definition coverage for the selected state and test area',
-        parityPreviewColumns,
-        selectedRows,
-        {
-          id: 'upstream-test-group-parity-browser',
-          limit: state.healthParityState === 'action' ? actionTotal : 18,
-          alwaysBrowse: selectedRows.length > 0,
-          previewCaption: 'Preview of the selected logical test groups',
-          conciseCounts: true,
-          buttonLabel: 'Inspect complete selected list',
-          browserColumns: parityColumns,
-          headerActions: toolbar,
-          browserTitle: 'Upstream CUDA to ROCm logical test-group parity',
-          browserSubtitle: 'Reviewed logical test groups with state, area, CUDA variant, and ROCm assessment',
-          searchPlaceholder: 'Filter test group, area, CUDA variant, state, or assessment',
-          searchText: function (row) { return [row.id, row.title, row.area, row.cuda_variants, row.state, row.assessment].join(' '); },
-          geometry: {name: 'upstream-test-group-parity-preview', minWidth: state.healthParityState === 'all' ? '1465px' : '1060px'},
-          browserGeometry: {name: 'upstream-test-group-parity', minWidth: '1465px'},
-        }
+      const gapAreas = areas.filter(function (row) { return Number(row.action || 0) > 0; }).map(function (row) {
+        const groupRows = missingRows.filter(function (group) { return group.area === row.area; });
+        return {
+          label: row.area,
+          attention: Number(row.action || 0),
+          total: Number(row.total || 0),
+          rows: groupRows,
+          preview: groupRows.map(function (group) { return '#' + integer(group.id) + ' ' + group.title; }),
+          segments: [
+            {label: 'covered on main', count: Number(row.existing || 0), tone: 'is-success'},
+            {label: 'missing on main', count: Number(row.action || 0), tone: 'is-danger'},
+            {label: 'not targeted', count: Number(row.unsupported || 0), tone: 'is-not-targeted'},
+          ],
+        };
+      }).sort(function (left, right) { return right.attention - left.attention || left.label.localeCompare(right.label); });
+      host.append(healthAreaBoard(
+        'Missing on main by test area',
+        'The red backlog is shown first and grouped. Select an area to open its complete table.',
+        gapAreas,
+        function (area) { openParityRows(area.label + ' gaps on main', area.rows, parity); }
       ));
 
+      const actions = n('div', 'ops-related-actions');
+      add(actions, [
+        button('Browse all ' + integer(actionTotal) + ' missing groups', function () { openParityRows('Missing on main', missingRows, parity); }, true),
+        button('Browse ' + integer(unsupportedTotal) + ' not-targeted groups', function () { openParityRows('Not targeted / unsupported', unsupportedRows, parity); }),
+        button('Browse complete ' + integer(upstreamTotal) + '-group inventory', function () { openParityRows('Complete reviewed upstream inventory', allRows, parity); }),
+      ]);
       host.append(panel(
-        'Parity by test area',
-        'Definition coverage by area; runtime pass/fail is a separate view',
-        dataTable([
-          {label: 'Test area', sticky: true, width: '250px', render: function (row) { return value(row.area); }},
-          {label: 'Main / applicable', numeric: true, width: '150px', render: function (row) { return badge(integer(row.complete_on_main) + ' / ' + integer(row.applicable), 'is-success'); }},
-          {label: 'Added by proposal', numeric: true, width: '150px', render: function (row) { return badge('+' + integer(row.proposed), row.proposed ? 'is-warning' : 'is-neutral'); }},
-          {label: 'Remaining', numeric: true, width: '110px', render: function (row) { return badge(integer(row.remaining_after_proposed), row.remaining_after_proposed ? 'is-danger' : 'is-neutral'); }},
-          {label: 'Not targeted', numeric: true, width: '130px', render: function (row) { return badge(integer(row.unsupported), row.unsupported ? 'is-not-targeted' : 'is-neutral'); }},
-        ], areas, 'Reviewed upstream logical groups grouped by test area', {name: 'parity-by-area', minWidth: '800px'})
+        'Inspect exact test groups',
+        'Tables open in a searchable popup; selecting a test group opens its assessment.',
+        actions
       ));
+      if (inventoryMain.logical_groups || inventoryMain.physical_definitions) {
+        host.append(n('div', 'ops-evidence-note is-info', 'Separate ROCm inventory on main: ' + integer(inventoryMain.logical_groups) + ' logical AMD test groups from ' + integer(inventoryMain.physical_definitions) + ' YAML definitions. These inventory counts are not the upstream-parity numerator.'));
+      }
       return;
     }
 
     if (state.healthView === 'targets') {
-      const allTargets = Array.isArray(gating.active_target_groups) ? gating.active_target_groups : [];
-      const activeTargetSummary = gating.active_target_summary || {};
-      const reviewedTargetCount = Number(activeTargetSummary.canonical_group_count);
-      const otherConfiguredTargetCount = Number(activeTargetSummary.active_outside_canonical_count);
-      const targetScopeBreakdownAvailable = Number.isFinite(reviewedTargetCount)
-        && Number.isFinite(otherConfiguredTargetCount)
-        && reviewedTargetCount + otherConfiguredTargetCount === allTargets.length;
+      const allTargets = Array.isArray(gating.target_groups) ? gating.target_groups : [];
       function targetState(row) {
         return runtimeTargetState(row);
       }
@@ -4281,67 +4481,132 @@
       }
       const incidentTargets = allTargets.filter(isTargetIncident);
       const passedTargets = allTargets.filter(function (row) { return targetState(row) === 'passed'; });
-      const unobservedTargets = allTargets.filter(function (row) {
+      const unresolvedTargets = allTargets.filter(function (row) {
         return targetState(row) !== 'passed' && !isTargetIncident(row);
       });
+      const noDefinitionTargets = unresolvedTargets.filter(function (row) { return targetResolutionPresentation(row).status === 'no_amd_definition'; });
+      const mappingReviewTargets = unresolvedTargets.filter(function (row) { return ['stale_target_alias', 'ambiguous'].includes(targetResolutionPresentation(row).status); });
+      const notObservedTargets = unresolvedTargets.filter(function (row) { return !noDefinitionTargets.includes(row) && !mappingReviewTargets.includes(row); });
+      const attentionTargets = sortRuntimeTargetRows(incidentTargets.concat(unresolvedTargets));
       const filters = {
         all: allTargets,
+        attention: attentionTargets,
         incident: incidentTargets,
-        unobserved: unobservedTargets,
+        no_definition: noDefinitionTargets,
+        mapping_review: mappingReviewTargets,
+        not_observed: notObservedTargets,
         passed: passedTargets,
       };
       const targetRows = sortRuntimeTargetRows(filters[state.healthResult] || allTargets);
-      const runtimeNote = n('div', 'ops-evidence-note is-info');
-      add(runtimeNote, [
-        n('strong', '', 'Latest AMD runtime signal. '),
-        n('span', '', 'This is not upstream parity. Failing and no-signal results are separate filters; unresolved mapping is explained when you inspect a row.'),
-      ]);
-      host.append(runtimeNote);
-      host.append(methodDisclosure('Which target groups are included', [
-        n('span', '', targetScopeBreakdownAvailable
-          ? integer(allTargets.length) + ' active configured groups = ' + integer(reviewedTargetCount) + ' reviewed targets + ' + integer(otherConfiguredTargetCount) + ' other configured groups outside the reviewed list.'
-          : integer(allTargets.length) + ' active configured groups; this compatibility snapshot does not publish a reviewed-versus-other breakdown.'),
-        n('span', '', 'The scheduled upstream mirror cohort below is a separate population and is never folded into these AMD runtime counts.'),
-      ]));
+      if (!allTargets.length) {
+        host.append(n('div', 'ops-evidence-note is-warning', 'The reviewed AMD target inventory is unavailable in this snapshot.'));
+        return;
+      }
+      function openTargetRows(title, rows) {
+        openTableBrowser({
+          id: 'runtime-target-browser',
+          title: title,
+          subtitle: 'Reviewed AMD targets only; select a row to inspect exact mapping and execution evidence',
+          rows: sortRuntimeTargetRows(rows),
+          columns: [
+            {label: 'Reviewed target', sticky: true, width: '400px', render: function (row) { return linkButton(row.label, function () { openGatingDetailWithEvidence(row, ops); }); }},
+            {label: 'Area', width: '170px', render: function (row) { return healthAreaLabel(row.area); }},
+            {label: 'Current AMD', width: '150px', render: function (row) { return linkedBadge(targetState(row), null, function () { openGatingDetailWithEvidence(row, ops); }, toneForState(targetState(row))); }},
+            {label: 'Mapping', width: '220px', render: function (row) { const resolution = targetResolutionPresentation(row); return linkButton(resolution.label, function () { openGatingDetailWithEvidence(row, ops); }); }},
+            {label: 'Assessment', width: '420px', render: function (row) { return linkButton(targetAssessmentText(row), function () { openGatingDetailWithEvidence(row, ops); }); }},
+            {label: 'Build', width: '110px', render: function (row) { const latest = row.latest_amd_result || {}; const url = gatingEvidenceUrl(row); return url ? externalLink('#' + value(latest.build_number), url, 'ops-mono') : n('span', 'ops-cell-muted', '-'); }},
+          ],
+          searchPlaceholder: 'Filter target, area, AMD result, mapping, or assessment',
+          searchText: function (row) { const resolution = targetResolutionPresentation(row); return [row.label, row.area, targetState(row), targetAssessmentText(row), resolution.label, resolution.reason, resolution.amdDefinitionLabels.join(' ')].join(' '); },
+          geometry: {name: 'runtime-targets', minWidth: '1390px'},
+        });
+      }
+
+      const targetHero = n('div', 'ops-health-hero-grid');
+      targetHero.append(healthRingCard({
+        eyebrow: 'AMD RUNTIME TARGETS',
+        title: 'Passing now',
+        current: passedTargets.length,
+        total: allTargets.length,
+        meta: integer(incidentTargets.length) + ' failing · ' + integer(unresolvedTargets.length) + ' need mapping or observation',
+        tone: attentionTargets.length ? 'is-warning' : 'is-success',
+        onOpen: function () { openTargetRows('All reviewed AMD targets', allTargets); },
+      }));
+      targetHero.append(healthDistributionCard(
+        'CURRENT SIGNAL AND MAPPING',
+        'Unresolved targets are split by cause instead of collapsed into one “no signal” number.',
+        [
+          {label: 'passing now', count: passedTargets.length, tone: 'is-success', onOpen: function () { openTargetRows('Passing reviewed targets', passedTargets); }},
+          {label: 'failing now', count: incidentTargets.length, tone: 'is-danger', onOpen: function () { openTargetRows('Failing reviewed targets', incidentTargets); }},
+          {label: 'no AMD definition', count: noDefinitionTargets.length, tone: 'is-warning', onOpen: function () { openTargetRows('Targets without an AMD definition', noDefinitionTargets); }},
+          {label: 'mapping review', count: mappingReviewTargets.length, tone: 'is-info', onOpen: function () { openTargetRows('Targets needing mapping review', mappingReviewTargets); }},
+          {label: 'not observed', count: notObservedTargets.length, tone: 'is-neutral', onOpen: function () { openTargetRows('Targets not observed', notObservedTargets); }},
+        ]
+      ));
+      host.append(targetHero);
+
       const targetToolbar = n('div', 'ops-toolbar');
       targetToolbar.append(segmented([
-        {id: 'all', label: 'All (' + integer(allTargets.length) + ')'},
+        {id: 'attention', label: 'Needs attention (' + integer(attentionTargets.length) + ')'},
         {id: 'incident', label: 'Failing now (' + integer(incidentTargets.length) + ')'},
-        {id: 'unobserved', label: 'No signal (' + integer(unobservedTargets.length) + ')'},
+        {id: 'no_definition', label: 'No AMD definition (' + integer(noDefinitionTargets.length) + ')'},
+        {id: 'mapping_review', label: 'Mapping review (' + integer(mappingReviewTargets.length) + ')'},
+        {id: 'not_observed', label: 'Not observed (' + integer(notObservedTargets.length) + ')'},
         {id: 'passed', label: 'Passing (' + integer(passedTargets.length) + ')'},
+        {id: 'all', label: 'All (' + integer(allTargets.length) + ')'},
       ], state.healthResult, function (result) {
         setRouteState('ci-health', 'healthResult', result, 'health_result');
       }, 'Filter runtime target groups by latest AMD result'));
-      const targetColumns = [
-        {label: 'Target group', sticky: true, width: '400px', render: function (row) { return linkButton(row.label, function () { openGatingDetailWithEvidence(row, ops); }); }},
-        {label: 'Area', width: '170px', render: function (row) { return value(row.area); }},
-        {label: 'Latest AMD result', width: '160px', render: function (row) { return linkedBadge(targetState(row), null, function () { openGatingDetailWithEvidence(row, ops); }, toneForState(targetState(row))); }},
-        {label: 'Assessment', width: '330px', render: function (row) { return linkButton(targetAssessmentText(row), function () { openGatingDetailWithEvidence(row, ops); }); }},
-        {label: 'Build', width: '110px', render: function (row) { const latest = row.latest_amd_result || {}; const url = gatingEvidenceUrl(row); return url ? externalLink('#' + value(latest.build_number), url, 'ops-mono') : n('span', 'ops-cell-muted', '-'); }},
-      ];
-      host.append(compactTablePanel(
-        'Runtime target-group signal',
-        'Latest AMD signal for the selected result state',
-        targetColumns,
-        targetRows,
-        {
-          id: 'runtime-target-browser',
-          limit: 12,
-          previewCaption: 'Preview of target groups in the selected state',
-          conciseCounts: true,
-          buttonLabel: 'Browse selected target groups',
-          headerActions: targetToolbar,
-          browserTitle: 'Runtime AMD target-group signal',
-          browserSubtitle: 'Exact AMD outcomes first by result severity, then alphabetically',
-          searchPlaceholder: 'Filter target group, area, result, or assessment',
-          searchText: function (row) { const resolution = targetResolutionPresentation(row); return [row.label, row.area, targetState(row), row.assessment, resolution.status, resolution.reason, resolution.method, resolution.mappingQuality, resolution.commandSimilarityPct, resolution.amdDefinitionLabels.join(' ')].join(' '); },
-          geometry: {name: 'runtime-targets', minWidth: '1070px'},
-        }
-      ));
+      const attentionList = n('div', 'ops-health-attention-list');
+      targetRows.slice(0, 8).forEach(function (row) {
+        const resolution = targetResolutionPresentation(row);
+        const control = n('button', 'ops-health-attention-row');
+        control.type = 'button';
+        control.addEventListener('click', function () { openGatingDetailWithEvidence(row, ops); });
+        const identity = n('span', 'ops-health-attention-copy');
+        add(identity, [n('strong', '', row.label), n('small', '', healthAreaLabel(row.area) + ' · ' + resolution.label)]);
+        add(control, [
+          n('span', 'ops-health-attention-state ' + toneForState(targetState(row)), targetState(row)),
+          identity,
+          n('span', 'ops-health-attention-reason', targetAssessmentText(row)),
+          n('span', 'ops-stat-action', 'Inspect →'),
+        ]);
+        attentionList.append(control);
+      });
+      if (!targetRows.length) attentionList.append(n('div', 'ops-empty', 'No reviewed targets match this filter.'));
+      const browse = button('Browse all ' + integer(targetRows.length) + ' selected targets', function () { openTargetRows('Reviewed targets · ' + state.healthResult.replaceAll('_', ' '), targetRows); }, true);
+      const body = n('div', 'ops-stack');
+      add(body, [targetToolbar, attentionList, browse]);
       host.append(panel(
-        'Scheduled upstream mirror cohort',
-        scheduledGatingState.value + ' · ' + scheduledGatingState.meta,
-        button('Inspect scheduled cohort', function () { openUpstreamScheduledGatingDetail(scheduledGating); })
+        state.healthResult === 'attention' ? 'Reviewed targets needing attention' : 'Reviewed target selection',
+        'Select a row for exact AMD result, mapping resolution, definitions, and retained evidence.',
+        body,
+        'ops-health-target-panel'
+      ));
+
+      const attentionByArea = Array.from(new Set(attentionTargets.map(function (row) { return row.area || 'other'; }))).map(function (area) {
+        const rows = attentionTargets.filter(function (row) { return (row.area || 'other') === area; });
+        const totalRows = allTargets.filter(function (row) { return (row.area || 'other') === area; });
+        const passCount = totalRows.filter(function (row) { return targetState(row) === 'passed'; }).length;
+        const incidentCount = rows.filter(isTargetIncident).length;
+        return {
+          label: healthAreaLabel(area),
+          attention: rows.length,
+          total: totalRows.length,
+          rows: rows,
+          preview: rows.map(function (row) { return row.label; }),
+          segments: [
+            {label: 'passing', count: passCount, tone: 'is-success'},
+            {label: 'failing', count: incidentCount, tone: 'is-danger'},
+            {label: 'unresolved', count: rows.length - incidentCount, tone: 'is-warning'},
+          ],
+        };
+      }).sort(function (left, right) { return right.attention - left.attention || left.label.localeCompare(right.label); });
+      host.append(healthAreaBoard(
+        'Attention by reviewed test area',
+        'Failing and unresolved groups are categorized together here; select an area for its exact table.',
+        attentionByArea,
+        function (area) { openTargetRows(area.label + ' reviewed targets needing attention', area.rows); }
       ));
       return;
     }
@@ -4695,14 +4960,26 @@
     return Number.isFinite(Number(raw)) ? Number(raw) : 0;
   }
 
+  const groupHistoryCache = new WeakMap();
+
   function groupHistoryObservations(row, cohort) {
-    return evidenceObservations(row || {}).filter(function (observation) {
+    if (!row || typeof row !== 'object') return [];
+    let cached = groupHistoryCache.get(row);
+    if (!cached) {
+      cached = new Map();
+      groupHistoryCache.set(row, cached);
+    }
+    const key = cohort || 'main';
+    if (cached.has(key)) return cached.get(key);
+    const observations = evidenceObservations(row).filter(function (observation) {
       return (!observation.source_pipeline || observation.source_pipeline === 'ci')
         && Boolean(exactPipelineEvidenceUrl(observation, 'ci'))
         && (cohort !== 'nightly' || isNightlyObservation(observation));
     }).sort(function (a, b) {
       return new Date(observationTimestamp(a) || 0) - new Date(observationTimestamp(b) || 0);
     });
+    cached.set(key, observations);
+    return observations;
   }
 
   function reliabilityBandDefinitions() {
@@ -5216,7 +5493,7 @@
           selected.name + ' failures',
           incidents.slice().reverse().map(function (observation) { return observationHistoryPoint(observation, 'ci'); }),
           integer(incidents.length) + ' exact failure observations in the selected cohort',
-          SOURCE_ASSETS.operations
+          SOURCE_ASSETS.reliability
         );
       });
       const footer = n('footer', 'ops-history-panel-footer');
@@ -5306,9 +5583,120 @@
     content.append(sourceActions([
       {label: 'Open latest AMD job', url: exactPipelineEvidenceUrl(observations[observations.length - 1], 'amd-ci')},
       {label: 'Open AMD pipeline', url: SOURCE_ASSETS.amdPipeline},
-      {label: 'Open published dashboard data', url: SOURCE_ASSETS.operations},
+      {label: 'Open published AMD health data', url: SOURCE_ASSETS.amdTestHealth},
     ]));
     openOverlay(row.display_name || row.name || row.job_name, value(row.hardware_variant || row.hardware) + ' - ' + value(row.queue) + ' - exact AMD nightly evidence', content, true, 'amd-group-' + row.id);
+  }
+
+  function amdLogicalInventory(amdHealth) {
+    const inventory = (amdHealth || {}).latest_logical_test_groups || {};
+    if (inventory.available !== true || !Array.isArray(inventory.rows)) {
+      return Object.assign({}, inventory, {available: false, rows: []});
+    }
+    return inventory;
+  }
+
+  function amdLogicalStateLabel(stateName) {
+    if (stateName === 'passing_all') return 'Passes every route';
+    if (stateName === 'partial') return 'Passes some routes';
+    if (stateName === 'non_passing') return 'Non-passing';
+    return 'Unresolved';
+  }
+
+  function amdLogicalStateTone(stateName) {
+    if (stateName === 'passing_all') return 'is-success';
+    if (stateName === 'partial') return 'is-warning';
+    if (stateName === 'non_passing') return 'is-danger';
+    return 'is-neutral';
+  }
+
+  function amdLogicalSignalLabel(stateName) {
+    if (stateName === 'passing') return 'Passing';
+    if (stateName === 'failing') return 'Failing';
+    return 'No pass signal';
+  }
+
+  function amdLogicalSignalTone(stateName) {
+    if (stateName === 'passing') return 'is-success';
+    if (stateName === 'failing') return 'is-danger';
+    return 'is-neutral';
+  }
+
+  function amdLogicalCatalogGroup(variant, amdHealth) {
+    const variantId = String((variant || {}).id || '');
+    const exactName = String((variant || {}).exact_job_name || '');
+    return amdHealthGroups(amdHealth).find(function (row) {
+      return (variantId && String(row.id || '') === variantId)
+        || (exactName && String(row.name || row.job_name || '') === exactName);
+    }) || null;
+  }
+
+  function openAmdLogicalGroupDetail(row, inventory, amdHealth) {
+    const variants = Array.isArray(row.job_variants) ? row.job_variants : [];
+    const hardwareStates = Array.isArray(row.hardware_states) ? row.hardware_states : [];
+    const content = n('div', 'ops-amd-logical-detail');
+    content.append(statusStrip([
+      {label: 'LOGICAL GROUP RESULT', value: amdLogicalStateLabel(row.state), meta: row.state === 'partial' ? 'At least one hardware route passes and at least one does not' : 'Build-pinned route aggregation', tone: amdLogicalStateTone(row.state), static: true},
+      {label: 'HARDWARE ROUTES', value: integer(row.hardware_count), meta: hardwareStates.map(function (item) { return hardwareDisplayLabel(item.hardware) + ': ' + amdLogicalSignalLabel(item.state).toLowerCase(); }).join(' · '), static: true},
+      {label: 'EXACT JOB VARIANTS', value: integer(row.job_variant_count), meta: 'Every variant is listed below', static: true},
+      {label: 'OBSERVED BUILD', value: inventory.build_number ? '#' + integer(inventory.build_number) : '-', meta: inventory.route_map_aligned ? 'Definitions aligned to the observed commit' : 'Definition alignment unavailable', tone: inventory.route_map_aligned ? 'is-success' : 'is-warning', static: true},
+    ], 'Logical AMD test-group summary'));
+
+    const columns = [
+      {label: 'Exact AMD job variant', sticky: true, width: '410px', render: function (variant) {
+        const catalogGroup = amdLogicalCatalogGroup(variant, amdHealth);
+        const label = variant.display_name || variant.exact_job_name || 'Unnamed variant';
+        if (catalogGroup) return linkButton(label, function () { openAmdGroupDetail(catalogGroup, amdHealth); });
+        if (variant.job_url) return externalLink(label, variant.job_url);
+        return n('span', 'ops-cell-primary', label);
+      }},
+      {label: 'Hardware route', width: '170px', render: function (variant) { return badge(hardwareDisplayLabel(variant.hardware_variant || variant.hardware), 'is-neutral'); }},
+      {label: 'Test signal', width: '150px', render: function (variant) { return badge(amdLogicalSignalLabel(variant.test_signal_state), amdLogicalSignalTone(variant.test_signal_state)); }},
+      {label: 'Terminal job', width: '140px', render: function (variant) { return badge(amdStateLabel(amdLatestState({latest_state: variant.terminal_state}, null)), toneForState(variant.terminal_state)); }},
+      {label: 'Tests passed', numeric: true, width: '130px', render: function (variant) { return integer(variant.passed_tests) + ' / ' + integer(variant.tests); }},
+      {label: 'Evidence', width: '150px', render: function (variant) { const url = variant.job_url || variant.build_url; return url ? externalLink('Open exact job', url) : n('span', 'ops-cell-muted', 'Unavailable'); }},
+    ];
+    content.append(panel(
+      'Hardware routes and exact jobs',
+      'The logical result follows the published any-route passing policy; exact jobs remain separate evidence.',
+      dataTable(columns, variants, integer(variants.length) + ' exact variants for this logical test group', {name: 'amd-logical-variants', minWidth: '1150px'})
+    ));
+    content.append(sourceActions([
+      {label: 'Open observed AMD build', url: inventory.build_url},
+      {label: 'Open published AMD health data', url: SOURCE_ASSETS.amdTestHealth},
+    ]));
+    openOverlay(
+      row.label || row.logical_key || 'AMD logical test group',
+      amdLogicalStateLabel(row.state) + ' · ' + integer(row.hardware_count) + ' hardware routes · ' + integer(row.job_variant_count) + ' exact job variants',
+      content,
+      true,
+      'amd-logical-' + row.id
+    );
+  }
+
+  function openAmdLogicalCatalog(title, subtitle, rows, inventory, amdHealth) {
+    const stateRank = {non_passing: 0, partial: 1, passing_all: 2};
+    const sorted = Array.from(rows || []).sort(function (left, right) {
+      return Number(stateRank[left.state] === undefined ? 3 : stateRank[left.state])
+        - Number(stateRank[right.state] === undefined ? 3 : stateRank[right.state])
+        || String(left.label || left.logical_key).localeCompare(String(right.label || right.logical_key));
+    });
+    openTableBrowser({
+      id: 'amd-logical-test-groups',
+      title: title,
+      subtitle: subtitle,
+      rows: sorted,
+      columns: [
+        {label: 'Logical AMD test group', sticky: true, width: '410px', render: function (row) { return linkButton(row.label || row.logical_key, function () { openAmdLogicalGroupDetail(row, inventory, amdHealth); }); }},
+        {label: 'Latest result', width: '180px', render: function (row) { return linkedBadge(amdLogicalStateLabel(row.state), null, function () { openAmdLogicalGroupDetail(row, inventory, amdHealth); }, amdLogicalStateTone(row.state)); }},
+        {label: 'Hardware routes', numeric: true, width: '140px', render: function (row) { return linkButton(integer(row.hardware_count), function () { openAmdLogicalGroupDetail(row, inventory, amdHealth); }); }},
+        {label: 'Exact job variants', numeric: true, width: '150px', render: function (row) { return linkButton(integer(row.job_variant_count), function () { openAmdLogicalGroupDetail(row, inventory, amdHealth); }); }},
+        {label: 'Route outcomes', width: '360px', render: function (row) { const wrap = n('div', 'ops-inline-actions'); (row.hardware_states || []).forEach(function (item) { wrap.append(badge(hardwareDisplayLabel(item.hardware) + ' · ' + amdLogicalSignalLabel(item.state), amdLogicalSignalTone(item.state))); }); return wrap; }},
+      ],
+      searchPlaceholder: 'Filter logical test group, result, hardware, or exact job variant',
+      searchText: function (row) { return [row.label, row.logical_key, row.state, (row.hardware_states || []).map(function (item) { return item.hardware + ' ' + item.state; }).join(' '), (row.job_variants || []).map(function (item) { return item.exact_job_name; }).join(' ')].join(' '); },
+      geometry: {name: 'amd-logical-test-groups', minWidth: '1240px'},
+    });
   }
 
   function openAmdCatalog(title, subtitle, rows, amdHealth, initialFilter) {
@@ -5424,6 +5812,8 @@
     const latestCounts = summary.latest_job_variant_state_counts || summary.latest_state_counts || {};
     const latestVariantCount = Number(summary.latest_job_variant_count !== undefined ? summary.latest_job_variant_count : summary.latest_group_count || 0);
     const latestTestGroups = summary.latest_test_group_counts || {};
+    const logicalInventory = amdLogicalInventory(amdHealth);
+    const logicalRows = logicalInventory.rows;
     const logicalTotal = Number(latestTestGroups.total);
     const logicalPassing = Number(latestTestGroups.passing);
     const logicalBuild = Number(latestTestGroups.build_number);
@@ -5455,7 +5845,7 @@
 
     host.append(statusStrip([
       {id: 'amd-health-build', label: 'LATEST AMD NIGHTLY', value: latestBuild ? '#' + latestBuild : '-', meta: shortDate(summary.latest_observed_at), tone: hard ? 'is-danger' : soft ? 'is-warning' : 'is-success', url: summary.latest_build_url, actionLabel: 'Open Buildkite ↗'},
-      {id: 'amd-health-test-groups', label: 'LATEST AMD TEST GROUPS', value: logicalPresentation.value, meta: logicalPresentation.meta, tone: logicalPresentation.tone, scope: 'AMD nightly #' + value(latestBuild), observed: latestTestGroups.observed_at || summary.latest_observed_at, provenance: latestTestGroups.count_basis || 'Unique source-aligned test-group identities observed in this AMD nightly; topology-distinct routes remain separate and configured shards count once.', sources: [{label: 'Open published dashboard data', url: SOURCE_ASSETS.operations}], actionLabel: 'Inspect count definition'},
+      {id: 'amd-health-test-groups', label: 'LATEST AMD TEST GROUPS', value: logicalPresentation.value, meta: logicalPresentation.meta, tone: logicalPresentation.tone, scope: 'AMD nightly #' + value(latestBuild), observed: latestTestGroups.observed_at || summary.latest_observed_at, provenance: latestTestGroups.count_basis || 'Unique source-aligned test-group identities observed in this AMD nightly; topology-distinct routes remain separate and configured shards count once.', sources: [{label: 'Open published AMD health data', url: SOURCE_ASSETS.amdTestHealth}], actionLabel: logicalRows.length ? 'Browse logical test groups →' : 'Inspect count definition', onOpen: logicalRows.length ? function () { openAmdLogicalCatalog('Latest AMD logical test groups', 'Build-pinned logical groups; partial and non-passing groups are listed first', logicalRows, logicalInventory, amdHealth); } : null},
       {id: 'amd-health-observed', label: 'LATEST JOB VARIANTS', value: integer(latestVariantCount), meta: integer(passing) + ' passing - ' + integer(nonPassing) + ' non-passing exact jobs' + (notLatest ? '; ' + integer(notLatest) + ' older variants retained only for history' : ''), tone: hard ? 'is-danger' : nonPassing ? 'is-warning' : 'is-success', onOpen: function () { openAmdCatalog('Latest AMD job variants', 'Exact Buildkite job variants observed in the latest AMD nightly', currentVariants, amdHealth, 'all'); }},
       {id: 'amd-health-incidents', label: 'FAILURE OBSERVATIONS', value: integer(incidents), meta: integer(soft) + ' soft - ' + integer(hard) + ' hard' + (unknown ? ' - ' + integer(unknown) + ' unknown' : ''), tone: hard ? 'is-danger' : soft ? 'is-warning' : 'is-success', onOpen: function () { openAmdCatalog('Current AMD failure observations', 'Raw job variants with a soft or hard result in the latest AMD nightly', currentIncidents, amdHealth, 'incident'); }},
     ]));
@@ -5492,7 +5882,7 @@
         ]},
         options: {indexAxis: 'y', scales: {x: {stacked: true, beginAtZero: true, title: {display: true, text: 'AMD job variants'}}, y: {stacked: true, grid: {display: false}}}},
         evidenceTitle: 'Latest AMD health by hardware variant',
-        evidence: hardware.map(function (row) { return {label: row.label, valueSummary: integer(row.passed) + ' passing - ' + integer(row.soft) + ' soft - ' + integer(row.hard) + ' hard - ' + integer(row.missing) + ' not in latest', sources: [{label: 'Open published AMD health data', url: SOURCE_ASSETS.operations}], onOpen: function () { openAmdCatalog(row.label + ' AMD job variants', 'Exact job variants assigned to ' + row.label, row.rows, amdHealth, 'all'); }}; }),
+        evidence: hardware.map(function (row) { return {label: row.label, valueSummary: integer(row.passed) + ' passing - ' + integer(row.soft) + ' soft - ' + integer(row.hard) + ' hard - ' + integer(row.missing) + ' not in latest', sources: [{label: 'Open published AMD health data', url: SOURCE_ASSETS.amdTestHealth}], onOpen: function () { openAmdCatalog(row.label + ' AMD job variants', 'Exact job variants assigned to ' + row.label, row.rows, amdHealth, 'all'); }}; }),
       });
     });
 
@@ -6158,7 +6548,7 @@
         .map(function (run) {
           return {label: run.group, url: run.url, timestamp: run.started_at, valueSummary: run.state + ' · ' + run.pipeline, details: {pipeline: run.pipeline, queue: run.queue, state: run.state, build: '#' + value(run.build_number)}};
         });
-      openHistoryEvidence(signalTerm() + ' failures on ' + agent.node, points, signalTerm() + ' failing runs on this node over ' + windowId + ', each linking to its BuildKite log', SOURCE_ASSETS.operations);
+      openHistoryEvidence(signalTerm() + ' failures on ' + agent.node, points, signalTerm() + ' failing runs on this node over ' + windowId + ', each linking to its BuildKite log', SOURCE_ASSETS.amdAgentHealth);
     }
 
     function renderTable(view) {
@@ -6455,7 +6845,7 @@
         data: {labels: risks.map(function (cluster) { return cluster.label; }), datasets: [{label: 'Groups', data: risks.map(function (cluster) { return cluster.count; }), backgroundColor: ['#35bb78', '#4e9ed4', '#e3a63a', '#d9823b', '#e06464']}]},
         options: {scales: {x: {grid: {display: false}}, y: {beginAtZero: true, title: {display: true, text: 'Strict groups'}}}},
         evidenceTitle: 'Reliability distribution clusters',
-        evidence: risks.map(function (cluster) { return {id: cluster.id, label: cluster.label, valueSummary: integer(cluster.count) + ' groups', details: {definition: cluster.description, median_incident_rate: cluster.medianRate === null ? '-' : Number(cluster.medianRate).toFixed(1) + '%', current_incidents: cluster.latestIncidents}, sources: [{label: 'Open published upstream reliability', url: SOURCE_ASSETS.operations}], onOpen: function () { openReliabilityList(cluster.label + ' reliability', cluster.description, cluster.rows, ops, reliability); }}; }),
+        evidence: risks.map(function (cluster) { return {id: cluster.id, label: cluster.label, valueSummary: integer(cluster.count) + ' groups', details: {definition: cluster.description, median_incident_rate: cluster.medianRate === null ? '-' : Number(cluster.medianRate).toFixed(1) + '%', current_incidents: cluster.latestIncidents}, sources: [{label: 'Open published upstream reliability', url: SOURCE_ASSETS.reliability}], onOpen: function () { openReliabilityList(cluster.label + ' reliability', cluster.description, cluster.rows, ops, reliability); }}; }),
       });
       drawChart('analytics-group-hardware', hardwareChart.canvas, {
         type: 'bar',
@@ -6465,7 +6855,7 @@
         ]},
         options: {scales: {x: {stacked: true, grid: {display: false}}, y: {stacked: true, beginAtZero: true, title: {display: true, text: 'Strict groups'}}}},
         evidenceTitle: 'Hardware reliability clusters',
-        evidence: hardware.map(function (cluster) { return {id: cluster.id, label: cluster.label, valueSummary: integer(cluster.count) + ' groups - ' + integer(cluster.incidentObserved) + ' incident observed', sources: [{label: 'Open published upstream reliability', url: SOURCE_ASSETS.operations}], onOpen: function () { openReliabilityList(cluster.label + ' test groups', 'Strict groups assigned to the ' + cluster.label + ' hardware family', cluster.rows, ops, reliability); }}; }),
+        evidence: hardware.map(function (cluster) { return {id: cluster.id, label: cluster.label, valueSummary: integer(cluster.count) + ' groups - ' + integer(cluster.incidentObserved) + ' incident observed', sources: [{label: 'Open published upstream reliability', url: SOURCE_ASSETS.reliability}], onOpen: function () { openReliabilityList(cluster.label + ' test groups', 'Strict groups assigned to the ' + cluster.label + ' hardware family', cluster.rows, ops, reliability); }}; }),
       });
     });
   }
@@ -6492,14 +6882,14 @@
         ]},
         options: {scales: {x: {grid: {display: false}}, y: {beginAtZero: true, title: {display: true, text: 'Mixed-outcome candidates'}}}},
         evidenceTitle: 'Flake-candidate incident-rate distribution',
-        evidence: risks.map(function (cluster) { return {id: cluster.id, label: cluster.label, valueSummary: integer(cluster.count) + ' candidates - ' + integer(cluster.latestIncidents) + ' incident latest', details: {definition: cluster.description, median_incident_rate: cluster.medianRate === null ? '-' : Number(cluster.medianRate).toFixed(1) + '%'}, sources: [{label: 'Open published upstream reliability', url: SOURCE_ASSETS.operations}], onOpen: function () { openReliabilityList(cluster.label + ' flake candidates', cluster.description, cluster.rows, ops, reliability); }}; }),
+        evidence: risks.map(function (cluster) { return {id: cluster.id, label: cluster.label, valueSummary: integer(cluster.count) + ' candidates - ' + integer(cluster.latestIncidents) + ' incident latest', details: {definition: cluster.description, median_incident_rate: cluster.medianRate === null ? '-' : Number(cluster.medianRate).toFixed(1) + '%'}, sources: [{label: 'Open published upstream reliability', url: SOURCE_ASSETS.reliability}], onOpen: function () { openReliabilityList(cluster.label + ' flake candidates', cluster.description, cluster.rows, ops, reliability); }}; }),
       });
       drawChart('analytics-flake-disposition', dispositionChart.canvas, {
         type: 'bar',
         data: {labels: dispositions.map(function (group) { return group.label; }), datasets: [{label: 'Candidates', data: dispositions.map(function (group) { return group.rows.length; }), backgroundColor: dispositions.map(function (group) { return group.tone; })}]},
         options: {indexAxis: 'y', scales: {x: {beginAtZero: true, title: {display: true, text: 'Mixed-outcome candidates'}}, y: {grid: {display: false}}}},
         evidenceTitle: 'Latest exact result for flake candidates',
-        evidence: dispositions.map(function (group) { return {id: group.id, label: group.label, valueSummary: integer(group.rows.length) + ' candidates', sources: [{label: 'Open published upstream reliability', url: SOURCE_ASSETS.operations}], onOpen: function () { openReliabilityList(group.label, 'Mixed-history groups with this latest exact upstream result', group.rows, ops, reliability); }}; }),
+        evidence: dispositions.map(function (group) { return {id: group.id, label: group.label, valueSummary: integer(group.rows.length) + ' candidates', sources: [{label: 'Open published upstream reliability', url: SOURCE_ASSETS.reliability}], onOpen: function () { openReliabilityList(group.label, 'Mixed-history groups with this latest exact upstream result', group.rows, ops, reliability); }}; }),
       });
     });
   }
@@ -6657,12 +7047,26 @@
     };
   }
 
+  const platformComparisonWindowCache = new WeakMap();
+
   function platformComparisonForWindow(comparison, reliability, retry, ops, windowId) {
+    const cacheOwner = reliability && typeof reliability === 'object' ? reliability : comparison;
+    const cacheKey = [windowId, (ops || {}).generated_at || '', (comparison || {}).generated_at || ''].join('|');
+    let cached = cacheOwner && platformComparisonWindowCache.get(cacheOwner);
+    if (cached && cached.has(cacheKey)) return cached.get(cacheKey);
+    if (!cached && cacheOwner && typeof cacheOwner === 'object') {
+      cached = new Map();
+      platformComparisonWindowCache.set(cacheOwner, cached);
+    }
+    function remember(result) {
+      if (cached) cached.set(cacheKey, result);
+      return result;
+    }
     if (windowId === '30d') {
-      return Object.assign({}, comparison, {
+      return remember(Object.assign({}, comparison, {
         rows: comparison.rows.map(function (row) { return Object.assign({}, row, {_window: analyticsWindowBounds(ops, windowId), _priorAvailable: false}); }),
         window: Object.assign(analyticsWindowBounds(ops, windowId), {completeAggregate: true, buildCount: comparison.cohort_build_count}),
-      });
+      }));
     }
     const bounds = analyticsWindowBounds(ops, windowId);
     const buildCount = comparisonWindowBuildCount(reliability, bounds.start, bounds.end);
@@ -6705,11 +7109,11 @@
       regressed_retry_group_count: active.filter(function (row) { return Number(row.amd_retry_change_pp) > 0; }).length,
       history_incomplete_variant_count: active.reduce(function (sum, row) { return sum + Number(row.amd.history_incomplete_variant_count || 0); }, 0),
     });
-    return Object.assign({}, comparison, {
+    return remember(Object.assign({}, comparison, {
       rows: rows,
       summary: summary,
       window: Object.assign(bounds, {completeAggregate: false, buildCount: buildCount, priorBuildCount: priorBuildCount}),
-    });
+    }));
   }
 
   function comparisonPercent(side, key) {
@@ -6745,14 +7149,6 @@
     return labels[row.match_status] || 'Review required';
   }
 
-  function comparisonNameKey(name) {
-    return String(name || '')
-      .replace(/^AMD:\s*/i, '')
-      .replace(/^mi\d{3,4}b?_\d+:\s*/i, '')
-      .replace(/\s*\(mi\d{3,4}b?_\d+\)\s*$/i, '')
-      .trim().replace(/\s+/g, ' ').toLowerCase();
-  }
-
   function comparisonGroupById(reliability, groupId) {
     return groupReliabilityByRef(reliability, groupId);
   }
@@ -6760,34 +7156,52 @@
   function comparisonVariantCell(variant, ops, reliability, platform) {
     const group = comparisonGroupById(reliability, variant.group_id);
     const cell = n('div', 'ops-entity-cell');
-    cell.append(linkButton(variant.name || 'Unnamed variant', function () {
-      if (group) openGroupDetail(variant, ops, group, reliability);
-    }, 'Inspect exact ' + platform + ' group history'));
+    if (group) {
+      cell.append(linkButton(variant.name || 'Unnamed variant', function () {
+        openGroupDetail(variant, ops, group, reliability);
+      }, 'Inspect exact ' + platform + ' group history'));
+    } else if (variant.latest_url) {
+      cell.append(externalLink(variant.name || 'Unnamed variant', variant.latest_url));
+    } else {
+      cell.append(n('span', 'ops-cell-primary', variant.name || 'Unnamed variant'));
+    }
     const meta = [platform, hardwareDisplayLabel(variant.hardware), (variant.queues || []).join(', ')].filter(Boolean).join(' - ');
     if (meta) cell.append(n('span', 'ops-entity-meta', meta));
     return cell;
   }
 
+  function comparisonVariantMetric(variant, ops, reliability, textValue) {
+    const group = comparisonGroupById(reliability, variant.group_id);
+    if (!group) return n('span', '', textValue);
+    return linkButton(textValue, function () {
+      openGroupDetail(variant, ops, group, reliability);
+    });
+  }
+
   function comparisonRetryRows(row, retry, bounds) {
-    const key = row.comparison_key;
-    const groupIds = new Set([].concat((row.amd || {}).group_ids || [], (row.cuda || {}).group_ids || []));
+    const rowId = String(row.id || '');
+    const identityField = row.comparison_eligible
+      ? 'comparison_eligible_row_ids'
+      : 'comparison_row_ids';
     function selected(source) {
       return (source || []).filter(function (item) {
-        const identityMatches = item.group_id ? groupIds.has(item.group_id) : comparisonNameKey(item.name) === key;
-        if (!identityMatches) return false;
+        const platform = String(item.comparison_platform || '').toLowerCase();
+        const rowIds = Array.isArray(item[identityField]) ? item[identityField].map(String) : [];
+        if (!rowId || !['amd', 'cuda'].includes(platform) || !rowIds.includes(rowId)) return false;
         if (!bounds) return true;
         const timestamp = comparisonRetryTimestamp(item);
         return timestamp !== null && timestamp >= bounds.start && timestamp <= bounds.end;
       }).map(function (item) {
         return Object.assign({}, item, {
-          _platform: /^AMD:\s*/i.test(String(item.name || '')) ? 'AMD' : 'CUDA',
+          _platform: String(item.comparison_platform).toUpperCase(),
           _role: item.retry_source ? 'Child retry' : 'Original attempt',
+          _comparisonTimestamp: comparisonRetryTimestamp(item),
         });
       });
     }
     return {
-      attempts: selected((retry || {}).retry_attempts),
-      recoveries: selected((retry || {}).failed_then_passed_recoveries),
+      attempts: selected(retry && retry.retry_attempts),
+      recoveries: selected(retry && retry.failed_then_passed_recoveries),
     };
   }
 
@@ -6808,15 +7222,38 @@
       .concat((cuda.variants || []).map(function (variant) { return Object.assign({}, variant, {_platform: 'CUDA'}); }));
     content.append(panel('Hardware variants', integer(amd.variant_count) + ' AMD - ' + integer(cuda.variant_count) + ' CUDA', dataTable([
       {label: 'Platform and exact group', sticky: true, width: '430px', render: function (variant) { return comparisonVariantCell(variant, ops, reliability, variant._platform); }},
-      {label: 'Runs', numeric: true, width: '90px', render: function (variant) { const group = comparisonGroupById(reliability, variant.group_id); return linkButton(integer(variant.runs), function () { if (group) openGroupDetail(variant, ops, group, reliability); }); }},
-      {label: 'Incidents', numeric: true, width: '110px', render: function (variant) { const group = comparisonGroupById(reliability, variant.group_id); return linkButton(integer(variant.incidents), function () { if (group) openGroupDetail(variant, ops, group, reliability); }); }},
-      {label: 'Incident frequency', numeric: true, width: '150px', render: function (variant) { const group = comparisonGroupById(reliability, variant.group_id); return linkButton(comparisonPercent(variant, 'incident_rate_pct'), function () { if (group) openGroupDetail(variant, ops, group, reliability); }); }},
-      {label: 'p90 completion', numeric: true, width: '140px', render: function (variant) { const group = comparisonGroupById(reliability, variant.group_id); return linkButton(duration(variant.p90_duration_mins), function () { if (group) openGroupDetail(variant, ops, group, reliability); }); }},
-      {label: 'Latest evidence', width: '150px', render: function (variant) { return externalLink('Open job', exactPipelineEvidenceUrl({latest_url: variant.latest_url}, 'ci')); }},
-    ], variants, integer(variants.length) + ' exact upstream hardware variants', {name: 'amd-cuda-variants', minWidth: '1070px'}), 'ops-comparison-variants'));
+      {label: 'Runs', numeric: true, width: '90px', render: function (variant) { return comparisonVariantMetric(variant, ops, reliability, integer(variant.runs)); }},
+      {label: 'Incidents', numeric: true, width: '110px', render: function (variant) { return comparisonVariantMetric(variant, ops, reliability, integer(variant.incidents)); }},
+      {label: 'Incident frequency', numeric: true, width: '150px', render: function (variant) { return comparisonVariantMetric(variant, ops, reliability, comparisonPercent(variant, 'incident_rate_pct')); }},
+      {label: 'p90 completion', numeric: true, width: '140px', render: function (variant) { return comparisonVariantMetric(variant, ops, reliability, duration(variant.p90_duration_mins)); }},
+      {label: 'Latest evidence', width: '150px', render: function (variant) { const url = exactPipelineEvidenceUrl({latest_url: variant.latest_url}, 'ci'); return url ? externalLink('Open job', url) : n('span', 'ops-cell-muted', 'Unavailable'); }},
+    ], variants, integer(variants.length) + (row.comparison_eligible ? ' matched upstream execution histories' : ' AMD and candidate CUDA execution histories'), {name: 'amd-cuda-variants', minWidth: '1070px'}), 'ops-comparison-variants'));
 
-    const retryRows = comparisonRetryRows(row, retry, row._window && row._window.id !== '30d' ? row._window : null);
-    if (focus === 'retries' || retryRows.attempts.length || retryRows.recoveries.length) {
+    const retryEvidenceDeferred = retry.evidence_deferred === true;
+    if (focus === 'retries' && retryEvidenceDeferred) {
+      const loadEvidence = button('Load exact retry attempts', function () {
+        loadEvidence.disabled = true;
+        loadEvidence.textContent = 'Loading exact retry evidence…';
+        loadComparisonRetryEvidence().then(function (expandedRetry) {
+          backOverlay();
+          openPlatformComparisonDetail(row, ops, reliability, expandedRetry, focus);
+        }).catch(function (error) {
+          loadEvidence.disabled = false;
+          loadEvidence.textContent = 'Retry loading exact evidence';
+          console.error('Comparison retry evidence load failed:', error);
+        });
+      }, true);
+      content.append(panel(
+        'Exact retry evidence on demand',
+        'The comparison table stays fast by loading the large attempt ledger only when requested.',
+        loadEvidence,
+        'ops-comparison-retry-loader'
+      ));
+    }
+    const retryRows = retryEvidenceDeferred
+      ? {attempts: [], recoveries: []}
+      : comparisonRetryRows(row, retry, row._window && row._window.id !== '30d' ? row._window : null);
+    if (!retryEvidenceDeferred && (focus === 'retries' || retryRows.attempts.length || retryRows.recoveries.length)) {
       const attemptColumns = [
         {label: 'Platform', width: '90px', render: function (attempt) { return badge(attempt._platform, attempt._platform === 'AMD' ? 'is-info' : 'is-neutral'); }},
         {label: 'Build', width: '100px', render: function (attempt) { return externalLink('#' + value(attempt.build_number), exactReliabilityBuildUrl(attempt), 'ops-mono'); }},
@@ -6849,8 +7286,14 @@
         geometry: {name: 'comparison-recoveries', minWidth: '950px'},
       }));
     }
-    content.append(sourceActions([{label: 'Open published comparison data', url: SOURCE_ASSETS.operations}, {label: 'Open upstream CI pipeline', url: 'https://buildkite.com/vllm/ci'}]));
-    openOverlay(row.label + ': AMD vs CUDA', 'Exact matched group variants, ' + value((row._window || {}).id, '30d') + ' rates, latency, and Buildkite evidence', content, true, 'amd-cuda-' + row.id);
+    content.append(sourceActions([{label: 'Open published comparison data', url: SOURCE_ASSETS.comparison}, {label: 'Open upstream CI pipeline', url: 'https://buildkite.com/vllm/ci'}]));
+    openOverlay(
+      row.label + (row.comparison_eligible ? ': AMD vs CUDA' : ': AMD comparison review'),
+      (row.comparison_eligible ? 'Exact matched execution histories' : 'AMD and candidate CUDA execution histories requiring review') + ', ' + value((row._window || {}).id, '30d') + ' rates, latency, and Buildkite evidence',
+      content,
+      true,
+      'amd-cuda-' + row.id
+    );
   }
 
   function comparisonGroupCell(row, ops, reliability, retry, focus) {
@@ -6876,19 +7319,9 @@
   function analyticsWindowControl(host, comparison) {
     const windowInfo = comparison.window || {};
     const toolbar = n('div', 'ops-toolbar ops-analytics-window-toolbar');
-    const label = n('span', 'ops-toolbar-label', 'Observation window');
-    toolbar.append(label);
-    toolbar.append(segmented(['1h', '3h', '6h', '24h', '7d', '30d'].map(function (id) {
-      return {id: id, label: id};
-    }), state.analyticsWindow, function (id) {
-      setRouteState('ci-analytics', 'analyticsWindow', id, 'analytics_window');
-    }, 'Flake and retry observation window'));
+    toolbar.append(n('span', 'ops-toolbar-label', 'Complete 30-day comparison'));
     const context = n('span', 'ops-window-context');
-    if (windowInfo.completeAggregate) {
-      context.textContent = integer(windowInfo.buildCount) + ' completed main builds - complete 30-day aggregate';
-    } else {
-      context.textContent = integer(windowInfo.buildCount) + ' builds with retained evidence - ending ' + shortDate(new Date(windowInfo.end).toISOString());
-    }
+    context.textContent = integer(windowInfo.buildCount) + ' completed upstream main builds · precomputed for fast inspection';
     toolbar.append(context);
     host.append(toolbar);
   }
@@ -6928,7 +7361,7 @@
         },
         evidenceTitle: config.title + ' evidence',
         evidence: config.rows.map(function (row) {
-          return {label: row.label, valueSummary: config.evidenceSummary(row), sources: [{label: 'Open published upstream comparison', url: SOURCE_ASSETS.operations}], onOpen: function () { openPlatformComparisonDetail(row, config.ops, config.reliability, config.retry, config.focus); }};
+          return {label: row.label, valueSummary: config.evidenceSummary(row), sources: [{label: 'Open published upstream comparison', url: SOURCE_ASSETS.comparison}], onOpen: function () { openPlatformComparisonDetail(row, config.ops, config.reliability, config.retry, config.focus); }};
         }),
       });
     });
@@ -6941,34 +7374,31 @@
     const pairedAmd = summary.comparable_amd || {};
     const cuda = summary.matched_cuda || {};
     const sorted = rows.slice().sort(function (a, b) {
-      const regressionDelta = Number(b.amd_incident_change_pp || 0) - Number(a.amd_incident_change_pp || 0);
-      return regressionDelta || Number(b.amd.incident_rate_pct || 0) - Number(a.amd.incident_rate_pct || 0) || a.label.localeCompare(b.label);
+      return Number(b.amd.incident_rate_pct || 0) - Number(a.amd.incident_rate_pct || 0) || a.label.localeCompare(b.label);
     });
     const active = sorted.filter(function (row) { return Number(row.amd.runs || 0) > 0; });
     const comparable = active.filter(function (row) { return row.comparison_eligible; });
     const chartRows = comparable.filter(function (row) {
       return Number(row.amd.incidents || 0) > 0 || Number(row.cuda.incidents || 0) > 0;
     });
-    const windowInfo = comparison.window || {};
     analyticsWindowControl(host, comparison);
     host.append(statusStrip([
       {label: 'ACTIVE AMD VARIANTS', value: integer(active.length) + ' / ' + integer(summary.amd_comparison_row_count || summary.amd_base_group_count), meta: integer(amd.runs) + ' exact attempts in ' + state.analyticsWindow, onOpen: function () { openTableBrowser({id: 'flake-comparison-all', title: 'AMD and CUDA incident comparison', subtitle: state.analyticsWindow + ' upstream branch=main window', rows: sorted, columns: comparisonFlakeColumns(ops, reliability, retry), searchText: comparisonSearchText, geometry: {name: 'flake-comparison', minWidth: '1260px'}}); }},
       {label: 'AMD INCIDENTS', value: integer(amd.incidents), meta: comparisonPercent(amd, 'incident_rate_pct') + ' of ' + integer(amd.runs) + ' attempts', tone: Number(amd.incidents) ? 'is-warning' : 'is-success'},
-      {label: 'REGRESSED VS PRIOR', value: windowInfo.completeAggregate ? '-' : integer(summary.regressed_incident_group_count), meta: windowInfo.completeAggregate ? 'choose 1h-7d for movement' : integer(summary.new_incident_group_count) + ' newly incident groups', tone: Number(summary.regressed_incident_group_count) ? 'is-danger' : 'is-success'},
       {label: 'PAIRED AMD / CUDA', value: comparisonPercent(pairedAmd, 'incident_rate_pct') + ' / ' + comparisonPercent(cuda, 'incident_rate_pct'), meta: integer(comparable.length) + ' active exact pairs'},
     ]));
     const note = n('div', 'ops-evidence-note is-info');
     const retentionNote = Number(summary.history_incomplete_variant_count || 0)
       ? ' ' + integer(summary.history_incomplete_variant_count) + ' high-frequency variants reached the retained-history cap; their window values are lower bounds.' : '';
-    add(note, [n('strong', '', 'AMD-first, upstream-only incident evidence. '), n('span', '', (windowInfo.completeAggregate ? 'The 30-day selection uses complete aggregate counters.' : 'Movement compares this window with the immediately preceding equal-length window.') + ' Exact CUDA deltas exclude generic or ambiguous references. Incident frequency is not a test-case flake probability.' + retentionNote)]);
+    add(note, [n('strong', '', 'AMD-first, upstream-only incident evidence. '), n('span', '', 'The complete 30-day aggregate is precomputed. Exact CUDA deltas exclude generic or ambiguous references. Incident frequency is not a test-case flake probability.' + retentionNote)]);
     host.append(note);
     renderComparisonChart(host, {
       title: 'AMD incident frequency - ' + state.analyticsWindow,
-      subtitle: integer(chartRows.length) + ' exact pairs with current incidents; ' + (windowInfo.completeAggregate ? 'complete 30-day AMD burden beside CUDA equivalents' : 'largest recent AMD regressions first') + '; zero-incident groups remain in the table',
+      subtitle: integer(chartRows.length) + ' exact pairs with current incidents; complete 30-day AMD burden beside CUDA equivalents; zero-incident groups remain in the table',
       key: 'analytics-platform-flakes',
       rows: chartRows.slice(0, 12),
       emptyTitle: 'No incidents in exact AMD/CUDA pairs for this window.',
-      emptyMessage: 'Active zero-incident groups remain in the table; choose a longer window for historical burden.',
+      emptyMessage: 'Active zero-incident groups remain available in the table.',
       amdValue: function (row) { return row.amd.incident_rate_pct; },
       cudaValue: function (row) { return row.cuda.incident_rate_pct; },
       axis: 'Incident frequency (%)',
@@ -6983,7 +7413,7 @@
       id: 'flake-comparison-browser',
       limit: 12,
       alwaysBrowse: true,
-      browserSubtitle: 'Exact counts, percentages, prior-window movement, and matched CUDA context',
+      browserSubtitle: 'Exact 30-day counts, percentages, and matched CUDA context',
       searchPlaceholder: 'Filter AMD group, CUDA equivalent, hardware, or queue',
       searchText: comparisonSearchText,
       geometry: {name: 'flake-comparison', minWidth: '1260px'},
@@ -7000,7 +7430,6 @@
       {label: 'AMD test group and CUDA equivalent', sticky: true, width: '320px', render: function (row) { return comparisonGroupCell(row, ops, reliability, retry, 'flakes'); }},
       {label: 'Match', width: '140px', render: function (row) { return linkButton(comparisonMatchLabel(row), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'flakes'); }); }},
       {label: 'AMD incidents / attempts', numeric: true, width: '175px', render: function (row) { return linkButton(comparisonCountRate(row.amd, 'incidents', 'incident_rate_pct'), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'flakes'); }); }},
-      {label: 'vs prior window', numeric: true, width: '125px', render: function (row) { const control = linkButton(comparisonDelta(row.amd_incident_change_pp, ' pp'), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'flakes'); }); control.classList.add('ops-comparison-delta', comparisonTone(row.amd_incident_change_pp, 0)); return control; }},
       {label: 'CUDA incidents / attempts', numeric: true, width: '175px', render: function (row) { return linkButton(comparisonCountRate(row.cuda, 'incidents', 'incident_rate_pct'), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'flakes'); }); }},
       {label: 'AMD / CUDA gap', numeric: true, width: '120px', render: function (row) { const valueText = comparisonDelta(row.incident_rate_delta_pp, ' pp'); const control = linkButton(valueText, function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'flakes'); }); control.classList.add('ops-comparison-delta', comparisonTone(row.incident_rate_delta_pp, 5)); return control; }},
       {label: 'AMD attempts / 100 builds', numeric: true, width: '150px', render: function (row) { return linkButton(comparisonPercent(row.amd, 'attempts_per_100_builds'), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'flakes'); }); }},
@@ -7015,8 +7444,7 @@
     const pairedAmd = summary.comparable_amd || {};
     const cuda = summary.matched_cuda || {};
     const sorted = rows.slice().sort(function (a, b) {
-      const regressionDelta = Number(b.amd_retry_change_pp || 0) - Number(a.amd_retry_change_pp || 0);
-      return regressionDelta || Number(b.amd.retry_frequency_pct || 0) - Number(a.amd.retry_frequency_pct || 0) || Number(b.amd.child_retry_attempts || 0) - Number(a.amd.child_retry_attempts || 0) || a.label.localeCompare(b.label);
+      return Number(b.amd.retry_frequency_pct || 0) - Number(a.amd.retry_frequency_pct || 0) || Number(b.amd.child_retry_attempts || 0) - Number(a.amd.child_retry_attempts || 0) || a.label.localeCompare(b.label);
     });
     const active = sorted.filter(function (row) { return Number(row.amd.runs || 0) > 0; });
     const comparable = active.filter(function (row) { return row.comparison_eligible; });
@@ -7025,18 +7453,16 @@
         || Number(row.cuda.child_retry_attempts || 0) > 0
         || Number(row.amd.recovered_chains || 0) > 0;
     });
-    const windowInfo = comparison.window || {};
     analyticsWindowControl(host, comparison);
     host.append(statusStrip([
       {label: 'AMD CHILD RETRIES', value: integer(amd.child_retry_attempts), meta: integer(amd.retry_involved_attempts) + ' total retry-involved attempts', tone: Number(amd.child_retry_attempts) ? 'is-warning' : 'is-success'},
       {label: 'AMD CHILD RETRY SHARE', value: comparisonPercent(amd, 'retry_frequency_pct'), meta: integer(amd.child_retry_attempts) + ' / ' + integer(amd.runs) + ' terminal attempts'},
-      {label: 'REGRESSED VS PRIOR', value: windowInfo.completeAggregate ? '-' : integer(summary.regressed_retry_group_count), meta: windowInfo.completeAggregate ? 'choose 1h-7d for movement' : 'groups with a higher retry share', tone: Number(summary.regressed_retry_group_count) ? 'is-danger' : 'is-success'},
       {label: 'RECOVERED / PAIRED CUDA', value: integer(amd.recovered_chains) + ' / ' + comparisonPercent(cuda, 'retry_frequency_pct'), meta: comparisonPercent(amd, 'retry_recovery_rate_pct') + ' AMD recovery rate - ' + integer(comparable.length) + ' active pairs'},
     ]));
     const note = n('div', 'ops-evidence-note is-info');
     const retryRetention = Number(summary.history_incomplete_variant_count || 0)
       ? ' ' + integer(summary.history_incomplete_variant_count) + ' high-frequency variants reached the retained-history cap.' : '';
-    add(note, [n('strong', '', 'Explicit Buildkite retry metadata only. '), n('span', '', (windowInfo.completeAggregate ? 'The 30-day selection uses complete aggregate retry counters.' : 'Movement compares timestamped child retries with the immediately preceding equal-length window.') + ' Recovery means an exact failed attempt linked to a passing retry; mixed outcomes alone are not counted.' + retryRetention)]);
+    add(note, [n('strong', '', 'Explicit Buildkite retry metadata only. '), n('span', '', 'The complete 30-day aggregate is precomputed. Recovery means an exact failed attempt linked to a passing retry; mixed outcomes alone are not counted.' + retryRetention)]);
     host.append(note);
     renderComparisonChart(host, {
       title: 'AMD retry burden - ' + state.analyticsWindow,
@@ -7044,7 +7470,7 @@
       key: 'analytics-platform-retries',
       rows: chartRows.slice(0, 12),
       emptyTitle: 'No explicit child retries in exact AMD/CUDA pairs for this window.',
-      emptyMessage: 'Active zero-retry groups remain in the table; choose a longer window for historical burden.',
+      emptyMessage: 'Active zero-retry groups remain available in the table.',
       datasets: [
         {label: 'AMD child retry share', value: function (row) { return row.amd.retry_frequency_pct; }, backgroundColor: '#e3a63a'},
         {label: 'Matched CUDA share', value: function (row) { return row.cuda.retry_frequency_pct; }, backgroundColor: '#5ca8ff'},
@@ -7063,7 +7489,6 @@
       {label: 'AMD test group and CUDA equivalent', sticky: true, width: '320px', render: function (row) { return comparisonGroupCell(row, ops, reliability, retry, 'retries'); }},
       {label: 'Match', width: '140px', render: function (row) { return linkButton(comparisonMatchLabel(row), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'retries'); }); }},
       {label: 'AMD child retries / attempts', numeric: true, width: '180px', render: function (row) { return linkButton(comparisonCountRate(row.amd, 'child_retry_attempts', 'retry_frequency_pct'), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'retries'); }); }},
-      {label: 'vs prior window', numeric: true, width: '125px', render: function (row) { const control = linkButton(comparisonDelta(row.amd_retry_change_pp, ' pp'), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'retries'); }); control.classList.add('ops-comparison-delta', comparisonTone(row.amd_retry_change_pp, 0)); return control; }},
       {label: 'AMD recovered', numeric: true, width: '115px', render: function (row) { return linkButton(integer(row.amd.recovered_chains), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'retries'); }); }},
       {label: 'CUDA child retries / attempts', numeric: true, width: '180px', render: function (row) { return linkButton(comparisonCountRate(row.cuda, 'child_retry_attempts', 'retry_frequency_pct'), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'retries'); }); }},
       {label: 'AMD / CUDA gap', numeric: true, width: '120px', render: function (row) { const control = linkButton(comparisonDelta(row.retry_frequency_delta_pp, ' pp'), function () { openPlatformComparisonDetail(row, ops, reliability, retry, 'retries'); }); control.classList.add('ops-comparison-delta', comparisonTone(row.retry_frequency_delta_pp, 2)); return control; }},
@@ -7073,7 +7498,7 @@
       id: 'retry-comparison-browser',
       limit: 12,
       alwaysBrowse: true,
-      browserSubtitle: 'Exact child-retry counts, prior-window movement, recoveries, and matched CUDA evidence',
+      browserSubtitle: 'Exact 30-day child-retry counts, recoveries, and matched CUDA evidence',
       searchPlaceholder: 'Filter AMD group, CUDA equivalent, hardware, or queue',
       searchText: comparisonSearchText,
       geometry: {name: 'retry-comparison', minWidth: '1320px'},
@@ -7330,7 +7755,7 @@
           data: {labels: outcomes.map(function (row) { return row[0]; }), datasets: [{label: 'Attempts', data: outcomes.map(function (row) { return row[1]; }), backgroundColor: outcomes.map(function (row) { return row[0] === 'Passed' ? '#35bb78' : row[0].includes('Soft') ? '#e3a63a' : '#e06464'; })}]},
           options: {scales: {y: {beginAtZero: true, title: {display: true, text: 'Explicit attempts'}}, x: {grid: {display: false}}}},
           evidenceTitle: 'Explicit retry attempts by terminal outcome',
-          evidence: outcomes.map(function (row) { return {label: row[0], valueSummary: integer(row[1]) + ' attempts', sources: [{label: 'Open published retry ledger', url: SOURCE_ASSETS.operations}]}; }),
+          evidence: outcomes.map(function (row) { return {label: row[0], valueSummary: integer(row[1]) + ' attempts', sources: [{label: 'Open published retry ledger', url: SOURCE_ASSETS.comparisonRetryEvidence}]}; }),
         });
         drawChart('analytics-retry-groups', groupChart.canvas, {
           type: 'bar',
@@ -7389,7 +7814,7 @@
         ]},
         options: {indexAxis: 'y', scales: {x: {beginAtZero: true, title: {display: true, text: 'Minutes'}}, y: {grid: {display: false}}}},
         evidenceTitle: 'Upstream groups ranked by p90 completion',
-        evidence: slowestRows.map(function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref); return {label: row.name, valueSummary: 'p90 ' + duration(row.p90_dur) + ' - median ' + duration(row.median_dur), sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.operations}], onOpen: function () { if (full) openGroupDetail(row, ops, full, reliability); }}; }),
+        evidence: slowestRows.map(function (row) { const full = groupReliabilityByRef(reliability, row.evidence_ref); return {label: row.name, valueSummary: 'p90 ' + duration(row.p90_dur) + ' - median ' + duration(row.median_dur), sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.reliability}], onOpen: function () { if (full) openGroupDetail(row, ops, full, reliability); }}; }),
       });
     });
     const latencyColumns = [
@@ -7400,7 +7825,7 @@
       {label: 'Maximum', numeric: true, width: '120px', render: function (r) { const full = groupReliabilityByRef(reliability, r.evidence_ref); return linkButton(duration(r.max_dur), function () { if (full) openGroupDetail(r, ops, full, reliability); }, 'Inspect maximum completion evidence for ID ' + value(r.evidence_ref)); }},
       {label: 'Incident rate', numeric: true, width: '130px', render: function (r) { const full = groupReliabilityByRef(reliability, r.evidence_ref); return linkButton(Number.isFinite(Number(r.fail_rate)) ? Number(r.fail_rate).toFixed(1) + '%' : '-', function () { if (full) openGroupDetail(r, ops, full, reliability); }, 'Inspect incident evidence for ID ' + value(r.evidence_ref)); }},
       {label: 'Queues', width: '220px', render: function (r) { const names = r.queues || []; const wrap = n('div', 'ops-inline-links'); names.forEach(function (name) { wrap.append(linkButton(name, function () { navigateTo('ci-queue', {queueView: 'history', queueHistoryQueue: name, queueScope: isAmdQueue(name) ? 'amd' : 'all'}); })); }); return names.length ? wrap : n('span', 'ops-cell-muted', '-'); }},
-      {label: 'Evidence', width: '150px', render: function (r) { const rel = groupReliabilityByRef(reliability, r.evidence_ref); return rel ? linkButton(integer(evidenceObservations(rel).length) + ' runs', function () { openGroupDetail(r, ops, rel, reliability); }, 'Inspect exact observations for evidence ID ' + value(r.evidence_ref)) : externalLink('Published ranking', SOURCE_ASSETS.operations); }},
+      {label: 'Evidence', width: '150px', render: function (r) { const rel = groupReliabilityByRef(reliability, r.evidence_ref); return rel ? linkButton(integer(evidenceObservations(rel).length) + ' runs', function () { openGroupDetail(r, ops, rel, reliability); }, 'Inspect exact observations for evidence ID ' + value(r.evidence_ref)) : externalLink('Published ranking', SOURCE_ASSETS.reliability); }},
     ];
     host.append(compactTablePanel('Completion-time evidence', integer(latencyRows.length) + ' strict upstream groups ranked by p90', latencyColumns, latencyRows, {
       id: 'latency-browser',
@@ -7672,7 +8097,7 @@
       ],
       sources: [
         {label: 'Open published queue history', url: SOURCE_ASSETS.queueHistory},
-        {label: 'Open current operations snapshot', url: SOURCE_ASSETS.operations},
+        {label: 'Open current queue snapshot', url: SOURCE_ASSETS.queueSection},
       ],
       content: content,
     });
@@ -10434,7 +10859,7 @@
         {label: 'Snapshots above today’s quota', value: integer(history.snapshots_above_configured_capacity || 0)},
       ],
       sources: [
-        {label: 'Open capacity projection aggregate', url: SOURCE_ASSETS.operations},
+        {label: 'Open capacity projection aggregate', url: SOURCE_ASSETS.trajectory},
         {label: 'Inspect raw queue history', url: SOURCE_ASSETS.queueHistory},
       ],
       content: note,
@@ -10725,7 +11150,7 @@
           content: evidence,
           sources: [
             {label: 'Inspect raw queue history', url: SOURCE_ASSETS.queueHistory},
-            {label: 'Inspect configured capacity inputs', url: SOURCE_ASSETS.operations},
+            {label: 'Inspect configured capacity inputs', url: SOURCE_ASSETS.trajectory},
           ],
         });
       }
@@ -10826,7 +11251,7 @@
         sources: [
           {label: 'Open unique-job mapping evidence', url: SOURCE_ASSETS.workloadMapping},
           {label: 'Open queue occupancy history', url: SOURCE_ASSETS.queueHistory},
-          {label: 'Open capacity projection inputs', url: SOURCE_ASSETS.operations},
+          {label: 'Open capacity projection inputs', url: SOURCE_ASSETS.trajectory},
         ],
         content: guidance,
       });
@@ -10876,7 +11301,7 @@
           {label: 'Aggregate pressure', value: result.aggregatePressurePct === null ? 'Unavailable' : result.aggregatePressurePct.toFixed(1) + '%'},
           {label: 'All burst jobs started / completed by', value: result.trafficMode === 'burst' ? duration(result.allStartedBy) + ' / ' + duration(result.allCompletedBy) : 'Not applicable'},
         ],
-        sources: [{label: 'Open published planning inputs', url: SOURCE_ASSETS.operations}],
+        sources: [{label: 'Open published planning inputs', url: SOURCE_ASSETS.trajectory}],
       });
     }
     function openWaitSummary() {
@@ -10938,7 +11363,7 @@
         description: capacityVerdict(result),
         fields: fields,
         content: dataTable(columns, result.familyRows, sustained ? 'Steady offered load by fixed family' : 'Fixed-family capacity', {name: 'capacity-family-detail', minWidth: '620px'}),
-        sources: [{label: 'Open configured capacity evidence', url: SOURCE_ASSETS.operations}],
+        sources: [{label: 'Open configured capacity evidence', url: SOURCE_ASSETS.trajectory}],
       });
     }
     host.append(statusStrip([
@@ -11061,7 +11486,7 @@
         },
         options: {scales: {y: {beginAtZero: true, title: {display: true, text: 'Concurrent jobs'}}}},
         evidenceTitle: 'Scenario demand versus queue capacity',
-        evidenceAsset: SOURCE_ASSETS.operations,
+        evidenceAsset: SOURCE_ASSETS.trajectory,
         evidence: demandRows.map(function (row) {
           return {
             id: row.id,
@@ -11125,7 +11550,7 @@
             : {}
         )},
         evidenceTitle: 'Projected wait along workload growth',
-        evidenceAsset: SOURCE_ASSETS.operations,
+        evidenceAsset: SOURCE_ASSETS.trajectory,
         evidence: curve.map(function (row) {
           return {
             id: 'capacity-growth-' + row.mode + '-' + row.x,
@@ -11226,7 +11651,7 @@
     if (state.trajectoryHardware !== 'all') rows = rows.filter(function (row) { return (row.hardware || 'unknown') === state.trajectoryHardware; });
     const query = state.trajectorySearch.trim().toLowerCase();
     if (query) rows = rows.filter(function (row) { return [row.name, row.id, row.hardware, (row.queues || []).join(' ')].some(function (part) { return String(part || '').toLowerCase().includes(query); }); });
-    const sourceAction = externalLink('Open upstream main source', SOURCE_ASSETS.operations, 'ops-button');
+    const sourceAction = externalLink('Open upstream main history', SOURCE_ASSETS.reliability, 'ops-button');
     add(host, pageHeader('CI Workload Trajectory', 'Historical workload signals and queue-shaped AMD capacity planning for the expanded test suite.', windowData.observedTo, sourceAction));
     const viewToolbar = n('div', 'ops-toolbar');
     add(viewToolbar, [
@@ -11271,10 +11696,10 @@
     const slowest = rows.filter(function (row) { return Number.isFinite(Number(row.p90_min)); }).sort(function (a, b) { return Number(b.p90_min) - Number(a.p90_min); })[0] || {};
     const failing = rows.filter(function (row) { return hotnessRatePercent(row) > 0; }).length;
     host.append(statusStrip([
-      {id: 'trajectory-jobs', label: 'TERMINAL OBSERVATIONS', value: integer(totalRuns), meta: integer(uniqueBuilds.size) + ' builds in ' + state.trajectoryWindow, window: state.trajectoryWindow, observed: windowData.observedTo, provenance: 'reliability.group_catalog observations', sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.operations}]},
-      {id: 'trajectory-groups', label: 'STRICT GROUP VARIANTS', value: integer(rows.length), meta: 'after active filters', onOpen: function () { openMetricDetail({label: 'Filtered strict group variants', value: rows.length, meta: state.trajectoryWindow + ' selected window', provenance: 'reliability.group_catalog IDs', sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.operations}]}); }},
-      {id: 'trajectory-incidents', label: 'VARIANTS WITH INCIDENTS', value: integer(failing), meta: 'non-zero incident rate', tone: failing ? 'is-warning' : 'is-success', onOpen: function () { openHistoryEvidence('Variants with incidents', rows.filter(function (row) { return hotnessRatePercent(row) > 0; }).map(function (row) { return {id: row.id, label: row.name + ' - ' + row.hardware, timestamp: row.last_seen, valueSummary: hotnessRatePercent(row).toFixed(1) + '%', sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.operations}], onOpen: function () { openTrajectoryGroupHistory(row); }}; }), 'Strict all-main group identities in the selected window', SOURCE_ASSETS.operations); }},
-      {id: 'trajectory-slowest', label: 'SLOWEST P90', value: duration(slowest.p90_min), meta: value(slowest.name, 'No duration data'), onOpen: function () { slowest.id ? openTrajectoryGroupHistory(slowest) : openMetricDetail({label: 'Slowest p90', value: '-', meta: 'No completion data in this window', sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.operations}]}); }},
+      {id: 'trajectory-jobs', label: 'TERMINAL OBSERVATIONS', value: integer(totalRuns), meta: integer(uniqueBuilds.size) + ' builds in ' + state.trajectoryWindow, window: state.trajectoryWindow, observed: windowData.observedTo, provenance: 'reliability.group_catalog observations', sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.reliability}]},
+      {id: 'trajectory-groups', label: 'STRICT GROUP VARIANTS', value: integer(rows.length), meta: 'after active filters', onOpen: function () { openMetricDetail({label: 'Filtered strict group variants', value: rows.length, meta: state.trajectoryWindow + ' selected window', provenance: 'reliability.group_catalog IDs', sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.reliability}]}); }},
+      {id: 'trajectory-incidents', label: 'VARIANTS WITH INCIDENTS', value: integer(failing), meta: 'non-zero incident rate', tone: failing ? 'is-warning' : 'is-success', onOpen: function () { openHistoryEvidence('Variants with incidents', rows.filter(function (row) { return hotnessRatePercent(row) > 0; }).map(function (row) { return {id: row.id, label: row.name + ' - ' + row.hardware, timestamp: row.last_seen, valueSummary: hotnessRatePercent(row).toFixed(1) + '%', sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.reliability}], onOpen: function () { openTrajectoryGroupHistory(row); }}; }), 'Strict all-main group identities in the selected window', SOURCE_ASSETS.reliability); }},
+      {id: 'trajectory-slowest', label: 'SLOWEST P90', value: duration(slowest.p90_min), meta: value(slowest.name, 'No duration data'), onOpen: function () { slowest.id ? openTrajectoryGroupHistory(slowest) : openMetricDetail({label: 'Slowest p90', value: '-', meta: 'No duration data in this window', sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.reliability}]}); }},
     ]));
 
     let anomalyRows = anomalyData.rows.slice();
@@ -11302,7 +11727,7 @@
           ]},
           options: {indexAxis: 'y', scales: {x: {beginAtZero: true, title: {display: true, text: 'Distinct builds per day'}}, y: {grid: {display: false}}}},
           evidenceTitle: 'Test-group execution-frequency changes',
-          evidence: frequencyRows.map(function (row) { return {id: row.id, label: row.name + ' - ' + row.hardware, timestamp: observationTimestamp(row.latest), valueSummary: (row.frequencyChangePct >= 0 ? '+' : '') + row.frequencyChangePct.toFixed(0) + '% execution cadence', details: {latest_distinct_builds: row.cadenceRecentCount, latest_cadence_per_day: row.recentRate.toFixed(2), prior_distinct_builds: row.cadenceBaselineCount, prior_cadence_per_day: row.baselineRate === null ? '-' : row.baselineRate.toFixed(2), queues: row.queues.join(', '), incident_rate: row.incidentRatePct.toFixed(1) + '%'}, sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.operations}], onOpen: function () { openTrajectoryAnomalyHistory(row, anomalyData); }}; }),
+          evidence: frequencyRows.map(function (row) { return {id: row.id, label: row.name + ' - ' + row.hardware, timestamp: observationTimestamp(row.latest), valueSummary: (row.frequencyChangePct >= 0 ? '+' : '') + row.frequencyChangePct.toFixed(0) + '% execution cadence', details: {latest_distinct_builds: row.cadenceRecentCount, latest_cadence_per_day: row.recentRate.toFixed(2), prior_distinct_builds: row.cadenceBaselineCount, prior_cadence_per_day: row.baselineRate === null ? '-' : row.baselineRate.toFixed(2), queues: row.queues.join(', '), incident_rate: row.incidentRatePct.toFixed(1) + '%'}, sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.reliability}], onOpen: function () { openTrajectoryAnomalyHistory(row, anomalyData); }}; }),
         });
       });
     } else {
@@ -11320,7 +11745,7 @@
           ]},
           options: {indexAxis: 'y', scales: {x: {beginAtZero: true, title: {display: true, text: 'Completion minutes'}}, y: {grid: {display: false}}}},
           evidenceTitle: 'Test-group completion-time regressions',
-          evidence: durationRows.map(function (row) { return {id: row.id, label: row.name + ' - ' + row.hardware, timestamp: observationTimestamp(row.latest), valueSummary: '+' + row.durationChangePct.toFixed(0) + '% median completion time', details: {recent_median: duration(row.recentMedian), baseline_median: duration(row.baselineMedian), recent_observations: row.recentCount, baseline_observations: row.baselineCount, queues: row.queues.join(', '), incident_rate: row.incidentRatePct.toFixed(1) + '%'}, sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.operations}], onOpen: function () { openTrajectoryAnomalyHistory(row, anomalyData); }}; }),
+          evidence: durationRows.map(function (row) { return {id: row.id, label: row.name + ' - ' + row.hardware, timestamp: observationTimestamp(row.latest), valueSummary: '+' + row.durationChangePct.toFixed(0) + '% median completion time', details: {recent_median: duration(row.recentMedian), baseline_median: duration(row.baselineMedian), recent_observations: row.recentCount, baseline_observations: row.baselineCount, queues: row.queues.join(', '), incident_rate: row.incidentRatePct.toFixed(1) + '%'}, sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.reliability}], onOpen: function () { openTrajectoryAnomalyHistory(row, anomalyData); }}; }),
         });
       });
     } else {
@@ -11366,7 +11791,7 @@
     const top = rows.slice().sort(function (a, b) { return Number(b.count || 0) - Number(a.count || 0); }).slice(0, 15);
     const cp = chartPanel('Most active strict variants', 'Terminal observations in the selected all-main window', 'trajectory-groups');
     host.append(cp.root);
-    drawChart('trajectory-groups', cp.canvas, {type: 'bar', data: {labels: top.map(function (row) { return compactChartLabel(row, 54); }), datasets: [{label: 'Observations', data: top.map(function (row) { return row.count; }), backgroundColor: '#22b8ad'}]}, options: {indexAxis: 'y'}, evidenceTitle: 'Strict test-group execution volume', evidence: top.map(function (row) { return {id: row.id, label: row.name + ' - ' + row.hardware, timestamp: row.last_seen, valueSummary: integer(row.count) + ' observations', details: {catalog_id: row.id, hardware: row.hardware, queues: row.queues.join(', '), median: duration(row.p50_min), p90: duration(row.p90_min), incident_rate: hotnessRatePercent(row).toFixed(1) + '%'}, sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.operations}], onOpen: function () { openTrajectoryGroupHistory(row); }}; })});
+    drawChart('trajectory-groups', cp.canvas, {type: 'bar', data: {labels: top.map(function (row) { return compactChartLabel(row, 54); }), datasets: [{label: 'Observations', data: top.map(function (row) { return row.count; }), backgroundColor: '#22b8ad'}]}, options: {indexAxis: 'y'}, evidenceTitle: 'Strict test-group execution volume', evidence: top.map(function (row) { return {id: row.id, label: row.name + ' - ' + row.hardware, timestamp: row.last_seen, valueSummary: integer(row.count) + ' observations', details: {catalog_id: row.id, hardware: row.hardware, queues: row.queues.join(', '), median: duration(row.p50_min), p90: duration(row.p90_min), incident_rate: hotnessRatePercent(row).toFixed(1) + '%'}, sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.reliability}], onOpen: function () { openTrajectoryGroupHistory(row); }}; })});
     const trajectoryColumns = [
       {label: 'Test group variant', sticky: true, render: function (row) { return groupIdentityCell(row, function () { openTrajectoryGroupHistory(row); }); }},
       {label: 'Workload', render: function (row) { return linkedBadge(row.workload || 'vllm', null, function () { state.trajectoryWorkload = row.workload || 'vllm'; render('ci-hotness', true); }, row.workload === 'omni' ? 'is-info' : 'is-neutral'); }},
@@ -11909,10 +12334,10 @@
     const ledgerRunning = Number.isFinite(Number(currentLedger.running)) ? Number(currentLedger.running) : running.length;
     function openJobsEvidence(title, rows, evidenceNote) {
       if (!rows.length) {
-        openMetricDetail({label: title, value: 0, meta: 'No source-backed jobs in this scope.', sources: [{label: 'Open published Omni snapshot', url: SOURCE_ASSETS.operations}]});
+        openMetricDetail({label: title, value: 0, meta: 'No source-backed jobs in this scope.', sources: [{label: 'Open published Omni snapshot', url: SOURCE_ASSETS.omni}]});
         return;
       }
-      openHistoryEvidence(title, rows.map(function (job) { return {id: job.job_id, label: job.name || 'Unnamed Omni job', timestamp: job.created_at || job.scheduled_at || job.started_at, valueSummary: value(job.state) + ' on ' + value(job.queue), url: job.url, details: {queue: job.queue, state: job.state, pipeline: job.pipeline, build: job.build, exclusion_reason: job.exclusion_reason || null}}; }), evidenceNote || 'Every active job links to its exact Buildkite source', SOURCE_ASSETS.operations);
+      openHistoryEvidence(title, rows.map(function (job) { return {id: job.job_id, label: job.name || 'Unnamed Omni job', timestamp: job.created_at || job.scheduled_at || job.started_at, valueSummary: value(job.state) + ' on ' + value(job.queue), url: job.url, details: {queue: job.queue, state: job.state, pipeline: job.pipeline, build: job.build, exclusion_reason: job.exclusion_reason || null}}; }), evidenceNote || 'Every active job links to its exact Buildkite source', SOURCE_ASSETS.omni);
     }
     function mappingBreakdownRows(stats, key) {
       return Object.entries((stats || {})[key] || {}).map(function (entry) {

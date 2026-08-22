@@ -2,9 +2,8 @@
  * Utility functions for the project dashboard.
  */
 
-// V2 owns all public views. Work used only by retired/control renderers should
-// begin after the first visible V2 route settles so it cannot compete with the
-// data and JavaScript needed for first paint.
+// V2 owns all public views. Deferred work begins after the first visible route
+// settles so it cannot compete with first paint.
 function afterOpsV2FirstRender(task) {
   var scheduled = false;
   function schedule(delayMs) {
@@ -18,9 +17,7 @@ function afterOpsV2FirstRender(task) {
       }
     }, delayMs || 0);
   }
-  var initialTab = window.location.hash.replace('#', '');
-  if (!window.__DASHBOARD_V2__ || window.__opsV2FirstRenderSettled
-    || ['ci-testbuild', 'ci-ready', 'ci-admin'].includes(initialTab)) {
+  if (!window.__DASHBOARD_V2__ || window.__opsV2FirstRenderSettled) {
     schedule(0);
     return;
   }
@@ -179,8 +176,8 @@ var LinkRegistry = (function() {
 })();
 
 // ═══════════════════════ TAB REGISTRY ═══════════════════════
-// One source of truth for the dashboard shell. Navigation, auth gating,
-// and tests read this metadata instead of hard-coding parallel lists.
+// One source of truth for the public dashboard shell. Navigation and tests
+// read this metadata instead of hard-coding parallel lists.
 var DashboardTabs = (function() {
   var _tabs = [
     { id: 'projects', label: 'Home', section: 'core', family: 'static' },
@@ -196,34 +193,6 @@ var DashboardTabs = (function() {
     { id: 'ci-queue', label: 'Queue Monitor', section: 'vLLM', family: 'ci' },
     { id: 'ci-hotness', label: 'CI Workload Trajectory', section: 'vLLM', family: 'ci' },
     { id: 'ci-omni', label: 'Omni CI', section: 'vLLM', family: 'ci' },
-    {
-      id: 'ci-testbuild',
-      label: 'Test Build',
-      section: 'vLLM',
-      family: 'ci',
-      requiresAuth: true,
-      gateLabel: 'Sign in',
-      description: 'Launch custom Buildkite runs',
-    },
-    {
-      id: 'ci-ready',
-      label: 'Ready Tickets',
-      section: 'vLLM',
-      family: 'ci',
-      requiresAuth: true,
-      gateLabel: 'Sign in',
-      description: 'Track and assign nightly failure issues',
-    },
-    {
-      id: 'ci-admin',
-      label: 'Admin',
-      section: 'vLLM',
-      family: 'ci',
-      requiresAuth: true,
-      adminOnly: true,
-      gateLabel: 'Admin',
-      description: 'Manage dashboard access',
-    },
   ];
   var _byId = {};
   for (var i = 0; i < _tabs.length; i++) {
@@ -248,17 +217,10 @@ var DashboardTabs = (function() {
     }).map(_clone);
   }
 
-  function getProtectedTabs() {
-    return _tabs.filter(function(tab) {
-      return !!(tab.requiresAuth || tab.adminOnly);
-    }).map(_clone);
-  }
-
   return {
     list: list,
     get: get,
     getSectionTabs: getSectionTabs,
-    getProtectedTabs: getProtectedTabs,
   };
 })();
 window.__dashboardTabs = DashboardTabs;
@@ -1296,29 +1258,17 @@ function registerCISection(frameworkName, tabs) {
       btn.type = 'button';
       btn.className = 'nav-btn ci-sub-btn';
       btn.setAttribute('data-tab', tab.id);
-      if (tab.requiresAuth) btn.setAttribute('data-requires-auth', 'true');
-      if (tab.adminOnly) btn.setAttribute('data-admin-only', 'true');
-      if (tab.gateLabel) btn.setAttribute('data-gate-label', tab.gateLabel);
       if (tab.description) btn.setAttribute('data-tab-description', tab.description);
       var label = document.createElement('span');
       label.className = 'nav-btn-label';
       label.textContent = tab.label;
       btn.appendChild(label);
-      if (tab.requiresAuth || tab.adminOnly) {
-        btn.classList.add('nav-btn-protected');
-        var chip = document.createElement('span');
-        chip.className = 'nav-lock-chip';
-        chip.setAttribute('aria-hidden', 'true');
-        btn.appendChild(chip);
-      }
       tabContainer.appendChild(btn);
 
       // Create tab panel
       var panel = document.createElement('div');
       panel.id = 'tab-' + tab.id;
       panel.className = 'tab-panel';
-      if (tab.requiresAuth) panel.setAttribute('data-requires-auth', 'true');
-      if (tab.adminOnly) panel.setAttribute('data-admin-only', 'true');
       var section = document.createElement('section');
       section.id = tab.id + '-view';
       panel.appendChild(section);

@@ -13,7 +13,7 @@ from pathlib import PurePosixPath
 from typing import Any, Iterable
 
 
-SURFACE_CONTRACT_VERSION = 3
+SURFACE_CONTRACT_VERSION = 4
 
 
 @dataclass(frozen=True)
@@ -134,27 +134,17 @@ SURFACE_SPECS: dict[str, SurfaceSpec] = {
     ),
     "github_home": SurfaceSpec(
         required_paths=(
+            "data/vllm/ci/project_items.json",
             "data/vllm/issues.json",
             "data/vllm/prs.json",
             "data/vllm/releases.json",
         ),
-    ),
-    "ready": SurfaceSpec(
-        required_paths=(
-            "data/vllm/ci/project_items.json",
-            "data/vllm/ci/ready_tickets.json",
-        ),
-        optional_paths=("data/vllm/ci/ready_tickets_state.json",),
     ),
     "perf_eval": SurfaceSpec(
         required_paths=(
             "data/vllm/perf_eval/events.jsonl",
             "data/vllm/perf_eval/perf_eval.json",
         ),
-    ),
-    "test_builds": SurfaceSpec(
-        required_paths=("data/vllm/ci/test_builds/index.json",),
-        globs=("data/vllm/ci/test_builds/*/*.json", "data/vllm/ci/test_builds/*/*.jsonl"),
     ),
 }
 
@@ -245,9 +235,6 @@ def fallback_dependency_closure(surfaces: Iterable[str]) -> frozenset[str]:
 # data fallback.  A defect in one of these remains a global hard failure.
 GLOBAL_DATA_PATHS = frozenset({
     "data/site/projects.json",
-    "data/users.json",
-    "data/vllm/ci/engineers.enc.json",
-    "data/vllm/ci/kill_auth.enc.json",
     "data/vllm/ci/operations_v2.json",
     "data/vllm/ci/operations_v2_manifest.json",
     "data/vllm/ci/publication_state.json",
@@ -273,8 +260,7 @@ SOURCE_SURFACES = {
     "group_changes": "ci_changes",
     "omni_heuristic": "queue",
     "omni_issue_state": "queue",
-    "project_items": "ready",
-    "ready_tickets": "ready",
+    "project_items": "github_home",
     "ci_ownership": "ci_core",
 }
 
@@ -388,6 +374,8 @@ OPERATIONS_FINDING_SURFACES: dict[str, frozenset[str]] = {
     "operations-retry-links": _OPS_ANALYTICS,
     "operations-retry-recovery-count": _OPS_ANALYTICS,
     "operations-retry-source": _OPS_ANALYTICS,
+    "operations-comparison-payload-budget": _OPS_ANALYTICS,
+    "operations-comparison-retry-evidence-payload-budget": _OPS_ANALYTICS,
     "operations-trajectory-scope": _OPS_ANALYTICS,
     # Nightly history combines analytics history with current core health.
     "operations-latest-nightly": _OPS_ANALYTICS_CORE,
@@ -486,7 +474,6 @@ def finding_surfaces(finding: Any) -> frozenset[str]:
         (("queue-lifecycle-",), "queue_lifecycle"),
         (("dns-health-",), "dns_health"),
         (("queue-",), "queue"),
-        (("ready-ticket-",), "ready"),
         (("ci-pr-", "linked-ci-pr-", "rocm-pr-", "ci-custom-tag", "rocm-custom-tag", "home-", "project-issue-"), "github_home"),
     )
     for prefixes, owner in prefix_routes:

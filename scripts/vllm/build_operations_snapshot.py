@@ -25,6 +25,7 @@ from vllm.ci.incident_transitions import (  # noqa: E402
     advance_incident,
     completed_build_eligibility,
 )
+from vllm.ci import analyzer as ci_analyzer  # noqa: E402
 from vllm.ci.models import (  # noqa: E402
     AMD_OBSERVED_UNIQUE_TEST_GROUPS_COUNT_BASIS,
 )
@@ -36,6 +37,9 @@ from vllm.ci.reliability_history import (  # noqa: E402
     validate_all_main_reliability,
 )
 from vllm.collect_gating_target_candidates import hardware_fold_key  # noqa: E402
+from vllm.config_parity import (  # noqa: E402
+    extract_amd_runtime_group_key_map_from_report,
+)
 from vllm.pipelines import (  # noqa: E402
     UPSTREAM_SCHEDULED_GATING_NAME_PATTERN,
     upstream_scheduled_gating_kind,
@@ -134,7 +138,6 @@ SOURCE_FILES = {
     "omni_heuristic": "omni_surge_heuristic.json",
     "omni_issue_state": "open_omni_surge_issues.json",
     "project_items": "project_items.json",
-    "ready_tickets": "ready_tickets.json",
     "ci_ownership": "ci_ownership.json",
 }
 
@@ -1199,10 +1202,330 @@ def _latest_amd_test_group_counts(
     }
 
 
+def _amd_test_shard_bases(data_dir: Path) -> list[str]:
+    """Load the exact shard-normalization inputs used by the CI analyzer."""
+    path = data_dir / "shard_bases.json"
+    try:
+        payload = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError, UnicodeError):
+        return []
+    if not isinstance(payload, list):
+        return []
+    return sorted({
+        str(value).strip().casefold()
+        for value in payload
+        if isinstance(value, str) and value.strip()
+    })
+
+
+def _amd_test_signal_value(status_counts: dict[str, int]) -> bool | None:
+    """Collapse one exact job variant with analyzer-compatible precedence."""
+    statuses = {
+        str(status).strip().casefold()
+        for status, count in status_counts.items()
+        if count
+    }
+    if statuses & AMD_TEST_INCIDENT_STATUSES:
+        return False
+    if statuses & {"passed", "xpassed"}:
+        return True
+    if statuses & {"canceled", "skipped", "xfailed"}:
+        return None
+    return None
+
+
+def _amd_test_signal_state(value: bool | None) -> str:
+    if value is True:
+        return "passing"
+    if value is False:
+        return "failing"
+    return "no_pass_signal"
+
+
+def _merge_amd_test_signal(
+    current: bool | None,
+    incoming: bool | None,
+) -> bool | None:
+    """Mirror analyzer precedence: failure, then pass, then no signal."""
+    if current is False or incoming is False:
+        return False
+    if current is True or incoming is True:
+        return True
+    return None
+
+
+def _friendly_amd_logical_label(logical_key: str, variants: list[dict]) -> str:
+    """Preserve Buildkite casing while retaining route-aware key suffixes."""
+    candidates = sorted({
+        str(row.get("display_name") or "").strip()
+        for row in variants
+        if str(row.get("display_name") or "").strip()
+    }, key=lambda value: (len(value), value.casefold(), value))
+    for candidate in candidates:
+        normalized = ci_analyzer._normalize_job_name(candidate).strip()
+        if normalized == logical_key:
+            return candidate
+        if normalized.startswith(logical_key):
+            return candidate[:len(logical_key)].rstrip()
+        if logical_key.startswith(normalized):
+            return f"{candidate}{logical_key[len(normalized):]}"
+    return logical_key[:1].upper() + logical_key[1:]
+
+
+def _latest_logical_amd_test_groups(
+    data_dir: Path,
+    latest_counts: dict,
+    metadata: dict,
+    grouped: dict[tuple[int, str], dict],
+    observations: dict[str, dict],
+    definition_parity: Any,
+) -> dict:
+    """Publish an exact, auditable inventory behind the latest group totals.
+
+    Identity and per-hardware state intentionally use the same private analyzer
+    helpers as ``compute_build_summary``.  The inventory is withheld unless
+    its rows reconcile exactly to the already-published, build-pinned totals.
+    """
+    build_number = _strict_int(latest_counts.get("build_number"))
+    build_commit = str(
+        metadata.get("commit") or metadata.get("commit_sha") or ""
+    ).strip().casefold()
+    count_basis = str(
+        latest_counts.get("count_basis")
+        or AMD_OBSERVED_UNIQUE_TEST_GROUPS_COUNT_BASIS
+    )
+    passing_policy = str(
+        latest_counts.get("passing_policy")
+        or "passes_on_any_observed_hardware"
+    )
+    base = {
+        "schema_version": 1,
+        "available": False,
+        "reason": None,
+        "build_number": build_number,
+        "build_url": (
+            _amd_test_build_url(build_number, metadata)
+            if build_number is not None
+            else ""
+        ),
+        "build_commit": build_commit or None,
+        "definition_commit": None,
+        "route_map_aligned": False,
+        "shard_base_count": 0,
+        "count_basis": count_basis,
+        "passing_policy": passing_policy,
+        "summary": {},
+        "rows": [],
+        "reconciliation": {
+            "matches_latest_test_group_counts": False,
+            "expected": {},
+            "derived": {},
+        },
+        "provenance": {
+            "test_results": AMD_TEST_RESULTS_GLOB,
+            "metadata": SOURCE_FILES["analytics"],
+            "definitions": SOURCE_FILES["config_parity"],
+            "shard_bases": "shard_bases.json",
+            "identity_function": "vllm.ci.analyzer._amd_runtime_group_key",
+            "hardware_function": "vllm.ci.analyzer._extract_hardware",
+            "state_semantics": "vllm.ci.analyzer.compute_build_summary",
+        },
+    }
+    if latest_counts.get("available") is not True or build_number is None:
+        return {**base, "reason": "latest_test_group_counts_unavailable"}
+
+    shard_bases = _amd_test_shard_bases(data_dir)
+    definition_report = definition_parity if isinstance(definition_parity, dict) else {}
+    try:
+        definition_commit, route_map = (
+            extract_amd_runtime_group_key_map_from_report(definition_report)
+        )
+    except (TypeError, ValueError):
+        return {
+            **base,
+            "reason": "invalid_definition_route_map",
+            "shard_base_count": len(shard_bases),
+        }
+    definition_commit = str(definition_commit or "").strip().casefold()
+    route_map_aligned = bool(
+        re.fullmatch(r"[0-9a-f]{40}", build_commit)
+        and build_commit == definition_commit
+    )
+    base.update({
+        "definition_commit": definition_commit or None,
+        "route_map_aligned": route_map_aligned,
+        "shard_base_count": len(shard_bases),
+    })
+
+    previous_shard_bases = list(ci_analyzer._SHARD_BASES)
+    previous_route_commit = ci_analyzer._AMD_RUNTIME_GROUP_KEY_COMMIT
+    previous_route_keys = dict(ci_analyzer._AMD_RUNTIME_GROUP_KEYS)
+    logical: dict[str, dict] = {}
+    try:
+        ci_analyzer.set_shard_bases(shard_bases)
+        ci_analyzer.set_amd_runtime_group_key_map(definition_commit, route_map)
+        for (row_build_number, exact_job_name), bucket in sorted(grouped.items()):
+            if row_build_number != build_number:
+                continue
+            status_counts = {
+                str(status): int(count)
+                for status, count in bucket.get("status_counts", {}).items()
+            }
+            recognized = {
+                "passed", "xpassed", "failed", "error", "canceled",
+                "skipped", "xfailed",
+            }
+            if not recognized.intersection(status_counts):
+                continue
+            logical_key = ci_analyzer._amd_runtime_group_key(
+                exact_job_name,
+                build_commit,
+            ).strip()
+            if not logical_key:
+                continue
+            hardware = ci_analyzer._extract_hardware(exact_job_name)
+            signal_value = _amd_test_signal_value(status_counts)
+            observation = observations.get(exact_job_name) or {}
+            display_name, _, hardware_variant, queue = (
+                _amd_test_job_labels(exact_job_name)
+            )
+            evidence = {
+                "id": _amd_test_group_id(exact_job_name),
+                "exact_job_name": exact_job_name,
+                "display_name": display_name,
+                "hardware": hardware,
+                "hardware_variant": str(
+                    observation.get("hardware_variant") or hardware_variant
+                ),
+                "queue": str(observation.get("queue") or queue),
+                "test_signal_state": _amd_test_signal_state(signal_value),
+                "terminal_state": str(observation.get("state") or "unknown"),
+                "status_counts": dict(sorted(status_counts.items())),
+                "status_row_counts": dict(sorted(
+                    (str(status), int(count))
+                    for status, count in bucket.get(
+                        "status_row_counts", {}
+                    ).items()
+                )),
+                "tests": int(observation.get("tests") or 0),
+                "passed_tests": int(observation.get("passed_tests") or 0),
+                "failed_tests": int(observation.get("failed_tests") or 0),
+                "skipped_tests": int(observation.get("skipped_tests") or 0),
+                "observed_at": str(observation.get("observed_at") or ""),
+                "job_url": str(observation.get("job_url") or ""),
+                "build_url": str(observation.get("build_url") or ""),
+            }
+            for field in ("job_id", "step_id"):
+                if observation.get(field):
+                    evidence[field] = str(observation[field])
+            entry = logical.setdefault(logical_key, {
+                "hardware_states": {},
+                "job_variants": [],
+            })
+            entry["hardware_states"][hardware] = _merge_amd_test_signal(
+                entry["hardware_states"].get(hardware),
+                signal_value,
+            )
+            entry["job_variants"].append(evidence)
+    finally:
+        ci_analyzer.set_shard_bases(previous_shard_bases)
+        ci_analyzer.set_amd_runtime_group_key_map(
+            previous_route_commit,
+            previous_route_keys,
+        )
+
+    rows = []
+    state_counts: Counter[str] = Counter()
+    for logical_key, entry in sorted(logical.items()):
+        hardware_states = entry["hardware_states"]
+        values = list(hardware_states.values())
+        any_pass = any(value is True for value in values)
+        all_pass = all(value is True for value in values)
+        state = (
+            "passing_all"
+            if all_pass
+            else "partial"
+            if any_pass
+            else "non_passing"
+        )
+        state_counts[state] += 1
+        variants = sorted(
+            entry["job_variants"],
+            key=lambda row: (
+                str(row.get("hardware")),
+                str(row.get("hardware_variant")),
+                str(row.get("exact_job_name")),
+            ),
+        )
+        rows.append({
+            "id": hashlib.sha1(
+                f"amd-ci-logical:{logical_key}".encode()
+            ).hexdigest()[:20],
+            "logical_key": logical_key,
+            "label": _friendly_amd_logical_label(logical_key, variants),
+            "state": state,
+            "passing": any_pass,
+            "hardware_count": len(hardware_states),
+            "job_variant_count": len(variants),
+            "hardware_states": [
+                {
+                    "hardware": hardware,
+                    "state": _amd_test_signal_state(value),
+                }
+                for hardware, value in sorted(hardware_states.items())
+            ],
+            "job_variants": variants,
+        })
+
+    derived = {
+        "total": len(rows),
+        "passing": state_counts["passing_all"] + state_counts["partial"],
+        "passing_all": state_counts["passing_all"],
+        "partial": state_counts["partial"],
+        "non_passing": state_counts["non_passing"],
+    }
+    expected = {
+        key: int(latest_counts[key])
+        for key in derived
+        if latest_counts.get(key) is not None
+    }
+    reconciles = expected == derived
+    reconciliation = {
+        "matches_latest_test_group_counts": reconciles,
+        "expected": expected,
+        "derived": derived,
+    }
+    if not reconciles:
+        return {
+            **base,
+            "reason": "logical_group_reconciliation_failed",
+            "reconciliation": reconciliation,
+        }
+
+    return {
+        **base,
+        "available": True,
+        "reason": None,
+        "summary": {
+            **derived,
+            "job_variant_count": sum(
+                row["job_variant_count"] for row in rows
+            ),
+            "state_counts": {
+                state: state_counts[state]
+                for state in ("passing_all", "partial", "non_passing")
+            },
+        },
+        "rows": rows,
+        "reconciliation": reconciliation,
+    }
+
+
 def _amd_test_health(
     data_dir: Path,
     amd_analytics: Any,
     amd_ci_health: Any = None,
+    definition_parity: Any = None,
 ) -> dict:
     grouped, load_stats = _load_amd_test_result_groups(data_dir)
     metadata_by_build = _amd_test_metadata_builds(amd_analytics)
@@ -1378,6 +1701,21 @@ def _amd_test_health(
         latest,
         amd_ci_health,
     )
+    latest_build_number = _strict_int(latest.get("build_number"))
+    latest_observations = {
+        exact_job_name: observation
+        for exact_job_name, source_observations in observations_by_group.items()
+        for observation in source_observations
+        if observation.get("build_number") == latest_build_number
+    }
+    latest_logical_test_groups = _latest_logical_amd_test_groups(
+        data_dir,
+        latest_test_group_counts,
+        metadata_by_build.get(latest_build_number) or {},
+        grouped,
+        latest_observations,
+        definition_parity,
+    )
     summary = {
         "build_count": len(builds),
         # This is the historical union of exact Buildkite job names, not the
@@ -1456,6 +1794,7 @@ def _amd_test_health(
             "aggregation_key": ["build_number", "exact_job_name"],
         },
         "summary": summary,
+        "latest_logical_test_groups": latest_logical_test_groups,
         "builds": builds,
         "group_catalog": catalog,
         "provenance": {
@@ -2301,12 +2640,36 @@ def _comparison_platform(row: dict) -> str:
     return "other"
 
 
+COMPARISON_PLATFORM_PREFIX_RE = re.compile(
+    r"^:(?:amd|nvidia):\s*"
+    r"\(\s*(?:mi\d{3,4}b?|[abh]\d{3}|l4|t4)\s*\)\s*",
+    re.IGNORECASE,
+)
+COMPARISON_NVIDIA_STEP_PREFIX_RE = re.compile(
+    r"^-nvidia--(?:a100|b100|b200|h100|h200|l4|t4)-",
+    re.IGNORECASE,
+)
+
+
 def _comparison_label(value: Any) -> str:
-    return _strict_group_label(value)
+    # The upstream catalog has both legacy undecorated names and current
+    # ``:nvidia: (H200)`` / ``:amd: (MI300)`` names.  Strip only that leading
+    # execution decorator.  Hardware wording in the body remains meaningful.
+    text = MULTISPACE_RE.sub(" ", str(value or "").strip())
+    return _strict_group_label(COMPARISON_PLATFORM_PREFIX_RE.sub("", text))
 
 
 def _comparison_key(value: Any) -> str:
     return _comparison_label(value).casefold()
+
+
+def _comparison_step_key(row: dict, platform: str) -> str:
+    value = str(row.get("step_key") or "").strip().casefold()
+    if platform == "amd" and value.startswith("amd-"):
+        return value[4:]
+    if platform == "cuda":
+        return COMPARISON_NVIDIA_STEP_PREFIX_RE.sub("", value)
+    return value
 
 
 def _comparison_variant(row: dict) -> dict:
@@ -2339,12 +2702,26 @@ def _cuda_reference_kind(row: dict) -> str:
     queues = {str(queue).lower() for queue in row.get("queues") or []}
     explicit = {
         "a100": {"a100_queue"},
+        "b100": {"b100-k8s"},
         "b200": {"b200-k8s"},
         "h100": {"mithril-h100-pool"},
         "h200": {"h200", "gh200_queue", "h200_18gb", "h200_35gb"},
     }
     if hardware in explicit and len(queues) == 1 and queues <= explicit[hardware]:
         return "explicit_cuda"
+    if hardware in {"l4", "t4"} and len(queues) == 1 and all(
+        re.match(r"^gpu_\d+_queue$", queue) for queue in queues
+    ):
+        decorated = any(
+            re.match(
+                rf"^:nvidia:\s*\(\s*{hardware}\s*\)",
+                str(identity or ""),
+                re.IGNORECASE,
+            )
+            for identity in [row.get("name"), *(row.get("raw_names") or [])]
+        )
+        if decorated:
+            return "explicit_cuda"
     if hardware == "gpu" and len(queues) == 1 and all(
         re.match(r"^gpu_\d+_queue$", queue) for queue in queues
     ):
@@ -2358,6 +2735,7 @@ def _comparison_side(
     child_retry_attempts: int,
     recoveries: int,
     retry_involved_attempts: int = 0,
+    logical_variant_count: int | None = None,
 ) -> dict:
     runs = sum(int(row.get("runs") or 0) for row in groups)
     passed = sum(int(row.get("passed") or 0) for row in groups)
@@ -2379,7 +2757,10 @@ def _comparison_side(
         ),
     )
     return {
-        "variant_count": len(groups),
+        "variant_count": (
+            len(groups) if logical_variant_count is None else logical_variant_count
+        ),
+        "catalog_record_count": len(groups),
         "group_ids": [row["group_id"] for row in variants if row.get("group_id")],
         "hardware": sorted({
             str(row.get("hardware")) for row in groups if row.get("hardware")
@@ -2417,9 +2798,20 @@ def _platform_comparison(
     cohort_builds: int,
 ) -> dict:
     grouped: dict[tuple[str, str], list[dict]] = defaultdict(list)
-    exact_identity: dict[str, tuple[str, str, str]] = {}
+    exact_identity_candidates: dict[
+        str, set[tuple[str, str, str]]
+    ] = defaultdict(set)
     catalog_identity: dict[str, tuple[str, str, str]] = {}
-    for row in catalog:
+    ordered_catalog = sorted(
+        catalog,
+        key=lambda row: (
+            str(row.get("name") or "").casefold(),
+            str(row.get("hardware") or "").casefold(),
+            tuple(str(queue).casefold() for queue in row.get("queues") or []),
+            str(row.get("id") or ""),
+        ),
+    )
+    for row in ordered_catalog:
         platform = _comparison_platform(row)
         if platform not in {"amd", "cuda"}:
             continue
@@ -2432,34 +2824,71 @@ def _platform_comparison(
             catalog_identity[group_id] = (platform, key, group_id)
         for identity in [row.get("name"), *(row.get("raw_names") or [])]:
             if identity:
-                exact_identity[str(identity).casefold()] = (platform, key, group_id)
+                exact_identity_candidates[str(identity).casefold()].add(
+                    (platform, key, group_id)
+                )
 
-    def retry_identity(row: dict) -> tuple[str, str, str] | None:
+    def retry_identity(
+        row: dict,
+    ) -> tuple[tuple[str, str, str], str] | None:
         group_id = str(row.get("group_id") or "")
         if group_id and group_id in catalog_identity:
-            return catalog_identity[group_id]
+            return catalog_identity[group_id], "catalog_group_id"
         name = str(row.get("name") or "")
-        exact = exact_identity.get(name.casefold())
-        if exact:
-            return exact
+        exact_candidates = exact_identity_candidates.get(name.casefold()) or set()
+        if len(exact_candidates) == 1:
+            return next(iter(exact_candidates)), "exact_catalog_name"
         key = _comparison_key(name)
-        platform = "amd" if AMD_PREFIX_RE.match(name) else "cuda"
+        platform = (
+            "amd"
+            if AMD_PREFIX_RE.match(name)
+            or re.match(r"^:amd:\s*", name, re.IGNORECASE)
+            else "cuda"
+        )
         candidates = grouped.get((platform, key)) or []
         if len(candidates) != 1:
             return None
-        return (platform, key, str(candidates[0].get("id") or ""))
+        return (
+            (platform, key, str(candidates[0].get("id") or "")),
+            "unique_normalized_label",
+        )
+
+    def stamp_retry_identity(
+        row: dict,
+        identity: tuple[str, str, str],
+        method: str,
+    ) -> None:
+        platform, key, group_id = identity
+        row.update({
+            "comparison_platform": platform,
+            "comparison_key": key,
+            "comparison_group_id": group_id,
+            "comparison_identity_method": method,
+        })
 
     retry_involved_counts: Counter[tuple[str, str, str]] = Counter()
     child_retry_counts: Counter[tuple[str, str, str]] = Counter()
     recovery_counts: Counter[tuple[str, str, str]] = Counter()
+    resolved_retry_attempts: list[
+        tuple[dict, tuple[str, str, str]]
+    ] = []
+    resolved_recoveries: list[
+        tuple[dict, tuple[str, str, str]]
+    ] = []
     if retry_analysis.get("available") is True:
         for row in retry_analysis.get("retry_attempts") or []:
-            if identity := retry_identity(row):
+            if resolved := retry_identity(row):
+                identity, method = resolved
+                stamp_retry_identity(row, identity, method)
+                resolved_retry_attempts.append((row, identity))
                 retry_involved_counts[identity] += 1
                 if row.get("retry_source"):
                     child_retry_counts[identity] += 1
         for row in retry_analysis.get("failed_then_passed_recoveries") or []:
-            if identity := retry_identity(row):
+            if resolved := retry_identity(row):
+                identity, method = resolved
+                stamp_retry_identity(row, identity, method)
+                resolved_recoveries.append((row, identity))
                 recovery_counts[identity] += 1
 
     def group_count(
@@ -2484,64 +2913,235 @@ def _platform_comparison(
             if item_platform == platform and key in keys
         )
 
+    def execution_signature(group: dict) -> tuple[str, tuple[str, ...]]:
+        return (
+            str(group.get("hardware") or "").lower(),
+            tuple(sorted(str(queue).lower() for queue in group.get("queues") or [])),
+        )
+
+    def execution_lineages(
+        groups: list[dict],
+        platform: str,
+        key: str,
+    ) -> list[dict]:
+        """Coalesce only strict catalog aliases of one execution route.
+
+        The collector intentionally hashes raw label and step key into its
+        strict group ID.  A label migration or newly populated Buildkite step
+        key therefore creates another catalog row even when hardware and queue
+        are unchanged.  Those rows are one logical execution lineage only when
+        their normalized labels and non-empty step keys agree and their
+        retained build evidence never shows both definitions concurrently.
+        """
+        buckets: dict[tuple[str, tuple[str, ...]], list[dict]] = defaultdict(list)
+        for group in groups:
+            buckets[execution_signature(group)].append(group)
+        lineages = []
+        for signature, values in sorted(buckets.items(), key=lambda item: item[0]):
+            values = sorted(values, key=lambda row: str(row.get("id") or ""))
+            issues = []
+            labels = {
+                _comparison_key(identity)
+                for row in values
+                for identity in [row.get("name"), *(row.get("raw_names") or [])]
+                if identity
+            }
+            if labels - {key}:
+                issues.append("conflicting_catalog_labels")
+            step_keys = {
+                step_key
+                for row in values
+                if (step_key := _comparison_step_key(row, platform))
+            }
+            if len(step_keys) > 1:
+                issues.append("conflicting_catalog_step_keys")
+            seen_builds: set[int] = set()
+            overlapping_builds: set[int] = set()
+            for row in values:
+                builds = {
+                    int(observation["build_number"])
+                    for observation in row.get("observations") or []
+                    if isinstance(observation, dict)
+                    and isinstance(observation.get("build_number"), int)
+                }
+                overlapping_builds.update(seen_builds & builds)
+                seen_builds.update(builds)
+            if overlapping_builds:
+                issues.append("overlapping_catalog_aliases")
+            step_key = next(iter(step_keys), "")
+            encoded = json.dumps(
+                {
+                    "platform": platform,
+                    "label": key,
+                    "hardware": signature[0],
+                    "queues": signature[1],
+                    "step_key": step_key,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+            lineages.append({
+                "id": hashlib.sha1(encoded).hexdigest()[:20],
+                "signature": signature,
+                "step_key": step_key,
+                "groups": values,
+                "issues": issues,
+            })
+        return lineages
+
+    def selected_counter_total(
+        counter: Counter[tuple[str, str, str]],
+        groups: list[dict],
+    ) -> int:
+        total = 0
+        for group in groups:
+            identity = catalog_identity.get(str(group.get("id") or ""))
+            if identity:
+                total += counter[identity]
+        return total
+
+    def unique_groups(groups: list[dict]) -> list[dict]:
+        by_id = {
+            str(group.get("id") or f"anonymous:{position}"): group
+            for position, group in enumerate(groups)
+        }
+        return [by_id[group_id] for group_id in sorted(by_id)]
+
     amd_keys = sorted(key for platform, key in grouped if platform == "amd")
+
     rows = []
+    matched_amd_groups: list[dict] = []
+    matched_cuda_groups: list[dict] = []
+    matched_cuda_lineage_ids: set[str] = set()
+    amd_lineage_count = 0
+    amd_lineage_counts: Counter[str] = Counter()
+    matched_lineage_counts: Counter[str] = Counter()
     for key in amd_keys:
         amd_groups = grouped[("amd", key)]
         cuda_groups = grouped.get(("cuda", key), [])
+        amd_lineages = execution_lineages(amd_groups, "amd", key)
+        cuda_lineages = execution_lineages(cuda_groups, "cuda", key)
         label = _comparison_label(amd_groups[0].get("name"))
-        match_issues = []
-        if not cuda_groups:
-            match_issues.append("no_cuda_equivalent")
-        if len(cuda_groups) > 1:
-            match_issues.append("ambiguous_cuda_variants")
-        if cuda_groups and any(
-            _cuda_reference_kind(group) != "explicit_cuda" for group in cuda_groups
-        ):
-            match_issues.append("generic_or_unsupported_gpu_reference")
-        if HARDWARE_WORD_RE.search(label):
-            match_issues.append("hardware_specific_label")
+        explicit_cuda = [
+            lineage
+            for lineage in cuda_lineages
+            if not lineage["issues"]
+            and all(
+                _cuda_reference_kind(group) == "explicit_cuda"
+                for group in lineage["groups"]
+            )
+        ]
+        cuda_lineage_conflicts = any(lineage["issues"] for lineage in cuda_lineages)
+        for amd_lineage in amd_lineages:
+            amd_lineage_count += 1
+            amd_lineage_counts[key] += 1
+            row_issues = list(amd_lineage["issues"])
+            selected_cuda = None
+            match_basis = None
+            if row_issues:
+                row_issues.insert(0, "conflicting_amd_lineage")
+            elif not cuda_lineages:
+                row_issues.append("no_cuda_equivalent")
+            elif cuda_lineage_conflicts:
+                row_issues.append("conflicting_cuda_lineage")
+            elif not explicit_cuda:
+                row_issues.append("generic_or_unsupported_gpu_reference")
+            else:
+                amd_step_key = amd_lineage["step_key"]
+                step_matches = [
+                    lineage
+                    for lineage in explicit_cuda
+                    if amd_step_key
+                    and lineage["step_key"]
+                    and lineage["step_key"] == amd_step_key
+                ]
+                if len(step_matches) == 1:
+                    selected_cuda = step_matches[0]
+                    match_basis = "exact_step_key"
+                elif len(step_matches) > 1:
+                    row_issues.append("ambiguous_cuda_variants")
+                elif len(explicit_cuda) == 1:
+                    candidate = explicit_cuda[0]
+                    if (
+                        amd_step_key
+                        and candidate["step_key"]
+                        and amd_step_key != candidate["step_key"]
+                    ):
+                        row_issues.append("cuda_step_key_mismatch")
+                    else:
+                        selected_cuda = candidate
+                        match_basis = "unique_exact_label"
+                else:
+                    row_issues.append("ambiguous_cuda_variants")
 
-        # A base label can legitimately run on several AMD hardware variants.
-        # Keep the comparison one-to-one by emitting one row per AMD variant
-        # when there is exactly one explicit CUDA reference. Previously the
-        # arrival of a second AMD variant invalidated the whole base label and
-        # could drive every comparison count to zero during a live refresh.
-        selections = (
-            [([amd_group], cuda_groups, []) for amd_group in amd_groups]
-            if not match_issues
-            else [(amd_groups, cuda_groups, match_issues)]
-        )
-        for selected_amd, selected_cuda, row_issues in selections:
+                # A body such as ``H100-MI300`` is not mere decoration.  It is
+                # safe only when both definitions publish the same step key.
+                if (
+                    selected_cuda is not None
+                    and HARDWARE_WORD_RE.search(label)
+                    and match_basis != "exact_step_key"
+                ):
+                    selected_cuda = None
+                    match_basis = None
+                    row_issues.append("hardware_specific_label")
+
+            selected_amd_groups = amd_lineage["groups"]
+            selected_cuda_groups = (
+                selected_cuda["groups"]
+                if selected_cuda is not None
+                else [
+                    group
+                    for lineage in cuda_lineages
+                    for group in lineage["groups"]
+                ]
+            )
             comparison_eligible = not row_issues
             match_status = "exact_cuda_pair" if comparison_eligible else row_issues[0]
             amd = _comparison_side(
-                selected_amd,
+                selected_amd_groups,
                 cohort_builds,
-                group_count(child_retry_counts, "amd", key, selected_amd),
-                group_count(recovery_counts, "amd", key, selected_amd),
-                group_count(retry_involved_counts, "amd", key, selected_amd),
+                group_count(child_retry_counts, "amd", key, selected_amd_groups),
+                group_count(recovery_counts, "amd", key, selected_amd_groups),
+                group_count(
+                    retry_involved_counts,
+                    "amd",
+                    key,
+                    selected_amd_groups,
+                ),
+                logical_variant_count=1,
             )
             cuda = _comparison_side(
-                selected_cuda,
+                selected_cuda_groups,
                 cohort_builds,
-                group_count(child_retry_counts, "cuda", key, selected_cuda),
-                group_count(recovery_counts, "cuda", key, selected_cuda),
-                group_count(retry_involved_counts, "cuda", key, selected_cuda),
+                group_count(
+                    child_retry_counts,
+                    "cuda",
+                    key,
+                    selected_cuda_groups,
+                ),
+                group_count(recovery_counts, "cuda", key, selected_cuda_groups),
+                group_count(
+                    retry_involved_counts,
+                    "cuda",
+                    key,
+                    selected_cuda_groups,
+                ),
+                logical_variant_count=(1 if selected_cuda is not None else len(cuda_lineages)),
             )
-            variant_id = (
-                str(selected_amd[0].get("id") or "")
-                if comparison_eligible
-                else "review"
-            )
+            if comparison_eligible:
+                matched_lineage_counts[key] += 1
+                matched_amd_groups.extend(selected_amd_groups)
+                matched_cuda_groups.extend(selected_cuda_groups)
+                matched_cuda_lineage_ids.add(selected_cuda["id"])
             rows.append({
                 "id": hashlib.sha1(
-                    f"ci-amd-cuda:{key}:{variant_id}".encode()
+                    f"ci-amd-cuda:{key}:{amd_lineage['id']}".encode()
                 ).hexdigest()[:20],
                 "label": label,
                 "comparison_key": key,
                 "match_status": match_status,
                 "match_issues": row_issues,
+                "match_basis": match_basis,
                 "comparison_eligible": comparison_eligible,
                 "amd": amd,
                 "cuda": cuda,
@@ -2561,49 +3161,89 @@ def _platform_comparison(
                     else None
                 ),
             })
+    comparison_row_ids: dict[
+        tuple[str, str, str], set[str]
+    ] = defaultdict(set)
+    eligible_comparison_row_ids: dict[
+        tuple[str, str, str], set[str]
+    ] = defaultdict(set)
+    for comparison_row in rows:
+        row_id = str(comparison_row.get("id") or "")
+        key = str(comparison_row.get("comparison_key") or "")
+        if not row_id or not key:
+            continue
+        for platform in ("amd", "cuda"):
+            for group_id in comparison_row[platform].get("group_ids") or []:
+                identity = (platform, key, str(group_id))
+                comparison_row_ids[identity].add(row_id)
+                if comparison_row.get("comparison_eligible") is True:
+                    eligible_comparison_row_ids[identity].add(row_id)
+    for evidence_row, identity in [
+        *resolved_retry_attempts,
+        *resolved_recoveries,
+    ]:
+        evidence_row["comparison_row_ids"] = sorted(
+            comparison_row_ids.get(identity) or []
+        )
+        evidence_row["comparison_eligible_row_ids"] = sorted(
+            eligible_comparison_row_ids.get(identity) or []
+        )
+
     rows.sort(
         key=lambda row: (
             -(float(row["amd"].get("incident_rate_pct") or 0)),
             str(row.get("label") or "").casefold(),
+            tuple(row["amd"].get("hardware") or []),
+            tuple(row["amd"].get("queues") or []),
+            str(row.get("id") or ""),
         )
     )
     matched = [row for row in rows if row["comparison_eligible"]]
-    amd_groups = [row for (platform, _), values in grouped.items() if platform == "amd" for row in values]
+    amd_groups = [
+        row
+        for (platform, _), values in grouped.items()
+        if platform == "amd"
+        for row in values
+    ]
+    matched_amd_groups = unique_groups(matched_amd_groups)
+    matched_cuda_groups = unique_groups(matched_cuda_groups)
     matched_keys = {row["comparison_key"] for row in matched}
     label_matched_keys = {
         key for key in amd_keys if grouped.get(("cuda", key))
     }
-    matched_cuda_groups = [
-        row
-        for key in sorted(matched_keys)
-        for row in grouped.get(("cuda", key), [])
-    ]
     amd_key_set = set(amd_keys)
     amd_child_retries = counter_total(child_retry_counts, "amd", amd_key_set)
     amd_retry_involved = counter_total(retry_involved_counts, "amd", amd_key_set)
     amd_recoveries = counter_total(recovery_counts, "amd", amd_key_set)
-    comparable_amd_groups = [
-        row
-        for key in sorted(matched_keys)
-        for row in grouped.get(("amd", key), [])
-    ]
-    comparable_amd_child_retries = counter_total(
-        child_retry_counts, "amd", matched_keys
+    comparable_amd_child_retries = selected_counter_total(
+        child_retry_counts,
+        matched_amd_groups,
     )
-    comparable_amd_retry_involved = counter_total(
-        retry_involved_counts, "amd", matched_keys
+    comparable_amd_retry_involved = selected_counter_total(
+        retry_involved_counts,
+        matched_amd_groups,
     )
-    comparable_amd_recoveries = counter_total(
-        recovery_counts, "amd", matched_keys
+    comparable_amd_recoveries = selected_counter_total(
+        recovery_counts,
+        matched_amd_groups,
     )
-    cuda_child_retries = counter_total(child_retry_counts, "cuda", matched_keys)
-    cuda_retry_involved = counter_total(retry_involved_counts, "cuda", matched_keys)
-    cuda_recoveries = counter_total(recovery_counts, "cuda", matched_keys)
+    cuda_child_retries = selected_counter_total(
+        child_retry_counts,
+        matched_cuda_groups,
+    )
+    cuda_retry_involved = selected_counter_total(
+        retry_involved_counts,
+        matched_cuda_groups,
+    )
+    cuda_recoveries = selected_counter_total(
+        recovery_counts,
+        matched_cuda_groups,
+    )
     amd_totals = _comparison_side(
         amd_groups, cohort_builds, amd_child_retries, amd_recoveries, amd_retry_involved
     )
     comparable_amd_totals = _comparison_side(
-        comparable_amd_groups,
+        matched_amd_groups,
         cohort_builds,
         comparable_amd_child_retries,
         comparable_amd_recoveries,
@@ -2619,6 +3259,16 @@ def _platform_comparison(
     for totals in (amd_totals, comparable_amd_totals, cuda_totals):
         totals.pop("group_ids", None)
         totals.pop("variants", None)
+    fully_comparable_keys = {
+        key
+        for key, lineage_count in amd_lineage_counts.items()
+        if matched_lineage_counts[key] == lineage_count
+    }
+    partially_comparable_keys = {
+        key
+        for key in matched_keys
+        if key not in fully_comparable_keys
+    }
     return {
         "available": bool(rows),
         "source_pipeline": "ci",
@@ -2627,13 +3277,24 @@ def _platform_comparison(
             "amd_base_group_count": len(amd_keys),
             "amd_comparison_row_count": len(rows),
             "amd_variant_count": len(amd_groups),
+            "amd_lineage_count": amd_lineage_count,
             "label_matched_base_group_count": len(label_matched_keys),
             "matched_base_group_count": len(matched_keys),
             "comparable_base_group_count": len(matched_keys),
             "comparable_variant_pair_count": len(matched),
+            "observed_comparable_variant_pair_count": sum(
+                bool(row["amd"]["runs"] and row["cuda"]["runs"])
+                for row in matched
+            ),
+            "fully_comparable_base_group_count": len(fully_comparable_keys),
+            "partially_comparable_base_group_count": len(
+                partially_comparable_keys
+            ),
             "review_required_base_group_count": len(amd_keys) - len(matched_keys),
+            "review_required_lineage_count": amd_lineage_count - len(matched),
             "unmatched_amd_base_group_count": len(amd_keys) - len(label_matched_keys),
             "matched_cuda_variant_count": len(matched_cuda_groups),
+            "matched_cuda_lineage_count": len(matched_cuda_lineage_ids),
             "amd": amd_totals,
             "comparable_amd": comparable_amd_totals,
             "matched_cuda": cuda_totals,
@@ -2641,9 +3302,17 @@ def _platform_comparison(
         "matching": {
             "amd_rule": "AMD: prefix, MI hardware, or amd_mi* queue",
             "cuda_rule": "NVIDIA hardware or known CUDA queue; Intel GPU, CPU, NPU, and unknown groups excluded",
-            "equivalence_rule": "case-insensitive exact label after removing only AMD:/mi*_n wrapper decoration; each comparative row pairs one AMD hardware variant with one explicit NVIDIA reference and hardware-neutral wording",
+            "equivalence_rule": "case-insensitive exact label after removing only recognized AMD/NVIDIA wrapper decoration; compatible strict histories sharing one hardware/queue execution are coalesced, and multiple explicit CUDA references require one exact normalized step-key match",
             "scope": "completed upstream ci branch=main builds in the strict retained cohort",
             "frequency_unit": "terminal attempts per 100 cohort builds; child retry share uses retry_source rows over terminal attempts",
+            "retry_evidence_identity_fields": [
+                "comparison_platform",
+                "comparison_key",
+                "comparison_group_id",
+                "comparison_identity_method",
+                "comparison_row_ids",
+                "comparison_eligible_row_ids",
+            ],
         },
         "rows": rows,
     }
@@ -3664,24 +4333,12 @@ def _gating(
             "evidence": evidence,
         }
 
-    canonical_keys = {_target_match_key(row.get("label")) for row in groups}
     reviewed_groups = [enrich(group, True) for group in groups]
-    active_extras = []
-    seen_extra_keys = set()
-    for group in capacity.get("groups") or []:
-        if group.get("in_capacity_scope") is False:
-            continue
-        key = _target_match_key(group.get("label"))
-        if not key or key in canonical_keys or key in seen_extra_keys:
-            continue
-        seen_extra_keys.add(key)
-        active_extras.append(enrich({
-            "id": f"active-{len(active_extras) + 1}",
-            "label": group.get("label") or "Unknown active group",
-            "area": group.get("area") or "other",
-            "note": "Observed in AMD capacity configuration but not in the reviewed target list.",
-        }, False))
-    active_groups = reviewed_groups + active_extras
+    # Target Health is the reviewed AMD target population.  Capacity monitoring
+    # starts from upstream ``mirror.amd`` definitions and intentionally retains
+    # their upstream labels, so merging that inventory here both double-counted
+    # semantic groups and exposed misleading ``:nvidia:`` names in an AMD view.
+    active_groups = reviewed_groups
     assessments = Counter(str(row.get("assessment") or "unknown") for row in active_groups)
     observed_states = Counter(
         str((row.get("latest_amd_result") or {}).get("state") or "unknown")
@@ -3705,7 +4362,7 @@ def _gating(
         },
         "denominators": {
             "reviewed_targets": {"value": len(groups), "unit": "reviewed target groups"},
-            "active_targets": {"value": len(active_groups), "unit": "reviewed plus observed configured groups"},
+            "active_targets": {"value": len(active_groups), "unit": "reviewed target groups"},
             "candidate_decisions": {
                 "value": len(candidates.get("rows") or []),
                 "unit": "latest parity audit rows",
@@ -3737,7 +4394,7 @@ def _gating(
         "active_target_summary": {
             "target_group_count": len(active_groups),
             "canonical_group_count": len(groups),
-            "active_outside_canonical_count": len(active_extras),
+            "active_outside_canonical_count": 0,
             "by_assessment": dict(sorted(assessments.items())),
             "by_latest_amd_state": dict(sorted(observed_states.items())),
             "by_runtime_resolution": dict(sorted(runtime_resolutions.items())),
@@ -7165,10 +7822,12 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
     upstream_parity = _nightly_pipeline(
         "ci", analytics.get("ci") or {}, ci_health.get("upstream") or {},
     )
+    definition_parity = loaded.get("config_parity") or {}
     amd_test_health = _amd_test_health(
         data_dir,
         analytics.get("amd-ci") or {},
         ci_health.get("amd") or {},
+        definition_parity,
     )
     amd_agent_health = _amd_agent_health(data_dir)
     pipeline_blocks = [amd_nightly, upstream_parity]
@@ -7194,7 +7853,6 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         "pipelines": pipeline_blocks,
     }
     reliability = _reliability(analytics.get("ci") or {}, pipeline_slug="ci")
-    definition_parity = loaded.get("config_parity") or {}
     test_group_parity = loaded.get("test_group_parity") or {}
     gating = _gating(
         loaded.get("gating_targets") or {},
@@ -7565,12 +8223,79 @@ def _operations_shell(payload: dict) -> dict:
     }
 
 
+def _compact_reliability_comparison(reliability: dict) -> dict:
+    """Publish comparison UI data without the 30-day observation ledger.
+
+    Flake, retry, and latency comparison use the precomputed 30-day platform
+    rows.  Exact group histories remain in the full reliability section and
+    are loaded only by views that actually inspect those histories.
+    """
+    retry = reliability.get("retry_analysis") or {}
+    return {
+        key: reliability.get(key)
+        for key in (
+            "schema_version",
+            "generated_at",
+            "available",
+            "source_pipeline",
+            "scope",
+            "observation_scope",
+            "denominator_scope",
+            "cohort",
+            "denominator",
+            "evidence_definitions",
+            "platform_comparison",
+        )
+    } | {
+        "retry_analysis": {
+            key: retry.get(key)
+            for key in (
+                "schema_version",
+                "generated_at",
+                "available",
+                "evidence_type",
+                "summary",
+                "provenance",
+            )
+        } | {"evidence_deferred": True}
+    }
+
+
+def _compact_comparison_retry_evidence(reliability: dict) -> dict:
+    """Publish exact retry rows separately from the fast comparison tables."""
+    retry = reliability.get("retry_analysis") or {}
+    return {
+        "reliability": {
+            "retry_analysis": {
+                key: retry.get(key)
+                for key in (
+                    "schema_version",
+                    "generated_at",
+                    "available",
+                    "evidence_type",
+                    "summary",
+                    "provenance",
+                    "retry_attempts",
+                    "failed_then_passed_recoveries",
+                )
+            } | {"evidence_deferred": False}
+        }
+    }
+
+
 def _operation_sections(payload: dict) -> dict[str, dict]:
+    reliability = payload.get("reliability") or {}
     return {
         "nightly": {"nightly": _compact_nightly(payload.get("nightly") or {})},
         "amd_test_health": {"amd_test_health": payload.get("amd_test_health") or {}},
         "amd_agent_health": {"amd_agent_health": payload.get("amd_agent_health") or {}},
-        "reliability": {"reliability": payload.get("reliability") or {}},
+        "reliability": {"reliability": reliability},
+        "comparison": {
+            "reliability": _compact_reliability_comparison(reliability)
+        },
+        "comparison_retry_evidence": _compact_comparison_retry_evidence(
+            reliability
+        ),
         "definition_parity": {"definition_parity": payload.get("definition_parity") or {}},
         "test_group_parity": {
             "test_group_parity": payload.get("test_group_parity") or {}
@@ -8172,8 +8897,8 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
             ),
             "upstream_test_group_parity": (
                 "A reviewed upstream logical CUDA test-group inventory. Complete "
-                "ROCm coverage, proposed coverage, known unsupported work, and "
-                "actionable gaps remain separate states."
+                "ROCm coverage on main, known unsupported work, and actionable "
+                "gaps remain separate states."
             ),
             "health_check": (
                 "One best-hardware policy test group. It is green when any owned hardware "

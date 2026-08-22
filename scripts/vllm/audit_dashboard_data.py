@@ -80,14 +80,12 @@ OPERATIONS_FRESH_SOURCE_KEYS = frozenset({
     "group_changes",
     "omni_heuristic",
     "project_items",
-    "ready_tickets",
 })
 OPERATIONS_SOURCE_MAX_AGE_OVERRIDES = {
     # AMD nightlies run daily; this is source observation age, not collector age.
     "amd_test_signal": 36,
-    # Ready Tickets is refreshed by a separate thrice-daily read-only workflow.
+    # Project #39 is refreshed with the hourly GitHub Home collection.
     "project_items": 36,
-    "ready_tickets": 36,
 }
 PUBLICATION_FALLBACK_MAX_AGE_HOURS = 36
 FULL_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
@@ -114,6 +112,8 @@ PUBLIC_FILE_HARD_BYTES = 100 * 1024 * 1024
 PUBLIC_SITE_WARN_BYTES = 250 * 1024 * 1024
 DNS_FAILURES_DATA_PATH = "data/vllm/ci/dns_failures.json"
 DNS_FAILURES_MAX_BYTES = 8 * 1024 * 1024
+OPERATIONS_COMPARISON_MAX_BYTES = 1_500_000
+OPERATIONS_COMPARISON_RETRY_EVIDENCE_MAX_BYTES = 6_000_000
 DNS_EVIDENCE_MAX_ITEMS = 5000
 DNS_MAX_FRESH_AGE_HOURS = 3
 DNS_OUTCOME_CONTRACT = "dns-job-outcomes-v1"
@@ -488,42 +488,42 @@ DATA_SPECS: tuple[DataSpec, ...] = (
     DataSpec(
         "data/site/projects.json",
         ("scripts/render.py",),
-        ("docs/assets/js/dashboard.js",),
+        ("config/public_data_manifest.json",),
         ("projects",),
         "Project selector/config shell",
     ),
     DataSpec(
         "data/vllm/prs.json",
         ("scripts/collect.py",),
-        ("docs/assets/js/dashboard.js",),
+        ("docs/assets/js/ops-v2.js",),
         ("collected_at", "prs"),
         "Home PR list and top PR counters",
     ),
     DataSpec(
         "data/vllm/issues.json",
         ("scripts/collect.py",),
-        ("docs/assets/js/dashboard.js",),
+        ("docs/assets/js/ops-v2.js",),
         ("collected_at", "issues"),
         "Home project #39 issue list and issue counter",
     ),
     DataSpec(
         "data/vllm/test_results.json",
         ("scripts/collect_ci.py",),
-        ("docs/assets/js/dashboard.js",),
+        ("config/public_data_manifest.json",),
         ("collected_at", "source", "rocm"),
         "Home test-result summary with assertion-based pass rates",
     ),
     DataSpec(
         "data/vllm/ci/ci_health.json",
         ("scripts/collect_ci.py", "scripts/vllm/ci/reporter.py"),
-        ("docs/assets/js/dashboard.js", "docs/assets/js/ci-health.js"),
+        ("docs/assets/js/utils.js", "scripts/vllm/build_operations_snapshot.py"),
         ("generated_at", "amd", "upstream"),
         "CI Health cards and hardware test-count breakdown",
     ),
     DataSpec(
         "data/vllm/ci/parity_report.json",
         ("scripts/collect_ci.py", "scripts/vllm/ci/reporter.py"),
-        ("docs/assets/js/dashboard.js", "docs/assets/js/ci-health.js"),
+        ("docs/assets/js/utils.js",),
         ("generated_at", "job_groups", "amd_build", "upstream_build"),
         "ROCm/CUDA parity and Home AMD hardware breakdown",
     ),
@@ -587,7 +587,6 @@ DATA_SPECS: tuple[DataSpec, ...] = (
             "scripts/vllm/build_operations_snapshot.py",
             "scripts/vllm/amd_main_failure_watcher.py",
             "scripts/vllm/ci_main_failure_watcher.py",
-            "docs/assets/js/ci-analytics.js",
         ),
         ("amd-ci", "ci"),
         "Nightly comparison plus all-main reliability evidence",
@@ -595,14 +594,14 @@ DATA_SPECS: tuple[DataSpec, ...] = (
     DataSpec(
         "data/vllm/ci/gating_nightlies.json",
         ("scripts/vllm/collect_analytics.py",),
-        ("docs/assets/js/ci-health.js",),
+        ("config/public_data_manifest.json",),
         ("generated_at", "ci", "amd-ci"),
         "Slim nightly Buildkite job signal for the AMD gating executive view",
     ),
     DataSpec(
         "data/vllm/ci/gating_targets.json",
         ("scripts/vllm/collect_gating_targets.py",),
-        ("docs/assets/js/ci-health.js",),
+        ("scripts/vllm/build_operations_snapshot.py",),
         ("generated_at", "summary", "groups"),
         "Canonical AMD gating target list used for still-to-gate tracking",
     ),
@@ -610,9 +609,8 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         "data/vllm/ci/amd_test_matrix.json",
         ("scripts/vllm/collect_amd_test_matrix.py",),
         (
-            "docs/assets/js/dashboard.js",
-            "docs/assets/js/ci-analytics.js",
             "docs/assets/js/ops-v2.js",
+            "scripts/vllm/build_operations_snapshot.py",
         ),
         (
             "generated_at",
@@ -628,28 +626,28 @@ DATA_SPECS: tuple[DataSpec, ...] = (
     DataSpec(
         "data/vllm/ci/gating_proposals.json",
         ("scripts/vllm/collect_gating_proposals.py",),
-        ("docs/assets/js/ci-health.js",),
+        ("scripts/vllm/collect_gating_target_candidates.py",),
         ("generated_at", "source_repo", "tracked_authors", "summary", "pull_requests"),
         "Open PRs from tracked engineers that propose new AMD mirror gating",
     ),
     DataSpec(
         "data/vllm/ci/gating_target_candidates.json",
         ("scripts/vllm/collect_gating_target_candidates.py",),
-        ("docs/assets/js/ci-health.js",),
+        ("scripts/vllm/build_operations_snapshot.py",),
         ("generated_at", "source", "heuristics", "summary", "rows"),
         "Review-only daily audit for maintaining the canonical AMD gating target list",
     ),
     DataSpec(
         "data/vllm/ci/queue_timeseries.jsonl",
         ("scripts/vllm/collect_queue_snapshot.py",),
-        ("docs/assets/js/ci-queue.js", "docs/assets/js/ci-hotness.js"),
+        ("docs/assets/js/ops-v2.js", "scripts/vllm/build_operations_snapshot.py"),
         (),
         "Queue charts and wait/running workload trend",
     ),
     DataSpec(
         "data/vllm/ci/queue_jobs.json",
         ("scripts/vllm/collect_queue_snapshot.py",),
-        ("docs/assets/js/ci-queue.js",),
+        ("scripts/vllm/build_operations_snapshot.py",),
         ("ts", "pending", "running"),
         "Queue job overlays and admin triage",
     ),
@@ -695,7 +693,7 @@ DATA_SPECS: tuple[DataSpec, ...] = (
     DataSpec(
         "data/vllm/ci/group_changes.json",
         ("scripts/vllm/collect_group_changes.py",),
-        ("docs/assets/js/ci-analytics.js",),
+        ("scripts/vllm/build_operations_snapshot.py",),
         ("generated_at", "changes"),
         "Test-group trend PR attribution",
     ),
@@ -744,16 +742,9 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         "Stable compact CI contract for organization-wide OSS rollups",
     ),
     DataSpec(
-        "data/vllm/ci/ready_tickets.json",
-        ("scripts/vllm/sync_ready_tickets.py",),
-        ("docs/assets/js/ci-ready.js",),
-        ("generated_at", "failing_groups_total", "tickets", "groups_all"),
-        "Ready-ticket triage and per-group build evidence",
-    ),
-    DataSpec(
         "data/vllm/ci/project_items.json",
-        ("scripts/vllm/sync_ready_tickets.py",),
-        ("docs/assets/js/ci-ready.js",),
+        ("scripts/collect.py",),
+        ("scripts/collect.py",),
         ("generated_at", "items_by_number", "project", "project_url"),
         "Read-only GitHub Projects status and issue-state evidence",
     ),
@@ -767,7 +758,7 @@ DATA_SPECS: tuple[DataSpec, ...] = (
     DataSpec(
         "data/vllm/perf_eval/perf_eval.json",
         ("scripts/vllm/collect_perf_eval.py",),
-        ("docs/assets/js/ops-v2.js", "docs/assets/js/ci-perf-eval.js"),
+        ("docs/assets/js/ops-v2.js",),
         ("generated_at", "pipeline", "metric_meta", "models", "summary"),
         "Webhook-fed AMD performance and accuracy series",
     ),
@@ -892,7 +883,6 @@ class DashboardAudit:
         self.audit_queue_data()
         self.audit_queue_lifecycle()
         self.audit_dns_failures()
-        self.audit_ready_tickets()
         self.audit_frontend_contracts()
         self.audit_workflows()
         return self.report
@@ -3853,6 +3843,8 @@ class DashboardAudit:
             "nightly",
             "amd_test_health",
             "amd_agent_health",
+            "comparison",
+            "comparison_retry_evidence",
             "reliability",
             "definition_parity",
             "gating",
@@ -3932,6 +3924,27 @@ class DashboardAudit:
             self.error(
                 "operations-queue-payload-budget",
                 f"queue section is {section_sizes['queue']} bytes; budget is {queue_budget}",
+                relpath,
+            )
+        if section_sizes.get("comparison", 0) > OPERATIONS_COMPARISON_MAX_BYTES:
+            self.error(
+                "operations-comparison-payload-budget",
+                (
+                    "flake/retry/latency comparison section is "
+                    f"{section_sizes['comparison']} bytes; budget is "
+                    f"{OPERATIONS_COMPARISON_MAX_BYTES}"
+                ),
+                relpath,
+            )
+        retry_evidence_size = section_sizes.get("comparison_retry_evidence", 0)
+        if retry_evidence_size > OPERATIONS_COMPARISON_RETRY_EVIDENCE_MAX_BYTES:
+            self.error(
+                "operations-comparison-retry-evidence-payload-budget",
+                (
+                    "deferred flake/retry evidence section is "
+                    f"{retry_evidence_size} bytes; budget is "
+                    f"{OPERATIONS_COMPARISON_RETRY_EVIDENCE_MAX_BYTES}"
+                ),
                 relpath,
             )
         self.report.metrics["operations_bundle"] = {
@@ -7644,116 +7657,41 @@ class DashboardAudit:
             "evidence_shown": shown,
         }
 
-    def audit_ready_tickets(self) -> None:
-        payload = self.load_json("data/vllm/ci/ready_tickets.json", {})
-        if not isinstance(payload, dict):
-            return
-        tickets = payload.get("tickets") or []
-        groups = payload.get("groups_all") or []
-        expected = int(payload.get("failing_groups_total") or 0)
-        if expected != len(tickets):
-            self.error(
-                "ready-ticket-count",
-                f"failing_groups_total={expected} but tickets contains {len(tickets)} rows",
-                "data/vllm/ci/ready_tickets.json",
-            )
-        build_refs = 0
-        invalid_refs = 0
-        for row in groups:
-            refs = row.get("build_refs_latest") or []
-            build_refs += len(refs)
-            invalid_refs += sum(
-                not ref.get("url") or "buildkite.com/" not in str(ref.get("url"))
-                for ref in refs
-            )
-        if invalid_refs:
-            self.error(
-                "ready-ticket-build-links",
-                f"{invalid_refs} ready-ticket build references lack an exact Buildkite URL",
-                "data/vllm/ci/ready_tickets.json",
-            )
-        self.report.metrics["ready_tickets"] = {
-            "failing_tickets": len(tickets),
-            "groups": len(groups),
-            "latest_build_links": build_refs,
-        }
-
     def audit_frontend_contracts(self) -> None:
-        checks = [
-            (
-                "docs/assets/js/dashboard.js",
-                "prs: { page: 1, pageSize: 10",
-                "home-pr-page-size",
-                "Home PR table should default to 10 rows",
-            ),
-            (
-                "docs/assets/js/dashboard.js",
-                "issues: { page: 1, pageSize: 10",
-                "home-issue-page-size",
-                "Home issue table should default to 10 rows",
-            ),
-            (
-                "docs/assets/js/dashboard.js",
-                "Open Project Issues",
-                "home-project-issue-counter",
-                "Home top counter should expose project issues",
-            ),
-            (
-                "docs/assets/js/dashboard.js",
-                "parity-hw-overall",
-                "home-overall-score-bar",
-                "Home parity hardware table should render an overall score bar",
-            ),
-            (
-                "docs/assets/js/dashboard.js",
-                "mini-bar-wide",
-                "home-wide-hardware-bars",
-                "Home parity hardware bars should use the wider bar style",
-            ),
-            (
-                "docs/assets/js/ci-analytics.js",
-                "amd_test_matrix.json",
-                "analytics-matrix-fetch",
-                "CI Analytics should fetch the AMD matrix data source",
-            ),
-            (
-                "docs/assets/js/ci-analytics.js",
-                "attentionFamilies",
-                "analytics-attention-families",
-                "AMD Matrix Needs Attention should count affected rows",
-            ),
-            (
-                "docs/assets/js/ci-analytics.js",
-                "failing hardware jobs",
-                "analytics-failing-cell-copy",
-                "AMD Matrix should explain raw failing hardware-job count",
-            ),
-            (
-                "docs/assets/js/ci-queue.js",
-                "let metric = 'running'",
-                "queue-default-running",
-                "Queue Monitor should default to a nonzero running workload metric",
-            ),
-        ]
-        metrics: dict[str, bool] = {}
-        for relpath, token, code, message in checks:
-            path = self.root / relpath
-            text = path.read_text(errors="ignore") if path.exists() else ""
-            ok = token in text
-            metrics[code] = ok
-            if not ok:
-                self.error(code, message, relpath)
-
-        weekly_match = re.search(
-            r"function\s+renderWeeklySummary[\s\S]*?function\s+renderCards",
-            (self.root / "docs/assets/js/dashboard.js").read_text(errors="ignore"),
+        active = (
+            "docs/assets/js/utils.js",
+            "docs/assets/js/publication-status.js",
+            "docs/assets/js/dashboard-nav.js",
+            "docs/assets/js/ops-v2.js",
         )
-        if weekly_match and "Release" in weekly_match.group(0):
-            self.error(
-                "home-release-counter",
-                "renderWeeklySummary still appears to render a release counter",
-                "docs/assets/js/dashboard.js",
-            )
+        retired = (
+            "docs/assets/js/dashboard.js",
+            "docs/assets/js/ci-health.js",
+            "docs/assets/js/ci-analytics.js",
+            "docs/assets/js/ci-perf-eval.js",
+            "docs/assets/js/ci-queue.js",
+            "docs/assets/js/ci-hotness.js",
+            "docs/assets/js/ci-omni.js",
+        )
+        metrics: dict[str, bool] = {}
+        for relpath in active:
+            ok = (self.root / relpath).is_file()
+            metrics[f"active:{Path(relpath).name}"] = ok
+            if not ok:
+                self.error(
+                    "missing-active-frontend-asset",
+                    f"Active frontend asset {relpath} is missing",
+                    relpath,
+                )
+        for relpath in retired:
+            ok = not (self.root / relpath).exists()
+            metrics[f"retired:{Path(relpath).name}"] = ok
+            if not ok:
+                self.error(
+                    "retired-frontend-asset",
+                    f"Retired frontend asset {relpath} is still published",
+                    relpath,
+                )
         self.report.metrics["frontend_contracts"] = metrics
 
     def audit_workflows(self) -> None:

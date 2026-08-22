@@ -1,21 +1,14 @@
 /**
  * Lightweight dashboard navigation shell for the v2 operations UI.
  *
- * The former dashboard.js bundle also contains the retired v1 Home renderer.
- * Keeping navigation separate lets every v2 route become interactive without
- * downloading and parsing that unrelated renderer first.
+ * Navigation stays separate so every Operations route becomes interactive
+ * before its data shard is loaded.
  */
 (function () {
   'use strict';
 
   function hasTab(id) {
     return Boolean(id && document.getElementById('tab-' + id));
-  }
-
-  function reapplyVisibility() {
-    if (window.__authGate && typeof window.__authGate.applyTabVisibility === 'function') {
-      window.__authGate.applyTabVisibility();
-    }
   }
 
   function resetRouteScroll(panel) {
@@ -57,7 +50,6 @@
     if (window.OpsV2 && typeof window.OpsV2.render === 'function') {
       window.OpsV2.render(target);
     }
-    reapplyVisibility();
     return target;
   }
 
@@ -95,17 +87,22 @@
   }
   window.addEventListener('hashchange', syncLocationRoute);
   window.addEventListener('popstate', syncLocationRoute);
-  document.addEventListener('auth:changed', reapplyVisibility);
-
   const sidebar = document.getElementById('sidebar');
   const menuToggle = document.getElementById('ops-menu-toggle');
   const navBackdrop = document.getElementById('ops-nav-backdrop');
+  const mainContent = document.getElementById('main-content');
+  const pageFooter = document.querySelector('body > footer');
+  const themeToggle = document.getElementById('theme-toggle');
   function setDrawer(open) {
     if (!sidebar || !menuToggle) return;
     sidebar.classList.toggle('open', Boolean(open));
     document.body.classList.toggle('ops-drawer-open', Boolean(open));
     menuToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
     menuToggle.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+    [mainContent, pageFooter, themeToggle].forEach(function (element) {
+      if (!element) return;
+      element.inert = Boolean(open);
+    });
     if (open) {
       const active = sidebar.querySelector('.nav-btn.active') || sidebar.querySelector('.nav-btn');
       if (active) active.focus();
@@ -128,8 +125,27 @@
     });
   }
   document.addEventListener('keydown', function (event) {
-    if (event.key === 'Escape' && document.body.classList.contains('ops-drawer-open')) {
+    if (!document.body.classList.contains('ops-drawer-open')) return;
+    if (event.key === 'Escape') {
       setDrawer(false);
+      return;
+    }
+    if (event.key === 'Tab') {
+      const controls = [menuToggle].concat(Array.from(sidebar.querySelectorAll(
+        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ))).filter(function (control, index, all) {
+        return control && all.indexOf(control) === index && control.offsetParent !== null;
+      });
+      if (!controls.length) return;
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     }
   });
 })();

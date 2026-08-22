@@ -51,17 +51,8 @@ class TestHashLike:
         line = "# commit sha: " + "a" * 64
         assert ss.scan_text(line, "demo.py") == []
 
-    def test_allows_password_hash_field(self):
-        # The users.json schema is committed via Contents API; even if
-        # a fragment ever leaks into a scanned file, the ``password_hash``
-        # context hint keeps us quiet.
-        line = '"password_hash": "' + "b" * 64 + '"'
-        assert ss.scan_text(line, "demo.py") == []
-
-
 class TestAllowlist:
     @pytest.mark.parametrize("rel", [
-        "data/users.json",
         "data/vllm/ci/ci_health.json",
         "flake.lock",
         "tests/browser/node_modules/playwright/index.js",
@@ -72,9 +63,8 @@ class TestAllowlist:
         assert ss._is_allowlisted(rel)
 
     @pytest.mark.parametrize("rel", [
-        "docs/assets/js/auth.js",
-        "scripts/vllm/process_signup.py",
-        "tests/vllm/test_process_signup.py",
+        "docs/assets/js/ops-v2.js",
+        "scripts/vllm/collect_ci.py",
     ])
     def test_source_paths_not_skipped(self, rel):
         # These are source files the scanner MUST walk.
