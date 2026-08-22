@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
-  "generated_at": "2026-08-21T23:37:38Z",
-  "collection_start": "2026-05-24",
+  "generated_at": "2026-08-22T01:50:02Z",
+  "collection_start": "2026-05-25",
   "timezone": "UTC",
   "repositories": {
     "omni": {
@@ -27,10 +27,10 @@
     "hourly": {
       "resolution": "UTC hour",
       "retention_days": 7,
-      "start": "2026-08-14T23:00:00Z",
-      "expected_start": "2026-08-14T23:00:00Z",
-      "end_exclusive": "2026-08-22T00:00:00Z",
-      "observed_through": "2026-08-21T23:37:38Z",
+      "start": "2026-08-15T01:00:00Z",
+      "expected_start": "2026-08-15T01:00:00Z",
+      "end_exclusive": "2026-08-22T02:00:00Z",
+      "observed_through": "2026-08-22T01:50:02Z",
       "bucket_count": 169,
       "expected_bucket_count": 169,
       "missing_bucket_count": 0,
@@ -42,10 +42,10 @@
     "daily": {
       "resolution": "UTC calendar day",
       "retention_days": 90,
-      "start": "2026-05-24T00:00:00Z",
-      "expected_start": "2026-05-24T00:00:00Z",
-      "end_exclusive": "2026-08-22T00:00:00Z",
-      "observed_through": "2026-08-21T23:37:38Z",
+      "start": "2026-05-25T00:00:00Z",
+      "expected_start": "2026-05-25T00:00:00Z",
+      "end_exclusive": "2026-08-23T00:00:00Z",
+      "observed_through": "2026-08-22T01:50:02Z",
       "bucket_count": 90,
       "expected_bucket_count": 90,
       "missing_bucket_count": 0,
@@ -57,10 +57,10 @@
   },
   "window": {
     "days": 14,
-    "start_date": "2026-08-08",
-    "end_date": "2026-08-21",
-    "start": "2026-08-08T00:00:00Z",
-    "observed_through": "2026-08-21T23:37:38Z",
+    "start_date": "2026-08-09",
+    "end_date": "2026-08-22",
+    "start": "2026-08-09T00:00:00Z",
+    "observed_through": "2026-08-22T01:50:02Z",
     "state": "open",
     "complete": true,
     "collection_complete": true,
@@ -136,9 +136,9 @@
     "privacy": "Only hourly/daily aggregates and query diagnostics are published; raw builds, raw jobs, and UUIDs are not retained."
   },
   "query": {
-    "start": "2026-08-20T00:00:00Z",
-    "end_exclusive": "2026-08-21T23:37:38Z",
-    "build_created_start": "2026-08-17T00:00:00Z",
+    "start": "2026-08-21T00:00:00Z",
+    "end_exclusive": "2026-08-22T01:50:02Z",
+    "build_created_start": "2026-08-18T00:00:00Z",
     "parent_build_lookback_days": 3,
     "job_created_range_exhaustive": false,
     "bounded_slice": "UTC day",
@@ -148,25 +148,16 @@
     "pipeline_sources": [
       {
         "pipeline": "vllm-omni-amd-ci",
-        "start": "2026-08-17T00:00:00Z",
-        "end_exclusive": "2026-08-21T23:37:38Z",
+        "start": "2026-08-18T00:00:00Z",
+        "end_exclusive": "2026-08-22T01:50:02Z",
         "bounded_slice": "UTC day",
         "slice_count": 5,
         "pages_fetched": 5,
-        "builds_fetched": 197,
+        "builds_fetched": 161,
         "complete": true,
         "truncated": false,
         "error_types": [],
         "slices": [
-          {
-            "start": "2026-08-17T00:00:00Z",
-            "end_exclusive": "2026-08-18T00:00:00Z",
-            "pages_fetched": 1,
-            "builds_fetched": 37,
-            "complete": true,
-            "truncated": false,
-            "error_type": null
-          },
           {
             "start": "2026-08-18T00:00:00Z",
             "end_exclusive": "2026-08-19T00:00:00Z",
@@ -196,9 +187,18 @@
           },
           {
             "start": "2026-08-21T00:00:00Z",
-            "end_exclusive": "2026-08-21T23:37:38Z",
+            "end_exclusive": "2026-08-22T00:00:00Z",
             "pages_fetched": 1,
             "builds_fetched": 26,
+            "complete": true,
+            "truncated": false,
+            "error_type": null
+          },
+          {
+            "start": "2026-08-22T00:00:00Z",
+            "end_exclusive": "2026-08-22T01:50:02Z",
+            "pages_fetched": 1,
+            "builds_fetched": 1,
             "complete": true,
             "truncated": false,
             "error_type": null
@@ -207,32 +207,23 @@
         "workload": "omni",
         "repository": "vllm-project/vllm-omni",
         "parent_build_lookback_days": 3,
-        "mapped_jobs_in_query": 1404,
-        "mapped_job_ids": 1404,
+        "mapped_jobs_in_query": 444,
+        "mapped_job_ids": 444,
         "missing_job_ids": 0,
         "duplicate_job_ids": 0
       },
       {
         "pipeline": "ci",
-        "start": "2026-08-17T00:00:00Z",
-        "end_exclusive": "2026-08-21T23:37:38Z",
+        "start": "2026-08-18T00:00:00Z",
+        "end_exclusive": "2026-08-22T01:50:02Z",
         "bounded_slice": "UTC day",
         "slice_count": 5,
-        "pages_fetched": 14,
-        "builds_fetched": 1002,
+        "pages_fetched": 13,
+        "builds_fetched": 848,
         "complete": true,
         "truncated": false,
         "error_types": [],
         "slices": [
-          {
-            "start": "2026-08-17T00:00:00Z",
-            "end_exclusive": "2026-08-18T00:00:00Z",
-            "pages_fetched": 2,
-            "builds_fetched": 167,
-            "complete": true,
-            "truncated": false,
-            "error_type": null
-          },
           {
             "start": "2026-08-18T00:00:00Z",
             "end_exclusive": "2026-08-19T00:00:00Z",
@@ -262,9 +253,18 @@
           },
           {
             "start": "2026-08-21T00:00:00Z",
-            "end_exclusive": "2026-08-21T23:37:38Z",
+            "end_exclusive": "2026-08-22T00:00:00Z",
             "pages_fetched": 3,
-            "builds_fetched": 220,
+            "builds_fetched": 222,
+            "complete": true,
+            "truncated": false,
+            "error_type": null
+          },
+          {
+            "start": "2026-08-22T00:00:00Z",
+            "end_exclusive": "2026-08-22T01:50:02Z",
+            "pages_fetched": 1,
+            "builds_fetched": 11,
             "complete": true,
             "truncated": false,
             "error_type": null
@@ -273,32 +273,23 @@
         "workload": "main",
         "repository": "vllm-project/vllm",
         "parent_build_lookback_days": 3,
-        "mapped_jobs_in_query": 34843,
-        "mapped_job_ids": 34843,
+        "mapped_jobs_in_query": 18799,
+        "mapped_job_ids": 18799,
         "missing_job_ids": 0,
         "duplicate_job_ids": 0
       },
       {
         "pipeline": "amd-ci",
-        "start": "2026-08-17T00:00:00Z",
-        "end_exclusive": "2026-08-21T23:37:38Z",
+        "start": "2026-08-18T00:00:00Z",
+        "end_exclusive": "2026-08-22T01:50:02Z",
         "bounded_slice": "UTC day",
         "slice_count": 5,
         "pages_fetched": 5,
-        "builds_fetched": 203,
+        "builds_fetched": 165,
         "complete": true,
         "truncated": false,
         "error_types": [],
         "slices": [
-          {
-            "start": "2026-08-17T00:00:00Z",
-            "end_exclusive": "2026-08-18T00:00:00Z",
-            "pages_fetched": 1,
-            "builds_fetched": 40,
-            "complete": true,
-            "truncated": false,
-            "error_type": null
-          },
           {
             "start": "2026-08-18T00:00:00Z",
             "end_exclusive": "2026-08-19T00:00:00Z",
@@ -328,9 +319,18 @@
           },
           {
             "start": "2026-08-21T00:00:00Z",
-            "end_exclusive": "2026-08-21T23:37:38Z",
+            "end_exclusive": "2026-08-22T00:00:00Z",
             "pages_fetched": 1,
             "builds_fetched": 29,
+            "complete": true,
+            "truncated": false,
+            "error_type": null
+          },
+          {
+            "start": "2026-08-22T00:00:00Z",
+            "end_exclusive": "2026-08-22T01:50:02Z",
+            "pages_fetched": 1,
+            "builds_fetched": 2,
             "complete": true,
             "truncated": false,
             "error_type": null
@@ -339,32 +339,23 @@
         "workload": "main",
         "repository": "vllm-project/vllm",
         "parent_build_lookback_days": 3,
-        "mapped_jobs_in_query": 14914,
-        "mapped_job_ids": 14914,
+        "mapped_jobs_in_query": 7345,
+        "mapped_job_ids": 7345,
         "missing_job_ids": 0,
         "duplicate_job_ids": 0
       },
       {
         "pipeline": "amd-distributed-inference-ci",
-        "start": "2026-08-17T00:00:00Z",
-        "end_exclusive": "2026-08-21T23:37:38Z",
+        "start": "2026-08-18T00:00:00Z",
+        "end_exclusive": "2026-08-22T01:50:02Z",
         "bounded_slice": "UTC day",
         "slice_count": 5,
         "pages_fetched": 5,
-        "builds_fetched": 6,
+        "builds_fetched": 5,
         "complete": true,
         "truncated": false,
         "error_types": [],
         "slices": [
-          {
-            "start": "2026-08-17T00:00:00Z",
-            "end_exclusive": "2026-08-18T00:00:00Z",
-            "pages_fetched": 1,
-            "builds_fetched": 1,
-            "complete": true,
-            "truncated": false,
-            "error_type": null
-          },
           {
             "start": "2026-08-18T00:00:00Z",
             "end_exclusive": "2026-08-19T00:00:00Z",
@@ -394,9 +385,18 @@
           },
           {
             "start": "2026-08-21T00:00:00Z",
-            "end_exclusive": "2026-08-21T23:37:38Z",
+            "end_exclusive": "2026-08-22T00:00:00Z",
             "pages_fetched": 1,
             "builds_fetched": 2,
+            "complete": true,
+            "truncated": false,
+            "error_type": null
+          },
+          {
+            "start": "2026-08-22T00:00:00Z",
+            "end_exclusive": "2026-08-22T01:50:02Z",
+            "pages_fetched": 1,
+            "builds_fetched": 0,
             "complete": true,
             "truncated": false,
             "error_type": null
@@ -430,462 +430,176 @@
   },
   "totals": {
     "omni": {
-      "mapped_jobs": 7659,
-      "started_jobs": 4300,
-      "finished_jobs": 7621,
-      "mapped_gpu_slots": 9780,
-      "gpu_hours": 1137.49,
+      "mapped_jobs": 7478,
+      "started_jobs": 4319,
+      "finished_jobs": 7433,
+      "mapped_gpu_slots": 9552,
+      "gpu_hours": 1140.48,
       "by_queue": {
         "amd_mi300_1": {
-          "mapped_jobs": 3568,
-          "started_jobs": 3540,
-          "finished_jobs": 3540,
-          "mapped_gpu_slots": 3568,
-          "gpu_hours": 902.17
+          "mapped_jobs": 3582,
+          "started_jobs": 3554,
+          "finished_jobs": 3547,
+          "mapped_gpu_slots": 3582,
+          "gpu_hours": 902.89
         },
         "amd_mi300_2": {
-          "mapped_jobs": 582,
-          "started_jobs": 576,
-          "finished_jobs": 576,
-          "mapped_gpu_slots": 1164,
-          "gpu_hours": 99.61
+          "mapped_jobs": 585,
+          "started_jobs": 579,
+          "finished_jobs": 579,
+          "mapped_gpu_slots": 1170,
+          "gpu_hours": 100.43
         },
         "amd_mi300_4": {
-          "mapped_jobs": 188,
-          "started_jobs": 184,
-          "finished_jobs": 184,
-          "mapped_gpu_slots": 752,
-          "gpu_hours": 135.71
+          "mapped_jobs": 190,
+          "started_jobs": 186,
+          "finished_jobs": 186,
+          "mapped_gpu_slots": 760,
+          "gpu_hours": 137.16
         },
         "amd_mi325_1": {
-          "mapped_jobs": 2638,
+          "mapped_jobs": 2478,
           "started_jobs": 0,
-          "finished_jobs": 2638,
-          "mapped_gpu_slots": 2638,
+          "finished_jobs": 2478,
+          "mapped_gpu_slots": 2478,
           "gpu_hours": 0.0
         },
         "amd_mi325_2": {
-          "mapped_jobs": 537,
+          "mapped_jobs": 505,
           "started_jobs": 0,
-          "finished_jobs": 537,
-          "mapped_gpu_slots": 1074,
+          "finished_jobs": 505,
+          "mapped_gpu_slots": 1010,
           "gpu_hours": 0.0
         },
         "amd_mi325_4": {
-          "mapped_jobs": 146,
+          "mapped_jobs": 138,
           "started_jobs": 0,
-          "finished_jobs": 146,
-          "mapped_gpu_slots": 584,
+          "finished_jobs": 138,
+          "mapped_gpu_slots": 552,
           "gpu_hours": 0.0
         }
       },
       "by_pipeline": {
         "vllm-omni-amd-ci": {
-          "mapped_jobs": 7659,
-          "started_jobs": 4300,
-          "finished_jobs": 7621,
-          "mapped_gpu_slots": 9780,
-          "gpu_hours": 1137.49
+          "mapped_jobs": 7478,
+          "started_jobs": 4319,
+          "finished_jobs": 7433,
+          "mapped_gpu_slots": 9552,
+          "gpu_hours": 1140.48
         }
       }
     },
     "main": {
-      "mapped_jobs": 261628,
-      "started_jobs": 90382,
-      "finished_jobs": 123914,
-      "mapped_gpu_slots": 375408,
-      "gpu_hours": 47258.42,
+      "mapped_jobs": 254633,
+      "started_jobs": 86902,
+      "finished_jobs": 120329,
+      "mapped_gpu_slots": 365376,
+      "gpu_hours": 45310.87,
       "by_queue": {
         "amd_mi250_1": {
-          "mapped_jobs": 22800,
-          "started_jobs": 7126,
-          "finished_jobs": 10414,
-          "mapped_gpu_slots": 22800,
-          "gpu_hours": 3379.82
+          "mapped_jobs": 22093,
+          "started_jobs": 6785,
+          "finished_jobs": 10067,
+          "mapped_gpu_slots": 22093,
+          "gpu_hours": 3230.59
         },
         "amd_mi250_2": {
-          "mapped_jobs": 534,
+          "mapped_jobs": 543,
           "started_jobs": 84,
-          "finished_jobs": 134,
-          "mapped_gpu_slots": 1068,
+          "finished_jobs": 135,
+          "mapped_gpu_slots": 1086,
           "gpu_hours": 57.13
         },
         "amd_mi250_4": {
-          "mapped_jobs": 468,
-          "started_jobs": 274,
-          "finished_jobs": 351,
-          "mapped_gpu_slots": 1872,
-          "gpu_hours": 1018.52
+          "mapped_jobs": 456,
+          "started_jobs": 266,
+          "finished_jobs": 343,
+          "mapped_gpu_slots": 1824,
+          "gpu_hours": 986.84
         },
         "amd_mi300_1": {
-          "mapped_jobs": 164283,
-          "started_jobs": 60896,
-          "finished_jobs": 79719,
-          "mapped_gpu_slots": 164283,
-          "gpu_hours": 28045.04
+          "mapped_jobs": 159664,
+          "started_jobs": 58582,
+          "finished_jobs": 77349,
+          "mapped_gpu_slots": 159664,
+          "gpu_hours": 26883.58
         },
         "amd_mi300_2": {
-          "mapped_jobs": 22434,
-          "started_jobs": 6251,
-          "finished_jobs": 9304,
-          "mapped_gpu_slots": 44868,
-          "gpu_hours": 3329.85
+          "mapped_jobs": 21878,
+          "started_jobs": 5997,
+          "finished_jobs": 9043,
+          "mapped_gpu_slots": 43756,
+          "gpu_hours": 3209.25
         },
         "amd_mi300_4": {
-          "mapped_jobs": 18796,
-          "started_jobs": 4195,
-          "finished_jobs": 7100,
-          "mapped_gpu_slots": 75184,
-          "gpu_hours": 5865.8
+          "mapped_jobs": 18291,
+          "started_jobs": 3994,
+          "finished_jobs": 6893,
+          "mapped_gpu_slots": 73164,
+          "gpu_hours": 5607.61
         },
         "amd_mi300_8": {
-          "mapped_jobs": 3388,
-          "started_jobs": 415,
-          "finished_jobs": 920,
-          "mapped_gpu_slots": 27104,
-          "gpu_hours": 861.31
+          "mapped_jobs": 3286,
+          "started_jobs": 389,
+          "finished_jobs": 892,
+          "mapped_gpu_slots": 26288,
+          "gpu_hours": 810.18
         },
         "amd_mi325_1": {
-          "mapped_jobs": 66,
+          "mapped_jobs": 24,
           "started_jobs": 0,
-          "finished_jobs": 66,
-          "mapped_gpu_slots": 66,
-          "gpu_hours": 0.0
-        },
-        "amd_mi325_2": {
-          "mapped_jobs": 1,
-          "started_jobs": 0,
-          "finished_jobs": 1,
-          "mapped_gpu_slots": 2,
+          "finished_jobs": 24,
+          "mapped_gpu_slots": 24,
           "gpu_hours": 0.0
         },
         "amd_mi355_1": {
-          "mapped_jobs": 23251,
-          "started_jobs": 9270,
-          "finished_jobs": 12948,
-          "mapped_gpu_slots": 23251,
-          "gpu_hours": 3904.93
+          "mapped_jobs": 22919,
+          "started_jobs": 9012,
+          "finished_jobs": 12701,
+          "mapped_gpu_slots": 22919,
+          "gpu_hours": 3766.79
         },
         "amd_mi355_2": {
-          "mapped_jobs": 4681,
-          "started_jobs": 1667,
-          "finished_jobs": 2543,
-          "mapped_gpu_slots": 9362,
-          "gpu_hours": 575.58
+          "mapped_jobs": 4577,
+          "started_jobs": 1601,
+          "finished_jobs": 2480,
+          "mapped_gpu_slots": 9154,
+          "gpu_hours": 551.77
         },
         "amd_mi355_4": {
-          "mapped_jobs": 465,
-          "started_jobs": 100,
-          "finished_jobs": 205,
-          "mapped_gpu_slots": 1860,
-          "gpu_hours": 107.74
+          "mapped_jobs": 453,
+          "started_jobs": 94,
+          "finished_jobs": 199,
+          "mapped_gpu_slots": 1812,
+          "gpu_hours": 100.92
         },
         "amd_mi355_8": {
-          "mapped_jobs": 461,
-          "started_jobs": 104,
-          "finished_jobs": 209,
-          "mapped_gpu_slots": 3688,
-          "gpu_hours": 112.68
+          "mapped_jobs": 449,
+          "started_jobs": 98,
+          "finished_jobs": 203,
+          "mapped_gpu_slots": 3592,
+          "gpu_hours": 106.19
         }
       },
       "by_pipeline": {
         "amd-ci": {
-          "mapped_jobs": 109552,
-          "started_jobs": 35559,
-          "finished_jobs": 58319,
-          "mapped_gpu_slots": 169016,
-          "gpu_hours": 20796.24
+          "mapped_jobs": 106719,
+          "started_jobs": 33936,
+          "finished_jobs": 56744,
+          "mapped_gpu_slots": 164657,
+          "gpu_hours": 19818.77
         },
         "ci": {
-          "mapped_jobs": 152076,
-          "started_jobs": 54823,
-          "finished_jobs": 65595,
-          "mapped_gpu_slots": 206392,
-          "gpu_hours": 26462.17
+          "mapped_jobs": 147914,
+          "started_jobs": 52966,
+          "finished_jobs": 63585,
+          "mapped_gpu_slots": 200719,
+          "gpu_hours": 25492.09
         }
       }
     }
   },
   "hourly": [
-    {
-      "hour": "2026-08-14T23:00:00Z",
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
-      "workloads": {
-        "omni": {
-          "mapped_jobs": 38,
-          "started_jobs": 38,
-          "finished_jobs": 38,
-          "mapped_gpu_slots": 56,
-          "gpu_hours": 14.4,
-          "by_queue": {
-            "amd_mi300_1": {
-              "mapped_jobs": 28,
-              "started_jobs": 28,
-              "finished_jobs": 28,
-              "mapped_gpu_slots": 28,
-              "gpu_hours": 8.99
-            },
-            "amd_mi300_2": {
-              "mapped_jobs": 6,
-              "started_jobs": 6,
-              "finished_jobs": 6,
-              "mapped_gpu_slots": 12,
-              "gpu_hours": 2.2
-            },
-            "amd_mi300_4": {
-              "mapped_jobs": 4,
-              "started_jobs": 4,
-              "finished_jobs": 4,
-              "mapped_gpu_slots": 16,
-              "gpu_hours": 3.21
-            }
-          },
-          "by_pipeline": {
-            "vllm-omni-amd-ci": {
-              "mapped_jobs": 38,
-              "started_jobs": 38,
-              "finished_jobs": 38,
-              "mapped_gpu_slots": 56,
-              "gpu_hours": 14.4
-            }
-          }
-        },
-        "main": {
-          "mapped_jobs": 1368,
-          "started_jobs": 366,
-          "finished_jobs": 531,
-          "mapped_gpu_slots": 2026,
-          "gpu_hours": 187.15,
-          "by_queue": {
-            "amd_mi250_1": {
-              "mapped_jobs": 136,
-              "started_jobs": 17,
-              "finished_jobs": 39,
-              "mapped_gpu_slots": 136,
-              "gpu_hours": 5.25
-            },
-            "amd_mi250_4": {
-              "mapped_jobs": 4,
-              "started_jobs": 4,
-              "finished_jobs": 4,
-              "mapped_gpu_slots": 16,
-              "gpu_hours": 12.41
-            },
-            "amd_mi300_1": {
-              "mapped_jobs": 796,
-              "started_jobs": 183,
-              "finished_jobs": 273,
-              "mapped_gpu_slots": 796,
-              "gpu_hours": 71.75
-            },
-            "amd_mi300_2": {
-              "mapped_jobs": 120,
-              "started_jobs": 37,
-              "finished_jobs": 50,
-              "mapped_gpu_slots": 240,
-              "gpu_hours": 21.87
-            },
-            "amd_mi300_4": {
-              "mapped_jobs": 108,
-              "started_jobs": 24,
-              "finished_jobs": 39,
-              "mapped_gpu_slots": 432,
-              "gpu_hours": 35.31
-            },
-            "amd_mi300_8": {
-              "mapped_jobs": 18,
-              "started_jobs": 0,
-              "finished_jobs": 3,
-              "mapped_gpu_slots": 144,
-              "gpu_hours": 0.0
-            },
-            "amd_mi355_1": {
-              "mapped_jobs": 142,
-              "started_jobs": 85,
-              "finished_jobs": 100,
-              "mapped_gpu_slots": 142,
-              "gpu_hours": 36.58
-            },
-            "amd_mi355_2": {
-              "mapped_jobs": 36,
-              "started_jobs": 16,
-              "finished_jobs": 21,
-              "mapped_gpu_slots": 72,
-              "gpu_hours": 3.99
-            },
-            "amd_mi355_4": {
-              "mapped_jobs": 4,
-              "started_jobs": 0,
-              "finished_jobs": 1,
-              "mapped_gpu_slots": 16,
-              "gpu_hours": 0.0
-            },
-            "amd_mi355_8": {
-              "mapped_jobs": 4,
-              "started_jobs": 0,
-              "finished_jobs": 1,
-              "mapped_gpu_slots": 32,
-              "gpu_hours": 0.0
-            }
-          },
-          "by_pipeline": {
-            "amd-ci": {
-              "mapped_jobs": 933,
-              "started_jobs": 279,
-              "finished_jobs": 444,
-              "mapped_gpu_slots": 1441,
-              "gpu_hours": 150.19
-            },
-            "ci": {
-              "mapped_jobs": 435,
-              "started_jobs": 87,
-              "finished_jobs": 87,
-              "mapped_gpu_slots": 585,
-              "gpu_hours": 36.96
-            }
-          }
-        }
-      },
-      "end_exclusive": "2026-08-15T00:00:00Z",
-      "observed_through": "2026-08-15T00:00:00Z",
-      "state": "closed",
-      "open": false,
-      "partial": false,
-      "complete": true,
-      "collection_complete": true,
-      "lower_bound": false
-    },
-    {
-      "hour": "2026-08-15T00:00:00Z",
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
-      "workloads": {
-        "omni": {
-          "mapped_jobs": 0,
-          "started_jobs": 0,
-          "finished_jobs": 0,
-          "mapped_gpu_slots": 0,
-          "gpu_hours": 0.0,
-          "by_queue": {},
-          "by_pipeline": {}
-        },
-        "main": {
-          "mapped_jobs": 847,
-          "started_jobs": 209,
-          "finished_jobs": 209,
-          "mapped_gpu_slots": 1235,
-          "gpu_hours": 102.68,
-          "by_queue": {
-            "amd_mi250_1": {
-              "mapped_jobs": 80,
-              "started_jobs": 13,
-              "finished_jobs": 13,
-              "mapped_gpu_slots": 80,
-              "gpu_hours": 5.25
-            },
-            "amd_mi250_2": {
-              "mapped_jobs": 1,
-              "started_jobs": 1,
-              "finished_jobs": 1,
-              "mapped_gpu_slots": 2,
-              "gpu_hours": 0.68
-            },
-            "amd_mi250_4": {
-              "mapped_jobs": 2,
-              "started_jobs": 0,
-              "finished_jobs": 0,
-              "mapped_gpu_slots": 8,
-              "gpu_hours": 0.0
-            },
-            "amd_mi300_1": {
-              "mapped_jobs": 512,
-              "started_jobs": 139,
-              "finished_jobs": 139,
-              "mapped_gpu_slots": 512,
-              "gpu_hours": 57.03
-            },
-            "amd_mi300_2": {
-              "mapped_jobs": 74,
-              "started_jobs": 15,
-              "finished_jobs": 15,
-              "mapped_gpu_slots": 148,
-              "gpu_hours": 9.6
-            },
-            "amd_mi300_4": {
-              "mapped_jobs": 64,
-              "started_jobs": 11,
-              "finished_jobs": 11,
-              "mapped_gpu_slots": 256,
-              "gpu_hours": 17.84
-            },
-            "amd_mi300_8": {
-              "mapped_jobs": 11,
-              "started_jobs": 0,
-              "finished_jobs": 0,
-              "mapped_gpu_slots": 88,
-              "gpu_hours": 0.0
-            },
-            "amd_mi355_1": {
-              "mapped_jobs": 81,
-              "started_jobs": 26,
-              "finished_jobs": 26,
-              "mapped_gpu_slots": 81,
-              "gpu_hours": 11.3
-            },
-            "amd_mi355_2": {
-              "mapped_jobs": 18,
-              "started_jobs": 4,
-              "finished_jobs": 4,
-              "mapped_gpu_slots": 36,
-              "gpu_hours": 0.99
-            },
-            "amd_mi355_4": {
-              "mapped_jobs": 2,
-              "started_jobs": 0,
-              "finished_jobs": 0,
-              "mapped_gpu_slots": 8,
-              "gpu_hours": 0.0
-            },
-            "amd_mi355_8": {
-              "mapped_jobs": 2,
-              "started_jobs": 0,
-              "finished_jobs": 0,
-              "mapped_gpu_slots": 16,
-              "gpu_hours": 0.0
-            }
-          },
-          "by_pipeline": {
-            "amd-ci": {
-              "mapped_jobs": 467,
-              "started_jobs": 69,
-              "finished_jobs": 69,
-              "mapped_gpu_slots": 721,
-              "gpu_hours": 37.71
-            },
-            "ci": {
-              "mapped_jobs": 380,
-              "started_jobs": 140,
-              "finished_jobs": 140,
-              "mapped_gpu_slots": 514,
-              "gpu_hours": 64.97
-            }
-          }
-        }
-      },
-      "end_exclusive": "2026-08-15T01:00:00Z",
-      "observed_through": "2026-08-15T01:00:00Z",
-      "state": "closed",
-      "open": false,
-      "partial": false,
-      "complete": true,
-      "collection_complete": true,
-      "lower_bound": false
-    },
     {
       "hour": "2026-08-15T01:00:00Z",
       "collection_complete_by_workload": {
@@ -15333,6 +15047,10 @@
     },
     {
       "hour": "2026-08-20T00:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 85,
@@ -15469,10 +15187,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T01:00:00Z",
       "observed_through": "2026-08-20T01:00:00Z",
       "state": "closed",
@@ -15484,6 +15198,10 @@
     },
     {
       "hour": "2026-08-20T01:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 19,
@@ -15627,10 +15345,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T02:00:00Z",
       "observed_through": "2026-08-20T02:00:00Z",
       "state": "closed",
@@ -15642,6 +15356,10 @@
     },
     {
       "hour": "2026-08-20T02:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 19,
@@ -15757,10 +15475,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T03:00:00Z",
       "observed_through": "2026-08-20T03:00:00Z",
       "state": "closed",
@@ -15772,6 +15486,10 @@
     },
     {
       "hour": "2026-08-20T03:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 138,
@@ -15915,10 +15633,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T04:00:00Z",
       "observed_through": "2026-08-20T04:00:00Z",
       "state": "closed",
@@ -15930,6 +15644,10 @@
     },
     {
       "hour": "2026-08-20T04:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 36,
@@ -16073,10 +15791,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T05:00:00Z",
       "observed_through": "2026-08-20T05:00:00Z",
       "state": "closed",
@@ -16088,6 +15802,10 @@
     },
     {
       "hour": "2026-08-20T05:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 34,
@@ -16196,10 +15914,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T06:00:00Z",
       "observed_through": "2026-08-20T06:00:00Z",
       "state": "closed",
@@ -16211,6 +15925,10 @@
     },
     {
       "hour": "2026-08-20T06:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 36,
@@ -16354,10 +16072,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T07:00:00Z",
       "observed_through": "2026-08-20T07:00:00Z",
       "state": "closed",
@@ -16369,6 +16083,10 @@
     },
     {
       "hour": "2026-08-20T07:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 70,
@@ -16512,10 +16230,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T08:00:00Z",
       "observed_through": "2026-08-20T08:00:00Z",
       "state": "closed",
@@ -16527,6 +16241,10 @@
     },
     {
       "hour": "2026-08-20T08:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 76,
@@ -16670,10 +16388,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T09:00:00Z",
       "observed_through": "2026-08-20T09:00:00Z",
       "state": "closed",
@@ -16685,6 +16399,10 @@
     },
     {
       "hour": "2026-08-20T09:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 0,
@@ -16798,10 +16516,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T10:00:00Z",
       "observed_through": "2026-08-20T10:00:00Z",
       "state": "closed",
@@ -16813,6 +16527,10 @@
     },
     {
       "hour": "2026-08-20T10:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 0,
@@ -16926,10 +16644,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T11:00:00Z",
       "observed_through": "2026-08-20T11:00:00Z",
       "state": "closed",
@@ -16941,6 +16655,10 @@
     },
     {
       "hour": "2026-08-20T11:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 0,
@@ -17054,10 +16772,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T12:00:00Z",
       "observed_through": "2026-08-20T12:00:00Z",
       "state": "closed",
@@ -17069,6 +16783,10 @@
     },
     {
       "hour": "2026-08-20T12:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 0,
@@ -17182,10 +16900,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T13:00:00Z",
       "observed_through": "2026-08-20T13:00:00Z",
       "state": "closed",
@@ -17197,6 +16911,10 @@
     },
     {
       "hour": "2026-08-20T13:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 19,
@@ -17312,10 +17030,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T14:00:00Z",
       "observed_through": "2026-08-20T14:00:00Z",
       "state": "closed",
@@ -17327,6 +17041,10 @@
     },
     {
       "hour": "2026-08-20T14:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 17,
@@ -17463,10 +17181,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T15:00:00Z",
       "observed_through": "2026-08-20T15:00:00Z",
       "state": "closed",
@@ -17478,6 +17192,10 @@
     },
     {
       "hour": "2026-08-20T15:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 70,
@@ -17621,10 +17339,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T16:00:00Z",
       "observed_through": "2026-08-20T16:00:00Z",
       "state": "closed",
@@ -17636,6 +17350,10 @@
     },
     {
       "hour": "2026-08-20T16:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 146,
@@ -17751,10 +17469,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T17:00:00Z",
       "observed_through": "2026-08-20T17:00:00Z",
       "state": "closed",
@@ -17766,6 +17480,10 @@
     },
     {
       "hour": "2026-08-20T17:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 34,
@@ -17881,10 +17599,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T18:00:00Z",
       "observed_through": "2026-08-20T18:00:00Z",
       "state": "closed",
@@ -17896,6 +17610,10 @@
     },
     {
       "hour": "2026-08-20T18:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 72,
@@ -18011,10 +17729,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T19:00:00Z",
       "observed_through": "2026-08-20T19:00:00Z",
       "state": "closed",
@@ -18026,6 +17740,10 @@
     },
     {
       "hour": "2026-08-20T19:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 72,
@@ -18169,10 +17887,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T20:00:00Z",
       "observed_through": "2026-08-20T20:00:00Z",
       "state": "closed",
@@ -18184,6 +17898,10 @@
     },
     {
       "hour": "2026-08-20T20:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 19,
@@ -18299,10 +18017,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T21:00:00Z",
       "observed_through": "2026-08-20T21:00:00Z",
       "state": "closed",
@@ -18314,6 +18028,10 @@
     },
     {
       "hour": "2026-08-20T21:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 0,
@@ -18427,10 +18145,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T22:00:00Z",
       "observed_through": "2026-08-20T22:00:00Z",
       "state": "closed",
@@ -18442,6 +18156,10 @@
     },
     {
       "hour": "2026-08-20T22:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 0,
@@ -18555,10 +18273,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-20T23:00:00Z",
       "observed_through": "2026-08-20T23:00:00Z",
       "state": "closed",
@@ -18570,6 +18284,10 @@
     },
     {
       "hour": "2026-08-20T23:00:00Z",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 17,
@@ -18705,10 +18423,6 @@
             }
           }
         }
-      },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
       },
       "end_exclusive": "2026-08-21T00:00:00Z",
       "observed_through": "2026-08-21T00:00:00Z",
@@ -21661,71 +21375,71 @@
         },
         "main": {
           "mapped_jobs": 1606,
-          "started_jobs": 434,
-          "finished_jobs": 757,
+          "started_jobs": 470,
+          "finished_jobs": 938,
           "mapped_gpu_slots": 2322,
-          "gpu_hours": 160.3,
+          "gpu_hours": 234.51,
           "by_queue": {
             "amd_mi250_1": {
               "mapped_jobs": 123,
-              "started_jobs": 34,
-              "finished_jobs": 62,
+              "started_jobs": 37,
+              "finished_jobs": 74,
               "mapped_gpu_slots": 123,
-              "gpu_hours": 9.78
+              "gpu_hours": 13.76
             },
             "amd_mi250_2": {
               "mapped_jobs": 9,
               "started_jobs": 0,
-              "finished_jobs": 1,
+              "finished_jobs": 2,
               "mapped_gpu_slots": 18,
               "gpu_hours": 0.0
             },
             "amd_mi250_4": {
               "mapped_jobs": 3,
               "started_jobs": 2,
-              "finished_jobs": 2,
+              "finished_jobs": 3,
               "mapped_gpu_slots": 12,
-              "gpu_hours": 3.32
+              "gpu_hours": 6.87
             },
             "amd_mi300_1": {
               "mapped_jobs": 936,
-              "started_jobs": 255,
-              "finished_jobs": 429,
+              "started_jobs": 282,
+              "finished_jobs": 551,
               "mapped_gpu_slots": 936,
-              "gpu_hours": 81.93
+              "gpu_hours": 126.15
             },
             "amd_mi300_2": {
               "mapped_jobs": 141,
-              "started_jobs": 31,
-              "finished_jobs": 62,
+              "started_jobs": 33,
+              "finished_jobs": 74,
               "mapped_gpu_slots": 282,
-              "gpu_hours": 13.47
+              "gpu_hours": 18.54
             },
             "amd_mi300_4": {
               "mapped_jobs": 121,
               "started_jobs": 21,
-              "finished_jobs": 47,
+              "finished_jobs": 58,
               "mapped_gpu_slots": 484,
-              "gpu_hours": 15.91
+              "gpu_hours": 28.77
             },
             "amd_mi300_8": {
               "mapped_jobs": 19,
               "started_jobs": 3,
-              "finished_jobs": 8,
+              "finished_jobs": 9,
               "mapped_gpu_slots": 152,
               "gpu_hours": 5.65
             },
             "amd_mi355_1": {
               "mapped_jobs": 217,
-              "started_jobs": 73,
-              "finished_jobs": 119,
+              "started_jobs": 77,
+              "finished_jobs": 139,
               "mapped_gpu_slots": 217,
-              "gpu_hours": 24.47
+              "gpu_hours": 28.98
             },
             "amd_mi355_2": {
               "mapped_jobs": 31,
               "started_jobs": 13,
-              "finished_jobs": 23,
+              "finished_jobs": 24,
               "mapped_gpu_slots": 62,
               "gpu_hours": 4.43
             },
@@ -21748,16 +21462,16 @@
             "amd-ci": {
               "mapped_jobs": 706,
               "started_jobs": 270,
-              "finished_jobs": 453,
+              "finished_jobs": 504,
               "mapped_gpu_slots": 1089,
-              "gpu_hours": 92.61
+              "gpu_hours": 150.61
             },
             "ci": {
               "mapped_jobs": 900,
-              "started_jobs": 164,
-              "finished_jobs": 304,
+              "started_jobs": 200,
+              "finished_jobs": 434,
               "mapped_gpu_slots": 1233,
-              "gpu_hours": 67.69
+              "gpu_hours": 83.9
             }
           }
         }
@@ -21790,25 +21504,25 @@
         "main": {
           "mapped_jobs": 1,
           "started_jobs": 1,
-          "finished_jobs": 0,
+          "finished_jobs": 1,
           "mapped_gpu_slots": 8,
-          "gpu_hours": 0.0,
+          "gpu_hours": 2.95,
           "by_queue": {
             "amd_mi300_8": {
               "mapped_jobs": 1,
               "started_jobs": 1,
-              "finished_jobs": 0,
+              "finished_jobs": 1,
               "mapped_gpu_slots": 8,
-              "gpu_hours": 0.0
+              "gpu_hours": 2.95
             }
           },
           "by_pipeline": {
             "amd-ci": {
               "mapped_jobs": 1,
               "started_jobs": 1,
-              "finished_jobs": 0,
+              "finished_jobs": 1,
               "mapped_gpu_slots": 8,
-              "gpu_hours": 0.0
+              "gpu_hours": 2.95
             }
           }
         }
@@ -21818,7 +21532,293 @@
         "main": true
       },
       "end_exclusive": "2026-08-22T00:00:00Z",
-      "observed_through": "2026-08-21T23:37:38Z",
+      "observed_through": "2026-08-22T00:00:00Z",
+      "state": "closed",
+      "open": false,
+      "partial": false,
+      "complete": true,
+      "collection_complete": true,
+      "lower_bound": false
+    },
+    {
+      "hour": "2026-08-22T00:00:00Z",
+      "workloads": {
+        "omni": {
+          "mapped_jobs": 0,
+          "started_jobs": 0,
+          "finished_jobs": 0,
+          "mapped_gpu_slots": 0,
+          "gpu_hours": 0.0,
+          "by_queue": {},
+          "by_pipeline": {}
+        },
+        "main": {
+          "mapped_jobs": 692,
+          "started_jobs": 211,
+          "finished_jobs": 387,
+          "mapped_gpu_slots": 978,
+          "gpu_hours": 78.49,
+          "by_queue": {
+            "amd_mi250_1": {
+              "mapped_jobs": 49,
+              "started_jobs": 16,
+              "finished_jobs": 39,
+              "mapped_gpu_slots": 49,
+              "gpu_hours": 5.45
+            },
+            "amd_mi250_2": {
+              "mapped_jobs": 5,
+              "started_jobs": 0,
+              "finished_jobs": 0,
+              "mapped_gpu_slots": 10,
+              "gpu_hours": 0.0
+            },
+            "amd_mi250_4": {
+              "mapped_jobs": 1,
+              "started_jobs": 1,
+              "finished_jobs": 1,
+              "mapped_gpu_slots": 4,
+              "gpu_hours": 0.46
+            },
+            "amd_mi300_1": {
+              "mapped_jobs": 415,
+              "started_jobs": 129,
+              "finished_jobs": 222,
+              "mapped_gpu_slots": 415,
+              "gpu_hours": 48.3
+            },
+            "amd_mi300_2": {
+              "mapped_jobs": 61,
+              "started_jobs": 18,
+              "finished_jobs": 31,
+              "mapped_gpu_slots": 122,
+              "gpu_hours": 8.54
+            },
+            "amd_mi300_4": {
+              "mapped_jobs": 47,
+              "started_jobs": 8,
+              "finished_jobs": 25,
+              "mapped_gpu_slots": 188,
+              "gpu_hours": 7.36
+            },
+            "amd_mi300_8": {
+              "mapped_jobs": 8,
+              "started_jobs": 0,
+              "finished_jobs": 3,
+              "mapped_gpu_slots": 64,
+              "gpu_hours": 0.0
+            },
+            "amd_mi355_1": {
+              "mapped_jobs": 94,
+              "started_jobs": 36,
+              "finished_jobs": 54,
+              "mapped_gpu_slots": 94,
+              "gpu_hours": 8.11
+            },
+            "amd_mi355_2": {
+              "mapped_jobs": 10,
+              "started_jobs": 3,
+              "finished_jobs": 10,
+              "mapped_gpu_slots": 20,
+              "gpu_hours": 0.28
+            },
+            "amd_mi355_4": {
+              "mapped_jobs": 1,
+              "started_jobs": 0,
+              "finished_jobs": 1,
+              "mapped_gpu_slots": 4,
+              "gpu_hours": 0.0
+            },
+            "amd_mi355_8": {
+              "mapped_jobs": 1,
+              "started_jobs": 0,
+              "finished_jobs": 1,
+              "mapped_gpu_slots": 8,
+              "gpu_hours": 0.0
+            }
+          },
+          "by_pipeline": {
+            "amd-ci": {
+              "mapped_jobs": 236,
+              "started_jobs": 58,
+              "finished_jobs": 236,
+              "mapped_gpu_slots": 364,
+              "gpu_hours": 8.74
+            },
+            "ci": {
+              "mapped_jobs": 456,
+              "started_jobs": 153,
+              "finished_jobs": 151,
+              "mapped_gpu_slots": 614,
+              "gpu_hours": 69.74
+            }
+          }
+        }
+      },
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
+      "end_exclusive": "2026-08-22T01:00:00Z",
+      "observed_through": "2026-08-22T01:00:00Z",
+      "state": "closed",
+      "open": false,
+      "partial": false,
+      "complete": true,
+      "collection_complete": true,
+      "lower_bound": false
+    },
+    {
+      "hour": "2026-08-22T01:00:00Z",
+      "workloads": {
+        "omni": {
+          "mapped_jobs": 19,
+          "started_jobs": 19,
+          "finished_jobs": 12,
+          "mapped_gpu_slots": 28,
+          "gpu_hours": 2.99,
+          "by_queue": {
+            "amd_mi300_1": {
+              "mapped_jobs": 14,
+              "started_jobs": 14,
+              "finished_jobs": 7,
+              "mapped_gpu_slots": 14,
+              "gpu_hours": 0.72
+            },
+            "amd_mi300_2": {
+              "mapped_jobs": 3,
+              "started_jobs": 3,
+              "finished_jobs": 3,
+              "mapped_gpu_slots": 6,
+              "gpu_hours": 0.82
+            },
+            "amd_mi300_4": {
+              "mapped_jobs": 2,
+              "started_jobs": 2,
+              "finished_jobs": 2,
+              "mapped_gpu_slots": 8,
+              "gpu_hours": 1.45
+            }
+          },
+          "by_pipeline": {
+            "vllm-omni-amd-ci": {
+              "mapped_jobs": 19,
+              "started_jobs": 19,
+              "finished_jobs": 12,
+              "mapped_gpu_slots": 28,
+              "gpu_hours": 2.99
+            }
+          }
+        },
+        "main": {
+          "mapped_jobs": 605,
+          "started_jobs": 154,
+          "finished_jobs": 68,
+          "mapped_gpu_slots": 865,
+          "gpu_hours": 20.62,
+          "by_queue": {
+            "amd_mi250_1": {
+              "mapped_jobs": 44,
+              "started_jobs": 9,
+              "finished_jobs": 2,
+              "mapped_gpu_slots": 44,
+              "gpu_hours": 0.62
+            },
+            "amd_mi250_2": {
+              "mapped_jobs": 4,
+              "started_jobs": 0,
+              "finished_jobs": 0,
+              "mapped_gpu_slots": 8,
+              "gpu_hours": 0.0
+            },
+            "amd_mi250_4": {
+              "mapped_jobs": 1,
+              "started_jobs": 1,
+              "finished_jobs": 0,
+              "mapped_gpu_slots": 4,
+              "gpu_hours": 0.0
+            },
+            "amd_mi300_1": {
+              "mapped_jobs": 354,
+              "started_jobs": 110,
+              "finished_jobs": 42,
+              "mapped_gpu_slots": 354,
+              "gpu_hours": 12.12
+            },
+            "amd_mi300_2": {
+              "mapped_jobs": 53,
+              "started_jobs": 10,
+              "finished_jobs": 7,
+              "mapped_gpu_slots": 106,
+              "gpu_hours": 2.74
+            },
+            "amd_mi300_4": {
+              "mapped_jobs": 43,
+              "started_jobs": 0,
+              "finished_jobs": 0,
+              "mapped_gpu_slots": 172,
+              "gpu_hours": 0.0
+            },
+            "amd_mi300_8": {
+              "mapped_jobs": 7,
+              "started_jobs": 0,
+              "finished_jobs": 0,
+              "mapped_gpu_slots": 56,
+              "gpu_hours": 0.0
+            },
+            "amd_mi355_1": {
+              "mapped_jobs": 85,
+              "started_jobs": 22,
+              "finished_jobs": 15,
+              "mapped_gpu_slots": 85,
+              "gpu_hours": 4.9
+            },
+            "amd_mi355_2": {
+              "mapped_jobs": 12,
+              "started_jobs": 2,
+              "finished_jobs": 2,
+              "mapped_gpu_slots": 24,
+              "gpu_hours": 0.23
+            },
+            "amd_mi355_4": {
+              "mapped_jobs": 1,
+              "started_jobs": 0,
+              "finished_jobs": 0,
+              "mapped_gpu_slots": 4,
+              "gpu_hours": 0.0
+            },
+            "amd_mi355_8": {
+              "mapped_jobs": 1,
+              "started_jobs": 0,
+              "finished_jobs": 0,
+              "mapped_gpu_slots": 8,
+              "gpu_hours": 0.0
+            }
+          },
+          "by_pipeline": {
+            "amd-ci": {
+              "mapped_jobs": 236,
+              "started_jobs": 36,
+              "finished_jobs": 30,
+              "mapped_gpu_slots": 364,
+              "gpu_hours": 11.62
+            },
+            "ci": {
+              "mapped_jobs": 369,
+              "started_jobs": 118,
+              "finished_jobs": 38,
+              "mapped_gpu_slots": 501,
+              "gpu_hours": 8.99
+            }
+          }
+        }
+      },
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
+      "end_exclusive": "2026-08-22T02:00:00Z",
+      "observed_through": "2026-08-22T01:50:02Z",
       "state": "open",
       "open": true,
       "partial": true,
@@ -21828,185 +21828,6 @@
     }
   ],
   "daily": [
-    {
-      "date": "2026-05-24",
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
-      "workloads": {
-        "omni": {
-          "mapped_jobs": 90,
-          "started_jobs": 90,
-          "finished_jobs": 90,
-          "mapped_gpu_slots": 109,
-          "gpu_hours": 16.48,
-          "by_queue": {
-            "amd_mi325_1": {
-              "mapped_jobs": 75,
-              "started_jobs": 75,
-              "finished_jobs": 75,
-              "mapped_gpu_slots": 75,
-              "gpu_hours": 11.87
-            },
-            "amd_mi325_2": {
-              "mapped_jobs": 13,
-              "started_jobs": 13,
-              "finished_jobs": 13,
-              "mapped_gpu_slots": 26,
-              "gpu_hours": 3.29
-            },
-            "amd_mi325_4": {
-              "mapped_jobs": 2,
-              "started_jobs": 2,
-              "finished_jobs": 2,
-              "mapped_gpu_slots": 8,
-              "gpu_hours": 1.32
-            }
-          },
-          "by_pipeline": {
-            "vllm-omni-amd-ci": {
-              "mapped_jobs": 90,
-              "started_jobs": 90,
-              "finished_jobs": 90,
-              "mapped_gpu_slots": 109,
-              "gpu_hours": 16.48
-            }
-          }
-        },
-        "main": {
-          "mapped_jobs": 3552,
-          "started_jobs": 2035,
-          "finished_jobs": 2519,
-          "mapped_gpu_slots": 4977,
-          "gpu_hours": 1607.29,
-          "by_queue": {
-            "amd_mi250_1": {
-              "mapped_jobs": 536,
-              "started_jobs": 257,
-              "finished_jobs": 338,
-              "mapped_gpu_slots": 536,
-              "gpu_hours": 177.65
-            },
-            "amd_mi250_2": {
-              "mapped_jobs": 87,
-              "started_jobs": 42,
-              "finished_jobs": 52,
-              "mapped_gpu_slots": 174,
-              "gpu_hours": 39.19
-            },
-            "amd_mi250_4": {
-              "mapped_jobs": 44,
-              "started_jobs": 37,
-              "finished_jobs": 37,
-              "mapped_gpu_slots": 176,
-              "gpu_hours": 64.43
-            },
-            "amd_mi300_1": {
-              "mapped_jobs": 1922,
-              "started_jobs": 1135,
-              "finished_jobs": 1440,
-              "mapped_gpu_slots": 1922,
-              "gpu_hours": 720.85
-            },
-            "amd_mi300_2": {
-              "mapped_jobs": 132,
-              "started_jobs": 85,
-              "finished_jobs": 95,
-              "mapped_gpu_slots": 264,
-              "gpu_hours": 99.36
-            },
-            "amd_mi300_4": {
-              "mapped_jobs": 182,
-              "started_jobs": 96,
-              "finished_jobs": 114,
-              "mapped_gpu_slots": 728,
-              "gpu_hours": 216.54
-            },
-            "amd_mi300_8": {
-              "mapped_jobs": 22,
-              "started_jobs": 6,
-              "finished_jobs": 10,
-              "mapped_gpu_slots": 176,
-              "gpu_hours": 14.87
-            },
-            "amd_mi325_1": {
-              "mapped_jobs": 77,
-              "started_jobs": 53,
-              "finished_jobs": 59,
-              "mapped_gpu_slots": 77,
-              "gpu_hours": 24.57
-            },
-            "amd_mi325_2": {
-              "mapped_jobs": 22,
-              "started_jobs": 18,
-              "finished_jobs": 18,
-              "mapped_gpu_slots": 44,
-              "gpu_hours": 11.12
-            },
-            "amd_mi325_4": {
-              "mapped_jobs": 22,
-              "started_jobs": 12,
-              "finished_jobs": 14,
-              "mapped_gpu_slots": 88,
-              "gpu_hours": 22.79
-            },
-            "amd_mi325_8": {
-              "mapped_jobs": 11,
-              "started_jobs": 3,
-              "finished_jobs": 5,
-              "mapped_gpu_slots": 88,
-              "gpu_hours": 8.65
-            },
-            "amd_mi355_1": {
-              "mapped_jobs": 352,
-              "started_jobs": 223,
-              "finished_jobs": 251,
-              "mapped_gpu_slots": 352,
-              "gpu_hours": 166.71
-            },
-            "amd_mi355_2": {
-              "mapped_jobs": 110,
-              "started_jobs": 59,
-              "finished_jobs": 71,
-              "mapped_gpu_slots": 220,
-              "gpu_hours": 27.65
-            },
-            "amd_mi355_4": {
-              "mapped_jobs": 33,
-              "started_jobs": 9,
-              "finished_jobs": 15,
-              "mapped_gpu_slots": 132,
-              "gpu_hours": 12.9
-            }
-          },
-          "by_pipeline": {
-            "amd-ci": {
-              "mapped_jobs": 2251,
-              "started_jobs": 1270,
-              "finished_jobs": 1492,
-              "mapped_gpu_slots": 3676,
-              "gpu_hours": 1120.6
-            },
-            "ci": {
-              "mapped_jobs": 1301,
-              "started_jobs": 765,
-              "finished_jobs": 1027,
-              "mapped_gpu_slots": 1301,
-              "gpu_hours": 486.68
-            }
-          }
-        }
-      },
-      "end_exclusive": "2026-05-25T00:00:00Z",
-      "observed_through": "2026-05-25T00:00:00Z",
-      "state": "closed",
-      "open": false,
-      "partial": false,
-      "complete": true,
-      "collection_complete": true,
-      "lower_bound": false
-    },
     {
       "date": "2026-05-25",
       "collection_complete_by_workload": {
@@ -37344,6 +37165,10 @@
     },
     {
       "date": "2026-08-20",
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
       "workloads": {
         "omni": {
           "mapped_jobs": 979,
@@ -37487,10 +37312,6 @@
           }
         }
       },
-      "collection_complete_by_workload": {
-        "omni": true,
-        "main": true
-      },
       "end_exclusive": "2026-08-21T00:00:00Z",
       "observed_through": "2026-08-21T00:00:00Z",
       "state": "closed",
@@ -37544,71 +37365,71 @@
         },
         "main": {
           "mapped_jobs": 24847,
-          "started_jobs": 7599,
-          "finished_jobs": 12538,
+          "started_jobs": 7635,
+          "finished_jobs": 12720,
           "mapped_gpu_slots": 35304,
-          "gpu_hours": 3731.15,
+          "gpu_hours": 3808.31,
           "by_queue": {
             "amd_mi250_1": {
               "mapped_jobs": 1669,
-              "started_jobs": 538,
-              "finished_jobs": 888,
+              "started_jobs": 541,
+              "finished_jobs": 900,
               "mapped_gpu_slots": 1669,
-              "gpu_hours": 209.19
+              "gpu_hours": 213.18
             },
             "amd_mi250_2": {
               "mapped_jobs": 190,
               "started_jobs": 30,
-              "finished_jobs": 65,
+              "finished_jobs": 66,
               "mapped_gpu_slots": 380,
               "gpu_hours": 19.49
             },
             "amd_mi250_4": {
               "mapped_jobs": 29,
               "started_jobs": 15,
-              "finished_jobs": 22,
+              "finished_jobs": 23,
               "mapped_gpu_slots": 116,
-              "gpu_hours": 46.65
+              "gpu_hours": 50.2
             },
             "amd_mi300_1": {
               "mapped_jobs": 14829,
-              "started_jobs": 4863,
-              "finished_jobs": 7662,
+              "started_jobs": 4890,
+              "finished_jobs": 7784,
               "mapped_gpu_slots": 14829,
-              "gpu_hours": 2025.3
+              "gpu_hours": 2069.51
             },
             "amd_mi300_2": {
               "mapped_jobs": 2160,
-              "started_jobs": 569,
-              "finished_jobs": 1019,
+              "started_jobs": 571,
+              "finished_jobs": 1031,
               "mapped_gpu_slots": 4320,
-              "gpu_hours": 348.45
+              "gpu_hours": 353.53
             },
             "amd_mi300_4": {
               "mapped_jobs": 1764,
               "started_jobs": 408,
-              "finished_jobs": 777,
+              "finished_jobs": 788,
               "mapped_gpu_slots": 7056,
-              "gpu_hours": 570.62
+              "gpu_hours": 583.48
             },
             "amd_mi300_8": {
               "mapped_jobs": 282,
               "started_jobs": 37,
-              "finished_jobs": 102,
+              "finished_jobs": 104,
               "mapped_gpu_slots": 2256,
-              "gpu_hours": 71.75
+              "gpu_hours": 74.7
             },
             "amd_mi355_1": {
               "mapped_jobs": 3402,
-              "started_jobs": 998,
-              "finished_jobs": 1729,
+              "started_jobs": 1002,
+              "finished_jobs": 1749,
               "mapped_gpu_slots": 3402,
-              "gpu_hours": 358.85
+              "gpu_hours": 363.37
             },
             "amd_mi355_2": {
               "mapped_jobs": 464,
               "started_jobs": 123,
-              "finished_jobs": 240,
+              "finished_jobs": 241,
               "mapped_gpu_slots": 928,
               "gpu_hours": 60.06
             },
@@ -37631,16 +37452,16 @@
             "amd-ci": {
               "mapped_jobs": 6873,
               "started_jobs": 2483,
-              "finished_jobs": 4317,
+              "finished_jobs": 4369,
               "mapped_gpu_slots": 10598,
-              "gpu_hours": 1331.12
+              "gpu_hours": 1392.07
             },
             "ci": {
               "mapped_jobs": 17974,
-              "started_jobs": 5116,
-              "finished_jobs": 8221,
+              "started_jobs": 5152,
+              "finished_jobs": 8351,
               "mapped_gpu_slots": 24706,
-              "gpu_hours": 2400.03
+              "gpu_hours": 2416.24
             }
           }
         }
@@ -37650,7 +37471,165 @@
         "main": true
       },
       "end_exclusive": "2026-08-22T00:00:00Z",
-      "observed_through": "2026-08-21T23:37:38Z",
+      "observed_through": "2026-08-22T00:00:00Z",
+      "state": "closed",
+      "open": false,
+      "partial": false,
+      "complete": true,
+      "collection_complete": true,
+      "lower_bound": false
+    },
+    {
+      "date": "2026-08-22",
+      "workloads": {
+        "omni": {
+          "mapped_jobs": 19,
+          "started_jobs": 19,
+          "finished_jobs": 12,
+          "mapped_gpu_slots": 28,
+          "gpu_hours": 2.99,
+          "by_queue": {
+            "amd_mi300_1": {
+              "mapped_jobs": 14,
+              "started_jobs": 14,
+              "finished_jobs": 7,
+              "mapped_gpu_slots": 14,
+              "gpu_hours": 0.72
+            },
+            "amd_mi300_2": {
+              "mapped_jobs": 3,
+              "started_jobs": 3,
+              "finished_jobs": 3,
+              "mapped_gpu_slots": 6,
+              "gpu_hours": 0.82
+            },
+            "amd_mi300_4": {
+              "mapped_jobs": 2,
+              "started_jobs": 2,
+              "finished_jobs": 2,
+              "mapped_gpu_slots": 8,
+              "gpu_hours": 1.45
+            }
+          },
+          "by_pipeline": {
+            "vllm-omni-amd-ci": {
+              "mapped_jobs": 19,
+              "started_jobs": 19,
+              "finished_jobs": 12,
+              "mapped_gpu_slots": 28,
+              "gpu_hours": 2.99
+            }
+          }
+        },
+        "main": {
+          "mapped_jobs": 1297,
+          "started_jobs": 365,
+          "finished_jobs": 455,
+          "mapped_gpu_slots": 1843,
+          "gpu_hours": 99.1,
+          "by_queue": {
+            "amd_mi250_1": {
+              "mapped_jobs": 93,
+              "started_jobs": 25,
+              "finished_jobs": 41,
+              "mapped_gpu_slots": 93,
+              "gpu_hours": 6.07
+            },
+            "amd_mi250_2": {
+              "mapped_jobs": 9,
+              "started_jobs": 0,
+              "finished_jobs": 0,
+              "mapped_gpu_slots": 18,
+              "gpu_hours": 0.0
+            },
+            "amd_mi250_4": {
+              "mapped_jobs": 2,
+              "started_jobs": 2,
+              "finished_jobs": 1,
+              "mapped_gpu_slots": 8,
+              "gpu_hours": 0.46
+            },
+            "amd_mi300_1": {
+              "mapped_jobs": 769,
+              "started_jobs": 239,
+              "finished_jobs": 264,
+              "mapped_gpu_slots": 769,
+              "gpu_hours": 60.41
+            },
+            "amd_mi300_2": {
+              "mapped_jobs": 114,
+              "started_jobs": 28,
+              "finished_jobs": 38,
+              "mapped_gpu_slots": 228,
+              "gpu_hours": 11.28
+            },
+            "amd_mi300_4": {
+              "mapped_jobs": 90,
+              "started_jobs": 8,
+              "finished_jobs": 25,
+              "mapped_gpu_slots": 360,
+              "gpu_hours": 7.36
+            },
+            "amd_mi300_8": {
+              "mapped_jobs": 15,
+              "started_jobs": 0,
+              "finished_jobs": 3,
+              "mapped_gpu_slots": 120,
+              "gpu_hours": 0.0
+            },
+            "amd_mi355_1": {
+              "mapped_jobs": 179,
+              "started_jobs": 58,
+              "finished_jobs": 69,
+              "mapped_gpu_slots": 179,
+              "gpu_hours": 13.01
+            },
+            "amd_mi355_2": {
+              "mapped_jobs": 22,
+              "started_jobs": 5,
+              "finished_jobs": 12,
+              "mapped_gpu_slots": 44,
+              "gpu_hours": 0.51
+            },
+            "amd_mi355_4": {
+              "mapped_jobs": 2,
+              "started_jobs": 0,
+              "finished_jobs": 1,
+              "mapped_gpu_slots": 8,
+              "gpu_hours": 0.0
+            },
+            "amd_mi355_8": {
+              "mapped_jobs": 2,
+              "started_jobs": 0,
+              "finished_jobs": 1,
+              "mapped_gpu_slots": 16,
+              "gpu_hours": 0.0
+            }
+          },
+          "by_pipeline": {
+            "amd-ci": {
+              "mapped_jobs": 472,
+              "started_jobs": 94,
+              "finished_jobs": 266,
+              "mapped_gpu_slots": 728,
+              "gpu_hours": 20.37
+            },
+            "ci": {
+              "mapped_jobs": 825,
+              "started_jobs": 271,
+              "finished_jobs": 189,
+              "mapped_gpu_slots": 1115,
+              "gpu_hours": 78.73
+            }
+          }
+        }
+      },
+      "collection_complete_by_workload": {
+        "omni": true,
+        "main": true
+      },
+      "end_exclusive": "2026-08-23T00:00:00Z",
+      "observed_through": "2026-08-22T01:50:02Z",
       "state": "open",
       "open": true,
       "partial": true,
