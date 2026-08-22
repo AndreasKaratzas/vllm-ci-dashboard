@@ -1257,6 +1257,7 @@ class TestDnsHealthWorkflow:
         _, steps = self._workflow()
         names = [step.get("name") for step in steps]
         install = steps[names.index("Install dependencies")]["run"]
+        preflight = steps[names.index("Preflight DNS-only validator")]["run"]
         restore_step = steps[names.index("Resolve durable DNS scanner state")]
         restore = restore_step["run"]
         collect = steps[names.index("Collect DNS failure observations")]
@@ -1265,7 +1266,9 @@ class TestDnsHealthWorkflow:
         encrypt = encrypt_step["run"]
         publish = steps[names.index("Publish durable DNS evidence")]["run"]
 
-        assert names.index("Resolve durable DNS scanner state") < names.index(
+        assert names.index("Install dependencies") < names.index(
+            "Preflight DNS-only validator"
+        ) < names.index("Resolve durable DNS scanner state") < names.index(
             "Collect DNS failure observations"
         ) < names.index("Validate bounded DNS artifacts") < names.index(
             "Encrypt durable DNS scanner state"
@@ -1273,6 +1276,7 @@ class TestDnsHealthWorkflow:
             "Publish durable DNS evidence"
         )
         assert "requests cryptography" in install
+        assert "python -S scripts/vllm/audit_dashboard_data.py --dns-only" in preflight
         assert restore_step["env"] == {
             "DNS_STATE_ENCRYPTION_KEY": "${{ secrets.DNS_STATE_ENCRYPTION_KEY }}"
         }
@@ -1303,7 +1307,7 @@ class TestDnsHealthWorkflow:
         assert "--time-budget-seconds 1500" in script
 
         assert "python -m json.tool data/vllm/ci/dns_failures.json" in validate
-        assert "audit_dashboard_data.py --dns-only" in validate
+        assert "python -S scripts/vllm/audit_dashboard_data.py --dns-only" in validate
         assert "gzip -t data/vllm/ci/dns_health/scan_state.json.gz" in validate
         assert "chmod 0600 data/vllm/ci/dns_health/scan_state.json.gz" in validate
 

@@ -42,18 +42,6 @@ from vllm.publication_surfaces import (  # noqa: E402
     fallback_dependency_closure,
     ignored_watcher_state_paths,
 )
-from vllm.build_operations_snapshot import (  # noqa: E402
-    ORG_SUMMARY_MAX_BYTES,
-    ORG_SUMMARY_SCHEMA_VERSION,
-    QUEUE_LIFECYCLE_NAME,
-    build_org_summary,
-)
-from vllm.ci.reliability_history import (  # noqa: E402
-    hydrate_reliability_observations,
-    validate_all_main_reliability,
-)
-
-
 ROOT = Path(__file__).resolve().parent.parent.parent
 DATA = ROOT / "data"
 VLLM = DATA / "vllm"
@@ -3710,6 +3698,16 @@ class DashboardAudit:
             )
 
     def audit_operations_bundle(self) -> None:
+        # Keep optional full-audit dependencies out of the DNS-only entrypoint.
+        # The isolated DNS publisher deliberately validates under ``python -S``
+        # so unrelated dashboard dependencies cannot stop its durable updates.
+        from vllm.build_operations_snapshot import (
+            ORG_SUMMARY_MAX_BYTES,
+            ORG_SUMMARY_SCHEMA_VERSION,
+            QUEUE_LIFECYCLE_NAME,
+            build_org_summary,
+        )
+
         relpath = "data/vllm/ci/operations_v2_manifest.json"
         manifest_path = self.root / relpath
         manifest = self.load_json(relpath, {})
@@ -4423,6 +4421,13 @@ class DashboardAudit:
         )
 
     def audit_analytics(self) -> None:
+        # Imported only for the complete dashboard audit; DNS-only validation
+        # must remain independent of analytics packages and their dependencies.
+        from vllm.ci.reliability_history import (
+            hydrate_reliability_observations,
+            validate_all_main_reliability,
+        )
+
         analytics = self.load_json("data/vllm/ci/analytics.json", {})
         if not isinstance(analytics, dict):
             return

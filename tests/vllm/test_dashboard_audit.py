@@ -543,6 +543,28 @@ def test_dns_audit_accepts_a_reconciled_complete_payload(tmp_path):
     assert audit.report.metrics["dns_health"]["outcome_breakdown_complete"] is True
 
 
+def test_dns_only_entrypoint_runs_without_site_packages(tmp_path):
+    payload_path = _write_dns_audit_payload(tmp_path, _dns_audit_payload())
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            str(Path(audit_module.__file__).resolve()),
+            "--dns-only",
+            "--dns-path",
+            str(payload_path),
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "Errors: 0" in completed.stdout
+
+
 def test_dns_audit_accepts_legacy_payload_with_outcome_warning(tmp_path):
     payload = _dns_audit_payload()
     payload.pop("outcome_contract")

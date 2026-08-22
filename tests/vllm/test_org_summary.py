@@ -6,7 +6,6 @@ import json
 
 import pytest
 
-from vllm import audit_dashboard_data as audit_module
 from vllm import build_operations_snapshot as ops
 from vllm.audit_dashboard_data import DashboardAudit
 
@@ -556,7 +555,6 @@ def test_snapshot_bundle_writes_an_org_summary_over_budget_for_audit_routing(
     output = data_dir / "operations_v2.json"
     (data_dir / ops.QUEUE_LIFECYCLE_NAME).write_text(json.dumps(_lifecycle()))
     monkeypatch.setattr(ops, "ORG_SUMMARY_MAX_BYTES", 1)
-    monkeypatch.setattr(audit_module, "ORG_SUMMARY_MAX_BYTES", 1)
 
     ops.write_snapshot_bundle(output, _payload(), log=False)
 

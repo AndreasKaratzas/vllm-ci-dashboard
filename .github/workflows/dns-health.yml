@@ -30,6 +30,13 @@ jobs:
       - name: Install dependencies
         run: pip install requests cryptography
 
+      - name: Preflight DNS-only validator
+        run: |
+          set -euo pipefail
+          # -S proves this isolated validator does not depend on unrelated
+          # dashboard packages. Fail before the bounded scan, not after it.
+          python -S scripts/vllm/audit_dashboard_data.py --dns-only
+
       - name: Resolve durable DNS scanner state
         env:
           DNS_STATE_ENCRYPTION_KEY: ${{ secrets.DNS_STATE_ENCRYPTION_KEY }}
@@ -88,7 +95,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m json.tool data/vllm/ci/dns_failures.json >/dev/null
-          python scripts/vllm/audit_dashboard_data.py --dns-only
+          python -S scripts/vllm/audit_dashboard_data.py --dns-only
           test -s data/vllm/ci/dns_health/scan_state.json.gz
           gzip -t data/vllm/ci/dns_health/scan_state.json.gz
           chmod 0600 data/vllm/ci/dns_health/scan_state.json.gz
